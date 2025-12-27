@@ -1,0 +1,25 @@
+[theme]
+base = "dark"
+
+# General color setup
+textColor = "#cad3f5"
+primaryColor = "#ea76cb"
+backgroundColor = "#24273a"
+secondaryBackgroundColor = "#363a4f"
+
+# Widgets
+showWidgetBorder = true
+borderColor = "#5b6078"
+
+# Dataframes
+dataframeHeaderBackgroundColor = "#1e2030"
+
+# Base text
+font = "'Open Sans':https://fonts.googleapis.com/css2?family=Open+Sans:wght@300..700&display=swap"
+baseFontWeight = 400
+baseFontSize = 16
+
+# Heading text
+headingFont = "Open Sans"
+headingFontWeights = [300, 400, 400, 300, 300, 300]
+headingFontSizes = ["2.5rem", "1.5rem", "1rem"]

@@ -1,0 +1,9 @@
+streamlit
+streamlit-image-coordinates
+opencv-python-headless
+numpy
+rawpy
+imageio
+Pillow
+scipy
+matplotlib

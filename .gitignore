@@ -1,0 +1,3 @@
+processed/*
+__pycache__
+settings.db

@@ -1,0 +1,11 @@
+services:
+  darkroom-py:
+    build:
+      context: .
+      network: host
+    container_name: darkroom-py
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/app
+    restart: unless-stopped
