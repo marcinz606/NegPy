@@ -14,9 +14,13 @@ from src.backend.image_logic.color import (
 from src.backend.image_logic.retouch import (
     apply_autocrop, 
     apply_dust_removal, 
-    apply_chroma_noise_removal
+    apply_chroma_noise_removal,
+    apply_fine_rotation
 )
 from src.backend.image_logic.local import apply_local_adjustments
+from src.backend.image_logic.selective_color import apply_selective_color
+from src.backend.ai.features import extract_features
+from src.backend.ai.data_manager import save_training_sample
 from typing import Dict, Any, Tuple, Optional
 
 def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
@@ -38,6 +42,11 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     rotation = params.get('rotation', 0)
     if rotation != 0:
         img = np.rot90(img, k=rotation)
+
+    # 0b. Fine Rotation
+    fine_rot = params.get('fine_rotation', 0.0)
+    if fine_rot != 0.0:
+        img = apply_fine_rotation(img, fine_rot)
 
     h_orig, w_cols = img.shape[:2]
     scale_factor = max(h_orig, w_cols) / float(APP_CONFIG['preview_max_res'])
@@ -90,6 +99,9 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     img = (img - black_p) / (1.0 - black_p + 1e-6)
     img = np.clip(img, 0.0, 1.0)
 
+    # 4c. Selective Color
+    img = apply_selective_color(img, params)
+
     # 4b. Global Contrast
     contrast = params.get('contrast', 1.0)
     if contrast != 1.0:
@@ -114,7 +126,7 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
     return img
 
-def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_format: str, print_width_cm: float, dpi: int, sharpen_amount: float) -> Tuple[Optional[bytes], str]:
+def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_format: str, print_width_cm: float, dpi: int, sharpen_amount: float, save_training_data: bool = False, filename: str = "") -> Tuple[Optional[bytes], str]:
     """
     Worker function for processing a RAW file to a final output format (JPEG/TIFF).
     Used for both single export and batch processing.
@@ -135,6 +147,17 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
             params['mask_r'] = m_r
             params['mask_g'] = m_g
             params['mask_b'] = m_b
+
+        # Training Data Collection
+        if save_training_data and filename:
+            try:
+                # We want features from the raw-ish state (before deep edits)
+                # But typically our features function handles basic resizing.
+                # Just pass 'img' which is the linear RGB.
+                feats = extract_features(img)
+                save_training_sample(feats, params, filename)
+            except Exception as e:
+                print(f"Failed to save training data for {filename}: {e}")
 
         img = process_image_core(img, params)
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)

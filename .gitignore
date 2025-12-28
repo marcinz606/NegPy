@@ -1,3 +1,5 @@
 processed/*
+data/training_vectors/*
+models/*
 __pycache__
 settings.db

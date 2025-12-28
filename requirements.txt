@@ -7,3 +7,5 @@ imageio
 Pillow
 scipy
 matplotlib
+scikit-learn
+joblib

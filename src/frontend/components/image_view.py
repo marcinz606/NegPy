@@ -82,12 +82,12 @@ def render_image_view(pil_prev: Image.Image, m_r: float, m_g: float, m_b: float)
         elif is_local_mode:
             value = streamlit_image_coordinates(img_display, key=f"local_picker_{img_display.width}", use_column_width=False)
         else:
-            st.image(pil_prev, use_container_width=False)
+            st.image(pil_prev, width="content")
             value = None
             
         _, c_hist, _ = st.columns([1, 3, 1])
         with c_hist:
-            st.pyplot(plot_histogram(np.array(pil_prev.convert("RGB")), figsize=(5, 0.8), dpi=200), use_container_width=True)
+            st.pyplot(plot_histogram(np.array(pil_prev.convert("RGB")), figsize=(5, 0.8), dpi=200), width="stretch")
 
     # Click Handling Logic
     if value:

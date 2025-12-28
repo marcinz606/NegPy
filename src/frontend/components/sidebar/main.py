@@ -4,6 +4,7 @@ from src.frontend.state import load_settings, copy_settings, paste_settings
 from .navigation import render_navigation
 from .presets import render_presets
 from .adjustments import render_adjustments
+from .ai import render_ai_tab
 
 def render_sidebar() -> Optional[Dict[str, Any]]:
     """
@@ -39,8 +40,8 @@ def render_sidebar() -> Optional[Dict[str, Any]]:
         
         # 2. Settings Clipboard
         c1, c2 = st.columns(2)
-        c1.button("Copy Settings", on_click=copy_settings, use_container_width=True)
-        c2.button("Paste Settings", on_click=paste_settings, disabled=st.session_state.clipboard is None, use_container_width=True)
+        c1.button("Copy Settings", on_click=copy_settings, width="stretch")
+        c2.button("Paste Settings", on_click=paste_settings, disabled=st.session_state.clipboard is None, width="stretch")
         
         # 3. Presets
         current_file_name = uploaded_files[st.session_state.selected_file_idx].name
@@ -54,8 +55,14 @@ def render_sidebar() -> Optional[Dict[str, Any]]:
 
         st.divider()
 
-        # 4. Image Adjustments
-        adjustments_data = render_adjustments(current_file_name)
+        # 4. Main Tabs (Adjustments vs AI)
+        tab_adj, tab_ai = st.tabs(["Adjustments", "AI"])
+        
+        with tab_adj:
+            adjustments_data = render_adjustments(current_file_name)
+            
+        with tab_ai:
+            render_ai_tab(current_file_name)
         
         st.divider()
         

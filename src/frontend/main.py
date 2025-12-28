@@ -33,6 +33,9 @@ def init_styles():
             height: 1em;
             width: 100%;
         }
+        .stDeployButton {
+            visibility: hidden;
+        }
         </style>
         """, unsafe_allow_html=True)
 
@@ -123,9 +126,17 @@ async def main():
             'c_noise_strength': st.session_state.get('c_noise_strength', 33),
             'local_adjustments': st.session_state.get('local_adjustments', []),
             'rotation': st.session_state.get('rotation', 0),
+            'fine_rotation': st.session_state.get('fine_rotation', 0.0),
             'monochrome': st.session_state.get('monochrome', False),
             'auto_wb': st.session_state.get('auto_wb', False)
         }
+        
+        # Add Selective Color params
+        sel_colors = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']
+        for c in sel_colors:
+            for attr in ['hue', 'sat', 'lum', 'range']:
+                k = f"selective_{c}_{attr}"
+                current_params[k] = st.session_state.get(k, 0.0)
 
         # Core Processing
         processed_preview = process_image_core(st.session_state.preview_raw.copy(), current_params)
@@ -205,10 +216,25 @@ async def main():
                     'manual_dust_size': f_settings.get('manual_dust_size', 10),
                     'c_noise_remove': f_settings['c_noise_remove'], 'c_noise_strength': f_settings['c_noise_strength'],
                     'local_adjustments': f_settings.get('local_adjustments', []),
-                    'rotation': f_settings['rotation'], 'monochrome': f_settings['monochrome'],
+                    'rotation': f_settings['rotation'], 'fine_rotation': f_settings.get('fine_rotation', 0.0), 'monochrome': f_settings['monochrome'],
                     'sharpen': f_settings.get('sharpen', 0.75)
                 }
-                img_bytes, ext = load_raw_and_process(f_current.getvalue(), f_params, sidebar_data['out_fmt'], sidebar_data['print_width'], sidebar_data['print_dpi'], f_params['sharpen'])
+                
+                for c in ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']:
+                    for attr in ['hue', 'sat', 'lum', 'range']:
+                        k = f"selective_{c}_{attr}"
+                        f_params[k] = f_settings.get(k, 0.0)
+
+                img_bytes, ext = load_raw_and_process(
+                    f_current.getvalue(), 
+                    f_params, 
+                    sidebar_data['out_fmt'], 
+                    sidebar_data['print_width'], 
+                    sidebar_data['print_dpi'], 
+                    f_params['sharpen'],
+                    save_training_data=st.session_state.get('collect_training_data', False),
+                    filename=f_current.name
+                )
                 if img_bytes:
                     os.makedirs(sidebar_data['export_path'], exist_ok=True)
                     out_path = os.path.join(sidebar_data['export_path'], f"processed_{f_current.name.rsplit('.', 1)[0]}.{ext}")
@@ -221,6 +247,7 @@ async def main():
             with concurrent.futures.ProcessPoolExecutor(max_workers=APP_CONFIG['max_workers']) as executor:
                 loop = asyncio.get_event_loop()
                 tasks, file_names = [], []
+                collect_data = st.session_state.get('collect_training_data', False)
                 for f in uploaded_files:
                     f_settings = st.session_state.file_settings.get(f.name, DEFAULT_SETTINGS.copy())
                     cx_b, cy_b = TONE_CURVES_PRESETS[f_settings['curve_mode']]
@@ -247,11 +274,28 @@ async def main():
                         'manual_dust_size': f_settings.get('manual_dust_size', 10),
                         'c_noise_remove': f_settings['c_noise_remove'], 'c_noise_strength': f_settings['c_noise_strength'],
                         'local_adjustments': f_settings.get('local_adjustments', []),
-                        'rotation': f_settings['rotation'], 'monochrome': f_settings['monochrome'],
+                        'rotation': f_settings['rotation'], 'fine_rotation': f_settings.get('fine_rotation', 0.0), 'monochrome': f_settings['monochrome'],
                         'wb_manual_r': f_settings.get('wb_manual_r', 1.0), 'wb_manual_g': f_settings.get('wb_manual_g', 1.0), 'wb_manual_b': f_settings.get('wb_manual_b', 1.0),
                         'sharpen': f_settings.get('sharpen', 0.75)
-                    }                    
-                    tasks.append(loop.run_in_executor(executor, load_raw_and_process, f.getvalue(), f_params, sidebar_data['out_fmt'], sidebar_data['print_width'], sidebar_data['print_dpi'], f_params['sharpen']))
+                    }
+                    
+                    for c in ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']:
+                        for attr in ['hue', 'sat', 'lum', 'range']:
+                            k = f"selective_{c}_{attr}"
+                            f_params[k] = f_settings.get(k, 0.0)
+
+                    tasks.append(loop.run_in_executor(
+                        executor, 
+                        load_raw_and_process, 
+                        f.getvalue(), 
+                        f_params, 
+                        sidebar_data['out_fmt'], 
+                        sidebar_data['print_width'], 
+                        sidebar_data['print_dpi'], 
+                        f_params['sharpen'],
+                        collect_data,
+                        f.name
+                    ))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 st.success("Batch Processing Complete")
     else:

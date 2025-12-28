@@ -49,13 +49,23 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     'c_noise_strength': 50,
     'sharpen': 1.0,
     'rotation': 0,
+    'fine_rotation': 0.0,
     'wb_manual_r': 1.0,
     'wb_manual_g': 1.0,
     'wb_manual_b': 1.0,
     'manual_dust_spots': [],
     'manual_dust_size': 4,
     'local_adjustments': [],
-    'active_adjustment_idx': -1
+    'active_adjustment_idx': -1,
+    # Selective Color Defaults (Hue: -180..180, Sat: -1.0..1.0, Lum: -1.0..1.0, Range: 0.1..3.0)
+    'selective_red_hue': 0.0, 'selective_red_sat': 0.0, 'selective_red_lum': 0.0, 'selective_red_range': 1.0,
+    'selective_orange_hue': 0.0, 'selective_orange_sat': 0.0, 'selective_orange_lum': 0.0, 'selective_orange_range': 1.0,
+    'selective_yellow_hue': 0.0, 'selective_yellow_sat': 0.0, 'selective_yellow_lum': 0.0, 'selective_yellow_range': 1.0,
+    'selective_green_hue': 0.0, 'selective_green_sat': 0.0, 'selective_green_lum': 0.0, 'selective_green_range': 1.0,
+    'selective_aqua_hue': 0.0, 'selective_aqua_sat': 0.0, 'selective_aqua_lum': 0.0, 'selective_aqua_range': 1.0,
+    'selective_blue_hue': 0.0, 'selective_blue_sat': 0.0, 'selective_blue_lum': 0.0, 'selective_blue_range': 1.0,
+    'selective_purple_hue': 0.0, 'selective_purple_sat': 0.0, 'selective_purple_lum': 0.0, 'selective_purple_range': 1.0,
+    'selective_magenta_hue': 0.0, 'selective_magenta_sat': 0.0, 'selective_magenta_lum': 0.0, 'selective_magenta_range': 1.0,
 }
 
 # --- APP CONFIGURATION ---

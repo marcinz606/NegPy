@@ -13,7 +13,7 @@ def render_local_adjustments():
     
     # Layer Management
     c1, c2 = st.columns([2, 1])
-    if c1.button("Add Mask", use_container_width=True):
+    if c1.button("Add Mask", width="stretch"):
         new_adj = {
             "name": f"Layer {len(st.session_state.local_adjustments) + 1}",
             "strength": 0.0,
@@ -42,7 +42,7 @@ def render_local_adjustments():
         # Layer controls
         c1, c2 = st.columns(2)
         active_adj['name'] = c1.text_input("Layer Name", value=active_adj['name'])
-        if c2.button("Delete Layer", use_container_width=True):
+        if c2.button("Delete Layer", width="stretch"):
             st.session_state.local_adjustments.pop(selected_idx)
             st.session_state.active_adjustment_idx = -1
             st.rerun()
@@ -58,7 +58,7 @@ def render_local_adjustments():
         active_adj['luma_softness'] = st.slider("Range Softness", 0.0, 1.0, active_adj.get('luma_softness', 0.2), 0.01, key=f"adj_ls_{selected_idx}")
 
         c1, c2 = st.columns(2)
-        if c1.button("Clear Brush", use_container_width=True):
+        if c1.button("Clear Brush", width="stretch"):
             active_adj['points'] = []
             st.rerun()
         

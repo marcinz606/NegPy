@@ -3,6 +3,26 @@ import cv2
 from typing import Dict, Any
 from src.backend.config import APP_CONFIG
 
+def apply_fine_rotation(img: np.ndarray, angle: float) -> np.ndarray:
+    """
+    Rotates the image by a specific angle (in degrees).
+    Keeps the original image dimensions, filling new areas with black.
+    
+    Args:
+        img (np.ndarray): Input image array (float [0, 1]).
+        angle (float): Rotation angle in degrees.
+        
+    Returns:
+        np.ndarray: Rotated image.
+    """
+    if angle == 0.0:
+        return img
+    
+    h, w = img.shape[:2]
+    center = (w / 2.0, h / 2.0)
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
+
 def apply_autocrop(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.0) -> np.ndarray:
     """
     Detects film edges and automatically crops the image to the 2:3 or 3:2 frame.

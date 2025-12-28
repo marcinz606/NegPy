@@ -22,8 +22,8 @@ def render_contact_sheet(uploaded_files: List[Any]) -> None:
                         thumb = st.session_state.thumbnails.get(f.name)
                         if thumb:
                             is_selected = (st.session_state.selected_file_idx == idx)
-                            st.image(thumb, use_container_width=True, caption=f.name if len(f.name) < 15 else f.name[:12]+"...")
-                            st.button("Select", key=f"sel_{idx}", use_container_width=True, 
+                            st.image(thumb, width="stretch", caption=f.name if len(f.name) < 15 else f.name[:12]+"...")
+                            st.button("Select", key=f"sel_{idx}", width="stretch", 
                                       type="primary" if is_selected else "secondary",
                                       on_click=change_file, args=(idx, uploaded_files))
                         else:

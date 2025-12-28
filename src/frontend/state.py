@@ -2,6 +2,7 @@ import streamlit as st
 from typing import Dict, Any, Optional
 from src.backend.config import DEFAULT_SETTINGS
 from src.backend.db import db_save_file_settings, db_load_file_settings
+import numpy as np
 
 def init_session_state() -> None:
     """
@@ -28,6 +29,8 @@ def init_session_state() -> None:
         st.session_state.dust_start_point = None
     if 'pick_wb' not in st.session_state:
         st.session_state.pick_wb = False
+    if 'collect_training_data' not in st.session_state:
+        st.session_state.collect_training_data = True
 
 def load_settings(file_name: str) -> None:
     """
@@ -42,7 +45,8 @@ def load_settings(file_name: str) -> None:
     else:
         db_settings = db_load_file_settings(file_name)
         if db_settings:
-            settings = db_settings
+            settings = DEFAULT_SETTINGS.copy()
+            settings.update(db_settings)
         else:
             settings = DEFAULT_SETTINGS.copy()
             settings['manual_dust_spots'] = []
@@ -70,6 +74,7 @@ def load_settings(file_name: str) -> None:
 def save_settings(file_name: str) -> None:
     """
     Saves current widget values to the file's settings dict and persists to the SQLite DB.
+    Also collects training data if enabled.
     
     Args:
         file_name (str): The name of the file to save settings for.
