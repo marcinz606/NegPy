@@ -171,9 +171,6 @@ async def main():
 
         # Build current params
         current_params = get_processing_params(st.session_state, overrides={
-            'wb_manual_r': st.session_state.get('wb_manual_r', 1.0),
-            'wb_manual_g': st.session_state.get('wb_manual_g', 1.0),
-            'wb_manual_b': st.session_state.get('wb_manual_b', 1.0),
             'curve_lut_x': lut_x, 
             'curve_lut_y': lut_y
         })
@@ -327,9 +324,6 @@ async def main():
                 lx, ly = create_curve_lut(cx_b, cy_f)
                 
                 f_params = get_processing_params(f_settings, overrides={
-                    'wb_manual_r': f_settings.get('wb_manual_r', 1.0),
-                    'wb_manual_g': f_settings.get('wb_manual_g', 1.0),
-                    'wb_manual_b': f_settings.get('wb_manual_b', 1.0),
                     'curve_lut_x': lx, 'curve_lut_y': ly
                 })
 
@@ -367,9 +361,6 @@ async def main():
                     lx, ly = create_curve_lut(cx_b, cy_f)
                     
                     f_params = get_processing_params(f_settings, overrides={
-                        'wb_manual_r': f_settings.get('wb_manual_r', 1.0),
-                        'wb_manual_g': f_settings.get('wb_manual_g', 1.0),
-                        'wb_manual_b': f_settings.get('wb_manual_b', 1.0),
                         'curve_lut_x': lx, 'curve_lut_y': ly
                     })
 

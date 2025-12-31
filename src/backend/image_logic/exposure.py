@@ -12,10 +12,10 @@ def apply_contrast(img: np.ndarray, contrast: float) -> np.ndarray:
 
 def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, highlight_shoulder: float = 0.0, shadow_bases: Any = None) -> np.ndarray:
     """
-    Applies Professional Scanner Gain with Dual-End Recovery.
-    - Scan Gain (gain): Linear multiplier for scanner-style highlight recovery.
+    Applies Linear Scanner Gain with Dual-End Recovery.
+    - Scan Gain (gain): Linear multiplier for highlight recovery and darkening.
     - Shadow Toe (shadow_toe): RECOVERS shadows by pulling them away from 1.0 (Black).
-    - Highlight Shoulder (highlight_shoulder): RECOVERS whites by reducing highlight gamma.
+    - Highlight Shoulder (highlight_shoulder): RECOVERS whites by reducing local gamma.
     """
     if isinstance(gain, (list, tuple, np.ndarray)):
         gains = np.array(gain)
@@ -41,14 +41,13 @@ def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, high
         v_exp = v_neg * g
         
         # 3. Highlight Shoulder (Local Highlight Gamma Recovery)
-        # Works like reducing highlight gamma to roll in peak detail.
         if highlight_shoulder > 0:
             # We target the lower half of the negative range (The Whites)
-            # Power law on normalized highlight region pulls detail away from 0.0
             mask_h = v_exp < 0.5
             if np.any(mask_h):
                 x = v_exp[mask_h] / 0.5
-                gamma_h = 1.0 / (1.0 + highlight_shoulder * 2.5)
+                # Reducing gamma stretches the values away from 0.0
+                gamma_h = 1.0 / (1.0 + highlight_shoulder * 3.0)
                 v_exp[mask_h] = 0.5 * np.power(x, gamma_h)
             
         # 4. Shadow Toe (Shadow Recovery / Black Protection)
@@ -58,8 +57,8 @@ def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, high
             mask_s = v_exp > 0.5
             if np.any(mask_s):
                 dist = v_exp[mask_s] - 0.5
-                # Pulls potential 1.0+ values back towards midtones
-                v_exp[mask_s] = 0.5 + dist / (1.0 + shadow_toe * 6.0 * dist)
+                # Pulls potential 1.0+ values back towards visible range
+                v_exp[mask_s] = 0.5 + dist / (1.0 + shadow_toe * 8.0 * dist)
 
         res[:, :, c] = np.clip(v_exp, 0.0, 1.0)
         
@@ -67,7 +66,8 @@ def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, high
 
 def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float, wb_b: float) -> tuple[float, float, float]:
     """
-    Analytically calculates optimal parameters using the Dual-End Recovery model.
+    Analytically calculates optimal Scanner Gain, Shadow Toe, and Highlight Shoulder.
+    Targets the 'almost perfect' exposure level.
     """
     # 1. Get neutralized negative
     img = img_raw.copy()
@@ -82,7 +82,7 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     pts = np.percentile(mx, [1, 5, 15, 30])
     p1, p5, p15, p30 = pts[0], pts[1], pts[2], pts[3]
     
-    # 3. Target intensities (Slightly increased to darken the print)
+    # 3. Target intensities (Restored 'Almost Perfect' Targets)
     targets = [0.05, 0.10, 0.23, 0.43]
     
     # Suggested gains
@@ -91,7 +91,7 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     g15 = targets[2] / (p15 + 1e-6)
     g30 = targets[3] / (p30 + 1e-6)
     
-    # 4. Final Scan Gain (Weighted average including all points)
+    # 4. Final Scan Gain (Weighted average)
     new_gain = (g30 * 0.35) + (g15 * 0.35) + (g5 * 0.20) + (g1 * 0.10)
     new_gain = float(np.clip(new_gain, 1.0, 5.0))
     
@@ -100,17 +100,15 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     crush_val = p99 * new_gain
     if crush_val > 0.92:
         dist = crush_val - 0.5
-        # Solves for toe needed to map crush_val to 0.92
-        new_s_toe = ((dist / 0.42) - 1.0) / (6.0 * dist + 1e-6)
+        new_s_toe = ((dist / 0.42) - 1.0) / (8.0 * dist + 1e-6)
     else:
         new_s_toe = 0.0
         
     # 6. Highlight Shoulder Solver (Power-Law Target: 0.10)
     p01_after = p1 * new_gain
     if p01_after < 0.10:
-        # Solve for gamma needed to map p01_after to 0.10 in the [0, 0.5] range
         gamma_needed = np.log(0.10 / 0.5) / np.log(np.clip(p01_after / 0.5, 0.01, 0.99))
-        new_h_shoulder = ( (1.0 / gamma_needed) - 1.0 ) / 2.5
+        new_h_shoulder = ( (1.0 / gamma_needed) - 1.0 ) / 3.0
     else:
         new_h_shoulder = 0.0
     

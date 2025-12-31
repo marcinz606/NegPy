@@ -143,9 +143,8 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
         
         if params.get('auto_wb'):
             m_r, m_g, m_b = calculate_auto_mask_wb(img)
+            # These will be converted to CMY in the frontend
             params['wb_manual_r'], params['wb_manual_g'], params['wb_manual_b'] = m_r, m_g, m_b
-
-        if save_training_data and filename:
             try:
                 feats = extract_features(img)
                 save_training_sample(feats, params, filename)

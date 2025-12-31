@@ -30,40 +30,38 @@ def apply_shadow_desaturation(img: np.ndarray, strength: float = 1.0) -> np.ndar
 
 def calculate_auto_mask_wb(raw_preview: np.ndarray) -> Tuple[float, float, float]:
     """
-    Identifies white balance by finding the most frequent color ratios 
-    (the Ratio-Mode) in the brightest part of the negative. 
-    Extremely robust against colorful scene content.
+    Identifies white balance by finding the 'Statistical Mode' of color ratios 
+    in the high-density range of the negative. 
+    Extremely robust against colorful scene content and missing borders.
     """
     if raw_preview.ndim == 2:
         return 1.0, 1.0, 1.0
         
-    # Resize for speed
+    # Resize for fast statistical processing
     h, w = raw_preview.shape[:2]
     small = cv2.resize(raw_preview, (w//4, h//4), interpolation=cv2.INTER_AREA)
     pixels = small.reshape(-1, 3)
     
-    # 1. Focus on the brightest 10% of the negative (mask/shadows)
-    # We use max(RGB) as a density metric to avoid weighting biases.
-    dense_val = np.max(pixels, axis=1)
-    thresh = np.percentile(dense_val, 90)
-    top_pixels = pixels[dense_val >= thresh]
+    # 1. Filter for the 'Dense' part of the negative (Top 25% of brightness)
+    # The film mask/base is always in the upper quartile of a linear scan.
+    dense_mask = np.max(pixels, axis=1) > 0.4
+    top_pixels = pixels[dense_mask]
     
     if len(top_pixels) > 100:
         # 2. Calculate Ratios relative to Green
-        r_g = top_pixels[:, 0] / (top_pixels[:, 1] + 1e-6)
-        b_g = top_pixels[:, 2] / (top_pixels[:, 1] + 1e-6)
+        r_g_ratios = top_pixels[:, 0] / (top_pixels[:, 1] + 1e-6)
+        b_g_ratios = top_pixels[:, 2] / (top_pixels[:, 1] + 1e-6)
         
-        # 3. Find the MODE of the ratios using histograms
-        # The film base color forms a tight cluster (peak) in ratio-space.
-        # Red/Green is typically 1.5 - 3.5, Blue/Green is 0.2 - 0.8
-        hist_r, edges_r = np.histogram(r_g, bins=100, range=(1.0, 4.0))
-        hist_b, edges_b = np.histogram(b_g, bins=100, range=(0.1, 1.0))
+        # 3. Find the MODE (most frequent value) of the ratios.
+        # High-res histograms to find the 'True Mask' peak
+        hist_r, edges_r = np.histogram(r_g_ratios, bins=256, range=(1.0, 5.0))
+        hist_b, edges_b = np.histogram(b_g_ratios, bins=256, range=(0.05, 1.5))
         
+        # The peak of the histogram is our 'Mask Ratio'
         r_mode = edges_r[np.argmax(hist_r)]
         b_mode = edges_b[np.argmax(hist_b)]
         
-        # 4. Gains are the reciprocal of the modes to achieve neutralization
-        # Anchored to Green = 1.0
+        # 4. Calculate gains to neutralize these ratios, anchored to Green
         r_gain = 1.0 / (r_mode + 1e-6)
         b_gain = 1.0 / (b_mode + 1e-6)
         
