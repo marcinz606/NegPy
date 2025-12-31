@@ -1,95 +1,113 @@
 import numpy as np
+import cv2
 from typing import Tuple, Dict, Any
 
-def apply_grade_to_img(img: np.ndarray, grade_val: float) -> np.ndarray:
+def get_luminance(img: np.ndarray) -> np.ndarray:
     """
-    Applies a grade (pure gamma) to an image.
+    Calculates the relative luminance of an RGB image using Rec. 709 coefficients.
+    Supports both 3D (H, W, 3) and 2D (N, 3) arrays.
+    """
+    return 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
+
+def apply_shadow_desaturation(img: np.ndarray, strength: float = 1.0) -> np.ndarray:
+    """
+    Automatically reduces saturation in the darkest parts of the image to 
+    prevent "electric" shadows when lifting them.
     
     Args:
-        img (np.ndarray): Input image array (float [0, 1]).
-        grade_val (float): Grade value (0..5, neutral is 2.5).
-        
-    Returns:
-        np.ndarray: Graded image array.
+        img (np.ndarray): Input RGB image.
+        strength (float): Strength of the effect (0.0 to 2.0). 1.0 is standard.
     """
-    g_val = 1.0 / (1.0 + (grade_val - 2.5) * 0.4)
-    res = np.power(img, g_val)
+    if strength <= 0:
+        return img
+        
+    luma = get_luminance(img)
+    mask = np.clip(1.0 - (luma / 0.3), 0.0, 1.0)
+    mask = mask * mask * strength
+    luma_3d = luma[:, :, None]
+    res = img * (1.0 - mask[:, :, None]) + luma_3d * mask[:, :, None]
     return np.clip(res, 0.0, 1.0)
 
 def calculate_auto_mask_wb(raw_preview: np.ndarray) -> Tuple[float, float, float]:
     """
-    Robustly finds the film base color by analyzing the brightest pixels in the raw negative.
-    
-    Args:
-        raw_preview (np.ndarray): Linear RAW RGB data (float [0, 1]).
-        
-    Returns:
-        Tuple[float, float, float]: RGB gains (R, G, B) to neutralize the mask.
+    Identifies white balance by finding the most frequent color ratios 
+    (the Ratio-Mode) in the brightest part of the negative. 
+    Extremely robust against colorful scene content.
     """
     if raw_preview.ndim == 2:
         return 1.0, 1.0, 1.0
         
-    pixels = raw_preview.reshape(-1, 3)
-    if pixels.shape[0] > 200000:
-        pixels = pixels[::pixels.shape[0]//200000]
+    # Resize for speed
+    h, w = raw_preview.shape[:2]
+    small = cv2.resize(raw_preview, (w//4, h//4), interpolation=cv2.INTER_AREA)
+    pixels = small.reshape(-1, 3)
+    
+    # 1. Focus on the brightest 10% of the negative (mask/shadows)
+    # We use max(RGB) as a density metric to avoid weighting biases.
+    dense_val = np.max(pixels, axis=1)
+    thresh = np.percentile(dense_val, 90)
+    top_pixels = pixels[dense_val >= thresh]
+    
+    if len(top_pixels) > 100:
+        # 2. Calculate Ratios relative to Green
+        r_g = top_pixels[:, 0] / (top_pixels[:, 1] + 1e-6)
+        b_g = top_pixels[:, 2] / (top_pixels[:, 1] + 1e-6)
         
-    lum = 0.2126 * pixels[:,0] + 0.7152 * pixels[:,1] + 0.0722 * pixels[:,2]
-    
-    # Attempt Mask Detection
-    thresh = np.percentile(lum, 98.5)
-    mask_pixels = pixels[lum > thresh]
-    
-    if len(mask_pixels) > 0:
-        mask_color = np.mean(mask_pixels, axis=0)
-        if mask_color[0] > mask_color[1] * 1.05 and mask_color[1] > mask_color[2] * 1.05:
-            max_val = np.max(mask_color)
-            gains = max_val / (mask_color + 1e-6)
-            return float(gains[0]), float(gains[1]), float(gains[2])
-
-    # Fallback Grey World
-    avg_color = np.mean(pixels, axis=0)
-    max_avg = np.max(avg_color)
-    gains = max_avg / (avg_color + 1e-6)
-    gains = 0.5 * gains + 0.5 * np.array([1.0, 1.0, 1.0])
-    gains /= (gains[1] + 1e-6)
-    
-    return float(gains[0]), float(gains[1]), float(gains[2])
-
-def apply_manual_color_corrections(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
-    """
-    Handles manual color balance and shadow/highlight tints based on user parameters.
-    
-    Args:
-        img (np.ndarray): Input image array (float [0, 1]).
-        params (Dict[str, Any]): Processing parameters dictionary.
+        # 3. Find the MODE of the ratios using histograms
+        # The film base color forms a tight cluster (peak) in ratio-space.
+        # Red/Green is typically 1.5 - 3.5, Blue/Green is 0.2 - 0.8
+        hist_r, edges_r = np.histogram(r_g, bins=100, range=(1.0, 4.0))
+        hist_b, edges_b = np.histogram(b_g, bins=100, range=(0.1, 1.0))
         
-    Returns:
-        np.ndarray: Color corrected image array.
-    """
-    # Global balance
-    img[:, :, 0] *= (params['cr_balance'] * (1.0 + params['temperature']))
-    img[:, :, 1] *= params['mg_balance']
-    img[:, :, 2] *= (params['yb_balance'] * (1.0 - params['temperature']))
+        r_mode = edges_r[np.argmax(hist_r)]
+        b_mode = edges_b[np.argmax(hist_b)]
+        
+        # 4. Gains are the reciprocal of the modes to achieve neutralization
+        # Anchored to Green = 1.0
+        r_gain = 1.0 / (r_mode + 1e-6)
+        b_gain = 1.0 / (b_mode + 1e-6)
+        
+        return float(r_gain), 1.0, float(b_gain)
 
-    # Shadow/Highlight tints
-    lum = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
+    return 1.0, 1.0, 1.0
+
+def apply_manual_color_balance_neg(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """
+    Applies 'Paper Warmth' (Temperature) in the NEGATIVE domain.
+    Inverted Math: warmth (+) decreases neg red, increasing positive red.
+    """
+    res = img.copy()
+    warmth = params.get('temperature', 0.0)
+    
+    if warmth != 0.0:
+        # Increase warmth (+): decrease neg red, increase neg blue
+        res[:, :, 0] *= (1.0 - warmth)
+        res[:, :, 2] *= (1.0 + warmth)
+    
+    return np.clip(res, 0, 1)
+
+def apply_shadow_highlight_grading(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """
+    Applies Split Toning in the NEGATIVE domain.
+    Inverted Math: tone (+) decreases neg red, increasing positive red (Amber).
+    """
+    res = img.copy()
+    lum = get_luminance(res)
     w_shadow = (1.0 - lum)[:,:,None]
     w_highlight = lum[:,:,None]
     
-    s_temp = params.get('shadow_temp', 0.0)
-    s_r = params.get('shadow_cr', 1.0) * (1.0 + s_temp)
-    s_g = params.get('shadow_mg', 1.0)
-    s_b = params.get('shadow_yb', 1.0) * (1.0 - s_temp)
-    
-    if s_r != 1.0 or s_g != 1.0 or s_b != 1.0:
-        img *= (w_shadow * np.array([s_r, s_g, s_b]) + (1.0 - w_shadow))
+    # Shadow Tone (Amber <-> Blue)
+    s_tone = params.get('shadow_temp', 0.0)
+    if s_tone != 0.0:
+        s_r = 1.0 - s_tone
+        s_b = 1.0 + s_tone
+        res *= (w_shadow * np.array([s_r, 1.0, s_b]) + (1.0 - w_shadow))
 
-    h_temp = params.get('highlight_temp', 0.0)
-    h_r = params.get('highlight_cr', 1.0) * (1.0 + h_temp)
-    h_g = params.get('highlight_mg', 1.0)
-    h_b = params.get('highlight_yb', 1.0) * (1.0 - h_temp)
-    
-    if h_r != 1.0 or h_g != 1.0 or h_b != 1.0:
-        img *= (w_highlight * np.array([h_r, h_g, h_b]) + (1.0 - w_highlight))
+    # Highlight Tone (Amber <-> Blue)
+    h_tone = params.get('highlight_temp', 0.0)
+    if h_tone != 0.0:
+        h_r = 1.0 - h_tone
+        h_b = 1.0 + h_tone
+        res *= (w_highlight * np.array([h_r, 1.0, h_b]) + (1.0 - w_highlight))
 
-    return np.clip(img, 0, 1)
+    return np.clip(res, 0, 1)

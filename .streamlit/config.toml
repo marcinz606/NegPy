@@ -1,18 +1,18 @@
 [theme]
 base = "dark"
 
-# General color setup
-textColor = "#cad3f5"
-primaryColor = "#ea76cb"
-backgroundColor = "#24273a"
-secondaryBackgroundColor = "#363a4f"
+# General color setup - Monochrome with Red Accent
+textColor = "#ff0000"
+primaryColor = "#ff0000"         # Darkroom safelight red accent
+backgroundColor = "#1a1a1a"      # Pure black background
+secondaryBackgroundColor = "#000000" # Deep charcoal for depth
 
 # Widgets
 showWidgetBorder = true
-borderColor = "#5b6078"
+borderColor = "#333333"          # Subtle border contrast
 
 # Dataframes
-dataframeHeaderBackgroundColor = "#1e2030"
+dataframeHeaderBackgroundColor = "#121212"
 
 # Base text
 font = "'Open Sans':https://fonts.googleapis.com/css2?family=Open+Sans:wght@300..700&display=swap"
@@ -26,4 +26,3 @@ headingFontSizes = ["2.5rem", "1.5rem", "1rem"]
 
 [client]
 toolbarMode = "minimal"
-

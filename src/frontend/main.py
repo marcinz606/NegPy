@@ -7,25 +7,94 @@ import asyncio
 import concurrent.futures
 import cv2
 import traceback
-from PIL import Image, ImageEnhance, ImageFilter, ImageDraw
+from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageCms
+from typing import Dict, Any, Optional
 
 from src.backend.config import TONE_CURVES_PRESETS, DEFAULT_SETTINGS, APP_CONFIG
 from src.backend.utils import create_curve_lut, apply_color_separation, get_thumbnail_worker
 from src.backend.db import init_db
+from src.backend.image_logic.retouch import get_autocrop_coords
 from src.backend.processor import (
     process_image_core, 
     load_raw_and_process, 
     calculate_auto_mask_wb
 )
 from src.frontend.state import init_session_state, load_settings, save_settings
-from src.frontend.components.sidebar.main import render_sidebar
+from src.frontend.components.sidebar.main import render_file_manager, render_sidebar_content
+from src.frontend.components.sidebar.adjustments import run_auto_wb, run_auto_density
 from src.frontend.components.image_view import render_image_view
 from src.frontend.components.contact_sheet import render_contact_sheet
+
+def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Consolidates parameter gathering from either session_state or a file settings dict.
+    Converts CMY filtration (0-255) to linear gains for the processor.
+    """
+    # 1. Convert CMY Filters to Linear Gains (Clamped to 0-170)
+    # gain = 10^(cc / 100)
+    c_val = np.clip(source.get('wb_cyan', 0), 0, 170)
+    m_val = np.clip(source.get('wb_magenta', 0), 0, 170)
+    y_val = np.clip(source.get('wb_yellow', 0), 0, 170)
+    
+    r_gain = 10.0 ** (c_val / 100.0)
+    g_gain = 10.0 ** (m_val / 100.0)
+    b_gain = 10.0 ** (y_val / 100.0)
+
+    p = {
+        'scan_gain': source.get('scan_gain', 1.0),
+        'scan_gain_s_toe': source.get('scan_gain_s_toe', 0.0),
+        'scan_gain_h_shoulder': source.get('scan_gain_h_shoulder', 0.0),
+        'wb_manual_r': float(r_gain),
+        'wb_manual_g': float(g_gain),
+        'wb_manual_b': float(b_gain),
+        'temperature': source.get('temperature', 0.0),
+        'shadow_temp': source.get('shadow_temp', 0.0),
+        'highlight_temp': source.get('highlight_temp', 0.0),
+        'gamma': source.get('gamma', 1.0),
+        'gamma_mode': source.get('gamma_mode', 'Standard'),
+        'shadow_desat_strength': source.get('shadow_desat_strength', 1.0),
+        'contrast': source.get('contrast', 1.0),
+        'color_separation': source.get('color_separation', 1.0),
+        'saturation': source.get('saturation', 1.0),
+        'saturation_shadows': source.get('saturation_shadows', 1.0),
+        'saturation_highlights': source.get('saturation_highlights', 1.0),
+        'exposure': source.get('exposure', 0.0),
+        'exposure_shadows': source.get('exposure_shadows', 0.0),
+        'exposure_highlights': source.get('exposure_highlights', 0.0),
+        'exposure_shadows_range': source.get('exposure_shadows_range', 1.0),
+        'exposure_highlights_range': source.get('exposure_highlights_range', 1.0),
+        'autocrop': source.get('autocrop', True),
+        'autocrop_offset': source.get('autocrop_offset', 5),
+        'dust_remove': source.get('dust_remove', True),
+        'dust_threshold': source.get('dust_threshold', 0.6),
+        'dust_size': source.get('dust_size', 2),
+        'manual_dust_spots': source.get('manual_dust_spots', []),
+        'manual_dust_size': source.get('manual_dust_size', 10),
+        'c_noise_remove': source.get('c_noise_remove', True),
+        'c_noise_strength': source.get('c_noise_strength', 33),
+        'local_adjustments': source.get('local_adjustments', []),
+        'rotation': source.get('rotation', 0),
+        'fine_rotation': source.get('fine_rotation', 0.0),
+        'monochrome': source.get('monochrome', False),
+        'auto_wb': source.get('auto_wb', False),
+        'sharpen': source.get('sharpen', 0.75)
+    }
+    
+    # Handle Black/White points
+    bw_val = source.get('bw_points', (0.0, 1.0))
+    p['black_point'] = bw_val[0]
+    p['white_point'] = bw_val[1]
+    
+    # Add LUT if provided in overrides or source
+    if overrides and 'curve_lut_x' in overrides:
+        p['curve_lut_x'] = overrides['curve_lut_x']
+        p['curve_lut_y'] = overrides['curve_lut_y']
+        
+    return p
 
 def init_styles():
     st.markdown("""
         <style>
-        .stApp { background-color: #0e1117; color: #fafafa; }
         .stApp { font-size: 18px; }
         h1 { font-size: 36px !important; }
         div.stButton > button {
@@ -45,31 +114,25 @@ async def main():
     init_styles()
     init_session_state()
 
-    sidebar_data = render_sidebar()
+    # 1. Render File Manager (Uploads) - No Sliders Here
+    uploaded_files = render_file_manager()
     
-    if sidebar_data:
-        uploaded_files = st.session_state.uploaded_files
+    if uploaded_files:
         current_file = uploaded_files[st.session_state.selected_file_idx]
         
+        # 2. Check for New Image Status (Database Lookup)
+        is_new_image = False
+        if current_file.name not in st.session_state.file_settings:
+            is_new_image = load_settings(current_file.name)
+            
         save_settings(current_file.name)
 
-        # Thumbnails
-        missing_thumbs = [f for f in uploaded_files if f.name not in st.session_state.thumbnails]
-        if missing_thumbs:
-            with st.spinner(f"Generating thumbnails..."):
-                with concurrent.futures.ProcessPoolExecutor(max_workers=APP_CONFIG['max_workers']) as executor:
-                    loop = asyncio.get_event_loop()
-                    tasks = [loop.run_in_executor(executor, get_thumbnail_worker, f.getvalue()) for f in missing_thumbs]
-                    results = await asyncio.gather(*tasks)
-                    for f, thumb in zip(missing_thumbs, results):
-                        if thumb: st.session_state.thumbnails[f.name] = thumb
-
-        # Preview Loading
+        # 3. Load RAW Data (Needed for Auto-Adjustments)
         if st.session_state.get("last_file") != current_file.name:
             with st.spinner(f"Loading preview for {current_file.name}..."):
                 current_file.seek(0)
                 with rawpy.imread(current_file) as raw:
-                    rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=True, output_bps=16)
+                    rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16)
                     if rgb.ndim == 2:
                         rgb = np.stack([rgb] * 3, axis=-1)
                     full_linear = rgb.astype(np.float32) / 65535.0
@@ -82,68 +145,45 @@ async def main():
                         st.session_state.preview_raw = full_linear.copy()
                     st.session_state.last_file = current_file.name
 
-        # Processing Parameters
-        m_r, m_g, m_b = 1.0, 1.0, 1.0
-        if st.session_state.auto_wb:
-            m_r, m_g, m_b = calculate_auto_mask_wb(st.session_state.preview_raw)
-            st.sidebar.caption(f"Mask Neutralization: R={m_r:.2f}, G={m_g:.2f}, B={m_b:.2f}")
+        # 4. Auto-Adjustments (REMOVED - Only triggered by buttons now)
+        if is_new_image and 'preview_raw' in st.session_state:
+            pass
+            # No longer applying auto-wb or auto-density on load.
+            # Buttons in the sidebar handle these actions on-demand.
+
+        # 5. Render Sidebar Content (Sliders, Nav, etc.)
+        sidebar_data = render_sidebar_content(uploaded_files)
+
+        # Thumbnails
+        missing_thumbs = [f for f in uploaded_files if f.name not in st.session_state.thumbnails]
+        if missing_thumbs:
+            with st.spinner(f"Generating thumbnails..."):
+                with concurrent.futures.ProcessPoolExecutor(max_workers=APP_CONFIG['max_workers']) as executor:
+                    loop = asyncio.get_event_loop()
+                    tasks = [loop.run_in_executor(executor, get_thumbnail_worker, f.getvalue()) for f in missing_thumbs]
+                    results = await asyncio.gather(*tasks)
+                    for f, thumb in zip(missing_thumbs, results):
+                        if thumb: st.session_state.thumbnails[f.name] = thumb
 
         cx_base, cy_base = TONE_CURVES_PRESETS[st.session_state.get('curve_mode', 'Linear')]
         cy = np.array(cx_base) + (np.array(cy_base) - np.array(cx_base)) * st.session_state.get('curve_strength', 1.0)
         lut_x, lut_y = create_curve_lut(cx_base, cy)
 
-        bw_val = st.session_state.get('bw_points', (0.0, 1.0))
-        current_params = {
-            'mask_r': m_r, 'mask_g': m_g, 'mask_b': m_b,
+        # Build current params
+        current_params = get_processing_params(st.session_state, overrides={
             'wb_manual_r': st.session_state.get('wb_manual_r', 1.0),
             'wb_manual_g': st.session_state.get('wb_manual_g', 1.0),
             'wb_manual_b': st.session_state.get('wb_manual_b', 1.0),
-            'cr_balance': st.session_state.get('cr_balance', 1.0), 
-            'mg_balance': st.session_state.get('mg_balance', 1.0), 
-            'yb_balance': st.session_state.get('yb_balance', 1.0),
-            'shadow_cr': st.session_state.get('shadow_cr', 1.0), 'shadow_mg': st.session_state.get('shadow_mg', 1.0), 'shadow_yb': st.session_state.get('shadow_yb', 1.0),
-            'highlight_cr': st.session_state.get('highlight_cr', 1.0), 'highlight_mg': st.session_state.get('highlight_mg', 1.0), 'highlight_yb': st.session_state.get('highlight_yb', 1.0),
-            'temperature': st.session_state.get('temperature', 0.0),
-            'shadow_temp': st.session_state.get('shadow_temp', 0.0),
-            'highlight_temp': st.session_state.get('highlight_temp', 0.0),
-            'gamma': st.session_state.get('gamma', 2.5),
-            'black_point': bw_val[0],
-            'white_point': bw_val[1],
-            'exposure': st.session_state.exposure, 
-            'contrast': st.session_state.get('contrast', 1.0),
-            'grade_shadows': st.session_state.grade_shadows,
-            'grade_highlights': st.session_state.grade_highlights,
-            'saturation': st.session_state.get('saturation', 1.0), 
-            'curve_lut_x': lut_x, 'curve_lut_y': lut_y,
-            'autocrop': st.session_state.get('autocrop', True), 
-            'autocrop_offset': st.session_state.get('autocrop_offset', 5),
-            'dust_remove': st.session_state.get('dust_remove', True), 
-            'dust_threshold': st.session_state.get('dust_threshold', 0.6), 
-            'dust_size': st.session_state.get('dust_size', 2),
-            'manual_dust_spots': st.session_state.get('manual_dust_spots', []),
-            'manual_dust_size': st.session_state.get('manual_dust_size', 10),
-            'c_noise_remove': st.session_state.get('c_noise_remove', True), 
-            'c_noise_strength': st.session_state.get('c_noise_strength', 33),
-            'local_adjustments': st.session_state.get('local_adjustments', []),
-            'rotation': st.session_state.get('rotation', 0),
-            'fine_rotation': st.session_state.get('fine_rotation', 0.0),
-            'monochrome': st.session_state.get('monochrome', False),
-            'auto_wb': st.session_state.get('auto_wb', False)
-        }
-        
-        # Add Selective Color params
-        sel_colors = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']
-        for c in sel_colors:
-            for attr in ['hue', 'sat', 'lum', 'range']:
-                k = f"selective_{c}_{attr}"
-                current_params[k] = st.session_state.get(k, 0.0)
+            'curve_lut_x': lut_x, 
+            'curve_lut_y': lut_y
+        })
 
         # Core Processing
         processed_preview = process_image_core(st.session_state.preview_raw.copy(), current_params)
         pil_prev = Image.fromarray(np.clip(np.nan_to_num(processed_preview * 255), 0, 255).astype(np.uint8))
         
         # Sharpening
-        sharpen_val = st.session_state.get('sharpen', 0.75)
+        sharpen_val = st.session_state.get('sharpen', 0.33)
         if sharpen_val > 0:
             img_lab = cv2.cvtColor(np.array(pil_prev), cv2.COLOR_RGB2LAB)
             l, a, b = cv2.split(img_lab)
@@ -154,32 +194,123 @@ async def main():
 
         # Saturation/Mono
         if not current_params.get('monochrome', False):
+            # 1. Color Separation
             img_arr = np.array(pil_prev)
-            img_sep = apply_color_separation(img_arr, st.session_state.get('saturation', 1.0))
+            img_sep = apply_color_separation(img_arr, st.session_state.get('color_separation', 1.0))
             pil_prev = Image.fromarray(img_sep)
+            
+            # 2. Classic Saturation
+            sat = st.session_state.get('saturation', 1.0)
+            if sat != 1.0:
+                enhancer = ImageEnhance.Color(pil_prev)
+                pil_prev = enhancer.enhance(sat)
         else:
             pil_prev = pil_prev.convert("L")
 
-        # Visualization
+        # ICC Profile Preview (Soft-proofing / Display Simulation)
+        if st.session_state.get('icc_profile_path'):
+            try:
+                # Source is sRGB (standard for PIL processed images)
+                src_profile = ImageCms.createProfile("sRGB")
+                # Destination is the selected profile
+                dst_profile = ImageCms.getOpenProfile(st.session_state.icc_profile_path)
+                # Apply transformation
+                if pil_prev.mode != 'RGB':
+                    pil_prev = pil_prev.convert('RGB')
+                pil_prev = ImageCms.profileToProfile(
+                    pil_prev, 
+                    src_profile, 
+                    dst_profile, 
+                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, 
+                    outputMode='RGB',
+                    flags=ImageCms.Flags.BLACKPOINTCOMPENSATION
+                )
+            except Exception as e:
+                st.sidebar.error(f"ICC Error: {e}")
+
+        # Visualization (Red patches for dust spots)
         if st.session_state.get('pick_dust', False) and st.session_state.get('show_dust_patches', True):
             if st.session_state.get('manual_dust_spots'):
                 if pil_prev.mode == 'L': pil_prev = pil_prev.convert("RGB")
                 draw = ImageDraw.Draw(pil_prev)
                 pw, ph = pil_prev.size
                 m_rad = st.session_state.get('manual_dust_size', 10)
-                for (nx, ny) in st.session_state.manual_dust_spots:
-                    px, py = nx * pw, ny * ph
-                    draw.ellipse((px - m_rad, py - m_rad, px + m_rad, py + m_rad), outline="#ff4b4b", width=4)
+                
+                # We need to transform spots from RAW space to DISPLAY space
+                rh_orig, rw_orig = st.session_state.preview_raw.shape[:2]
+                rotation = st.session_state.get('rotation', 0) % 4
+                fine_rot = st.session_state.get('fine_rotation', 0.0)
+                autocrop = st.session_state.get('autocrop', False)
+                autocrop_offset = st.session_state.get('autocrop_offset', 0)
+                
+                # To transform multiple points efficiently, we can use a helper or manual math
+                # Since we already have the logic in map_click_to_raw (inverse), let's implement forward here.
+                def transform_to_display(rx, ry):
+                    # 1. 90-deg Rotation (Counter-Clockwise to match np.rot90)
+                    if rotation == 0: tx, ty = rx, ry
+                    elif rotation == 1: tx, ty = ry, 1.0 - rx
+                    elif rotation == 2: tx, ty = 1.0 - rx, 1.0 - ry
+                    elif rotation == 3: tx, ty = 1.0 - ry, rx
+                    else: tx, ty = rx, ry
+                    
+                    # 2. Fine Rotation
+                    # Get rotated dimensions for center
+                    rh_r, rw_r = rh_orig, rw_orig
+                    if rotation % 2 != 0: rh_r, rw_r = rw_orig, rh_orig
+                    
+                    if fine_rot != 0.0:
+                        cx, cy = rw_r / 2.0, rh_r / 2.0
+                        px, py = tx * rw_r, ty * rh_r
+                        angle = np.radians(fine_rot)
+                        cos_a, sin_a = np.cos(angle), np.sin(angle)
+                        dx, dy = px - cx, py - cy
+                        px_f = cx + dx * cos_a - dy * sin_a
+                        py_f = cy + dx * sin_a + dy * cos_a
+                        tx, ty = px_f / rw_r, py_f / rh_r
+                    
+                    # 3. Autocrop
+                    if autocrop:
+                        # Find crop box in rotated+fine space
+                        img_geom = np.rot90(st.session_state.preview_raw, k=rotation)
+                        if fine_rot != 0.0:
+                            M_f = cv2.getRotationMatrix2D((rw_r/2, rh_r/2), fine_rot, 1.0)
+                            img_geom = cv2.warpAffine(img_geom, M_f, (rw_r, rh_r))
+                        
+                        y1, y2, x1, x2 = get_autocrop_coords(img_geom, autocrop_offset, 1.0)
+                        cw, ch = x2 - x1, y2 - y1
+                        if cw > 0 and ch > 0:
+                            # Map tx, ty from full image space to [0, 1] of crop box
+                            tx = (tx * rw_r - x1) / cw
+                            ty = (ty * rh_r - y1) / ch
+                    
+                    return tx, ty
+
+                for (rx, ry) in st.session_state.manual_dust_spots:
+                    tx, ty = transform_to_display(rx, ry)
+                    # Draw only if within display bounds
+                    if 0 <= tx <= 1 and 0 <= ty <= 1:
+                        px, py = tx * pw, ty * ph
+                        draw.ellipse((px - m_rad, py - m_rad, px + m_rad, py + m_rad), outline="#ff4b4b", width=4)
+                
                 if st.session_state.get('dust_scratch_mode') and st.session_state.get('dust_start_point'):
-                    sx, sy = st.session_state.dust_start_point
-                    spx, spy = sx * pw, sy * ph
-                    draw.ellipse((spx - m_rad, spy - m_rad, spx + m_rad, spy + m_rad), outline="#f1c40f", width=4)
+                    sx, sy = transform_to_display(*st.session_state.dust_start_point)
+                    if 0 <= sx <= 1 and 0 <= sy <= 1:
+                        spx, spy = sx * pw, sy * ph
+                        draw.ellipse((spx - m_rad, spy - m_rad, spx + m_rad, spy + m_rad), outline="#f1c40f", width=4)
 
         # Contact Sheet
         render_contact_sheet(uploaded_files)
 
         # Main UI Render
-        render_image_view(pil_prev, m_r, m_g, m_b)
+        render_image_view(
+            pil_prev,
+            border_config={
+                'add_border': sidebar_data.get('add_border', False),
+                'size_cm': sidebar_data.get('border_size', 0.2),
+                'color': sidebar_data.get('border_color', '#000000'),
+                'print_width_cm': sidebar_data.get('print_width', 27.0)
+            }
+        )
         if st.sidebar.button("♻️ Reset Manual WB"):
             st.session_state.wb_manual_r, st.session_state.wb_manual_g, st.session_state.wb_manual_b = 1.0, 1.0, 1.0
             save_settings(current_file.name)
@@ -194,36 +325,13 @@ async def main():
                 cx_b, cy_b = TONE_CURVES_PRESETS[f_settings['curve_mode']]
                 cy_f = np.array(cx_b) + (np.array(cy_b) - np.array(cx_b)) * f_settings['curve_strength']
                 lx, ly = create_curve_lut(cx_b, cy_f)
-                f_params = {
-                    'mask_r': m_r, 'mask_g': m_g, 'mask_b': m_b,
-                    'wb_manual_r': f_settings.get('wb_manual_r', 1.0), 'wb_manual_g': f_settings.get('wb_manual_g', 1.0), 'wb_manual_b': f_settings.get('wb_manual_b', 1.0),
-                    'cr_balance': f_settings['cr_balance'], 'mg_balance': f_settings['mg_balance'], 'yb_balance': f_settings['yb_balance'],
-                    'shadow_cr': f_settings.get('shadow_cr', 1.0), 'shadow_mg': f_settings.get('shadow_mg', 1.0), 'shadow_yb': f_settings.get('shadow_yb', 1.0),
-                    'highlight_cr': f_settings.get('highlight_cr', 1.0), 'highlight_mg': f_settings.get('highlight_mg', 1.0), 'highlight_yb': f_settings.get('highlight_yb', 1.0),
-                    'temperature': f_settings['temperature'],
-                    'shadow_temp': f_settings.get('shadow_temp', 0.0), 'highlight_temp': f_settings.get('highlight_temp', 0.0),
-                    'gamma': f_settings.get('gamma', 2.5),
-                    'black_point': f_settings.get('black_point', 0.0),
-                    'white_point': f_settings.get('white_point', 1.0),
-                    'exposure': f_settings['exposure'], 
-                    'contrast': f_settings.get('contrast', 1.0),
-                    'grade_shadows': f_settings['grade_shadows'], 'grade_highlights': f_settings['grade_highlights'],
-                    'saturation': f_settings['saturation'],
-                    'curve_lut_x': lx, 'curve_lut_y': ly,
-                    'autocrop': f_settings['autocrop'], 'autocrop_offset': f_settings['autocrop_offset'],
-                    'dust_remove': f_settings['dust_remove'], 'dust_threshold': f_settings['dust_threshold'], 'dust_size': f_settings['dust_size'],
-                    'manual_dust_spots': f_settings.get('manual_dust_spots', []),
-                    'manual_dust_size': f_settings.get('manual_dust_size', 10),
-                    'c_noise_remove': f_settings['c_noise_remove'], 'c_noise_strength': f_settings['c_noise_strength'],
-                    'local_adjustments': f_settings.get('local_adjustments', []),
-                    'rotation': f_settings['rotation'], 'fine_rotation': f_settings.get('fine_rotation', 0.0), 'monochrome': f_settings['monochrome'],
-                    'sharpen': f_settings.get('sharpen', 0.75)
-                }
                 
-                for c in ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']:
-                    for attr in ['hue', 'sat', 'lum', 'range']:
-                        k = f"selective_{c}_{attr}"
-                        f_params[k] = f_settings.get(k, 0.0)
+                f_params = get_processing_params(f_settings, overrides={
+                    'wb_manual_r': f_settings.get('wb_manual_r', 1.0),
+                    'wb_manual_g': f_settings.get('wb_manual_g', 1.0),
+                    'wb_manual_b': f_settings.get('wb_manual_b', 1.0),
+                    'curve_lut_x': lx, 'curve_lut_y': ly
+                })
 
                 img_bytes, ext = load_raw_and_process(
                     f_current.getvalue(), 
@@ -233,7 +341,11 @@ async def main():
                     sidebar_data['print_dpi'], 
                     f_params['sharpen'],
                     save_training_data=st.session_state.get('collect_training_data', False),
-                    filename=f_current.name
+                    filename=f_current.name,
+                    add_border=sidebar_data.get('add_border', False),
+                    border_size_cm=sidebar_data.get('border_size', 1.0),
+                    border_color=sidebar_data.get('border_color', "#000000"),
+                    icc_profile_path=st.session_state.get('icc_profile_path') if sidebar_data.get('apply_icc') else None
                 )
                 if img_bytes:
                     os.makedirs(sidebar_data['export_path'], exist_ok=True)
@@ -253,37 +365,15 @@ async def main():
                     cx_b, cy_b = TONE_CURVES_PRESETS[f_settings['curve_mode']]
                     cy_f = np.array(cx_b) + (np.array(cy_b) - np.array(cx_b)) * f_settings['curve_strength']
                     lx, ly = create_curve_lut(cx_b, cy_f)
-                    f_params = {
-                        'auto_wb': f_settings['auto_wb'],
-                        'cr_balance': f_settings['cr_balance'], 'mg_balance': f_settings['mg_balance'], 'yb_balance': f_settings['yb_balance'],
-                        'shadow_cr': f_settings.get('shadow_cr', 1.0), 'shadow_mg': f_settings.get('shadow_mg', 1.0), 'shadow_yb': f_settings.get('shadow_yb', 1.0),
-                        'highlight_cr': f_settings.get('highlight_cr', 1.0), 'highlight_mg': f_settings.get('highlight_mg', 1.0), 'highlight_yb': f_settings.get('highlight_yb', 1.0),
-                        'temperature': f_settings['temperature'],
-                        'shadow_temp': f_settings.get('shadow_temp', 0.0), 'highlight_temp': f_settings.get('highlight_temp', 0.0),
-                        'gamma': f_settings.get('gamma', 2.5),
-                        'black_point': f_settings.get('black_point', 0.0),
-                        'white_point': f_settings.get('white_point', 1.0),
-                        'exposure': f_settings['exposure'], 
-                        'contrast': f_settings.get('contrast', 1.0),
-                        'grade_shadows': f_settings['grade_shadows'], 'grade_highlights': f_settings['grade_highlights'],
-                        'saturation': f_settings['saturation'],
-                        'curve_lut_x': lx, 'curve_lut_y': ly,
-                        'autocrop': f_settings['autocrop'], 'autocrop_offset': f_settings['autocrop_offset'],
-                        'dust_remove': f_settings['dust_remove'], 'dust_threshold': f_settings['dust_threshold'], 'dust_size': f_settings['dust_size'],
-                        'manual_dust_spots': f_settings.get('manual_dust_spots', []),
-                        'manual_dust_size': f_settings.get('manual_dust_size', 10),
-                        'c_noise_remove': f_settings['c_noise_remove'], 'c_noise_strength': f_settings['c_noise_strength'],
-                        'local_adjustments': f_settings.get('local_adjustments', []),
-                        'rotation': f_settings['rotation'], 'fine_rotation': f_settings.get('fine_rotation', 0.0), 'monochrome': f_settings['monochrome'],
-                        'wb_manual_r': f_settings.get('wb_manual_r', 1.0), 'wb_manual_g': f_settings.get('wb_manual_g', 1.0), 'wb_manual_b': f_settings.get('wb_manual_b', 1.0),
-                        'sharpen': f_settings.get('sharpen', 0.75)
-                    }
                     
-                    for c in ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']:
-                        for attr in ['hue', 'sat', 'lum', 'range']:
-                            k = f"selective_{c}_{attr}"
-                            f_params[k] = f_settings.get(k, 0.0)
+                    f_params = get_processing_params(f_settings, overrides={
+                        'wb_manual_r': f_settings.get('wb_manual_r', 1.0),
+                        'wb_manual_g': f_settings.get('wb_manual_g', 1.0),
+                        'wb_manual_b': f_settings.get('wb_manual_b', 1.0),
+                        'curve_lut_x': lx, 'curve_lut_y': ly
+                    })
 
+                    file_names.append(f.name)
                     tasks.append(loop.run_in_executor(
                         executor, 
                         load_raw_and_process, 
@@ -294,9 +384,22 @@ async def main():
                         sidebar_data['print_dpi'], 
                         f_params['sharpen'],
                         collect_data,
-                        f.name
+                        f.name,
+                        sidebar_data.get('add_border', False),
+                        sidebar_data.get('border_size', 1.0),
+                        sidebar_data.get('border_color', "#000000"),
+                        st.session_state.get('icc_profile_path') if sidebar_data.get('apply_icc') else None
                     ))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for fname, res in zip(file_names, results):
+                    if isinstance(res, tuple) and res[0] is not None:
+                        img_bytes, ext = res
+                        out_path = os.path.join(sidebar_data['export_path'], f"processed_{fname.rsplit('.', 1)[0]}.{ext}")
+                        with open(out_path, "wb") as out_f: out_path_final = out_f.write(img_bytes)
+                    elif isinstance(res, Exception):
+                        st.error(f"Error processing {fname}: {res}")
+                
                 st.success("Batch Processing Complete")
     else:
         st.info("Upload files to start.")

@@ -14,7 +14,7 @@ def apply_selective_color(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray
         np.ndarray: Adjusted image RGB array.
     """
     # Check if any selective adjustments are non-default to avoid unnecessary processing
-    colors = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']
+    colors = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'magenta']
     has_changes = False
     for c in colors:
         if (params.get(f'selective_{c}_hue', 0.0) != 0.0 or
@@ -25,6 +25,10 @@ def apply_selective_color(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray
     
     if not has_changes:
         return img
+
+    # Ensure float32 for OpenCV
+    if img.dtype != np.float32:
+        img = img.astype(np.float32)
 
     # Convert to HSV (OpenCV float32: H[0-360], S[0-1], V[0-1])
     hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
@@ -39,10 +43,9 @@ def apply_selective_color(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray
         'orange':  {'center': 35.0,  'width': 20.0},
         'yellow':  {'center': 60.0,  'width': 25.0},
         'green':   {'center': 120.0, 'width': 50.0},
-        'aqua':    {'center': 180.0, 'width': 30.0},
-        'blue':    {'center': 225.0, 'width': 45.0},
-        'purple':  {'center': 270.0, 'width': 30.0},
-        'magenta': {'center': 315.0, 'width': 30.0}
+        'cyan':    {'center': 180.0, 'width': 30.0},
+        'blue':    {'center': 240.0, 'width': 45.0},
+        'magenta': {'center': 300.0, 'width': 45.0}
     }
 
     for color_name, props in color_defs.items():

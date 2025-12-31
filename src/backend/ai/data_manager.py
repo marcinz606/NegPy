@@ -21,12 +21,15 @@ def save_training_sample(image_features: np.ndarray, settings: Dict[str, Any], f
     # We filter settings to only relevant targets for the AI
     # (ignoring crop, rotation, local adjustments, etc.)
     target_keys = [
-        'temperature', 'exposure', 'contrast', 'saturation', 
+        'temperature', 'exposure', 'saturation', 'color_separation',
+        'exposure_shadows', 'exposure_highlights',
+        'exposure_shadows_range', 'exposure_highlights_range',
         'cr_balance', 'mg_balance', 'yb_balance',
         'shadow_temp', 'highlight_temp',
         'shadow_cr', 'shadow_mg', 'shadow_yb',
         'highlight_cr', 'highlight_mg', 'highlight_yb',
-        'gamma', 'grade_shadows', 'grade_highlights',
+        'gamma', 'gamma_shadows', 'gamma_highlights', 
+        'gamma_shadows_range', 'gamma_highlights_range',
         'black_point', 'white_point'
     ]
     

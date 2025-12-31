@@ -31,15 +31,18 @@ def init_session_state() -> None:
         st.session_state.pick_wb = False
     if 'collect_training_data' not in st.session_state:
         st.session_state.collect_training_data = True
+    if 'icc_profile_path' not in st.session_state:
+        st.session_state.icc_profile_path = None
 
-def load_settings(file_name: str) -> None:
+def load_settings(file_name: str) -> bool:
     """
     Loads settings for the given file into session state widgets.
     Attempts to pull from local session cache first, then the SQLite database.
     
-    Args:
-        file_name (str): The name of the file to load settings for.
+    Returns:
+        bool: True if this is a first-time load (no previous settings), False otherwise.
     """
+    is_new = False
     if file_name in st.session_state.file_settings:
         settings = st.session_state.file_settings[file_name]
     else:
@@ -51,6 +54,7 @@ def load_settings(file_name: str) -> None:
             settings = DEFAULT_SETTINGS.copy()
             settings['manual_dust_spots'] = []
             settings['local_adjustments'] = []
+            is_new = True
         st.session_state.file_settings[file_name] = settings
     
     # Ensure independent list objects for dust spots and local adjustments
@@ -70,6 +74,7 @@ def load_settings(file_name: str) -> None:
         st.session_state[key] = value
     
     st.session_state.bw_points = (settings.get('black_point', 0.0), settings.get('white_point', 1.0))
+    return is_new
 
 def save_settings(file_name: str) -> None:
     """

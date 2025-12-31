@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from src.backend.config import APP_CONFIG
 
 def apply_fine_rotation(img: np.ndarray, angle: float) -> np.ndarray:
@@ -23,6 +23,48 @@ def apply_fine_rotation(img: np.ndarray, angle: float) -> np.ndarray:
     M = cv2.getRotationMatrix2D(center, angle, 1.0)
     return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
 
+def get_autocrop_coords(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.0) -> Tuple[int, int, int, int]:
+    """
+    Calculates the autocrop coordinates.
+    Returns (y1, y2, x1, x2) in pixels relative to input img.
+    """
+    if img.ndim == 2:
+        img = np.stack([img] * 3, axis=-1)
+    h, w, _ = img.shape
+    detect_res = APP_CONFIG['autocrop_detect_res']
+    det_scale = detect_res / max(h, w)
+    img_small = cv2.resize(img, (int(w * det_scale), int(h * det_scale)), interpolation=cv2.INTER_AREA)
+    lum = 0.2126 * img_small[:,:,0] + 0.7152 * img_small[:,:,1] + 0.0722 * img_small[:,:,2]
+    
+    # Threshold for film base detection (detecting darker frame)
+    rows_det = np.where(np.mean(lum, axis=1) < 0.96)[0]
+    cols_det = np.where(np.mean(lum, axis=0) < 0.96)[0]
+    
+    if len(rows_det) < 10 or len(cols_det) < 10: 
+        return 0, h, 0, w
+        
+    y1, y2 = rows_det[0] / det_scale, rows_det[-1] / det_scale
+    x1, x2 = cols_det[0] / det_scale, cols_det[-1] / det_scale
+    
+    margin = (2 + offset_px) * scale_factor
+    y1, y2, x1, x2 = y1 + margin, y2 - margin, x1 + margin, x2 - margin
+    cw, ch = x2 - x1, y2 - y1
+    
+    if cw <= 0 or ch <= 0: 
+        return 0, h, 0, w
+        
+    ratio = 2/3 if ch > cw else 3/2
+    if cw / ch > ratio:
+        target_w = ch * ratio
+        x1 = x1 + (cw - target_w) // 2
+        x2 = x1 + target_w
+    else:
+        target_h = cw / ratio
+        y1 = y1 + (ch - target_h) // 2
+        y2 = y1 + target_h
+        
+    return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
+
 def apply_autocrop(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.0) -> np.ndarray:
     """
     Detects film edges and automatically crops the image to the 2:3 or 3:2 frame.
@@ -35,32 +77,8 @@ def apply_autocrop(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.
     Returns:
         np.ndarray: Cropped image array.
     """
-    if img.ndim == 2:
-        img = np.stack([img] * 3, axis=-1)
-    h, w, _ = img.shape
-    detect_res = APP_CONFIG['autocrop_detect_res']
-    det_scale = detect_res / max(h, w)
-    img_small = cv2.resize(img, (int(w * det_scale), int(h * det_scale)), interpolation=cv2.INTER_AREA)
-    lum = 0.2126 * img_small[:,:,0] + 0.7152 * img_small[:,:,1] + 0.0722 * img_small[:,:,2]
-    rows_det = np.where(np.mean(lum, axis=1) < 0.96)[0]
-    cols_det = np.where(np.mean(lum, axis=0) < 0.96)[0]
-    if len(rows_det) < 10 or len(cols_det) < 10: return img
-    y1, y2 = rows_det[0] / det_scale, rows_det[-1] / det_scale
-    x1, x2 = cols_det[0] / det_scale, cols_det[-1] / det_scale
-    margin = (2 + offset_px) * scale_factor
-    y1, y2, x1, x2 = y1 + margin, y2 - margin, x1 + margin, x2 - margin
-    cw, ch = x2 - x1, y2 - y1
-    if cw <= 0 or ch <= 0: return img
-    ratio = 2/3 if ch > cw else 3/2
-    if cw / ch > ratio:
-        target_w = ch * ratio
-        x1 = x1 + (cw - target_w) // 2
-        x2 = x1 + target_w
-    else:
-        target_h = cw / ratio
-        y1 = y1 + (ch - target_h) // 2
-        y2 = y1 + target_h
-    return img[max(0, int(y1)):min(h, int(y2)), max(0, int(x1)):min(w, int(x2))]
+    y1, y2, x1, x2 = get_autocrop_coords(img, offset_px, scale_factor)
+    return img[y1:y2, x1:x2]
 
 def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: float) -> np.ndarray:
     """
@@ -147,7 +165,8 @@ def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: fl
 
 def apply_chroma_noise_removal(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """
-    Reduces color noise in the shadows using bilateral filtering in LAB space.
+    Reduces color noise using bilateral filtering and specific deep-shadow blurring in LAB space.
+    Targets shadows aggressively where film scan color noise is most prevalent.
     
     Args:
         img (np.ndarray): Input image array (float [0, 1]).
@@ -158,15 +177,52 @@ def apply_chroma_noise_removal(img: np.ndarray, params: Dict[str, Any]) -> np.nd
     """
     if not params.get('c_noise_remove'):
         return img
+        
+    strength = params.get('c_noise_strength', 50)
+    if strength <= 0:
+        return img
+
     img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
     lab = cv2.cvtColor(img_u8, cv2.COLOR_RGB2LAB)
     l, a, b = cv2.split(lab)
-    strength = params.get('c_noise_strength', 20)
-    a_denoised = cv2.bilateralFilter(a, 5, strength * 2, strength // 2)
-    b_denoised = cv2.bilateralFilter(b, 5, strength * 2, strength // 2)
-    shadow_mask = np.clip(1.0 - (l.astype(np.float32) / 128.0), 0, 1)
-    shadow_mask = cv2.GaussianBlur(shadow_mask, (15, 15), 0)
-    a_final = np.clip(np.nan_to_num(a.astype(np.float32) * (1.0 - shadow_mask) + a_denoised.astype(np.float32) * shadow_mask), 0, 255).astype(np.uint8)
-    b_final = np.clip(np.nan_to_num(b.astype(np.float32) * (1.0 - shadow_mask) + b_denoised.astype(np.float32) * shadow_mask), 0, 255).astype(np.uint8)
+    
+    # 1. Bilateral Filter (Base Denoising)
+    # Stronger parameters to smooth out mottling
+    d = 9
+    sc = strength * 2.0  # Increased color sigma
+    ss = strength * 0.75 # Increased spatial sigma
+    
+    a_bilat = cv2.bilateralFilter(a, d, sc, ss)
+    b_bilat = cv2.bilateralFilter(b, d, sc, ss)
+    
+    # 2. Strong Blur for Deep Shadows (The "Nuclear Option" for dark noise)
+    # Bilateral can fail on very grainy darks, preserving the noise as "texture".
+    # We blur the color channels aggressively in the deep blacks.
+    k_size = 11 if strength > 50 else 7
+    a_blur = cv2.GaussianBlur(a_bilat, (k_size, k_size), 0)
+    b_blur = cv2.GaussianBlur(b_bilat, (k_size, k_size), 0)
+    
+    l_float = l.astype(np.float32)
+    
+    # Deep Shadow Mask: 1.0 at L=0, fades to 0.0 at L=60 (~23%)
+    deep_mask = np.clip(1.0 - (l_float / 60.0), 0.0, 1.0)
+    deep_mask = deep_mask * deep_mask # Quadratic falloff to keep it tight to blacks
+    
+    # Blend Blur into Bilateral
+    a_combined = a_bilat.astype(np.float32) * (1.0 - deep_mask) + a_blur.astype(np.float32) * deep_mask
+    b_combined = b_bilat.astype(np.float32) * (1.0 - deep_mask) + b_blur.astype(np.float32) * deep_mask
+
+    # 3. Broad Masking (Application to Image)
+    # Apply to Shadows and Midtones, protecting only bright Highlights
+    # 1.0 at L=0..150, fades to 0 at L=230 (~90%)
+    broad_mask = np.clip(1.0 - ((l_float - 150.0) / 80.0), 0.0, 1.0)
+    
+    # Smooth the mask to avoid transitions
+    broad_mask = cv2.GaussianBlur(broad_mask, (21, 21), 0)
+    
+    # Final Blend
+    a_final = np.clip(a.astype(np.float32) * (1.0 - broad_mask) + a_combined * broad_mask, 0, 255).astype(np.uint8)
+    b_final = np.clip(b.astype(np.float32) * (1.0 - broad_mask) + b_combined * broad_mask, 0, 255).astype(np.uint8)
+    
     img = cv2.cvtColor(cv2.merge([l, a_final, b_final]), cv2.COLOR_LAB2RGB).astype(np.float32) / 255.0
     return img
