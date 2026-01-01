@@ -14,9 +14,6 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
     """
     Renders the main image viewport and handles coordinate-based interaction.
     """
-    # Remove rounded corners from images
-    st.markdown("<style>img { border-radius: 0px !important; }</style>", unsafe_allow_html=True)
-
     border_px = 0
     orig_w, orig_h = pil_prev.size
 
@@ -131,6 +128,10 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
     # Main UI Render
     c1, c2, c3 = st.columns([1, 6, 1])
     with c2:
+        if st.session_state.uploaded_files:
+            current_file = st.session_state.uploaded_files[st.session_state.selected_file_idx]
+            st.subheader(current_file.name)
+
         is_dust_mode = st.session_state.get('pick_dust', False)
         display_width = APP_CONFIG['display_width']
         img_display = pil_prev.copy()

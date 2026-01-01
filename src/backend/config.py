@@ -30,8 +30,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     'saturation_highlights': 1.0,
     'autocrop': True,
     'autocrop_offset': 5,
-    'autocrop_ratio': '3:2',
-    'process_mode': 'C41',
+    'autocrop_ratio': "3:2",
+    'export_color_space': "sRGB",
+    'process_mode': "C41",
     'manual_dust_spots': [],
     'manual_dust_size': 4,
     'local_adjustments': [],
@@ -45,8 +46,10 @@ APP_CONFIG: Dict[str, Any] = {
     'display_width': 1500,
     'thumbnail_size': 120,
     'max_workers': 8,
-    'db_path': "settings.db",
-    'presets_dir': "presets",
+    'edits_db_path': "user/edits.db",
+    'settings_db_path': "user/settings.db",
+    'presets_dir': "user/presets",
     'default_export_dir': "processed",
-    'autocrop_detect_res': 1500
+    'autocrop_detect_res': 1500,
+    'adobe_rgb_profile': "icc/AdobeCompat-v4.icc"
 }

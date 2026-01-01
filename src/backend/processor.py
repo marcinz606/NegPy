@@ -1,16 +1,14 @@
 import numpy as np
-import cv2
 import rawpy
 import io
 import os
 import traceback
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageCms
+from PIL import Image, ImageOps, ImageCms
 from typing import Dict, Any, Tuple, Optional
 
-from src.backend.utils import apply_color_separation
+from src.backend.image_logic.post import apply_post_color_grading, apply_output_sharpening
 from src.backend.config import APP_CONFIG
 from src.backend.image_logic.color import (
-    get_luminance,
     apply_shadow_desaturation,
     calculate_auto_mask_wb, 
     apply_manual_color_balance_neg,
@@ -39,16 +37,21 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """
     if img.ndim == 2:
         img = np.stack([img] * 3, axis=-1)
+    elif img.ndim == 3 and img.shape[2] == 1:
+        img = np.concatenate([img] * 3, axis=-1)
 
     h_orig, w_cols = img.shape[:2]
     scale_factor = max(h_orig, w_cols) / float(APP_CONFIG['preview_max_res'])
 
+    is_bw = params.get('process_mode') == 'B&W'
+
     # 1. White Balance (Dichroic Filtration - APPLIED FIRST)
-    # This mimics the filtered light source of an enlarger.
-    img[:, :, 0] *= params.get('wb_manual_r', 1.0)
-    img[:, :, 1] *= params.get('wb_manual_g', 1.0)
-    img[:, :, 2] *= params.get('wb_manual_b', 1.0)
-    img = np.clip(img, 0, 1)
+    # Only apply filtration in color mode.
+    if not is_bw:
+        img[:, :, 0] *= params.get('wb_manual_r', 1.0)
+        img[:, :, 1] *= params.get('wb_manual_g', 1.0)
+        img[:, :, 2] *= params.get('wb_manual_b', 1.0)
+        img = np.clip(img, 0, 1)
 
     # 2. Normalization & Scanner Gain
     # We identify the mask level AFTER filtration.
@@ -66,6 +69,11 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
         shadow_bases=shadow_bases
     )
     img = np.clip(img, 0, 1)
+
+    # If B&W mode, convert to monochrome base BEFORE toning
+    if is_bw and img.shape[2] == 3:
+        gray = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
+        img = np.stack([gray, gray, gray], axis=2)
 
     # 3. Paper Toning (Negative Domain)
     img = apply_manual_color_balance_neg(img, params)
@@ -105,21 +113,23 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     if params.get('autocrop'):
         img = apply_autocrop(img, offset_px=params.get('autocrop_offset', 0), scale_factor=scale_factor, ratio=params.get('autocrop_ratio', '3:2'))
 
-    if params.get('process_mode') == 'B&W':
-        gray = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
-        img = np.stack([gray, gray, gray], axis=2)
-
     return img
 
-def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_format: str, print_width_cm: float, dpi: int, sharpen_amount: float, filename: str = "", add_border: bool = False, border_size_cm: float = 1.0, border_color: str = "#000000", icc_profile_path: Optional[str] = None) -> Tuple[Optional[bytes], str]:
+def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_format: str, print_width_cm: float, dpi: int, sharpen_amount: float, filename: str = "", add_border: bool = False, border_size_cm: float = 1.0, border_color: str = "#000000", icc_profile_path: Optional[str] = None, color_space: str = "Adobe RGB") -> Tuple[Optional[bytes], str]:
     """
     Worker function for processing a RAW file to a final output format (JPEG/TIFF).
     """
     try:
+        # Determine Rawpy Output Color Space
+        # 0=raw, 1=sRGB, 2=Adobe, 3=Wide, 4=ProPhoto, 5=XYZ, 6=ACES
+        raw_color_space = rawpy.ColorSpace.sRGB
+        if color_space == "Adobe RGB":
+            raw_color_space = rawpy.ColorSpace.Adobe
+            
         with rawpy.imread(io.BytesIO(file_bytes)) as raw:
             # PURE RAW: Use [1,1,1,1] to see the full physical orange mask.
             # This is essential for our darkroom-style analytical WB to work.
-            rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16)
+            rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16, output_color=raw_color_space)
             if rgb.ndim == 2:
                 rgb = np.stack([rgb] * 3, axis=-1)
         img = rgb.astype(np.float32) / 65535.0
@@ -133,15 +143,7 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
         pil_img = Image.fromarray(img_uint8)
         
-        if params.get('process_mode') != 'B&W':
-            img_arr = np.array(pil_img)
-            img_sep = apply_color_separation(img_arr, params.get('color_separation', 1.0))
-            pil_img = Image.fromarray(img_sep)
-            
-            sat = params.get('saturation', 1.0)
-            if sat != 1.0:
-                enhancer = ImageEnhance.Color(pil_img)
-                pil_img = enhancer.enhance(sat)
+        pil_img = apply_post_color_grading(pil_img, params)
 
         # Resizing
         side_inch = print_width_cm / 2.54
@@ -159,27 +161,42 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
         pil_img = pil_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
         
         # Sharpening
-        if sharpen_amount > 0:
-            img_lab = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2LAB)
-            l, a, b = cv2.split(img_lab)
-            l_pil = Image.fromarray(l)
-            l_sharpened = l_pil.filter(ImageFilter.UnsharpMask(radius=1.0, percent=int(sharpen_amount * 250), threshold=5))
-            img_lab_sharpened = cv2.merge([np.array(l_sharpened), a, b])
-            pil_img = Image.fromarray(cv2.cvtColor(img_lab_sharpened, cv2.COLOR_LAB2RGB))
+        pil_img = apply_output_sharpening(pil_img, sharpen_amount)
 
-        if params.get('process_mode') == 'B&W':
+        # Force Greyscale if requested or if B&W and NOT toned
+        is_bw = params.get('is_bw', False)
+        is_toned = (params.get('temperature', 0.0) != 0.0 or 
+                    params.get('shadow_temp', 0.0) != 0.0 or 
+                    params.get('highlight_temp', 0.0) != 0.0)
+        
+        if color_space == "Greyscale" or (is_bw and not is_toned):
             pil_img = pil_img.convert("L")
 
-        # ICC
+        # ICC Profile Handling
         target_icc_bytes = None
+        
+        # 1. Custom Soft-Proofing Profile (User uploaded)
         if icc_profile_path and os.path.exists(icc_profile_path):
             try:
                 src_profile = ImageCms.createProfile("sRGB")
+                if color_space == "Adobe RGB" and os.path.exists(APP_CONFIG.get('adobe_rgb_profile', '')):
+                     src_profile = ImageCms.getOpenProfile(APP_CONFIG['adobe_rgb_profile'])
+                     
                 dst_profile = ImageCms.getOpenProfile(icc_profile_path)
-                if pil_img.mode != 'RGB': pil_img = pil_img.convert('RGB')
+                if pil_img.mode != 'RGB':
+                    pil_img = pil_img.convert('RGB')
                 pil_img = ImageCms.profileToProfile(pil_img, src_profile, dst_profile, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode='RGB', flags=ImageCms.Flags.BLACKPOINTCOMPENSATION)
-                with open(icc_profile_path, "rb") as f: target_icc_bytes = f.read()
-            except Exception as e: print(f"ICC Error: {e}")
+                with open(icc_profile_path, "rb") as f:
+                    target_icc_bytes = f.read()
+            except Exception as e:
+                print(f"ICC Error: {e}")
+            
+        # 2. Standard Color Space Tagging (if no custom profile applied)
+        elif color_space == "Adobe RGB":
+            adobe_path = APP_CONFIG.get('adobe_rgb_profile')
+            if adobe_path and os.path.exists(adobe_path):
+                with open(adobe_path, "rb") as f:
+                    target_icc_bytes = f.read()
 
         if add_border and border_px > 0:
             pil_img = ImageOps.expand(pil_img, border=border_px, fill=border_color)

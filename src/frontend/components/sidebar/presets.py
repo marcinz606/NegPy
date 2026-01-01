@@ -6,7 +6,7 @@ def render_presets(current_file_name: str):
     """
     Renders the Presets expander.
     """
-    with st.expander("Presets"):
+    with st.expander(":material/pages: Presets"):
         presets = list_presets()
         c1, c2 = st.columns([2, 1])
         selected_p = c1.selectbox("Select Preset", presets, label_visibility="collapsed")

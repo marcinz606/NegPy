@@ -43,23 +43,22 @@ def render_navigation(uploaded_files: List[Any]):
     """
     Renders the navigation buttons, rotation, and file removal/reset actions.
     """
-    st.button("-> Next", key="next_btn_s", use_container_width=True, 
+    st.button("-> Next", key="next_btn_s", width='stretch', 
             disabled=st.session_state.selected_file_idx == len(uploaded_files) - 1,
             on_click=change_file, args=(st.session_state.selected_file_idx + 1, uploaded_files))
-    st.button("<- Previous", key="prev_btn_s", use_container_width=True, 
+    st.button("<- Previous", key="prev_btn_s", width='stretch', 
             disabled=st.session_state.selected_file_idx == 0,
             on_click=change_file, args=(st.session_state.selected_file_idx - 1, uploaded_files))
     
-    st.button(":material/rotate_left: Rotate Left", key="rot_l_s", use_container_width=True,
+    st.button(":material/rotate_left: Rotate Left", key="rot_l_s", width='stretch',
               on_click=rotate_file, args=(1, uploaded_files))
-    st.button(":material/rotate_right: Rotate Right", key="rot_r_s", use_container_width=True,
+    st.button(":material/rotate_right: Rotate Right", key="rot_r_s", width='stretch',
               on_click=rotate_file, args=(-1, uploaded_files))
 
     f_idx = st.session_state.selected_file_idx
-    f_current = uploaded_files[f_idx]
     
-    export_btn_sidebar = st.button(":material/save: Export", key="export_s", use_container_width=True, type="primary")
-    st.button(":material/delete: Remove", key="unload_s", use_container_width=True, type="secondary",
+    st.button(":material/delete: Skip/Remove", key="unload_s", width='stretch', type="secondary",
                 on_click=unload_file, args=(f_idx, uploaded_files))
+    export_btn_sidebar = st.button(":material/save: Export", key="export_s", width='stretch', type="primary")
     
     return export_btn_sidebar

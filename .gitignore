@@ -1,5 +1,5 @@
 processed/*
-data/training_vectors/*
-models/*
+user/edits.db
+user/presets/*
 __pycache__
-settings.db
+venv/

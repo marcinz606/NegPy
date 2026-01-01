@@ -165,12 +165,13 @@ def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: fl
             cv2.circle(manual_mask_u8, (px, py), m_radius, 255, -1)
         
         img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
-        img_inpainted_u8 = cv2.inpaint(img_u8, manual_mask_u8, 3, cv2.INPAINT_TELEA)
+        inpaint_rad = int(3 * scale_factor) | 1
+        img_inpainted_u8 = cv2.inpaint(img_u8, manual_mask_u8, inpaint_rad, cv2.INPAINT_TELEA)
         
         # Grain Matching
-        noise = np.random.normal(0, 1.8, img_inpainted_u8.shape).astype(np.float32)
+        noise = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
         lum = (0.2126 * img_inpainted_u8[:,:,0] + 0.7152 * img_inpainted_u8[:,:,1] + 0.0722 * img_inpainted_u8[:,:,2]) / 255.0
-        modulation = 4.0 * lum * (1.0 - lum)
+        modulation = 5.0 * lum * (1.0 - lum)
         noise = noise * modulation[:,:,None]
         
         mask_f = (manual_mask_u8.astype(np.float32) / 255.0)[:,:,None]

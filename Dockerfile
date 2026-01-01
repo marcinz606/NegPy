@@ -4,10 +4,16 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libgl1
+    libgl1 \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Download open source AdobeRGB profile as we don't want to deal with proprietary Adobe files :)
+RUN mkdir -p icc && \
+    wget -O icc/AdobeCompat-v4.icc https://raw.githubusercontent.com/saucecontrol/Compact-ICC-Profiles/master/profiles/AdobeCompat-v4.icc
 
 COPY . .
 

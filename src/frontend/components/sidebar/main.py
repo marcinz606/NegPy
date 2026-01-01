@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 from src.frontend.state import load_settings, copy_settings, paste_settings
 from .adjustments import render_adjustments
 
@@ -46,7 +46,8 @@ def render_sidebar_content(uploaded_files: List[Any]) -> Dict[str, Any]:
         c1, c2 = st.columns(2)
 
 
-        if not uploaded_files: return {}
+        if not uploaded_files:
+            return {}
         
         current_file_name = uploaded_files[st.session_state.selected_file_idx].name
         
@@ -68,7 +69,7 @@ def render_sidebar_content(uploaded_files: List[Any]) -> Dict[str, Any]:
 
         # 5. Color Management (ICC Profiles)
         st.subheader("Soft Proofing")
-        icc_files = [f for f in os.listdir("profiles") if f.lower().endswith(('.icc', '.icm'))]
+        icc_files = [f for f in os.listdir("icc") if f.lower().endswith(('.icc', '.icm'))]
         
         selected_icc = st.selectbox("ICC Profile", ["None"] + icc_files, 
                                     index=0 if st.session_state.icc_profile_path is None 

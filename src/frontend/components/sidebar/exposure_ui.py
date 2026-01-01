@@ -17,17 +17,23 @@ def render_exposure_section():
         if k not in st.session_state:
             st.session_state[k] = 0
 
+    is_bw = st.session_state.get('process_mode') == 'B&W'
+
     with st.expander(":material/camera: Exposure & Tonality", expanded=True):
-        st.caption("Film Base Neutralization (CMY Filtration)")
-        # Full-width stacked sliders with color-coded labels
-        st.slider(":blue-badge[Cyan]", 0.0, 170.0, 0.0, 0.5, key="wb_cyan", help="Adds Cyan filtration (removes Red cast).")
-        st.slider(":violet-badge[Magenta]", 0.0, 170.0, 0.0, 0.5, key="wb_magenta", help="Adds Magenta filtration (removes Green cast).")
-        st.slider(":orange-badge[Yellow]", 0.0, 170.0, 0.0, 0.5, key="wb_yellow", help="Adds Yellow filtration (removes Blue cast).")
+        if not is_bw:
+            st.caption("Film Base Neutralization (CMY Filtration)")
+            # Full-width stacked sliders with color-coded labels
+            st.slider(":blue-badge[Cyan]", 0.0, 170.0, 0.0, 0.5, key="wb_cyan",
+                      help="Adds Cyan filtration (removes Red cast). Like in darkroom, you SHOULD NOT be touching this unless you know what you are doing :)")
+            st.slider(":violet-badge[Magenta]", 0.0, 170.0, 0.0, 0.5, key="wb_magenta",
+                      help="Adds Magenta filtration (removes Green cast).")
+            st.slider(":orange-badge[Yellow]", 0.0, 170.0, 0.0, 0.5, key="wb_yellow",
+                      help="Adds Yellow filtration (removes Blue cast).")
 
         # Primary Print Controls
         st.slider(
             "Grade", 
-            0.0, 5.0, 2.5, 0.01, 
+            0.0, 5.0, 2.5, 0.05, 
             format="%.2f", 
             key="grade", 
             help="Unified Exposure and Contrast control. Mimics darkroom Variable Contrast (VC) paper grades. Higher values darken the print, increase contrast, and recover highlight detail."
@@ -47,8 +53,7 @@ def render_exposure_section():
             key="scan_gain_h_shoulder",
             help="Controls the roll-off of the whites, recovering peak highlight detail."
         )
-        
-        st.slider("Shadow Desaturation (Auto)", 0.0, 1.0, 1.0, 0.05, help="Prevents oversaturated shadows when lifting them.", key="shadow_desat_strength")
+
 
 
 

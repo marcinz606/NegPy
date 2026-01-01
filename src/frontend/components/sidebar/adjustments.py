@@ -7,6 +7,7 @@ from src.frontend.components.sidebar.helpers import apply_wb_gains_to_sliders
 from src.frontend.components.sidebar.exposure_ui import render_exposure_section
 from src.frontend.components.sidebar.color_ui import render_color_section
 from src.frontend.components.sidebar.retouch_ui import render_retouch_section
+from src.frontend.components.sidebar.export import render_export_section
 from src.frontend.components.sidebar.presets import render_presets
 from src.backend.image_logic.exposure import calculate_auto_exposure_params
 
@@ -45,23 +46,35 @@ def run_auto_density(current_file_name: str):
         
         save_settings(current_file_name)
 
+def reset_wb_settings(current_file_name: str):
+    """
+    Resets Cyan, Magenta, and Yellow sliders to 0.
+    """
+    st.session_state.wb_cyan = 0
+    st.session_state.wb_magenta = 0
+    st.session_state.wb_yellow = 0
+    save_settings(current_file_name)
+
 def render_adjustments(current_file_name: str):
     """
     Renders the various image adjustment expanders by delegating to sub-components.
     """
     # --- Top Controls ---
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-    c1.selectbox("Mode", ["C41", "B&W"], key="process_mode", label_visibility="collapsed")
-    c2.button(":material/wb_auto: Auto-WB", on_click=run_auto_wb, args=(current_file_name,), use_container_width=True)
-    c3.button(":material/exposure: Auto-D", on_click=run_auto_density, args=(current_file_name,), use_container_width=True, help="Automatically solves for the optimal Density and Shoulder settings based on negative dynamics.")
-    c4.button(":material/reset_image: Reset", key="reset_s", on_click=reset_file_settings, args=(current_file_name,), use_container_width=True, type="secondary")
+    mode = st.selectbox("Processing Mode", ["C41", "B&W"], key="process_mode", on_change=reset_wb_settings, args=(current_file_name,), help="Choose processing mode between Color Negative (C41) and B&W Negative")
+    c1, c2, c3 = st.columns(3)
+    is_bw = (mode == "B&W")
+    
+    c1.button(":material/wb_auto: Auto-WB", on_click=run_auto_wb, args=(current_file_name,), width='stretch', disabled=is_bw, help="Tries to neutralize color negative film mask by adjusting magenta and yellow filters.")
+    c2.button(":material/exposure: Auto-D", on_click=run_auto_density, args=(current_file_name,), width='stretch', help="Automatically solves for the optimal Density and Shoulder settings based on negative dynamics.")
+    c3.button(":material/reset_image: Reset", key="reset_s", on_click=reset_file_settings, args=(current_file_name,), width='stretch', type="secondary", help="Reset all settings for this negative to defaults.")
 
 
-    c_geo1, c_geo2, c_geo3, c_geo4 = st.columns([1, 1, 1, 1])
-    c_geo1.checkbox("Auto-Crop", key="autocrop")
-    c_geo2.selectbox("Ratio", ["3:2", "4:3", "5:4", "6:7", "1:1", "65:24"], key="autocrop_ratio", label_visibility="collapsed")
-    c_geo3.slider("Crop Offset", 0, 100, 1, 1, key="autocrop_offset")
-    c_geo4.slider("Rotate (°)", -5.0, 5.0, 0.0, 0.05, key="fine_rotation")
+    autocrop = st.checkbox("Auto-Crop", key="autocrop", help="Automatically detect film borders and crop to desired aspect ratio.")
+    if autocrop:
+        c_geo1, c_geo2, c_geo3 = st.columns(3)
+        c_geo1.selectbox("Ratio", ["3:2", "4:3", "5:4", "6:7", "1:1", "65:24"], key="autocrop_ratio", label_visibility="collapsed", help="Aspect ratio to crop to.")
+        c_geo2.slider("Crop Offset", 0, 100, 1, 1, key="autocrop_offset", help="Buffer/offset (pixels) to crop beyond automatically detected border, might be useful when border is uneven.")
+        c_geo3.slider("Rotate (°)", -5.0, 5.0, 0.0, 0.05, key="fine_rotation")
 
     render_presets(current_file_name)
 
@@ -76,4 +89,7 @@ def render_adjustments(current_file_name: str):
         render_local_adjustments()
     
     # 4. Retouch & Export
-    return render_retouch_section(current_file_name)
+    retouch_data = render_retouch_section(current_file_name)
+    export_data = render_export_section()
+    
+    return {**retouch_data, **export_data}

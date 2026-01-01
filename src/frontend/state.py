@@ -1,8 +1,23 @@
 import streamlit as st
 from typing import Dict, Any, Optional
 from src.backend.config import DEFAULT_SETTINGS
-from src.backend.db import db_save_file_settings, db_load_file_settings
+from src.backend.db import (
+    db_save_file_settings, 
+    db_load_file_settings,
+    db_save_global_setting,
+    db_get_global_setting
+)
 import numpy as np
+
+# Keys that should persist globally across all files if no specific edits exist
+GLOBAL_PERSIST_KEYS = {
+    'process_mode', 
+    'wb_cyan', 'wb_magenta', 'wb_yellow',
+    'temperature', 'shadow_temp', 'highlight_temp',
+    'export_fmt', 'export_color_space', 'export_size', 'export_dpi',
+    'export_add_border', 'export_border_size', 'export_border_color', 
+    'export_path', 'sharpen'
+}
 
 def init_session_state() -> None:
     """
@@ -11,6 +26,25 @@ def init_session_state() -> None:
     """
     if 'file_settings' not in st.session_state:
         st.session_state.file_settings = {}
+    
+    # Load Global Settings from DB into Session State
+    for key in GLOBAL_PERSIST_KEYS:
+        if key not in st.session_state:
+            # Fallback to DEFAULT_SETTINGS if not in DB
+            default_val = DEFAULT_SETTINGS.get(key)
+            # Some export keys might not be in DEFAULT_SETTINGS, handle those
+            if default_val is None:
+                if key == 'export_fmt': default_val = 'JPEG'
+                elif key == 'export_color_space': default_val = 'sRGB'
+                elif key == 'export_size': default_val = 27.0
+                elif key == 'export_dpi': default_val = 300
+                elif key == 'export_add_border': default_val = True
+                elif key == 'export_border_size': default_val = 0.25
+                elif key == 'export_border_color': default_val = '#000000'
+                elif key == 'export_path': default_val = 'processed'
+            
+            st.session_state[key] = db_get_global_setting(key, default_val)
+
     if 'uploaded_files' not in st.session_state:
         st.session_state.uploaded_files = []
     if 'last_uploaded_names' not in st.session_state:
@@ -46,6 +80,11 @@ def load_settings(file_name: str) -> bool:
             settings.update(db_settings)
         else:
             settings = DEFAULT_SETTINGS.copy()
+            # Apply current global settings for new files
+            for key in GLOBAL_PERSIST_KEYS:
+                if key in st.session_state:
+                    settings[key] = st.session_state[key]
+            
             settings['manual_dust_spots'] = []
             settings['local_adjustments'] = []
             is_new = True
@@ -70,7 +109,7 @@ def load_settings(file_name: str) -> bool:
 def save_settings(file_name: str) -> None:
     """
     Saves current widget values to the file's settings dict and persists to the SQLite DB.
-    Also collects training data if enabled.
+    Also updates global settings DB.
     
     Args:
         file_name (str): The name of the file to save settings for.
@@ -88,6 +127,15 @@ def save_settings(file_name: str) -> None:
                 st.session_state.file_settings[file_name][key] = list(val)
             else:
                 st.session_state.file_settings[file_name][key] = val
+            
+            # Persist global settings
+            if key in GLOBAL_PERSIST_KEYS:
+                db_save_global_setting(key, val)
+    
+    # Handle export keys that might not be in DEFAULT_SETTINGS
+    for key in GLOBAL_PERSIST_KEYS:
+        if key not in DEFAULT_SETTINGS and key in st.session_state:
+            db_save_global_setting(key, st.session_state[key])
     
     db_save_file_settings(file_name, st.session_state.file_settings[file_name])
 

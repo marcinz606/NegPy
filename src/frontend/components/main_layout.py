@@ -17,7 +17,7 @@ def render_main_layout(uploaded_files: List[Any], pil_prev: Image.Image, sidebar
 
     with main_col1:
         export_btn_sidebar = render_navigation(uploaded_files)
-        st.pyplot(plot_histogram(np.array(pil_prev.convert("RGB")), figsize=(3, 1.8), dpi=150), use_container_width=True)
+        st.pyplot(plot_histogram(np.array(pil_prev.convert("RGB")), figsize=(3, 1.8), dpi=150), width='stretch')
         render_contact_sheet(uploaded_files)
 
     with main_col2:

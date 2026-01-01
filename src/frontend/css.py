@@ -6,6 +6,10 @@ def apply_custom_css():
     """
     st.markdown("""
         <style>
+        /* Don't round the borders in preview */
+        img { border-radius: 0px !important; }
+
+        /* Hide default streamlit 'deploy' button */
         .stDeployButton {
             visibility: hidden;
         }

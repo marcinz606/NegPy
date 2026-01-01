@@ -6,26 +6,22 @@ import os
 import asyncio
 import concurrent.futures
 import cv2
-import traceback
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageCms
 from typing import Dict, Any, Optional
 
 from src.backend.config import DEFAULT_SETTINGS, APP_CONFIG
-from src.backend.utils import apply_color_separation, get_thumbnail_worker
+from src.backend.utils import get_thumbnail_worker
 from src.backend.db import init_db
 from src.backend.image_logic.retouch import get_autocrop_coords
+from src.backend.image_logic.post import apply_post_color_grading, apply_output_sharpening
 from src.backend.processor import (
     process_image_core, 
     load_raw_and_process, 
-    calculate_auto_mask_wb
 )
 from src.frontend.state import init_session_state, load_settings, save_settings
 from src.frontend.css import apply_custom_css
 from src.frontend.components.sidebar.main import render_file_manager, render_sidebar_content
 from src.frontend.components.main_layout import render_main_layout
-from src.frontend.components.sidebar.adjustments import run_auto_wb, run_auto_density
-from src.frontend.components.image_view import render_image_view
-from src.frontend.components.contact_sheet import render_contact_sheet
 
 def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = None) -> Dict[str, Any]:
     """
@@ -91,6 +87,7 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
         'rotation': source.get('rotation', 0),
         'fine_rotation': source.get('fine_rotation', 0.0),
         'process_mode': source.get('process_mode', 'C41'),
+        'is_bw': source.get('process_mode') == 'B&W',
         'auto_wb': source.get('auto_wb', False),
         'sharpen': source.get('sharpen', 0.75)
     }
@@ -117,11 +114,18 @@ async def main():
         save_settings(current_file.name)
 
         # 3. Load RAW Data (Needed for Auto-Adjustments)
-        if st.session_state.get("last_file") != current_file.name:
-            with st.spinner(f"Loading preview for {current_file.name}..."):
+        # We reload if the file changes OR if the output color space changes
+        current_color_space = st.session_state.get('export_color_space', 'Adobe RGB')
+        if st.session_state.get("last_file") != current_file.name or st.session_state.get("last_preview_color_space") != current_color_space:
+            with st.spinner(f"Loading preview for {current_file.name} in {current_color_space}..."):
                 current_file.seek(0)
+                # Determine Rawpy Output Color Space
+                raw_color_space = rawpy.ColorSpace.sRGB
+                if current_color_space == "Adobe RGB":
+                    raw_color_space = rawpy.ColorSpace.Adobe
+
                 with rawpy.imread(current_file) as raw:
-                    rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16)
+                    rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16, output_color=raw_color_space)
                     if rgb.ndim == 2:
                         rgb = np.stack([rgb] * 3, axis=-1)
                     full_linear = rgb.astype(np.float32) / 65535.0
@@ -133,6 +137,7 @@ async def main():
                     else:
                         st.session_state.preview_raw = full_linear.copy()
                     st.session_state.last_file = current_file.name
+                    st.session_state.last_preview_color_space = current_color_space
 
         # 4. Render Sidebar Content (Sliders, Nav, etc.)
         sidebar_data = render_sidebar_content(uploaded_files)
@@ -156,38 +161,26 @@ async def main():
         processed_preview = process_image_core(st.session_state.preview_raw.copy(), current_params)
         pil_prev = Image.fromarray(np.clip(np.nan_to_num(processed_preview * 255), 0, 255).astype(np.uint8))
         
-        # Saturation/Mono
-        if current_params.get('process_mode') == 'C41':
-            # 1. Color Separation
-            img_arr = np.array(pil_prev)
-            img_sep = apply_color_separation(img_arr, st.session_state.get('color_separation', 1.0))
-            pil_prev = Image.fromarray(img_sep)
-            
-            # 2. Classic Saturation
-            sat = st.session_state.get('saturation', 1.0)
-            if sat != 1.0:
-                enhancer = ImageEnhance.Color(pil_prev)
-                pil_prev = enhancer.enhance(sat)
-        else:
-            pil_prev = pil_prev.convert("L")
+        # Post-Processing (Color Grading & Sharpening)
+        pil_prev = apply_post_color_grading(pil_prev, current_params)
+        pil_prev = apply_output_sharpening(pil_prev, st.session_state.get('sharpen', 0.20))
+        
+        is_toned = (st.session_state.get('temperature', 0.0) != 0.0 or 
+                    st.session_state.get('shadow_temp', 0.0) != 0.0 or 
+                    st.session_state.get('highlight_temp', 0.0) != 0.0)
 
-        # Sharpening (Applied LAST, similar to export)
-        sharpen_val = st.session_state.get('sharpen', 0.20)
-        if sharpen_val > 0:
-            img_lab = cv2.cvtColor(np.array(pil_prev.convert("RGB")), cv2.COLOR_RGB2LAB)
-            l, a, b = cv2.split(img_lab)
-            l_pil = Image.fromarray(l)
-            l_sharpened = l_pil.filter(ImageFilter.UnsharpMask(radius=1.0, percent=int(sharpen_val * 250), threshold=5))
-            img_lab_sharpened = cv2.merge([np.array(l_sharpened), a, b])
-            pil_prev = Image.fromarray(cv2.cvtColor(img_lab_sharpened, cv2.COLOR_LAB2RGB))
-            if current_params.get('process_mode') != 'C41':
-                 pil_prev = pil_prev.convert("L")
+        if current_params['is_bw'] and not is_toned:
+             pil_prev = pil_prev.convert("L")
 
         # ICC Profile Preview (Soft-proofing / Display Simulation)
         if st.session_state.get('icc_profile_path'):
             try:
-                # Source is sRGB (standard for PIL processed images)
-                src_profile = ImageCms.createProfile("sRGB")
+                # Source is the working color space
+                if current_color_space == "Adobe RGB" and os.path.exists(APP_CONFIG.get('adobe_rgb_profile', '')):
+                    src_profile = ImageCms.getOpenProfile(APP_CONFIG['adobe_rgb_profile'])
+                else:
+                    src_profile = ImageCms.createProfile("sRGB")
+                
                 # Destination is the selected profile
                 dst_profile = ImageCms.getOpenProfile(st.session_state.icc_profile_path)
                 # Apply transformation
@@ -203,6 +196,19 @@ async def main():
                 )
             except Exception as e:
                 st.sidebar.error(f"ICC Error: {e}")
+        
+        # Display Simulation: Convert back to sRGB for browser if we are in a wider space
+        # and not already converted by ICC soft-proofing.
+        if current_color_space == "Adobe RGB" and not st.session_state.get('icc_profile_path'):
+            try:
+                if os.path.exists(APP_CONFIG.get('adobe_rgb_profile', '')):
+                    adobe_prof = ImageCms.getOpenProfile(APP_CONFIG['adobe_rgb_profile'])
+                    srgb_prof = ImageCms.createProfile("sRGB")
+                    if pil_prev.mode != 'RGB':
+                        pil_prev = pil_prev.convert('RGB')
+                    pil_prev = ImageCms.profileToProfile(pil_prev, adobe_prof, srgb_prof, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode='RGB')
+            except Exception as e:
+                pass
 
         # Visualization (Red patches for dust spots)
         if st.session_state.get('pick_dust', False) and st.session_state.get('show_dust_patches', True):
@@ -235,8 +241,9 @@ async def main():
                         angle = np.radians(fine_rot)
                         cos_a, sin_a = np.cos(angle), np.sin(angle)
                         dx, dy = px - cx, py - cy
-                        px_f = cx + dx * cos_a - dy * sin_a
-                        py_f = cy + dx * sin_a + dy * cos_a
+                        # Match OpenCV getRotationMatrix2D: x' = x*cos + y*sin, y' = -x*sin + y*cos
+                        px_f = cx + dx * cos_a + dy * sin_a
+                        py_f = cy - dx * sin_a + dy * cos_a
                         tx, ty = px_f / rw_r, py_f / rh_r
                     
                     if autocrop:
@@ -287,7 +294,8 @@ async def main():
                     add_border=sidebar_data.get('add_border', False),
                     border_size_cm=sidebar_data.get('border_size', 1.0),
                     border_color=sidebar_data.get('border_color', "#000000"),
-                    icc_profile_path=st.session_state.get('icc_profile_path') if sidebar_data.get('apply_icc') else None
+                    icc_profile_path=st.session_state.get('icc_profile_path') if sidebar_data.get('apply_icc') else None,
+                    color_space=sidebar_data.get('color_space', "sRGB")
                 )
                 if img_bytes:
                     os.makedirs(sidebar_data['export_path'], exist_ok=True)
@@ -296,7 +304,6 @@ async def main():
                     st.toast(f"Exported to {os.path.basename(out_path)}")
 
         if sidebar_data['process_btn']:
-            # ... reuse batch logic from app.py ...
             os.makedirs(sidebar_data['export_path'], exist_ok=True)
             with concurrent.futures.ProcessPoolExecutor(max_workers=APP_CONFIG['max_workers']) as executor:
                 loop = asyncio.get_event_loop()
@@ -320,7 +327,8 @@ async def main():
                         sidebar_data.get('add_border', False),
                         sidebar_data.get('border_size', 1.0),
                         sidebar_data.get('border_color', "#000000"),
-                        st.session_state.get('icc_profile_path') if sidebar_data.get('apply_icc') else None
+                        st.session_state.get('icc_profile_path') if sidebar_data.get('apply_icc') else None,
+                        sidebar_data.get('color_space', "sRGB")
                     ))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 
@@ -328,7 +336,8 @@ async def main():
                     if isinstance(res, tuple) and res[0] is not None:
                         img_bytes, ext = res
                         out_path = os.path.join(sidebar_data['export_path'], f"processed_{fname.rsplit('.', 1)[0]}.{ext}")
-                        with open(out_path, "wb") as out_f: out_path_final = out_f.write(img_bytes)
+                        with open(out_path, "wb") as out_f:
+                            out_path_final = out_f.write(img_bytes)
                     elif isinstance(res, Exception):
                         st.error(f"Error processing {fname}: {res}")
                 

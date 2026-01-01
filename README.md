@@ -1,22 +1,25 @@
 # 🎞️ DarkroomPy
 
-**DarkroomPy** is a professional-grade RAW film negative processor built with Python and Streamlit. It provides a non-destructive workflow for converting film scans into high-quality images with specialized tools for retouching, color grading, local adjustments, and now—AI-powered style matching.
+**DarkroomPy** is a open source RAW film negative processor built with Python. It provides a non-destructive workflow for converting film scans into high-quality images with specialized tools for retouching, color grading, and local adjustments.
 
 ---
 
 ## ✨ Key Features
 
-### 🤖 AI Style Assistant (New!)
-- **"Magic Fix":** Train a personalized AI model on your editing style.
-- **Learn from Edits:** Automatically collects data from your finished exports to understand your preferences for exposure, contrast, and color balance.
-- **Auto-Predict:** Apply your unique "look" to new, raw images with a single click using a Random Forest regression model.
-- **Deduplicated Training:** Smartly filters training data to learn only from your latest, most refined edits for each photo.
+### 🎨 Color & Tonality
+- **Intelligent Mask Neutralization:** Automatically detects and removes the orange film base mask.
+- **Exposure Control:** Linear exposure adjustment anchored at middle gray via unified Grade control.
+- **Split Toning:** Independent color grading for highlights and shadows in the negative domain.
+- **Color Separation:** Custom algorithm to enhance color depth in shadows and midtones without shifting luminance.
+- **Automatic Shadow Desaturation:** Prevents oversaturated shadows when lifting them, ensuring natural-looking dark tones.
+- **Integrated Histogram:** RGB + Luminance histogram integrated into the sidebar for real-time tonal feedback.
 
-### 🛠️ Professional Retouching
+### 🛠️ Retouching & Geometry
 - **Automatic Dust Removal:** Adaptive algorithm that identifies and heals dust specs while preserving film grain.
-- **Manual Healing (Inpainting):** Content-aware manual repair tool for larger spots and scratches using the Telea algorithm.
-- **Scratch Mode:** Effortlessly remove long vertical or horizontal scratches by defining start and end points.
+- **Manual Healing (Inpainting):** Content-aware manual repair tool for larger spots and scratches using the Telea algorithm with resolution-aware scaling.
+- **Scratch Mode:** Remove long vertical or horizontal scratches by defining start and end points.
 - **Grain Matching:** Manually healed areas receive modulated synthetic grain to blend perfectly with the surrounding film texture.
+- **Multi-Format Autocrop:** Automatically detects film edges and crops to popular aspect ratios including 3:2, 4:3, 5:4, 6:7, 1:1, and 65:24 (XPan).
 
 ### 🔦 Local Adjustments (Dodge & Burn)
 - **Layered Adjustments:** Add multiple independent layers for lightening (dodging) or darkening (burning) specific areas.
@@ -24,19 +27,12 @@
 - **Rubylith Visualization:** Real-time red mask overlay shows exactly where you are painting.
 - **Configurable Brushes:** Adjustable size, strength (EV), and feathering for every layer.
 
-### 🎨 Color & Tonality
-- **Intelligent Mask Neutralization:** Automatically detects and removes the orange film base mask.
-- **Split Grading:** Independent contrast/gamma controls for highlights and shadows.
-- **Exposure Control:** Linear exposure adjustment anchored at middle gray.
-- **Black/White Points:** Precise control over the print's clipping points.
-- **Selective Color:** Fine-tune Hue, Saturation, and Luminance for specific color ranges.
-- **Color Separation:** Custom algorithm to enhance color depth without shifting luminance.
-
-### 💾 Workflow & Persistence
+### 💾 Workflow & Export
+- **Export Color Management:** Support for sRGB (default), Adobe RGB and Greyscale output with ICC profile embedding.
 - **Automatic Persistence:** Every adjustment is instantly saved to an internal SQLite database and restored automatically when you reload a file.
 - **Named Presets:** Save and load global "looks" across different projects.
-- **Batch Export:** High-performance parallel processing for exporting multiple rolls to JPEG or TIFF.
-- **Settings Clipboard:** Quickly copy and paste global color adjustments between similar frames.
+- **Batch Export:** High-performance parallel processing for exporting multiple positives to JPEG or TIFF.
+- **Enhanced Contact Sheet:** Vertical thumbnail gallery with file names and selection status for rapid navigation.
 
 ---
 
@@ -45,23 +41,24 @@
 The project follows a modular, professional package structure:
 
 ```text
-darkroompy/
+darkroom-py/
 ├── app.py                 # Application entry point
 ├── src/
 │   ├── backend/           # Core image processing logic
-│   │   ├── ai/            # AI features extraction, training, and inference
-│   │   ├── image_logic/   # Specialized algorithms (color, retouch, local)
+│   │   ├── image_logic/   # Specialized algorithms (color, retouch, local, post)
 │   │   ├── config.py      # Centralized settings & constants
 │   │   ├── db.py          # SQLite persistence layer
 │   │   ├── processor.py   # High-level pipeline orchestration
 │   │   └── utils.py       # Shared mathematical helpers
 │   └── frontend/          # Streamlit UI implementation
-│       ├── components/    # Modular UI elements (sidebar, viewport, local_ui, ai)
+│       ├── components/    # Modular UI elements (contact sheet, image view, etc.)
+│       │   └── sidebar/   # Specialized sidebar sections (export, color, retouch)
 │       ├── main.py        # UI orchestrator
-│       └── state.py       # Session state & settings lifecycle
-├── data/                  # Collected training vectors (local storage)
-├── models/                # Trained AI models
-└── presets/               # User-defined global adjustment files
+│       ├── state.py       # Session state & settings lifecycle
+│       └── css.py         # Custom application styling
+├── icc/                   # ICC Color Profiles
+└── user/
+       └── edits.db        # SQLite database that persists user edits.
 ```
 
 ---
@@ -69,7 +66,7 @@ darkroompy/
 ## 🚀 Getting Started
 
 ### Using Docker (Recommended)
-The easiest way to run DarkroomPy is using Docker Compose, which handles all dependencies (including machine learning libraries) and persistence automatically.
+The easiest way to run DarkroomPy is using Docker Compose, which handles all dependencies and persistence automatically.
 
 ```bash
 docker compose up --build
@@ -83,7 +80,6 @@ If you prefer to run it locally, ensure you have Python 3.10+ installed.
    ```bash
    pip install -r requirements.txt
    ```
-   *Note: This now includes `scikit-learn` for AI features.*
 
 2. **Run the App:**
    ```bash
@@ -93,10 +89,10 @@ If you prefer to run it locally, ensure you have Python 3.10+ installed.
 ---
 
 ## 📖 Usage Tips
-- **Training the AI:** Enable "Collect Training Data" in the AI tab (on by default). Export your finished images to save their "style vectors". Once you have a few dozen samples, go to the AI tab and click "Train Model".
-- **1:1 Preview:** The app displays images at a fixed 1600px resolution to ensure that the grain you see in the preview matches the logic applied during final export.
+- **Consistent Pipeline:** The application uses an identical processing pipeline for both the 1500px preview and final high-resolution export, ensuring visual consistency.
 - **Subtractive Workflow:** Most adjustments (Exposure, Dodge/Burn, WB) happen in a physically accurate way, mimicking a real darkroom process.
-- **Keyboard Shortcuts:** Use standard browser scrolling to navigate the large interaction window during fine retouching.
+- **Soft Proofing:** Load custom ICC profiles in the sidebar to simulate how your edits will look on specific paper stocks or display devices.
+- **Navigation:** Use the contact sheet or next/previous buttons to quickly switch between frames in a roll.
 
 ---
 
