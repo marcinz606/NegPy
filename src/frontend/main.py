@@ -20,7 +20,9 @@ from src.backend.processor import (
     calculate_auto_mask_wb
 )
 from src.frontend.state import init_session_state, load_settings, save_settings
+from src.frontend.css import apply_custom_css
 from src.frontend.components.sidebar.main import render_file_manager, render_sidebar_content
+from src.frontend.components.main_layout import render_main_layout
 from src.frontend.components.sidebar.adjustments import run_auto_wb, run_auto_density
 from src.frontend.components.image_view import render_image_view
 from src.frontend.components.contact_sheet import render_contact_sheet
@@ -29,6 +31,7 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
     """
     Consolidates parameter gathering from either session_state or a file settings dict.
     Converts CMY filtration (0-170) to linear gains for the processor.
+    Calculates internal Gain/Gamma from the unified Grade slider.
     """
     # 1. Convert CMY Filters to Linear Gains (Corrected Darkroom Model)
     # Adding filtration (slider UP) must REMOVE that color from the print.
@@ -41,8 +44,24 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
     g_gain = 10.0 ** (m_val / 100.0)
     b_gain = 10.0 ** (y_val / 100.0)
 
+    # 2. Unified Grade to Internal Gain/Gamma Mapping
+    # Grade 2.5 is the pivot (Normal).
+    grade = source.get('grade', 2.5)
+    
+    # Internal Scan Gain (Density part)
+    # Maps Grade [0, 5] -> Gain [0.5, 3.5]
+    internal_gain = 1.0 + (grade - 2.5) * 0.6
+    internal_gain = max(0.1, internal_gain)
+    
+    # Internal Gamma (Contrast part)
+    # Higher grade = higher gain = automatic gamma dampening to prevent muddiness.
+    # We use an opposing relationship: gamma decreases as gain increases.
+    internal_gamma = 1.0 - (grade - 2.5) * 0.15
+    internal_gamma = max(0.5, min(internal_gamma, 1.5))
+
     p = {
-        'scan_gain': source.get('scan_gain', 1.0),
+        'scan_gain': float(internal_gain),
+        'gamma': float(internal_gamma),
         'scan_gain_s_toe': source.get('scan_gain_s_toe', 0.0),
         'scan_gain_h_shoulder': source.get('scan_gain_h_shoulder', 0.0),
         'wb_manual_r': float(r_gain),
@@ -51,8 +70,6 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
         'temperature': source.get('temperature', 0.0),
         'shadow_temp': source.get('shadow_temp', 0.0),
         'highlight_temp': source.get('highlight_temp', 0.0),
-        'gamma': source.get('gamma', 1.0),
-        'gamma_mode': source.get('gamma_mode', 'Standard'),
         'shadow_desat_strength': source.get('shadow_desat_strength', 1.0),
         'contrast': source.get('contrast', 1.0),
         'color_separation': source.get('color_separation', 1.0),
@@ -60,12 +77,9 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
         'saturation_shadows': source.get('saturation_shadows', 1.0),
         'saturation_highlights': source.get('saturation_highlights', 1.0),
         'exposure': source.get('exposure', 0.0),
-        'exposure_shadows': source.get('exposure_shadows', 0.0),
-        'exposure_highlights': source.get('exposure_highlights', 0.0),
-        'exposure_shadows_range': source.get('exposure_shadows_range', 1.0),
-        'exposure_highlights_range': source.get('exposure_highlights_range', 1.0),
         'autocrop': source.get('autocrop', True),
         'autocrop_offset': source.get('autocrop_offset', 5),
+        'autocrop_ratio': source.get('autocrop_ratio', '3:2'),
         'dust_remove': source.get('dust_remove', True),
         'dust_threshold': source.get('dust_threshold', 0.6),
         'dust_size': source.get('dust_size', 2),
@@ -76,33 +90,17 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
         'local_adjustments': source.get('local_adjustments', []),
         'rotation': source.get('rotation', 0),
         'fine_rotation': source.get('fine_rotation', 0.0),
-        'monochrome': source.get('monochrome', False),
+        'process_mode': source.get('process_mode', 'C41'),
         'auto_wb': source.get('auto_wb', False),
         'sharpen': source.get('sharpen', 0.75)
     }
     
     return p
 
-def init_styles():
-    st.markdown("""
-        <style>
-        .stApp { font-size: 18px; }
-        h1 { font-size: 36px !important; }
-        div.stButton > button {
-            font-size: 32px !important;
-            height: 1em;
-            width: 100%;
-        }
-        .stDeployButton {
-            visibility: hidden;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
 async def main():
     st.set_page_config(layout="wide", page_title="DarkroomPy")
     init_db()
-    init_styles()
+    apply_custom_css()
     init_session_state()
 
     # 1. Render File Manager (Uploads) - No Sliders Here
@@ -139,6 +137,7 @@ async def main():
         # 4. Render Sidebar Content (Sliders, Nav, etc.)
         sidebar_data = render_sidebar_content(uploaded_files)
 
+        # 5. Background Tasks & Core Processing
         # Thumbnails
         missing_thumbs = [f for f in uploaded_files if f.name not in st.session_state.thumbnails]
         if missing_thumbs:
@@ -157,18 +156,8 @@ async def main():
         processed_preview = process_image_core(st.session_state.preview_raw.copy(), current_params)
         pil_prev = Image.fromarray(np.clip(np.nan_to_num(processed_preview * 255), 0, 255).astype(np.uint8))
         
-        # Sharpening
-        sharpen_val = st.session_state.get('sharpen', 0.33)
-        if sharpen_val > 0:
-            img_lab = cv2.cvtColor(np.array(pil_prev), cv2.COLOR_RGB2LAB)
-            l, a, b = cv2.split(img_lab)
-            l_pil = Image.fromarray(l)
-            l_sharpened = l_pil.filter(ImageFilter.UnsharpMask(radius=1.0, percent=int(sharpen_val * 250), threshold=5))
-            img_lab_sharpened = cv2.merge([np.array(l_sharpened), a, b])
-            pil_prev = Image.fromarray(cv2.cvtColor(img_lab_sharpened, cv2.COLOR_LAB2RGB))
-
         # Saturation/Mono
-        if not current_params.get('monochrome', False):
+        if current_params.get('process_mode') == 'C41':
             # 1. Color Separation
             img_arr = np.array(pil_prev)
             img_sep = apply_color_separation(img_arr, st.session_state.get('color_separation', 1.0))
@@ -181,6 +170,18 @@ async def main():
                 pil_prev = enhancer.enhance(sat)
         else:
             pil_prev = pil_prev.convert("L")
+
+        # Sharpening (Applied LAST, similar to export)
+        sharpen_val = st.session_state.get('sharpen', 0.20)
+        if sharpen_val > 0:
+            img_lab = cv2.cvtColor(np.array(pil_prev.convert("RGB")), cv2.COLOR_RGB2LAB)
+            l, a, b = cv2.split(img_lab)
+            l_pil = Image.fromarray(l)
+            l_sharpened = l_pil.filter(ImageFilter.UnsharpMask(radius=1.0, percent=int(sharpen_val * 250), threshold=5))
+            img_lab_sharpened = cv2.merge([np.array(l_sharpened), a, b])
+            pil_prev = Image.fromarray(cv2.cvtColor(img_lab_sharpened, cv2.COLOR_LAB2RGB))
+            if current_params.get('process_mode') != 'C41':
+                 pil_prev = pil_prev.convert("L")
 
         # ICC Profile Preview (Soft-proofing / Display Simulation)
         if st.session_state.get('icc_profile_path'):
@@ -218,18 +219,13 @@ async def main():
                 autocrop = st.session_state.get('autocrop', False)
                 autocrop_offset = st.session_state.get('autocrop_offset', 0)
                 
-                # To transform multiple points efficiently, we can use a helper or manual math
-                # Since we already have the logic in map_click_to_raw (inverse), let's implement forward here.
                 def transform_to_display(rx, ry):
-                    # 1. 90-deg Rotation (Counter-Clockwise to match np.rot90)
                     if rotation == 0: tx, ty = rx, ry
                     elif rotation == 1: tx, ty = ry, 1.0 - rx
                     elif rotation == 2: tx, ty = 1.0 - rx, 1.0 - ry
                     elif rotation == 3: tx, ty = 1.0 - ry, rx
                     else: tx, ty = rx, ry
                     
-                    # 2. Fine Rotation
-                    # Get rotated dimensions for center
                     rh_r, rw_r = rh_orig, rw_orig
                     if rotation % 2 != 0: rh_r, rw_r = rw_orig, rh_orig
                     
@@ -243,18 +239,15 @@ async def main():
                         py_f = cy + dx * sin_a + dy * cos_a
                         tx, ty = px_f / rw_r, py_f / rh_r
                     
-                    # 3. Autocrop
                     if autocrop:
-                        # Find crop box in rotated+fine space
                         img_geom = np.rot90(st.session_state.preview_raw, k=rotation)
                         if fine_rot != 0.0:
                             M_f = cv2.getRotationMatrix2D((rw_r/2, rh_r/2), fine_rot, 1.0)
                             img_geom = cv2.warpAffine(img_geom, M_f, (rw_r, rh_r))
                         
-                        y1, y2, x1, x2 = get_autocrop_coords(img_geom, autocrop_offset, 1.0)
+                        y1, y2, x1, x2 = get_autocrop_coords(img_geom, autocrop_offset, 1.0, st.session_state.get('autocrop_ratio', '3:2'))
                         cw, ch = x2 - x1, y2 - y1
                         if cw > 0 and ch > 0:
-                            # Map tx, ty from full image space to [0, 1] of crop box
                             tx = (tx * rw_r - x1) / cw
                             ty = (ty * rh_r - y1) / ch
                     
@@ -262,7 +255,6 @@ async def main():
 
                 for (rx, ry) in st.session_state.manual_dust_spots:
                     tx, ty = transform_to_display(rx, ry)
-                    # Draw only if within display bounds
                     if 0 <= tx <= 1 and 0 <= ty <= 1:
                         px, py = tx * pw, ty * ph
                         draw.ellipse((px - m_rad, py - m_rad, px + m_rad, py + m_rad), outline="#ff4b4b", width=4)
@@ -273,26 +265,11 @@ async def main():
                         spx, spy = sx * pw, sy * ph
                         draw.ellipse((spx - m_rad, spy - m_rad, spx + m_rad, spy + m_rad), outline="#f1c40f", width=4)
 
-        # Contact Sheet
-        render_contact_sheet(uploaded_files)
-
-        # Main UI Render
-        render_image_view(
-            pil_prev,
-            border_config={
-                'add_border': sidebar_data.get('add_border', False),
-                'size_cm': sidebar_data.get('border_size', 0.2),
-                'color': sidebar_data.get('border_color', '#000000'),
-                'print_width_cm': sidebar_data.get('print_width', 27.0)
-            }
-        )
-        if st.sidebar.button("♻️ Reset Manual WB"):
-            st.session_state.wb_manual_r, st.session_state.wb_manual_g, st.session_state.wb_manual_b = 1.0, 1.0, 1.0
-            save_settings(current_file.name)
-            st.rerun()
+        # 6. Main Content Layout
+        export_btn_sidebar = render_main_layout(uploaded_files, pil_prev, sidebar_data)
 
         # Handle Export Logic
-        if sidebar_data['export_btn_sidebar']:
+        if export_btn_sidebar:
             with st.spinner("Exporting current..."):
                 f_current = current_file
                 f_settings = st.session_state.file_settings.get(f_current.name, DEFAULT_SETTINGS.copy())

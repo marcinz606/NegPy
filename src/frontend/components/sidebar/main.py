@@ -2,8 +2,6 @@ import streamlit as st
 import os
 from typing import Optional, Dict, Any, List
 from src.frontend.state import load_settings, copy_settings, paste_settings
-from .navigation import render_navigation
-from .presets import render_presets
 from .adjustments import render_adjustments
 
 def render_file_manager() -> List[Any]:
@@ -12,7 +10,7 @@ def render_file_manager() -> List[Any]:
     Returns the list of uploaded files.
     """
     with st.sidebar:
-        st.title("🎞️ DarkroomPy")
+        st.title(":material/camera_roll: DarkroomPy")
         
         raw_uploaded_files = st.file_uploader("Upload RAW files", type=['dng', 'cr2', 'nef', 'arw'], accept_multiple_files=True)
         current_uploaded_names = {f.name for f in raw_uploaded_files} if raw_uploaded_files else set()
@@ -32,22 +30,22 @@ def render_file_manager() -> List[Any]:
         return st.session_state.uploaded_files
 
 def render_sidebar_content(uploaded_files: List[Any]) -> Dict[str, Any]:
-    """
-    Renders the main sidebar content (Nav, Settings, Adjustments).
-    Should be called AFTER any auto-adjustments have been applied to session state.
-    """
-    with st.sidebar:
-        # 1. Navigation & Actions
-        export_btn_sidebar = render_navigation(uploaded_files)
 
-        st.divider()
-        
-        # 2. Settings Clipboard
+    """
+
+    Renders the main sidebar content (Nav, Settings, Adjustments).
+
+    Should be called AFTER any auto-adjustments have been applied to session state.
+
+    """
+
+    with st.sidebar:
+
+        # 1. Settings Clipboard
+
         c1, c2 = st.columns(2)
-        c1.button("Copy Settings", on_click=copy_settings, width="stretch")
-        c2.button("Paste Settings", on_click=paste_settings, disabled=st.session_state.clipboard is None, width="stretch")
-        
-        # 3. Presets
+
+
         if not uploaded_files: return {}
         
         current_file_name = uploaded_files[st.session_state.selected_file_idx].name
@@ -56,12 +54,12 @@ def render_sidebar_content(uploaded_files: List[Any]) -> Dict[str, Any]:
         # But we still need to load settings if switching manually.
         # Check if settings are missing for this file
         if current_file_name not in st.session_state.file_settings:
-            # This is a fallback; ideally main.py handles the initial load/auto-logic
             load_settings(current_file_name)
             
-        render_presets(current_file_name)
 
-        st.divider()
+
+        c1.button(":material/copy_all: Copy Settings", on_click=copy_settings, width="stretch")
+        c2.button(":material/content_copy: Paste Settings", on_click=paste_settings, disabled=st.session_state.clipboard is None, width="stretch")
 
         # 4. Main Adjustments
         adjustments_data = render_adjustments(current_file_name)
@@ -92,6 +90,5 @@ def render_sidebar_content(uploaded_files: List[Any]) -> Dict[str, Any]:
         
         # Consolidate data for the main app
         return {
-            'export_btn_sidebar': export_btn_sidebar,
             **adjustments_data
         }

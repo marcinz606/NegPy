@@ -89,8 +89,9 @@ def apply_shadow_highlight_grading(img: np.ndarray, params: Dict[str, Any]) -> n
     """
     res = img.copy()
     lum = get_luminance(res)
-    w_shadow = (1.0 - lum)[:,:,None]
-    w_highlight = lum[:,:,None]
+    # In a negative: High Lum (Clear) = Shadow on Print. Low Lum (Dense) = Highlight on Print.
+    w_shadow = lum[:,:,None]
+    w_highlight = (1.0 - lum)[:,:,None]
     
     # Shadow Tone (Amber <-> Blue)
     s_tone = params.get('shadow_temp', 0.0)

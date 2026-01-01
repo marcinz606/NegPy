@@ -19,13 +19,10 @@ from src.backend.image_logic.color import (
 from src.backend.image_logic.exposure import (
     apply_contrast,
     apply_scan_gain_with_toe,
-    apply_split_exposure,
     apply_chromaticity_preserving_black_point
 )
 from src.backend.image_logic.gamma import (
-    apply_gamma_to_img,
-    apply_split_gamma,
-    calculate_balancing_gammas
+    apply_gamma_to_img
 )
 from src.backend.image_logic.retouch import (
     apply_autocrop, 
@@ -82,25 +79,15 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
     # 6. Retouching
     img = apply_dust_removal(img, params, scale_factor)
-    img = apply_chroma_noise_removal(img, params)
+    img = apply_chroma_noise_removal(img, params, scale_factor)
 
     # 7. Post-Inversion Tonality
     # Exposure (Linear trim)
     img *= (2.0 ** params.get('exposure', 0.0))
     
-    lum = get_luminance(img)
-    img = apply_split_exposure(
-        img,
-        params.get('exposure_shadows', 0.0),
-        params.get('exposure_highlights', 0.0),
-        params.get('exposure_shadows_range', 1.0),
-        params.get('exposure_highlights_range', 1.0),
-        lum
-    )
-    
     img = apply_local_adjustments(img, params.get('local_adjustments', []), scale_factor)
 
-    # Apply global Gamma (Paper Grade)
+    # Apply global Gamma (Paper Grade - Coupled with Grade slider)
     img = apply_gamma_to_img(img, params.get('gamma', 1.0), mode=params.get('gamma_mode', 'Standard'))
     
     img = apply_contrast(img, params.get('contrast', 1.0))
@@ -116,9 +103,9 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
         img = apply_fine_rotation(img, fine_rot)
 
     if params.get('autocrop'):
-        img = apply_autocrop(img, offset_px=params.get('autocrop_offset', 0), scale_factor=scale_factor)
+        img = apply_autocrop(img, offset_px=params.get('autocrop_offset', 0), scale_factor=scale_factor, ratio=params.get('autocrop_ratio', '3:2'))
 
-    if params.get('monochrome', False):
+    if params.get('process_mode') == 'B&W':
         gray = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
         img = np.stack([gray, gray, gray], axis=2)
 
@@ -146,7 +133,7 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
         pil_img = Image.fromarray(img_uint8)
         
-        if not params.get('monochrome', False):
+        if params.get('process_mode') != 'B&W':
             img_arr = np.array(pil_img)
             img_sep = apply_color_separation(img_arr, params.get('color_separation', 1.0))
             pil_img = Image.fromarray(img_sep)
@@ -180,7 +167,7 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
             img_lab_sharpened = cv2.merge([np.array(l_sharpened), a, b])
             pil_img = Image.fromarray(cv2.cvtColor(img_lab_sharpened, cv2.COLOR_LAB2RGB))
 
-        if params.get('monochrome', False):
+        if params.get('process_mode') == 'B&W':
             pil_img = pil_img.convert("L")
 
         # ICC

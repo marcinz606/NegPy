@@ -2,27 +2,26 @@
 base = "dark"
 
 # General color setup - Monochrome with Red Accent
-textColor = "#ff0000"
-primaryColor = "#ff0000"         # Darkroom safelight red accent
-backgroundColor = "#1a1a1a"      # Pure black background
-secondaryBackgroundColor = "#000000" # Deep charcoal for depth
+textColor = "#c3c3c3"
+primaryColor = "#b10000" # sliders, button accents, etc
+secondaryBackgroundColor = "#080808" # Left panel BG
+
+# Main section BG
+backgroundColor = "#161616"
 
 # Widgets
 showWidgetBorder = true
-borderColor = "#333333"          # Subtle border contrast
-
-# Dataframes
-dataframeHeaderBackgroundColor = "#121212"
+borderColor = "#181818"          # Subtle border contrast
 
 # Base text
-font = "'Open Sans':https://fonts.googleapis.com/css2?family=Open+Sans:wght@300..700&display=swap"
+font = "'Roboto':https://fonts.googleapis.com/css2?family=Roboto:wght@300..700&display=swap"
 baseFontWeight = 400
-baseFontSize = 16
+baseFontSize = 18
 
 # Heading text
-headingFont = "Open Sans"
+headingFont = "Roboto"
 headingFontWeights = [300, 400, 400, 300, 300, 300]
-headingFontSizes = ["2.5rem", "1.5rem", "1rem"]
+headingFontSizes = ["2.5rem", "2.0rem", "1.5rem"]
 
 [client]
 toolbarMode = "minimal"

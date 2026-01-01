@@ -43,29 +43,23 @@ def render_navigation(uploaded_files: List[Any]):
     """
     Renders the navigation buttons, rotation, and file removal/reset actions.
     """
-    st.subheader("Navigation & Actions")
-    c1, c2 = st.columns(2)
-    c1.button("Previous", key="prev_btn_s", width="stretch", 
-            disabled=st.session_state.selected_file_idx == 0,
-            on_click=change_file, args=(st.session_state.selected_file_idx - 1, uploaded_files))
-    c2.button("Next", key="next_btn_s", width="stretch", 
+    st.button("-> Next", key="next_btn_s", use_container_width=True, 
             disabled=st.session_state.selected_file_idx == len(uploaded_files) - 1,
             on_click=change_file, args=(st.session_state.selected_file_idx + 1, uploaded_files))
+    st.button("<- Previous", key="prev_btn_s", use_container_width=True, 
+            disabled=st.session_state.selected_file_idx == 0,
+            on_click=change_file, args=(st.session_state.selected_file_idx - 1, uploaded_files))
     
-    c1, c2 = st.columns(2)
-    c1.button("Rotate Left", key="rot_l_s", width="stretch",
+    st.button(":material/rotate_left: Rotate Left", key="rot_l_s", use_container_width=True,
               on_click=rotate_file, args=(1, uploaded_files))
-    c2.button("Rotate Right", key="rot_r_s", width="stretch",
+    st.button(":material/rotate_right: Rotate Right", key="rot_r_s", use_container_width=True,
               on_click=rotate_file, args=(-1, uploaded_files))
 
     f_idx = st.session_state.selected_file_idx
     f_current = uploaded_files[f_idx]
     
-    c1, c2, c3 = st.columns(3)
-    export_btn_sidebar = c1.button("Export", key="export_s", width="stretch", type="primary")
-    c2.button("Remove", key="unload_s", width="stretch", type="secondary",
+    export_btn_sidebar = st.button(":material/save: Export", key="export_s", use_container_width=True, type="primary")
+    st.button(":material/delete: Remove", key="unload_s", use_container_width=True, type="secondary",
                 on_click=unload_file, args=(f_idx, uploaded_files))
-    c3.button("Reset", key="reset_s", width="stretch", type="secondary",
-                on_click=reset_file_settings, args=(f_current.name,))
     
     return export_btn_sidebar

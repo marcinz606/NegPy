@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
 from typing import Optional, Dict, Any
 from src.backend.config import APP_CONFIG
-from src.backend.utils import plot_histogram, transform_point
+from src.backend.utils import transform_point
 from src.backend.image_logic.local import generate_local_mask, calculate_luma_mask
 from src.backend.image_logic.retouch import get_autocrop_coords
 from src.frontend.state import save_settings
@@ -47,6 +47,7 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
     fine_rot = st.session_state.get('fine_rotation', 0.0)
     autocrop = st.session_state.get('autocrop', False)
     autocrop_offset = st.session_state.get('autocrop_offset', 0)
+    autocrop_ratio = st.session_state.get('autocrop_ratio', '3:2')
 
     # --- Foolproof Geometry Mapping via Coordinate Grid ---
     # Create UV grid for RAW (u=x/w, v=y/h)
@@ -68,7 +69,7 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
             h_f, w_f = img_geom.shape[:2]
             M_f = cv2.getRotationMatrix2D((w_f/2, h_f/2), fine_rot, 1.0)
             img_geom = cv2.warpAffine(img_geom, M_f, (w_f, h_f))
-        y1, y2, x1, x2 = get_autocrop_coords(img_geom, autocrop_offset, 1.0)
+        y1, y2, x1, x2 = get_autocrop_coords(img_geom, autocrop_offset, 1.0, autocrop_ratio)
         uv_grid = uv_grid[y1:y2, x1:x2]
 
     def map_click_to_raw(nx, ny):
@@ -100,7 +101,7 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
             final_vis_mask = cv2.warpAffine(final_vis_mask, M_m, (w_m, h_m), flags=cv2.INTER_LINEAR)
         if autocrop:
             # We already have img_geom from uv_grid logic above
-            y1, y2, x1, x2 = get_autocrop_coords(img_geom, autocrop_offset, 1.0)
+            y1, y2, x1, x2 = get_autocrop_coords(img_geom, autocrop_offset, 1.0, autocrop_ratio)
             final_vis_mask = final_vis_mask[y1:y2, x1:x2]
 
         # Composite
@@ -138,10 +139,7 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
         if max(img_display.size) > display_width:
             img_display.thumbnail((display_width, display_width))
         
-        if st.session_state.pick_wb:
-            value = streamlit_image_coordinates(img_display, key=f"wb_picker_{img_display.width}", use_column_width=False)
-            st.info("Click on a neutral grey area.")
-        elif is_dust_mode:
+        if is_dust_mode:
             value = streamlit_image_coordinates(img_display, key=f"dust_picker_{img_display.width}", use_column_width=False)
             st.info("Click to remove dust spot.")
         elif is_local_mode:
@@ -151,10 +149,6 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
             st.image(img_display)
             value = None
             
-        _, c_hist, _ = st.columns([1, 3, 1])
-        with c_hist:
-            st.pyplot(plot_histogram(np.array(pil_prev.convert("RGB")), figsize=(5, 0.8), dpi=200), width="stretch")
-
     # Click Handling Logic
     if value:
         # value['x'], value['y'] are coordinates in img_display (which might be a thumbnail of the bordered pil_prev)
@@ -178,34 +172,7 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
             
             rx, ry = map_click_to_raw(nx, ny)
 
-            if st.session_state.pick_wb and value != st.session_state.last_wb_click:
-                st.session_state.last_wb_click = value
-                st.session_state.pick_wb = False
-                h_p, w_p = img_raw.shape[:2]
-                px, py = int(rx * w_p), int(ry * h_p)
-                
-                # 1. Get raw clicked color
-                clicked_rgb = np.mean(img_raw[max(0, py-3):min(h_p, py+4), max(0, px-3):min(w_p, px+4)], axis=(0,1))
-                
-                if not (np.any(np.isnan(clicked_rgb)) or np.all(clicked_rgb == 0)):
-                    # 2. Calculate gains to make the RAW sensor value neutral (anchor to Green)
-                    target_val = clicked_rgb[1] if clicked_rgb[1] > 0 else 0.3
-                    raw_wb_gains = target_val / (clicked_rgb + 1e-6)
-                    
-                    # 3. Apply to Mask Sliders
-                    st.session_state.wb_manual_r = float(raw_wb_gains[0])
-                    st.session_state.wb_manual_g = float(raw_wb_gains[1])
-                    st.session_state.wb_manual_b = float(raw_wb_gains[2])
-                    
-                    # 4. Reset fine-tuning sliders for a clean start
-                    st.session_state.cr_balance = 1.0
-                    st.session_state.mg_balance = 1.0
-                    st.session_state.yb_balance = 1.0
-                    
-                    save_settings(st.session_state.uploaded_files[st.session_state.selected_file_idx].name)
-                    st.rerun()
-
-            elif is_dust_mode and value != st.session_state.last_dust_click:
+            if is_dust_mode and value != st.session_state.last_dust_click:
                 st.session_state.last_dust_click = value
                 if 'manual_dust_spots' not in st.session_state: st.session_state.manual_dust_spots = []
                 if st.session_state.get('dust_scratch_mode'):

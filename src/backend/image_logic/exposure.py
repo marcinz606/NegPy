@@ -12,9 +12,9 @@ def apply_contrast(img: np.ndarray, contrast: float) -> np.ndarray:
 
 def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, highlight_shoulder: float = 0.0, shadow_bases: Any = None) -> np.ndarray:
     """
-    Applies Pro-Scanner Gain with Chromaticity-Preserving Recovery.
-    - shadow_toe = 0: Shadows crush naturally.
-    - shadow_toe > 0: Activates 'Shadow Saver' to lift and reveal detail.
+    Applies Chromaticity-Preserving Scanner Gain with Dual-End Recovery.
+    - Shadow Toe: Lifts and recovers the deepest blacks.
+    - Highlight Shoulder: Compresses and recovers peak whites.
     """
     if isinstance(gain, (list, tuple, np.ndarray)):
         gains = np.array(gain)
@@ -24,46 +24,37 @@ def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, high
     if shadow_bases is None:
         v_neg = np.clip(img, 0.0, 1.0)
     else:
-        # Chromaticity-preserving normalization
         master_base = np.max(shadow_bases)
         v_neg = np.clip(img / (master_base + 1e-6), 0.0, 1.0)
     
     # 1. Master Channel Analysis
     v_max = np.max(v_neg, axis=-1)
     
-    # 2. Linear Scanner Gain
+    # 2. Linear Scanner Gain (Master Exposure)
     avg_g = np.mean(gains)
     v_exp = v_max * avg_g
     
-    # 3. Shadow Recovery (Toe)
-    # We pull crushed blacks away from the 1.0 limit (and beyond).
-    # This prevents the 'inky' look from becoming a flat blob.
+    # 3. Enhanced Shadow Recovery (Toe)
     if shadow_toe > 0:
-        # Target the top half of the range (Shadows)
         mask_s = v_exp > 0.5
         if np.any(mask_s):
-            # We calculate how much to 'pull back' the shadow values.
-            # Even if v_exp is 1.5 (heavily crushed), this pulls it back.
             v_val = v_exp[mask_s]
-            # Strength coefficient
-            k = shadow_toe * 4.0
-            # Exponential lift that anchors at 0.5 and compresses everything towards it.
-            # This ensures no value can ever 'invert' or turn white.
-            v_exp[mask_s] = 0.5 + (v_val - 0.5) / (1.0 + k * (v_val - 0.5))
+            # k drives rational recovery
+            k = shadow_toe * 5.0
+            # Subtle linear lift (0.15 max shift) to 'open' the shadows
+            lift = shadow_toe * 0.15 * (v_val - 0.5)
+            v_exp[mask_s] = 0.5 + (v_val - 0.5 - lift) / (1.0 + k * (v_val - 0.5))
             
-    # 4. Highlight Recovery (Shoulder)
-    # We apply a logarithmic roll-off from the 50% midtone point.
-    # This mimics the smooth compression of a physical print's shoulder.
+    # 4. Enhanced Highlight Recovery (Shoulder)
     if highlight_shoulder > 0:
-        # Target the highlights (lower intensity in negative domain)
         mask_h = v_exp < 0.5
         if np.any(mask_h):
-            # Normalize the highlight region to [0, 1] for compression
             x = v_exp[mask_h] / 0.5
-            # Logarithmic Detail Recovery formula
-            # k drives the strength of the roll-off
-            k = highlight_shoulder * 12.0
-            v_exp[mask_h] = 0.5 * (np.log(1.0 + k * x) / (np.log(1.0 + k) + 1e-6))
+            # k drives log compression
+            k_log = highlight_shoulder * 15.0
+            # Subtle linear compression (0.15 max shift) to pull peak detail
+            v_recovered = 0.5 * (np.log(1.0 + k_log * x) / (np.log(1.0 + k_log) + 1e-6))
+            v_exp[mask_h] = v_recovered * (1.0 - highlight_shoulder * 0.15)
 
     # 5. Calculate Chromaticity-Preserving Scalar
     scalar = v_exp / (v_max * avg_g + 1e-6)
@@ -75,8 +66,9 @@ def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, high
 
 def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float, wb_b: float) -> tuple[float, float, float]:
     """
-    Analytically calculates optimal Scanner Gain, Shadow Toe, and Highlight Shoulder
-    using user-requested targets: 0.05, 0.15, 0.25.
+    Analytically calculates optimal Grade, Shadow Toe, and Highlight Shoulder.
+    Targets negative intensities: 0.05, 0.15, 0.25.
+    Returns: (grade, shadow_toe, highlight_shoulder)
     """
     # 1. Get neutralized negative
     img = img_raw.copy()
@@ -88,11 +80,10 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     mx = np.max(img, axis=-1)
     
     # 2. Compute exposure points (Highlights -> Midtones)
-    # p1: Peak white, p5: Diffuse white, p15: Upper mids
     pts = np.percentile(mx, [1, 5, 15])
     p1, p5, p15 = pts[0], pts[1], pts[2]
     
-    # 3. Targeted negative intensities (User Requested)
+    # 3. Targeted negative intensities
     targets = [0.05, 0.15, 0.25]
     
     # Suggested gains at each point
@@ -100,15 +91,21 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     g5 = targets[1] / (p5 + 1e-6)
     g15 = targets[2] / (p15 + 1e-6)
     
-    # 4. Final Scan Gain (Weighted average of the three points)
+    # 4. Solve for required Exposure Gain
     # Mid-upper range (p15) is our primary exposure anchor.
-    new_gain = (g15 * 0.50) + (g5 * 0.30) + (g1 * 0.20)
-    new_gain = float(np.clip(new_gain, 1.0, 5.0))
+    required_gain = (g15 * 0.50) + (g5 * 0.30) + (g1 * 0.20)
     
-    # 5. Shadow Toe Solver (Target detail at 0.90 density)
-    # Lifts shadows to maintain separation
+    # 5. Map required_gain to the Grade scale (0 to 5)
+    # grade = ((gain - 1.0) / 0.6) + 2.5
+    new_grade = ((required_gain - 1.0) / 0.6) + 2.5
+    new_grade = float(np.clip(new_grade, 0.0, 5.0))
+    
+    # Re-calculate gain based on clipped grade for accurate toe/shoulder solving
+    final_gain = 1.0 + (new_grade - 2.5) * 0.6
+    
+    # 6. Shadow Toe Solver (Target detail at 0.90 density)
     p99 = np.percentile(mx, 99)
-    crush_val = p99 * new_gain
+    crush_val = p99 * final_gain
     shadow_detail_target = 0.90
     if crush_val > shadow_detail_target:
         dist = crush_val - 0.5
@@ -117,9 +114,8 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     else:
         new_s_toe = 0.0
         
-    # 6. Highlight Shoulder Solver (Target detail at 0.12 density)
-    # Pulls highlights in relative to the requested 0.05 peak.
-    p01_after = p1 * new_gain
+    # 7. Highlight Shoulder Solver (Target detail at 0.12 density)
+    p01_after = p1 * final_gain
     highlight_detail_target = 0.12
     if p01_after < highlight_detail_target:
         gamma_needed = np.log(highlight_detail_target / 0.5) / np.log(np.clip(p01_after / 0.5, 0.01, 0.99))
@@ -127,25 +123,7 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     else:
         new_h_shoulder = 0.0
     
-    return new_gain, float(np.clip(new_s_toe, 0.0, 0.5)), float(np.clip(new_h_shoulder, 0.0, 0.5))
-
-def apply_split_exposure(img: np.ndarray, exp_s: float, exp_h: float, range_s: float, range_h: float, luminance: np.ndarray) -> np.ndarray:
-    """
-    Applies split exposure correction based on provided luminance.
-    """
-    if exp_s == 0.0 and exp_h == 0.0:
-        return img
-        
-    w_s = np.clip(1.0 - (luminance / (range_s + 1e-6)), 0.0, 1.0)
-    start_h = 1.0 - range_h
-    w_h = np.clip((luminance - start_h) / (range_h + 1e-6), 0.0, 1.0)
-    
-    f_s = 2.0 ** exp_s
-    f_h = 2.0 ** exp_h
-    
-    mult_map = 1.0 + (f_s - 1.0) * w_s + (f_h - 1.0) * w_h
-    res = img * mult_map[:,:,None]
-    return np.clip(res, 0.0, 1.0)
+    return new_grade, float(np.clip(new_s_toe, 0.0, 0.5)), float(np.clip(new_h_shoulder, 0.0, 0.5))
 
 def apply_chromaticity_preserving_black_point(img: np.ndarray, percentile: float) -> np.ndarray:
     """

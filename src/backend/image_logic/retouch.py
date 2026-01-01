@@ -23,7 +23,7 @@ def apply_fine_rotation(img: np.ndarray, angle: float) -> np.ndarray:
     M = cv2.getRotationMatrix2D(center, angle, 1.0)
     return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
 
-def get_autocrop_coords(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.0) -> Tuple[int, int, int, int]:
+def get_autocrop_coords(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.0, target_ratio_str: str = "3:2") -> Tuple[int, int, int, int]:
     """
     Calculates the autocrop coordinates.
     Returns (y1, y2, x1, x2) in pixels relative to input img.
@@ -52,32 +52,51 @@ def get_autocrop_coords(img: np.ndarray, offset_px: int = 0, scale_factor: float
     
     if cw <= 0 or ch <= 0: 
         return 0, h, 0, w
+    
+    # Parse target ratio
+    try:
+        w_r, h_r = map(float, target_ratio_str.split(':'))
+        target_aspect = w_r / h_r
+    except:
+        target_aspect = 1.5 # Default 3:2
         
-    ratio = 2/3 if ch > cw else 3/2
-    if cw / ch > ratio:
-        target_w = ch * ratio
+    # Handle Orientation
+    is_vertical = ch > cw
+    if is_vertical:
+        if target_aspect > 1.0: target_aspect = 1.0 / target_aspect
+    else:
+        if target_aspect < 1.0: target_aspect = 1.0 / target_aspect
+        
+    # Enforce Ratio
+    current_aspect = cw / ch
+    
+    if current_aspect > target_aspect:
+        # Too wide, crop width
+        target_w = ch * target_aspect
         x1 = x1 + (cw - target_w) // 2
         x2 = x1 + target_w
     else:
-        target_h = cw / ratio
+        # Too tall, crop height
+        target_h = cw / target_aspect
         y1 = y1 + (ch - target_h) // 2
         y2 = y1 + target_h
         
     return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
 
-def apply_autocrop(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.0) -> np.ndarray:
+def apply_autocrop(img: np.ndarray, offset_px: int = 0, scale_factor: float = 1.0, ratio: str = "3:2") -> np.ndarray:
     """
-    Detects film edges and automatically crops the image to the 2:3 or 3:2 frame.
+    Detects film edges and automatically crops the image to the specified aspect ratio frame.
     
     Args:
         img (np.ndarray): Input image array.
         offset_px (int): Additional margin to add to the crop.
         scale_factor (float): Scaling factor for the current processing resolution.
+        ratio (str): Target aspect ratio string (e.g., "3:2", "6:7").
         
     Returns:
         np.ndarray: Cropped image array.
     """
-    y1, y2, x1, x2 = get_autocrop_coords(img, offset_px, scale_factor)
+    y1, y2, x1, x2 = get_autocrop_coords(img, offset_px, scale_factor, ratio)
     return img[y1:y2, x1:x2]
 
 def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: float) -> np.ndarray:
@@ -163,7 +182,7 @@ def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: fl
         
     return img
 
-def apply_chroma_noise_removal(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def apply_chroma_noise_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: float = 1.0) -> np.ndarray:
     """
     Reduces color noise using bilateral filtering and specific deep-shadow blurring in LAB space.
     Targets shadows aggressively where film scan color noise is most prevalent.
@@ -171,6 +190,7 @@ def apply_chroma_noise_removal(img: np.ndarray, params: Dict[str, Any]) -> np.nd
     Args:
         img (np.ndarray): Input image array (float [0, 1]).
         params (Dict[str, Any]): Processing parameters dictionary.
+        scale_factor (float): Scaling factor for the current processing resolution.
         
     Returns:
         np.ndarray: Denoised image array.
@@ -188,9 +208,10 @@ def apply_chroma_noise_removal(img: np.ndarray, params: Dict[str, Any]) -> np.nd
     
     # 1. Bilateral Filter (Base Denoising)
     # Stronger parameters to smooth out mottling
-    d = 9
+    # Scale diameter with resolution to maintain relative effect size
+    d = int(9 * scale_factor) | 1
     sc = strength * 2.0  # Increased color sigma
-    ss = strength * 0.75 # Increased spatial sigma
+    ss = strength * 0.75 * scale_factor # Increased spatial sigma, scaled
     
     a_bilat = cv2.bilateralFilter(a, d, sc, ss)
     b_bilat = cv2.bilateralFilter(b, d, sc, ss)
@@ -198,7 +219,8 @@ def apply_chroma_noise_removal(img: np.ndarray, params: Dict[str, Any]) -> np.nd
     # 2. Strong Blur for Deep Shadows (The "Nuclear Option" for dark noise)
     # Bilateral can fail on very grainy darks, preserving the noise as "texture".
     # We blur the color channels aggressively in the deep blacks.
-    k_size = 11 if strength > 50 else 7
+    base_k = 11 if strength > 50 else 7
+    k_size = int(base_k * scale_factor) | 1
     a_blur = cv2.GaussianBlur(a_bilat, (k_size, k_size), 0)
     b_blur = cv2.GaussianBlur(b_bilat, (k_size, k_size), 0)
     

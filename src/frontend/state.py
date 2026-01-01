@@ -21,14 +21,10 @@ def init_session_state() -> None:
         st.session_state.selected_file_idx = 0
     if 'clipboard' not in st.session_state:
         st.session_state.clipboard = None
-    if 'last_wb_click' not in st.session_state:
-        st.session_state.last_wb_click = None
     if 'last_dust_click' not in st.session_state:
         st.session_state.last_dust_click = None
     if 'dust_start_point' not in st.session_state:
         st.session_state.dust_start_point = None
-    if 'pick_wb' not in st.session_state:
-        st.session_state.pick_wb = False
     if 'icc_profile_path' not in st.session_state:
         st.session_state.icc_profile_path = None
 

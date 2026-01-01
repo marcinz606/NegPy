@@ -4,7 +4,7 @@ def render_color_section(current_file_name: str):
     """
     Renders the 'Color & Toning' section of the sidebar.
     """
-    with st.expander("Color & Toning", expanded=True):
+    with st.expander(":material/colorize: Color & Toning", expanded=True):
         c_sat1, c_sat2 = st.columns(2)
         c_sat1.slider(
             "Separation", 0.5, 1.5, 1.0, 0.005, format="%.3f", key="color_separation",
@@ -14,9 +14,6 @@ def render_color_section(current_file_name: str):
             "Saturation", 0.0, 1.5, 1.0, 0.005, format="%.3f", key="saturation",
             help="Overall color intensity of the print."
         )
-        
-        st.divider()
-        st.markdown("###### Paper Toning")
         
         st.slider(
             "Paper Warmth", -0.2, 0.2, 0.0, 0.005, format="%.3f", key="temperature",
