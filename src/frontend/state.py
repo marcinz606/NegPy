@@ -67,11 +67,8 @@ def load_settings(file_name: str) -> bool:
         settings['local_adjustments'] = []
 
     for key, value in settings.items():
-        if key == 'black_point' or key == 'white_point':
-            continue
         st.session_state[key] = value
     
-    st.session_state.bw_points = (settings.get('black_point', 0.0), settings.get('white_point', 1.0))
     return is_new
 
 def save_settings(file_name: str) -> None:
@@ -89,15 +86,6 @@ def save_settings(file_name: str) -> None:
         st.session_state.file_settings[file_name] = init_settings
     
     for key in DEFAULT_SETTINGS.keys():
-        if key == 'black_point':
-            if 'bw_points' in st.session_state:
-                st.session_state.file_settings[file_name][key] = st.session_state['bw_points'][0]
-            continue
-        if key == 'white_point':
-            if 'bw_points' in st.session_state:
-                st.session_state.file_settings[file_name][key] = st.session_state['bw_points'][1]
-            continue
-            
         if key in st.session_state:
             val = st.session_state[key]
             if key == 'manual_dust_spots' or key == 'local_adjustments':

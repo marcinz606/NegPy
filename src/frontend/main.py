@@ -10,8 +10,8 @@ import traceback
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageCms
 from typing import Dict, Any, Optional
 
-from src.backend.config import TONE_CURVES_PRESETS, DEFAULT_SETTINGS, APP_CONFIG
-from src.backend.utils import create_curve_lut, apply_color_separation, get_thumbnail_worker
+from src.backend.config import DEFAULT_SETTINGS, APP_CONFIG
+from src.backend.utils import apply_color_separation, get_thumbnail_worker
 from src.backend.db import init_db
 from src.backend.image_logic.retouch import get_autocrop_coords
 from src.backend.processor import (
@@ -81,16 +81,6 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
         'sharpen': source.get('sharpen', 0.75)
     }
     
-    # Handle Black/White points
-    bw_val = source.get('bw_points', (0.0, 1.0))
-    p['black_point'] = bw_val[0]
-    p['white_point'] = bw_val[1]
-    
-    # Add LUT if provided in overrides or source
-    if overrides and 'curve_lut_x' in overrides:
-        p['curve_lut_x'] = overrides['curve_lut_x']
-        p['curve_lut_y'] = overrides['curve_lut_y']
-        
     return p
 
 def init_styles():
@@ -160,15 +150,8 @@ async def main():
                     for f, thumb in zip(missing_thumbs, results):
                         if thumb: st.session_state.thumbnails[f.name] = thumb
 
-        cx_base, cy_base = TONE_CURVES_PRESETS[st.session_state.get('curve_mode', 'Linear')]
-        cy = np.array(cx_base) + (np.array(cy_base) - np.array(cx_base)) * st.session_state.get('curve_strength', 1.0)
-        lut_x, lut_y = create_curve_lut(cx_base, cy)
-
         # Build current params
-        current_params = get_processing_params(st.session_state, overrides={
-            'curve_lut_x': lut_x, 
-            'curve_lut_y': lut_y
-        })
+        current_params = get_processing_params(st.session_state)
 
         # Core Processing
         processed_preview = process_image_core(st.session_state.preview_raw.copy(), current_params)
@@ -313,14 +296,8 @@ async def main():
             with st.spinner("Exporting current..."):
                 f_current = current_file
                 f_settings = st.session_state.file_settings.get(f_current.name, DEFAULT_SETTINGS.copy())
-                # ... reuse logic from app.py ...
-                cx_b, cy_b = TONE_CURVES_PRESETS[f_settings['curve_mode']]
-                cy_f = np.array(cx_b) + (np.array(cy_b) - np.array(cx_b)) * f_settings['curve_strength']
-                lx, ly = create_curve_lut(cx_b, cy_f)
                 
-                f_params = get_processing_params(f_settings, overrides={
-                    'curve_lut_x': lx, 'curve_lut_y': ly
-                })
+                f_params = get_processing_params(f_settings)
 
                 img_bytes, ext = load_raw_and_process(
                     f_current.getvalue(), 
@@ -349,13 +326,8 @@ async def main():
                 tasks, file_names = [], []
                 for f in uploaded_files:
                     f_settings = st.session_state.file_settings.get(f.name, DEFAULT_SETTINGS.copy())
-                    cx_b, cy_b = TONE_CURVES_PRESETS[f_settings['curve_mode']]
-                    cy_f = np.array(cx_b) + (np.array(cy_b) - np.array(cx_b)) * f_settings['curve_strength']
-                    lx, ly = create_curve_lut(cx_b, cy_f)
                     
-                    f_params = get_processing_params(f_settings, overrides={
-                        'curve_lut_x': lx, 'curve_lut_y': ly
-                    })
+                    f_params = get_processing_params(f_settings)
 
                     file_names.append(f.name)
                     tasks.append(loop.run_in_executor(

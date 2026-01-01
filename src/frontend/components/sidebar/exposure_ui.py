@@ -1,5 +1,4 @@
 import streamlit as st
-from src.backend.config import TONE_CURVES_PRESETS
 
 def render_exposure_section():
     """
@@ -65,8 +64,5 @@ def render_exposure_section():
         c_ex3, c_ex4 = st.columns([1.5, 1])
         c_ex3.slider("Highlights Exposure", -0.5, 0.5, 0.0, 0.005, format="%.3f", key="exposure_highlights")
         c_ex4.slider("Highlights Range", 0.1, 1.0, 1.0, 0.01, key="exposure_highlights_range")
-        
-        st.slider("Black & White Points", 0.0, 1.0, (0.0, 1.0), 0.01, key="bw_points")
-        c1, c2 = st.columns([1, 1])
-        c1.selectbox("Tone Curve", list(TONE_CURVES_PRESETS.keys()), key="curve_mode")
-        c2.slider("Curve Strength", 0.0, 1.0, 1.0, 0.01, key="curve_strength")
+
+

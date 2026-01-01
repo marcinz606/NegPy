@@ -7,7 +7,7 @@ import traceback
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageCms
 from typing import Dict, Any, Tuple, Optional
 
-from src.backend.utils import create_curve_lut, apply_color_separation
+from src.backend.utils import apply_color_separation
 from src.backend.config import APP_CONFIG
 from src.backend.image_logic.color import (
     get_luminance,
@@ -105,10 +105,6 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     
     img = apply_contrast(img, params.get('contrast', 1.0))
     img = apply_shadow_desaturation(img, params.get('shadow_desat_strength', 1.0))
-
-    # 8. Tone Curve
-    if 'curve_lut_x' in params and 'curve_lut_y' in params:
-        img = np.interp(img, params['curve_lut_x'], params['curve_lut_y'])
 
     # 9. Geometry
     rotation = params.get('rotation', 0)

@@ -12,8 +12,9 @@ def apply_contrast(img: np.ndarray, contrast: float) -> np.ndarray:
 
 def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, highlight_shoulder: float = 0.0, shadow_bases: Any = None) -> np.ndarray:
     """
-    Applies Chromaticity-Preserving Scanner Gain with Dual-End Recovery.
-    Ensures that color balance remains stable as gain increases.
+    Applies Pro-Scanner Gain with Chromaticity-Preserving Recovery.
+    - shadow_toe = 0: Shadows crush naturally.
+    - shadow_toe > 0: Activates 'Shadow Saver' to lift and reveal detail.
     """
     if isinstance(gain, (list, tuple, np.ndarray)):
         gains = np.array(gain)
@@ -21,42 +22,54 @@ def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, high
         gains = np.array([gain, gain, gain])
 
     if shadow_bases is None:
-        # Fallback to no normalization
         v_neg = np.clip(img, 0.0, 1.0)
     else:
-        # Chromaticity-preserving normalization: 
-        # We find the single max value across the mask pixels to anchor 1.0
-        # without shifting the ratios between channels.
+        # Chromaticity-preserving normalization
         master_base = np.max(shadow_bases)
         v_neg = np.clip(img / (master_base + 1e-6), 0.0, 1.0)
     
-    # 2. Linear Scanner Gain (Use mean gain for tonality)
-    v_exp = v_neg * np.mean(gains)
+    # 1. Master Channel Analysis
+    v_max = np.max(v_neg, axis=-1)
     
-    # 3. Master Density Pivot (Use max channel to drive recovery)
-    v_max = np.max(v_exp, axis=-1)
-    v_target = v_max.copy()
+    # 2. Linear Scanner Gain
+    avg_g = np.mean(gains)
+    v_exp = v_max * avg_g
     
-    # 4. Calculate Master Highlight Recovery (Local Gamma)
-    if highlight_shoulder > 0:
-        mask_h = v_target < 0.5
-        if np.any(mask_h):
-            x = v_target[mask_h] / 0.5
-            gamma_h = 1.0 / (1.0 + highlight_shoulder * 3.0)
-            v_target[mask_h] = 0.5 * np.power(x, gamma_h)
-            
-    # 5. Calculate Master Shadow Recovery (Rational)
+    # 3. Shadow Recovery (Toe)
+    # We pull crushed blacks away from the 1.0 limit (and beyond).
+    # This prevents the 'inky' look from becoming a flat blob.
     if shadow_toe > 0:
-        mask_s = v_target > 0.5
+        # Target the top half of the range (Shadows)
+        mask_s = v_exp > 0.5
         if np.any(mask_s):
-            dist = v_target[mask_s] - 0.5
-            v_target[mask_s] = 0.5 + dist / (1.0 + shadow_toe * 8.0 * dist)
+            # We calculate how much to 'pull back' the shadow values.
+            # Even if v_exp is 1.5 (heavily crushed), this pulls it back.
+            v_val = v_exp[mask_s]
+            # Strength coefficient
+            k = shadow_toe * 4.0
+            # Exponential lift that anchors at 0.5 and compresses everything towards it.
+            # This ensures no value can ever 'invert' or turn white.
+            v_exp[mask_s] = 0.5 + (v_val - 0.5) / (1.0 + k * (v_val - 0.5))
+            
+    # 4. Highlight Recovery (Shoulder)
+    # We apply a logarithmic roll-off from the 50% midtone point.
+    # This mimics the smooth compression of a physical print's shoulder.
+    if highlight_shoulder > 0:
+        # Target the highlights (lower intensity in negative domain)
+        mask_h = v_exp < 0.5
+        if np.any(mask_h):
+            # Normalize the highlight region to [0, 1] for compression
+            x = v_exp[mask_h] / 0.5
+            # Logarithmic Detail Recovery formula
+            # k drives the strength of the roll-off
+            k = highlight_shoulder * 12.0
+            v_exp[mask_h] = 0.5 * (np.log(1.0 + k * x) / (np.log(1.0 + k) + 1e-6))
 
-    # 6. Calculate Chromaticity-Preserving Scalar
-    scalar = v_target / (v_max + 1e-6)
+    # 5. Calculate Chromaticity-Preserving Scalar
+    scalar = v_exp / (v_max * avg_g + 1e-6)
     
-    # 7. Apply to all channels and clip
-    res = np.clip(v_exp * scalar[:, :, None], 0.0, 1.0)
+    # Apply Scan Gain and the 'Recovery Factor' uniformly to all channels
+    res = np.clip(v_neg * avg_g * scalar[:, :, None], 0.0, 1.0)
     
     return res
 

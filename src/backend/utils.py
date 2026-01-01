@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import scipy.ndimage as ndimage
 import rawpy
 from PIL import Image
-from scipy.interpolate import PchipInterpolator
 from typing import List, Tuple, Dict, Any, Optional
 from src.backend.config import APP_CONFIG
 
@@ -71,23 +70,6 @@ def list_presets() -> List[str]:
     if not os.path.exists(APP_CONFIG['presets_dir']):
         return []
     return [f[:-5] for f in os.listdir(APP_CONFIG['presets_dir']) if f.endswith('.json')]
-
-def create_curve_lut(points_x: List[float], points_y: np.ndarray, steps: int = 4096) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Generates a Look-Up Table (LUT) for a smooth interpolated curve using PCHIP.
-    
-    Args:
-        points_x (List[float]): Control point X coordinates.
-        points_y (np.ndarray): Control point Y coordinates.
-        steps (int): Number of steps in the LUT.
-        
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: (x_lut, y_lut) arrays clipped to [0, 1].
-    """
-    interpolator = PchipInterpolator(points_x, points_y)
-    x_lut = np.linspace(0, 1, steps)
-    y_lut = interpolator(x_lut)
-    return np.clip(x_lut, 0, 1), np.clip(y_lut, 0, 1)
 
 def plot_histogram(img_arr: np.ndarray, figsize: Tuple[float, float] = (6, 1), dpi: int = 150) -> plt.Figure:
     """

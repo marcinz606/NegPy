@@ -27,7 +27,8 @@
 ### 🎨 Color & Tonality
 - **Intelligent Mask Neutralization:** Automatically detects and removes the orange film base mask.
 - **Split Grading:** Independent contrast/gamma controls for highlights and shadows.
-- **Tone Curves:** Support for complex contrast presets (Smooth, Medium, Dense, Thin, etc.) with adjustable strength.
+- **Exposure Control:** Linear exposure adjustment anchored at middle gray.
+- **Black/White Points:** Precise control over the print's clipping points.
 - **Selective Color:** Fine-tune Hue, Saturation, and Luminance for specific color ranges.
 - **Color Separation:** Custom algorithm to enhance color depth without shifting luminance.
 
@@ -94,7 +95,7 @@ If you prefer to run it locally, ensure you have Python 3.10+ installed.
 ## 📖 Usage Tips
 - **Training the AI:** Enable "Collect Training Data" in the AI tab (on by default). Export your finished images to save their "style vectors". Once you have a few dozen samples, go to the AI tab and click "Train Model".
 - **1:1 Preview:** The app displays images at a fixed 1600px resolution to ensure that the grain you see in the preview matches the logic applied during final export.
-- **Linear Workflow:** Most adjustments (Exposure, Dodge/Burn, WB) happen in linear space *before* curves are applied, mimicking a real darkroom process.
+- **Subtractive Workflow:** Most adjustments (Exposure, Dodge/Burn, WB) happen in a physically accurate way, mimicking a real darkroom process.
 - **Keyboard Shortcuts:** Use standard browser scrolling to navigate the large interaction window during fine retouching.
 
 ---
