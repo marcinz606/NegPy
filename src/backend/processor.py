@@ -20,7 +20,7 @@ from src.backend.image_logic.exposure import (
     apply_contrast,
     apply_scan_gain_with_toe,
     apply_split_exposure,
-    apply_per_channel_black_point
+    apply_chromaticity_preserving_black_point
 )
 from src.backend.image_logic.gamma import (
     apply_gamma_to_img,
@@ -34,13 +34,11 @@ from src.backend.image_logic.retouch import (
     apply_fine_rotation
 )
 from src.backend.image_logic.local import apply_local_adjustments
-from src.backend.ai.features import extract_features
-from src.backend.ai.data_manager import save_training_sample
 
 def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """
     High-level orchestration of the image processing pipeline.
-    RESTORED to 'Perfect' Balancing Workflow.
+    True Darkroom Model: Filtered Light -> Negative -> Scanner Gain -> Inversion.
     """
     if img.ndim == 2:
         img = np.stack([img] * 3, axis=-1)
@@ -48,20 +46,21 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     h_orig, w_cols = img.shape[:2]
     scale_factor = max(h_orig, w_cols) / float(APP_CONFIG['preview_max_res'])
 
-    # 1. Manual WB (The single source of truth for the negative mask)
+    # 1. White Balance (Dichroic Filtration - APPLIED FIRST)
+    # This mimics the filtered light source of an enlarger.
     img[:, :, 0] *= params.get('wb_manual_r', 1.0)
     img[:, :, 1] *= params.get('wb_manual_g', 1.0)
     img[:, :, 2] *= params.get('wb_manual_b', 1.0)
     img = np.clip(img, 0, 1)
 
-    # 2. Global Scan Gain (Density)
-    # Apply a uniform gain to all channels. WB (Step 1) handles the ratios.
+    # 2. Normalization & Scanner Gain
+    # We identify the mask level AFTER filtration.
+    shadow_bases = np.percentile(img, 99.5, axis=(0, 1))
+    
     scan_gain = params.get('scan_gain', 1.0)
     channel_gains = [scan_gain, scan_gain, scan_gain]
-    
-    shadow_bases = np.percentile(img, 99.5, axis=(0, 1))
 
-    # Apply Surgical Gain with baked-in Adaptive Highlight Recovery
+    # Apply tonality recovery based on the filtered/normalized data
     img = apply_scan_gain_with_toe(
         img, 
         channel_gains, 
@@ -75,12 +74,11 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     img = apply_manual_color_balance_neg(img, params)
     img = apply_shadow_highlight_grading(img, params)
 
-    # 4. Inversion
+    # 4. Inversion (Creating the positive)
     img = 1.0 - img
 
-    # 5. Black Point (Neutralize shadow crossover)
-    # Reduced from 1.2% to 0.05% to prevent crushing shadow detail.
-    img = apply_per_channel_black_point(img, 0.05)
+    # 5. Black Point (Luminance-based)
+    img = apply_chromaticity_preserving_black_point(img, 0.05)
 
     # 6. Retouching
     img = apply_dust_removal(img, params, scale_factor)
@@ -130,12 +128,14 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
     return img
 
-def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_format: str, print_width_cm: float, dpi: int, sharpen_amount: float, save_training_data: bool = False, filename: str = "", add_border: bool = False, border_size_cm: float = 1.0, border_color: str = "#000000", icc_profile_path: Optional[str] = None) -> Tuple[Optional[bytes], str]:
+def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_format: str, print_width_cm: float, dpi: int, sharpen_amount: float, filename: str = "", add_border: bool = False, border_size_cm: float = 1.0, border_color: str = "#000000", icc_profile_path: Optional[str] = None) -> Tuple[Optional[bytes], str]:
     """
     Worker function for processing a RAW file to a final output format (JPEG/TIFF).
     """
     try:
         with rawpy.imread(io.BytesIO(file_bytes)) as raw:
+            # PURE RAW: Use [1,1,1,1] to see the full physical orange mask.
+            # This is essential for our darkroom-style analytical WB to work.
             rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16)
             if rgb.ndim == 2:
                 rgb = np.stack([rgb] * 3, axis=-1)
@@ -145,11 +145,6 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
             m_r, m_g, m_b = calculate_auto_mask_wb(img)
             # These will be converted to CMY in the frontend
             params['wb_manual_r'], params['wb_manual_g'], params['wb_manual_b'] = m_r, m_g, m_b
-            try:
-                feats = extract_features(img)
-                save_training_sample(feats, params, filename)
-            except Exception as e:
-                print(f"Failed to save training data for {filename}: {e}")
 
         img = process_image_core(img, params)
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)

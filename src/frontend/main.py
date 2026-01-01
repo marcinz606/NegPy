@@ -28,14 +28,15 @@ from src.frontend.components.contact_sheet import render_contact_sheet
 def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Consolidates parameter gathering from either session_state or a file settings dict.
-    Converts CMY filtration (0-255) to linear gains for the processor.
+    Converts CMY filtration (0-170) to linear gains for the processor.
     """
-    # 1. Convert CMY Filters to Linear Gains (Clamped to 0-170)
-    # gain = 10^(cc / 100)
+    # 1. Convert CMY Filters to Linear Gains (Corrected Darkroom Model)
+    # Adding filtration (slider UP) must REMOVE that color from the print.
     c_val = np.clip(source.get('wb_cyan', 0), 0, 170)
     m_val = np.clip(source.get('wb_magenta', 0), 0, 170)
     y_val = np.clip(source.get('wb_yellow', 0), 0, 170)
     
+    # We use positive exponents to flip the response direction as requested.
     r_gain = 10.0 ** (c_val / 100.0)
     g_gain = 10.0 ** (m_val / 100.0)
     b_gain = 10.0 ** (y_val / 100.0)
@@ -120,10 +121,10 @@ async def main():
     if uploaded_files:
         current_file = uploaded_files[st.session_state.selected_file_idx]
         
-        # 2. Check for New Image Status (Database Lookup)
-        is_new_image = False
-        if current_file.name not in st.session_state.file_settings:
+        # 2. Check for File Switch (Only load settings when changing files)
+        if st.session_state.get("last_settings_file") != current_file.name:
             is_new_image = load_settings(current_file.name)
+            st.session_state.last_settings_file = current_file.name
             
         save_settings(current_file.name)
 
@@ -145,13 +146,7 @@ async def main():
                         st.session_state.preview_raw = full_linear.copy()
                     st.session_state.last_file = current_file.name
 
-        # 4. Auto-Adjustments (REMOVED - Only triggered by buttons now)
-        if is_new_image and 'preview_raw' in st.session_state:
-            pass
-            # No longer applying auto-wb or auto-density on load.
-            # Buttons in the sidebar handle these actions on-demand.
-
-        # 5. Render Sidebar Content (Sliders, Nav, etc.)
+        # 4. Render Sidebar Content (Sliders, Nav, etc.)
         sidebar_data = render_sidebar_content(uploaded_files)
 
         # Thumbnails
@@ -334,7 +329,6 @@ async def main():
                     sidebar_data['print_width'], 
                     sidebar_data['print_dpi'], 
                     f_params['sharpen'],
-                    save_training_data=st.session_state.get('collect_training_data', False),
                     filename=f_current.name,
                     add_border=sidebar_data.get('add_border', False),
                     border_size_cm=sidebar_data.get('border_size', 1.0),
@@ -353,7 +347,6 @@ async def main():
             with concurrent.futures.ProcessPoolExecutor(max_workers=APP_CONFIG['max_workers']) as executor:
                 loop = asyncio.get_event_loop()
                 tasks, file_names = [], []
-                collect_data = st.session_state.get('collect_training_data', False)
                 for f in uploaded_files:
                     f_settings = st.session_state.file_settings.get(f.name, DEFAULT_SETTINGS.copy())
                     cx_b, cy_b = TONE_CURVES_PRESETS[f_settings['curve_mode']]
@@ -374,7 +367,6 @@ async def main():
                         sidebar_data['print_width'], 
                         sidebar_data['print_dpi'], 
                         f_params['sharpen'],
-                        collect_data,
                         f.name,
                         sidebar_data.get('add_border', False),
                         sidebar_data.get('border_size', 1.0),

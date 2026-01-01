@@ -12,10 +12,8 @@ def apply_contrast(img: np.ndarray, contrast: float) -> np.ndarray:
 
 def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, highlight_shoulder: float = 0.0, shadow_bases: Any = None) -> np.ndarray:
     """
-    Applies Linear Scanner Gain with Dual-End Recovery.
-    - Scan Gain (gain): Linear multiplier for highlight recovery and darkening.
-    - Shadow Toe (shadow_toe): RECOVERS shadows by pulling them away from 1.0 (Black).
-    - Highlight Shoulder (highlight_shoulder): RECOVERS whites by reducing local gamma.
+    Applies Chromaticity-Preserving Scanner Gain with Dual-End Recovery.
+    Ensures that color balance remains stable as gain increases.
     """
     if isinstance(gain, (list, tuple, np.ndarray)):
         gains = np.array(gain)
@@ -23,51 +21,49 @@ def apply_scan_gain_with_toe(img: np.ndarray, gain: Any, shadow_toe: float, high
         gains = np.array([gain, gain, gain])
 
     if shadow_bases is None:
-        bases = np.array([1.0, 1.0, 1.0])
+        # Fallback to no normalization
+        v_neg = np.clip(img, 0.0, 1.0)
     else:
-        bases = np.array(shadow_bases)
-
-    res = img.copy()
+        # Chromaticity-preserving normalization: 
+        # We find the single max value across the mask pixels to anchor 1.0
+        # without shifting the ratios between channels.
+        master_base = np.max(shadow_bases)
+        v_neg = np.clip(img / (master_base + 1e-6), 0.0, 1.0)
     
-    for c in range(3):
-        g = gains[c]
-        b = bases[c]
-        
-        # 1. Normalize to Film Base (Mask = 1.0, Highlights = 0.0)
-        v_neg = np.clip(img[:, :, c] / (b + 1e-6), 0.0, 1.0)
-        
-        # 2. Linear Scanner Gain
-        # Darkens print, recovers highlights, but pushes shadows towards 1.0+
-        v_exp = v_neg * g
-        
-        # 3. Highlight Shoulder (Local Highlight Gamma Recovery)
-        if highlight_shoulder > 0:
-            # We target the lower half of the negative range (The Whites)
-            mask_h = v_exp < 0.5
-            if np.any(mask_h):
-                x = v_exp[mask_h] / 0.5
-                # Reducing gamma stretches the values away from 0.0
-                gamma_h = 1.0 / (1.0 + highlight_shoulder * 3.0)
-                v_exp[mask_h] = 0.5 * np.power(x, gamma_h)
+    # 2. Linear Scanner Gain (Use mean gain for tonality)
+    v_exp = v_neg * np.mean(gains)
+    
+    # 3. Master Density Pivot (Use max channel to drive recovery)
+    v_max = np.max(v_exp, axis=-1)
+    v_target = v_max.copy()
+    
+    # 4. Calculate Master Highlight Recovery (Local Gamma)
+    if highlight_shoulder > 0:
+        mask_h = v_target < 0.5
+        if np.any(mask_h):
+            x = v_target[mask_h] / 0.5
+            gamma_h = 1.0 / (1.0 + highlight_shoulder * 3.0)
+            v_target[mask_h] = 0.5 * np.power(x, gamma_h)
             
-        # 4. Shadow Toe (Shadow Recovery / Black Protection)
-        # Pulls values away from 1.0+. Increasing this makes shadows LIGHTER.
-        if shadow_toe > 0:
-            # Rational compression targeted at the top half of the range
-            mask_s = v_exp > 0.5
-            if np.any(mask_s):
-                dist = v_exp[mask_s] - 0.5
-                # Pulls potential 1.0+ values back towards visible range
-                v_exp[mask_s] = 0.5 + dist / (1.0 + shadow_toe * 8.0 * dist)
+    # 5. Calculate Master Shadow Recovery (Rational)
+    if shadow_toe > 0:
+        mask_s = v_target > 0.5
+        if np.any(mask_s):
+            dist = v_target[mask_s] - 0.5
+            v_target[mask_s] = 0.5 + dist / (1.0 + shadow_toe * 8.0 * dist)
 
-        res[:, :, c] = np.clip(v_exp, 0.0, 1.0)
-        
+    # 6. Calculate Chromaticity-Preserving Scalar
+    scalar = v_target / (v_max + 1e-6)
+    
+    # 7. Apply to all channels and clip
+    res = np.clip(v_exp * scalar[:, :, None], 0.0, 1.0)
+    
     return res
 
 def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float, wb_b: float) -> tuple[float, float, float]:
     """
-    Analytically calculates optimal Scanner Gain, Shadow Toe, and Highlight Shoulder.
-    Targets the 'almost perfect' exposure level.
+    Analytically calculates optimal Scanner Gain, Shadow Toe, and Highlight Shoulder
+    using user-requested targets: 0.05, 0.15, 0.25.
     """
     # 1. Get neutralized negative
     img = img_raw.copy()
@@ -79,35 +75,41 @@ def calculate_auto_exposure_params(img_raw: np.ndarray, wb_r: float, wb_g: float
     mx = np.max(img, axis=-1)
     
     # 2. Compute exposure points (Highlights -> Midtones)
-    pts = np.percentile(mx, [1, 5, 15, 30])
-    p1, p5, p15, p30 = pts[0], pts[1], pts[2], pts[3]
+    # p1: Peak white, p5: Diffuse white, p15: Upper mids
+    pts = np.percentile(mx, [1, 5, 15])
+    p1, p5, p15 = pts[0], pts[1], pts[2]
     
-    # 3. Target intensities (Restored 'Almost Perfect' Targets)
-    targets = [0.05, 0.10, 0.23, 0.43]
+    # 3. Targeted negative intensities (User Requested)
+    targets = [0.05, 0.15, 0.25]
     
-    # Suggested gains
+    # Suggested gains at each point
     g1 = targets[0] / (p1 + 1e-6)
     g5 = targets[1] / (p5 + 1e-6)
     g15 = targets[2] / (p15 + 1e-6)
-    g30 = targets[3] / (p30 + 1e-6)
     
-    # 4. Final Scan Gain (Weighted average)
-    new_gain = (g30 * 0.35) + (g15 * 0.35) + (g5 * 0.20) + (g1 * 0.10)
+    # 4. Final Scan Gain (Weighted average of the three points)
+    # Mid-upper range (p15) is our primary exposure anchor.
+    new_gain = (g15 * 0.50) + (g5 * 0.30) + (g1 * 0.20)
     new_gain = float(np.clip(new_gain, 1.0, 5.0))
     
-    # 5. Shadow Toe Solver (Rational Target: 0.92)
+    # 5. Shadow Toe Solver (Target detail at 0.90 density)
+    # Lifts shadows to maintain separation
     p99 = np.percentile(mx, 99)
     crush_val = p99 * new_gain
-    if crush_val > 0.92:
+    shadow_detail_target = 0.90
+    if crush_val > shadow_detail_target:
         dist = crush_val - 0.5
-        new_s_toe = ((dist / 0.42) - 1.0) / (8.0 * dist + 1e-6)
+        target_dist = shadow_detail_target - 0.5
+        new_s_toe = ((dist / target_dist) - 1.0) / (8.0 * dist + 1e-6)
     else:
         new_s_toe = 0.0
         
-    # 6. Highlight Shoulder Solver (Power-Law Target: 0.10)
+    # 6. Highlight Shoulder Solver (Target detail at 0.12 density)
+    # Pulls highlights in relative to the requested 0.05 peak.
     p01_after = p1 * new_gain
-    if p01_after < 0.10:
-        gamma_needed = np.log(0.10 / 0.5) / np.log(np.clip(p01_after / 0.5, 0.01, 0.99))
+    highlight_detail_target = 0.12
+    if p01_after < highlight_detail_target:
+        gamma_needed = np.log(highlight_detail_target / 0.5) / np.log(np.clip(p01_after / 0.5, 0.01, 0.99))
         new_h_shoulder = ( (1.0 / gamma_needed) - 1.0 ) / 3.0
     else:
         new_h_shoulder = 0.0
@@ -132,13 +134,17 @@ def apply_split_exposure(img: np.ndarray, exp_s: float, exp_h: float, range_s: f
     res = img * mult_map[:,:,None]
     return np.clip(res, 0.0, 1.0)
 
-def apply_per_channel_black_point(img: np.ndarray, percentile: float) -> np.ndarray:
+def apply_chromaticity_preserving_black_point(img: np.ndarray, percentile: float) -> np.ndarray:
     """
-    Neutralizes shadow crossover by stretching each channel to black 
-    based on the specified percentile.
+    Neutralizes the overall black level of the print while preserving 
+    intentional color balance and warmth in the shadows.
     """
-    res = img.copy()
-    for c in range(3):
-        chan_bp = np.percentile(res[:, :, c], percentile)
-        res[:, :, c] = (res[:, :, c] - chan_bp) / (1.0 - chan_bp + 1e-6)
+    # 1. Calculate Luminance using Rec. 709 coefficients
+    lum = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
+    
+    # 2. Find the global black point percentile
+    bp = np.percentile(lum, percentile)
+    
+    # 3. Apply uniform stretch to all channels to preserve color ratios
+    res = (img - bp) / (1.0 - bp + 1e-6)
     return np.clip(res, 0.0, 1.0)

@@ -5,7 +5,6 @@ from src.frontend.state import load_settings, copy_settings, paste_settings
 from .navigation import render_navigation
 from .presets import render_presets
 from .adjustments import render_adjustments
-from .ai import render_ai_tab
 
 def render_file_manager() -> List[Any]:
     """
@@ -64,14 +63,8 @@ def render_sidebar_content(uploaded_files: List[Any]) -> Dict[str, Any]:
 
         st.divider()
 
-        # 4. Main Tabs (Adjustments vs AI)
-        tab_adj, tab_ai = st.tabs(["Adjustments", "AI"])
-        
-        with tab_adj:
-            adjustments_data = render_adjustments(current_file_name)
-            
-        with tab_ai:
-            render_ai_tab(current_file_name)
+        # 4. Main Adjustments
+        adjustments_data = render_adjustments(current_file_name)
         
         st.divider()
 

@@ -6,21 +6,22 @@ def render_exposure_section():
     Renders the 'Exposure & Tonality' section of the sidebar.
     """
     # Safety Check: Clamp session state values to valid slider ranges
-    # This prevents Streamlit errors when switching between different Auto-D logic versions
     if 'scan_gain' in st.session_state:
         st.session_state['scan_gain'] = max(1.0, min(st.session_state['scan_gain'], 5.0))
     if 'scan_gain_s_toe' in st.session_state:
         st.session_state['scan_gain_s_toe'] = max(0.0, min(st.session_state['scan_gain_s_toe'], 0.5))
     if 'scan_gain_h_shoulder' in st.session_state:
         st.session_state['scan_gain_h_shoulder'] = max(0.0, min(st.session_state['scan_gain_h_shoulder'], 0.5))
+    if 'wb_cyan' in st.session_state:
+        st.session_state['wb_cyan'] = max(0, min(st.session_state['wb_cyan'], 170))
 
     with st.expander("Exposure & Tonality", expanded=True):
         st.caption("Film Base Neutralization (CMY Filtration)")
         # Darkroom Workflow: Cyan, Magenta, Yellow (0-170)
         c_wb1, c_wb2, c_wb3 = st.columns(3)
-        c_wb1.slider("Cyan", 0, 170, 0, 1, key="wb_cyan", help="Adds Cyan filtration (removes Red).")
-        c_wb2.slider("Magenta", 0, 170, 0, 1, key="wb_magenta", help="Adds Magenta filtration (removes Green).")
-        c_wb3.slider("Yellow", 0, 170, 0, 1, key="wb_yellow", help="Adds Yellow filtration (removes Blue).")
+        c_wb1.slider("Cyan", 0, 170, 0, 1, key="wb_cyan", help="Adds Cyan filtration (removes Red cast).")
+        c_wb2.slider("Magenta", 0, 170, 0, 1, key="wb_magenta", help="Adds Magenta filtration (removes Green cast).")
+        c_wb3.slider("Yellow", 0, 170, 0, 1, key="wb_yellow", help="Adds Yellow filtration (removes Blue cast).")
         st.divider()
 
         # Primary Print Controls

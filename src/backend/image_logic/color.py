@@ -30,44 +30,42 @@ def apply_shadow_desaturation(img: np.ndarray, strength: float = 1.0) -> np.ndar
 
 def calculate_auto_mask_wb(raw_preview: np.ndarray) -> Tuple[float, float, float]:
     """
-    Identifies white balance by finding the 'Statistical Mode' of color ratios 
-    in the high-density range of the negative. 
-    Extremely robust against colorful scene content and missing borders.
+    Identifies white balance by targeting the physical transparency peak of 
+    the Red channel. Anchors the result to Red (gain=1.0) so that Cyan 
+    filtration remains at 0 while Magenta and Yellow are calculated.
     """
     if raw_preview.ndim == 2:
         return 1.0, 1.0, 1.0
         
-    # Resize for fast statistical processing
+    # Resize for fast processing
     h, w = raw_preview.shape[:2]
     small = cv2.resize(raw_preview, (w//4, h//4), interpolation=cv2.INTER_AREA)
     pixels = small.reshape(-1, 3)
     
-    # 1. Filter for the 'Dense' part of the negative (Top 25% of brightness)
-    # The film mask/base is always in the upper quartile of a linear scan.
-    dense_mask = np.max(pixels, axis=1) > 0.4
-    top_pixels = pixels[dense_mask]
+    # 1. Filter out clipped pixels
+    valid_mask = np.all(small < 0.98, axis=-1)
+    valid_pixels = small[valid_mask]
+    if len(valid_pixels) < 100: valid_pixels = pixels
+        
+    # 2. Target the 'Transparency Peak' of the Red channel (Top 0.1%)
+    r_vals = valid_pixels[:, 0]
+    r_thresh = np.percentile(r_vals, 99.9)
+    mask_pixels = valid_pixels[r_vals >= r_thresh]
     
-    if len(top_pixels) > 100:
-        # 2. Calculate Ratios relative to Green
-        r_g_ratios = top_pixels[:, 0] / (top_pixels[:, 1] + 1e-6)
-        b_g_ratios = top_pixels[:, 2] / (top_pixels[:, 1] + 1e-6)
+    if len(mask_pixels) > 5:
+        # 3. Use the Median color of this physical limit.
+        mask_color = np.median(mask_pixels, axis=0)
         
-        # 3. Find the MODE (most frequent value) of the ratios.
-        # High-res histograms to find the 'True Mask' peak
-        hist_r, edges_r = np.histogram(r_g_ratios, bins=256, range=(1.0, 5.0))
-        hist_b, edges_b = np.histogram(b_g_ratios, bins=256, range=(0.05, 1.5))
+        # 4. Calculate gains anchored to RED = 1.0
+        # This forces Cyan to 0 in the darkroom model.
+        r_val = mask_color[0]
+        g_gain = r_val / (mask_color[1] + 1e-6)
+        b_gain = r_val / (mask_color[2] + 1e-6)
         
-        # The peak of the histogram is our 'Mask Ratio'
-        r_mode = edges_r[np.argmax(hist_r)]
-        b_mode = edges_b[np.argmax(hist_b)]
-        
-        # 4. Calculate gains to neutralize these ratios, anchored to Green
-        r_gain = 1.0 / (r_mode + 1e-6)
-        b_gain = 1.0 / (b_mode + 1e-6)
-        
-        return float(r_gain), 1.0, float(b_gain)
+        return 1.0, float(g_gain), float(b_gain)
 
-    return 1.0, 1.0, 1.0
+    # Standard Fallback
+    return 1.0, 1.5, 4.0
 
 def apply_manual_color_balance_neg(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """

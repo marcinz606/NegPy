@@ -29,8 +29,6 @@ def init_session_state() -> None:
         st.session_state.dust_start_point = None
     if 'pick_wb' not in st.session_state:
         st.session_state.pick_wb = False
-    if 'collect_training_data' not in st.session_state:
-        st.session_state.collect_training_data = True
     if 'icc_profile_path' not in st.session_state:
         st.session_state.icc_profile_path = None
 
