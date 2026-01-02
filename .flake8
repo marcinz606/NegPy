@@ -1,0 +1,14 @@
+[flake8]
+extend-ignore = E203
+max-line-length = 140
+exclude =
+    venv,
+    __pycache__,
+    .git,
+    .github,
+    user,
+    docs,
+    .streamlit,
+    .pytest_cache,
+    icc,
+    processed

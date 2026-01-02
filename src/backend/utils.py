@@ -2,7 +2,6 @@ import os
 import json
 import io
 import numpy as np
-import rawpy
 from PIL import Image
 from typing import List, Tuple, Dict, Any, Optional
 from src.config import APP_CONFIG, DEFAULT_SETTINGS
@@ -87,13 +86,8 @@ def list_presets() -> List[str]:
 def get_thumbnail_worker(file_bytes: bytes) -> Optional[Image.Image]:
     """
     Worker function for parallel thumbnail generation from RAW bytes.
-    
-    Args:
-        file_bytes (bytes): RAW file content.
-        
-    Returns:
-        Optional[Image.Image]: A PIL Image square thumbnail or None.
     """
+    import rawpy
     try:
         ts = APP_CONFIG['thumbnail_size']
         with rawpy.imread(io.BytesIO(file_bytes)) as raw:

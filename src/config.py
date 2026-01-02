@@ -26,8 +26,6 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     'highlight_temp': 0.0,
     'color_separation': 1.0,
     'saturation': 1.0,
-    'saturation_shadows': 1.0,
-    'saturation_highlights': 1.0,
     'autocrop': True,
     'autocrop_offset': 5,
     'autocrop_ratio': "3:2",

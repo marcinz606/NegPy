@@ -5,4 +5,5 @@ tests/
 user/
 .git/
 .github/
+.pytest_cache/
 __pycache__

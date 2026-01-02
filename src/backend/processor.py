@@ -2,10 +2,10 @@ import numpy as np
 import rawpy
 import io
 import os
-import traceback
 from PIL import Image, ImageOps, ImageCms
 from typing import Dict, Any, Tuple, Optional
 
+from src.logging_config import get_logger
 from src.config import APP_CONFIG
 from src.backend.utils import ensure_rgb, get_luminance
 from src.backend.image_logic.post import apply_post_color_grading, apply_output_sharpening
@@ -33,6 +33,7 @@ from src.backend.image_logic.retouch import (
 )
 from src.backend.image_logic.local import apply_local_adjustments
 
+logger = get_logger(__name__)
 
 def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """
@@ -193,7 +194,7 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
                 with open(icc_profile_path, "rb") as f:
                     target_icc_bytes = f.read()
             except Exception as e:
-                print(f"ICC Error: {e}")
+                logger.error(f"ICC Error: {e}")
             
         # 2. Standard Color Space Tagging (if no custom profile applied)
         elif color_space == "Adobe RGB":
@@ -213,5 +214,5 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
             pil_img.save(output_buf, format="TIFF", compression="tiff_lzw", dpi=(dpi, dpi), icc_profile=target_icc_bytes)
         return output_buf.getvalue(), ext
     except Exception as e:
-        print(traceback.format_exc())
+        logger.error(f"Processing Error: {e}")
         return None, str(e)

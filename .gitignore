@@ -2,5 +2,6 @@ processed/*
 user/edits.db
 user/settings.db
 user/presets/*
+venv
+.pytest_cache
 __pycache__
-venv/

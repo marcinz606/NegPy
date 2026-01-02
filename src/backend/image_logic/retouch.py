@@ -3,6 +3,9 @@ import cv2
 from typing import Dict, Any, Tuple
 from src.config import APP_CONFIG
 from src.backend.utils import ensure_rgb, get_luminance
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 def apply_fine_rotation(img: np.ndarray, angle: float) -> np.ndarray:
     """
@@ -58,7 +61,7 @@ def get_autocrop_coords(img: np.ndarray, offset_px: int = 0, scale_factor: float
         w_r, h_r = map(float, target_ratio_str.split(':'))
         target_aspect = w_r / h_r
     except Exception as e:
-        print(f"Error: {e}, Invalid aspect ratio: {target_ratio_str}, defaulting to 3:2")
+        logger.error(f"Invalid aspect ratio: {target_ratio_str}, defaulting to 3:2. Error: {e}")
         target_aspect = 1.5 # Default 3:2
         
     # Handle Orientation

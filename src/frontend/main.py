@@ -5,7 +5,7 @@ import os
 import asyncio
 import concurrent.futures
 import cv2
-from PIL import Image, ImageDraw, ImageCms
+from PIL import Image, ImageCms
 from typing import Dict, Any, Optional
 
 from src.config import DEFAULT_SETTINGS, APP_CONFIG
@@ -70,8 +70,6 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
         'contrast': source.get('contrast', 1.0),
         'color_separation': source.get('color_separation', 1.0),
         'saturation': source.get('saturation', 1.0),
-        'saturation_shadows': source.get('saturation_shadows', 1.0),
-        'saturation_highlights': source.get('saturation_highlights', 1.0),
         'exposure': source.get('exposure', 0.0),
         'autocrop': source.get('autocrop', True),
         'autocrop_offset': source.get('autocrop_offset', 5),
@@ -111,10 +109,6 @@ async def main():
     if uploaded_files:
         current_file = uploaded_files[st.session_state.selected_file_idx]
         
-        # 2. Check for File Switch (Only load settings when changing files)
-        if st.session_state.get("last_settings_file") != current_file.name:
-            st.session_state.last_settings_file = current_file.name
-            
         save_settings(current_file.name)
 
         # 3. Load RAW Data (Needed for Auto-Adjustments)

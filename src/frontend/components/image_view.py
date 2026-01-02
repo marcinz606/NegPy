@@ -4,11 +4,14 @@ import cv2
 from PIL import Image, ImageDraw, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
 from typing import Optional, Dict, Any
-from src.backend.config import APP_CONFIG
+from src.config import APP_CONFIG
 from src.backend.utils import transform_point
+from src.logging_config import get_logger
 from src.backend.image_logic.local import generate_local_mask, calculate_luma_mask
 from src.backend.image_logic.retouch import get_autocrop_coords
 from src.frontend.state import save_settings
+
+logger = get_logger(__name__)
 
 def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, Any]] = None) -> None:
     """
@@ -33,7 +36,7 @@ def render_image_view(pil_prev: Image.Image, border_config: Optional[Dict[str, A
             if border_px > 0:
                 pil_prev = ImageOps.expand(pil_prev, border=border_px, fill=color)
         except Exception as e:
-            print(f"Border preview error: {e}")
+            logger.error(f"Border preview error: {e}")
 
     # 1. State & Config
     is_local_mode = st.session_state.get('pick_local', False)
