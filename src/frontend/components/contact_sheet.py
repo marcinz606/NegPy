@@ -1,8 +1,9 @@
 import streamlit as st
-from typing import List, Any
+from typing import List, Dict
 from src.frontend.components.navigation import change_file
 
-def render_contact_sheet(uploaded_files: List[Any]) -> None:
+
+def render_contact_sheet(uploaded_files: List[Dict[str, str]]) -> None:
     """
     Renders a vertical contact sheet of thumbnails in a scrollable container.
     """
@@ -17,23 +18,26 @@ def render_contact_sheet(uploaded_files: List[Any]) -> None:
             for j in range(2):
                 idx = i + j
                 if idx < len(uploaded_files):
-                    f = uploaded_files[idx]
+                    f_meta = uploaded_files[idx]
                     with cols[j]:
-                        thumb = st.session_state.thumbnails.get(f.name)
+                        thumb = st.session_state.thumbnails.get(f_meta["name"])
                         if thumb:
-                            is_selected = (st.session_state.selected_file_idx == idx)
+                            is_selected = st.session_state.selected_file_idx == idx
                             # Smaller thumbnails by using column width
-                            display_name = f.name[:12] + "..." if len(f.name) > 15 else f.name
+                            display_name = (
+                                f_meta["name"][:12] + "..."
+                                if len(f_meta["name"]) > 15
+                                else f_meta["name"]
+                            )
                             st.caption(display_name)
-                            st.image(thumb, width='stretch')
+                            st.image(thumb, width="stretch")
                             st.button(
-                                display_name, 
-                                key=f"sel_{idx}", 
-                                width='stretch', 
+                                display_name,
+                                key=f"sel_{idx}",
+                                width="stretch",
                                 type="primary" if is_selected else "secondary",
-                                on_click=change_file, 
-                                args=(idx, uploaded_files)
+                                on_click=change_file,
+                                args=(idx, uploaded_files),
                             )
                         else:
                             st.write("...")
-

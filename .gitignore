@@ -1,7 +1,10 @@
-processed/*
 user/edits.db
 user/settings.db
 user/presets/*
-venv
-.pytest_cache
+user/cache/*
+export/*
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+venv/
 __pycache__

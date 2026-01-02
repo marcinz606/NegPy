@@ -11,3 +11,4 @@ matplotlib==3.10.8
 pytest==9.0.2
 mypy==1.19.1
 flake8==7.3.0
+ruff==0.14.10

@@ -1,9 +1,10 @@
 icc/
-processed/
-venv/
+export/*
 tests/
-user/
+user/*
 .git/
 .github/
 .pytest_cache/
+.ruff_cache/
+venv/
 __pycache__

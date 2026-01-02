@@ -1,8 +1,8 @@
 import logging
 import sys
-import os
 
-def setup_logging(level=logging.INFO):
+
+def setup_logging(level: int = logging.INFO) -> logging.Logger:
     """
     Sets up the global logging configuration for the application.
     Logs to stdout with a clean, professional format.
@@ -21,17 +21,18 @@ def setup_logging(level=logging.INFO):
 
     # Create formatter
     formatter = logging.Formatter(
-        '[%(asctime)s] %(levelname)-8s %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "[%(asctime)s] %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
     handler.setFormatter(formatter)
 
     # Add handler to logger
     logger.addHandler(handler)
-    
+
     return logger
 
-def get_logger(name=None):
+
+def get_logger(name: str | None = None) -> logging.Logger:
     """
     Helper to get a sub-logger for a specific module.
     """
