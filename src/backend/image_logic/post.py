@@ -17,7 +17,7 @@ def apply_post_color_grading(pil_img: Image.Image, params: Dict[str, Any]) -> Im
     Returns:
         Image.Image: Processed PIL Image.
     """
-    is_bw = params.get('is_bw', False)
+    is_bw = params.get("is_bw", False)
     if not is_bw:
         # 1. Color Separation
         img_arr = np.array(pil_img)
@@ -37,7 +37,7 @@ def apply_post_color_grading(pil_img: Image.Image, params: Dict[str, Any]) -> Im
 
 def apply_output_sharpening(pil_img: Image.Image, amount: float) -> Image.Image:
     """
-    Applies LAB-based Unsharp Mask sharpening to the Lightness channel.
+    Applies Unsharp Mask sharpening to the Lightness channel.
     
     Args:
         pil_img (Image.Image): Input PIL Image.
@@ -49,7 +49,7 @@ def apply_output_sharpening(pil_img: Image.Image, amount: float) -> Image.Image:
     if amount <= 0:
         return pil_img
 
-    if pil_img.mode != 'RGB':
+    if pil_img.mode != "RGB":
         # If B&W (L mode), convert to RGB to use LAB logic or just sharpen L directly?
         # Previous logic:
         # img_lab = cv2.cvtColor(np.array(pil_prev.convert("RGB")), cv2.COLOR_RGB2LAB)

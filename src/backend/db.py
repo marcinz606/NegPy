@@ -2,7 +2,7 @@ import sqlite3
 import json
 import os
 from typing import Dict, Any, Optional
-from src.backend.config import APP_CONFIG
+from src.config import APP_CONFIG
 
 def init_db() -> None:
     """

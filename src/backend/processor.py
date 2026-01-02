@@ -6,8 +6,8 @@ import traceback
 from PIL import Image, ImageOps, ImageCms
 from typing import Dict, Any, Tuple, Optional
 
+from src.config import APP_CONFIG
 from src.backend.image_logic.post import apply_post_color_grading, apply_output_sharpening
-from src.backend.config import APP_CONFIG
 from src.backend.image_logic.color import (
     apply_shadow_desaturation,
     calculate_auto_mask_wb, 
@@ -29,6 +29,7 @@ from src.backend.image_logic.retouch import (
     apply_fine_rotation
 )
 from src.backend.image_logic.local import apply_local_adjustments
+
 
 def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """

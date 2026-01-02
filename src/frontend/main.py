@@ -1,15 +1,14 @@
 import streamlit as st
 import rawpy
 import numpy as np
-import io
 import os
 import asyncio
 import concurrent.futures
 import cv2
-from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageCms
+from PIL import Image, ImageDraw, ImageCms
 from typing import Dict, Any, Optional
 
-from src.backend.config import DEFAULT_SETTINGS, APP_CONFIG
+from src.config import DEFAULT_SETTINGS, APP_CONFIG
 from src.backend.utils import get_thumbnail_worker
 from src.backend.db import init_db
 from src.backend.image_logic.retouch import get_autocrop_coords
@@ -22,6 +21,7 @@ from src.frontend.state import init_session_state, load_settings, save_settings
 from src.frontend.css import apply_custom_css
 from src.frontend.components.sidebar.main import render_file_manager, render_sidebar_content
 from src.frontend.components.main_layout import render_main_layout
+
 
 def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = None) -> Dict[str, Any]:
     """
@@ -95,12 +95,15 @@ def get_processing_params(source: Dict[str, Any], overrides: Dict[str, Any] = No
     return p
 
 async def main():
+    """
+    Initialzie frontend app function.
+    """
     st.set_page_config(layout="wide", page_title="DarkroomPy")
     init_db()
     apply_custom_css()
     init_session_state()
 
-    # 1. Render File Manager (Uploads) - No Sliders Here
+    # 1. Render File Manager (Uploads)
     uploaded_files = render_file_manager()
     
     if uploaded_files:
@@ -108,14 +111,13 @@ async def main():
         
         # 2. Check for File Switch (Only load settings when changing files)
         if st.session_state.get("last_settings_file") != current_file.name:
-            is_new_image = load_settings(current_file.name)
             st.session_state.last_settings_file = current_file.name
             
         save_settings(current_file.name)
 
         # 3. Load RAW Data (Needed for Auto-Adjustments)
         # We reload if the file changes OR if the output color space changes
-        current_color_space = st.session_state.get('export_color_space', 'Adobe RGB')
+        current_color_space = st.session_state.get("export_color_space", "sRGB")
         if st.session_state.get("last_file") != current_file.name or st.session_state.get("last_preview_color_space") != current_color_space:
             with st.spinner(f"Loading preview for {current_file.name} in {current_color_space}..."):
                 current_file.seek(0)
@@ -124,15 +126,24 @@ async def main():
                 if current_color_space == "Adobe RGB":
                     raw_color_space = rawpy.ColorSpace.Adobe
 
+                # Read RAW -> numpy
                 with rawpy.imread(current_file) as raw:
-                    rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16, output_color=raw_color_space)
+                    rgb = raw.postprocess(gamma=(1, 1),
+                                          no_auto_bright=True,
+                                          use_camera_wb=False,
+                                          user_wb=[1, 1, 1, 1],
+                                          output_bps=16,
+                                          output_color=raw_color_space)
+                    # Handle greyscale
                     if rgb.ndim == 2:
                         rgb = np.stack([rgb] * 3, axis=-1)
+
                     full_linear = rgb.astype(np.float32) / 65535.0
                     h, w = full_linear.shape[:2]
-                    max_res = APP_CONFIG['preview_max_res']
+                    max_res = APP_CONFIG["preview_max_res"]
                     if max(h, w) > max_res:
                         scale = max_res / max(h, w)
+                        # Downscale (for preview)
                         st.session_state.preview_raw = cv2.resize(full_linear, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
                     else:
                         st.session_state.preview_raw = full_linear.copy()
@@ -165,33 +176,36 @@ async def main():
         pil_prev = apply_post_color_grading(pil_prev, current_params)
         pil_prev = apply_output_sharpening(pil_prev, st.session_state.get('sharpen', 0.20))
         
-        is_toned = (st.session_state.get('temperature', 0.0) != 0.0 or 
-                    st.session_state.get('shadow_temp', 0.0) != 0.0 or 
-                    st.session_state.get('highlight_temp', 0.0) != 0.0)
+        # Check if image was toned
+        is_toned = (st.session_state.get("temperature", 0.0) != 0.0 or 
+                    st.session_state.get("shadow_temp", 0.0) != 0.0 or 
+                    st.session_state.get("highlight_temp", 0.0) != 0.0)
 
-        if current_params['is_bw'] and not is_toned:
+        if current_params["is_bw"] and not is_toned:
              pil_prev = pil_prev.convert("L")
 
         # ICC Profile Preview (Soft-proofing / Display Simulation)
-        if st.session_state.get('icc_profile_path'):
+        if st.session_state.get("icc_profile_path"):
             try:
                 # Source is the working color space
-                if current_color_space == "Adobe RGB" and os.path.exists(APP_CONFIG.get('adobe_rgb_profile', '')):
-                    src_profile = ImageCms.getOpenProfile(APP_CONFIG['adobe_rgb_profile'])
+                if current_color_space == "Adobe RGB" and os.path.exists(APP_CONFIG.get("adobe_rgb_profile", "")):
+                    src_profile = ImageCms.getOpenProfile(APP_CONFIG["adobe_rgb_profile"])
                 else:
                     src_profile = ImageCms.createProfile("sRGB")
                 
                 # Destination is the selected profile
                 dst_profile = ImageCms.getOpenProfile(st.session_state.icc_profile_path)
                 # Apply transformation
-                if pil_prev.mode != 'RGB':
-                    pil_prev = pil_prev.convert('RGB')
+                if pil_prev.mode != "RGB":
+                    pil_prev = pil_prev.convert("RGB")
+                # Relative Colorimetric + Blackpoint compensation seems to be standard settings
+                # recommended by printing businesses like Saal digital for proofing based on my experience.
                 pil_prev = ImageCms.profileToProfile(
                     pil_prev, 
                     src_profile, 
                     dst_profile, 
                     renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, 
-                    outputMode='RGB',
+                    outputMode="RGB",
                     flags=ImageCms.Flags.BLACKPOINTCOMPENSATION
                 )
             except Exception as e:
@@ -199,21 +213,22 @@ async def main():
         
         # Display Simulation: Convert back to sRGB for browser if we are in a wider space
         # and not already converted by ICC soft-proofing.
-        if current_color_space == "Adobe RGB" and not st.session_state.get('icc_profile_path'):
+        if current_color_space == "Adobe RGB" and not st.session_state.get("icc_profile_path"):
             try:
-                if os.path.exists(APP_CONFIG.get('adobe_rgb_profile', '')):
-                    adobe_prof = ImageCms.getOpenProfile(APP_CONFIG['adobe_rgb_profile'])
+                if os.path.exists(APP_CONFIG.get("adobe_rgb_profile", "")):
+                    adobe_prof = ImageCms.getOpenProfile(APP_CONFIG["adobe_rgb_profile"])
                     srgb_prof = ImageCms.createProfile("sRGB")
-                    if pil_prev.mode != 'RGB':
+                    if pil_prev.mode != "RGB":
                         pil_prev = pil_prev.convert('RGB')
                     pil_prev = ImageCms.profileToProfile(pil_prev, adobe_prof, srgb_prof, renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC, outputMode='RGB')
             except Exception as e:
                 pass
 
         # Visualization (Red patches for dust spots)
-        if st.session_state.get('pick_dust', False) and st.session_state.get('show_dust_patches', True):
-            if st.session_state.get('manual_dust_spots'):
-                if pil_prev.mode == 'L': pil_prev = pil_prev.convert("RGB")
+        if st.session_state.get("pick_dust", False) and st.session_state.get("show_dust_patches", True):
+            if st.session_state.get("manual_dust_spots"):
+                if pil_prev.mode == "L":
+                    pil_prev = pil_prev.convert("RGB")
                 draw = ImageDraw.Draw(pil_prev)
                 pw, ph = pil_prev.size
                 m_rad = st.session_state.get('manual_dust_size', 10)
@@ -326,7 +341,7 @@ async def main():
                         f.name,
                         sidebar_data.get('add_border', False),
                         sidebar_data.get('border_size', 1.0),
-                        sidebar_data.get('border_color', "#000000"),
+                        sidebar_data.get('border_color', "#ffffff"),
                         st.session_state.get('icc_profile_path') if sidebar_data.get('apply_icc') else None,
                         sidebar_data.get('color_space', "sRGB")
                     ))

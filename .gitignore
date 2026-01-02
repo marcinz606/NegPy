@@ -1,5 +1,6 @@
 processed/*
 user/edits.db
+user/settings.db
 user/presets/*
 __pycache__
 venv/

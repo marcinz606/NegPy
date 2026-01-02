@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, Any
+from typing import Dict, Any
 
 # --- DEFAULT SETTINGS ---
 # The baseline parameters for every newly imported RAW file

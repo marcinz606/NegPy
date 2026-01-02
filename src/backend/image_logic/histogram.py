@@ -20,7 +20,7 @@ def plot_histogram(img_arr: np.ndarray, figsize: Tuple[float, float] = (6, 1), d
     fig.patch.set_facecolor('#000000')
     
     lum = 0.2126 * img_arr[..., 0] + 0.7152 * img_arr[..., 1] + 0.0722 * img_arr[..., 2]
-    colors = ('#ff4b4b', '#28df99', '#3182ce')
+    colors = ("#ff4b4b", "#28df99", "#3182ce")
     
     for i, color in enumerate(colors):
         hist, bins = np.histogram(img_arr[..., i], bins=256, range=(0, 256))

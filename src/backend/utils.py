@@ -5,7 +5,8 @@ import numpy as np
 import rawpy
 from PIL import Image
 from typing import List, Tuple, Dict, Any, Optional
-from src.backend.config import APP_CONFIG, DEFAULT_SETTINGS
+from src.config import APP_CONFIG, DEFAULT_SETTINGS
+
 
 def save_preset(name: str, settings: Dict[str, Any]) -> None:
     """

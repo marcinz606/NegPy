@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from typing import Dict, Any, Tuple
-from src.backend.config import APP_CONFIG
+from src.config import APP_CONFIG
 
 def apply_fine_rotation(img: np.ndarray, angle: float) -> np.ndarray:
     """
@@ -57,15 +57,18 @@ def get_autocrop_coords(img: np.ndarray, offset_px: int = 0, scale_factor: float
     try:
         w_r, h_r = map(float, target_ratio_str.split(':'))
         target_aspect = w_r / h_r
-    except:
+    except Exception as e:
+        print(f"Error: {e}, Invalid aspect ratio: {target_ratio_str}, defaulting to 3:2")
         target_aspect = 1.5 # Default 3:2
         
     # Handle Orientation
     is_vertical = ch > cw
     if is_vertical:
-        if target_aspect > 1.0: target_aspect = 1.0 / target_aspect
+        if target_aspect > 1.0:
+            target_aspect = 1.0 / target_aspect
     else:
-        if target_aspect < 1.0: target_aspect = 1.0 / target_aspect
+        if target_aspect < 1.0:
+            target_aspect = 1.0 / target_aspect
         
     # Enforce Ratio
     current_aspect = cw / ch
@@ -118,8 +121,7 @@ def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: fl
 
     # --- Automatic Detection & Healing ---
     if params.get('dust_remove'):
-        d_size = int(params.get('dust_size', 2) * 2.0 * scale_factor) | 1
-        if d_size < 3: d_size = 3
+        d_size = int(params.get('dust_size', 3) * 2.0 * scale_factor) | 1
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
         img_median_u8 = cv2.medianBlur(img_uint8, d_size)
         img_median = img_median_u8.astype(np.float32) / 255.0
@@ -156,7 +158,8 @@ def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: fl
         h_img, w_img = img.shape[:2]
         m_size_param = params.get('manual_dust_size', 10)
         m_radius = int(m_size_param * scale_factor)
-        if m_radius < 1: m_radius = 1
+        if m_radius < 1:
+            m_radius = 1
         
         manual_mask_u8 = np.zeros((h_img, w_img), dtype=np.uint8)
         for (nx, ny) in manual_spots:
