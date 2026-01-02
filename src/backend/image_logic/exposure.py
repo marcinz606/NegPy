@@ -1,11 +1,66 @@
 import numpy as np
-from typing import Any, cast
+from typing import Tuple, cast, Dict
 from src.helpers import get_luminance
+from src.backend.image_logic.color import measure_film_base, calculate_log_medians
+
+
+class LogisticSigmoid:
+    """
+    Models a photometric H&D Characteristic Curve using a logistic sigmoid.
+    D = L / (1 + exp(-k * (x - x0)))
+    
+    Attributes:
+        k (float): Contrast/Slope of the curve.
+        x0 (float): Pivot/Speed point (Log Exposure shift).
+        L (float): Maximum Density (D_max).
+        toe (float): Highlights roll-off softness (0-1).
+        shoulder (float): Shadows roll-off softness (0-1).
+    """
+    def __init__(
+        self,
+        contrast: float,
+        pivot: float,
+        d_max: float = 3.5,
+        toe: float = 0.0,
+        shoulder: float = 0.0
+    ):
+        self.k = contrast
+        self.x0 = pivot
+        self.L = d_max
+        self.toe = toe
+        self.shoulder = shoulder
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        # Avoid log(0)
+        diff = x - self.x0
+        
+        # Calculate mixing factor w
+        # w is 0.0 in Highlights (Low x), 1.0 in Shadows (High x)
+        # Using 5.0 for a tighter midtone protection zone.
+        w = 1.0 / (1.0 + np.exp(-5.0 * diff))
+        
+        # Protection factor to preserve midtone contrast (k)
+        # At midpoint (w=0.5), effect is 0.0. At extremes (w=0 or 1), effect is 1.0.
+        protection = 4.0 * ((w - 0.5) ** 2)
+        
+        # Calculate Dynamic Slope damping with midtone protection
+        # We want Toe/Shoulder to fade to 0 effect at the midtones.
+        damp_toe = self.toe * (1.0 - w) * protection
+        damp_shoulder = self.shoulder * w * protection
+        
+        k_mod = 1.0 - damp_toe - damp_shoulder
+        k_mod = np.clip(k_mod, 0.1, 1.0)
+        
+        # Apply base Sigmoid with damped slope
+        # This ensures midtones stay punchy while extremes can roll off gently.
+        val = -self.k * diff
+        return self.L / (1.0 + np.exp(val * k_mod))
 
 
 def apply_contrast(img: np.ndarray, contrast: float) -> np.ndarray:
     """
     Applies simple contrast adjustment around 0.5 midpoint.
+    Retained for legacy pipeline compatibility.
     """
     if contrast == 1.0:
         return img
@@ -13,150 +68,249 @@ def apply_contrast(img: np.ndarray, contrast: float) -> np.ndarray:
     return np.clip(res, 0.0, 1.0)
 
 
-def apply_scan_gain_with_toe(
+def apply_film_characteristic_curve(
     img: np.ndarray,
-    gain: Any,
-    shadow_toe: float,
-    highlight_shoulder: float = 0.0,
-    shadow_bases: Any = None,
+    params_r: Tuple[float, float],
+    params_g: Tuple[float, float],
+    params_b: Tuple[float, float],
+    toe: float = 0.0,
+    shoulder: float = 0.0,
+    pre_logged: bool = False,
 ) -> np.ndarray:
     """
-    Applies Chromaticity-Preserving Scanner Gain with Dual-End Recovery.
-    - Shadow Toe: Lifts and recovers the deepest blacks.
-    - Highlight Shoulder: Compresses and recovers peak whites.
+    Applies a film/paper characteristic curve (Sigmoid) per channel in Log-Density space.
+    
+    Pipeline:
+    1. Input `img` is Linear Negative Scan (or Pre-Logged data).
+    2. We treat this as Transmittance of Negative -> Exposure on Paper.
+    3. Calculate Reflection Density D = Sigmoid(log10(Exposure)).
+    4. Calculate Positive Reflection T = 10^-D (Bright=White Paper, Dark=Black Paper).
+    
+    Args:
+        img: RGB image (Negative).
+        params_r: (pivot, slope) for Red channel.
+        params_g: (pivot, slope) for Green channel.
+        params_b: (pivot, slope) for Blue channel.
+        toe: Highlights roll-off softness (0-1).
+        shoulder: Shadows roll-off softness (0-1).
+        pre_logged: If True, skip Log10 conversion.
+                            
+    Returns:
+        np.ndarray: Positive image (0=Black, 1=White).
     """
-    if isinstance(gain, (list, tuple, np.ndarray)):
-        gains = np.array(gain)
+    # Avoid log(0)
+    epsilon = 1e-6
+    d_max = 3.5 
+
+    # Unpack parameters
+    pivot_r, slope_r = params_r
+    pivot_g, slope_g = params_g
+    pivot_b, slope_b = params_b
+
+    # Initialize Curves
+    curve_r = LogisticSigmoid(contrast=slope_r, pivot=pivot_r, d_max=d_max, toe=toe, shoulder=shoulder)
+    curve_g = LogisticSigmoid(contrast=slope_g, pivot=pivot_g, d_max=d_max, toe=toe, shoulder=shoulder)
+    curve_b = LogisticSigmoid(contrast=slope_b, pivot=pivot_b, d_max=d_max, toe=toe, shoulder=shoulder)
+
+    # Calculate Log Exposure
+    if pre_logged:
+        log_exp = img
     else:
-        gains = np.array([gain, gain, gain])
-
-    if shadow_bases is None:
-        v_neg = np.clip(img, 0.0, 1.0)
-    else:
-        master_base = np.max(shadow_bases)
-        v_neg = np.clip(img / (master_base + 1e-6), 0.0, 1.0)
-
-    # 1. Master Channel Analysis
-    v_max = np.max(v_neg, axis=-1)
-
-    # 2. Linear Scanner Gain (Master Exposure)
-    avg_g = np.mean(gains)
-    v_exp = v_max * avg_g
-
-    # 3. Enhanced Shadow Recovery (Toe)
-    if shadow_toe > 0:
-        mask_s = v_exp > 0.5
-        if np.any(mask_s):
-            v_val = v_exp[mask_s]
-            # k drives rational recovery
-            k = shadow_toe * 5.0
-            # Subtle linear lift (0.15 max shift) to 'open' the shadows
-            lift = shadow_toe * 0.15 * (v_val - 0.5)
-            v_exp[mask_s] = 0.5 + (v_val - 0.5 - lift) / (1.0 + k * (v_val - 0.5))
-
-    # 4. Enhanced Highlight Recovery (Shoulder)
-    if highlight_shoulder > 0:
-        mask_h = v_exp < 0.5
-        if np.any(mask_h):
-            x = v_exp[mask_h] / 0.5
-            # k drives log compression
-            k_log = highlight_shoulder * 15.0
-            # Subtle linear compression (0.15 max shift) to pull peak detail
-            v_recovered = 0.5 * (np.log(1.0 + k_log * x) / (np.log(1.0 + k_log) + 1e-6))
-            v_exp[mask_h] = v_recovered * (1.0 - highlight_shoulder * 0.15)
-
-    # 5. Calculate Chromaticity-Preserving Scalar
-    scalar = v_exp / (v_max * avg_g + 1e-6)
-
-    # Apply Scan Gain and the 'Recovery Factor' uniformly to all channels
-    res = np.clip(v_neg * avg_g * scalar[:, :, None], 0.0, 1.0)
-
-    return cast(np.ndarray, res)
+        log_exp = np.log10(np.clip(img, epsilon, None))
+    
+    # Apply per-channel Sigmoid -> Density
+    d_r = curve_r(log_exp[:, :, 0])
+    d_g = curve_g(log_exp[:, :, 1])
+    d_b = curve_b(log_exp[:, :, 2])
+    
+    # Calculate Transmittance (Positive Reflection)
+    # T = 10^-D. This is the photometric inversion.
+    # D=0 (White) -> T=1.0
+    # D=3 (Black) -> T=0.001
+    t_r = np.power(10.0, -d_r)
+    t_g = np.power(10.0, -d_g)
+    t_b = np.power(10.0, -d_b)
+    
+    # Stack channels to form the Positive Image
+    res = np.stack([t_r, t_g, t_b], axis=-1)
+    
+    # Brightness Fix: Apply Gamma 2.2 to linear transmittance
+    # This matches the user's requirement for correct brightness.
+    res = cast(np.ndarray, np.power(res, 1.0/2.2))
+    
+    return np.clip(res, 0.0, 1.0)
 
 
 def calculate_auto_exposure_params(
     img_raw: np.ndarray, wb_r: float, wb_g: float, wb_b: float
-) -> tuple[float, float, float]:
+) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
     """
-    Analytically calculates optimal Grade, Shadow Toe, and Highlight Shoulder.
-    Targets negative intensities: 0.05, 0.15, 0.25.
-    Returns: (grade, shadow_toe, highlight_shoulder)
+    Solves for optimal Sigmoid Shift (Pivot) and Slope (Contrast) for each channel independently.
+    
+    Args:
+        img_raw: Input RGB image (Linear Negative).
+        wb_r, wb_g, wb_b: White Balance gains to neutralize the image before analysis.
+        
+    Returns:
+        ((pivot_r, slope_r), (pivot_g, slope_g), (pivot_b, slope_b))
     """
-    # 1. Get neutralized negative
+    # 1. Neutralize
     img = img_raw.copy()
     img[:, :, 0] *= wb_r
     img[:, :, 1] *= wb_g
     img[:, :, 2] *= wb_b
-    img = np.clip(img, 0, 1)
+    
+    # 2. Log-Exposure
+    epsilon = 1e-6
+    log_exp = np.log10(np.clip(img, epsilon, None))
+    
+    results = []
+    
+    # 3. Analyze per channel
+    for ch in range(3):
+        vals = log_exp[:, :, ch]
+        
+        # Find Signal Range
+        p5, p95 = np.percentile(vals, [5, 95])
+        
+        # Target Densities
+        # Input Shadow (High Value on Neg) -> p95 (High Log) -> Should map to D_max (Black on Print)
+        # Input Highlight (Low Value on Neg) -> p5 (Low Log) -> Should map to D_min (White on Print)
+        
+        d_target_highlight = 0.2  # White paper (Low Density)
+        d_target_shadow = 2.2     # Black ink (High Density)
+        d_max = 3.5 
+        
+        # Inverse Sigmoid logic:
+        # y = L / (1 + exp(-k(x-x0)))
+        # -k(x-x0) = ln(L/y - 1)
+        # k(x-x0) = -ln(L/y - 1)
+        
+        # At p95 (Shadow input), we want d_target_shadow (High Density)
+        term_shadow = -np.log(d_max / d_target_shadow - 1.0)
+        
+        # At p5 (Highlight input), we want d_target_highlight (Low Density)
+        term_highlight = -np.log(d_max / d_target_highlight - 1.0)
+        
+        # k * p95 - k * x0 = term_shadow
+        # k * p5  - k * x0 = term_highlight
+        # Subtract: k * (p95 - p5) = term_shadow - term_highlight
+        
+        if (p95 - p5) < 0.1:
+            results.append((-2.0, 1.0))
+            continue
 
-    mx = np.max(img, axis=-1)
-
-    # 2. Compute exposure points (Highlights -> Midtones)
-    pts = np.percentile(mx, [1, 5, 15])
-    p1, p5, p15 = pts[0], pts[1], pts[2]
-
-    # 3. Targeted negative intensities
-    targets = [0.05, 0.15, 0.25]
-
-    # Suggested gains at each point
-    g1 = targets[0] / (p1 + 1e-6)
-    g5 = targets[1] / (p5 + 1e-6)
-    g15 = targets[2] / (p15 + 1e-6)
-
-    # 4. Solve for required Exposure Gain
-    # Mid-upper range (p15) is our primary exposure anchor.
-    required_gain = (g15 * 0.50) + (g5 * 0.30) + (g1 * 0.20)
-
-    # 5. Map required_gain to the Grade scale (0 to 5)
-    # grade = ((gain - 1.0) / 0.6) + 2.5
-    new_grade = ((required_gain - 1.0) / 0.6) + 2.5
-    new_grade = float(np.clip(new_grade, 0.0, 5.0))
-
-    # Re-calculate gain based on clipped grade for accurate toe/shoulder solving
-    final_gain = 1.0 + (new_grade - 2.5) * 0.6
-
-    # 6. Shadow Toe Solver (Target detail at 0.90 density)
-    p99 = np.percentile(mx, 99)
-    crush_val = p99 * final_gain
-    shadow_detail_target = 0.90
-    if crush_val > shadow_detail_target:
-        dist = crush_val - 0.5
-        target_dist = shadow_detail_target - 0.5
-        new_s_toe = ((dist / target_dist) - 1.0) / (8.0 * dist + 1e-6)
-    else:
-        new_s_toe = 0.0
-
-    # 7. Highlight Shoulder Solver (Target detail at 0.12 density)
-    p1_after = p1 * final_gain
-    highlight_detail_target = 0.12
-    if p1_after < highlight_detail_target:
-        gamma_needed = np.log(highlight_detail_target / 0.5) / np.log(
-            np.clip(p1_after / 0.5, 0.01, 0.99)
-        )
-        new_h_shoulder = ((1.0 / gamma_needed) - 1.0) / 3.0
-    else:
-        new_h_shoulder = 0.0
-
+        k = (term_shadow - term_highlight) / (p95 - p5)
+        
+        # Solve for x0 using Shadow point:
+        # k * x0 = k * p95 - term_shadow
+        x0 = p95 - (term_shadow / k)
+        
+        results.append((float(x0), float(k)))
+        
     return (
-        new_grade,
-        float(np.clip(new_s_toe, 0.0, 0.5)),
-        float(np.clip(new_h_shoulder, 0.0, 0.5)),
+        results[0],
+        results[1],
+        results[2]
     )
+
+
+def measure_log_negative_bounds(img: np.ndarray) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Finds the robust floor and ceiling of each channel in Log10 space.
+    Returns (log_floors, log_ceils).
+    """
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(img, epsilon, 1.0))
+    floors = []
+    ceils = []
+    for ch in range(3):
+        # 1st and 99.5th percentiles capture the usable density range
+        f, c = np.percentile(img_log[:, :, ch], [1.0, 99.5])
+        floors.append(float(f))
+        ceils.append(float(c))
+    return (floors[0], floors[1], floors[2]), (ceils[0], ceils[1], ceils[2])
+
+
+def solve_photometric_exposure(img: np.ndarray) -> Dict[str, float]:
+    """
+    Analyzes a raw negative to determine the optimal Photometric Exposure settings.
+    
+    Log-Expansion Strategy:
+    1. Log-Normalize: Stretching performed in Log space to preserve stop ratios.
+    2. High-Latitude Slope: Target a wide output range (2.7) for punchy prints.
+    3. Truncated Stats: Focus on core subject (10-90th percentile).
+    4. Calibration: Calibrated for log-normalized [0,1] input.
+    """
+    epsilon = 1e-6
+    
+    # 1. Measure Log Bounds & Normalize Subject Area
+    h, w = img.shape[:2]
+    mh, mw = int(h * 0.20), int(w * 0.20) 
+    subject_linear = img[mh:h-mh, mw:w-mw]
+    
+    # Get global log bounds
+    floors, ceils = measure_log_negative_bounds(img)
+    
+    # Normalize subject in log domain: [D-max, Base] -> [0.0, 1.0]
+    subject_log = np.log10(np.clip(subject_linear, epsilon, 1.0))
+    norm_subject_log = np.zeros_like(subject_log)
+    for ch in range(3):
+        f, c = floors[ch], ceils[ch]
+        norm_subject_log[:, :, ch] = (subject_log[:, :, ch] - f) / (max(c - f, epsilon))
+    
+    # 2. isolate Red Channel for tonality
+    red_subject_log = norm_subject_log[:, :, 0]
+    
+    # 3. Contrast Analysis (Core Subject Range: 10th to 90th percentile)
+    p10, p90 = np.percentile(red_subject_log, [10, 90])
+    input_range = float(max(p90 - p10, 0.1))
+    target_slope = 2.7 / input_range
+    
+    # Map Slope to UI Grade slider (0-5)
+    auto_grade = (target_slope - 1.0) / 1.2
+    
+    # 4. Density Analysis (Subject Highlights: 75th percentile)
+    p75_subject = np.percentile(red_subject_log, 75.0)
+    auto_density = (p75_subject - 0.45) / 0.20
+    
+    # 5. Calculate White Balance (Residual offsets after normalization)
+    meds = np.median(norm_subject_log, axis=(0, 1))
+    med_r, med_g, med_b = meds[0], meds[1], meds[2]
+    
+    scale = 100.0
+    wb_cyan = 0.0
+    wb_magenta = (med_r - med_g) * scale
+    wb_yellow = (med_r - med_b) * scale
+    
+    # Rounding Fix: Lab-style rounding to nearest 0.05 for Density/Grade, 0.5 for WB.
+    auto_density = float(np.round(auto_density * 20.0) / 20.0)
+    auto_grade = float(np.round(auto_grade * 20.0) / 20.0)
+    wb_magenta = float(np.round(wb_magenta * 2.0) / 2.0)
+    wb_yellow = float(np.round(wb_yellow * 2.0) / 2.0)
+
+    # Safety clips
+    auto_density = float(np.clip(auto_density, -1.0, 3.0))
+    auto_grade = float(np.clip(auto_grade, 0.0, 5.0))
+    wb_magenta = float(np.clip(wb_magenta, -50.0, 170.0))
+    wb_yellow = float(np.clip(wb_yellow, -50.0, 170.0))
+    
+    return {
+        "density": auto_density,
+        "grade": auto_grade,
+        "wb_cyan": wb_cyan,
+        "wb_magenta": wb_magenta,
+        "wb_yellow": wb_yellow
+    }
 
 
 def apply_chromaticity_preserving_black_point(
     img: np.ndarray, percentile: float
 ) -> np.ndarray:
     """
-    Neutralizes the overall black level of the print while preserving
-    intentional color balance and warmth in the shadows.
+    Neutralizes the overall black level of the print.
     """
-    # 1. Calculate Luminance
     lum = get_luminance(img)
-
-    # 2. Find the global black point percentile
     bp = np.percentile(lum, percentile)
-
-    # Apply uniform stretch to all channels to preserve color ratios
     res = (img - bp) / (1.0 - bp + 1e-6)
     return cast(np.ndarray, np.clip(res, 0.0, 1.0))

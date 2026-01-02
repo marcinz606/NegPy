@@ -15,6 +15,57 @@ def convert_to_monochrome(img: np.ndarray) -> np.ndarray:
     return cast(np.ndarray, np.stack([lum, lum, lum], axis=2))
 
 
+def measure_film_base(img: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Measures the unexposed film base color (brightest part of negative).
+    Includes validation to ensure we aren't picking up white objects in a cropped scan.
+    """
+    if img.ndim != 3:
+        return 0.90, 0.65, 0.45
+
+    # Step A: Measure Candidates (99.9th percentile)
+    # This rejects hot pixels but captures the "brightest" smooth area.
+    cand_r = float(np.percentile(img[:, :, 0], 99.9))
+    cand_g = float(np.percentile(img[:, :, 1], 99.9))
+    cand_b = float(np.percentile(img[:, :, 2], 99.9))
+
+    # Step B: Validate (Is this an Orange Mask?)
+    # 1. Hierarchy Check: Mask should be Red > Green > Blue (Orange)
+    is_orange_hierarchy = cand_r > cand_g and cand_g > cand_b
+    
+    # 2. Separation Check: Red should be significantly brighter than Blue.
+    # We require at least 10% separation to rule out Neutral White objects.
+    has_color_separation = cand_r > (cand_b * 1.10)
+
+    # Step C: Decide
+    if is_orange_hierarchy and has_color_separation:
+        return cand_r, cand_g, cand_b
+    else:
+        # Fallback: Synthetic Base (Generic Orange Mask)
+        # Represents typical transmission of developed unexposed C41 film.
+        return 0.90, 0.65, 0.45
+
+
+def calculate_log_medians(img: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Calculates the Log-Median of each channel.
+    This represents the 'Statistical Gray' of the scene.
+    Used for 'Gray World' auto-white balance.
+    """
+    if img.ndim != 3:
+        return 0.5, 0.5, 0.5
+        
+    # Clip to avoid log(0) and log(>1)
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(img, epsilon, 1.0))
+    
+    med_r = float(np.median(img_log[:, :, 0]))
+    med_g = float(np.median(img_log[:, :, 1]))
+    med_b = float(np.median(img_log[:, :, 2]))
+    
+    return med_r, med_g, med_b
+
+
 def apply_color_separation(img: np.ndarray, intensity: float) -> np.ndarray:
     """
     Increases/decreases color separation (saturation) without shifting luminance.

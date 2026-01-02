@@ -55,26 +55,27 @@ def get_processing_params(
     g_gain = 10.0 ** (m_val / 100.0)
     b_gain = 10.0 ** (y_val / 100.0)
 
-    # 2. Unified Grade to Internal Gain/Gamma Mapping
-    # Grade 2.5 is the pivot (Normal).
-    grade = source.get("grade", 2.5)
+    # 2. Density & Grade Mapping (Photometric Model)
+    # 'Density' acts as the primary Exposure control (Shift).
+    # 'Grade' acts as the paper contrast/slope control.
 
-    # Internal Scan Gain (Density part)
-    # Maps Grade [0, 5] -> Gain [0.5, 3.5]
-    internal_gain = 1.0 + (grade - 2.5) * 0.6
-    internal_gain = max(0.1, internal_gain)
-
-    # Internal Gamma (Contrast part)
-    # Higher grade = higher gain = automatic gamma dampening to prevent muddiness.
-    # We use an opposing relationship: gamma decreases as gain increases.
-    internal_gamma = 1.0 - (grade - 2.5) * 0.15
-    internal_gamma = max(0.5, min(internal_gamma, 1.5))
+    # Density 0.0 (Light) -> 3.0 (Dark).
+    density = source.get("density", 1.0)
+    
+    # Grade 0.0 -> 5.0 (Default 2.0).
+    grade = source.get("grade", 2.0)
 
     p: ProcessingParams = {
-        "scan_gain": float(internal_gain),
-        "gamma": float(internal_gamma),
+        "density": float(density),
+        "wb_cyan": float(c_val),
+        "wb_magenta": float(m_val),
+        "wb_yellow": float(y_val),
+        "scan_gain": 0.0, # Placeholder, not used in new model
+        "gamma": 1.0,    # Placeholder
         "scan_gain_s_toe": source.get("scan_gain_s_toe", 0.0),
         "scan_gain_h_shoulder": source.get("scan_gain_h_shoulder", 0.0),
+        "toe": float(source.get("toe", 0.0)),
+        "shoulder": float(source.get("shoulder", 0.0)),
         "wb_manual_r": float(r_gain),
         "wb_manual_g": float(g_gain),
         "wb_manual_b": float(b_gain),
@@ -82,7 +83,7 @@ def get_processing_params(
         "shadow_temp": source.get("shadow_temp", 0.0),
         "highlight_temp": source.get("highlight_temp", 0.0),
         "shadow_desat_strength": source.get("shadow_desat_strength", 1.0),
-        "contrast": source.get("contrast", 1.0),
+        "grade": float(grade),
         "color_separation": source.get("color_separation", 1.0),
         "saturation": source.get("saturation", 1.0),
         "exposure": source.get("exposure", 0.0),

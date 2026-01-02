@@ -18,6 +18,8 @@ GLOBAL_PERSIST_KEYS = {
     "temperature",
     "shadow_temp",
     "highlight_temp",
+    "toe",
+    "shoulder",
     "export_fmt",
     "export_color_space",
     "export_size",

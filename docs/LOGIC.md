@@ -16,16 +16,20 @@ In a traditional color darkroom, white balance is achieved using CMY (Cyan, Mage
 - **Algorithm**: We apply linear multipliers to the Red, Green, and Blue channels.
 - **Rationale**: Unlike digital "Temperature/Tint" sliders which often use complex color space rotations, our filtration happens at the earliest possible stage. This preserves the chromaticity ratios of the scene, ensuring that as you adjust "exposure" later, the colors don't "drift"—a principle often emphasized in the cinematography research of [Steve Yedlin, ASC](https://www.yedlin.net/DisplayPrepDemo/index.html).
 
-## 3. Grade (Scanner Gain)
-In the darkroom, "Grade" refers to the contrast of the photographic paper. Harder grades (Grade 5) have a steeper response, while softer grades (Grade 0) compress more dynamic range.
+## 3. Density & Grade (Tonality)
+In the darkroom, "Density" refers to the amount of silver/dye developed on the paper (brightness), while "Grade" refers to the contrast of the photographic paper. Harder grades (Grade 5) have a steeper response, while softer grades (Grade 0) compress more dynamic range.
 
 ### Logic & Implementation
-- **Mathematical Basis**: We model this as **Scanner Gain** applied to the negative.
-- **Algorithm**: The "Grade" slider controls a linear gain factor applied to the negative's intensities before they are inverted.
-  - `Grade 2.5` is considered neutral.
-  - `Grade > 2.5` increases the slope (contrast), similar to the [Hurter-Driffield (H&D) characteristic curve](https://en.wikipedia.org/wiki/Sensitometry).
-  - `Grade < 2.5` flattens the slope.
-- **Photographic Rationale**: By applying gain in the negative domain, we are effectively choosing how "deeply" we want to look into the silver (or dye) densities of the film, matching the density range of the negative to the log exposure range of the paper ([ISO 6846:1992](https://cdn.standards.iteh.ai/samples/13355/5b11c8fb17f843aab03de56691b4b353/ISO-6846-1992.pdf)).
+- **Mathematical Basis**: We model this using a Photometric Characteristic Curve.
+- **Algorithm**: 
+  - The **Density** slider controls the curve pivot (Exposure Shift). 
+    - `Density 1.0` is considered normal.
+    - `Density > 1.0` darkens the print.
+  - The **Grade** slider controls the curve slope (Contrast).
+    - `Grade 2.0` is considered normal.
+    - `Grade > 2.0` increases contrast (harder paper).
+    - `Grade < 2.0` decreases contrast (softer paper).
+- **Photographic Rationale**: This mimics matching the density range of the negative to the log exposure range of the paper ([ISO 6846:1992](https://cdn.standards.iteh.ai/samples/13355/5b11c8fb17f843aab03de56691b4b353/ISO-6846-1992.pdf)).
 
 ## 4. Tonality Recovery: Shoulder & Toe
 Film and paper don't have a hard "clip" like digital sensors; they have a graceful roll-off at the extremes. We implement this using sensitometric curve logic during the gain stage.

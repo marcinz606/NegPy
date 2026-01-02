@@ -19,12 +19,12 @@ APP_CONFIG: AppConfig = {
 # --- DEFAULT SETTINGS ---
 # The baseline parameters for every newly imported RAW file
 DEFAULT_SETTINGS: ProcessingParams = {
+    "density": 1.0,
     "grade": 2.5,
-    "scan_gain_s_toe": 0.0,
-    "scan_gain_h_shoulder": 0.0,
+    "toe": 0.0,
+    "shoulder": 0.0,
     "auto_wb": False,
     "shadow_desat_strength": 1.0,
-    "contrast": 1.0,
     "exposure": 0.0,
     "dust_remove": True,
     "dust_threshold": 0.55,
@@ -51,7 +51,7 @@ DEFAULT_SETTINGS: ProcessingParams = {
     "export_dpi": 300,
     "export_add_border": True,
     "export_border_size": 0.25,
-    "export_border_color": "#000000",
+    "export_border_color": "#ffffff",
     "export_path": APP_CONFIG["default_export_dir"],
     "process_mode": "C41",
     "manual_dust_spots": [],

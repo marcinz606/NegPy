@@ -2,49 +2,69 @@ import streamlit as st
 import numpy as np
 from src.frontend.state import save_settings, reset_file_settings
 from src.frontend.components.local_ui import render_local_adjustments
-from src.backend.processor import calculate_auto_mask_wb
-from src.frontend.components.sidebar.helpers import apply_wb_gains_to_sliders
 from src.frontend.components.sidebar.exposure_ui import render_exposure_section
 from src.frontend.components.sidebar.color_ui import render_color_section
 from src.frontend.components.sidebar.retouch_ui import render_retouch_section
 from src.frontend.components.sidebar.export import render_export_section
 from src.frontend.components.sidebar.presets import render_presets
 from src.domain_objects import SidebarData
-from src.backend.image_logic.exposure import calculate_auto_exposure_params
+from src.backend.image_logic.exposure import solve_photometric_exposure
+from src.backend.image_logic.retouch import apply_autocrop
 
 
 def run_auto_wb(current_file_hash: str) -> None:
     if "preview_raw" in st.session_state:
-        r, g, b = calculate_auto_mask_wb(st.session_state.preview_raw)
-        slider_vals = apply_wb_gains_to_sliders(r, g, b)
-        for k, v in slider_vals.items():
-            st.session_state[k] = v
+        img = st.session_state.preview_raw
+        
+        # Apply Auto-Crop if enabled to focus color analysis on subject area
+        if st.session_state.get("autocrop"):
+            img = apply_autocrop(
+                img,
+                offset_px=st.session_state.get("autocrop_offset", 0),
+                scale_factor=1.0,
+                ratio=st.session_state.get("autocrop_ratio", "3:2")
+            )
+
+        # Delegate logic to the Backend Photometric Solver
+        results = solve_photometric_exposure(img)
+        
+        # ATOMIC UPDATE: Color Only
+        # We purposely do NOT update 'grade' here to preserve exposure.
+        st.session_state.wb_cyan = results["wb_cyan"]
+        st.session_state.wb_magenta = results["wb_magenta"]
+        st.session_state.wb_yellow = results["wb_yellow"]
+        
         st.session_state["auto_wb"] = False
         save_settings(current_file_hash)
 
 
 def run_auto_density(current_file_hash: str) -> None:
     if "preview_raw" in st.session_state:
-        # Calculate current WB gains from sliders
-        c_val = np.clip(st.session_state.get("wb_cyan", 0), 0, 170)
-        m_val = np.clip(st.session_state.get("wb_magenta", 0), 0, 170)
-        y_val = np.clip(st.session_state.get("wb_yellow", 0), 0, 170)
+        img = st.session_state.preview_raw
+        
+        # Apply Auto-Crop if enabled to focus analysis on subject area only
+        if st.session_state.get("autocrop"):
+            # scale_factor=1.0 because preview_raw is already at preview resolution
+            img = apply_autocrop(
+                img,
+                offset_px=st.session_state.get("autocrop_offset", 0),
+                scale_factor=1.0,
+                ratio=st.session_state.get("autocrop_ratio", "3:2")
+            )
 
-        r_gain = 10.0 ** (c_val / 100.0)
-        g_gain = 10.0 ** (m_val / 100.0)
-        b_gain = 10.0 ** (y_val / 100.0)
-
-        # Delegate logic to the Backend Surgical Solver
-        grade, s_toe, h_shoulder = calculate_auto_exposure_params(
-            st.session_state.preview_raw, r_gain, g_gain, b_gain
-        )
-
-        st.session_state.grade = grade
-        st.session_state.scan_gain_s_toe = s_toe
-        st.session_state.scan_gain_h_shoulder = h_shoulder
+        # Delegate logic to the Backend Photometric Solver
+        results = solve_photometric_exposure(img)
+        
+        # ATOMIC UPDATE: Exposure and Contrast
+        # We purposely do NOT update WB sliders here.
+        st.session_state.density = results["density"]
+        st.session_state.grade = results["grade"]
+        
+        # Reset defaults for a clean start
+        st.session_state.scan_gain_s_toe = 0.0
+        st.session_state.scan_gain_h_shoulder = 0.0
 
         save_settings(current_file_hash)
-
 
 def reset_wb_settings(current_file_hash: str) -> None:
     """

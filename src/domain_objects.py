@@ -11,13 +11,15 @@ class LocalAdjustment(TypedDict, total=False):
 
 
 class ProcessingParams(TypedDict, total=False):
-    grade: float
+    density: float
     scan_gain: float
     scan_gain_s_toe: float
     scan_gain_h_shoulder: float
+    toe: float
+    shoulder: float
     auto_wb: bool
     shadow_desat_strength: float
-    contrast: float
+    grade: float
     exposure: float
     dust_remove: bool
     dust_threshold: float

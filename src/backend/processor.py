@@ -20,11 +20,13 @@ from src.backend.image_logic.color import (
     apply_shadow_highlight_grading,
     convert_to_monochrome,
     apply_color_separation,
+    measure_film_base,
 )
 from src.backend.image_logic.exposure import (
     apply_contrast,
-    apply_scan_gain_with_toe,
+    apply_film_characteristic_curve,
     apply_chromaticity_preserving_black_point,
+    measure_log_negative_bounds,
 )
 from src.backend.image_logic.gamma import apply_gamma_to_img
 from src.backend.image_logic.retouch import (
@@ -50,45 +52,82 @@ def process_image_core(img: np.ndarray, params: ProcessingParams) -> np.ndarray:
 
     is_bw = params.get("process_mode") == "B&W"
 
-    # 1. White Balance (Dichroic Filtration - APPLIED FIRST)
-    # Only apply filtration in color mode.
-    if not is_bw:
-        img[:, :, 0] *= params.get("wb_manual_r", 1.0)
-        img[:, :, 1] *= params.get("wb_manual_g", 1.0)
-        img[:, :, 2] *= params.get("wb_manual_b", 1.0)
-        img = np.clip(img, 0, 1)
+    # 1. Log-Expansion Normalization (Scanner Gain Simulation)
+    # Move to Log Domain first
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(img, epsilon, 1.0))
+    
+    # Per-Channel Stretch in Log Domain
+    # This preserves stop ratios and maximizes ECN-2 contrast potential.
+    floors, ceils = measure_log_negative_bounds(img)
+    for ch in range(3):
+        f, c = floors[ch], ceils[ch]
+        img_log[:, :, ch] = np.clip((img_log[:, :, ch] - f) / (max(c - f, epsilon)), 0, 1)
 
-    # 2. Normalization & Scanner Gain
-    # We identify the mask level AFTER filtration.
-    shadow_bases = np.percentile(img, 99.5, axis=(0, 1))
+    # 2. Normalization & Scanner Gain (Photometric Characteristic Curve)
+    
+    # In normalized log space: 0.0 is D-max (Shadows), 1.0 is D-min (Base).
+    # Master Reference is now anchored to the top of the normalized range.
+    master_ref = 1.0
+    
+    # User Parameters
+    density = params.get("density", 1.0)
+    wb_cyan = params.get("wb_cyan", 0.0)
+    wb_magenta = params.get("wb_magenta", 0.0)
+    wb_yellow = params.get("wb_yellow", 0.0)
+    
+    # Exposure Shift Logic:
+    # 1.0 (Normal) corresponds to shift of 0.35 units (High-Key focus)
+    exposure_shift = 0.1 + (density * 0.25)
+    
+    pivot_r = master_ref - exposure_shift - (wb_cyan / 100.0)
+    pivot_g = master_ref - exposure_shift - (wb_magenta / 100.0)
+    pivot_b = master_ref - exposure_shift - (wb_yellow / 100.0)
+    
+    # Slope (Contrast) - High-Latitude Formula
+    # UI 2.0 -> Slope 3.4. UI 2.5 -> Slope 4.0. UI 5.0 -> Slope 7.0.
+    # This gives flat ECN-2 the expansion it needs.
+    current_slope = 1.0 + (params.get("grade", 2.0) * 1.2)
 
-    scan_gain = params.get("scan_gain", 1.0)
-    channel_gains = [scan_gain, scan_gain, scan_gain]
+    # Construct per-channel parameters
+    params_r = (pivot_r, current_slope)
+    params_g = (pivot_g, current_slope)
+    params_b = (pivot_b, current_slope)
 
-    # Apply tonality recovery based on the filtered/normalized data
-    img = apply_scan_gain_with_toe(
-        img,
-        channel_gains,
-        shadow_toe=params.get("scan_gain_s_toe", 0.0),
-        highlight_shoulder=params.get("scan_gain_h_shoulder", 0.0),
-        shadow_bases=shadow_bases,
+    # Extract Recovery Params
+    toe = float(params.get("toe", 0.0))
+    shoulder = float(params.get("shoulder", 0.0))
+
+    # Apply Photometric Characteristic Curve (Returns Positive)
+    # NOTE: Since we are already in Log Domain, we must bypass the Log10 
+    # step inside apply_film_characteristic_curve if it exists, or update it.
+    img_pos = apply_film_characteristic_curve(
+        img_log, # Passing log data directly
+        params_r,
+        params_g,
+        params_b,
+        toe=toe,
+        shoulder=shoulder,
+        pre_logged=True # Pass flag to skip internal log
     )
-    img = np.clip(img, 0, 1)
-
+    img = np.clip(img_pos, 0, 1)    
     # If B&W mode, convert to monochrome base BEFORE toning
     if is_bw:
         img = convert_to_monochrome(img)
-
-    # 3. Paper Toning (Negative Domain)
-    img = apply_manual_color_balance_neg(img, params)
-    img = apply_shadow_highlight_grading(img, params)
-
-    # 4. Inversion (Creating the positive)
-    img = 1.0 - img
-
-    # 5. Black Point (Luminance-based)
-    img = apply_chromaticity_preserving_black_point(img, 0.05)
-
+    
+        # 3. Paper Toning (Legacy Negative Domain Logic)
+        # The Toning functions expect a Negative (Bright=Shadows).
+        # Since we now have a Positive, we must invert to Negative for Toning, then invert back.
+        img_neg = 1.0 - img
+        
+        img_neg = apply_manual_color_balance_neg(img_neg, params)
+        img_neg = apply_shadow_highlight_grading(img_neg, params)
+        
+        # Inversion (Creating the positive back from toned negative)
+        img = 1.0 - img_neg
+    
+        # 5. Black Point (Luminance-based)
+        img = apply_chromaticity_preserving_black_point(img, 0.05)
     # 6. Retouching
     img = apply_dust_removal(img, params, scale_factor)
     img = apply_chroma_noise_removal(img, params, scale_factor)
@@ -100,11 +139,6 @@ def process_image_core(img: np.ndarray, params: ProcessingParams) -> np.ndarray:
     img = apply_local_adjustments(
         img, params.get("local_adjustments", []), scale_factor
     )
-
-    # Apply global Gamma (Paper Grade - Coupled with Grade slider)
-    img = apply_gamma_to_img(img, params.get("gamma", 1.0))
-
-    img = apply_contrast(img, params.get("contrast", 1.0))
 
     if not is_bw:
         img = apply_color_separation(img, params.get("color_separation", 1.0))
