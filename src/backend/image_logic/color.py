@@ -1,13 +1,44 @@
 import numpy as np
 import cv2
 from typing import Tuple, Dict, Any
+from src.backend.utils import get_luminance
 
-def get_luminance(img: np.ndarray) -> np.ndarray:
+def convert_to_monochrome(img: np.ndarray) -> np.ndarray:
     """
-    Calculates the relative luminance of an RGB image using Rec. 709 coefficients.
-    Supports both 3D (H, W, 3) and 2D (N, 3) arrays.
+    Converts an RGB image to a 3-channel monochrome (greyscale) image.
     """
-    return 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
+    if img.shape[2] != 3:
+        return img
+    lum = get_luminance(img)
+    return np.stack([lum, lum, lum], axis=2)
+
+def apply_color_separation(img: np.ndarray, intensity: float) -> np.ndarray:
+    """
+    Increases/decreases color separation (saturation) without shifting luminance.
+    Refined: Tapers intensity in shadows to prevent "nuclear" darks.
+    """
+    if intensity == 1.0:
+        return img
+        
+    is_float = img.dtype.kind == 'f'
+    if not is_float:
+        img = img.astype(np.float32) / 255.0
+        
+    lum = get_luminance(img)
+    
+    # Create a luma mask to protect shadows from excessive separation
+    luma_mask = np.clip(lum / 0.2, 0.0, 1.0)
+    luma_mask = luma_mask * luma_mask
+    
+    effective_intensity = 1.0 + (intensity - 1.0) * luma_mask
+    
+    lum_3d = lum[:,:,None]
+    res = lum_3d + (img - lum_3d) * effective_intensity[:,:,None]
+    res = np.clip(res, 0.0, 1.0)
+    
+    if not is_float:
+        res = (res * 255.0).astype(np.uint8)
+    return res
 
 def apply_shadow_desaturation(img: np.ndarray, strength: float = 1.0) -> np.ndarray:
     """

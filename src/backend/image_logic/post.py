@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from PIL import Image, ImageEnhance, ImageFilter
 from typing import Dict, Any
-from src.backend.utils import apply_color_separation
+from src.backend.image_logic.color import apply_color_separation
 
 def apply_post_color_grading(pil_img: Image.Image, params: Dict[str, Any]) -> Image.Image:
     """

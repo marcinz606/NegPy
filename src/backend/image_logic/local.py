@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 from typing import List, Dict, Any, Tuple
+from src.backend.utils import get_luminance
 
 def generate_local_mask(h: int, w: int, points: List[Tuple[float, float]], radius: float, feather: float, scale_factor: float) -> np.ndarray:
     """
@@ -35,8 +36,7 @@ def calculate_luma_mask(img: np.ndarray, luma_range: Tuple[float, float], softne
     """
     Calculates a mask based on image luminance levels.
     """
-    # Rec. 709 luma coefficients
-    lum = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
+    lum = get_luminance(img)
     
     low, high = luma_range
     

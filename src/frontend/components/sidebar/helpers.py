@@ -1,5 +1,29 @@
 
 import numpy as np
+import streamlit as st
+from typing import Optional
+
+def render_control_slider(label: str, min_val: float, max_val: float, default_val: float, step: float, key: str, help_text: Optional[str] = None, format: str = "%.2f"):
+    """
+    Standardized slider renderer for the sidebar.
+    Ensures session state is initialized and clamped.
+    """
+    if key not in st.session_state:
+        st.session_state[key] = default_val
+    else:
+        # Safety Clamp
+        st.session_state[key] = max(float(min_val), min(float(st.session_state[key]), float(max_val)))
+    
+    return st.slider(
+        label, 
+        min_value=float(min_val), 
+        max_value=float(max_val), 
+        value=float(st.session_state[key]), 
+        step=float(step), 
+        format=format, 
+        key=key, 
+        help=help_text
+    )
 
 def apply_wb_gains_to_sliders(r: float, g: float, b: float):
     """

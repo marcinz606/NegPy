@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 from typing import Dict, Any, Tuple
 from src.config import APP_CONFIG
+from src.backend.utils import ensure_rgb, get_luminance
 
 def apply_fine_rotation(img: np.ndarray, angle: float) -> np.ndarray:
     """
@@ -28,13 +29,12 @@ def get_autocrop_coords(img: np.ndarray, offset_px: int = 0, scale_factor: float
     Calculates the autocrop coordinates.
     Returns (y1, y2, x1, x2) in pixels relative to input img.
     """
-    if img.ndim == 2:
-        img = np.stack([img] * 3, axis=-1)
+    img = ensure_rgb(img)
     h, w, _ = img.shape
     detect_res = APP_CONFIG['autocrop_detect_res']
     det_scale = detect_res / max(h, w)
     img_small = cv2.resize(img, (int(w * det_scale), int(h * det_scale)), interpolation=cv2.INTER_AREA)
-    lum = 0.2126 * img_small[:,:,0] + 0.7152 * img_small[:,:,1] + 0.0722 * img_small[:,:,2]
+    lum = get_luminance(img_small)
     
     # Threshold for film base detection (detecting darker frame)
     rows_det = np.where(np.mean(lum, axis=1) < 0.96)[0]
@@ -126,7 +126,7 @@ def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: fl
         img_median_u8 = cv2.medianBlur(img_uint8, d_size)
         img_median = img_median_u8.astype(np.float32) / 255.0
 
-        gray = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
+        gray = get_luminance(img)
         blur_win = int(15 * scale_factor) | 1
         mean = cv2.blur(gray, (blur_win, blur_win))
         sq_mean = cv2.blur(gray**2, (blur_win, blur_win))
@@ -173,7 +173,7 @@ def apply_dust_removal(img: np.ndarray, params: Dict[str, Any], scale_factor: fl
         
         # Grain Matching
         noise = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
-        lum = (0.2126 * img_inpainted_u8[:,:,0] + 0.7152 * img_inpainted_u8[:,:,1] + 0.0722 * img_inpainted_u8[:,:,2]) / 255.0
+        lum = get_luminance(img_inpainted_u8) / 255.0
         modulation = 5.0 * lum * (1.0 - lum)
         noise = noise * modulation[:,:,None]
         

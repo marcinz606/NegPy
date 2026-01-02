@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.ndimage as ndimage
 from typing import Tuple
+from src.backend.utils import get_luminance
 
 def plot_histogram(img_arr: np.ndarray, figsize: Tuple[float, float] = (6, 1), dpi: int = 150) -> plt.Figure:
     """
@@ -19,7 +20,7 @@ def plot_histogram(img_arr: np.ndarray, figsize: Tuple[float, float] = (6, 1), d
     ax.set_facecolor('#000000') 
     fig.patch.set_facecolor('#000000')
     
-    lum = 0.2126 * img_arr[..., 0] + 0.7152 * img_arr[..., 1] + 0.0722 * img_arr[..., 2]
+    lum = get_luminance(img_arr)
     colors = ("#ff4b4b", "#28df99", "#3182ce")
     
     for i, color in enumerate(colors):

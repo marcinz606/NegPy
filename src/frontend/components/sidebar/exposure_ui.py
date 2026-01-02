@@ -1,58 +1,38 @@
 import streamlit as st
+from src.frontend.components.sidebar.helpers import render_control_slider
 
 def render_exposure_section():
     """
     Renders the 'Exposure & Tonality' section of the sidebar.
     """
-    # Safety Check: Clamp session state values to valid slider ranges
-    if 'grade' in st.session_state:
-        st.session_state['grade'] = max(0.0, min(st.session_state['grade'], 5.0))
-    if 'scan_gain_s_toe' in st.session_state:
-        st.session_state['scan_gain_s_toe'] = max(0.0, min(st.session_state['scan_gain_s_toe'], 0.5))
-    if 'scan_gain_h_shoulder' in st.session_state:
-        st.session_state['scan_gain_h_shoulder'] = max(0.0, min(st.session_state['scan_gain_h_shoulder'], 0.5))
-    
-    # Initialize filtration if missing
-    for k in ['wb_cyan', 'wb_magenta', 'wb_yellow']:
-        if k not in st.session_state:
-            st.session_state[k] = 0
-
     is_bw = st.session_state.get('process_mode') == 'B&W'
 
     with st.expander(":material/camera: Exposure & Tonality", expanded=True):
         if not is_bw:
-            st.caption("Film Base Neutralization (CMY Filtration)")
-            # Full-width stacked sliders with color-coded labels
-            st.slider(":blue-badge[Cyan]", 0.0, 170.0, 0.0, 0.5, key="wb_cyan",
-                      help="Adds Cyan filtration (removes Red cast). Like in darkroom, you SHOULD NOT be touching this unless you know what you are doing :)")
-            st.slider(":violet-badge[Magenta]", 0.0, 170.0, 0.0, 0.5, key="wb_magenta",
-                      help="Adds Magenta filtration (removes Green cast).")
-            st.slider(":orange-badge[Yellow]", 0.0, 170.0, 0.0, 0.5, key="wb_yellow",
-                      help="Adds Yellow filtration (removes Blue cast).")
+            render_control_slider(":blue-badge[Cyan]", 0.0, 170.0, 0.0, 0.5, "wb_cyan", 
+                                 help_text="Adds Cyan filtration (removes Red cast). Like in darkroom, you SHOULD NOT be touching this unless you know what you are doing :)")
+            render_control_slider(":violet-badge[Magenta]", 0.0, 170.0, 0.0, 0.5, "wb_magenta", 
+                                 help_text="Adds Magenta filtration (removes Green cast).")
+            render_control_slider(":orange-badge[Yellow]", 0.0, 170.0, 0.0, 0.5, "wb_yellow", 
+                                 help_text="Adds Yellow filtration (removes Blue cast).")
 
         # Primary Print Controls
-        st.slider(
-            "Grade", 
-            0.0, 5.0, 2.5, 0.05, 
-            format="%.2f", 
-            key="grade", 
-            help="Unified Exposure and Contrast control. Mimics darkroom Variable Contrast (VC) paper grades. Higher values darken the print, increase contrast, and recover highlight detail."
+        render_control_slider(
+            "Grade", 0.0, 5.0, 2.5, 0.05, "grade", 
+            help_text="Unified Exposure and Contrast control. Mimics darkroom Variable Contrast (VC) paper grades. Higher values darken the print, increase contrast, and recover highlight detail."
         )
+        
         c_gain1, c_gain2 = st.columns(2)
-        c_gain1.slider(
-            "Shadow Toe", 
-            0.0, 0.5, 0.0, 0.005, 
-            format="%.3f", 
-            key="scan_gain_s_toe",
-            help="Separates and lifts the deepest shadows to prevent a muddy look."
-        )
-        c_gain2.slider(
-            "Highlight Shoulder", 
-            0.0, 0.5, 0.0, 0.005, 
-            format="%.3f", 
-            key="scan_gain_h_shoulder",
-            help="Controls the roll-off of the whites, recovering peak highlight detail."
-        )
+        with c_gain1:
+            render_control_slider(
+                "Shadow Toe", 0.0, 0.5, 0.0, 0.005, "scan_gain_s_toe", format="%.3f",
+                help_text="Separates and lifts the deepest shadows to prevent a muddy look."
+            )
+        with c_gain2:
+            render_control_slider(
+                "Highlight Shoulder", 0.0, 0.5, 0.0, 0.005, "scan_gain_h_shoulder", format="%.3f",
+                help_text="Controls the roll-off of the whites, recovering peak highlight detail."
+            )
 
 
 

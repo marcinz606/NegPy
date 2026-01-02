@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageCms
 from typing import Dict, Any, Optional
 
 from src.config import DEFAULT_SETTINGS, APP_CONFIG
-from src.backend.utils import get_thumbnail_worker
+from src.backend.utils import get_thumbnail_worker, ensure_rgb
 from src.backend.db import init_db
 from src.backend.image_logic.retouch import get_autocrop_coords
 from src.backend.image_logic.post import apply_post_color_grading, apply_output_sharpening
@@ -98,7 +98,9 @@ async def main():
     """
     Initialzie frontend app function.
     """
-    st.set_page_config(layout="wide", page_title="DarkroomPy")
+    st.set_page_config(page_title="DarkroomPy",
+                       layout="wide",
+                       page_icon=":material/camera_roll:")
     init_db()
     apply_custom_css()
     init_session_state()
@@ -135,8 +137,7 @@ async def main():
                                           output_bps=16,
                                           output_color=raw_color_space)
                     # Handle greyscale
-                    if rgb.ndim == 2:
-                        rgb = np.stack([rgb] * 3, axis=-1)
+                    rgb = ensure_rgb(rgb)
 
                     full_linear = rgb.astype(np.float32) / 65535.0
                     h, w = full_linear.shape[:2]

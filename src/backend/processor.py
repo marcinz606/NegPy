@@ -7,12 +7,15 @@ from PIL import Image, ImageOps, ImageCms
 from typing import Dict, Any, Tuple, Optional
 
 from src.config import APP_CONFIG
+from src.backend.utils import ensure_rgb, get_luminance
 from src.backend.image_logic.post import apply_post_color_grading, apply_output_sharpening
 from src.backend.image_logic.color import (
     apply_shadow_desaturation,
     calculate_auto_mask_wb, 
     apply_manual_color_balance_neg,
-    apply_shadow_highlight_grading
+    apply_shadow_highlight_grading,
+    convert_to_monochrome,
+    apply_color_separation
 )
 from src.backend.image_logic.exposure import (
     apply_contrast,
@@ -36,10 +39,7 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     High-level orchestration of the image processing pipeline.
     True Darkroom Model: Filtered Light -> Negative -> Scanner Gain -> Inversion.
     """
-    if img.ndim == 2:
-        img = np.stack([img] * 3, axis=-1)
-    elif img.ndim == 3 and img.shape[2] == 1:
-        img = np.concatenate([img] * 3, axis=-1)
+    img = ensure_rgb(img)
 
     h_orig, w_cols = img.shape[:2]
     scale_factor = max(h_orig, w_cols) / float(APP_CONFIG['preview_max_res'])
@@ -72,9 +72,8 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     img = np.clip(img, 0, 1)
 
     # If B&W mode, convert to monochrome base BEFORE toning
-    if is_bw and img.shape[2] == 3:
-        gray = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
-        img = np.stack([gray, gray, gray], axis=2)
+    if is_bw:
+        img = convert_to_monochrome(img)
 
     # 3. Paper Toning (Negative Domain)
     img = apply_manual_color_balance_neg(img, params)
@@ -97,9 +96,14 @@ def process_image_core(img: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     img = apply_local_adjustments(img, params.get('local_adjustments', []), scale_factor)
 
     # Apply global Gamma (Paper Grade - Coupled with Grade slider)
-    img = apply_gamma_to_img(img, params.get('gamma', 1.0), mode=params.get('gamma_mode', 'Standard'))
+    img = apply_gamma_to_img(img, params.get('gamma', 1.0))
     
     img = apply_contrast(img, params.get('contrast', 1.0))
+
+    if not is_bw:
+        img = apply_color_separation(img, params.get('color_separation', 1.0))
+        img *= params.get('saturation', 1.0)
+
     img = apply_shadow_desaturation(img, params.get('shadow_desat_strength', 1.0))
 
     # 9. Geometry
@@ -131,8 +135,7 @@ def load_raw_and_process(file_bytes: bytes, params: Dict[str, Any], output_forma
             # PURE RAW: Use [1,1,1,1] to see the full physical orange mask.
             # This is essential for our darkroom-style analytical WB to work.
             rgb = raw.postprocess(gamma=(1, 1), no_auto_bright=True, use_camera_wb=False, user_wb=[1, 1, 1, 1], output_bps=16, output_color=raw_color_space)
-            if rgb.ndim == 2:
-                rgb = np.stack([rgb] * 3, axis=-1)
+            rgb = ensure_rgb(rgb)
         img = rgb.astype(np.float32) / 65535.0
         
         if params.get('auto_wb'):

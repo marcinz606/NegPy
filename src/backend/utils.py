@@ -7,6 +7,22 @@ from PIL import Image
 from typing import List, Tuple, Dict, Any, Optional
 from src.config import APP_CONFIG, DEFAULT_SETTINGS
 
+def ensure_rgb(img: np.ndarray) -> np.ndarray:
+    """
+    Ensures the input image is a 3-channel RGB array.
+    """
+    if img.ndim == 2:
+        return np.stack([img] * 3, axis=-1)
+    if img.ndim == 3 and img.shape[2] == 1:
+        return np.concatenate([img] * 3, axis=-1)
+    return img
+
+def get_luminance(img: np.ndarray) -> np.ndarray:
+    """
+    Calculates relative luminance using Rec. 709 coefficients.
+    Supports both 3D (H, W, 3) and 2D (N, 3) arrays.
+    """
+    return 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
 
 def save_preset(name: str, settings: Dict[str, Any]) -> None:
     """
@@ -82,8 +98,7 @@ def get_thumbnail_worker(file_bytes: bytes) -> Optional[Image.Image]:
         ts = APP_CONFIG['thumbnail_size']
         with rawpy.imread(io.BytesIO(file_bytes)) as raw:
             rgb = raw.postprocess(use_camera_wb=False, user_wb=[1, 1, 1, 1], half_size=True, no_auto_bright=True, bright=1.0)
-            if rgb.ndim == 2:
-                rgb = np.stack([rgb] * 3, axis=-1)
+            rgb = ensure_rgb(rgb)
             img = Image.fromarray(rgb)
             
             img.thumbnail((ts, ts))
@@ -92,44 +107,6 @@ def get_thumbnail_worker(file_bytes: bytes) -> Optional[Image.Image]:
             return square_img
     except Exception:
         return None
-
-def apply_color_separation(img: np.ndarray, intensity: float) -> np.ndarray:
-    """
-    Increases/decreases color separation (saturation) without shifting luminance.
-    Refined: Tapers intensity in shadows to prevent "nuclear" darks.
-    
-    Args:
-        img (np.ndarray): Input image array (H, W, 3).
-        intensity (float): Separation multiplier (1.0 is neutral).
-        
-    Returns:
-        np.ndarray: Processed image array.
-    """
-    is_float = img.dtype.kind == 'f'
-    if not is_float:
-        img = img.astype(np.float32) / 255.0
-        
-    lum = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
-    
-    # Create a luma mask to protect shadows from excessive separation
-    # 1.0 at L=0.2 and above, fades to 0.0 at L=0.0
-    luma_mask = np.clip(lum / 0.2, 0.0, 1.0)
-    # Quadratic for smoother transition
-    luma_mask = luma_mask * luma_mask
-    
-    # Calculate effective intensity per pixel
-    # We want to interpolate between 1.0 (neutral) and the user target 'intensity'
-    # based on the luma_mask.
-    effective_intensity = 1.0 + (intensity - 1.0) * luma_mask
-    
-    # Apply separation
-    lum_3d = lum[:,:,None]
-    res = lum_3d + (img - lum_3d) * effective_intensity[:,:,None]
-    res = np.clip(res, 0.0, 1.0)
-    
-    if not is_float:
-        res = (res * 255.0).astype(np.uint8)
-    return res
 
 def transform_point(x: float, y: float, params: Dict[str, Any], raw_w: int, raw_h: int, inverse: bool = False) -> Tuple[float, float]:
     """

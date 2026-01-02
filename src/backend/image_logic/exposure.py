@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Any
+from src.backend.utils import get_luminance
 
 def apply_contrast(img: np.ndarray, contrast: float) -> np.ndarray:
     """
@@ -130,8 +131,8 @@ def apply_chromaticity_preserving_black_point(img: np.ndarray, percentile: float
     Neutralizes the overall black level of the print while preserving 
     intentional color balance and warmth in the shadows.
     """
-    # 1. Calculate Luminance using Rec. 709 coefficients
-    lum = 0.2126 * img[:,:,0] + 0.7152 * img[:,:,1] + 0.0722 * img[:,:,2]
+    # 1. Calculate Luminance
+    lum = get_luminance(img)
     
     # 2. Find the global black point percentile
     bp = np.percentile(lum, percentile)
