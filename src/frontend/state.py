@@ -1,13 +1,6 @@
 import streamlit as st
-from typing import cast
-from src.config import DEFAULT_SETTINGS
-from src.domain_objects import ProcessingParams
-from src.backend.db import (
-    db_save_file_settings,
-    db_load_file_settings,
-    db_save_global_setting,
-    db_get_global_setting,
-)
+import uuid
+from src.backend.session import DarkroomSession
 
 # Keys that should persist globally across all files if no specific edits exist
 GLOBAL_PERSIST_KEYS = {
@@ -34,168 +27,93 @@ GLOBAL_PERSIST_KEYS = {
 
 def init_session_state() -> None:
     """
-    Initializes all necessary session state variables for the Streamlit app.
-    Ensures that dictionaries and lists are present to avoid KeyErrors.
+    Initializes the DarkroomSession and core Streamlit state.
     """
-    if "file_settings" not in st.session_state:
-        st.session_state.file_settings = {}
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())[:8]
 
-    # Load Global Settings from DB into Session State
-    for key in GLOBAL_PERSIST_KEYS:
-        if key not in st.session_state:
-            # Fallback to DEFAULT_SETTINGS if not in DB
-            default_val = DEFAULT_SETTINGS.get(key)
-            st.session_state[key] = db_get_global_setting(key, default_val)
+    if "session" not in st.session_state:
+        st.session_state.session = DarkroomSession(st.session_state.session_id)
 
-    if "uploaded_files" not in st.session_state:
-        st.session_state.uploaded_files = []
-    if "last_uploaded_names" not in st.session_state:
-        st.session_state.last_uploaded_names = set()
-    if "thumbnails" not in st.session_state:
-        st.session_state.thumbnails = {}
-    if "selected_file_idx" not in st.session_state:
-        st.session_state.selected_file_idx = 0
-    if "clipboard" not in st.session_state:
-        st.session_state.clipboard = None
     if "last_dust_click" not in st.session_state:
         st.session_state.last_dust_click = None
+
     if "dust_start_point" not in st.session_state:
         st.session_state.dust_start_point = None
-    if "icc_profile_path" not in st.session_state:
-        st.session_state.icc_profile_path = None
 
 
-def load_settings(file_hash: str) -> bool:
+def load_settings() -> None:
     """
-    Loads settings for the given file into session state widgets.
-    Attempts to pull from local session cache first, then the SQLite database.
-
-    Returns:
-        bool: True if this is a first-time load (no previous settings), False otherwise.
+    Delegates to the session to load settings for the current file.
     """
-    is_new = False
-    if file_hash in st.session_state.file_settings:
-        settings = cast(ProcessingParams, st.session_state.file_settings[file_hash])
-    else:
-        db_settings = db_load_file_settings(file_hash)
-        if db_settings:
-            settings = DEFAULT_SETTINGS.copy()
-            settings.update(db_settings)
-        else:
-            settings = DEFAULT_SETTINGS.copy()
-            # Apply current global settings for new files
-            for key in GLOBAL_PERSIST_KEYS:
-                if key in st.session_state:
-                    settings[key] = st.session_state[key]  # type: ignore[literal-required]
-
-            settings["manual_dust_spots"] = []
-            settings["local_adjustments"] = []
-            is_new = True
-        st.session_state.file_settings[file_hash] = settings
-
-    # Ensure independent list objects for dust spots and local adjustments
-    if "manual_dust_spots" in settings:
-        settings["manual_dust_spots"] = list(settings["manual_dust_spots"])
-    else:
-        settings["manual_dust_spots"] = []
-
-    if "local_adjustments" in settings:
-        settings["local_adjustments"] = list(settings["local_adjustments"])
-    else:
-        settings["local_adjustments"] = []
-
-    for key, value in settings.items():
-        st.session_state[key] = value
-
-    return is_new
+    st.session_state.session.load_active_settings()
 
 
-def save_settings(file_hash: str) -> None:
+def save_settings() -> None:
     """
-    Saves current widget values to the file's settings dict and persists to the SQLite DB.
-    Also updates global settings DB.
-
-    Args:
-        file_hash (str): The content hash of the file to save settings for.
+    Delegates to the session to save settings.
     """
-    if file_hash not in st.session_state.file_settings:
-        init_settings = DEFAULT_SETTINGS.copy()
-        init_settings["manual_dust_spots"] = []
-        init_settings["local_adjustments"] = []
-        st.session_state.file_settings[file_hash] = init_settings
-
-    for key in DEFAULT_SETTINGS.keys():
-        if key in st.session_state:
-            val = st.session_state[key]
-            if key == "manual_dust_spots" or key == "local_adjustments":
-                st.session_state.file_settings[file_hash][key] = list(val)
-            else:
-                st.session_state.file_settings[file_hash][key] = val
-
-            # Persist global settings
-            if key in GLOBAL_PERSIST_KEYS:
-                db_save_global_setting(key, val)
-
-    # Handle export keys that might not be in DEFAULT_SETTINGS
-    for key in GLOBAL_PERSIST_KEYS:
-        if key not in DEFAULT_SETTINGS and key in st.session_state:
-            db_save_global_setting(key, st.session_state[key])
-
-    db_save_file_settings(
-        file_hash, cast(ProcessingParams, st.session_state.file_settings[file_hash])
-    )
+    st.session_state.session.save_active_settings()
 
 
 def copy_settings() -> None:
     """
-    Copies current file settings to the session clipboard.
-    Excludes image-specific manual dust spots and local adjustments.
+    Copies current settings to the session clipboard.
     """
-    if not st.session_state.uploaded_files:
-        return
-    current_file = st.session_state.uploaded_files[st.session_state.selected_file_idx]
-    f_hash = current_file["hash"]
-    save_settings(f_hash)
-    settings = st.session_state.file_settings[f_hash].copy()
-    # Remove image-specific retouching and rotation from clipboard to avoid unwanted resets
-    if "manual_dust_spots" in settings:
-        del settings["manual_dust_spots"]
-    if "local_adjustments" in settings:
-        del settings["local_adjustments"]
-    if "rotation" in settings:
-        del settings["rotation"]
+    session: DarkroomSession = st.session_state.session
+    session.save_active_settings()
 
-    st.session_state.clipboard = settings
-    st.toast("Settings copied to clipboard!")
+    current_file = session.current_file
+    if current_file:
+        f_hash = current_file["hash"]
+        settings = session.file_settings[f_hash]
+        settings_dict = settings.to_dict()
+
+        # Strip image-specifics
+        for key in ["manual_dust_spots", "local_adjustments", "rotation"]:
+            if key in settings_dict:
+                del settings_dict[key]
+
+        session.clipboard = settings_dict
+        st.toast("Settings copied to clipboard!")
 
 
 def paste_settings() -> None:
     """
-    Pastes settings from the session clipboard to the currently selected file.
+    Pastes clipboard settings to the active file.
     """
-    if st.session_state.clipboard and st.session_state.uploaded_files:
-        current_file = st.session_state.uploaded_files[
-            st.session_state.selected_file_idx
-        ]
-        f_hash = current_file["hash"]
-        # Update instead of replace to preserve local settings (rotation, retouching)
-        st.session_state.file_settings[f_hash].update(st.session_state.clipboard)
-        load_settings(f_hash)
-        # Explicitly save to DB after paste
-        db_save_file_settings(f_hash, st.session_state.file_settings[f_hash])
+    session: DarkroomSession = st.session_state.session
+    if session.clipboard and session.current_file:
+        f_hash = session.current_file["hash"]
+        current_settings = session.file_settings[f_hash]
+        current_dict = current_settings.to_dict()
+        current_dict.update(session.clipboard)
+
+        from src.domain_objects import ImageSettings
+
+        session.file_settings[f_hash] = ImageSettings.from_dict(current_dict)
+        session.load_active_settings()
+        session.save_active_settings()
         st.toast("Settings pasted!")
 
 
-def reset_file_settings(file_name: str) -> None:
+def reset_file_settings() -> None:
     """
-    Resets settings for the given file to default values and updates the database.
+    Resets the current file to default settings.
+    """
+    session: DarkroomSession = st.session_state.session
+    if not session.current_file:
+        return
 
-    Args:
-        file_name (str): The name of the file to reset.
-    """
-    st.session_state.file_settings[file_name] = DEFAULT_SETTINGS.copy()
-    st.session_state.file_settings[file_name]["manual_dust_spots"] = []
-    st.session_state.file_settings[file_name]["local_adjustments"] = []
-    db_save_file_settings(file_name, st.session_state.file_settings[file_name])
-    load_settings(file_name)
-    st.toast(f"Reset settings for {file_name}")
+    f_hash = session.current_file["hash"]
+    from src.config import DEFAULT_SETTINGS
+    from src.domain_objects import ImageSettings
+
+    new_settings = ImageSettings.from_dict(DEFAULT_SETTINGS.to_dict())
+    new_settings.manual_dust_spots = []
+    new_settings.local_adjustments = []
+
+    session.file_settings[f_hash] = new_settings
+    session.repository.save_file_settings(f_hash, new_settings)
+    session.load_active_settings()
+    st.toast("Reset settings for this file")

@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Download open source AdobeRGB profile as we don't want to deal with proprietary Adobe files :)
 RUN mkdir -p icc && \
-    wget -O icc/AdobeCompat-v4.icc https://raw.githubusercontent.com/saucecontrol/Compact-ICC-Profiles/master/profiles/AdobeCompat-v4.icc
+    wget -O icc/AdobeCompat-v4.icc https://github.com/saucecontrol/Compact-ICC-Profiles/raw/refs/heads/master/profiles/AdobeCompat-v4.icc
 
 COPY . .
 

@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from typing import List, Tuple, cast
+from typing import List, Tuple
 from src.domain_objects import LocalAdjustment
 from src.helpers import get_luminance
 
@@ -38,7 +38,8 @@ def generate_local_mask(
         # Blur size based on radius and feather intensity
         blur_size = int(px_radius * 2 * feather) | 1
         if blur_size >= 3:
-            mask = cast(np.ndarray, cv2.GaussianBlur(mask, (blur_size, blur_size), 0))
+            mask_blurred: np.ndarray = cv2.GaussianBlur(mask, (blur_size, blur_size), 0)
+            mask = mask_blurred
 
     return mask
 
@@ -77,15 +78,15 @@ def apply_local_adjustments(
     h, w = img.shape[:2]
 
     for adj in adjustments:
-        points = adj.get("points", [])
+        points = adj.points
         if not points:
             continue
 
-        strength = adj.get("strength", 0.0)  # In EV stops
-        radius = adj.get("radius", 50)
-        feather = adj.get("feather", 0.5)
-        luma_range = adj.get("luma_range", (0.0, 1.0))
-        luma_softness = adj.get("luma_softness", 0.2)
+        strength = adj.strength  # In EV stops
+        radius = adj.radius
+        feather = adj.feather
+        luma_range = adj.luma_range
+        luma_softness = adj.luma_softness
 
         # Spatial Mask
         mask = generate_local_mask(h, w, points, radius, feather, scale_factor)

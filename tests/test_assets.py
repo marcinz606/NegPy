@@ -7,11 +7,11 @@ from src.config import APP_CONFIG
 @pytest.fixture
 def mock_asset_dir(tmp_path):
     # Override cache_dir for testing
-    old_dir = APP_CONFIG["cache_dir"]
+    old_dir = APP_CONFIG.cache_dir
     test_dir = str(tmp_path / "test_cache")
-    APP_CONFIG["cache_dir"] = test_dir
+    APP_CONFIG.cache_dir = test_dir
     yield test_dir
-    APP_CONFIG["cache_dir"] = old_dir
+    APP_CONFIG.cache_dir = old_dir
 
 
 def test_asset_manager_lifecycle(mock_asset_dir):

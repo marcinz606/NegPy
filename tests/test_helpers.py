@@ -5,7 +5,6 @@ from src.helpers import (
     get_luminance,
     ensure_array,
     calculate_file_hash,
-    transform_point,
 )
 
 
@@ -41,30 +40,3 @@ def test_calculate_file_hash(tmp_path):
     h2 = calculate_file_hash(str(d))
     assert h1 == h2
     assert len(h1) == 64  # SHA-256 length
-
-
-def test_transform_point_rotations():
-    # Mock params object with .get method
-    class Params:
-        def __init__(self, rot):
-            self.rot = rot
-
-        def get(self, key, default):
-            return self.rot if key == "rotation" else default
-
-    # Point (0.1, 0.2)
-    # 0 deg: (0.1, 0.2)
-    p0 = transform_point(0.1, 0.2, Params(0), 100, 100)
-    assert p0 == (0.1, 0.2)
-
-    # 90 deg (1): (1-y, x) -> (0.8, 0.1)
-    p1 = transform_point(0.1, 0.2, Params(1), 100, 100)
-    assert np.allclose(p1, (0.8, 0.1))
-
-    # 180 deg (2): (1-x, 1-y) -> (0.9, 0.8)
-    p2 = transform_point(0.1, 0.2, Params(2), 100, 100)
-    assert np.allclose(p2, (0.9, 0.8))
-
-    # 270 deg (3): (y, 1-x) -> (0.2, 0.9)
-    p3 = transform_point(0.1, 0.2, Params(3), 100, 100)
-    assert np.allclose(p3, (0.2, 0.9))

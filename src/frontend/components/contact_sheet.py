@@ -1,18 +1,20 @@
 import streamlit as st
-from typing import List, Dict
 from src.frontend.components.navigation import change_file
+from src.backend.session import DarkroomSession
 
 
-def render_contact_sheet(uploaded_files: List[Dict[str, str]]) -> None:
+def render_contact_sheet() -> None:
     """
     Renders a vertical contact sheet of thumbnails in a scrollable container.
     """
-    if not uploaded_files:
+    session: DarkroomSession = st.session_state.session
+    if not session.uploaded_files:
         return
 
     # Use a scrollable container
-    with st.container(height=800):
+    with st.container(height=600):
         # Create 2 columns for smaller thumbnails
+        uploaded_files = session.uploaded_files
         for i in range(0, len(uploaded_files), 2):
             cols = st.columns(2)
             for j in range(2):
@@ -20,24 +22,24 @@ def render_contact_sheet(uploaded_files: List[Dict[str, str]]) -> None:
                 if idx < len(uploaded_files):
                     f_meta = uploaded_files[idx]
                     with cols[j]:
-                        thumb = st.session_state.thumbnails.get(f_meta["name"])
+                        thumb = session.thumbnails.get(f_meta["name"])
+                        is_selected = session.selected_file_idx == idx
+
+                        display_name = (
+                            f_meta["name"][:10] + "..."
+                            if len(f_meta["name"]) > 12
+                            else f_meta["name"]
+                        )
+                        st.caption(display_name)
                         if thumb:
-                            is_selected = st.session_state.selected_file_idx == idx
-                            # Smaller thumbnails by using column width
-                            display_name = (
-                                f_meta["name"][:12] + "..."
-                                if len(f_meta["name"]) > 15
-                                else f_meta["name"]
-                            )
-                            st.caption(display_name)
                             st.image(thumb, width="stretch")
                             st.button(
-                                display_name,
+                                "Select",
                                 key=f"sel_{idx}",
                                 width="stretch",
                                 type="primary" if is_selected else "secondary",
                                 on_click=change_file,
-                                args=(idx, uploaded_files),
+                                args=(idx,),
                             )
                         else:
-                            st.write("...")
+                            st.write("Loading...")

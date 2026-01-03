@@ -17,12 +17,16 @@ class AssetManager:
     @staticmethod
     def initialize() -> None:
         """
-        Prepares the base cache directory.
+        Prepares the base cache and ICC directories.
         """
-        cache_dir = APP_CONFIG["cache_dir"]
+        cache_dir = APP_CONFIG.cache_dir
+        icc_dir = APP_CONFIG.user_icc_dir
         try:
             os.makedirs(cache_dir, exist_ok=True)
-            logger.info(f"AssetManager base directory ensured at {cache_dir}")
+            os.makedirs(icc_dir, exist_ok=True)
+            logger.info(
+                f"AssetManager initialized (cache: {cache_dir}, icc: {icc_dir})"
+            )
         except Exception as e:
             logger.error(f"Failed to initialize AssetManager: {e}")
 
@@ -31,7 +35,7 @@ class AssetManager:
         """
         Returns and creates a session-specific cache directory.
         """
-        session_dir = os.path.join(APP_CONFIG["cache_dir"], session_id)
+        session_dir = os.path.join(APP_CONFIG.cache_dir, session_id)
         os.makedirs(session_dir, exist_ok=True)
         return session_dir
 
@@ -80,7 +84,7 @@ class AssetManager:
         Wipes the entire cache directory (Global Cleanup).
         """
         try:
-            cache_dir = APP_CONFIG["cache_dir"]
+            cache_dir = APP_CONFIG.cache_dir
             if os.path.exists(cache_dir):
                 # We iterate through subdirs to be safe
                 for item in os.listdir(cache_dir):

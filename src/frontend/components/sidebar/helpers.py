@@ -1,3 +1,6 @@
+from src.helpers import density_to_cmy
+
+
 import numpy as np
 import streamlit as st
 from typing import Optional, Dict, Any
@@ -41,18 +44,16 @@ def render_control_slider(
 
 def apply_wb_gains_to_sliders(r: float, g: float, b: float) -> Dict[str, Any]:
     """
-    Translates raw RGB gains (from Auto-WB) into CMY filtration (0-170).
-    Cyan is anchored at 0. Magenta and Yellow are logarithmic (100 * log10(gain)).
+    Translates raw RGB gains (from Auto-WB) into CMY filtration (-1.0 to 1.0).
     """
-    # Auto-WB already returns gains relative to Red (r=1.0).
-    # m = 100 * log10(g_gain), y = 100 * log10(b_gain)
-    m = int(np.log10(max(g, 1.0)) * 100.0)
-    y = int(np.log10(max(b, 1.0)) * 100.0)
+    c = density_to_cmy(np.log10(max(r, 1e-6)))
+    m = density_to_cmy(np.log10(max(g, 1e-6)))
+    y = density_to_cmy(np.log10(max(b, 1e-6)))
 
     return {
-        "wb_cyan": 0,
-        "wb_magenta": int(np.clip(m, 0, 170)),
-        "wb_yellow": int(np.clip(y, 0, 170)),
+        "wb_cyan": float(np.clip(c, -1.0, 1.0)),
+        "wb_magenta": float(np.clip(m, -1.0, 1.0)),
+        "wb_yellow": float(np.clip(y, -1.0, 1.0)),
         "cr_balance": 1.0,
         "mg_balance": 1.0,
         "yb_balance": 1.0,

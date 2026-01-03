@@ -2,11 +2,11 @@ import numpy as np
 import cv2
 from PIL import Image, ImageEnhance, ImageFilter
 from src.backend.image_logic.color import apply_color_separation
-from src.domain_objects import ProcessingParams
+from src.domain_objects import ImageSettings
 
 
 def apply_post_color_grading(
-    pil_img: Image.Image, params: ProcessingParams
+    pil_img: Image.Image, params: ImageSettings
 ) -> Image.Image:
     """
     Applies post-processing color grading:
@@ -15,20 +15,20 @@ def apply_post_color_grading(
 
     Args:
         pil_img (Image.Image): Input PIL Image (RGB).
-        params (Dict[str, Any]): Processing parameters.
+        params (ImageSettings): Processing parameters.
 
     Returns:
         Image.Image: Processed PIL Image.
     """
-    is_bw = params.get("is_bw", False)
+    is_bw = params.is_bw
     if not is_bw:
         # 1. Color Separation
         img_arr = np.array(pil_img)
-        img_sep = apply_color_separation(img_arr, params.get("color_separation", 1.0))
+        img_sep = apply_color_separation(img_arr, params.color_separation)
         pil_img = Image.fromarray(img_sep)
 
         # 2. Classic Saturation
-        sat = params.get("saturation", 1.0)
+        sat = params.saturation
         if sat != 1.0:
             enhancer = ImageEnhance.Color(pil_img)
             pil_img = enhancer.enhance(sat)

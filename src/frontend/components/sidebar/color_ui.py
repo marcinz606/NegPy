@@ -2,7 +2,7 @@ import streamlit as st
 from src.frontend.components.sidebar.helpers import render_control_slider
 
 
-def render_color_section(current_file_hash: str) -> None:
+def render_color_section() -> None:
     """
     Renders the 'Color & Toning' section of the sidebar.
     """

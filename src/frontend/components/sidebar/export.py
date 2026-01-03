@@ -44,14 +44,14 @@ def render_export_section() -> SidebarData:
             "Sharpening",
             0.0,
             1.5,
-            st.session_state.get("sharpen", 0.75),
+            st.session_state.get("sharpen", 0.25),
             0.01,
             key="sharpen",
             help="Output sharpening level.",
         )
         c_path.text_input(
             "Export Directory",
-            st.session_state.get("export_path", APP_CONFIG["default_export_dir"]),
+            st.session_state.get("export_path", APP_CONFIG.default_export_dir),
             key="export_path",
         )
 
@@ -73,22 +73,21 @@ def render_export_section() -> SidebarData:
         )
         c_b3.color_picker(
             "Color",
-            value=st.session_state.get("export_border_color", "#000000"),
+            value=st.session_state.get("export_border_color", "#ffffff"),
             disabled=not add_border,
             key="export_border_color",
             help="Color (hex) of the added border.",
         )
 
-        process_btn = st.button("Export All", type="primary", width="stretch")
-
-    return {
-        "out_fmt": st.session_state.export_fmt,
-        "color_space": st.session_state.export_color_space,
-        "print_width": st.session_state.export_size,
-        "print_dpi": st.session_state.export_dpi,
-        "export_path": st.session_state.export_path,
-        "add_border": st.session_state.export_add_border,
-        "border_size": st.session_state.export_border_size,
-        "border_color": st.session_state.export_border_color,
-        "process_btn": process_btn,
-    }
+    return SidebarData(
+        out_fmt=st.session_state.export_fmt,
+        color_space=st.session_state.export_color_space,
+        print_width=float(st.session_state.export_size),
+        print_dpi=int(st.session_state.export_dpi),
+        export_path=st.session_state.export_path,
+        add_border=bool(st.session_state.export_add_border),
+        border_size=float(st.session_state.export_border_size),
+        border_color=st.session_state.export_border_color,
+        apply_icc=bool(st.session_state.get("apply_icc", False)),
+        process_btn=False,
+    )
