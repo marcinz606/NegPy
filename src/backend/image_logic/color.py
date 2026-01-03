@@ -1,7 +1,5 @@
 import numpy as np
-import cv2
-from typing import Tuple, cast
-from src.config import ProcessingParams
+from src.config import ImageSettings, PIPELINE_CONSTANTS
 from src.helpers import get_luminance
 
 
@@ -12,58 +10,8 @@ def convert_to_monochrome(img: np.ndarray) -> np.ndarray:
     if img.shape[2] != 3:
         return img
     lum = get_luminance(img)
-    return cast(np.ndarray, np.stack([lum, lum, lum], axis=2))
-
-
-def measure_film_base(img: np.ndarray) -> Tuple[float, float, float]:
-    """
-    Measures the unexposed film base color (brightest part of negative).
-    Includes validation to ensure we aren't picking up white objects in a cropped scan.
-    """
-    if img.ndim != 3:
-        return 0.90, 0.65, 0.45
-
-    # Step A: Measure Candidates (99.9th percentile)
-    # This rejects hot pixels but captures the "brightest" smooth area.
-    cand_r = float(np.percentile(img[:, :, 0], 99.9))
-    cand_g = float(np.percentile(img[:, :, 1], 99.9))
-    cand_b = float(np.percentile(img[:, :, 2], 99.9))
-
-    # Step B: Validate (Is this an Orange Mask?)
-    # 1. Hierarchy Check: Mask should be Red > Green > Blue (Orange)
-    is_orange_hierarchy = cand_r > cand_g and cand_g > cand_b
-    
-    # 2. Separation Check: Red should be significantly brighter than Blue.
-    # We require at least 10% separation to rule out Neutral White objects.
-    has_color_separation = cand_r > (cand_b * 1.10)
-
-    # Step C: Decide
-    if is_orange_hierarchy and has_color_separation:
-        return cand_r, cand_g, cand_b
-    else:
-        # Fallback: Synthetic Base (Generic Orange Mask)
-        # Represents typical transmission of developed unexposed C41 film.
-        return 0.90, 0.65, 0.45
-
-
-def calculate_log_medians(img: np.ndarray) -> Tuple[float, float, float]:
-    """
-    Calculates the Log-Median of each channel.
-    This represents the 'Statistical Gray' of the scene.
-    Used for 'Gray World' auto-white balance.
-    """
-    if img.ndim != 3:
-        return 0.5, 0.5, 0.5
-        
-    # Clip to avoid log(0) and log(>1)
-    epsilon = 1e-6
-    img_log = np.log10(np.clip(img, epsilon, 1.0))
-    
-    med_r = float(np.median(img_log[:, :, 0]))
-    med_g = float(np.median(img_log[:, :, 1]))
-    med_b = float(np.median(img_log[:, :, 2]))
-    
-    return med_r, med_g, med_b
+    res: np.ndarray = np.stack([lum, lum, lum], axis=2)
+    return res
 
 
 def apply_color_separation(img: np.ndarray, intensity: float) -> np.ndarray:
@@ -87,12 +35,12 @@ def apply_color_separation(img: np.ndarray, intensity: float) -> np.ndarray:
     effective_intensity = 1.0 + (intensity - 1.0) * luma_mask
 
     lum_3d = lum[:, :, None]
-    res = lum_3d + (img - lum_3d) * effective_intensity[:, :, None]
+    res: np.ndarray = lum_3d + (img - lum_3d) * effective_intensity[:, :, None]
     res = np.clip(res, 0.0, 1.0)
 
     if not is_float:
         res = (res * 255.0).astype(np.uint8)
-    return cast(np.ndarray, res)
+    return res
 
 
 def apply_shadow_desaturation(img: np.ndarray, strength: float = 1.0) -> np.ndarray:
@@ -111,90 +59,65 @@ def apply_shadow_desaturation(img: np.ndarray, strength: float = 1.0) -> np.ndar
     return np.clip(res, 0.0, 1.0)
 
 
-def calculate_auto_mask_wb(raw_preview: np.ndarray) -> Tuple[float, float, float]:
+def apply_paper_warmth(img: np.ndarray, warmth: float) -> np.ndarray:
     """
-    Identifies white balance by targeting the physical transparency peak of
-    the Red channel. Anchors the result to Red (gain=1.0) so that Cyan
-    filtration remains at 0 while Magenta and Yellow are calculated.
+    Simulates paper base warmth by shifting the highlight density.
+    Warmth (+): shifts print towards Amber/Yellow.
+    Applied to the positive image to mimic the physical paper tint.
     """
-    if raw_preview.ndim == 2:
-        return 1.0, 1.0, 1.0
+    if warmth == 0.0:
+        return img
 
-    # Resize for fast processing
-    h, w = raw_preview.shape[:2]
-    small = cv2.resize(raw_preview, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
-    pixels = small.reshape(-1, 3)
+    # Use a density-based shift on the positive image
+    epsilon = 1e-4
+    img_dens = -np.log10(np.clip(img, epsilon, 1.0))
 
-    # 1. Filter out clipped pixels
-    valid_mask = np.all(small < 0.98, axis=-1)
-    valid_pixels = small[valid_mask]
-    if len(valid_pixels) < 100:
-        valid_pixels = pixels
+    # Calculate density shift (Amber/Yellow shift)
+    d_shift = warmth * PIPELINE_CONSTANTS["paper_warmth_strength"]
 
-    # 2. Target the 'Transparency Peak' of the Red channel (Top 0.1%)
-    r_vals = cast(np.ndarray, valid_pixels[:, 0])
-    r_thresh = np.percentile(r_vals, 99.9)
-    mask_pixels = cast(np.ndarray, valid_pixels[r_vals >= r_thresh])
+    # Highlights-weighted mask based on average density
+    avg_dens = np.mean(img_dens, axis=2)
+    h_mask = np.clip(1.0 - (avg_dens / 2.0), 0.0, 1.0)
 
-    if len(mask_pixels) > 5:
-        # 3. Use the Median color of this physical limit.
-        mask_color = np.median(mask_pixels, axis=0)
+    img_dens[:, :, 0] -= d_shift * h_mask
+    img_dens[:, :, 2] += d_shift * h_mask
 
-        # 4. Calculate gains anchored to RED = 1.0
-        # This forces Cyan to 0 in the darkroom model.
-        r_val = mask_color[0]
-        g_gain = r_val / (mask_color[1] + 1e-6)
-        b_gain = r_val / (mask_color[2] + 1e-6)
-
-        return 1.0, float(g_gain), float(b_gain)
-
-    # Standard Fallback
-    return 1.0, 1.5, 4.0
-
-
-def apply_manual_color_balance_neg(
-    img: np.ndarray, params: ProcessingParams
-) -> np.ndarray:
-    """
-    Applies 'Paper Warmth' (Temperature) in the NEGATIVE domain.
-    Inverted Math: warmth (+) decreases neg red, increasing positive red.
-    """
-    res = img.copy()
-    warmth = params.get("temperature", 0.0)
-
-    if warmth != 0.0:
-        # Increase warmth (+): decrease neg red, increase neg blue
-        res[:, :, 0] *= 1.0 - warmth
-        res[:, :, 2] *= 1.0 + warmth
-
-    return np.clip(res, 0, 1)
+    res = 10.0 ** -np.clip(img_dens, 0.0, 4.0)
+    res_final: np.ndarray = np.clip(res, 0, 1)
+    return res_final
 
 
 def apply_shadow_highlight_grading(
-    img: np.ndarray, params: ProcessingParams
+    img: np.ndarray, params: ImageSettings
 ) -> np.ndarray:
     """
-    Applies Split Toning in the NEGATIVE domain.
-    Inverted Math: tone (+) decreases neg red, increasing positive red (Amber).
+    Applies Split Toning using a density-addition model on the positive image.
+    Mimics chemical toning (Shadows) and paper tints (Highlights).
     """
-    res = img.copy()
-    lum = get_luminance(res)
-    # In a negative: High Lum (Clear) = Shadow on Print. Low Lum (Dense) = Highlight on Print.
-    w_shadow = lum[:, :, None]
-    w_highlight = (1.0 - lum)[:, :, None]
+    s_tone = params.shadow_temp
+    h_tone = params.highlight_temp
 
-    # Shadow Tone (Amber <-> Blue)
-    s_tone = params.get("shadow_temp", 0.0)
+    if s_tone == 0.0 and h_tone == 0.0:
+        return img
+
+    epsilon = 1e-4
+    img_dens = -np.log10(np.clip(img, epsilon, 1.0))
+    avg_dens = np.mean(img_dens, axis=2)
+    strength = PIPELINE_CONSTANTS["toning_strength"]
+
+    # Shadow Toning
     if s_tone != 0.0:
-        s_r = 1.0 - s_tone
-        s_b = 1.0 + s_tone
-        res *= w_shadow * np.array([s_r, 1.0, s_b]) + (1.0 - w_shadow)
+        s_mask = np.clip(avg_dens / 2.0, 0.0, 1.0)
+        s_mask = s_mask * s_mask
+        img_dens[:, :, 0] -= s_tone * strength * s_mask
+        img_dens[:, :, 2] += s_tone * strength * s_mask
 
-    # Highlight Tone (Amber <-> Blue)
-    h_tone = params.get("highlight_temp", 0.0)
+    # Highlight Toning
     if h_tone != 0.0:
-        h_r = 1.0 - h_tone
-        h_b = 1.0 + h_tone
-        res *= w_highlight * np.array([h_r, 1.0, h_b]) + (1.0 - w_highlight)
+        h_mask = np.clip(1.0 - (avg_dens / 1.5), 0.0, 1.0)
+        img_dens[:, :, 0] -= h_tone * strength * h_mask
+        img_dens[:, :, 2] += h_tone * strength * h_mask
 
-    return np.clip(res, 0, 1)
+    res = 10.0 ** -np.clip(img_dens, 0.0, 4.0)
+    res_final: np.ndarray = np.clip(res, 0, 1)
+    return res_final

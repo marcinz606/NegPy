@@ -1,9 +1,8 @@
 import streamlit as st
 from src.frontend.state import save_settings
-from src.domain_objects import SidebarData
 
 
-def render_retouch_section(current_file_hash: str) -> SidebarData:
+def render_retouch_section() -> None:
     """
     Renders the 'Retouch' section of the sidebar.
     """
@@ -46,11 +45,11 @@ def render_retouch_section(current_file_hash: str) -> SidebarData:
             if c1.button("Undo Last", width="stretch"):
                 if st.session_state.manual_dust_spots:
                     st.session_state.manual_dust_spots.pop()
-                    save_settings(current_file_hash)
+                    save_settings()
                     st.rerun()
             if c2.button("Clear All", width="stretch"):
                 st.session_state.manual_dust_spots = []
-                save_settings(current_file_hash)
+                save_settings()
                 st.rerun()
 
         st.checkbox("Chroma Noise Removal", key="c_noise_remove")
@@ -63,5 +62,3 @@ def render_retouch_section(current_file_hash: str) -> SidebarData:
             disabled=not st.session_state.c_noise_remove,
             key="c_noise_strength",
         )
-
-    return {}

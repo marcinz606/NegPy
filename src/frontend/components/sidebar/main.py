@@ -1,136 +1,124 @@
 import streamlit as st
 import os
-from typing import Dict, List, cast
-from src.frontend.state import load_settings, copy_settings, paste_settings
-from src.backend.assets import AssetManager
+from src.frontend.state import copy_settings, paste_settings
+from src.backend.session import DarkroomSession
 from src.domain_objects import SidebarData
+from src.config import APP_CONFIG
 from .adjustments import render_adjustments
 
 
-def render_file_manager(session_id: str) -> List[Dict[str, str]]:
+def render_file_manager() -> None:
     """
-    Handles file uploading and session state synchronization.
-    Returns the list of uploaded file metadata (name and path).
+    Handles file uploading and session synchronization.
     """
+    session: DarkroomSession = st.session_state.session
     with st.sidebar:
         st.title(":material/camera_roll: DarkroomPy")
 
         raw_uploaded_files = st.file_uploader(
-            "Upload RAW files",
-            type=["dng", "cr2", "nef", "arw", "raw"],
+            "Load RAW files",
+            type=["dng", "tiff", "nef", "arw", "raw", "raf"],
             accept_multiple_files=True,
         )
         current_uploaded_names = (
             {f.name for f in raw_uploaded_files} if raw_uploaded_files else set()
         )
 
-        # Sync uploaded files with session state
-        new_names = current_uploaded_names - st.session_state.last_uploaded_names
-        if new_names:
-            for f in raw_uploaded_files:
-                if f.name in new_names and f.name not in {
-                    x["name"] for x in st.session_state.uploaded_files
-                }:
-                    cached_path, f_hash = AssetManager.persist(f, session_id)
-                    if cached_path:
-                        st.session_state.uploaded_files.append(
-                            {"name": f.name, "path": cached_path, "hash": f_hash}
-                        )
-
-        removed_from_widget = (
-            st.session_state.last_uploaded_names - current_uploaded_names
+        # Sync files via Session object
+        session.sync_files(
+            current_uploaded_names, raw_uploaded_files if raw_uploaded_files else []
         )
-        if removed_from_widget:
-            # Clean up disk assets for removed files
-            for f_meta in st.session_state.uploaded_files:
-                if f_meta["name"] in removed_from_widget:
-                    AssetManager.remove(f_meta["path"])
-
-            st.session_state.uploaded_files = [
-                f
-                for f in st.session_state.uploaded_files
-                if f["name"] not in removed_from_widget
-            ]
-
-        st.session_state.last_uploaded_names = current_uploaded_names
-        return cast(List[Dict[str, str]], st.session_state.uploaded_files)
 
 
-def render_sidebar_content(uploaded_files: List[Dict[str, str]]) -> SidebarData:
+def render_sidebar_content() -> SidebarData:
     """
-
-    Renders the main sidebar content (Nav, Settings, Adjustments).
-
-    Should be called AFTER any auto-adjustments have been applied to session state.
-
+    Renders the main sidebar content.
     """
-
+    session: DarkroomSession = st.session_state.session
     with st.sidebar:
-        # 1. Settings Clipboard
+        # 0. Global Actions
+        process_btn = st.button(
+            ":material/batch_prediction: Export All",
+            type="primary",
+            width="stretch",
+            help="Process and export all loaded files using their individual settings.",
+        )
 
         c1, c2 = st.columns(2)
 
-        if not uploaded_files:
-            return {}
+        current_file = session.current_file
+        if not current_file:
+            return SidebarData()
 
-        current_file = uploaded_files[st.session_state.selected_file_idx]
-        f_hash = current_file["hash"]
-
-        # NOTE: We assume 'load_settings' or auto-logic has already run in main.py if needed.
-        # But we still need to load settings if switching manually.
-        # Check if settings are missing for this file
-        if f_hash not in st.session_state.file_settings:
-            load_settings(f_hash)
+        # Ensure settings are loaded
+        if current_file["hash"] not in session.file_settings:
+            session.load_active_settings()
 
         c1.button(
-            ":material/copy_all: Copy Settings", on_click=copy_settings, width="stretch"
+            ":material/copy_all: Copy Settings",
+            on_click=copy_settings,
+            width="stretch",
         )
         c2.button(
             ":material/content_copy: Paste Settings",
             on_click=paste_settings,
-            disabled=st.session_state.clipboard is None,
+            disabled=session.clipboard is None,
             width="stretch",
         )
 
         # 4. Main Adjustments
-        adjustments_data = render_adjustments(f_hash)
+        adjustments_data = render_adjustments()
 
         st.divider()
 
         # 5. Color Management (ICC Profiles)
         st.subheader("Soft Proofing")
-        icc_files = [
-            f for f in os.listdir("icc") if f.lower().endswith((".icc", ".icm"))
-        ]
 
-        selected_icc = st.selectbox(
+        # 5a. List all profiles
+        built_in_icc = [
+            os.path.join("icc", f)
+            for f in os.listdir("icc")
+            if f.lower().endswith((".icc", ".icm"))
+        ]
+        user_icc = []
+        if os.path.exists(APP_CONFIG.user_icc_dir):
+            user_icc = [
+                os.path.join(APP_CONFIG.user_icc_dir, f)
+                for f in os.listdir(APP_CONFIG.user_icc_dir)
+                if f.lower().endswith((".icc", ".icm"))
+            ]
+
+        all_icc_paths = built_in_icc + user_icc
+
+        selected_idx = 0
+        if session.icc_profile_path in all_icc_paths:
+            selected_idx = all_icc_paths.index(session.icc_profile_path) + 1
+
+        selected_path = st.selectbox(
             "ICC Profile",
-            ["None"] + icc_files,
-            index=0
-            if st.session_state.icc_profile_path is None
-            else (
-                icc_files.index(os.path.basename(st.session_state.icc_profile_path)) + 1
-                if os.path.basename(st.session_state.icc_profile_path) in icc_files
-                else 0
-            ),
+            ["None"] + all_icc_paths,
+            index=selected_idx,
+            format_func=lambda x: os.path.basename(x) if x != "None" else "None",
         )
 
-        if selected_icc == "None":
-            st.session_state.icc_profile_path = None
+        if selected_path == "None":
+            session.icc_profile_path = None
         else:
-            st.session_state.icc_profile_path = os.path.join("icc", selected_icc)
+            session.icc_profile_path = str(selected_path)
 
         uploaded_icc = st.file_uploader(
             "Upload ICC Profile", type=["icc", "icm"], label_visibility="collapsed"
         )
         if uploaded_icc:
-            os.makedirs("icc", exist_ok=True)
-            with open(os.path.join("icc", uploaded_icc.name), "wb") as f:
+            os.makedirs(APP_CONFIG.user_icc_dir, exist_ok=True)
+            upload_path = os.path.join(APP_CONFIG.user_icc_dir, uploaded_icc.name)
+            with open(upload_path, "wb") as f:
                 f.write(uploaded_icc.getbuffer())
-            st.session_state.icc_profile_path = os.path.join("icc", uploaded_icc.name)
+            session.icc_profile_path = upload_path
             st.rerun()
 
         st.divider()
 
         # Consolidate data for the main app
-        return {**adjustments_data}
+        adjustments_data.process_btn = process_btn
+        return adjustments_data

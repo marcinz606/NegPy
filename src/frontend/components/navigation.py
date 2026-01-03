@@ -1,102 +1,113 @@
 import streamlit as st
-from typing import List, Dict
 from src.frontend.state import save_settings, load_settings
-from src.backend.assets import AssetManager
+from src.backend.session import DarkroomSession
 
 
-def change_file(new_idx: int, file_list: List[Dict[str, str]]) -> None:
+def change_file(new_idx: int) -> None:
     """
     Callback to switch the currently selected file.
     """
-    if st.session_state.selected_file_idx < len(file_list):
-        save_settings(file_list[st.session_state.selected_file_idx]["hash"])
-    st.session_state.selected_file_idx = new_idx
-    load_settings(file_list[new_idx]["hash"])
+    session: DarkroomSession = st.session_state.session
+    if session.selected_file_idx < len(session.uploaded_files):
+        save_settings()
+
+    session.selected_file_idx = new_idx
+    load_settings()
     st.session_state.dust_start_point = None
     st.session_state.last_dust_click = None
 
 
-def unload_file(idx: int, file_list: List[Dict[str, str]]) -> None:
+def unload_file(idx: int) -> None:
     """
     Removes a file from the uploaded list and clears its session cache.
     """
+    session: DarkroomSession = st.session_state.session
+    file_list = session.uploaded_files
     file_to_remove = file_list[idx]
     filename = file_to_remove["name"]
     f_hash = file_to_remove["hash"]
-    AssetManager.remove(file_to_remove["path"])
+    session.asset_manager.remove(file_to_remove["path"])
 
-    if f_hash in st.session_state.file_settings:
-        del st.session_state.file_settings[f_hash]
-    if filename in st.session_state.thumbnails:
-        del st.session_state.thumbnails[filename]
+    if f_hash in session.file_settings:
+        del session.file_settings[f_hash]
+    if filename in session.thumbnails:
+        del session.thumbnails[filename]
+
     file_list.pop(idx)
-    st.session_state.uploaded_files = file_list
-    if st.session_state.selected_file_idx >= len(file_list):
-        st.session_state.selected_file_idx = max(0, len(file_list) - 1)
-    if "last_file" in st.session_state and st.session_state.last_file == filename:
+    session.uploaded_files = file_list
+
+    if session.selected_file_idx >= len(file_list):
+        session.selected_file_idx = max(0, len(file_list) - 1)
+
+    if st.session_state.get("last_file") == filename:
         if "preview_raw" in st.session_state:
             del st.session_state.preview_raw
         if "last_file" in st.session_state:
             del st.session_state.last_file
 
 
-def rotate_file(direction: int, file_list: List[Dict[str, str]]) -> None:
+def rotate_file(direction: int) -> None:
     """
     Callback to rotate the image.
     1 for left (+90 deg), -1 for right (-90 deg).
     """
-    st.session_state.rotation = (st.session_state.rotation + direction) % 4
-    save_settings(file_list[st.session_state.selected_file_idx]["hash"])
+    st.session_state.rotation = (st.session_state.get("rotation", 0) + direction) % 4
+    save_settings()
 
 
-def render_navigation(uploaded_files: List[Dict[str, str]]) -> bool:
+def render_navigation() -> bool:
     """
-    Renders the navigation buttons, rotation, and file removal/reset actions.
+    Renders the navigation buttons, rotation, and file removal/reset actions in 2 columns.
     """
-    st.button(
-        "-> Next",
-        key="next_btn_s",
-        width="stretch",
-        disabled=st.session_state.selected_file_idx == len(uploaded_files) - 1,
-        on_click=change_file,
-        args=(st.session_state.selected_file_idx + 1, uploaded_files),
-    )
-    st.button(
-        "<- Previous",
-        key="prev_btn_s",
-        width="stretch",
-        disabled=st.session_state.selected_file_idx == 0,
-        on_click=change_file,
-        args=(st.session_state.selected_file_idx - 1, uploaded_files),
-    )
+    session: DarkroomSession = st.session_state.session
+    c1, c2 = st.columns(2)
 
-    st.button(
-        ":material/rotate_left: Rotate Left",
-        key="rot_l_s",
-        width="stretch",
-        on_click=rotate_file,
-        args=(1, uploaded_files),
-    )
-    st.button(
-        ":material/rotate_right: Rotate Right",
-        key="rot_r_s",
-        width="stretch",
-        on_click=rotate_file,
-        args=(-1, uploaded_files),
-    )
+    with c1:
+        st.button(
+            ":material/arrow_back: Previous",
+            key="prev_btn_s",
+            width="stretch",
+            disabled=session.selected_file_idx == 0,
+            on_click=change_file,
+            args=(session.selected_file_idx - 1,),
+        )
+        st.button(
+            ":material/rotate_left: Left",
+            key="rot_l_s",
+            width="stretch",
+            on_click=rotate_file,
+            args=(1,),
+        )
+        st.button(
+            ":material/delete: Remove",
+            key="unload_s",
+            width="stretch",
+            type="secondary",
+            on_click=unload_file,
+            args=(session.selected_file_idx,),
+        )
 
-    f_idx = st.session_state.selected_file_idx
-
-    st.button(
-        ":material/delete: Skip/Remove",
-        key="unload_s",
-        width="stretch",
-        type="secondary",
-        on_click=unload_file,
-        args=(f_idx, uploaded_files),
-    )
-    export_btn_sidebar = st.button(
-        ":material/save: Export", key="export_s", width="stretch", type="primary"
-    )
+    with c2:
+        st.button(
+            "Next :material/arrow_forward:",
+            key="next_btn_s",
+            width="stretch",
+            disabled=session.selected_file_idx == len(session.uploaded_files) - 1,
+            on_click=change_file,
+            args=(session.selected_file_idx + 1,),
+        )
+        st.button(
+            ":material/rotate_right: Right",
+            key="rot_r_s",
+            width="stretch",
+            on_click=rotate_file,
+            args=(-1,),
+        )
+        export_btn_sidebar = st.button(
+            ":material/save: Export",
+            key="export_s",
+            width="stretch",
+            type="primary",
+        )
 
     return export_btn_sidebar

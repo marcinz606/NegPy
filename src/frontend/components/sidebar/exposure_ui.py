@@ -12,10 +12,10 @@ def render_exposure_section() -> None:
         if not is_bw:
             render_control_slider(
                 ":blue-badge[Cyan]",
+                -1.0,
+                1.0,
                 0.0,
-                170.0,
-                0.0,
-                0.5,
+                0.01,
                 "wb_cyan",
                 help_text=(
                     "Adds Cyan filtration (removes Red cast). Like in darkroom, "
@@ -24,19 +24,19 @@ def render_exposure_section() -> None:
             )
             render_control_slider(
                 ":violet-badge[Magenta]",
+                -1.0,
+                1.0,
                 0.0,
-                170.0,
-                0.0,
-                0.5,
+                0.01,
                 "wb_magenta",
                 help_text="Adds Magenta filtration (removes Green cast).",
             )
             render_control_slider(
                 ":orange-badge[Yellow]",
+                -1.0,
+                1.0,
                 0.0,
-                170.0,
-                0.0,
-                0.5,
+                0.01,
                 "wb_yellow",
                 help_text="Adds Yellow filtration (removes Blue cast).",
             )
@@ -47,11 +47,9 @@ def render_exposure_section() -> None:
             -1.0,
             3.0,
             1.0,
-            0.05,
+            0.01,
             "density",
-            help_text=(
-                "Print Density. 1.0 is Normal. Higher = Darker."
-            ),
+            help_text=("Print Density. 1.0 is Normal. Higher = Darker."),
         )
 
         render_control_slider(
@@ -59,54 +57,72 @@ def render_exposure_section() -> None:
             0.0,
             5.0,
             2.0,
-            0.05,
+            0.01,
             "grade",
-            help_text=(
-                "Paper Contrast Grade. 2 is Normal. 0 is Soft. 5 is Hard."
-            ),
+            help_text=("Paper Contrast Grade. 2 is Normal. 0 is Soft. 5 is Hard."),
         )
 
-        render_control_slider(
-            "Shoulder (Shadows)",
-            0.0,
-            1.0,
-            0.0,
-            0.05,
-            "shoulder",
-            help_text="Softens the Shadow roll-off (D-max approach). Higher = More shadow detail (flatter blacks).",
-        )
+        c_toe1, c_toe2, c_toe3 = st.columns([2, 1, 1])
+        c_sh1, c_sh2, c_sh3 = st.columns([2, 1, 1])
 
-        render_control_slider(
-            "Toe (Highlights)",
-            0.0,
-            1.0,
-            0.0,
-            0.05,
-            "toe",
-            help_text="Softens the Highlight roll-off (D-min approach). Higher = Creamier highlights (less clipping).",
-        )
+        with c_toe1:
+            render_control_slider(
+                "Toe (Shadow roll-off)",
+                -1.0,
+                1.0,
+                0.0,
+                0.01,
+                "toe",
+                help_text="Controls Shadow roll-off. (+) Softens/lifts shadows, (-) Hardens/crushes shadows.",
+            )
+        with c_toe2:
+            render_control_slider(
+                "Reach",
+                1.0,
+                10.0,
+                3.0,
+                0.05,
+                "toe_width",
+                help_text="Controls how far into the midtones the shadow roll-off reaches.",
+            )
+        with c_toe3:
+            render_control_slider(
+                "Hardness",
+                0.1,
+                5.0,
+                1.0,
+                0.01,
+                "toe_hardness",
+                help_text="Transition shape. Higher = 'Snaps' to roll-off late (hard knee), Lower = Starts earlier and lazier (soft knee).",
+            )
 
-        # Toe/Shoulder currently disabled in new Photometric Pipeline (Sigmoid has natural rolloff)
-        # c_gain1, c_gain2 = st.columns(2)
-        # with c_gain1:
-        #     render_control_slider(
-        #         "Shadow Toe",
-        #         0.0,
-        #         0.5,
-        #         0.0,
-        #         0.005,
-        #         "scan_gain_s_toe",
-        #         format="%.3f",
-        #         help_text="Separates and lifts the deepest shadows to prevent a muddy look.",
-        #     )
-        # with c_gain2:
-        #     render_control_slider(
-        #         "Highlight Shoulder",
-        #         0.0,
-        #         0.5,
-        #         0.0,
-        #         0.005,
-        #         "scan_gain_h_shoulder",
-        #         format="%.3f",
-        #         help_text="Controls the roll-off of the whites, recovering peak highlight detail.",
-        #     )
+        with c_sh1:
+            render_control_slider(
+                "Shoulder (Highlight roll-off)",
+                -1.0,
+                1.0,
+                0.0,
+                0.01,
+                "shoulder",
+                help_text="Controls Highlight roll-off. (+) Softens/creams highlights, (-) Hardens/punches highlights.",
+            )
+        with c_sh2:
+            render_control_slider(
+                "Reach",
+                1.0,
+                10.0,
+                3.0,
+                0.01,
+                "shoulder_width",
+                help_text="Controls how far into the midtones the highlight roll-off reaches.",
+            )
+        with c_sh3:
+            render_control_slider(
+                "Hardness",
+                0.1,
+                5.0,
+                1.0,
+                0.01,
+                "shoulder_hardness",
+                help_text="Transition shape. Higher = 'Snaps' to roll-off late (hard knee), Lower = Starts earlier and lazier (soft knee).",
+            )

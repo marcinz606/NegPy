@@ -1,21 +1,22 @@
 import json
 import os
 from PIL import Image
-from typing import List, Dict, Any, Optional, cast
+from typing import List, Dict, Any, Optional
 from src.config import APP_CONFIG, DEFAULT_SETTINGS
 from src.helpers import ensure_rgb, imread_raw
+from src.domain_objects import ImageSettings
 
 
-def save_preset(name: str, settings: Dict[str, Any]) -> None:
+def save_preset(name: str, settings: ImageSettings) -> None:
     """
     Saves a filtered subset of settings to a JSON file in the presets folder.
     Excludes image-specific settings and obsolete parameters.
 
     Args:
         name (str): The name of the preset file.
-        settings (Dict[str, Any]): The full settings dictionary to filter and save.
+        settings (ImageSettings): The full settings object to filter and save.
     """
-    os.makedirs(APP_CONFIG["presets_dir"], exist_ok=True)
+    os.makedirs(APP_CONFIG.presets_dir, exist_ok=True)
 
     # 1. Define image-specific keys that should NEVER be in a global preset
     exclude_keys = {
@@ -26,22 +27,19 @@ def save_preset(name: str, settings: Dict[str, Any]) -> None:
         "manual_dust_spots",
         "local_adjustments",
         "active_adjustment_idx",
-        "scan_gain",
-        "scan_gain_toe",
-        "wb_manual_r",
-        "wb_manual_g",
-        "wb_manual_b",
     }
 
-    # 2. Get current valid parameter names from DEFAULT_SETTINGS
-    valid_keys = set(DEFAULT_SETTINGS.keys())
+    settings_dict = settings.to_dict()
+    default_dict = DEFAULT_SETTINGS.to_dict()
 
-    # 3. Only save keys that are BOTH in DEFAULT_SETTINGS and NOT in exclude_keys
-    save_keys = valid_keys - exclude_keys
+    # 2. Only save keys that are BOTH in ImageSettings and NOT in exclude_keys
+    filtered = {
+        k: v
+        for k, v in settings_dict.items()
+        if k in default_dict and k not in exclude_keys
+    }
 
-    filtered = {k: settings[k] for k in save_keys if k in settings}
-
-    filepath = os.path.join(APP_CONFIG["presets_dir"], f"{name}.json")
+    filepath = os.path.join(APP_CONFIG.presets_dir, f"{name}.json")
     with open(filepath, "w") as f_out:
         json.dump(filtered, f_out, indent=4)
 
@@ -54,13 +52,14 @@ def load_preset(name: str) -> Optional[Dict[str, Any]]:
         name (str): The name of the preset (without .json extension).
 
     Returns:
-        Optional[Dict[str, Any]]: The preset settings or None if not found.
+        Optional[Dict[str, Any]]: The preset settings dict if found, else None.
     """
-    filepath = os.path.join(APP_CONFIG["presets_dir"], f"{name}.json")
+    filepath = os.path.join(APP_CONFIG.presets_dir, f"{name}.json")
     if not os.path.exists(filepath):
         return None
     with open(filepath, "r") as f_in:
-        return cast(Dict[str, Any], json.load(f_in))
+        res: Dict[str, Any] = json.load(f_in)
+        return res
 
 
 def list_presets() -> List[str]:
@@ -70,11 +69,9 @@ def list_presets() -> List[str]:
     Returns:
         List[str]: A list of preset names.
     """
-    if not os.path.exists(APP_CONFIG["presets_dir"]):
+    if not os.path.exists(APP_CONFIG.presets_dir):
         return []
-    return [
-        f[:-5] for f in os.listdir(APP_CONFIG["presets_dir"]) if f.endswith(".json")
-    ]
+    return [f[:-5] for f in os.listdir(APP_CONFIG.presets_dir) if f.endswith(".json")]
 
 
 def get_thumbnail_worker(file_path: str) -> Optional[Image.Image]:
@@ -82,7 +79,7 @@ def get_thumbnail_worker(file_path: str) -> Optional[Image.Image]:
     Worker function for parallel thumbnail generation from RAW file path.
     """
     try:
-        ts = APP_CONFIG["thumbnail_size"]
+        ts = APP_CONFIG.thumbnail_size
         with imread_raw(file_path) as raw:
             rgb = raw.postprocess(
                 use_camera_wb=False,

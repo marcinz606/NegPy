@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
-from typing import Tuple, cast
-from src.config import APP_CONFIG, ProcessingParams
+from typing import Tuple
+from src.config import APP_CONFIG, ImageSettings
 from src.helpers import ensure_rgb, get_luminance, ensure_array
 from src.logging_config import get_logger
 
@@ -50,7 +50,7 @@ def get_autocrop_coords(
     """
     img = ensure_rgb(img)
     h, w, _ = img.shape
-    detect_res = APP_CONFIG["autocrop_detect_res"]
+    detect_res = APP_CONFIG.autocrop_detect_res
     det_scale = detect_res / max(h, w)
     img_small = ensure_array(
         cv2.resize(
@@ -132,21 +132,21 @@ def apply_autocrop(
 
 
 def apply_dust_removal(
-    img: np.ndarray, params: ProcessingParams, scale_factor: float
+    img: np.ndarray, params: ImageSettings, scale_factor: float
 ) -> np.ndarray:
     """
     Applies both automatic and manual dust removal (healing).
     Automatic uses median blur replacement, manual uses inpainting with grain matching.
     """
-    manual_spots = params.get("manual_dust_spots", [])
-    if not (params.get("dust_remove") or manual_spots):
+    manual_spots = params.manual_dust_spots
+    if not (params.dust_remove or manual_spots):
         return img
 
     # --- Automatic Detection & Healing ---
-    if params.get("dust_remove"):
-        d_size = int(params.get("dust_size", 3) * 2.0 * scale_factor) | 1
+    if params.dust_remove:
+        d_size = int(params.dust_size * 2.0 * scale_factor) | 1
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
-        img_median_u8 = cast(np.ndarray, cv2.medianBlur(img_uint8, d_size))
+        img_median_u8: np.ndarray = cv2.medianBlur(img_uint8, d_size)
         img_median = img_median_u8.astype(np.float32) / 255.0
 
         gray = get_luminance(img)
@@ -160,7 +160,7 @@ def apply_dust_removal(
         highlight_sens = np.clip((brightness - 0.4) * 1.5, 0, 1)
         detail_boost = (1.0 - flatness) * 0.05
         sens_factor = (1.0 - 0.98 * flatness_weight) * (1.0 - 0.5 * highlight_sens)
-        adaptive_thresh = params["dust_threshold"] * sens_factor + detail_boost
+        adaptive_thresh = params.dust_threshold * sens_factor + detail_boost
 
         diff = np.max(np.abs(img - img_median), axis=2)
         raw_mask = (diff > adaptive_thresh).astype(np.float32)
@@ -179,16 +179,19 @@ def apply_dust_removal(
     # --- Manual Healing (using Inpainting) ---
     if manual_spots:
         h_img, w_img = img.shape[:2]
-        m_size_param = params.get("manual_dust_size", 10)
-        m_radius = int(m_size_param * scale_factor)
-        if m_radius < 1:
-            m_radius = 1
+        global_size_param = params.manual_dust_size
 
         manual_mask_u8 = np.zeros((h_img, w_img), dtype=np.uint8)
-        for nx, ny in manual_spots:
+        for spot in manual_spots:
+            nx, ny, s_size = spot
+            radius = int(s_size * scale_factor)
+
+            if radius < 1:
+                radius = 1
+
             px = int(nx * w_img)
             py = int(ny * h_img)
-            cv2.circle(manual_mask_u8, (px, py), m_radius, 255, -1)
+            cv2.circle(manual_mask_u8, (px, py), radius, 255, -1)
 
         img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
         inpaint_rad = int(3 * scale_factor) | 1
@@ -215,22 +218,21 @@ def apply_dust_removal(
 
         img_inpainted_f = img_inpainted_u8.astype(np.float32) + final_noise * mask_final
         img = np.clip(img_inpainted_f, 0, 255) / 255.0
-        img = np.clip(img_inpainted_f, 0, 255) / 255.0
 
     return img
 
 
 def apply_chroma_noise_removal(
-    img: np.ndarray, params: ProcessingParams, scale_factor: float = 1.0
+    img: np.ndarray, params: ImageSettings, scale_factor: float = 1.0
 ) -> np.ndarray:
     """
     Reduces color noise using bilateral filtering and specific deep-shadow blurring in LAB space.
     Targets shadows aggressively where film scan color noise is most prevalent.
     """
-    if not params.get("c_noise_remove"):
+    if not params.c_noise_remove:
         return img
 
-    strength = params.get("c_noise_strength", 50)
+    strength = params.c_noise_strength
     if not isinstance(strength, (int, float)) or strength <= 0:
         return img
 
