@@ -7,5 +7,6 @@ user/export/*
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+node_modules/
 venv/
 __pycache__
