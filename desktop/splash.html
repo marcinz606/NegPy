@@ -16,24 +16,30 @@
             overflow: hidden;
             border: 1px solid #30363d;
         }
+        .icon {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+        }
         .loader {
             border: 4px solid #30363d;
             border-top: 4px solid #ff4b4b;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
+            width: 30px;
+            height: 30px;
             animation: spin 1s linear infinite;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
         h2 { margin: 0; font-weight: 300; }
-        p { color: #8b949e; font-size: 14px; }
+        p { color: #8b949e; font-size: 14px; margin-top: 10px; }
     </style>
 </head>
 <body>
+    <img src="../media/icon.svg" class="icon" alt="DarkroomPy Icon">
     <div class="loader"></div>
     <h2>DarkroomPy</h2>
     <p>Starting engine...</p>
