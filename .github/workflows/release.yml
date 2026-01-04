@@ -1,0 +1,87 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
+          - macos
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event.inputs.platform }}" == "all" ]; then
+            echo 'matrix=["ubuntu-latest", "windows-latest", "macos-latest"]' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.platform }}" == "windows" ]; then
+            echo 'matrix=["windows-latest"]' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.platform }}" == "linux" ]; then
+            echo 'matrix=["ubuntu-latest"]' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.platform }}" == "macos" ]; then
+            echo 'matrix=["macos-latest"]' >> $GITHUB_OUTPUT
+          fi
+
+  release:
+    needs: setup
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ${{ fromJSON(needs: setup.outputs.matrix) }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install Node Dependencies
+        run: npm install
+
+      - name: Build Backend (PyInstaller)
+        run: npm run build:backend
+
+      - name: Build Electron App
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}-${{ github.event.inputs.version }}
+          path: |
+            dist_electron/*.exe
+            dist_electron/*.dmg
+            dist_electron/*.AppImage
+            dist_electron/*.deb

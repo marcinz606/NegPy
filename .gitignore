@@ -2,5 +2,17 @@
 .ruff_cache/
 .mypy_cache/
 node_modules/
+# Electron & Packaging
+node_modules/
+dist/
+dist_electron/
+build/
+desktop/bin/
+*.spec
+.DS_Store
+build.log
+
+# Virtual Environment
 venv/
+
 __pycache__

@@ -35,6 +35,12 @@ format:
 	@$(RUFF) format .
 	@$(RUFF) check --fix .
 
+# Run the application (Docker)
+.PHONY: run-app
+run-app:
+	@echo "Starting DarkroomPy via Docker..."
+	@$(PYTHON) start.py
+
 # Clean up caches
 .PHONY: clean
 clean:

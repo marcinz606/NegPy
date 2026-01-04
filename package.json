@@ -1,0 +1,54 @@
+{
+  "name": "darkroom-py",
+  "version": "0.1.0",
+  "description": "Professional RAW Photo Development Tool",
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:backend": "python desktop/build_backend.py",
+    "dist": "npm run build:backend && electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "Marcin Zawalski<zawalskimarcin@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.darkroom.py",
+    "productName": "DarkroomPy",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "desktop/main.js",
+      "desktop/splash.html",
+      "desktop/error.html",
+      "desktop/bin/backend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "desktop/bin/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Graphics"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.photography"
+    }
+  }
+}
