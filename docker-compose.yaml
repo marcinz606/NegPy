@@ -8,4 +8,7 @@ services:
       - "8501:8501"
     volumes:
       - ./:/app
+      - ${DARKROOM_HOST_DIR}:/app/user
+    environment:
+      - DARKROOM_USER_DIR=/app/user
     restart: unless-stopped
