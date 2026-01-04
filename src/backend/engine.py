@@ -9,7 +9,7 @@ from src.backend.pipeline import (
     PhotometricProcessor,
     ToningProcessor,
     LocalRetouchProcessor,
-    ColorFinishingProcessor,
+    PhotoLabProcessor,
     GeometryProcessor,
 )
 
@@ -26,9 +26,9 @@ class DarkroomEngine:
         self.pipeline: List[Processor] = [
             NormalizationProcessor(),
             PhotometricProcessor(),
-            ToningProcessor(),
             LocalRetouchProcessor(),
-            ColorFinishingProcessor(),
+            PhotoLabProcessor(),
+            ToningProcessor(),
             GeometryProcessor(),
         ]
 

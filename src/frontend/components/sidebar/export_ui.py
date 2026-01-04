@@ -39,17 +39,7 @@ def render_export_section() -> SidebarData:
             help="Desired DPI (dots per inch) resolution for printing.",
         )
 
-        c_shp, c_path = st.columns([1, 3])
-        c_shp.slider(
-            "Sharpening",
-            0.0,
-            1.5,
-            st.session_state.get("sharpen", 0.25),
-            0.01,
-            key="sharpen",
-            help="Output sharpening level.",
-        )
-        c_path.text_input(
+        st.text_input(
             "Export Directory",
             st.session_state.get("export_path", APP_CONFIG.default_export_dir),
             key="export_path",

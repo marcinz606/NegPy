@@ -42,25 +42,28 @@ def render_exposure_section() -> None:
             )
 
         # Primary Print Controls
-        render_control_slider(
-            "Density",
-            -1.0,
-            3.0,
-            1.0,
-            0.01,
-            "density",
-            help_text=("Print Density. 1.0 is Normal. Higher = Darker."),
-        )
+        e1, e2 = st.columns(2)
+        with e1:
+            render_control_slider(
+                "Density",
+                -1.0,
+                3.0,
+                1.0,
+                0.01,
+                "density",
+                help_text=("Print Density. 1.0 is Neutral. Higher = Darker."),
+            )
 
-        render_control_slider(
-            "Grade",
-            0.0,
-            5.0,
-            2.0,
-            0.01,
-            "grade",
-            help_text=("Paper Contrast Grade. 2 is Normal. 0 is Soft. 5 is Hard."),
-        )
+        with e2:
+            render_control_slider(
+                "Grade",
+                0.0,
+                5.0,
+                2.5,
+                0.01,
+                "grade",
+                help_text=("Paper Contrast Grade. 2 is Neutral. 0 is Soft. 5 is Hard."),
+            )
 
         c_toe1, c_toe2, c_toe3 = st.columns([2, 1, 1])
         c_sh1, c_sh2, c_sh3 = st.columns([2, 1, 1])

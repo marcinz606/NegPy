@@ -28,6 +28,13 @@ class PipelineContext:
 
 
 @dataclass
+class PaperSubstrate:
+    name: str
+    tint: Tuple[float, float, float]
+    dmax_boost: float
+
+
+@dataclass
 class ImageSettings:
     density: float = 1.0
     toe: float = 0.0
@@ -37,28 +44,27 @@ class ImageSettings:
     shoulder_width: float = 3.0
     shoulder_hardness: float = 1.0
     auto_wb: bool = False
-    shadow_desat_strength: float = 1.0
     grade: float = 2.5
     exposure: float = 0.0
     dust_remove: bool = True
-    dust_threshold: float = 0.55
+    dust_threshold: float = 0.75
     dust_size: int = 2
-    c_noise_remove: bool = True
-    c_noise_strength: int = 25
-    sharpen: float = 0.20
+    c_noise_strength: float = 0.25
+    sharpen: float = 0.25
     rotation: int = 0
     fine_rotation: float = 0.0
     wb_cyan: float = 0.0
     wb_magenta: float = 0.0
     wb_yellow: float = 0.0
-    wb_manual_r: float = 1.0
-    wb_manual_g: float = 1.0
-    wb_manual_b: float = 1.0
-    temperature: float = 0.0
-    shadow_temp: float = 0.0
-    highlight_temp: float = 0.0
+    paper_profile: str = "None"
+    selenium_strength: float = 0.0
+    sepia_strength: float = 0.0
     color_separation: float = 1.0
-    saturation: float = 1.0
+    crosstalk_matrix: List[float] = field(
+        default_factory=lambda: [1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0]
+    )
+    hypertone_strength: float = 0.0
+    cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     autocrop: bool = True
     autocrop_offset: int = 5
     autocrop_ratio: str = "3:2"
@@ -73,7 +79,7 @@ class ImageSettings:
     process_mode: str = "C41"
     is_bw: bool = False
     manual_dust_spots: List[Tuple[float, float, float]] = field(default_factory=list)
-    manual_dust_size: int = 4
+    manual_dust_size: int = 5
     local_adjustments: List[LocalAdjustment] = field(default_factory=list)
     active_adjustment_idx: int = -1
 

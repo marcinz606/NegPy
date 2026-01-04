@@ -3,7 +3,8 @@ import os
 from PIL import Image
 from typing import List, Dict, Any, Optional
 from src.config import APP_CONFIG, DEFAULT_SETTINGS
-from src.helpers import ensure_rgb, imread_raw
+import numpy as np
+from src.helpers import ensure_rgb, imread_raw, get_luminance
 from src.domain_objects import ImageSettings
 
 
@@ -97,3 +98,14 @@ def get_thumbnail_worker(file_path: str) -> Optional[Image.Image]:
             return square_img
     except Exception:
         return None
+
+
+def convert_to_monochrome(img: np.ndarray) -> np.ndarray:
+    """
+    Converts an RGB image to a 3-channel monochrome (greyscale) image.
+    """
+    if img.shape[2] != 3:
+        return img
+    lum = get_luminance(img)
+    res: np.ndarray = np.stack([lum, lum, lum], axis=2)
+    return res

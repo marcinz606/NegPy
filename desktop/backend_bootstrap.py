@@ -1,15 +1,16 @@
 import os
 import sys
 import streamlit.web.cli as stcli
-from pathlib import Path
+
 
 def resolve_path(path):
     resolved_path = os.path.abspath(os.path.join(os.getcwd(), path))
     return resolved_path
 
+
 if __name__ == "__main__":
     # Check if running in a bundled PyInstaller environment
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # We are running in a bundle
         bundle_dir = sys._MEIPASS
     else:
@@ -31,7 +32,7 @@ if __name__ == "__main__":
     if not os.path.exists(user_dir):
         os.makedirs(user_dir, exist_ok=True)
 
-    print(f"Engine starting...")
+    print("Engine starting...")
     print(f"User Directory: {user_dir}")
     print(f"Is Bundled: {getattr(sys, 'frozen', False)}")
 
@@ -42,11 +43,11 @@ if __name__ == "__main__":
     # Streamlit execution
     # If bundled, app.py is at the root of bundle_dir.
     # If dev, app.py is in the parent directory of this script.
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         app_path = os.path.join(bundle_dir, "app.py")
     else:
         app_path = os.path.join(os.path.dirname(bundle_dir), "app.py")
-    
+
     sys.argv = [
         "streamlit",
         "run",
@@ -56,5 +57,5 @@ if __name__ == "__main__":
         "--server.headless=true",
         "--browser.gatherUsageStats=false",
     ]
-    
+
     sys.exit(stcli.main())

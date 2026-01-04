@@ -51,14 +51,3 @@ def render_retouch_section() -> None:
                 st.session_state.manual_dust_spots = []
                 save_settings()
                 st.rerun()
-
-        st.checkbox("Chroma Noise Removal", key="c_noise_remove")
-        st.slider(
-            "Chroma Noise Strength",
-            0,
-            100,
-            25,
-            1,
-            disabled=not st.session_state.c_noise_remove,
-            key="c_noise_strength",
-        )

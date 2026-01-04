@@ -11,22 +11,35 @@
 - **Content-Based Fingerprinting**: Uses SHA-256 content hashing to tie edits to the image data itself. Your settings persist even if you rename or move your files.
 - **Parallel Processing**: Leverages multi-core background execution for thumbnail generation and high-speed batch exports.
 
+### ⚙️ Processing Pipeline
+DarkroomPy implements a modular 6-stage physical simulation pipeline:
+
+1.  **Normalization**: Simulates scanner gain to maximize signal-to-noise ratio and measures the negative's log-density bounds.
+2.  **Photometric Engine**:
+    *   **H&D Curve Inversion**: Uses a logistic sigmoid characteristic curve to invert the negative.
+    *   **Sensitometric Solver**: Automatically determines optimal exposure using *Range-Based Anchoring* (Zone V placement) and *Auto-Grade* (matching negative range to paper range).
+    *   **Dichroic Filtration**: Subtractive CMY color correction model.
+3.  **Local Retouching**:
+    *   **Dust Removal**: Adaptive healing algorithm that repairs defects while preserving grain structure.
+    *   **Dodge & Burn**: Linear-space local exposure adjustments with real-time masks.
+4.  **PhotoLab Simulation**:
+    *   **Spectral Crosstalk**: Simulates film dye impurities and scanner channel overlap (Color Separation).
+    *   **Hypertone**: Contrast Limited Adaptive Histogram Equalization (CLAHE) for local contrast enhancement.
+    *   **Chroma Denoise**: Targeted L*a*b* space filtering for shadow noise.
+5.  **Toning & Substrate**:
+    *   **Paper Simulation**: Physical modeling of paper tint and D-max boost (e.g., Warm Fiber, Cool Glossy).
+    *   **Chemical Toning**: Simulates Selenium (shadow cooling/deepening) and Sepia (highlight bleaching/warming) reactivity.
+6.  **Geometry**: High-precision rotation and multi-aspect ratio autocrop (3:2, 4:3, 6:7, XPan).
+
 ### 🎨 Color & Tonality
-- **"True Darkroom" Pipeline**: Follows the physical path of light: *Filtered Light → Negative → Scanner Gain → Inversion → Positive*.
-- **Specialized RAW Support**: Seamless, automatic loading of standard RAWs (`.ARW`, `.DNG`, etc.) and specialized headerless formats (e.g., **Pakon scanner** planar `.raw` files).
-- **Intelligent Tonality Recovery**: Sensitometric Shadow Toe and Highlight Shoulder controls to prevent digital clipping and preserve analog-like transitions.
-- **Dichroic Filtration**: Physically accurate CMY filtration model for neutralizing film base masks without color drift.
+- **"True Darkroom" Workflow**: Follows the physical path of light: *Filtered Light → Negative → Scanner Gain → Inversion → Positive*.
+- **Auto-Filtration**: "Base Neutralization" algorithm aligns film base (D-min) to remove orange masks without neutralizing scene colors.
+- **Dynamic Range Control**: Visualizes the measured dynamic range of your negative vs. the target paper range.
 
-### 🔦 Local Adjustments (Dodge & Burn)
+### 🛠️ Retouching & Tools
 - **Layered Adjustments**: Add multiple independent layers for lightening (dodging) or darkening (burning) specific areas.
-- **Linear Exposure Math**: Adjustments are applied in linear color space for realistic highlight and shadow transitions.
 - **Rubylith Visualization**: Real-time red mask overlay shows exactly where you are painting.
-- **Configurable Brushes**: Adjustable size, strength (EV), and feathering for every layer.
-
-### 🛠️ Retouching & Geometry
-- **Adaptive Dust Removal**: High-performance algorithm that heals specs while respecting film grain.
-- **Manual Healing & Scratch Removal**: Content-aware repair tools with synthetic grain matching for perfect blending.
-- **Multi-Format Autocrop**: Automatic edge detection for 3:2, 4:3, 5:4, 6:7, 1:1, and 65:24 (XPan).
+- **Manual Healing**: Content-aware scratch removal with synthetic grain matching.
 
 ---
 
