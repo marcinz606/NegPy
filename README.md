@@ -52,11 +52,30 @@ For deeper dives into the project, please refer to the following documents:
 
 ## 🚀 Getting Started
 
-### Using Docker (Recommended)
-```bash
-docker compose up --build
-```
-Access the app at `http://localhost:8501`.
+### Docker (Cross-Platform)
+
+We provide a helper script to automatically configure and start the container, mapping your local `Documents/DarkroomPy` folder to the application's storage.
+
+1.  **Run the start script:**
+    ```bash
+    python3 start.py
+    ```
+    *(On Windows, you might use `python start.py`)*
+
+    This will:
+    *   Locate your system's "Documents" folder.
+    *   Create a `DarkroomPy` subfolder if it doesn't exist.
+    *   Mount this folder to the container so your edits, presets, and exports persist on your host machine.
+    *   Start the application at `http://localhost:8501`.
+
+2.  **To stop:** Press `Ctrl+C` in the terminal.
+
+3.  **Advanced:** You can pass standard docker-compose arguments:
+    ```bash
+    python3 start.py --build -d
+    ```
+
+
 
 ### Automation (Makefile)
 The project includes a `Makefile` for developers:

@@ -1,19 +1,23 @@
+import os
 from src.domain_objects import AppConfig, ImageSettings
+
+# --- PATH CONFIGURATION ---
+BASE_USER_DIR = os.getenv("DARKROOM_USER_DIR", "user")
 
 # --- APP CONFIGURATION ---
 # Global application constants
 APP_CONFIG = AppConfig(
-    preview_max_res=1200,
-    display_width=1200,
-    thumbnail_size=120,
-    max_workers=8,
-    edits_db_path="user/edits.db",
-    settings_db_path="user/settings.db",
-    presets_dir="user/presets",
-    cache_dir="user/cache",
-    user_icc_dir="user/icc",
-    default_export_dir="user/export",
-    autocrop_detect_res=1200,
+    preview_max_res=1600,
+    display_width=1600,
+    autocrop_detect_res=1600,
+    thumbnail_size=100,
+    max_workers=max(1, (os.cpu_count() or 1) - 1),
+    edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
+    settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
+    presets_dir=os.path.join(BASE_USER_DIR, "presets"),
+    cache_dir=os.path.join(BASE_USER_DIR, "cache"),
+    user_icc_dir=os.path.join(BASE_USER_DIR, "icc"),
+    default_export_dir=os.path.join(BASE_USER_DIR, "export"),
     adobe_rgb_profile="icc/AdobeCompat-v4.icc",
 )
 

@@ -4,13 +4,6 @@ venv/
 tests/
 .git/
 .github/
-user/edits.db
-user/settings.db
-user/presets/*
-user/cache/*
-user/icc/*
-user/export/*
-tests/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
