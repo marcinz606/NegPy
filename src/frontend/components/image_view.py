@@ -7,11 +7,19 @@ from typing import Tuple
 from src.config import APP_CONFIG
 from src.domain_objects import SidebarData
 from src.logging_config import get_logger
-from src.backend.image_logic.local import generate_local_mask, calculate_luma_mask
+from src.backend.image_logic.local_adjustments import (
+    generate_local_mask,
+    calculate_luma_mask,
+)
 from src.helpers import ensure_array
 from src.backend.image_logic.retouch import get_autocrop_coords
 from src.frontend.state import save_settings
 from src.backend.session import DarkroomSession
+from src.backend.image_logic.exposure import (
+    prepare_exposure_analysis,
+    analyze_sensitometry,
+)
+from src.config import PIPELINE_CONSTANTS
 
 logger = get_logger(__name__)
 
@@ -96,11 +104,7 @@ def render_image_view(
         mask = generate_local_mask(
             rh_orig, rw_orig, adj.points, adj.radius, adj.feather, 1.0
         )
-        img_lin = img_raw.copy()
-        img_lin[:, :, 0] *= st.session_state.get("wb_manual_r", 1.0)
-        img_lin[:, :, 1] *= st.session_state.get("wb_manual_g", 1.0)
-        img_lin[:, :, 2] *= st.session_state.get("wb_manual_b", 1.0)
-        img_pos_lin = 1.0 - np.clip(img_lin, 0, 1)
+        img_pos_lin = 1.0 - np.clip(img_raw, 0, 1)
         luma_mask = calculate_luma_mask(
             img_pos_lin,
             adj.luma_range,
@@ -152,7 +156,17 @@ def render_image_view(
     with c2:
         current_file = session.current_file
         if current_file:
-            st.subheader(current_file["name"])
+            # Header: Name + Resolution
+            h1, h2 = st.columns([3, 1])
+            with h1:
+                st.subheader(current_file["name"])
+            with h2:
+                if "original_res" in st.session_state:
+                    w, h = st.session_state.original_res
+                    st.markdown(
+                        f"<div style='text-align: right; padding-top: 1rem; color: gray;'>{w} x {h} px</div>",
+                        unsafe_allow_html=True,
+                    )
 
         is_dust_mode = st.session_state.get("pick_dust", False)
         display_width = APP_CONFIG.display_width
@@ -177,6 +191,27 @@ def render_image_view(
         else:
             st.image(img_display)
             value = None
+
+            # Footer: Sensitometry Data
+            try:
+                # Lightweight analysis on preview
+                norm_log, _ = prepare_exposure_analysis(st.session_state.preview_raw)
+                dr, mid = analyze_sensitometry(norm_log)
+
+                # Calculate Zone V Shift (Midtone Anchor)
+                density_val = st.session_state.get("density", 1.0)
+                shift = 0.1 + (density_val * PIPELINE_CONSTANTS["density_multiplier"])
+                pivot = 1.0 - shift
+                zone_diff = mid - pivot
+
+                f1, f2 = st.columns(2)
+                f1.markdown(f"**DR:** {dr:.2f}")
+                f2.markdown(
+                    f"<div style='text-align: right;'>**Zone V:** {zone_diff:+.2f}</div>",
+                    unsafe_allow_html=True,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to render sensitometry footer: {e}")
 
     if value:
         scale_x = pil_prev.width / img_display.width

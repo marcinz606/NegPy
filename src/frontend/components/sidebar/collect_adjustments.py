@@ -1,13 +1,19 @@
 import streamlit as st
 from src.frontend.state import save_settings, reset_file_settings
-from src.frontend.components.local_ui import render_local_adjustments
+from src.frontend.components.sidebar.local_adjustments_ui import (
+    render_local_adjustments,
+)
 from src.frontend.components.sidebar.exposure_ui import render_exposure_section
-from src.frontend.components.sidebar.color_ui import render_color_section
+from src.frontend.components.sidebar.paper_toning_ui import render_paper_section
+from src.frontend.components.sidebar.lab_scanner_ui import render_lab_scanner_section
 from src.frontend.components.sidebar.retouch_ui import render_retouch_section
-from src.frontend.components.sidebar.export import render_export_section
-from src.frontend.components.sidebar.presets import render_presets
+from src.frontend.components.sidebar.export_ui import render_export_section
+from src.frontend.components.sidebar.presets_ui import render_presets
 from src.domain_objects import SidebarData
-from src.backend.image_logic.exposure import solve_photometric_exposure
+from src.backend.image_logic.exposure import (
+    solve_photometric_exposure,
+    prepare_exposure_analysis,
+)
 from src.backend.image_logic.retouch import apply_autocrop
 
 
@@ -25,12 +31,13 @@ def run_auto_wb() -> None:
             )
 
         # Delegate logic to the Backend Photometric Solver
-        results = solve_photometric_exposure(img)
+        norm_log, bounds = prepare_exposure_analysis(img)
+        c, m, y, density, grade = solve_photometric_exposure(norm_log, bounds)
 
         # ATOMIC UPDATE: Color Only
-        st.session_state.wb_cyan = results["wb_cyan"]
-        st.session_state.wb_magenta = results["wb_magenta"]
-        st.session_state.wb_yellow = results["wb_yellow"]
+        st.session_state.wb_cyan = c
+        st.session_state.wb_magenta = m
+        st.session_state.wb_yellow = y
 
         st.session_state["auto_wb"] = False
         save_settings()
@@ -50,11 +57,12 @@ def run_auto_density() -> None:
             )
 
         # Delegate logic to the Backend Photometric Solver
-        results = solve_photometric_exposure(img)
+        norm_log, bounds = prepare_exposure_analysis(img)
+        c, m, y, density, grade = solve_photometric_exposure(norm_log, bounds)
 
         # ATOMIC UPDATE: Exposure and Contrast
-        st.session_state.density = results["density"]
-        st.session_state.grade = results["grade"]
+        st.session_state.density = density
+        st.session_state.grade = grade
 
         save_settings()
 
@@ -134,10 +142,13 @@ def render_adjustments() -> SidebarData:
     # 1. Exposure & Tonality
     render_exposure_section()
 
-    # 2. Color & Balance (includes Selective Color)
-    render_color_section()
+    # 2. Lab Scanner Simulation
+    render_lab_scanner_section()
 
-    # 3. Dodge & Burn
+    # 3. Color & Balance (includes Selective Color)
+    render_paper_section()
+
+    # 4. Dodge & Burn
     with st.expander(":material/pen_size_5: Dodge & Burn", expanded=False):
         render_local_adjustments()
 

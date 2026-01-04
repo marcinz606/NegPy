@@ -9,10 +9,6 @@ from src.logging_config import get_logger
 from src.config import APP_CONFIG
 from src.domain_objects import ImageSettings, ExportSettings
 from src.helpers import ensure_rgb, imread_raw
-from src.backend.image_logic.post import (
-    apply_post_color_grading,
-    apply_output_sharpening,
-)
 from src.backend.engine import DarkroomEngine
 
 logger = get_logger(__name__)
@@ -40,7 +36,6 @@ def load_raw_and_process(
         output_format = export_settings.output_format
         print_width_cm = float(export_settings.print_width_cm)
         dpi = int(export_settings.dpi)
-        sharpen_amount = float(export_settings.sharpen_amount)
         add_border = bool(export_settings.add_border)
         border_size_cm = float(export_settings.border_size_cm)
         border_color = str(export_settings.border_color)
@@ -70,8 +65,6 @@ def load_raw_and_process(
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
         pil_img = Image.fromarray(img_uint8)
 
-        pil_img = apply_post_color_grading(pil_img, params)
-
         # Resizing
         side_inch = print_width_cm / 2.54
         total_target_px = int(side_inch * dpi)
@@ -87,13 +80,10 @@ def load_raw_and_process(
 
         pil_img = pil_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-        # Sharpening
-        pil_img = apply_output_sharpening(pil_img, sharpen_amount)
-
         is_toned = (
-            params.temperature != 0.0
-            or params.shadow_temp != 0.0
-            or params.highlight_temp != 0.0
+            params.selenium_strength != 0.0
+            or params.sepia_strength != 0.0
+            or params.paper_profile != "None"
         )
 
         if color_space == "Greyscale" or (params.is_bw and not is_toned):

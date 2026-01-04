@@ -8,9 +8,9 @@ GLOBAL_PERSIST_KEYS = {
     "wb_cyan",
     "wb_magenta",
     "wb_yellow",
-    "temperature",
-    "shadow_temp",
-    "highlight_temp",
+    "paper_profile",
+    "selenium_strength",
+    "sepia_strength",
     "toe",
     "shoulder",
     "export_fmt",
@@ -22,6 +22,8 @@ GLOBAL_PERSIST_KEYS = {
     "export_border_color",
     "export_path",
     "sharpen",
+    "hypertone_strength",
+    "color_separation",
 }
 
 

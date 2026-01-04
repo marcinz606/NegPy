@@ -179,7 +179,6 @@ def apply_dust_removal(
     # --- Manual Healing (using Inpainting) ---
     if manual_spots:
         h_img, w_img = img.shape[:2]
-        global_size_param = params.manual_dust_size
 
         manual_mask_u8 = np.zeros((h_img, w_img), dtype=np.uint8)
         for spot in manual_spots:
@@ -219,83 +218,4 @@ def apply_dust_removal(
         img_inpainted_f = img_inpainted_u8.astype(np.float32) + final_noise * mask_final
         img = np.clip(img_inpainted_f, 0, 255) / 255.0
 
-    return img
-
-
-def apply_chroma_noise_removal(
-    img: np.ndarray, params: ImageSettings, scale_factor: float = 1.0
-) -> np.ndarray:
-    """
-    Reduces color noise using bilateral filtering and specific deep-shadow blurring in LAB space.
-    Targets shadows aggressively where film scan color noise is most prevalent.
-    """
-    if not params.c_noise_remove:
-        return img
-
-    strength = params.c_noise_strength
-    if not isinstance(strength, (int, float)) or strength <= 0:
-        return img
-
-    img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
-    lab = ensure_array(cv2.cvtColor(img_u8, cv2.COLOR_RGB2LAB))
-    l_chan, a_chan, b_chan = cv2.split(lab)
-
-    # 1. Bilateral Filter (Base Denoising)
-    # Stronger parameters to smooth out mottling
-    # Scale diameter with resolution to maintain relative effect size
-    d_val = int(9 * scale_factor) | 1
-    # Ensure strength is float for sc_val and ss_val
-    f_strength = float(strength)
-    sc_val = f_strength * 2.0  # Increased color sigma
-    ss_val = f_strength * 0.75 * scale_factor  # Increased spatial sigma, scaled
-
-    a_bilat = ensure_array(cv2.bilateralFilter(a_chan, d_val, sc_val, ss_val))
-    b_bilat = ensure_array(cv2.bilateralFilter(b_chan, d_val, sc_val, ss_val))
-
-    # 2. Strong Blur for Deep Shadows (The "Nuclear Option" for dark noise)
-    # Bilateral can fail on very grainy darks, preserving the noise as "texture".
-    # We blur the color channels aggressively in the deep blacks.
-    base_k = 11 if strength > 50 else 7
-    k_size = int(base_k * scale_factor) | 1
-    a_blur = ensure_array(cv2.GaussianBlur(a_bilat, (k_size, k_size), 0))
-    b_blur = ensure_array(cv2.GaussianBlur(b_bilat, (k_size, k_size), 0))
-
-    l_float = ensure_array(l_chan).astype(np.float32)
-
-    # Deep Shadow Mask: 1.0 at L=0, fades to 0.0 at L=60 (~23%)
-    deep_mask = np.clip(1.0 - (l_float / 60.0), 0.0, 1.0)
-    deep_mask = deep_mask * deep_mask  # Quadratic falloff to keep it tight to blacks
-
-    # Blend Blur into Bilateral
-    a_combined = (
-        a_bilat.astype(np.float32) * (1.0 - deep_mask)
-        + a_blur.astype(np.float32) * deep_mask
-    )
-    b_combined = (
-        b_bilat.astype(np.float32) * (1.0 - deep_mask)
-        + b_blur.astype(np.float32) * deep_mask
-    )
-
-    # 3. Broad Masking (Application to Image)
-    # Apply to Shadows and Midtones, protecting only bright Highlights
-    # 1.0 at L=0..150, fades to 0 at L=230 (~90%)
-    broad_mask = np.clip(1.0 - ((l_float - 150.0) / 80.0), 0.0, 1.0)
-
-    # Smooth the mask to avoid transitions
-    broad_mask = ensure_array(cv2.GaussianBlur(broad_mask, (21, 21), 0))
-
-    # Final Blend
-    a_final = np.clip(
-        a_chan.astype(np.float32) * (1.0 - broad_mask) + a_combined * broad_mask, 0, 255
-    ).astype(np.uint8)
-    b_final = np.clip(
-        b_chan.astype(np.float32) * (1.0 - broad_mask) + b_combined * broad_mask, 0, 255
-    ).astype(np.uint8)
-
-    img = (
-        ensure_array(
-            cv2.cvtColor(cv2.merge([l_chan, a_final, b_final]), cv2.COLOR_LAB2RGB)
-        ).astype(np.float32)
-        / 255.0
-    )
     return img

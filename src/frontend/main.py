@@ -13,10 +13,6 @@ from src.backend.utils import get_thumbnail_worker
 from src.helpers import ensure_rgb, imread_raw, ensure_array
 from src.backend.db import init_db
 from src.backend.image_logic.retouch import get_autocrop_coords
-from src.backend.image_logic.post import (
-    apply_post_color_grading,
-    apply_output_sharpening,
-)
 from src.backend.processor import (
     load_raw_and_process,
 )
@@ -57,7 +53,7 @@ async def main() -> None:
     Initialize frontend app function.
     """
     st.set_page_config(
-        page_title="DarkroomPy", layout="wide", page_icon=":material/camera_roll:"
+        page_title="DarkroomPy", layout="wide", page_icon="media/icon.ico"
     )
     init_db()
     init_session_state()
@@ -109,6 +105,7 @@ async def main() -> None:
 
                     full_linear = rgb.astype(np.float32) / 65535.0
                     h_orig, w_orig = full_linear.shape[:2]
+                    st.session_state.original_res = (w_orig, h_orig)
                     max_res = APP_CONFIG.preview_max_res
                     if max(h_orig, w_orig) > max_res:
                         scale = max_res / max(h_orig, w_orig)
@@ -166,13 +163,10 @@ async def main() -> None:
         )
 
         # Post-Processing
-        pil_prev = apply_post_color_grading(pil_prev, current_params)
-        pil_prev = apply_output_sharpening(pil_prev, st.session_state.sharpen)
-
         is_toned = (
-            st.session_state.temperature != 0.0
-            or st.session_state.shadow_temp != 0.0
-            or st.session_state.highlight_temp != 0.0
+            current_params.selenium_strength != 0.0
+            or current_params.sepia_strength != 0.0
+            or current_params.paper_profile != "None"
         )
 
         if current_params.is_bw and not is_toned:
