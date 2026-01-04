@@ -82,6 +82,7 @@ function createSplashWindow() {
         frame: false,
         alwaysOnTop: true,
         transparent: true,
+        icon: path.join(__dirname, '..', 'media', 'icon.svg'),
         webPreferences: {
             nodeIntegration: false
         }
@@ -98,6 +99,7 @@ function createMainWindow() {
         height: Math.min(1000, height),
         show: false,
         autoHideMenuBar: true,
+        icon: path.join(__dirname, '..', 'media', 'icon.svg'),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true

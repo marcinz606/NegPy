@@ -11,4 +11,5 @@ exclude =
     .streamlit,
     .pytest_cache,
     icc,
-    processed
+    processed,
+    node_modules

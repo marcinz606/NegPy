@@ -41,6 +41,11 @@ run-app:
 	@echo "Starting DarkroomPy via Docker..."
 	@$(PYTHON) start.py
 
+.PHONY: run-app-rebuild
+run-app-rebuild:
+	@echo "Rebuilding and starting DarkroomPy via Docker..."
+	@$(PYTHON) start.py --build
+
 # Clean up caches
 .PHONY: clean
 clean:

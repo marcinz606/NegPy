@@ -18,6 +18,7 @@
   "build": {
     "appId": "com.darkroom.py",
     "productName": "DarkroomPy",
+    "icon": "media/icon.svg",
     "directories": {
       "output": "dist_electron"
     },
@@ -25,7 +26,8 @@
       "desktop/main.js",
       "desktop/splash.html",
       "desktop/error.html",
-      "desktop/bin/backend/**/*"
+      "desktop/bin/backend/**/*",
+      "media/icon.svg"
     ],
     "extraResources": [
       {
