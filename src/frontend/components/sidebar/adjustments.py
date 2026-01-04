@@ -124,12 +124,10 @@ def render_adjustments() -> SidebarData:
             "Crop Offset",
             0,
             100,
-            1,
-            1,
             key="autocrop_offset",
             help="Buffer/offset (pixels) to crop beyond automatically detected border, might be useful when border is uneven.",
         )
-        c_geo3.slider("Rotate (°)", -5.0, 5.0, 0.0, 0.05, key="fine_rotation")
+        c_geo3.slider("Rotate (°)", -5.0, 5.0, step=0.05, key="fine_rotation")
 
     render_presets()
 

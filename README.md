@@ -30,52 +30,43 @@
 
 ---
 
-## 🏗️ Technical Foundation
-
-The project is built on a robust, professional engineering stack:
-- **Language**: Python 3.13
-- **Type Safety**: 100% compliant with strict **Mypy** type checking.
-- **Code Quality**: Enforced by **Ruff** and **Flake8** for consistent, professional formatting.
-- **Testing**: Built-in unit test suite via **Pytest** ensuring mathematical integrity.
-- **Logging**: Centralized, module-level logging for reliable debugging and monitoring.
-
----
-
-## 📖 Documentation
-
-For deeper dives into the project, please refer to the following documents:
-- 🚀 **[Beginner's Setup Guide](docs/BEGINEER.md)**: A step-by-step guide to getting the app running via Docker without needing programming knowledge.
-- 🔬 **[Core Processing Logic](docs/LOGIC.md)**: Detailed technical explanation of the "True Darkroom" mathematical model and algorithms.
-- 📓 **[Sensitometric Analysis](docs/READ_THIS.md)**: An in-depth analysis of emulsion response, paper grading, and the scientific foundations of the project.
-
----
-
 ## 🚀 Getting Started
 
-### Docker (Cross-Platform)
+### Standalone Desktop App (Recommended)
+The easiest way to use DarkroomPy is to download the standalone installer for your operating system.
 
-We provide a helper script to automatically configure and start the container, mapping your local `Documents/DarkroomPy` folder to the application's storage.
+1.  Go to the **[Latest Releases](https://github.com/USER/darkroom-py/releases)**.
+2.  Download the installer for your platform:
+    *   **Windows**: `.exe` (NSIS Installer)
+    *   **macOS**: `.dmg` (Disk Image)
+    *   **Linux**: `.AppImage` or `.deb`
 
-1.  **Run the start script:**
-    ```bash
-    python3 start.py
-    ```
-    *(On Windows, you might use `python start.py`)*
+#### Installation & Launch
+- **Windows**: Double-click the `.exe` and follow the installer. Launch from your Start Menu.
+- **macOS**: Double-click the `.dmg`, drag to **Applications**. Right-click and select **Open** the first time to bypass security warnings.
+- **Linux**: Right-click the `.AppImage`, go to **Properties** -> **Permissions**, check **"Allow executing file as program"**, then double-click to run.
 
-    This will:
-    *   Locate your system's "Documents" folder.
-    *   Create a `DarkroomPy` subfolder if it doesn't exist.
-    *   Mount this folder to the container so your edits, presets, and exports persist on your host machine.
-    *   Start the application at `http://localhost:8501`.
+### 🔄 How to Update
+When a new version comes out, simply download the new installer and run it. Your settings and edits will remain safe in your documents folder.
 
-2.  **To stop:** Press `Ctrl+C` in the terminal.
+---
 
-3.  **Advanced:** You can pass standard docker-compose arguments:
-    ```bash
-    python3 start.py --build -d
-    ```
+## 📂 Where are my files?
+DarkroomPy creates a folder in your **Documents** called `DarkroomPy`:
+- **`edits.db`**: Stores all your per-file edits.
+- **`settings.db`**: Remembers your settings (export, borders, etc.).
+- **`export/`**: Default location for finished photos.
+- **`icc/`**: Imported .ICC profiles.
+- **`presets/`**: Your saved looks.
+- **`cache/`**: Temporary storage for files being edited (cleared on close).
 
+---
 
+## 🛠️ Development & Advanced Usage
+
+### Docker
+I provide a helper script to automatically configure and start the container:
+`make run-app`
 
 ### Automation (Makefile)
 The project includes a `Makefile` for developers:
