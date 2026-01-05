@@ -12,8 +12,6 @@ def render_file_manager() -> None:
     """
     session: DarkroomSession = st.session_state.session
     with st.sidebar:
-        st.title(":material/camera_roll: DarkroomPy")
-
         raw_uploaded_files = st.file_uploader(
             "Load RAW files",
             type=["dng", "tiff", "nef", "arw", "raw", "raf"],

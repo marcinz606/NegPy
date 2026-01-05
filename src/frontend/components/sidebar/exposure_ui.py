@@ -65,12 +65,12 @@ def render_exposure_section() -> None:
                 help_text=("Paper Contrast Grade. 2 is Neutral. 0 is Soft. 5 is Hard."),
             )
 
-        c_toe1, c_toe2, c_toe3 = st.columns([2, 1, 1])
-        c_sh1, c_sh2, c_sh3 = st.columns([2, 1, 1])
+        c_toe1, c_toe2, c_toe3 = st.columns([1.5, 1, 1])
+        c_sh1, c_sh2, c_sh3 = st.columns([1.5, 1, 1])
 
         with c_toe1:
             render_control_slider(
-                "Toe (Shadow roll-off)",
+                "Toe (S roll-off)",
                 -1.0,
                 1.0,
                 0.0,
@@ -101,7 +101,7 @@ def render_exposure_section() -> None:
 
         with c_sh1:
             render_control_slider(
-                "Shoulder (Highlight roll-off)",
+                "Shoulder (H roll-off)",
                 -1.0,
                 1.0,
                 0.0,

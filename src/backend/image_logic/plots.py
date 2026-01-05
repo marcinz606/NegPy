@@ -99,10 +99,6 @@ def plot_photometric_curve(
     ax.set_xlim(-0.1, 1.1)
     ax.set_ylim(-0.05, 1.05)
 
-    # Minimalist labels for context
-    ax.text(0.0, -0.15, "S", color="#7d7d7d", fontsize=8, ha="center")
-    ax.text(1.0, -0.15, "H", color="#7d7d7d", fontsize=8, ha="center")
-
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.set_yticks([])

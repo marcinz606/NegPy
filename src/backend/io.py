@@ -1,5 +1,4 @@
 import os
-import io
 import numpy as np
 import rawpy
 import imageio.v3 as iio
@@ -75,8 +74,8 @@ class RawpyLoader(BaseLoader):
 
     def load(self, file_path: str) -> Any:
         # We return the actual rawpy object which already implements context manager
-        with open(file_path, "rb") as f:
-            return rawpy.imread(io.BytesIO(f.read()))
+        # Passing the path directly is more memory efficient than BytesIO
+        return rawpy.imread(file_path)
 
 
 class TiffLoader(BaseLoader):

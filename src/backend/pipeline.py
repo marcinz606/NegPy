@@ -22,8 +22,10 @@ from src.backend.image_logic.lab_scanner import (
     apply_output_sharpening,
 )
 from src.backend.image_logic.retouch import (
-    apply_autocrop,
     apply_dust_removal,
+)
+from src.backend.image_logic.geometry import (
+    apply_autocrop,
     apply_fine_rotation,
 )
 from src.backend.image_logic.local_adjustments import apply_local_adjustments
