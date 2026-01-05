@@ -135,7 +135,7 @@ def render_adjustments() -> SidebarData:
             key="autocrop_offset",
             help="Buffer/offset (pixels) to crop beyond automatically detected border, might be useful when border is uneven.",
         )
-    
+
     st.slider("Fine Rotation (°)", -5.0, 5.0, step=0.05, key="fine_rotation")
 
     render_presets()

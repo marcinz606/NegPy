@@ -25,6 +25,7 @@ class PipelineContext:
     scale_factor: float = 1.0
     original_size: Tuple[int, int] = (0, 0)
     bounds: Optional[LogNegativeBounds] = None
+    active_crop_roi: Optional[Tuple[int, int, int, int]] = None
 
 
 @dataclass

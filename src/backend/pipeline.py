@@ -1,4 +1,5 @@
 import numpy as np
+import copy
 from abc import ABC, abstractmethod
 from typing import Tuple
 from src.logging_config import get_logger
@@ -25,8 +26,9 @@ from src.backend.image_logic.retouch import (
     apply_dust_removal,
 )
 from src.backend.image_logic.geometry import (
-    apply_autocrop,
+    get_autocrop_coords,
     apply_fine_rotation,
+    map_coords_to_geometry,
 )
 from src.backend.image_logic.local_adjustments import apply_local_adjustments
 
@@ -56,7 +58,13 @@ class NormalizationProcessor(Processor):
         epsilon = 1e-6
         img_log = np.log10(np.clip(img, epsilon, 1.0))
 
-        bounds = measure_log_negative_bounds(img)
+        # Use the active ROI for analysis if it exists
+        analysis_img = img
+        if context.active_crop_roi:
+            y1, y2, x1, x2 = context.active_crop_roi
+            analysis_img = img[y1:y2, x1:x2]
+
+        bounds = measure_log_negative_bounds(analysis_img)
         context.bounds = bounds
 
         for ch in range(3):
@@ -148,7 +156,11 @@ class ToningProcessor(Processor):
 
 class LocalRetouchProcessor(Processor):
     """
+
+
     Handles cleanup (dust/noise) and targeted dodge/burn adjustments.
+
+
     """
 
     def process(
@@ -156,11 +168,84 @@ class LocalRetouchProcessor(Processor):
     ) -> np.ndarray:
         scale_factor = context.scale_factor
 
+        h_img, w_img = img.shape[:2]
+
+        # Map coordinates to current geometric state (rotated)
+
+        # Note: LocalRetouchProcessor currently runs on the FULL (rotated) image,
+
+        # so we don't pass context.active_crop_roi to map_coords_to_geometry here.
+
+        orig_shape = context.original_size
+
+        rotation = settings.rotation
+
+        fine_rotation = settings.fine_rotation
+
+        logger.debug(
+            f"RetouchProcess: Img={w_img}x{h_img}, Orig={orig_shape}, Rot={rotation}, Fine={fine_rotation}"
+        )
+
+        # 1. Map Manual Dust Spots
+
+        mapped_settings = settings
+
+        if settings.manual_dust_spots:
+            # We must not mutate the original settings object
+
+            new_spots = []
+
+            for nx, ny, size in settings.manual_dust_spots:
+                mnx, mny = map_coords_to_geometry(
+                    nx, ny, orig_shape, rotation, fine_rotation, roi=None
+                )
+
+                new_spots.append((mnx, mny, size))
+
+            # Use a temporary settings-like object or pass them directly if possible
+
+            # For simplicity in this engine, we'll create a shallow copy and override
+
+            mapped_settings = copy.copy(settings)
+
+            mapped_settings.manual_dust_spots = new_spots
+
+        # 2. Map Local Adjustments
+
+        if settings.local_adjustments:
+            if mapped_settings is settings:  # if not already copied
+                mapped_settings = copy.copy(settings)
+
+            new_adjustments = []
+
+            for adj in settings.local_adjustments:
+                new_adj = copy.copy(adj)
+
+                new_points = []
+
+                for nx, ny in adj.points:
+                    mnx, mny = map_coords_to_geometry(
+                        nx, ny, orig_shape, rotation, fine_rotation, roi=None
+                    )
+
+                    new_points.append((mnx, mny))
+
+                new_adj.points = new_points
+
+                new_adjustments.append(new_adj)
+
+            mapped_settings.local_adjustments = new_adjustments
+
         # 1. Automated Cleanup
-        img = apply_dust_removal(img, settings, scale_factor)
+
+        img = apply_dust_removal(img, mapped_settings, scale_factor)
 
         # 2. Manual Dodge & Burn
-        img = apply_local_adjustments(img, settings.local_adjustments, scale_factor)
+
+        img = apply_local_adjustments(
+            img, mapped_settings.local_adjustments, scale_factor
+        )
+
         return img
 
 
@@ -204,7 +289,7 @@ class PhotoLabProcessor(Processor):
 
 class GeometryProcessor(Processor):
     """
-    Handles rotations and cropping as the final step.
+    Handles rotations and defines the active crop ROI.
     """
 
     def process(
@@ -212,17 +297,37 @@ class GeometryProcessor(Processor):
     ) -> np.ndarray:
         scale_factor = context.scale_factor
 
+        # 1. Apply Rotations immediately so the grid is aligned
         if settings.rotation != 0:
             img = np.rot90(img, k=settings.rotation)
 
         if settings.fine_rotation != 0.0:
             img = apply_fine_rotation(img, settings.fine_rotation)
 
+        # 2. Calculate ROI but do not crop yet
         if settings.autocrop:
-            img = apply_autocrop(
+            roi = get_autocrop_coords(
                 img,
                 offset_px=settings.autocrop_offset,
                 scale_factor=scale_factor,
-                ratio=settings.autocrop_ratio,
+                target_ratio_str=settings.autocrop_ratio,
             )
+            context.active_crop_roi = roi
+        else:
+            context.active_crop_roi = None
+
+        return img
+
+
+class OutputCropProcessor(Processor):
+    """
+    Final step: Applies the crop ROI defined earlier in the pipeline.
+    """
+
+    def process(
+        self, img: np.ndarray, settings: ImageSettings, context: PipelineContext
+    ) -> np.ndarray:
+        if context.active_crop_roi:
+            y1, y2, x1, x2 = context.active_crop_roi
+            return img[y1:y2, x1:x2]
         return img

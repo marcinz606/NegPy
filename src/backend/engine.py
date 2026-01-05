@@ -11,6 +11,7 @@ from src.backend.pipeline import (
     LocalRetouchProcessor,
     PhotoLabProcessor,
     GeometryProcessor,
+    OutputCropProcessor,
 )
 
 
@@ -24,12 +25,13 @@ class DarkroomEngine:
         self.config = APP_CONFIG
         # Define the default processing chain
         self.pipeline: List[Processor] = [
+            GeometryProcessor(),
             NormalizationProcessor(),
             PhotometricProcessor(),
             LocalRetouchProcessor(),
             PhotoLabProcessor(),
             ToningProcessor(),
-            GeometryProcessor(),
+            OutputCropProcessor(),
         ]
 
     def process(self, img: np.ndarray, settings: ImageSettings) -> np.ndarray:
