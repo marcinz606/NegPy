@@ -6,6 +6,9 @@ textColor = "#c3c3c3"
 primaryColor = "#b10000" # sliders, button accents, etc
 secondaryBackgroundColor = "#080808" # Left panel BG
 
+# Colors
+redColor = "#b10000"
+
 # Main section BG
 backgroundColor = "#161616"
 

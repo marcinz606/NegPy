@@ -14,7 +14,7 @@ from src.backend.image_logic.exposure import (
     solve_photometric_exposure,
     prepare_exposure_analysis,
 )
-from src.backend.image_logic.retouch import apply_autocrop
+from src.backend.image_logic.geometry import apply_autocrop
 
 
 def run_auto_wb() -> None:

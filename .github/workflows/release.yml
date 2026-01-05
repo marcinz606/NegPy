@@ -38,11 +38,11 @@ jobs:
 
   release:
     needs: setup
-    name: Build for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJSON(needs: setup.outputs.matrix) }}
+        os: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout Code

@@ -12,7 +12,7 @@ from src.domain_objects import ImageSettings, ExportSettings
 from src.backend.utils import get_thumbnail_worker
 from src.helpers import ensure_rgb, imread_raw, ensure_array
 from src.backend.db import init_db
-from src.backend.image_logic.retouch import get_autocrop_coords
+from src.backend.image_logic.geometry import get_autocrop_coords
 from src.backend.processor import (
     load_raw_and_process,
 )
@@ -22,7 +22,10 @@ from src.frontend.components.sidebar.main import (
     render_file_manager,
     render_sidebar_content,
 )
-from src.frontend.components.main_layout import render_main_layout
+from src.frontend.components.main_layout import (
+    render_layout_header,
+    render_main_layout,
+)
 
 
 def get_processing_params(
@@ -53,7 +56,7 @@ async def main() -> None:
     Initialize frontend app function.
     """
     st.set_page_config(
-        page_title="DarkroomPy", layout="wide", page_icon="media/icon.ico"
+        page_title="DarkroomPy", layout="wide", page_icon="media/icon.png"
     )
     init_db()
     init_session_state()
@@ -67,8 +70,8 @@ async def main() -> None:
 
     apply_custom_css()
 
-    # 1. Global Status Area (Top of page)
-    status_area = st.empty()
+    # 1. Layout & Status Area
+    main_col1, main_col2, status_area = render_layout_header()
 
     # 2. Render File Manager (Uploads)
     render_file_manager()
@@ -100,6 +103,7 @@ async def main() -> None:
                         user_wb=[1, 1, 1, 1],
                         output_bps=16,
                         output_color=raw_color_space,
+                        demosaic_algorithm=rawpy.DemosaicAlgorithm.LINEAR,
                     )
                     rgb = ensure_rgb(rgb)
 
@@ -320,7 +324,9 @@ async def main() -> None:
                 pil_prev = Image.alpha_composite(pil_prev, overlay).convert("RGB")
 
         # 6. Main Content Layout
-        export_btn_sidebar = render_main_layout(pil_prev, sidebar_data)
+        export_btn_sidebar = render_main_layout(
+            pil_prev, sidebar_data, main_col1, main_col2
+        )
 
         # Handle Export Logic
         if export_btn_sidebar:

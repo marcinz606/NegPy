@@ -1,6 +1,7 @@
 import numpy as np
+from scipy.special import expit
 from typing import Tuple, List
-from src.helpers import get_luminance
+from src.helpers import get_luminance, ensure_array
 from src.domain_objects import LogNegativeBounds
 from src.config import PIPELINE_CONSTANTS
 
@@ -49,9 +50,7 @@ class LogisticSigmoid:
         # In our engine, low negative density = Shadows = High Paper Exposure.
         # This corresponds to the Shoulder of the paper response.
         # Normalize diff by distance to boundary [0, x0]
-        w_s = 1.0 / (
-            1.0 + np.exp(-self.shoulder_width * (diff / max(self.x0, epsilon)))
-        )
+        w_s = expit(self.shoulder_width * (diff / max(self.x0, epsilon)))
         prot_s = (4.0 * ((w_s - 0.5) ** 2)) ** self.shoulder_hardness
         damp_shoulder = self.shoulder * (1.0 - w_s) * prot_s
 
@@ -59,9 +58,7 @@ class LogisticSigmoid:
         # In our engine, high negative density = Highlights = Low Paper Exposure.
         # This corresponds to the Toe of the paper response.
         # Normalize diff by distance to boundary [x0, 1]
-        w_t = 1.0 / (
-            1.0 + np.exp(-self.toe_width * (diff / max(1.0 - self.x0, epsilon)))
-        )
+        w_t = expit(self.toe_width * (diff / max(1.0 - self.x0, epsilon)))
         prot_t = (4.0 * ((w_t - 0.5) ** 2)) ** self.toe_hardness
         damp_toe = self.toe * w_t * prot_t
 
@@ -72,7 +69,7 @@ class LogisticSigmoid:
 
         # Apply base Sigmoid with damped slope
         val = self.k * diff
-        return self.L / (1.0 + np.exp(-val * k_mod))
+        return ensure_array(self.L * expit(val * k_mod))
 
 
 def apply_film_characteristic_curve(

@@ -47,6 +47,7 @@ params = [
     "--add-data=app.py:.",
     "--add-data=src:src",
     "--add-data=icc:icc",
+    "--add-data=media:media",
     # Streamlit files (crucial)
     f"--add-data={streamlit_dir}:streamlit",
     f"--add-data={streamlit_image_coordinates_dir}:streamlit_image_coordinates",
@@ -68,5 +69,9 @@ if os.path.exists(src_path):
         os.remove(dst_path)
     shutil.move(src_path, dst_path)
     print(f"Successfully built and moved to {dst_path}")
+
+    # Cleanup empty dist folder created by PyInstaller
+    if os.path.exists("dist") and not os.listdir("dist"):
+        os.rmdir("dist")
 else:
     print(f"Error: Could not find {src_path}")

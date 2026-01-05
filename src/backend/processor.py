@@ -24,6 +24,19 @@ def process_image_core(img: np.ndarray, params: ImageSettings) -> np.ndarray:
     return engine.process(img, params)
 
 
+def get_best_demosaic_algorithm(raw: Any) -> Any:
+    """
+    Returns the optimal demosaic algorithm based on sensor type.
+    """
+    try:
+        if raw.raw_type == rawpy.RawType.XTrans:
+            # X-Trans specific high-quality algorithm
+            return rawpy.DemosaicAlgorithm.AHD
+        return rawpy.DemosaicAlgorithm.AHD
+    except AttributeError:
+        return None
+
+
 def load_raw_and_process(
     file_path: str,
     params: ImageSettings,
@@ -47,6 +60,9 @@ def load_raw_and_process(
             raw_color_space = rawpy.ColorSpace.Adobe
 
         with imread_raw(file_path) as raw:
+            # Select best demosaic for the sensor
+            algo = get_best_demosaic_algorithm(raw)
+
             # PURE RAW: Essential for darkroom-style analytical WB.
             rgb = raw.postprocess(
                 gamma=(1, 1),
@@ -55,6 +71,7 @@ def load_raw_and_process(
                 user_wb=[1, 1, 1, 1],
                 output_bps=16,
                 output_color=raw_color_space,
+                demosaic_algorithm=algo,
             )
             rgb = ensure_rgb(rgb)
         img = rgb.astype(np.float32) / 65535.0

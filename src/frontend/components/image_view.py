@@ -12,7 +12,7 @@ from src.backend.image_logic.local_adjustments import (
     calculate_luma_mask,
 )
 from src.helpers import ensure_array
-from src.backend.image_logic.retouch import get_autocrop_coords
+from src.backend.image_logic.geometry import get_autocrop_coords
 from src.frontend.state import save_settings
 from src.backend.session import DarkroomSession
 from src.backend.image_logic.exposure import (

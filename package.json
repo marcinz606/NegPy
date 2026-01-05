@@ -10,7 +10,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "author": "Marcin Zawalski<zawalskimarcin@gmail.com>",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^24.13.3"
@@ -18,16 +18,16 @@
   "build": {
     "appId": "com.darkroom.py",
     "productName": "DarkroomPy",
-    "icon": "media/icon.svg",
+    "icon": "media/icon.png",
     "directories": {
-      "output": "dist_electron"
+      "output": "dist"
     },
     "files": [
       "desktop/main.js",
       "desktop/splash.html",
       "desktop/error.html",
       "desktop/bin/backend/**/*",
-      "media/icon.svg"
+      "media/icon.png"
     ],
     "extraResources": [
       {

@@ -33,7 +33,6 @@ def render_control_slider(
             label,
             min_value=float(min_val),
             max_value=float(max_val),
-            value=float(st.session_state[key]),
             step=float(step),
             format=format,
             key=key,
