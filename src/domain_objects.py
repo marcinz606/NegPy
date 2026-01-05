@@ -37,6 +37,7 @@ class PaperSubstrate:
 
 @dataclass
 class ImageSettings:
+    working_copy_size: int = 1800
     density: float = 1.0
     toe: float = 0.0
     toe_width: float = 3.0
@@ -105,8 +106,6 @@ class ImageSettings:
 
 @dataclass
 class AppConfig:
-    preview_max_res: int
-    display_width: int
     thumbnail_size: int
     max_workers: int
     edits_db_path: str
@@ -115,7 +114,6 @@ class AppConfig:
     cache_dir: str
     user_icc_dir: str
     default_export_dir: str
-    autocrop_detect_res: int
     adobe_rgb_profile: str
 
 

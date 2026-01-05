@@ -20,6 +20,7 @@ from src.backend.image_logic.geometry import apply_autocrop
 def run_auto_wb() -> None:
     if "preview_raw" in st.session_state:
         img = st.session_state.preview_raw
+        working_copy_size = st.session_state.get("working_copy_size", 1800)
 
         # Apply Auto-Crop if enabled to focus color analysis on subject area
         if st.session_state.get("autocrop"):
@@ -28,6 +29,7 @@ def run_auto_wb() -> None:
                 offset_px=st.session_state.get("autocrop_offset", 0),
                 scale_factor=1.0,
                 ratio=st.session_state.get("autocrop_ratio", "3:2"),
+                detect_res=working_copy_size,
             )
 
         # Delegate logic to the Backend Photometric Solver
@@ -46,6 +48,7 @@ def run_auto_wb() -> None:
 def run_auto_density() -> None:
     if "preview_raw" in st.session_state:
         img = st.session_state.preview_raw
+        working_copy_size = st.session_state.get("working_copy_size", 1800)
 
         # Apply Auto-Crop if enabled to focus analysis on subject area only
         if st.session_state.get("autocrop"):
@@ -54,6 +57,7 @@ def run_auto_density() -> None:
                 offset_px=st.session_state.get("autocrop_offset", 0),
                 scale_factor=1.0,
                 ratio=st.session_state.get("autocrop_ratio", "3:2"),
+                detect_res=working_copy_size,
             )
 
         # Delegate logic to the Backend Photometric Solver
@@ -112,6 +116,15 @@ def render_adjustments() -> SidebarData:
         width="stretch",
         type="secondary",
         help="Reset all settings for this negative to defaults.",
+    )
+
+    st.slider(
+        "Working Copy Resolution",
+        800,
+        3600,
+        step=100,
+        key="working_copy_size",
+        help="Target resolution (longer side) for the interactive working copy. Higher values improve detail but slow down processing.",
     )
 
     autocrop = st.checkbox(

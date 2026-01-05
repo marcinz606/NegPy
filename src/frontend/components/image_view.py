@@ -56,6 +56,7 @@ def render_image_view(
     active_idx = st.session_state.get("active_adjustment_idx", -1)
     img_raw = st.session_state.preview_raw
     rh_orig, rw_orig = img_raw.shape[:2]
+    working_copy_size = st.session_state.get("working_copy_size", 1800)
     rotation = st.session_state.get("rotation", 0) % 4
     fine_rot = st.session_state.get("fine_rotation", 0.0)
     autocrop = st.session_state.get("autocrop", False)
@@ -83,7 +84,7 @@ def render_image_view(
             m_f = cv2.getRotationMatrix2D((w_f / 2, h_f / 2), fine_rot, 1.0)
             img_geom = ensure_array(cv2.warpAffine(img_geom, m_f, (w_f, h_f)))
         y1, y2, x1, x2 = get_autocrop_coords(
-            img_geom, autocrop_offset, 1.0, autocrop_ratio
+            img_geom, autocrop_offset, 1.0, autocrop_ratio, detect_res=working_copy_size
         )
         uv_grid = uv_grid[y1:y2, x1:x2]
 
@@ -122,7 +123,11 @@ def render_image_view(
             )
         if autocrop:
             y1, y2, x1, x2 = get_autocrop_coords(
-                img_geom, autocrop_offset, 1.0, autocrop_ratio
+                img_geom,
+                autocrop_offset,
+                1.0,
+                autocrop_ratio,
+                detect_res=working_copy_size,
             )
             final_vis_mask = final_vis_mask[y1:y2, x1:x2]
 
@@ -169,7 +174,7 @@ def render_image_view(
                     )
 
         is_dust_mode = st.session_state.get("pick_dust", False)
-        display_width = APP_CONFIG.display_width
+        display_width = working_copy_size
         img_display = pil_prev.copy()
 
         if max(img_display.size) > display_width:
@@ -238,7 +243,7 @@ def render_image_view(
                     else:
                         sx, sy = st.session_state.dust_start_point
                         current_size = st.session_state.get("manual_dust_size", 10)
-                        norm_radius = current_size / float(APP_CONFIG.preview_max_res)
+                        norm_radius = current_size / float(working_copy_size)
                         step_size = max(0.0005, norm_radius * 0.5)
                         dist = np.hypot(rx - sx, ry - sy)
                         num_steps = int(dist / step_size)

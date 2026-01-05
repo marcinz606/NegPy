@@ -7,9 +7,6 @@ BASE_USER_DIR = os.getenv("DARKROOM_USER_DIR", "user")
 # --- APP CONFIGURATION ---
 # Global application constants
 APP_CONFIG = AppConfig(
-    preview_max_res=1800,
-    display_width=1800,
-    autocrop_detect_res=1800,
     thumbnail_size=100,
     max_workers=max(1, (os.cpu_count() or 1) - 1),
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
@@ -34,6 +31,7 @@ PIPELINE_CONSTANTS = {
 # --- DEFAULT SETTINGS ---
 # The baseline parameters for every newly imported RAW file
 DEFAULT_SETTINGS = ImageSettings(
+    working_copy_size=1800,
     density=1.0,
     grade=2.5,
     toe=0.0,

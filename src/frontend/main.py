@@ -110,7 +110,7 @@ async def main() -> None:
                     full_linear = rgb.astype(np.float32) / 65535.0
                     h_orig, w_orig = full_linear.shape[:2]
                     st.session_state.original_res = (w_orig, h_orig)
-                    max_res = APP_CONFIG.preview_max_res
+                    max_res = st.session_state.get("working_copy_size", 1800)
                     if max(h_orig, w_orig) > max_res:
                         scale = max_res / max(h_orig, w_orig)
                         st.session_state.preview_raw = ensure_array(

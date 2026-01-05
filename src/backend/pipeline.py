@@ -179,15 +179,9 @@ class LocalRetouchProcessor(Processor):
         orig_shape = context.original_size
 
         rotation = settings.rotation
-
         fine_rotation = settings.fine_rotation
 
-        logger.debug(
-            f"RetouchProcess: Img={w_img}x{h_img}, Orig={orig_shape}, Rot={rotation}, Fine={fine_rotation}"
-        )
-
         # 1. Map Manual Dust Spots
-
         mapped_settings = settings
 
         if settings.manual_dust_spots:
@@ -311,6 +305,7 @@ class GeometryProcessor(Processor):
                 offset_px=settings.autocrop_offset,
                 scale_factor=scale_factor,
                 target_ratio_str=settings.autocrop_ratio,
+                detect_res=settings.working_copy_size,
             )
             context.active_crop_roi = roi
         else:
