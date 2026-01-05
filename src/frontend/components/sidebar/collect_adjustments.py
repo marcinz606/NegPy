@@ -120,7 +120,7 @@ def render_adjustments() -> SidebarData:
         help="Automatically detect film borders and crop to desired aspect ratio.",
     )
     if autocrop:
-        c_geo1, c_geo2, c_geo3 = st.columns(3)
+        c_geo1, c_geo2 = st.columns(2)
         c_geo1.selectbox(
             "Ratio",
             ["3:2", "4:3", "5:4", "6:7", "1:1", "65:24"],
@@ -135,7 +135,8 @@ def render_adjustments() -> SidebarData:
             key="autocrop_offset",
             help="Buffer/offset (pixels) to crop beyond automatically detected border, might be useful when border is uneven.",
         )
-        c_geo3.slider("Rotate (°)", -5.0, 5.0, step=0.05, key="fine_rotation")
+    
+    st.slider("Fine Rotation (°)", -5.0, 5.0, step=0.05, key="fine_rotation")
 
     render_presets()
 

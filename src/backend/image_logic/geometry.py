@@ -45,134 +45,71 @@ def get_autocrop_coords(
     target_ratio_str: str = "3:2",
 ) -> Tuple[int, int, int, int]:
     """
-    Center-Out Valley Stop Solver.
-
-    Starts from the image center and expands outwards until it hits the "Valley"
-    (the black film borders). This implicitly ignores the "White Scanner Bed"
-    which lies beyond the black borders.
+    Calculates the autocrop coordinates.
+    Returns (y1, y2, x1, x2) in pixels relative to input img.
     """
     img = ensure_rgb(img)
-    h_orig, w_orig, _ = img.shape
-
-    # 1. Preparation: Detect on a resized proxy for speed
+    h, w, _ = img.shape
     detect_res = APP_CONFIG.autocrop_detect_res
-    det_scale = detect_res / max(h_orig, w_orig)
+    det_scale = detect_res / max(h, w)
     img_small = ensure_array(
         cv2.resize(
-            img,
-            (int(w_orig * det_scale), int(h_orig * det_scale)),
-            interpolation=cv2.INTER_AREA,
+            img, (int(w * det_scale), int(h * det_scale)), interpolation=cv2.INTER_AREA
         )
     )
-
-    # Ensure float32 0.0-1.0
-    if img_small.dtype != np.float32:
-        img_small = img_small.astype(np.float32) / (
-            65535.0 if img_small.dtype == np.uint16 else 255.0
-        )
-
     lum = get_luminance(img_small)
-    h_det, w_det = lum.shape
 
-    # Compute 1D Projection Profiles
-    row_means = np.mean(lum, axis=1)
-    col_means = np.mean(lum, axis=0)
+    # Threshold for film base detection (detecting darker frame)
+    rows_det = np.where(np.mean(lum, axis=1) < 0.96)[0]
+    cols_det = np.where(np.mean(lum, axis=0) < 0.96)[0]
 
-    # 2. Define the "Border Floor"
-    # We look for the 'Valley' (black rebate).
-    # If the darkest part of the profile is still bright, no borders exist.
-    global_min = min(np.min(row_means), np.min(col_means))
+    if len(rows_det) < 10 or len(cols_det) < 10:
+        return 0, h, 0, w
 
-    if global_min > 0.20:
-        # Image is likely already cropped to content
-        return 0, h_orig, 0, w_orig
+    y1, y2 = rows_det[0] / det_scale, rows_det[-1] / det_scale
+    x1, x2 = cols_det[0] / det_scale, cols_det[-1] / det_scale
 
-    # The threshold to stop: slightly above the deepest black of the border
-    border_threshold = global_min + 0.12
-
-    # 3. Center-Out Search with Patience
-    # Patience prevents stopping on thin scratches or dust inside the image.
-    y_patience = max(3, int(h_det * 0.005))
-    x_patience = max(3, int(w_det * 0.005))
-
-    def walk_to_valley(
-        profile: np.ndarray,
-        start: int,
-        direction: int,
-        threshold: float,
-        patience: int,
-    ) -> int:
-        count = 0
-        curr = start
-        limit = len(profile)
-        while 0 <= curr < limit:
-            if profile[curr] < threshold:
-                count += 1
-            else:
-                count = 0  # Reset patience if we hit a bright pixel (image content)
-
-            if count >= patience:
-                # Return the index where we first crossed the threshold
-                return curr - (direction * (patience - 1))
-            curr += direction
-        return 0 if direction == -1 else limit - 1
-
-    mid_y, mid_x = h_det // 2, w_det // 2
-
-    gy1 = walk_to_valley(row_means, mid_y, -1, border_threshold, y_patience)
-    gy2 = walk_to_valley(row_means, mid_y, 1, border_threshold, y_patience)
-    gx1 = walk_to_valley(col_means, mid_x, -1, border_threshold, x_patience)
-    gx2 = walk_to_valley(col_means, mid_x, 1, border_threshold, x_patience)
-
-    # Apply manual user offset (scaled)
-    final_margin = 2 + offset_px
-    gy1, gy2 = gy1 + final_margin, gy2 - final_margin
-    gx1, gx2 = gx1 + final_margin, gx2 - final_margin
-
-    # 4. Aspect Ratio Fit
-    # Translate Small-Image coordinates back to Original Image pixels
-    y1, y2, x1, x2 = (
-        gy1 / det_scale,
-        gy2 / det_scale,
-        gx1 / det_scale,
-        gx2 / det_scale,
-    )
+    margin = (2 + offset_px) * scale_factor
+    y1, y2, x1, x2 = y1 + margin, y2 - margin, x1 + margin, x2 - margin
     cw, ch = x2 - x1, y2 - y1
 
     if cw <= 0 or ch <= 0:
-        return 0, h_orig, 0, w_orig
+        return 0, h, 0, w
 
     # Parse target ratio
     try:
         w_r, h_r = map(float, target_ratio_str.split(":"))
         target_aspect = w_r / h_r
-    except Exception:
+    except Exception as e:
+        logger.error(
+            f"Invalid aspect ratio: {target_ratio_str}, defaulting to 3:2. Error: {e}"
+        )
         target_aspect = 1.5  # Default 3:2
 
-    # Orientation Matching
-    if (ch > cw) != (h_r > w_r):
-        target_aspect = 1.0 / target_aspect
+    # Handle Orientation: Automatically flip ratio to match image orientation
+    is_vertical = ch > cw
+    if is_vertical:
+        if target_aspect > 1.0:
+            target_aspect = 1.0 / target_aspect
+    else:
+        if target_aspect < 1.0:
+            target_aspect = 1.0 / target_aspect
 
-    # Center-aligned fit maximally inside the detected valley bounds
-    cx, cy = x1 + cw / 2.0, y1 + ch / 2.0
+    # Enforce Ratio
     current_aspect = cw / ch
 
     if current_aspect > target_aspect:
-        # Detected area is wider than target: limit by height
-        final_h = ch
-        final_w = ch * target_aspect
+        # Too wide, crop width
+        target_w = ch * target_aspect
+        x1 = x1 + (cw - target_w) // 2
+        x2 = x1 + target_w
     else:
-        # Detected area is taller than target: limit by width
-        final_w = cw
-        final_h = cw / target_aspect
+        # Too tall, crop height
+        target_h = cw / target_aspect
+        y1 = y1 + (ch - target_h) // 2
+        y2 = y1 + target_h
 
-    # Final integer pixel coordinates constrained to original image bounds
-    res_x1 = int(max(0, cx - final_w / 2.0))
-    res_x2 = int(min(w_orig, cx + final_w / 2.0))
-    res_y1 = int(max(0, cy - final_h / 2.0))
-    res_y2 = int(min(h_orig, cy + final_h / 2.0))
-
-    return res_y1, res_y2, res_x1, res_x2
+    return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
 
 
 def apply_autocrop(
