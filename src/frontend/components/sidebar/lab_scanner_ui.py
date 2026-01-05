@@ -20,7 +20,7 @@ def render_lab_scanner_section() -> None:
                     1.0,
                     4.0,
                     1.0,
-                    0.01,
+                    0.05,
                     "color_separation",
                     format="%.2f",
                     help_text=(
@@ -39,7 +39,7 @@ def render_lab_scanner_section() -> None:
                 0.0,
                 1.0,
                 0.0,
-                0.01,
+                0.05,
                 "hypertone_strength",
                 format="%.2f",
                 help_text=(
@@ -59,7 +59,7 @@ def render_lab_scanner_section() -> None:
                 0.0,
                 1.0,
                 0.25,
-                0.01,
+                0.05,
                 "c_noise_strength",
                 format="%.2f",
                 help_text=(
@@ -76,7 +76,7 @@ def render_lab_scanner_section() -> None:
                 0.0,
                 1.0,
                 0.50,
-                0.01,
+                0.05,
                 "sharpen",
                 help_text=(
                     "Applies Unsharp Masking only to the Luminance channel. "

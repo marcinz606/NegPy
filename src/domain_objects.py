@@ -129,6 +129,7 @@ class SidebarData:
     border_color: str = "#ffffff"
     apply_icc: bool = False
     process_btn: bool = False
+    export_btn: bool = False
 
 
 @dataclass

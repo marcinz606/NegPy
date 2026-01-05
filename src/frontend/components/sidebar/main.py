@@ -1,5 +1,4 @@
 import streamlit as st
-from src.frontend.state import copy_settings, paste_settings
 from src.backend.session import DarkroomSession
 from src.domain_objects import SidebarData
 from .collect_adjustments import render_adjustments
@@ -12,6 +11,7 @@ def render_file_manager() -> None:
     """
     session: DarkroomSession = st.session_state.session
     with st.sidebar:
+        st.title(":red[:material/camera_roll:] DarkroomPy")
         raw_uploaded_files = st.file_uploader(
             "Load RAW files",
             type=["dng", "tiff", "nef", "arw", "raw", "raf"],
@@ -34,34 +34,9 @@ def render_sidebar_content() -> SidebarData:
     session: DarkroomSession = st.session_state.session
     with st.sidebar:
         # 0. Global Actions
-        process_btn = st.button(
-            ":material/batch_prediction: Export All",
-            type="primary",
-            width="stretch",
-            help="Process and export all loaded files using their individual settings.",
-        )
-
-        c1, c2 = st.columns(2)
-
         current_file = session.current_file
         if not current_file:
             return SidebarData()
-
-        # Ensure settings are loaded
-        if current_file["hash"] not in session.file_settings:
-            session.load_active_settings()
-
-        c1.button(
-            ":material/copy_all: Copy Settings",
-            on_click=copy_settings,
-            width="stretch",
-        )
-        c2.button(
-            ":material/content_copy: Paste Settings",
-            on_click=paste_settings,
-            disabled=session.clipboard is None,
-            width="stretch",
-        )
 
         # 4. Main Adjustments
         adjustments_data = render_adjustments()
@@ -74,5 +49,4 @@ def render_sidebar_content() -> SidebarData:
         st.divider()
 
         # Consolidate data for the main app
-        adjustments_data.process_btn = process_btn
         return adjustments_data

@@ -45,26 +45,19 @@ def render_export_section() -> SidebarData:
             key="export_path",
         )
 
-        c_b1, c_b2, c_b3 = st.columns([1, 1.5, 1.5])
-        add_border = c_b1.checkbox(
-            "Border",
-            value=st.session_state.get("export_add_border", True),
-            key="export_add_border",
-            help="Adds border around the image.",
-        )
-        c_b2.number_input(
-            "Size (cm)",
-            value=st.session_state.get("export_border_size", 0.25),
-            min_value=0.1,
+        c_b1, c_b2 = st.columns([2, 1])
+        c_b1.slider(
+            "Border Size (cm)",
+            min_value=0.0,
+            max_value=2.5,
+            value=st.session_state.get("export_border_size", 0.0),
             step=0.05,
-            disabled=not add_border,
             key="export_border_size",
-            help="Border width (cm). When border is added we retain our total print size, actual image gets scalled down.",
+            help="Border width (cm). When border is added we retain our total print size, actual image gets scaled down. Set to 0 to disable.",
         )
-        c_b3.color_picker(
-            "Color",
+        c_b2.color_picker(
+            "Border Color",
             value=st.session_state.get("export_border_color", "#ffffff"),
-            disabled=not add_border,
             key="export_border_color",
             help="Color (hex) of the added border.",
         )
@@ -75,7 +68,7 @@ def render_export_section() -> SidebarData:
         print_width=float(st.session_state.export_size),
         print_dpi=int(st.session_state.export_dpi),
         export_path=st.session_state.export_path,
-        add_border=bool(st.session_state.export_add_border),
+        add_border=float(st.session_state.export_border_size) > 0,
         border_size=float(st.session_state.export_border_size),
         border_color=st.session_state.export_border_color,
         apply_icc=bool(st.session_state.get("apply_icc", False)),

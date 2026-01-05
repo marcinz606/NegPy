@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 from typing import Tuple, Optional
-from src.config import APP_CONFIG
 from src.helpers import ensure_rgb, get_luminance, ensure_array
 from src.logging_config import get_logger
 
