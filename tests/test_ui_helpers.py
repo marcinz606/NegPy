@@ -1,6 +1,6 @@
 import numpy as np
 from src.config import PIPELINE_CONSTANTS
-from src.frontend.components.sidebar.helpers import apply_wb_gains_to_sliders
+from src.presentation.components.sidebar.helpers import apply_wb_gains_to_sliders
 
 
 def test_apply_wb_gains_identity():

@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
-from src.backend.image_logic.exposure import apply_film_characteristic_curve
-from src.backend.image_logic.lab_scanner import (
+from src.features.exposure.logic import apply_characteristic_curve
+from src.features.lab.logic import (
     apply_spectral_crosstalk,
     apply_hypertone,
 )
@@ -18,13 +18,13 @@ class TestAnalogSimulation(unittest.TestCase):
         params = (0.5, 1.0)  # pivot=0.5, slope=1.0
 
         # Base run with no offsets
-        res_base = apply_film_characteristic_curve(
-            img_log, params, params, params, pre_logged=True, cmy_offsets=(0, 0, 0)
+        res_base = apply_characteristic_curve(
+            img_log, params, params, params, cmy_offsets=(0, 0, 0)
         )
 
         # Run with Yellow Offset (CMY: index 2 is Yellow)
-        res_yellow = apply_film_characteristic_curve(
-            img_log, params, params, params, pre_logged=True, cmy_offsets=(0, 0, 0.5)
+        res_yellow = apply_characteristic_curve(
+            img_log, params, params, params, cmy_offsets=(0, 0, 0.5)
         )
 
         # Blue channel is index 2

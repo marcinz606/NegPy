@@ -1,6 +1,6 @@
 import numpy as np
-from src.backend.image_logic.exposure import (
-    apply_film_characteristic_curve,
+from src.features.exposure.logic import (
+    apply_characteristic_curve,
 )
 
 
@@ -8,7 +8,7 @@ def test_apply_film_characteristic_curve_range():
     img = np.array([[[0.1, 0.5, 0.9]]])
     # Params: (pivot, slope)
     params = (-2.5, 1.0)
-    res = apply_film_characteristic_curve(img, params, params, params)
+    res = apply_characteristic_curve(img, params, params, params)
     assert res.shape == img.shape
     assert np.all(res >= 0.0)
     assert np.all(res <= 1.0)
@@ -23,7 +23,7 @@ def test_apply_film_characteristic_curve_positive_output():
     img = np.array([[[0.1, 0.1, 0.1], [0.9, 0.9, 0.9]]])
 
     params = (-2.0, 1.0)  # Pivot -2.0, Slope 1.0
-    res = apply_film_characteristic_curve(img, params, params, params)
+    res = apply_characteristic_curve(img, params, params, params)
 
     val_highlight_input = np.mean(res[0, 0])  # Input 0.1
     val_shadow_input = np.mean(res[0, 1])  # Input 0.9

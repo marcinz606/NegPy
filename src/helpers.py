@@ -2,7 +2,6 @@ import hashlib
 import os
 from typing import Any
 import numpy as np
-from src.config import PIPELINE_CONSTANTS
 
 
 def ensure_array(val: Any) -> np.ndarray:
@@ -60,33 +59,3 @@ def calculate_file_hash(file_path: str) -> str:
         import uuid
 
         return f"err_{uuid.uuid4()}"
-
-
-def imread_raw(file_path: str) -> Any:
-    """
-    Polymorphic loader: delegates to the appropriate specialized loader class.
-    Should be used as a context manager: with imread_raw(path) as raw: ...
-    """
-    from src.backend.io import loader_factory
-
-    return loader_factory.get_loader(file_path)
-
-
-def cmy_to_density(val: float, log_range: float = 1.0) -> float:
-    """
-    Converts a CMY slider value (-1.0..1.0) to a density shift.
-    If log_range is provided, the shift is returned in normalized [0, 1] units
-    relative to that range. Otherwise, returns absolute density.
-    """
-    absolute_density = val * PIPELINE_CONSTANTS["cmy_max_density"]
-    return absolute_density / max(log_range, 1e-6)
-
-
-def density_to_cmy(density: float, log_range: float = 1.0) -> float:
-    """
-    Converts a density shift back to a CMY slider value (-1.0..1.0).
-    If log_range is provided, the input density is assumed to be in normalized
-    [0, 1] units and is converted back to absolute density before scaling.
-    """
-    absolute_density = density * log_range
-    return absolute_density / PIPELINE_CONSTANTS["cmy_max_density"]

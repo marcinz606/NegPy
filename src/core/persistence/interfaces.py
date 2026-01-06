@@ -1,0 +1,26 @@
+from typing import Protocol, Optional, Any
+from src.domain_objects import ImageSettings
+
+
+class IRepository(Protocol):
+    """
+    Interface for settings and metadata persistence.
+    """
+
+    def save_file_settings(self, file_hash: str, settings: ImageSettings) -> None: ...
+    def load_file_settings(self, file_hash: str) -> Optional[ImageSettings]: ...
+    def initialize(self) -> None: ...
+
+
+class IAssetStore(Protocol):
+    """
+    Interface for physical asset management (temporary files, thumbnails).
+    """
+
+    def persist(
+        self, uploaded_file: Any, session_id: str
+    ) -> Optional[tuple[str, str]]: ...
+    def remove(self, file_path: str) -> None: ...
+    def clear_session_assets(self, session_id: str) -> None: ...
+    def initialize(self) -> None: ...
+    def clear_all(self) -> None: ...

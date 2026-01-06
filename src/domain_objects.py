@@ -1,10 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Tuple, Optional, NamedTuple, Any
-
-
-class LogNegativeBounds(NamedTuple):
-    floors: Tuple[float, float, float]
-    ceils: Tuple[float, float, float]
+from typing import List, Dict, Tuple, Optional, Any
 
 
 @dataclass
@@ -18,14 +13,6 @@ class LocalAdjustment:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-
-
-@dataclass
-class PipelineContext:
-    scale_factor: float = 1.0
-    original_size: Tuple[int, int] = (0, 0)
-    bounds: Optional[LogNegativeBounds] = None
-    active_crop_roi: Optional[Tuple[int, int, int, int]] = None
 
 
 @dataclass
