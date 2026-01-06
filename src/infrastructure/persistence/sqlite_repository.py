@@ -2,7 +2,7 @@ import sqlite3
 import json
 import os
 from typing import Any, Optional
-from src.domain_objects import ImageSettings
+from src.core.session.models import WorkspaceConfig
 from src.core.persistence.interfaces import IRepository
 
 
@@ -37,7 +37,7 @@ class SQLiteRepository(IRepository):
                 )
             """)
 
-    def save_file_settings(self, file_hash: str, settings: ImageSettings) -> None:
+    def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None:
         with sqlite3.connect(self.edits_db_path) as conn:
             settings_json = json.dumps(settings.to_dict())
             conn.execute(
@@ -45,7 +45,7 @@ class SQLiteRepository(IRepository):
                 (file_hash, settings_json),
             )
 
-    def load_file_settings(self, file_hash: str) -> Optional[ImageSettings]:
+    def load_file_settings(self, file_hash: str) -> Optional[WorkspaceConfig]:
         with sqlite3.connect(self.edits_db_path) as conn:
             cursor = conn.execute(
                 "SELECT settings_json FROM file_settings WHERE file_hash = ?",
@@ -54,7 +54,7 @@ class SQLiteRepository(IRepository):
             row = cursor.fetchone()
             if row:
                 data = json.loads(row[0])
-                return ImageSettings.from_dict(data)
+                return WorkspaceConfig.from_flat_dict(data)
         return None
 
     def save_global_setting(self, key: str, value: Any) -> None:

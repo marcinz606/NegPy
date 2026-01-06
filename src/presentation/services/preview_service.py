@@ -3,7 +3,7 @@ import rawpy
 import cv2
 from typing import Tuple
 from src.config import APP_CONFIG
-from src.helpers import ensure_rgb, ensure_array
+from src.helpers import ensure_rgb
 from src.infrastructure.loaders.factory import loader_factory
 from src.core.types import ImageBuffer, Dimensions
 from src.core.validation import ensure_image
@@ -49,7 +49,7 @@ class PreviewService:
                 target_h = int(h_orig * scale)
 
                 # Use INTER_AREA for downsampling to minimize aliasing
-                preview_raw = ensure_array(
+                preview_raw = ensure_image(
                     cv2.resize(
                         full_linear,
                         (target_w, target_h),

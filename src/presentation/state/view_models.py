@@ -1,11 +1,31 @@
 from typing import Protocol, Any, Optional, Dict
 import streamlit as st
+from dataclasses import dataclass
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.toning.models import ToningConfig
 from src.features.lab.models import LabConfig
 from src.features.retouch.models import RetouchConfig
 from src.core.validation import validate_float, validate_int, validate_bool
+
+
+@dataclass
+class SidebarState:
+    """
+    Transient state for sidebar actions and export parameters.
+    """
+
+    out_fmt: str = "JPEG"
+    color_space: str = "sRGB"
+    print_width: float = 27.0
+    print_dpi: int = 300
+    export_path: str = "export"
+    add_border: bool = True
+    border_size: float = 0.25
+    border_color: str = "#ffffff"
+    apply_icc: bool = False
+    process_btn: bool = False
+    export_btn: bool = False
 
 
 class IViewModel(Protocol):
@@ -61,7 +81,6 @@ class ExposureViewModel(BaseViewModel):
             "shoulder": "shoulder",
             "shoulder_width": "shoulder_width",
             "shoulder_hardness": "shoulder_hardness",
-            "process_mode": "process_mode",
         }
 
     def get_key(self, field_name: str) -> str:
@@ -77,7 +96,7 @@ class ExposureViewModel(BaseViewModel):
 
     @property
     def is_bw(self) -> bool:
-        return self._get_str(self.get_key("process_mode"), "C41") == "B&W"
+        return self._get_str("process_mode", "C41") == "B&W"
 
     def to_config(self) -> ExposureConfig:
         return ExposureConfig(
@@ -92,7 +111,6 @@ class ExposureViewModel(BaseViewModel):
             shoulder=self._get_float(self.get_key("shoulder")),
             shoulder_width=self._get_float(self.get_key("shoulder_width"), 3.0),
             shoulder_hardness=self._get_float(self.get_key("shoulder_hardness"), 1.0),
-            process_mode=self._get_str(self.get_key("process_mode"), "C41"),
         )
 
 
@@ -127,7 +145,6 @@ class ToningViewModel(BaseViewModel):
             "paper_profile": "paper_profile",
             "selenium_strength": "selenium_strength",
             "sepia_strength": "sepia_strength",
-            "process_mode": "process_mode",
         }
 
     def get_key(self, field_name: str) -> str:
@@ -138,7 +155,6 @@ class ToningViewModel(BaseViewModel):
             paper_profile=self._get_str(self.get_key("paper_profile"), "None"),
             selenium_strength=self._get_float(self.get_key("selenium_strength")),
             sepia_strength=self._get_float(self.get_key("sepia_strength")),
-            process_mode=self._get_str(self.get_key("process_mode"), "C41"),
         )
 
 
@@ -151,7 +167,6 @@ class LabViewModel(BaseViewModel):
             "c_noise_strength": "c_noise_strength",
             "sharpen": "sharpen",
             "crosstalk_matrix": "crosstalk_matrix",
-            "exposure": "exposure",
         }
 
     def get_key(self, field_name: str) -> str:
@@ -168,7 +183,6 @@ class LabViewModel(BaseViewModel):
             c_noise_strength=self._get_float(self.get_key("c_noise_strength"), 0.25),
             sharpen=self._get_float(self.get_key("sharpen"), 0.25),
             crosstalk_matrix=crosstalk,
-            exposure=self._get_float(self.get_key("exposure")),
         )
 
 

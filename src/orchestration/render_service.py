@@ -7,7 +7,7 @@ from typing import Tuple, Optional, Any
 
 from src.logging_config import get_logger
 from src.config import APP_CONFIG
-from src.domain_objects import ImageSettings, ExportSettings
+from src.core.session.models import WorkspaceConfig, ExportConfig
 from src.helpers import ensure_rgb
 from src.orchestration.engine import DarkroomEngine
 from src.infrastructure.loaders.factory import loader_factory
@@ -32,14 +32,14 @@ def get_best_demosaic_algorithm(raw: Any) -> Any:
 
 def load_raw_and_process(
     file_path: str,
-    params: ImageSettings,
-    export_settings: ExportSettings,
+    params: WorkspaceConfig,
+    export_settings: ExportConfig,
 ) -> Tuple[Optional[bytes], str]:
     """
     Worker function for high-resolution processing and export.
     """
     try:
-        color_space = str(export_settings.color_space)
+        color_space = str(export_settings.export_color_space)
         raw_color_space = rawpy.ColorSpace.sRGB
         if color_space == "Adobe RGB":
             raw_color_space = rawpy.ColorSpace.Adobe
@@ -76,7 +76,7 @@ def load_raw_and_process(
 
         # Encode to target format
         output_buf = io.BytesIO()
-        ext = "jpg" if export_settings.output_format == "JPEG" else "tiff"
+        ext = "jpg" if export_settings.export_fmt == "JPEG" else "tiff"
         _save_to_buffer(pil_img, output_buf, export_settings, target_icc_bytes)
 
         return output_buf.getvalue(), ext
@@ -86,14 +86,14 @@ def load_raw_and_process(
 
 
 def _apply_scaling_and_border(
-    pil_img: Image.Image, params: ImageSettings, export_settings: ExportSettings
+    pil_img: Image.Image, params: WorkspaceConfig, export_settings: ExportConfig
 ) -> Image.Image:
-    side_inch = export_settings.print_width_cm / 2.54
-    dpi = export_settings.dpi
+    side_inch = export_settings.export_size / 2.54
+    dpi = export_settings.export_dpi
     total_target_px = int(side_inch * dpi)
     border_px = (
-        int((export_settings.border_size_cm / 2.54) * dpi)
-        if export_settings.add_border
+        int((export_settings.export_border_size / 2.54) * dpi)
+        if export_settings.export_add_border
         else 0
     )
     content_target_px = max(10, total_target_px - (2 * border_px))
@@ -108,16 +108,18 @@ def _apply_scaling_and_border(
     pil_img = pil_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
     is_toned = (
-        params.selenium_strength != 0.0
-        or params.sepia_strength != 0.0
-        or params.paper_profile != "None"
+        params.toning.selenium_strength != 0.0
+        or params.toning.sepia_strength != 0.0
+        or params.toning.paper_profile != "None"
     )
-    if export_settings.color_space == "Greyscale" or (params.is_bw and not is_toned):
+    if export_settings.export_color_space == "Greyscale" or (
+        params.process_mode == "B&W" and not is_toned
+    ):
         pil_img = pil_img.convert("L")
 
-    if export_settings.add_border and border_px > 0:
+    if export_settings.export_add_border and border_px > 0:
         pil_img = ImageOps.expand(
-            pil_img, border=border_px, fill=export_settings.border_color
+            pil_img, border=border_px, fill=export_settings.export_border_color
         )
 
     return pil_img
@@ -166,15 +168,15 @@ def _apply_color_management(
 def _save_to_buffer(
     pil_img: Image.Image,
     buf: io.BytesIO,
-    export_settings: ExportSettings,
+    export_settings: ExportConfig,
     icc_bytes: Optional[bytes],
 ) -> None:
-    if export_settings.output_format == "JPEG":
+    if export_settings.export_fmt == "JPEG":
         pil_img.save(
             buf,
             format="JPEG",
             quality=95,
-            dpi=(export_settings.dpi, export_settings.dpi),
+            dpi=(export_settings.export_dpi, export_settings.export_dpi),
             icc_profile=icc_bytes,
         )
     else:
@@ -182,6 +184,6 @@ def _save_to_buffer(
             buf,
             format="TIFF",
             compression="tiff_lzw",
-            dpi=(export_settings.dpi, export_settings.dpi),
+            dpi=(export_settings.export_dpi, export_settings.export_dpi),
             icc_profile=icc_bytes,
         )

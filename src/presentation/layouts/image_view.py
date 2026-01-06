@@ -14,7 +14,7 @@ from src.features.exposure.analysis import (
 from src.core.constants import PIPELINE_CONSTANTS
 from src.core.validation import validate_int
 from src.presentation.state.state_manager import save_settings
-from src.domain_objects import SidebarData
+from src.presentation.state.view_models import SidebarState
 from src.presentation.state.session_context import SessionContext
 from src.presentation.services.geometry_service import GeometryService
 from src.presentation.state.view_models import GeometryViewModel, ExposureViewModel
@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 
 
 def render_image_view(
-    pil_prev: Image.Image, border_config: SidebarData | None = None
+    pil_prev: Image.Image, border_config: SidebarState | None = None
 ) -> None:
     """
     Renders the main image viewport and handles coordinate-based interaction.

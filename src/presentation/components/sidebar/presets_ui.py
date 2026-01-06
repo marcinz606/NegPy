@@ -24,9 +24,9 @@ def load_preset_callback() -> None:
         current_dict = current_settings.to_dict()
         current_dict.update(p_settings)
 
-        from src.domain_objects import ImageSettings
+        from src.core.session.models import WorkspaceConfig
 
-        session.file_settings[f_hash] = ImageSettings.from_dict(current_dict)
+        session.file_settings[f_hash] = WorkspaceConfig.from_flat_dict(current_dict)
         load_settings()
         st.toast(f"Loaded preset: {selected_p}")
 

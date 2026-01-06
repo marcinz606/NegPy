@@ -71,10 +71,10 @@ class AppController:
             return Image.new("RGB", (100, 100), (0, 0, 0))
 
         # 1. Compose full settings from session state
-        from src.presentation.app import get_processing_params
+        from src.presentation.app import get_processing_params_composed
         import streamlit as st
 
-        params = get_processing_params(st.session_state)
+        params = get_processing_params_composed(st.session_state)
 
         # 2. Run Engine
         processed = self.engine.process(raw.copy(), params)
@@ -85,11 +85,11 @@ class AppController:
 
         # 4. Handle Post-Processing (B&W Toning)
         is_toned = (
-            params.selenium_strength != 0.0
-            or params.sepia_strength != 0.0
-            or params.paper_profile != "None"
+            params.toning.selenium_strength != 0.0
+            or params.toning.sepia_strength != 0.0
+            or params.toning.paper_profile != "None"
         )
-        if params.is_bw and not is_toned:
+        if params.process_mode == "B&W" and not is_toned:
             pil_prev = pil_prev.convert("L")
 
         # 5. Apply ICC/Simulation

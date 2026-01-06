@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from src.core.session.manager import WorkspaceSession
-from src.domain_objects import SidebarData
+from src.presentation.state.view_models import SidebarState
 from src.presentation.components.sidebar.collect_adjustments import render_adjustments
 from src.presentation.components.sidebar.soft_proofing_ui import render_soft_proofing
 from src.infrastructure.loaders.native_picker import NativeFilePicker
@@ -73,7 +73,7 @@ def render_file_manager() -> None:
             )
 
 
-def render_sidebar_content() -> SidebarData:
+def render_sidebar_content() -> SidebarState:
     """
     Renders the main sidebar content.
     """
@@ -82,7 +82,7 @@ def render_sidebar_content() -> SidebarData:
         # 0. Global Actions
         current_file = session.current_file
         if not current_file:
-            return SidebarData()
+            return SidebarState()
 
         # 4. Main Adjustments
         adjustments_data = render_adjustments()

@@ -3,8 +3,8 @@ import asyncio
 import concurrent.futures
 from typing import List, Dict, Any
 import streamlit as st
-from src.config import APP_CONFIG, DEFAULT_SETTINGS
-from src.domain_objects import ExportSettings
+from src.config import APP_CONFIG
+from src.core.session.models import WorkspaceConfig, ExportConfig
 
 
 class ExportService:
@@ -32,28 +32,26 @@ class ExportService:
                 batch_tasks = []
                 file_names = []
 
-                from src.presentation.app import get_processing_params
                 import src.orchestration.render_service as renderer
 
                 for f_meta in files:
                     f_hash = f_meta["hash"]
-                    f_settings = settings_map.get(f_hash, DEFAULT_SETTINGS)
-                    f_params = get_processing_params(f_settings)
+                    f_settings = settings_map.get(f_hash, WorkspaceConfig())
+                    f_params = f_settings
                     file_names.append(f_meta["name"])
 
-                    f_export_settings = ExportSettings(
-                        output_format=sidebar_data.out_fmt,
-                        print_width_cm=sidebar_data.print_width,
-                        dpi=sidebar_data.print_dpi,
-                        sharpen_amount=f_params.sharpen,
-                        filename=f_meta["name"],
-                        add_border=sidebar_data.add_border,
-                        border_size_cm=sidebar_data.border_size,
-                        border_color=sidebar_data.border_color,
+                    f_export_settings = ExportConfig(
+                        export_fmt=sidebar_data.out_fmt,
+                        export_color_space=sidebar_data.color_space,
+                        export_size=sidebar_data.print_width,
+                        export_dpi=sidebar_data.print_dpi,
+                        export_add_border=sidebar_data.add_border,
+                        export_border_size=sidebar_data.border_size,
+                        export_border_color=sidebar_data.border_color,
                         icc_profile_path=st.session_state.session.icc_profile_path
                         if sidebar_data.apply_icc
                         else None,
-                        color_space=sidebar_data.color_space,
+                        export_path=sidebar_data.export_path,
                     )
 
                     batch_tasks.append(

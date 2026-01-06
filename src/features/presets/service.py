@@ -1,8 +1,8 @@
 import json
 import os
 from typing import List, Dict, Any, Optional
-from src.config import APP_CONFIG, DEFAULT_SETTINGS
-from src.domain_objects import ImageSettings
+from src.config import APP_CONFIG
+from src.core.session.models import WorkspaceConfig
 
 
 class PresetService:
@@ -11,7 +11,7 @@ class PresetService:
     """
 
     @staticmethod
-    def save_preset(name: str, settings: ImageSettings) -> None:
+    def save_preset(name: str, settings: WorkspaceConfig) -> None:
         """
         Saves a filtered subset of settings to a JSON file.
         """
@@ -28,7 +28,7 @@ class PresetService:
         }
 
         settings_dict = settings.to_dict()
-        default_dict = DEFAULT_SETTINGS.to_dict()
+        default_dict = WorkspaceConfig().to_dict()
 
         filtered = {
             k: v

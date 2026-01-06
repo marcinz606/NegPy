@@ -82,9 +82,9 @@ class PhotometricProcessor(IProcessor):
         )
 
         # Handle B&W mode here or in a separate step?
-        # Original code did it in PhotometricProcessor.
-        if self.config.process_mode == "B&W":
+        if context.process_mode == "B&W":
             # Simple luminance extraction
+
             res = (
                 0.2126 * img_pos[..., 0]
                 + 0.7152 * img_pos[..., 1]

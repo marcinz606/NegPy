@@ -6,12 +6,21 @@ from src.core.types import ImageBuffer, ROI, Dimensions
 @dataclass
 class PipelineContext:
     """
+
+
     Shared state passed through the pipeline.
+
+
     """
 
     original_size: Dimensions
+
     scale_factor: float
+
+    process_mode: str = "C41"
+
     # ROI detected by geometry step, applied by crop step
+
     active_roi: Optional[ROI] = None
     # Metrics gathered by analysis steps (e.g., histogram bounds)
     metrics: dict[str, Any] = field(default_factory=dict)

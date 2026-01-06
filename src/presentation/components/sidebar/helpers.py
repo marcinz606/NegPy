@@ -6,6 +6,16 @@ import streamlit as st
 from typing import Optional, Dict, Any
 
 
+def st_init(key: str, default_val: Any) -> Any:
+    """
+    Ensures a key is initialized in Streamlit session state.
+    Returns the current value.
+    """
+    if key not in st.session_state:
+        st.session_state[key] = default_val
+    return st.session_state[key]
+
+
 def render_control_slider(
     label: str,
     min_val: float,
@@ -15,10 +25,14 @@ def render_control_slider(
     key: str,
     help_text: Optional[str] = None,
     format: str = "%.2f",
+    disabled: bool = False,
 ) -> float:
     """
     Standardized slider renderer for the sidebar.
     """
+    if key not in st.session_state:
+        st.session_state[key] = default_val
+
     return float(
         st.slider(
             label,
@@ -28,6 +42,7 @@ def render_control_slider(
             format=format,
             key=key,
             help=help_text,
+            disabled=disabled,
         )
     )
 

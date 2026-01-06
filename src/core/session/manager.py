@@ -1,9 +1,8 @@
 import os
 from typing import List, Dict, Optional, Any, Set
-from src.domain_objects import ImageSettings
+from src.core.session.models import WorkspaceConfig
 from src.core.persistence.interfaces import IRepository, IAssetStore
 from src.orchestration.engine import DarkroomEngine
-from src.config import DEFAULT_SETTINGS
 
 
 class WorkspaceSession:
@@ -26,7 +25,7 @@ class WorkspaceSession:
 
         # State
         self.uploaded_files: List[Dict[str, str]] = []
-        self.file_settings: Dict[str, ImageSettings] = {}
+        self.file_settings: Dict[str, WorkspaceConfig] = {}
         self.thumbnails: Dict[str, Any] = {}
         self.selected_file_idx: int = 0
         self.clipboard: Optional[Dict[str, Any]] = None
@@ -98,7 +97,24 @@ class WorkspaceSession:
                         }
                     )
 
-    def get_active_settings(self) -> Optional[ImageSettings]:
+    def create_default_config(self) -> WorkspaceConfig:
+        """
+        Creates a fresh WorkspaceConfig with correct defaults, ensuring
+        environment-dependent values (like export_path) are applied.
+        """
+        from src.config import DEFAULT_WORKSPACE_CONFIG, APP_CONFIG
+
+        # Start with the static default
+        defaults = DEFAULT_WORKSPACE_CONFIG.to_dict()
+
+        # Enforce dynamic defaults that might depend on env vars
+        # This fixes the issue where default_factory in models.py uses hardcoded "export"
+        if "export_path" in defaults:
+            defaults["export_path"] = APP_CONFIG.default_export_dir
+
+        return WorkspaceConfig.from_flat_dict(defaults)
+
+    def get_active_settings(self) -> Optional[WorkspaceConfig]:
         """
         Returns settings for the currently selected file.
         Loads from repository if not in memory.
@@ -110,12 +126,14 @@ class WorkspaceSession:
         if f_hash not in self.file_settings:
             settings = self.repository.load_file_settings(f_hash)
             if settings is None:
-                settings = ImageSettings.from_dict(DEFAULT_SETTINGS.to_dict())
+                # Use centralized default creation
+                settings = self.create_default_config()
+
             self.file_settings[f_hash] = settings
 
         return self.file_settings[f_hash]
 
-    def update_active_settings(self, settings: ImageSettings) -> None:
+    def update_active_settings(self, settings: WorkspaceConfig, persist: bool = True) -> None:
         """
         Updates memory and persistent storage with provided settings for the active file.
         """
@@ -124,7 +142,8 @@ class WorkspaceSession:
 
         f_hash = self.uploaded_files[self.selected_file_idx]["hash"]
         self.file_settings[f_hash] = settings
-        self.repository.save_file_settings(f_hash, settings)
+        if persist:
+            self.repository.save_file_settings(f_hash, settings)
 
     @property
     def current_file(self) -> Optional[Dict[str, str]]:

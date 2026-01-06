@@ -1,7 +1,7 @@
 import streamlit as st
 from PIL import Image
 from typing import Any, Tuple
-from src.domain_objects import SidebarData
+from src.presentation.state.view_models import SidebarState
 from src.presentation.layouts.contact_sheet import render_contact_sheet
 from src.presentation.layouts.image_view import render_image_view
 
@@ -34,7 +34,7 @@ def render_layout_header() -> Tuple[Any, Any]:
 
 def render_main_layout(
     pil_prev: Image.Image,
-    sidebar_data: SidebarData,
+    sidebar_data: SidebarState,
     main_area: Any,
 ) -> None:
     """

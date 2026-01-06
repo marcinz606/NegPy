@@ -41,8 +41,4 @@ class PhotoLabProcessor(IProcessor):
         # 4. Output Sharpening
         img = apply_output_sharpening(img, self.config.sharpen)
 
-        # 5. Exposure Trim
-        if self.config.exposure != 0.0:
-            img *= 2.0**self.config.exposure
-
         return np.clip(img, 0, 1)

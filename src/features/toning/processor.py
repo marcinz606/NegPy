@@ -25,7 +25,7 @@ class ToningProcessor(IProcessor):
         img = simulate_paper_substrate(img, self.config.paper_profile)
 
         # 2. Apply Chemical Toning Simulation (B&W only)
-        if self.config.process_mode == "B&W":
+        if context.process_mode == "B&W":
             img = apply_chemical_toning(
                 img,
                 selenium_strength=self.config.selenium_strength,

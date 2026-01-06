@@ -5,7 +5,6 @@ from dataclasses import dataclass
 class ExposureConfig:
     """
     Configuration for the Photometric Exposure step.
-    Values are usually derived from UI sliders.
     """
 
     # Primary Controls
@@ -25,5 +24,3 @@ class ExposureConfig:
     shoulder: float = 0.0
     shoulder_width: float = 3.0
     shoulder_hardness: float = 1.0
-
-    process_mode: str = "C41"  # "C41" or "B&W"

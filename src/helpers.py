@@ -1,16 +1,6 @@
 import hashlib
 import os
-from typing import Any
 import numpy as np
-
-
-def ensure_array(val: Any) -> np.ndarray:
-    """
-    Proves to the type checker that a value is a numpy array at runtime.
-    """
-    if not isinstance(val, np.ndarray):
-        raise TypeError(f"Expected numpy.ndarray, got {type(val)}")
-    return val
 
 
 def ensure_rgb(img: np.ndarray) -> np.ndarray:

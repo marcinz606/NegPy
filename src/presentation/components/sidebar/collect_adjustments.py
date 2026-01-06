@@ -1,3 +1,6 @@
+from src.presentation.state.view_models import GeometryViewModel, ExposureViewModel
+from src.presentation.layouts.navigation import render_navigation
+from src.presentation.components.plots import plot_histogram, plot_photometric_curve
 import streamlit as st
 import numpy as np
 from src.presentation.state.state_manager import save_settings
@@ -12,12 +15,9 @@ from src.presentation.components.sidebar.lab_scanner_ui import (
 from src.presentation.components.sidebar.retouch_ui import render_retouch_section
 from src.presentation.components.sidebar.export_ui import render_export_section
 from src.presentation.components.sidebar.presets_ui import render_presets
-from src.domain_objects import SidebarData
-from src.presentation.layouts.navigation import render_navigation
-from src.presentation.components.plots import plot_histogram, plot_photometric_curve
-
-
-from src.presentation.state.view_models import GeometryViewModel, ExposureViewModel
+from src.presentation.state.view_models import SidebarState
+from src.presentation.components.sidebar.helpers import st_init, render_control_slider
+from src.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def reset_wb_settings() -> None:
@@ -30,7 +30,7 @@ def reset_wb_settings() -> None:
     save_settings()
 
 
-def render_adjustments() -> SidebarData:
+def render_adjustments() -> SidebarState:
     """
     Renders the various image adjustment expanders by delegating to sub-components.
     """
@@ -38,6 +38,7 @@ def render_adjustments() -> SidebarData:
     exp_vm = ExposureViewModel()
 
     # --- Top Controls ---
+    st_init("process_mode", DEFAULT_WORKSPACE_CONFIG.process_mode)
     st.selectbox(
         "Processing Mode",
         ["C41", "B&W"],
@@ -52,6 +53,7 @@ def render_adjustments() -> SidebarData:
     # --- Top Controls ---
     # Moved working copy slider to image view
 
+    st_init(geo_vm.get_key("autocrop"), DEFAULT_WORKSPACE_CONFIG.geometry.autocrop)
     autocrop = st.checkbox(
         "Auto-Crop",
         key=geo_vm.get_key("autocrop"),
@@ -59,6 +61,10 @@ def render_adjustments() -> SidebarData:
     )
     if autocrop:
         c_geo1, c_geo2, c_geo3 = st.columns(3)
+        st_init(
+            geo_vm.get_key("autocrop_ratio"),
+            DEFAULT_WORKSPACE_CONFIG.geometry.autocrop_ratio,
+        )
         c_geo1.selectbox(
             "Ratio",
             ["3:2", "4:3", "5:4", "6:7", "1:1", "65:24"],
@@ -66,66 +72,70 @@ def render_adjustments() -> SidebarData:
             label_visibility="collapsed",
             help="Aspect ratio to crop to.",
         )
-        c_geo2.slider(
-            "Crop Offset",
-            0,
-            100,
-            key=geo_vm.get_key("autocrop_offset"),
-            help="Buffer/offset (pixels) to crop beyond automatically detected border, might be useful when border is uneven.",
-        )
-        c_geo3.slider(
-            "Fine Rotation (°)",
-            -5.0,
-            5.0,
-            step=0.05,
-            key=geo_vm.get_key("fine_rotation"),
-        )
+        
+        with c_geo2:
+            render_control_slider(
+                label="Crop Offset",
+                min_val=0.0,
+                max_val=100.0,
+                default_val=1.0,
+                step=1.0,
+                key=geo_vm.get_key("autocrop_offset"),
+                format="%d",
+                help_text="Buffer/offset (pixels) to crop beyond automatically detected border, might be useful when border is uneven.",
+            )
+            
+        with c_geo3:
+            render_control_slider(
+                label="Fine Rotation (°)",
+                min_val=-5.0,
+                max_val=5.0,
+                default_val=0.0,
+                step=0.05,
+                key=geo_vm.get_key("fine_rotation"),
+            )
 
-        render_presets()
+    render_presets()
 
-        # 0. Analysis Plots
-
-        with st.expander(":material/analytics: Analysis", expanded=True):
-            if "preview_raw" in st.session_state:
-                if "last_pil_prev" in st.session_state:
-                    st.caption(
-                        "Histogram",
-                        help=(
-                            "Visualizes the tonal distribution of the processed print. "
-                            "The horizontal axis represents brightness from Shadows (left) to Highlights (right), "
-                            "while the vertical axis shows the frequency of pixels at each level."
-                        ),
-                    )
-
-                    st.pyplot(
-                        plot_histogram(
-                            np.array(st.session_state.last_pil_prev.convert("RGB")),
-                            figsize=(3, 1.4),
-                            dpi=150,
-                        ),
-                        width="stretch",
-                    )
-
+    # 0. Analysis Plots
+    with st.expander(":material/analytics: Analysis", expanded=True):
+        if "preview_raw" in st.session_state:
+            if "last_pil_prev" in st.session_state:
                 st.caption(
-                    "Photometric Curve",
+                    "Histogram",
                     help=(
-                        "This H&D Characteristic Curve represents the relationship between Subject Brightness and Print Density. "
-                        "It visualizes how the engine simulates light-sensitive paper: 'Density' shifts the exposure, "
-                        "'Grade' controls contrast slope, while 'Toe' and 'Shoulder' manage the roll-off in highlights "
-                        "and shadows respectively."
+                        "Visualizes the tonal distribution of the processed print. "
+                        "The horizontal axis represents brightness from Shadows (left) to Highlights (right), "
+                        "while the vertical axis shows the frequency of pixels at each level."
                     ),
                 )
 
                 st.pyplot(
-                    plot_photometric_curve(
-                        exp_vm.to_config(), figsize=(3, 1.4), dpi=150
+                    plot_histogram(
+                        np.array(st.session_state.last_pil_prev.convert("RGB")),
+                        figsize=(3, 1.4),
+                        dpi=150,
                     ),
                     width="stretch",
                 )
 
-        # 1. Exposure & Tonality
+            st.caption(
+                "Photometric Curve",
+                help=(
+                    "This H&D Characteristic Curve represents the relationship between Subject Brightness and Print Density. "
+                    "It visualizes how the engine simulates light-sensitive paper: 'Density' shifts the exposure, "
+                    "'Grade' controls contrast slope, while 'Toe' and 'Shoulder' manage the roll-off in highlights "
+                    "and shadows respectively."
+                ),
+            )
 
-        render_exposure_section()
+            st.pyplot(
+                plot_photometric_curve(exp_vm.to_config(), figsize=(3, 1.4), dpi=150),
+                width="stretch",
+            )
+
+    # 1. Exposure & Tonality
+    render_exposure_section()
 
     # 2. Lab Scanner Simulation
     render_lab_scanner_section()

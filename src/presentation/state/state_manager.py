@@ -1,11 +1,12 @@
 import streamlit as st
 import uuid
 from src.core.session.manager import WorkspaceSession
+from src.core.session.models import WorkspaceConfig
 from src.infrastructure.persistence.sqlite_repository import SQLiteRepository
 from src.infrastructure.persistence.local_asset_store import LocalAssetStore
 from src.orchestration.engine import DarkroomEngine
-from src.config import APP_CONFIG, DEFAULT_SETTINGS
-from src.domain_objects import ImageSettings
+from src.config import APP_CONFIG
+
 
 # Keys that should persist globally across all files if no specific edits exist
 GLOBAL_PERSIST_KEYS = {
@@ -21,6 +22,7 @@ GLOBAL_PERSIST_KEYS = {
     "export_border_size",
     "export_border_color",
     "export_path",
+    "apply_icc",
     "sharpen",
     "hypertone_strength",
     "color_separation",
@@ -28,12 +30,17 @@ GLOBAL_PERSIST_KEYS = {
     "working_copy_size",
     "hot_folder_mode",
     "last_picker_dir",
+    "autocrop",
+    "autocrop_ratio",
+    "autocrop_offset",
+    "fine_rotation",
 }
 
 
 def init_session_state() -> None:
     """
     Initializes the WorkspaceSession and core infrastructure.
+    Forcefully seeds defaults on first run to ensure environment variables are respected.
     """
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -52,20 +59,22 @@ def init_session_state() -> None:
         session = WorkspaceSession(st.session_state.session_id, repo, store, engine)
         st.session_state.session = session
 
-        # 1. First, populate state with hardcoded defaults
-        defaults = DEFAULT_SETTINGS.to_dict()
-        for key, val in defaults.items():
-            if key not in st.session_state:
-                st.session_state[key] = val
-
-        if "working_copy_size" not in st.session_state:
-            st.session_state.working_copy_size = APP_CONFIG.preview_render_size
-
-        # 2. Then, override with Global Settings from DB if they exist
+        # Restore Global Settings from DB if they exist (Fresh Session Only)
         for key in GLOBAL_PERSIST_KEYS:
             val = repo.get_global_setting(key)
             if val is not None:
                 st.session_state[key] = val
+
+    # 1. Always ensure session state is populated with defaults for any missing keys
+    # This guards against stale state or new keys being added during development
+    session = st.session_state.session
+    defaults = session.create_default_config().to_dict()
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
+
+    if "working_copy_size" not in st.session_state:
+        st.session_state.working_copy_size = APP_CONFIG.preview_render_size
 
     if "last_dust_click" not in st.session_state:
         st.session_state.last_dust_click = None
@@ -77,7 +86,6 @@ def init_session_state() -> None:
 def load_settings() -> None:
     """
     Loads settings for the current file.
-    If file has no edits, it populates st.session_state with current global values.
     """
     session: WorkspaceSession = st.session_state.session
     settings = session.get_active_settings()
@@ -85,37 +93,54 @@ def load_settings() -> None:
     if settings:
         settings_dict = settings.to_dict()
 
-        # If this is a NEW file (no edits in DB), we want to keep current global values
-        # instead of overwriting with DEFAULT_SETTINGS values.
+        # Check if this file has existing edits in DB
         f_hash = session.uploaded_files[session.selected_file_idx]["hash"]
         has_edits = session.repository.load_file_settings(f_hash) is not None
 
         for key, value in settings_dict.items():
+            # If the file has NO EDITS, we want to respect current global UI state
+            # for keys in GLOBAL_PERSIST_KEYS, BUT ONLY if that state is valid.
             if not has_edits and key in GLOBAL_PERSIST_KEYS:
-                # Keep what is already in st.session_state (the global/last used value)
-                continue
+                # Robustness check: if key is missing or has an empty/zero value
+                # that differs from our intended default, we force the default.
+                current_val = st.session_state.get(key)
+
+                # Special cases for strings/paths
+                if isinstance(value, str) and not current_val:
+                    st.session_state[key] = value
+                    continue
+
+                # Numeric checks (don't overwrite if it's explicitly 0.0 but default is not 0.0?)
+                # Actually, if has_edits is False, we just want to ensure we're not
+                # stuck with accidental Streamlit zeroes.
+                if current_val is not None:
+                    continue
+
+            # Apply value from settings object
             st.session_state[key] = value
 
 
-def save_settings() -> None:
+def save_settings(persist: bool = False) -> None:
     """
-    Saves file settings AND updates global persistent settings.
+    Saves file settings. Defaults to memory-only (persist=False) for performance.
+    Set persist=True for commit points (file switch, export).
     """
     session: WorkspaceSession = st.session_state.session
 
-    # Save Global Persistent Settings (even if no file is selected)
-    for key in GLOBAL_PERSIST_KEYS:
-        if key in st.session_state:
-            session.repository.save_global_setting(key, st.session_state[key])
+    # Save Global Persistent Settings (Only if persisting)
+    if persist:
+        for key in GLOBAL_PERSIST_KEYS:
+            if key in st.session_state:
+                session.repository.save_global_setting(key, st.session_state[key])
 
     if not session.uploaded_files:
         return
 
-    # Extract current UI state into ImageSettings
-    from src.presentation.app import get_processing_params
+    # Extract current UI state into WorkspaceConfig
+    from src.presentation.app import get_processing_params_composed
 
-    settings = get_processing_params(st.session_state)
-    session.update_active_settings(settings)
+    settings = get_processing_params_composed(st.session_state)
+    session.update_active_settings(settings, persist=persist)
 
 
 def copy_settings() -> None:
@@ -144,9 +169,9 @@ def paste_settings() -> None:
         current_dict = current_settings.to_dict()
         current_dict.update(session.clipboard)
 
-        session.file_settings[f_hash] = ImageSettings.from_dict(current_dict)
+        session.file_settings[f_hash] = WorkspaceConfig.from_flat_dict(current_dict)
         load_settings()
-        save_settings()
+        save_settings(persist=True)
         st.toast("Settings pasted!")
 
 
@@ -156,9 +181,9 @@ def reset_file_settings() -> None:
         return
 
     f_hash = session.current_file["hash"]
-    new_settings = ImageSettings.from_dict(DEFAULT_SETTINGS.to_dict())
-    new_settings.manual_dust_spots = []
-    new_settings.local_adjustments = []
+
+    # Use centralized factory to ensure correct defaults (including export paths)
+    new_settings = session.create_default_config()
 
     session.file_settings[f_hash] = new_settings
     session.repository.save_file_settings(f_hash, new_settings)

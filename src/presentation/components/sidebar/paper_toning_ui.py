@@ -1,6 +1,7 @@
 import streamlit as st
 from src.presentation.state.view_models import ToningViewModel
-from src.presentation.components.sidebar.helpers import render_control_slider
+from src.presentation.components.sidebar.helpers import render_control_slider, st_init
+from src.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def render_paper_section() -> None:
@@ -11,6 +12,9 @@ def render_paper_section() -> None:
 
     with st.expander(":material/colorize: Paper & Toning", expanded=True):
         # 1. Paper Substrate Selection
+        st_init(
+            vm.get_key("paper_profile"), DEFAULT_WORKSPACE_CONFIG.toning.paper_profile
+        )
         st.selectbox(
             "Paper Profile",
             ["None", "Neutral RC", "Cool Glossy", "Warm Fiber", "Antique Ivory"],
@@ -19,23 +23,24 @@ def render_paper_section() -> None:
         )
 
         # 2. Chemical Toning (B&W Simulation)
-        if st.session_state.get(vm.get_key("process_mode")) == "B&W":
+        st_init("process_mode", DEFAULT_WORKSPACE_CONFIG.process_mode)
+        if st.session_state.get("process_mode") == "B&W":
             st.subheader("Chemical Toning")
             render_control_slider(
-                "Selenium",
-                0.0,
-                4.0,
-                0.0,
-                0.01,
-                vm.get_key("selenium_strength"),
+                label="Selenium",
+                min_val=0.0,
+                max_val=4.0,
+                default_val=0.0,
+                step=0.01,
+                key=vm.get_key("selenium_strength"),
                 help_text="Deepens D-max and shifts shadows towards purple/red-black by converting silver to silver selenide.",
             )
             render_control_slider(
-                "Sepia",
-                0.0,
-                4.0,
-                0.0,
-                0.01,
-                vm.get_key("sepia_strength"),
+                label="Sepia",
+                min_val=0.0,
+                max_val=4.0,
+                default_val=0.0,
+                step=0.01,
+                key=vm.get_key("sepia_strength"),
                 help_text="Adds a warm, orange-brown glow to mid-tones and highlights by converting silver to silver sulfide.",
             )

@@ -1,5 +1,6 @@
 import streamlit as st
-from src.domain_objects import LocalAdjustment
+from src.features.retouch.models import LocalAdjustmentConfig
+from src.presentation.components.sidebar.helpers import st_init
 
 
 def render_local_adjustments() -> None:
@@ -11,7 +12,7 @@ def render_local_adjustments() -> None:
     # Layer Management
     c1, c2 = st.columns([2, 1])
     if c1.button("Add Mask", width="stretch"):
-        new_adj = LocalAdjustment(
+        new_adj = LocalAdjustmentConfig(
             strength=0.0,
             radius=50,
             feather=0.5,
@@ -19,6 +20,7 @@ def render_local_adjustments() -> None:
             luma_softness=0.2,
             points=[],
         )
+
         st.session_state.local_adjustments.append(new_adj)
         st.session_state.active_adjustment_idx = (
             len(st.session_state.local_adjustments) - 1
@@ -115,9 +117,11 @@ def render_local_adjustments() -> None:
             active_adj.points = []
             st.rerun()
 
+        st_init("show_active_mask", True)
         st.checkbox("Show Mask Overlay", key="show_active_mask")
 
         # Mode toggle
+        st_init("pick_local", False)
         st.toggle("Paint Mode", key="pick_local")
 
         if st.session_state.get("pick_local"):

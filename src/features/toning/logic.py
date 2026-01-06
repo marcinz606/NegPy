@@ -1,20 +1,13 @@
 import numpy as np
-from typing import Dict, Tuple
-from dataclasses import dataclass
+from typing import Dict
 from src.core.types import ImageBuffer
 from src.core.validation import ensure_image
+from src.features.toning.models import PaperSubstrate
 
 
 def get_luminance(img: ImageBuffer) -> ImageBuffer:
     res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
     return ensure_image(res)
-
-
-@dataclass
-class PaperSubstrate:
-    name: str
-    tint: Tuple[float, float, float]
-    dmax_boost: float
 
 
 PAPER_PROFILES: Dict[str, PaperSubstrate] = {

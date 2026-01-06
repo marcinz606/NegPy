@@ -4,8 +4,8 @@ import asyncio
 import concurrent.futures
 from PIL import Image
 from typing import Any
-from src.config import DEFAULT_SETTINGS, APP_CONFIG
-from src.domain_objects import ImageSettings, ExportSettings
+from src.config import APP_CONFIG
+from src.core.session.models import WorkspaceConfig, ExportConfig
 from src.orchestration.render_service import load_raw_and_process
 from src.presentation.state.state_manager import init_session_state
 from src.presentation.styles.theme import apply_custom_css
@@ -22,27 +22,11 @@ from src.presentation.controllers.app_controller import AppController
 from src.presentation.services.export_service import ExportService
 
 
-def get_processing_params(
-    source: Any, overrides: ImageSettings | None = None
-) -> ImageSettings:
+def get_processing_params_composed(source: Any) -> WorkspaceConfig:
     """
-    Consolidates parameter gathering from either session_state or a file settings dict.
+    Consolidates parameter gathering into the modular WorkspaceConfig object.
     """
-    if overrides:
-        pass
-
-    # Extract all relevant fields from source (could be session_state proxy or dict)
-    data = {}
-    for field_name in ImageSettings.__dataclass_fields__.keys():
-        try:
-            if field_name in source:
-                data[field_name] = source[field_name]
-        except Exception:
-            # Handle cases where source is not indexable
-            if hasattr(source, field_name):
-                data[field_name] = getattr(source, field_name)
-
-    return ImageSettings.from_dict(data)
+    return WorkspaceConfig.from_flat_dict(source)
 
 
 async def main() -> None:
@@ -137,22 +121,20 @@ async def main() -> None:
         if sidebar_data.export_btn:
             with status_area.status("Exporting...") as status:
                 f_hash = current_file["hash"]
-                f_settings = session.file_settings.get(f_hash, DEFAULT_SETTINGS)
-                f_params = get_processing_params(f_settings)
+                f_params = session.file_settings.get(f_hash, WorkspaceConfig())
 
-                export_settings = ExportSettings(
-                    output_format=sidebar_data.out_fmt,
-                    print_width_cm=sidebar_data.print_width,
-                    dpi=sidebar_data.print_dpi,
-                    sharpen_amount=f_params.sharpen,
-                    filename=current_file["name"],
-                    add_border=sidebar_data.add_border,
-                    border_size_cm=sidebar_data.border_size,
-                    border_color=sidebar_data.border_color,
+                export_settings = ExportConfig(
+                    export_fmt=sidebar_data.out_fmt,
+                    export_color_space=sidebar_data.color_space,
+                    export_size=sidebar_data.print_width,
+                    export_dpi=sidebar_data.print_dpi,
+                    export_add_border=sidebar_data.add_border,
+                    export_border_size=sidebar_data.border_size,
+                    export_border_color=sidebar_data.border_color,
                     icc_profile_path=session.icc_profile_path
                     if sidebar_data.apply_icc
                     else None,
-                    color_space=sidebar_data.color_space,
+                    export_path=sidebar_data.export_path,
                 )
 
                 img_bytes, ext = load_raw_and_process(

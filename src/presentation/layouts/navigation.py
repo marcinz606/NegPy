@@ -16,7 +16,7 @@ def change_file(new_idx: int) -> None:
     """
     session: WorkspaceSession = st.session_state.session
     if session.selected_file_idx < len(session.uploaded_files):
-        save_settings()
+        save_settings(persist=True)
 
     session.selected_file_idx = new_idx
     load_settings()
@@ -59,7 +59,7 @@ def rotate_file(direction: int) -> None:
     1 for left (+90 deg), -1 for right (-90 deg).
     """
     st.session_state.rotation = (st.session_state.get("rotation", 0) + direction) % 4
-    save_settings()
+    save_settings(persist=True)
 
 
 def render_navigation() -> Tuple[bool, bool]:
