@@ -12,6 +12,9 @@ desktop/bin/
 .DS_Store
 build.log
 
+# user settings 
+user/
+
 # Virtual Environment
 venv/
 
