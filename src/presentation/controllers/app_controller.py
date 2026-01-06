@@ -3,6 +3,7 @@ from PIL import Image
 from src.presentation.state.session_context import SessionContext
 from src.presentation.services.preview_service import PreviewService
 from src.presentation.services.color_service import ColorService
+from src.presentation.services.folder_watch_service import FolderWatchService
 from src.orchestration.engine import DarkroomEngine
 
 
@@ -16,7 +17,30 @@ class AppController:
         self.ctx = context
         self.preview_service = PreviewService()
         self.color_service = ColorService()
+        self.folder_watch_service = FolderWatchService()
         self.engine = DarkroomEngine()
+
+    def sync_hot_folders(self) -> bool:
+        """
+        Scans all watched folders for new assets.
+        Returns True if new files were added.
+        """
+        session = self.ctx.session
+        if not session.watched_folders:
+            return False
+
+        existing_paths = {f["path"] for f in session.uploaded_files}
+        new_discovered = []
+
+        for folder in session.watched_folders:
+            new_discovered.extend(
+                self.folder_watch_service.scan_for_new_files(folder, existing_paths)
+            )
+
+        if new_discovered:
+            session.add_local_assets(new_discovered)
+            return True
+        return False
 
     def handle_file_loading(self, current_file: dict, current_color_space: str) -> bool:
         """

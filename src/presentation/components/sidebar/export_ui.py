@@ -1,5 +1,4 @@
 import streamlit as st
-from src.config import APP_CONFIG
 from src.domain_objects import SidebarData
 
 
@@ -13,13 +12,9 @@ def render_export_section() -> SidebarData:
         c1.selectbox("Format", ["JPEG", "TIFF"], key="export_fmt")
 
         color_options = ["sRGB", "Adobe RGB", "Greyscale"]
-        current_cs = st.session_state.get("export_color_space", "sRGB")
-        cs_idx = color_options.index(current_cs) if current_cs in color_options else 0
-
         c2.selectbox(
             "Color Space",
             color_options,
-            index=cs_idx,
             key="export_color_space",
             help="Select color space of export file. sRGB is best for screen, AdobeRGB for print and Greyscale for B&W (not toned) prints.",
         )
@@ -27,21 +22,18 @@ def render_export_section() -> SidebarData:
         c1, c2 = st.columns(2)
         c1.number_input(
             "Size (cm)",
-            value=st.session_state.get("export_size", 27.0),
             min_value=10.0,
             help="Longer dimension.",
             key="export_size",
         )
         c2.number_input(
             "DPI",
-            value=st.session_state.get("export_dpi", 300),
             key="export_dpi",
             help="Desired DPI (dots per inch) resolution for printing.",
         )
 
         st.text_input(
             "Export Directory",
-            st.session_state.get("export_path", APP_CONFIG.default_export_dir),
             key="export_path",
         )
 
@@ -50,7 +42,6 @@ def render_export_section() -> SidebarData:
             "Border Size (cm)",
             min_value=0.0,
             max_value=2.5,
-            value=st.session_state.get("export_border_size", 0.0),
             step=0.05,
             key="export_border_size",
             help=(
@@ -60,7 +51,6 @@ def render_export_section() -> SidebarData:
         )
         c_b2.color_picker(
             "Border Color",
-            value=st.session_state.get("export_border_color", "#ffffff"),
             key="export_border_color",
             help="Color (hex) of the added border.",
         )

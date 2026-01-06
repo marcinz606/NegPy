@@ -18,7 +18,6 @@ def render_control_slider(
         label,
         min_value=min_val,
         max_value=max_val,
-        value=st.session_state.get(key, default),
         step=step,
         key=key,
         help=help_text,

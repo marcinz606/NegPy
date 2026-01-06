@@ -42,12 +42,13 @@ def render_retouch_section() -> None:
 
         if st.session_state.get("pick_dust"):
             st.slider(
-                "Manual Spot Size", 1, 50, 4, 1, key=vm.get_key("manual_dust_size")
+                "Manual Spot Size", 1, 50, step=1, key=vm.get_key("manual_dust_size")
             )
             st.checkbox(
                 "Scratch Mode (Click Start -> Click End)", key="dust_scratch_mode"
             )
-            st.checkbox("Show Patches", value=True, key="show_dust_patches")
+            st.checkbox("Show Patches", key="show_dust_patches")
+
             c1, c2 = st.columns(2)
             if c1.button("Undo Last", width="stretch"):
                 if manual_spots:

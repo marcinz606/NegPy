@@ -65,6 +65,11 @@ async def main() -> None:
 
     apply_custom_css()
 
+    # 0. Sync Hot Folders
+    if controller.sync_hot_folders():
+        st.toast("New files discovered in hot folder!")
+        st.rerun()
+
     # 1. Sidebar: File Management
     render_file_manager()
 

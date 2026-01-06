@@ -26,6 +26,8 @@ GLOBAL_PERSIST_KEYS = {
     "color_separation",
     "c_noise_strength",
     "working_copy_size",
+    "hot_folder_mode",
+    "last_picker_dir",
 }
 
 

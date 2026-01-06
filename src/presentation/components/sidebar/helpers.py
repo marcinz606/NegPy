@@ -18,16 +18,7 @@ def render_control_slider(
 ) -> float:
     """
     Standardized slider renderer for the sidebar.
-    Ensures session state is initialized and clamped.
     """
-    if key not in st.session_state:
-        st.session_state[key] = default_val
-    else:
-        # Safety Clamp
-        st.session_state[key] = max(
-            float(min_val), min(float(st.session_state[key]), float(max_val))
-        )
-
     return float(
         st.slider(
             label,

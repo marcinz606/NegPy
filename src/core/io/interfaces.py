@@ -1,4 +1,4 @@
-from typing import Protocol, Any, ContextManager
+from typing import Protocol, Any, ContextManager, List, Optional
 
 
 class IImageLoader(Protocol):
@@ -7,3 +7,19 @@ class IImageLoader(Protocol):
     """
 
     def load(self, file_path: str) -> ContextManager[Any]: ...
+
+
+class IFilePicker(Protocol):
+    """
+
+
+    Interface for picking assets from the filesystem.
+
+
+    """
+
+    def pick_files(self, initial_dir: Optional[str] = None) -> List[str]: ...
+
+    def pick_folder(
+        self, initial_dir: Optional[str] = None
+    ) -> tuple[str, List[str]]: ...

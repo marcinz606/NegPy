@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 class LocalAssetStore(IAssetStore):
     """
-    Refined Asset Store with Zero-Copy support for local paths and
+    Asset Store with Zero-Copy support for local paths and
     persistent thumbnail caching.
     """
 
@@ -40,9 +40,14 @@ class LocalAssetStore(IAssetStore):
             # 1. Zero-Copy for local paths
             if isinstance(source, str) and os.path.exists(source):
                 f_hash = calculate_file_hash(source)
+                logger.info(f"Zero-copy registration: {source} (hash: {f_hash[:8]})")
                 return source, f_hash
+            elif isinstance(source, str):
+                logger.warning(f"Registration failed: Path does not exist: {source}")
 
             # 2. Managed persistence for UploadedFiles (Streamlit)
+            # local pahts from option 1 are preffered, with streamlit uploader
+            # we effectively need to copy files to temp folder.
             if hasattr(source, "getbuffer") and hasattr(source, "name"):
                 session_dir = self._get_session_dir(session_id)
                 unique_name = f"{uuid.uuid4()}_{source.name}"

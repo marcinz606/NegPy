@@ -51,49 +51,63 @@ def render_local_adjustments() -> None:
 
         # Brush controls
         st.markdown("---")
+
+        # Ensure state is synced for dynamic keys before rendering to avoid warnings
+        s_key = f"adj_str_{selected_idx}"
+        if s_key not in st.session_state:
+            st.session_state[s_key] = float(active_adj.strength)
         active_adj.strength = st.slider(
             "Exposure (EV)",
             -1.0,
             1.0,
-            float(active_adj.strength),
-            0.01,
-            key=f"adj_str_{selected_idx}",
+            step=0.01,
+            key=s_key,
         )
+
+        r_key = f"adj_rad_{selected_idx}"
+        if r_key not in st.session_state:
+            st.session_state[r_key] = int(active_adj.radius)
         active_adj.radius = int(
             st.slider(
                 "Brush Size",
                 5,
                 250,
-                int(active_adj.radius),
-                1,
-                key=f"adj_rad_{selected_idx}",
+                step=1,
+                key=r_key,
             )
         )
+
+        f_key = f"adj_fth_{selected_idx}"
+        if f_key not in st.session_state:
+            st.session_state[f_key] = float(active_adj.feather)
         active_adj.feather = st.slider(
             "Feathering",
             0.0,
             1.0,
-            float(active_adj.feather),
-            0.05,
-            key=f"adj_fth_{selected_idx}",
+            step=0.05,
+            key=f_key,
         )
 
         st.caption("Targeting (Range)")
+        lr_key = f"adj_lr_{selected_idx}"
+        if lr_key not in st.session_state:
+            st.session_state[lr_key] = active_adj.luma_range
         active_adj.luma_range = st.slider(
             "Luminance Range",
             0.0,
             1.0,
-            active_adj.luma_range,
-            0.01,
-            key=f"adj_lr_{selected_idx}",
+            key=lr_key,
         )
+
+        ls_key = f"adj_ls_{selected_idx}"
+        if ls_key not in st.session_state:
+            st.session_state[ls_key] = float(active_adj.luma_softness)
         active_adj.luma_softness = st.slider(
             "Range Softness",
             0.0,
             1.0,
-            float(active_adj.luma_softness),
-            0.01,
-            key=f"adj_ls_{selected_idx}",
+            step=0.01,
+            key=ls_key,
         )
 
         c1, c2 = st.columns(2)
@@ -101,12 +115,10 @@ def render_local_adjustments() -> None:
             active_adj.points = []
             st.rerun()
 
-        st.checkbox("Show Mask Overlay", value=True, key="show_active_mask")
+        st.checkbox("Show Mask Overlay", key="show_active_mask")
 
         # Mode toggle
-        st.session_state.pick_local = st.toggle(
-            "Paint Mode", value=st.session_state.get("pick_local", False)
-        )
+        st.toggle("Paint Mode", key="pick_local")
 
         if st.session_state.get("pick_local"):
             st.info("Click on the image to paint the adjustment.")

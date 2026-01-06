@@ -32,13 +32,30 @@ if __name__ == "__main__":
     if not os.path.exists(user_dir):
         os.makedirs(user_dir, exist_ok=True)
 
-    print("Engine starting...")
-    print(f"User Directory: {user_dir}")
-    print(f"Is Bundled: {getattr(sys, 'frozen', False)}")
+    sys.stderr.write("Engine starting...\n")
+    sys.stderr.write(f"User Directory: {user_dir}\n")
+    sys.stderr.write(f"Is Bundled: {getattr(sys, 'frozen', False)}\n")
 
     # Change CWD to bundle_dir so relative paths in the app (like 'icc/')
     # resolve correctly to the bundled files.
     os.chdir(bundle_dir)
+
+    # Check for subtasks (native dialogs) before starting Streamlit
+    if "--pick-files" in sys.argv:
+        from src.infrastructure.loaders.dialog_worker import pick_files
+
+        # The initial_dir is passed as the next argument after the flag
+        idx = sys.argv.index("--pick-files")
+        initial_dir = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else None
+        pick_files(initial_dir)
+        sys.exit(0)
+    elif "--pick-folder" in sys.argv:
+        from src.infrastructure.loaders.dialog_worker import pick_folder
+
+        idx = sys.argv.index("--pick-folder")
+        initial_dir = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else None
+        pick_folder(initial_dir)
+        sys.exit(0)
 
     # Streamlit execution
     # If bundled, app.py is at the root of bundle_dir.

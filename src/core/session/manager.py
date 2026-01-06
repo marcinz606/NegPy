@@ -1,3 +1,4 @@
+import os
 from typing import List, Dict, Optional, Any, Set
 from src.domain_objects import ImageSettings
 from src.core.persistence.interfaces import IRepository, IAssetStore
@@ -31,16 +32,30 @@ class WorkspaceSession:
         self.clipboard: Optional[Dict[str, Any]] = None
         self.icc_profile_path: Optional[str] = None
         self.show_curve: bool = False
+        self.watched_folders: Set[str] = set()
 
     def sync_files(
         self, current_uploaded_names: Set[str], raw_files: List[Any]
     ) -> None:
         """
         Synchronizes the session's file list with the provided set of file names.
+        Only affects 'managed' assets (those in the cache).
         """
-        last_names = {f["name"] for f in self.uploaded_files}
-        new_names = current_uploaded_names - last_names
+        # In this architecture, we know that assets in the cache_dir are managed by UI
+        # We need to access cache_dir from the asset_store.
+        # Since IAssetStore is a Protocol, we might need a runtime check or cast.
+        cache_dir = getattr(self.asset_store, "cache_dir", "")
 
+        managed_files = [
+            f
+            for f in self.uploaded_files
+            if cache_dir
+            and os.path.abspath(f["path"]).startswith(os.path.abspath(cache_dir))
+        ]
+        last_managed_names = {f["name"] for f in managed_files}
+        new_names = current_uploaded_names - last_managed_names
+
+        # 1. Add new uploads
         if new_names:
             for f in raw_files:
                 if f.name in new_names:
@@ -51,17 +66,37 @@ class WorkspaceSession:
                             {"name": f.name, "path": cached_path, "hash": f_hash}
                         )
 
-        removed_from_widget = last_names - current_uploaded_names
+        # 2. Remove only managed files that are no longer in the uploader
+        removed_from_widget = last_managed_names - current_uploaded_names
         if removed_from_widget:
-            for f_meta in self.uploaded_files:
-                if f_meta["name"] in removed_from_widget:
-                    self.asset_store.remove(f_meta["path"])
-
             self.uploaded_files = [
-                f for f in self.uploaded_files if f["name"] not in removed_from_widget
+                f
+                for f in self.uploaded_files
+                if not (f["name"] in removed_from_widget and f in managed_files)
             ]
+
             if self.selected_file_idx >= len(self.uploaded_files):
                 self.selected_file_idx = max(0, len(self.uploaded_files) - 1)
+
+    def add_local_assets(self, paths: List[str]) -> None:
+        """
+        Directly adds local files via path strings.
+        Bypasses Streamlit's buffer copying.
+        """
+        current_paths = {f["path"] for f in self.uploaded_files}
+
+        for p in paths:
+            if p not in current_paths:
+                res = self.asset_store.register_asset(p, self.session_id)
+                if res:
+                    cached_path, f_hash = res
+                    self.uploaded_files.append(
+                        {
+                            "name": os.path.basename(p),
+                            "path": cached_path,
+                            "hash": f_hash,
+                        }
+                    )
 
     def get_active_settings(self) -> Optional[ImageSettings]:
         """
