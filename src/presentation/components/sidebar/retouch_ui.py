@@ -1,0 +1,76 @@
+import streamlit as st
+from src.presentation.state.view_models import RetouchViewModel
+from src.presentation.state.state_manager import save_settings
+from src.presentation.components.sidebar.helpers import st_init, render_control_slider
+from src.config import DEFAULT_WORKSPACE_CONFIG
+
+
+def render_retouch_section() -> None:
+    """
+    Renders the 'Retouch' section of the sidebar.
+    """
+    vm = RetouchViewModel()
+
+    with st.expander(":material/brush: Retouch", expanded=True):
+        st_init(vm.get_key("dust_remove"), True)
+        st.checkbox("Automatic dust removal", key=vm.get_key("dust_remove"))
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            render_control_slider(
+                label="Threshold",
+                min_val=0.01,
+                max_val=1.0,
+                default_val=0.75,
+                step=0.01,
+                key=vm.get_key("dust_threshold"),
+                help_text="Sensitivity of automatic dust detection. Lower values detect more spots.",
+                disabled=not st.session_state.get(vm.get_key("dust_remove")),
+            )
+
+        with c2:
+            render_control_slider(
+                label="Size",
+                min_val=1.0,
+                max_val=20.0,
+                default_val=3.0,
+                step=1.0,
+                key=vm.get_key("dust_size"),
+                format="%d",
+                help_text="Maximum size of spots to be automatically removed.",
+                disabled=not st.session_state.get(vm.get_key("dust_remove")),
+            )
+
+        c1, c2 = st.columns([2, 1])
+        st_init("pick_dust", False)
+        c1.checkbox("Manual Dust Correction", key="pick_dust")
+        manual_spots_key = vm.get_key("manual_dust_spots")
+        manual_spots = st.session_state.get(manual_spots_key)
+        if manual_spots is not None and len(manual_spots) > 0:
+            c2.caption(f"{len(manual_spots)} spots")
+
+        if st.session_state.get("pick_dust"):
+            render_control_slider(
+                label="Manual Spot Size",
+                min_val=1.0,
+                max_val=50.0,
+                default_val=5.0,
+                step=1.0,
+                key=vm.get_key("manual_dust_size"),
+                format="%d",
+            )
+            st.checkbox(
+                "Scratch Mode (Click Start -> Click End)", key="dust_scratch_mode"
+            )
+            st.checkbox("Show Patches", key="show_dust_patches")
+
+            c1, c2 = st.columns(2)
+            if c1.button("Undo Last", width="stretch"):
+                if manual_spots:
+                    manual_spots.pop()
+                    save_settings()
+                    st.rerun()
+            if c2.button("Clear All", width="stretch"):
+                st.session_state[manual_spots_key] = []
+                save_settings()
+                st.rerun()

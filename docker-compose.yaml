@@ -10,5 +10,5 @@ services:
       - ./:/app
       - ${DARKROOM_HOST_DIR}:/app/user
     environment:
-      - DARKROOM_USER_DIR=/app/user
+      - DARKROOM_USER_DIR=user
     restart: unless-stopped

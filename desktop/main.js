@@ -22,6 +22,15 @@ function getDarkroomUserDir() {
 }
 
 function startBackend() {
+    // Proactively kill anything on our port (Unix only for now)
+    if (process.platform !== 'win32') {
+        try {
+            spawn('sh', ['-c', `fuser -k ${port}/tcp`]);
+        } catch (e) {
+            console.log("Port cleanup skipped or failed");
+        }
+    }
+
     const userDir = getDarkroomUserDir();
     const env = { ...process.env, DARKROOM_USER_DIR: userDir };
 
@@ -46,15 +55,11 @@ function startBackend() {
     console.log(`Starting backend: ${pythonExecutable} ${args.join(' ')}`);
     console.log(`User directory: ${userDir}`);
 
-    const spawnOptions = { env };
-    if (isPackaged) {
-        // When packaged, we must run from a physical directory, not inside ASAR
-        spawnOptions.cwd = process.resourcesPath;
-    } else {
-        spawnOptions.cwd = path.join(__dirname, '..');
-    }
-
-    backendProcess = spawn(pythonExecutable, args, spawnOptions);
+    backendProcess = spawn(pythonExecutable, args, { 
+        env, 
+        cwd: isPackaged ? process.resourcesPath : path.join(__dirname, '..'),
+        detached: process.platform !== 'win32' // Required for process group kill
+    });
 
     backendProcess.stdout.on('data', (data) => {
         console.log(`Backend: ${data}`);
@@ -145,7 +150,12 @@ app.on('will-quit', () => {
         if (os.platform() === 'win32') {
             spawn("taskkill", ["/pid", backendProcess.pid, '/f', '/t']);
         } else {
-            backendProcess.kill('SIGINT');
+            // Kill the whole process group
+            try {
+                process.kill(-backendProcess.pid, 'SIGKILL');
+            } catch (e) {
+                backendProcess.kill('SIGKILL');
+            }
         }
     }
 });

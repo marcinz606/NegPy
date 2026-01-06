@@ -3,19 +3,25 @@ import pytest
 from src.helpers import (
     ensure_rgb,
     get_luminance,
-    ensure_array,
     calculate_file_hash,
 )
+from src.core.validation import ensure_image
 
 
-def test_ensure_array_valid():
-    arr = np.zeros((5, 5))
-    assert ensure_array(arr) is arr
+def test_ensure_image_valid():
+    arr = np.zeros((5, 5), dtype=np.float32)
+    assert ensure_image(arr) is arr
 
 
-def test_ensure_array_invalid():
+def test_ensure_image_conversion():
+    arr = np.zeros((5, 5), dtype=np.uint8)
+    res = ensure_image(arr)
+    assert res.dtype == np.float32
+
+
+def test_ensure_image_invalid():
     with pytest.raises(TypeError):
-        ensure_array([1, 2, 3])  # type: ignore
+        ensure_image([1, 2, 3])  # type: ignore
 
 
 def test_ensure_rgb_2d():

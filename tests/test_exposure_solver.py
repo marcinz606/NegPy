@@ -1,10 +1,10 @@
 import pytest
 import numpy as np
-from src.backend.image_logic.exposure import (
+from src.features.exposure.analysis import (
     solve_photometric_exposure,
     prepare_exposure_analysis,
 )
-from src.domain_objects import LogNegativeBounds
+from src.features.exposure.normalization import LogNegativeBounds
 
 
 def test_prepare_exposure_analysis():

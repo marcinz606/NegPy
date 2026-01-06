@@ -18,9 +18,9 @@
   "build": {
     "appId": "com.darkroom.py",
     "productName": "DarkroomPy",
-    "icon": "media/icon.png",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "media"
     },
     "files": [
       "desktop/main.js",
@@ -43,7 +43,8 @@
         "AppImage",
         "deb"
       ],
-      "category": "Graphics"
+      "category": "Graphics",
+      "icon": "icons"
     },
     "win": {
       "target": "nsis"
