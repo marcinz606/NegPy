@@ -37,7 +37,6 @@ class PaperSubstrate:
 
 @dataclass
 class ImageSettings:
-    working_copy_size: int = 1800
     density: float = 1.0
     toe: float = 0.0
     toe_width: float = 3.0
@@ -108,6 +107,7 @@ class ImageSettings:
 class AppConfig:
     thumbnail_size: int
     max_workers: int
+    preview_render_size: int
     edits_db_path: str
     settings_db_path: str
     presets_dir: str

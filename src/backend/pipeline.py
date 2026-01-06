@@ -6,7 +6,7 @@ from src.logging_config import get_logger
 from src.domain_objects import ImageSettings, PipelineContext
 from src.helpers import cmy_to_density
 from src.backend.utils import convert_to_monochrome
-from src.config import PIPELINE_CONSTANTS
+from src.config import PIPELINE_CONSTANTS, APP_CONFIG
 from src.backend.image_logic.exposure import (
     measure_log_negative_bounds,
     apply_film_characteristic_curve,
@@ -305,7 +305,7 @@ class GeometryProcessor(Processor):
                 offset_px=settings.autocrop_offset,
                 scale_factor=scale_factor,
                 target_ratio_str=settings.autocrop_ratio,
-                detect_res=settings.working_copy_size,
+                detect_res=APP_CONFIG.preview_render_size,
             )
             context.active_crop_roi = roi
         else:

@@ -88,12 +88,9 @@ async def main() -> None:
 
         # 3. Load Data
         current_color_space = st.session_state.get("export_color_space", "sRGB")
-        current_working_copy_size = st.session_state.get("working_copy_size", 1800)
         if (
             st.session_state.get("last_file") != current_file["name"]
             or st.session_state.get("last_preview_color_space") != current_color_space
-            or st.session_state.get("last_working_copy_size")
-            != current_working_copy_size
         ):
             with status_area.status(
                 f"Loading {current_file['name']}...", expanded=False
@@ -118,7 +115,7 @@ async def main() -> None:
                     full_linear = rgb.astype(np.float32) / 65535.0
                     h_orig, w_orig = full_linear.shape[:2]
                     st.session_state.original_res = (w_orig, h_orig)
-                    max_res = current_working_copy_size
+                    max_res = APP_CONFIG.preview_render_size
                     if max(h_orig, w_orig) > max_res:
                         scale = max_res / max(h_orig, w_orig)
                         st.session_state.preview_raw = ensure_array(
@@ -132,7 +129,6 @@ async def main() -> None:
                         st.session_state.preview_raw = full_linear.copy()
                     st.session_state.last_file = current_file["name"]
                     st.session_state.last_preview_color_space = current_color_space
-                    st.session_state.last_working_copy_size = current_working_copy_size
                 status.update(label=f"Loaded {current_file['name']}", state="complete")
 
         # 4. Render Sidebar

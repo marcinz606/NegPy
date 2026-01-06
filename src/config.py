@@ -1,14 +1,14 @@
 import os
 from src.domain_objects import AppConfig, ImageSettings
 
-# --- PATH CONFIGURATION ---
+# User dir env (mapped to OS Documments folder)
 BASE_USER_DIR = os.getenv("DARKROOM_USER_DIR", "user")
 
-# --- APP CONFIGURATION ---
 # Global application constants
 APP_CONFIG = AppConfig(
     thumbnail_size=100,
     max_workers=max(1, (os.cpu_count() or 1) - 1),
+    preview_render_size=1200,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),
@@ -18,20 +18,17 @@ APP_CONFIG = AppConfig(
     adobe_rgb_profile="icc/AdobeCompat-v4.icc",
 )
 
-# --- PIPELINE CONSTANTS ---
 # Centralized multipliers and targets for the photometric engine
 PIPELINE_CONSTANTS = {
     "cmy_max_density": 0.2,  # Max absolute density shift for CMY sliders
     "density_multiplier": 0.4,  # Maps Density slider to Log Exposure shift
     "grade_multiplier": 1.5,  # Maps Grade slider to Sigmoid Slope
-    "target_paper_range": 2.1,  # Standard RA-4 Paper Range (approx 7 stops)
+    "target_paper_range": 2.1,  # To mimick exposure range of darkroom paper.
     "anchor_midpoint": 0.0,  # Sigmoid Center in centered log space (Zone V)
 }
 
-# --- DEFAULT SETTINGS ---
 # The baseline parameters for every newly imported RAW file
 DEFAULT_SETTINGS = ImageSettings(
-    working_copy_size=1800,
     density=1.0,
     grade=2.5,
     toe=0.0,

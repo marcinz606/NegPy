@@ -43,7 +43,7 @@ class DarkroomEngine:
 
         # Shared execution context for the pipeline
         context = PipelineContext(
-            scale_factor=max(h_orig, w_cols) / float(settings.working_copy_size),
+            scale_factor=max(h_orig, w_cols) / float(self.config.preview_render_size),
             original_size=(h_orig, w_cols),
         )
 

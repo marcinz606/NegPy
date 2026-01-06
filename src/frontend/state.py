@@ -43,6 +43,9 @@ def init_session_state() -> None:
     if "dust_start_point" not in st.session_state:
         st.session_state.dust_start_point = None
 
+    if "working_copy_size" not in st.session_state:
+        st.session_state.working_copy_size = 1800
+
 
 def load_settings() -> None:
     """

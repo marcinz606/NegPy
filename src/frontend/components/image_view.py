@@ -18,7 +18,7 @@ from src.backend.image_logic.exposure import (
     prepare_exposure_analysis,
     analyze_sensitometry,
 )
-from src.config import PIPELINE_CONSTANTS
+from src.config import PIPELINE_CONSTANTS, APP_CONFIG
 
 logger = get_logger(__name__)
 
@@ -83,7 +83,11 @@ def render_image_view(
             m_f = cv2.getRotationMatrix2D((w_f / 2, h_f / 2), fine_rot, 1.0)
             img_geom = ensure_array(cv2.warpAffine(img_geom, m_f, (w_f, h_f)))
         y1, y2, x1, x2 = get_autocrop_coords(
-            img_geom, autocrop_offset, 1.0, autocrop_ratio, detect_res=working_copy_size
+            img_geom,
+            autocrop_offset,
+            1.0,
+            autocrop_ratio,
+            detect_res=APP_CONFIG.preview_render_size,
         )
         uv_grid = uv_grid[y1:y2, x1:x2]
 
@@ -126,7 +130,7 @@ def render_image_view(
                 autocrop_offset,
                 1.0,
                 autocrop_ratio,
-                detect_res=working_copy_size,
+                detect_res=APP_CONFIG.preview_render_size,
             )
             final_vis_mask = final_vis_mask[y1:y2, x1:x2]
 
@@ -182,8 +186,8 @@ def render_image_view(
             if is_dust_mode:
                 value = streamlit_image_coordinates(
                     img_display,
-                    key=f"dust_picker_{st.session_state.get('working_copy_size', 1800)}",
-                    width=img_display.width,
+                    key=f"dust_picker_{working_copy_size}",
+                    width=working_copy_size,
                 )
 
                 st.info("Click to remove dust spot.")
@@ -191,12 +195,12 @@ def render_image_view(
             elif is_local_mode:
                 value = streamlit_image_coordinates(
                     img_display,
-                    key=f"local_picker_{st.session_state.get('working_copy_size', 1800)}",
-                    width=img_display.width,
+                    key=f"local_picker_{working_copy_size}",
+                    width=working_copy_size,
                 )
 
             else:
-                st.image(img_display, width=img_display.width)
+                st.image(img_display, width=working_copy_size)
 
                 value = None
 
@@ -223,10 +227,18 @@ def render_image_view(
             logger.warning(f"Failed to render sensitometry footer: {e}")
 
     if value:
-        scale_x = pil_prev.width / img_display.width
-        scale_y = pil_prev.height / img_display.height
-        abs_x = value["x"] * scale_x
-        abs_y = value["y"] * scale_y
+        # Map click coordinates from the displayed width (slider) to actual image pixels
+        # img_display.width is the PIL image width (possibly including border)
+        # working_copy_size is the width it was displayed at via streamlit_image_coordinates
+        display_width = float(working_copy_size)
+        display_height = display_width * (pil_prev.height / pil_prev.width)
+
+        # Scale factor from display pixels to current PIL pixels (pil_prev)
+        scale = pil_prev.width / display_width
+
+        abs_x = value["x"] * scale
+        abs_y = value["y"] * scale
+
         content_x = abs_x - border_px
         content_y = abs_y - border_px
 
@@ -247,7 +259,8 @@ def render_image_view(
                     else:
                         sx, sy = st.session_state.dust_start_point
                         current_size = st.session_state.get("manual_dust_size", 10)
-                        norm_radius = current_size / float(working_copy_size)
+                        # Normalize manual dust size based on rendering resolution, not display resolution
+                        norm_radius = current_size / float(APP_CONFIG.preview_render_size)
                         step_size = max(0.0005, norm_radius * 0.5)
                         dist = np.hypot(rx - sx, ry - sy)
                         num_steps = int(dist / step_size)

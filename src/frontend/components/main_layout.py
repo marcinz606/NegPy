@@ -20,13 +20,13 @@ def render_layout_header() -> Tuple[Any, Any]:
 
         with c_slider:
             st.slider(
-                "Preview Resolution",
+                "Display Size",
                 800,
                 2800,
                 step=100,
                 key="working_copy_size",
                 # label_visibility="collapsed",
-                help="Size of the preview image (pixels). Bigger can make app feel sluggish on slower CPUs.",
+                help="Scaling of the preview image in the browser. Does not affect internal processing resolution.",
             )
 
     return main_area, status_area
