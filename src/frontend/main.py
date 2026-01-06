@@ -70,22 +70,30 @@ async def main() -> None:
 
     apply_custom_css()
 
-    # 1. Layout & Status Area
-    main_col1, main_col2, status_area = render_layout_header()
-
-    # 2. Render File Manager (Uploads)
+    # 1. Render File Manager (Uploads)
     render_file_manager()
+
+    # 2. Layout & Status Area
+    # We must ensure settings are loaded BEFORE render_layout_header() because it instantiates
+    # the 'working_copy_size' widget, and we cannot modify its session_state afterwards.
+    if session.uploaded_files:
+        current_file = session.current_file
+        if current_file and current_file["hash"] not in session.file_settings:
+            session.load_active_settings()
+
+    main_area, status_area = render_layout_header()
 
     if session.uploaded_files:
         current_file = session.current_file
-        if not current_file:
-            return
 
         # 3. Load Data
         current_color_space = st.session_state.get("export_color_space", "sRGB")
+        current_working_copy_size = st.session_state.get("working_copy_size", 1800)
         if (
             st.session_state.get("last_file") != current_file["name"]
             or st.session_state.get("last_preview_color_space") != current_color_space
+            or st.session_state.get("last_working_copy_size")
+            != current_working_copy_size
         ):
             with status_area.status(
                 f"Loading {current_file['name']}...", expanded=False
@@ -110,7 +118,7 @@ async def main() -> None:
                     full_linear = rgb.astype(np.float32) / 65535.0
                     h_orig, w_orig = full_linear.shape[:2]
                     st.session_state.original_res = (w_orig, h_orig)
-                    max_res = APP_CONFIG.preview_max_res
+                    max_res = current_working_copy_size
                     if max(h_orig, w_orig) > max_res:
                         scale = max_res / max(h_orig, w_orig)
                         st.session_state.preview_raw = ensure_array(
@@ -124,6 +132,7 @@ async def main() -> None:
                         st.session_state.preview_raw = full_linear.copy()
                     st.session_state.last_file = current_file["name"]
                     st.session_state.last_preview_color_space = current_color_space
+                    st.session_state.last_working_copy_size = current_working_copy_size
                 status.update(label=f"Loaded {current_file['name']}", state="complete")
 
         # 4. Render Sidebar
@@ -165,6 +174,7 @@ async def main() -> None:
         pil_prev = Image.fromarray(
             np.clip(np.nan_to_num(processed_preview * 255), 0, 255).astype(np.uint8)
         )
+        st.session_state.last_pil_prev = pil_prev
 
         # Post-Processing
         is_toned = (
@@ -324,12 +334,10 @@ async def main() -> None:
                 pil_prev = Image.alpha_composite(pil_prev, overlay).convert("RGB")
 
         # 6. Main Content Layout
-        export_btn_sidebar = render_main_layout(
-            pil_prev, sidebar_data, main_col1, main_col2
-        )
+        render_main_layout(pil_prev, sidebar_data, main_area)
 
         # Handle Export Logic
-        if export_btn_sidebar:
+        if sidebar_data.export_btn:
             with status_area.status(
                 "Exporting current file...", expanded=True
             ) as status:

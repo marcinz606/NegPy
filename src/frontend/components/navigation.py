@@ -1,5 +1,12 @@
+from typing import Tuple
 import streamlit as st
-from src.frontend.state import save_settings, load_settings
+from src.frontend.state import (
+    save_settings,
+    load_settings,
+    copy_settings,
+    paste_settings,
+    reset_file_settings,
+)
 from src.backend.session import DarkroomSession
 
 
@@ -55,31 +62,54 @@ def rotate_file(direction: int) -> None:
     save_settings()
 
 
-def render_navigation() -> bool:
+def render_navigation() -> Tuple[bool, bool]:
     """
-    Renders the navigation buttons, rotation, and file removal/reset actions in 2 columns.
+    Renders the navigation buttons, rotation, file removal, copy/paste/reset, and export actions.
+    Returns (export_single_btn_clicked, export_all_btn_clicked).
     """
     session: DarkroomSession = st.session_state.session
-    c1, c2 = st.columns(2)
+
+    # 1. Navigation row (5 columns)
+    c1, c2, c3, c4, c5 = st.columns(5)
 
     with c1:
         st.button(
-            ":material/arrow_back: Previous",
+            ":material/arrow_back:",
             key="prev_btn_s",
             width="stretch",
             disabled=session.selected_file_idx == 0,
             on_click=change_file,
             args=(session.selected_file_idx - 1,),
         )
+    with c2:
         st.button(
-            ":material/rotate_left: Left",
+            ":material/arrow_forward:",
+            key="next_btn_s",
+            width="stretch",
+            disabled=session.selected_file_idx == len(session.uploaded_files) - 1,
+            on_click=change_file,
+            args=(session.selected_file_idx + 1,),
+        )
+    with c3:
+        st.button(
+            ":material/rotate_left:",
             key="rot_l_s",
             width="stretch",
             on_click=rotate_file,
             args=(1,),
         )
+    with c4:
         st.button(
-            ":material/delete: Remove",
+            ":material/rotate_right:",
+            key="rot_r_s",
+            width="stretch",
+            on_click=rotate_file,
+            args=(-1,),
+        )
+
+    with c5:
+        st.button(
+            ":red[:material/delete:]",
             key="unload_s",
             width="stretch",
             type="secondary",
@@ -87,27 +117,49 @@ def render_navigation() -> bool:
             args=(session.selected_file_idx,),
         )
 
-    with c2:
+    # 2. Copy/Paste/Reset row (3 columns)
+    ca, cb, cc = st.columns(3)
+    with ca:
         st.button(
-            "Next :material/arrow_forward:",
-            key="next_btn_s",
+            ":material/copy_all: Copy",
+            on_click=copy_settings,
             width="stretch",
-            disabled=session.selected_file_idx == len(session.uploaded_files) - 1,
-            on_click=change_file,
-            args=(session.selected_file_idx + 1,),
+            help="Copy current settings to clipboard.",
         )
+    with cb:
         st.button(
-            ":material/rotate_right: Right",
-            key="rot_r_s",
+            ":material/content_copy: Paste",
+            on_click=paste_settings,
+            disabled=session.clipboard is None,
             width="stretch",
-            on_click=rotate_file,
-            args=(-1,),
+            help="Paste settings from clipboard.",
         )
+    with cc:
+        st.button(
+            ":material/reset_image: Reset",
+            key="reset_s",
+            on_click=reset_file_settings,
+            width="stretch",
+            type="secondary",
+            help="Reset all settings for this negative to defaults.",
+        )
+
+    # 3. Export row (2 columns)
+    ea, eb = st.columns(2)
+    with ea:
         export_btn_sidebar = st.button(
             ":material/save: Export",
             key="export_s",
             width="stretch",
             type="primary",
         )
+    with eb:
+        process_all_btn = st.button(
+            ":material/batch_prediction: Export All",
+            key="export_all_s",
+            type="primary",
+            width="stretch",
+            help="Process and export all loaded files using their individual settings.",
+        )
 
-    return export_btn_sidebar
+    return export_btn_sidebar, process_all_btn

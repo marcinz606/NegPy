@@ -27,7 +27,7 @@
       "desktop/splash.html",
       "desktop/error.html",
       "desktop/bin/backend/**/*",
-      "media/icon.png"
+      "media/*"
     ],
     "extraResources": [
       {

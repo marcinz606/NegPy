@@ -4,7 +4,6 @@ import cv2
 from PIL import Image, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
 from typing import Tuple
-from src.config import APP_CONFIG
 from src.domain_objects import SidebarData
 from src.logging_config import get_logger
 from src.backend.image_logic.local_adjustments import (
@@ -56,6 +55,7 @@ def render_image_view(
     active_idx = st.session_state.get("active_adjustment_idx", -1)
     img_raw = st.session_state.preview_raw
     rh_orig, rw_orig = img_raw.shape[:2]
+    working_copy_size = st.session_state.get("working_copy_size", 1800)
     rotation = st.session_state.get("rotation", 0) % 4
     fine_rot = st.session_state.get("fine_rotation", 0.0)
     autocrop = st.session_state.get("autocrop", False)
@@ -83,7 +83,7 @@ def render_image_view(
             m_f = cv2.getRotationMatrix2D((w_f / 2, h_f / 2), fine_rot, 1.0)
             img_geom = ensure_array(cv2.warpAffine(img_geom, m_f, (w_f, h_f)))
         y1, y2, x1, x2 = get_autocrop_coords(
-            img_geom, autocrop_offset, 1.0, autocrop_ratio
+            img_geom, autocrop_offset, 1.0, autocrop_ratio, detect_res=working_copy_size
         )
         uv_grid = uv_grid[y1:y2, x1:x2]
 
@@ -122,7 +122,11 @@ def render_image_view(
             )
         if autocrop:
             y1, y2, x1, x2 = get_autocrop_coords(
-                img_geom, autocrop_offset, 1.0, autocrop_ratio
+                img_geom,
+                autocrop_offset,
+                1.0,
+                autocrop_ratio,
+                detect_res=working_copy_size,
             )
             final_vis_mask = final_vis_mask[y1:y2, x1:x2]
 
@@ -152,66 +156,71 @@ def render_image_view(
             pil_prev = pil_prev.convert("RGBA")
         pil_prev = Image.alpha_composite(pil_prev, overlay).convert("RGB")
 
-    c1, c2, c3 = st.columns([1, 6, 1])
-    with c2:
-        current_file = session.current_file
-        if current_file:
-            # Header: Name + Resolution
-            h1, h2 = st.columns([3, 1])
-            with h1:
-                st.subheader(current_file["name"])
-            with h2:
-                if "original_res" in st.session_state:
-                    w, h = st.session_state.original_res
-                    st.markdown(
-                        f"<div style='text-align: right; padding-top: 1rem; color: gray;'>{w} x {h} px</div>",
-                        unsafe_allow_html=True,
-                    )
-
-        is_dust_mode = st.session_state.get("pick_dust", False)
-        display_width = APP_CONFIG.display_width
-        img_display = pil_prev.copy()
-
-        if max(img_display.size) > display_width:
-            img_display.thumbnail((display_width, display_width))
-
-        if is_dust_mode:
-            value = streamlit_image_coordinates(
-                img_display,
-                key=f"dust_picker_{img_display.width}",
-                use_column_width=False,
-            )
-            st.info("Click to remove dust spot.")
-        elif is_local_mode:
-            value = streamlit_image_coordinates(
-                img_display,
-                key=f"local_picker_{img_display.width}",
-                use_column_width=False,
-            )
-        else:
-            st.image(img_display)
-            value = None
-
-            # Footer: Sensitometry Data
-            try:
-                # Lightweight analysis on preview
-                norm_log, _ = prepare_exposure_analysis(st.session_state.preview_raw)
-                dr, mid = analyze_sensitometry(norm_log)
-
-                # Calculate Zone V Shift (Midtone Anchor)
-                density_val = st.session_state.get("density", 1.0)
-                shift = 0.1 + (density_val * PIPELINE_CONSTANTS["density_multiplier"])
-                pivot = 1.0 - shift
-                zone_diff = mid - pivot
-
-                f1, f2 = st.columns(2)
-                f1.markdown(f"**DR:** {dr:.2f}")
-                f2.markdown(
-                    f"<div style='text-align: right;'>**Zone V:** {zone_diff:+.2f}</div>",
+    current_file = session.current_file
+    if current_file:
+        # Header: Name + Resolution
+        h1, h2 = st.columns([3, 1])
+        with h1:
+            st.subheader(current_file["name"])
+        with h2:
+            if "original_res" in st.session_state:
+                w, h = st.session_state.original_res
+                st.markdown(
+                    f"<div style='text-align: right; padding-top: 1rem; color: gray;'>{w} x {h} px</div>",
                     unsafe_allow_html=True,
                 )
-            except Exception as e:
-                logger.warning(f"Failed to render sensitometry footer: {e}")
+
+        is_dust_mode = st.session_state.get("pick_dust", False)
+
+        img_display = pil_prev.copy()
+
+        # Center the image using native Streamlit columns
+        # We use a small side-padding to push the content to the center
+        _, center_col, _ = st.columns([0.1, 0.8, 0.1])
+
+        with center_col:
+            if is_dust_mode:
+                value = streamlit_image_coordinates(
+                    img_display,
+                    key=f"dust_picker_{st.session_state.get('working_copy_size', 1800)}",
+                    width=img_display.width,
+                )
+
+                st.info("Click to remove dust spot.")
+
+            elif is_local_mode:
+                value = streamlit_image_coordinates(
+                    img_display,
+                    key=f"local_picker_{st.session_state.get('working_copy_size', 1800)}",
+                    width=img_display.width,
+                )
+
+            else:
+                st.image(img_display, width=img_display.width)
+
+                value = None
+
+        # Footer: Sensitometry Data
+
+        try:
+            # Lightweight analysis on preview
+            norm_log, _ = prepare_exposure_analysis(st.session_state.preview_raw)
+            dr, mid = analyze_sensitometry(norm_log)
+
+            # Calculate Zone V Shift (Midtone Anchor)
+            density_val = st.session_state.get("density", 1.0)
+            shift = 0.1 + (density_val * PIPELINE_CONSTANTS["density_multiplier"])
+            pivot = 1.0 - shift
+            zone_diff = mid - pivot
+
+            f1, f2 = st.columns(2)
+            f1.markdown(f"**DR:** {dr:.2f}")
+            f2.markdown(
+                f"<div style='text-align: right;'>**Zone V:** {zone_diff:+.2f}</div>",
+                unsafe_allow_html=True,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to render sensitometry footer: {e}")
 
     if value:
         scale_x = pil_prev.width / img_display.width
@@ -238,7 +247,7 @@ def render_image_view(
                     else:
                         sx, sy = st.session_state.dust_start_point
                         current_size = st.session_state.get("manual_dust_size", 10)
-                        norm_radius = current_size / float(APP_CONFIG.preview_max_res)
+                        norm_radius = current_size / float(working_copy_size)
                         step_size = max(0.0005, norm_radius * 0.5)
                         dist = np.hypot(rx - sx, ry - sy)
                         num_steps = int(dist / step_size)

@@ -31,8 +31,10 @@ def get_best_demosaic_algorithm(raw: Any) -> Any:
     try:
         if raw.raw_type == rawpy.RawType.XTrans:
             # X-Trans specific high-quality algorithm
-            return rawpy.DemosaicAlgorithm.AHD
-        return rawpy.DemosaicAlgorithm.AHD
+            logger.info("Detected XTrans .RAF file, using XT_3PASS demosaic.")
+            return rawpy.DemosaicAlgorithm.XT_3PASS
+        # Else use LMMSE which supposedly handles film scans & grain well
+        return rawpy.DemosaicAlgorithm.LMMSE
     except AttributeError:
         return None
 

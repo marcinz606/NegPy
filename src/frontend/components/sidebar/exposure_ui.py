@@ -10,36 +10,40 @@ def render_exposure_section() -> None:
 
     with st.expander(":material/camera: Exposure & Tonality", expanded=True):
         if not is_bw:
-            render_control_slider(
-                ":blue-badge[Cyan]",
-                -1.0,
-                1.0,
-                0.0,
-                0.01,
-                "wb_cyan",
-                help_text=(
-                    "Adds Cyan filtration (removes Red cast). Like in darkroom, "
-                    "you SHOULD NOT be touching this unless you know what you are doing :)"
-                ),
-            )
-            render_control_slider(
-                ":violet-badge[Magenta]",
-                -1.0,
-                1.0,
-                0.0,
-                0.01,
-                "wb_magenta",
-                help_text="Adds Magenta filtration (removes Green cast).",
-            )
-            render_control_slider(
-                ":orange-badge[Yellow]",
-                -1.0,
-                1.0,
-                0.0,
-                0.01,
-                "wb_yellow",
-                help_text="Adds Yellow filtration (removes Blue cast).",
-            )
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                render_control_slider(
+                    ":blue-badge[Cyan]",
+                    -1.0,
+                    1.0,
+                    0.0,
+                    0.01,
+                    "wb_cyan",
+                    help_text=(
+                        "Adds Cyan filtration (removes Red cast). Like in darkroom, "
+                        "you SHOULD NOT be touching this unless you know what you are doing :)"
+                    ),
+                )
+            with c2:
+                render_control_slider(
+                    ":violet-badge[Magenta]",
+                    -1.0,
+                    1.0,
+                    0.0,
+                    0.01,
+                    "wb_magenta",
+                    help_text="Adds Magenta filtration (removes Green cast).",
+                )
+            with c3:
+                render_control_slider(
+                    ":orange-badge[Yellow]",
+                    -1.0,
+                    1.0,
+                    0.0,
+                    0.01,
+                    "wb_yellow",
+                    help_text="Adds Yellow filtration (removes Blue cast).",
+                )
 
         # Primary Print Controls
         e1, e2 = st.columns(2)
