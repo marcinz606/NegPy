@@ -7,6 +7,27 @@ from src.orchestration.engine import DarkroomEngine
 from src.config import APP_CONFIG, DEFAULT_SETTINGS
 from src.domain_objects import ImageSettings
 
+# Keys that should persist globally across all files if no specific edits exist
+GLOBAL_PERSIST_KEYS = {
+    "process_mode",
+    "paper_profile",
+    "selenium_strength",
+    "sepia_strength",
+    "export_fmt",
+    "export_color_space",
+    "export_size",
+    "export_dpi",
+    "export_add_border",
+    "export_border_size",
+    "export_border_color",
+    "export_path",
+    "sharpen",
+    "hypertone_strength",
+    "color_separation",
+    "c_noise_strength",
+    "working_copy_size",
+}
+
 
 def init_session_state() -> None:
     """
@@ -26,9 +47,23 @@ def init_session_state() -> None:
         engine = DarkroomEngine()
 
         # Create Domain Session
-        st.session_state.session = WorkspaceSession(
-            st.session_state.session_id, repo, store, engine
-        )
+        session = WorkspaceSession(st.session_state.session_id, repo, store, engine)
+        st.session_state.session = session
+
+        # 1. First, populate state with hardcoded defaults
+        defaults = DEFAULT_SETTINGS.to_dict()
+        for key, val in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = val
+
+        if "working_copy_size" not in st.session_state:
+            st.session_state.working_copy_size = APP_CONFIG.preview_render_size
+
+        # 2. Then, override with Global Settings from DB if they exist
+        for key in GLOBAL_PERSIST_KEYS:
+            val = repo.get_global_setting(key)
+            if val is not None:
+                st.session_state[key] = val
 
     if "last_dust_click" not in st.session_state:
         st.session_state.last_dust_click = None
@@ -36,20 +71,41 @@ def init_session_state() -> None:
     if "dust_start_point" not in st.session_state:
         st.session_state.dust_start_point = None
 
-    if "working_copy_size" not in st.session_state:
-        st.session_state.working_copy_size = 1800
-
 
 def load_settings() -> None:
+    """
+    Loads settings for the current file.
+    If file has no edits, it populates st.session_state with current global values.
+    """
     session: WorkspaceSession = st.session_state.session
     settings = session.get_active_settings()
+
     if settings:
-        for key, value in settings.to_dict().items():
+        settings_dict = settings.to_dict()
+
+        # If this is a NEW file (no edits in DB), we want to keep current global values
+        # instead of overwriting with DEFAULT_SETTINGS values.
+        f_hash = session.uploaded_files[session.selected_file_idx]["hash"]
+        has_edits = session.repository.load_file_settings(f_hash) is not None
+
+        for key, value in settings_dict.items():
+            if not has_edits and key in GLOBAL_PERSIST_KEYS:
+                # Keep what is already in st.session_state (the global/last used value)
+                continue
             st.session_state[key] = value
 
 
 def save_settings() -> None:
+    """
+    Saves file settings AND updates global persistent settings.
+    """
     session: WorkspaceSession = st.session_state.session
+
+    # Save Global Persistent Settings (even if no file is selected)
+    for key in GLOBAL_PERSIST_KEYS:
+        if key in st.session_state:
+            session.repository.save_global_setting(key, st.session_state[key])
+
     if not session.uploaded_files:
         return
 

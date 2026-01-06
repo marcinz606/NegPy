@@ -44,7 +44,7 @@ class WorkspaceSession:
         if new_names:
             for f in raw_files:
                 if f.name in new_names:
-                    res = self.asset_store.persist(f, self.session_id)
+                    res = self.asset_store.register_asset(f, self.session_id)
                     if res:
                         cached_path, f_hash = res
                         self.uploaded_files.append(

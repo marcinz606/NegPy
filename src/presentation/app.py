@@ -108,7 +108,7 @@ async def main() -> None:
 
                     tasks = [
                         loop.run_in_executor(
-                            executor, worker.get_thumbnail_worker, f["path"]
+                            executor, worker.get_thumbnail_worker, f["path"], f["hash"]
                         )
                         for f in missing_thumbs
                     ]
