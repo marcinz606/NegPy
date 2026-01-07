@@ -1,10 +1,12 @@
 import numpy as np
+import streamlit as st
 from PIL import Image
 from src.presentation.state.session_context import SessionContext
 from src.presentation.services.preview_service import PreviewService
 from src.presentation.services.color_service import ColorService
 from src.presentation.services.folder_watch_service import FolderWatchService
 from src.orchestration.engine import DarkroomEngine
+from src.core.interfaces import PipelineContext
 
 
 class AppController:
@@ -72,12 +74,22 @@ class AppController:
 
         # 1. Compose full settings from session state
         from src.presentation.app import get_processing_params_composed
-        import streamlit as st
 
         params = get_processing_params_composed(st.session_state)
 
-        # 2. Run Engine
-        processed = self.engine.process(raw.copy(), params)
+        # 2. Run Engine with explicit context to capture intermediate states
+        h_orig, w_cols = raw.shape[:2]
+        context = PipelineContext(
+            scale_factor=max(h_orig, w_cols) / float(self.engine.config.preview_render_size),
+            original_size=(h_orig, w_cols),
+            process_mode=params.process_mode,
+        )
+
+        processed = self.engine.process(raw.copy(), params, context=context)
+        
+        # Capture base positive for accurate mask rendering in UI
+        if "base_positive" in context.metrics:
+            st.session_state.base_positive = context.metrics["base_positive"]
 
         # 3. Convert to PIL
         img_uint8 = np.clip(np.nan_to_num(processed * 255), 0, 255).astype(np.uint8)

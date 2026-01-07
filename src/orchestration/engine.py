@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import numpy as np
 
 # Core
@@ -38,7 +38,7 @@ class DarkroomEngine:
             CropProcessor(),
         ]
 
-    def process(self, img: ImageBuffer, settings: WorkspaceConfig) -> ImageBuffer:
+    def process(self, img: ImageBuffer, settings: WorkspaceConfig, context: Optional[PipelineContext] = None) -> ImageBuffer:
         """
         Executes the processing pipeline.
         """
@@ -49,16 +49,19 @@ class DarkroomEngine:
         h_orig, w_cols = img.shape[:2]
 
         # Shared execution context
-        context = PipelineContext(
-            scale_factor=max(h_orig, w_cols) / float(self.config.preview_render_size),
-            original_size=(h_orig, w_cols),
-            process_mode=settings.process_mode,
-        )
+        if context is None:
+            context = PipelineContext(
+                scale_factor=max(h_orig, w_cols) / float(self.config.preview_render_size),
+                original_size=(h_orig, w_cols),
+                process_mode=settings.process_mode,
+            )
 
         pipeline = self._build_pipeline(settings)
 
         # Run each component in sequence
         for processor in pipeline:
             img = processor.process(img, context)
+            if isinstance(processor, PhotometricProcessor):
+                context.metrics["base_positive"] = img.copy()
 
         return img

@@ -33,8 +33,15 @@ class OverlayService:
 
         # 1. Generate Raw Mask
         mask = generate_local_mask(rh_orig, rw_orig, points, radius, feather, 1.0)
-        img_pos_lin = 1.0 - np.clip(img_raw, 0, 1)
-        luma_mask = calculate_luma_mask(img_pos_lin, luma_range, luma_softness)
+        
+        # Use base_positive (post-photometric) for luminance masking if available
+        base_pos = st.session_state.get("base_positive")
+        if base_pos is not None and base_pos.shape[:2] == (rh_orig, rw_orig):
+            luma_mask = calculate_luma_mask(base_pos, luma_range, luma_softness)
+        else:
+            img_pos_lin = 1.0 - np.clip(img_raw, 0, 1)
+            luma_mask = calculate_luma_mask(img_pos_lin, luma_range, luma_softness)
+            
         final_vis_mask = mask * luma_mask
 
         # 2. Apply Geometry Transformations
