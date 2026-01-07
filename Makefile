@@ -46,11 +46,28 @@ run-app-rebuild:
 	@echo "Rebuilding and starting DarkroomPy via Docker..."
 	@$(PYTHON) start.py --build
 
-# Build Electron application
+# Build Electron application (Host OS)
 .PHONY: dist
 dist:
-	@echo "Building Electron application..."
+	@echo "Building Electron application for host OS..."
 	@PATH=$(CURDIR)/$(VENV)/bin:$(PATH) npm run dist
+
+.PHONY: dist-win
+dist-win:
+	@echo "Building Electron application for Windows..."
+	@echo "Note: This must be run on Windows to correctly build the Python backend."
+	@PATH=$(CURDIR)/$(VENV)/bin:$(PATH) npm run dist:win
+
+.PHONY: dist-mac
+dist-mac:
+	@echo "Building Electron application for macOS..."
+	@echo "Note: This must be run on macOS to correctly build the Python backend."
+	@PATH=$(CURDIR)/$(VENV)/bin:$(PATH) npm run dist:mac
+
+.PHONY: dist-linux
+dist-linux:
+	@echo "Building Electron application for Linux..."
+	@PATH=$(CURDIR)/$(VENV)/bin:$(PATH) npm run dist:linux
 
 # Clean up caches
 .PHONY: clean

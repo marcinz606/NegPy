@@ -22,10 +22,15 @@ function getDarkroomUserDir() {
 }
 
 function startBackend() {
-    // Proactively kill anything on our port (Unix only for now)
-    if (process.platform !== 'win32') {
+    // Proactively kill anything on our port
+    if (process.platform === 'win32') {
+        // Windows port cleanup (optional, taskkill in will-quit is usually enough)
         try {
-            spawn('sh', ['-c', `fuser -k ${port}/tcp`]);
+            spawn('cmd', ['/c', `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /f /pid %a`]);
+        } catch (e) {}
+    } else {
+        try {
+            spawn('sh', ['-c', `lsof -ti :${port} | xargs kill -9`]);
         } catch (e) {
             console.log("Port cleanup skipped or failed");
         }
@@ -39,8 +44,18 @@ function startBackend() {
 
     if (isPackaged) {
         // Path to the bundled binary
-        const binaryName = os.platform() === 'win32' ? 'backend.exe' : 'backend';
-        pythonExecutable = path.join(process.resourcesPath, 'backend', binaryName);
+        if (os.platform() === 'win32') {
+            pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend.exe');
+        } else if (os.platform() === 'darwin') {
+            // macOS PyInstaller --windowed creates a .app bundle
+            pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend.app', 'Contents', 'MacOS', 'backend');
+            // Fallback for non-windowed or if it was moved differently
+            if (!fs.existsSync(pythonExecutable)) {
+                pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend');
+            }
+        } else {
+            pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend');
+        }
     } else {
         // Path to local python/streamlit
         // Try to find venv python first
@@ -87,7 +102,7 @@ function createSplashWindow() {
         frame: false,
         alwaysOnTop: true,
         transparent: true,
-        icon: path.join(__dirname, '..', 'media', 'icon.png'),
+        icon: path.join(__dirname, '..', 'media', os.platform() === 'win32' ? 'icon.ico' : 'icon.png'),
         webPreferences: {
             nodeIntegration: false
         }
@@ -104,7 +119,7 @@ function createMainWindow() {
         height: Math.min(1000, height),
         show: false,
         autoHideMenuBar: true,
-        icon: path.join(__dirname, '..', 'media', 'icon.png'),
+        icon: path.join(__dirname, '..', 'media', os.platform() === 'win32' ? 'icon.ico' : 'icon.png'),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true
@@ -142,6 +157,12 @@ app.on('ready', () => {
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
     }
 });
 

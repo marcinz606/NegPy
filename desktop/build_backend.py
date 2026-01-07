@@ -1,6 +1,7 @@
 import PyInstaller.__main__
 import os
 import shutil
+import platform
 import streamlit
 import streamlit_image_coordinates
 
@@ -19,6 +20,7 @@ params = [
     "--onefile",  # Bundle into a single executable
     "--windowed",  # No console window
     "--clean",  # Clean cache
+    "--noconfirm",  # Overwrite output directory without asking
     "--additional-hooks-dir=desktop",
     "--copy-metadata=streamlit",
     "--copy-metadata=streamlit-image-coordinates",
@@ -60,13 +62,25 @@ PyInstaller.__main__.run(params)
 
 # Move the result to desktop/bin/backend
 os.makedirs("desktop/bin/backend", exist_ok=True)
-dist_name = "backend.exe" if os.name == "nt" else "backend"
+
+# Determine the source name (PyInstaller output)
+if platform.system() == "Windows":
+    dist_name = "backend.exe"
+elif platform.system() == "Darwin":
+    dist_name = "backend.app"
+else:
+    dist_name = "backend"
+
 src_path = os.path.join("dist", dist_name)
 dst_path = os.path.join("desktop/bin/backend", dist_name)
 
 if os.path.exists(src_path):
     if os.path.exists(dst_path):
-        os.remove(dst_path)
+        if os.path.isdir(dst_path):
+            shutil.rmtree(dst_path)
+        else:
+            os.remove(dst_path)
+    
     shutil.move(src_path, dst_path)
     print(f"Successfully built and moved to {dst_path}")
 
