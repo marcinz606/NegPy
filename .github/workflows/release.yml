@@ -36,7 +36,7 @@ jobs:
             echo 'matrix=["macos-latest"]' >> $GITHUB_OUTPUT
           fi
 
-  release:
+  build:
     needs: setup
     strategy:
       matrix:
