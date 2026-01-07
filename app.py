@@ -35,4 +35,8 @@ if __name__ == "__main__":
 
     multiprocessing.freeze_support()
     setup_logging(level=logging.INFO)
+
+    from src.core.performance import clear_perf_log
+
+    clear_perf_log()
     asyncio.run(start_app())

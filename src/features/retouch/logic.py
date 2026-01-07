@@ -5,7 +5,7 @@ from typing import List, Tuple
 from src.core.types import ImageBuffer
 from src.features.retouch.models import LocalAdjustmentConfig
 from src.core.validation import ensure_image
-from src.perf_utils import time_function
+from src.core.performance import time_function
 
 
 @njit(parallel=True)

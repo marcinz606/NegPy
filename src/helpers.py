@@ -2,7 +2,7 @@ import hashlib
 import os
 import numpy as np
 from numba import njit, prange  # type: ignore
-from src.perf_utils import time_function
+from src.core.performance import time_function
 from src.core.validation import ensure_image
 
 

@@ -5,7 +5,7 @@ from PIL import Image, ImageFilter
 from typing import List, Optional
 from src.core.types import ImageBuffer
 from src.core.validation import ensure_image
-from src.perf_utils import time_function
+from src.core.performance import time_function
 
 
 @njit(parallel=True)
@@ -210,7 +210,6 @@ def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
     img_lab = cv2.cvtColor(img_u8, cv2.COLOR_RGB2LAB)
     l_chan, a, b = cv2.split(img_lab)
 
-    # Use PIL for UnsharpMask as it's cleaner than OpenCV USM
     l_pil = Image.fromarray(l_chan)
     l_sharpened = l_pil.filter(
         ImageFilter.UnsharpMask(radius=1.0, percent=int(amount * 250), threshold=5)

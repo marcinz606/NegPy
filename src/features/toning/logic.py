@@ -4,7 +4,7 @@ from typing import Dict
 from src.core.types import ImageBuffer
 from src.core.validation import ensure_image
 from src.features.toning.models import PaperSubstrate
-from src.perf_utils import time_function
+from src.core.performance import time_function
 
 
 @njit(parallel=True)

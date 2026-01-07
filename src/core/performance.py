@@ -14,18 +14,25 @@ R = TypeVar("R")
 
 
 def get_perf_log_path() -> str:
-    return os.path.join(APP_CONFIG.cache_dir, "perf_stats_numba.csv")
+    return os.path.join(APP_CONFIG.cache_dir, "perf_stats.csv")
 
 
 def init_perf_log() -> None:
     log_path = get_perf_log_path()
-    if not os.path.exists(APP_CONFIG.cache_dir):
-        os.makedirs(APP_CONFIG.cache_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
     if not os.path.exists(log_path):
         with open(log_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["timestamp", "function", "duration_ms", "image_shape"])
+
+
+def clear_perf_log() -> None:
+    log_path = get_perf_log_path()
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["timestamp", "function", "duration_ms", "image_shape"])
 
 
 def log_to_csv(function_name: str, duration_ms: float, shape: Any) -> None:

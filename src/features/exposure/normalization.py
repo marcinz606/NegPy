@@ -2,7 +2,7 @@ from typing import Tuple, List
 import numpy as np
 from numba import njit, prange  # type: ignore
 from src.core.types import ImageBuffer
-from src.perf_utils import time_function
+from src.core.performance import time_function
 from src.core.validation import ensure_image
 
 
