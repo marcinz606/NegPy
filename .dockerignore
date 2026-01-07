@@ -4,7 +4,6 @@
 .vscode
 node_modules
 dist
-dist_electron
 build
 build.log
 desktop

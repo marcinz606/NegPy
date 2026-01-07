@@ -10,6 +10,11 @@ def pick_files(initial_dir: Optional[str] = None) -> None:
     """Opens a multi-file selection dialog and prints JSON to stdout."""
     root = tk.Tk()
     root.withdraw()
+    
+    # macOS specific fix to bring dialog to front
+    if sys.platform == 'darwin':
+        os.system('''/usr/bin/osascript -e 'tell app "Finder" to set frontmost of process "Python" to true' ''')
+    
     root.attributes("-topmost", True)
 
     # Use initial_dir if provided and exists
@@ -34,6 +39,11 @@ def pick_folder(initial_dir: Optional[str] = None) -> None:
     """Opens a folder selection dialog and prints JSON result to stdout."""
     root = tk.Tk()
     root.withdraw()
+
+    # macOS specific fix to bring dialog to front
+    if sys.platform == 'darwin':
+        os.system('''/usr/bin/osascript -e 'tell app "Finder" to set frontmost of process "Python" to true' ''')
+
     root.attributes("-topmost", True)
 
     start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else None
