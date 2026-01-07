@@ -81,7 +81,7 @@ jobs:
         with:
           name: release-${{ matrix.os }}-${{ github.event.inputs.version }}
           path: |
-            dist_electron/*.exe
-            dist_electron/*.dmg
-            dist_electron/*.AppImage
-            dist_electron/*.deb
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb

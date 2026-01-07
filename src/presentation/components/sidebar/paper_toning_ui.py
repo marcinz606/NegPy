@@ -29,7 +29,7 @@ def render_paper_section() -> None:
             render_control_slider(
                 label="Selenium",
                 min_val=0.0,
-                max_val=4.0,
+                max_val=2.0,
                 default_val=0.0,
                 step=0.01,
                 key=vm.get_key("selenium_strength"),
@@ -38,7 +38,7 @@ def render_paper_section() -> None:
             render_control_slider(
                 label="Sepia",
                 min_val=0.0,
-                max_val=4.0,
+                max_val=2.0,
                 default_val=0.0,
                 step=0.01,
                 key=vm.get_key("sepia_strength"),
