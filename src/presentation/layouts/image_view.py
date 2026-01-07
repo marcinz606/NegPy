@@ -6,7 +6,6 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 from src.logging_config import get_logger
 from src.config import APP_CONFIG
 from src.features.geometry.logic import get_autocrop_coords
-from src.features.retouch.logic import generate_local_mask, calculate_luma_mask
 from src.features.exposure.analysis import (
     prepare_exposure_analysis,
     analyze_sensitometry,
@@ -17,7 +16,12 @@ from src.presentation.state.state_manager import save_settings
 from src.presentation.state.view_models import SidebarState
 from src.presentation.state.session_context import SessionContext
 from src.presentation.services.geometry_service import GeometryService
-from src.presentation.state.view_models import GeometryViewModel, ExposureViewModel
+from src.presentation.services.overlay_service import OverlayService
+from src.presentation.state.view_models import (
+    GeometryViewModel,
+    ExposureViewModel,
+    RetouchViewModel,
+)
 
 logger = get_logger(__name__)
 
@@ -30,6 +34,7 @@ def render_image_view(
     """
     ctx = SessionContext()
     session = ctx.session
+    vm_retouch = RetouchViewModel()
     border_px = 0
     orig_w, orig_h = pil_prev.size
 
@@ -97,51 +102,18 @@ def render_image_view(
         and st.session_state.get("show_active_mask", True)
     ):
         adj = st.session_state.local_adjustments[active_idx]
-        mask = generate_local_mask(
-            rh_orig, rw_orig, adj.points, adj.radius, adj.feather, 1.0
+        pil_prev = OverlayService.apply_adjustment_mask(
+            pil_prev,
+            img_raw,
+            adj.points,
+            adj.radius,
+            adj.feather,
+            adj.luma_range,
+            adj.luma_softness,
+            geo_conf,
+            roi,
+            border_px
         )
-        img_pos_lin = 1.0 - np.clip(img_raw, 0, 1)
-        luma_mask = calculate_luma_mask(img_pos_lin, adj.luma_range, adj.luma_softness)
-        final_vis_mask = mask * luma_mask
-
-        if geo_conf.rotation % 4 != 0:
-            final_vis_mask = np.rot90(final_vis_mask, k=geo_conf.rotation % 4)
-        if geo_conf.fine_rotation != 0.0:
-            h_m, w_m = final_vis_mask.shape[:2]
-            M_m = cv2.getRotationMatrix2D(
-                (w_m / 2, h_m / 2), geo_conf.fine_rotation, 1.0
-            )
-            final_vis_mask = cv2.warpAffine(
-                final_vis_mask, M_m, (w_m, h_m), flags=cv2.INTER_LINEAR
-            )
-        if roi:
-            y1, y2, x1, x2 = roi
-            final_vis_mask = final_vis_mask[y1:y2, x1:x2]
-
-        if final_vis_mask.shape[:2] != (orig_h, orig_w):
-            final_vis_mask = cv2.resize(
-                final_vis_mask, (orig_w, orig_h), interpolation=cv2.INTER_AREA
-            )
-
-        mask_u8 = (final_vis_mask * 180).astype(np.uint8)
-        if border_px > 0:
-            mask_u8 = cv2.copyMakeBorder(
-                mask_u8,
-                border_px,
-                border_px,
-                border_px,
-                border_px,
-                cv2.BORDER_CONSTANT,
-                value=0,
-            )
-
-        mask_pil = Image.fromarray(mask_u8, mode="L")
-        overlay = Image.new("RGBA", pil_prev.size, (255, 0, 0, 0))
-        red_fill = Image.new("RGBA", pil_prev.size, (255, 75, 75, 255))
-        overlay = Image.composite(red_fill, overlay, mask_pil)
-        if pil_prev.mode != "RGBA":
-            pil_prev = pil_prev.convert("RGBA")
-        pil_prev = Image.alpha_composite(pil_prev, overlay).convert("RGB")
 
     current_file = session.current_file
     if current_file:
@@ -155,8 +127,22 @@ def render_image_view(
                 unsafe_allow_html=True,
             )
 
-        is_dust_mode = st.session_state.get("pick_dust", False)
+        is_dust_mode = st.session_state.get(vm_retouch.get_key("pick_dust"), False)
         img_display = pil_prev.copy()
+        
+        # --- Dust Patches Overlay ---
+        if st.session_state.get(vm_retouch.get_key("show_dust_patches")):
+            manual_spots = st.session_state.get(vm_retouch.get_key("manual_dust_spots"), [])
+            img_display = OverlayService.apply_dust_patches(
+                img_display,
+                manual_spots,
+                (rh_orig, rw_orig),
+                geo_conf,
+                roi,
+                border_px,
+                alpha=100
+            )
+
         working_size = ctx.working_copy_size
 
         _, center_col, _ = st.columns([0.1, 0.8, 0.1])
@@ -201,10 +187,11 @@ def render_image_view(
 
             if is_dust_mode and value != st.session_state.last_dust_click:
                 st.session_state.last_dust_click = value
-                if "manual_dust_spots" not in st.session_state:
-                    st.session_state.manual_dust_spots = []
+                manual_spots_key = vm_retouch.get_key("manual_dust_spots")
+                if manual_spots_key not in st.session_state:
+                    st.session_state[manual_spots_key] = []
 
-                if st.session_state.get("dust_scratch_mode"):
+                if st.session_state.get(vm_retouch.get_key("dust_scratch_mode")):
                     if st.session_state.dust_start_point is None:
                         st.session_state.dust_start_point = (rx, ry)
                         st.toast("Start point set. Click end point.")
@@ -212,7 +199,7 @@ def render_image_view(
                     else:
                         sx, sy = st.session_state.dust_start_point
                         size = validate_int(
-                            st.session_state.get("manual_dust_size", 10), 10
+                            st.session_state.get(vm_retouch.get_key("manual_dust_size"), 10), 10
                         )
                         dist = np.hypot(rx - sx, ry - sy)
                         num_steps = int(
@@ -224,7 +211,7 @@ def render_image_view(
                         )
                         for i in range(num_steps + 1):
                             t = i / max(1, num_steps)
-                            st.session_state.manual_dust_spots.append(
+                            st.session_state[manual_spots_key].append(
                                 (sx + (rx - sx) * t, sy + (ry - sy) * t, size)
                             )
                         st.session_state.dust_start_point = None
@@ -233,9 +220,9 @@ def render_image_view(
                         st.rerun()
                 else:
                     size = validate_int(
-                        st.session_state.get("manual_dust_size", 10), 10
+                        st.session_state.get(vm_retouch.get_key("manual_dust_size"), 10), 10
                     )
-                    st.session_state.manual_dust_spots.append((rx, ry, size))
+                    st.session_state[manual_spots_key].append((rx, ry, size))
                     save_settings()
                     st.rerun()
 

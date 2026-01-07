@@ -88,7 +88,7 @@ def load_raw_and_process(
 def _apply_scaling_and_border(
     pil_img: Image.Image, params: WorkspaceConfig, export_settings: ExportConfig
 ) -> Image.Image:
-    side_inch = export_settings.export_size / 2.54
+    side_inch = export_settings.export_print_size / 2.54
     dpi = export_settings.export_dpi
     total_target_px = int(side_inch * dpi)
     border_px = (

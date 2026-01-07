@@ -1,6 +1,6 @@
 import streamlit as st
 from src.presentation.state.view_models import LabViewModel
-from src.presentation.components.sidebar.helpers import render_control_slider, st_init
+from src.presentation.components.sidebar.helpers import render_control_slider
 from src.config import DEFAULT_WORKSPACE_CONFIG
 
 
@@ -9,7 +9,6 @@ def render_lab_scanner_section() -> None:
     Renders the 'Lab Scanner Parameters' section of the sidebar.
     """
     vm = LabViewModel()
-    st_init("process_mode", DEFAULT_WORKSPACE_CONFIG.process_mode)
     is_bw = st.session_state.get("process_mode") == "B&W"
 
     with st.expander(":material/scanner: Lab Scanner Parameters", expanded=True):
@@ -85,4 +84,3 @@ def render_lab_scanner_section() -> None:
                     "color halos or enhancing chromatic noise."
                 ),
             )
-

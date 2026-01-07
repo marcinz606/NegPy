@@ -7,7 +7,6 @@ from src.infrastructure.persistence.local_asset_store import LocalAssetStore
 from src.orchestration.engine import DarkroomEngine
 from src.config import APP_CONFIG
 
-
 # Keys that should persist globally across all files if no specific edits exist
 GLOBAL_PERSIST_KEYS = {
     "process_mode",
@@ -16,7 +15,7 @@ GLOBAL_PERSIST_KEYS = {
     "sepia_strength",
     "export_fmt",
     "export_color_space",
-    "export_size",
+    "export_print_size",
     "export_dpi",
     "export_add_border",
     "export_border_size",
@@ -69,6 +68,7 @@ def init_session_state() -> None:
     # This guards against stale state or new keys being added during development
     session = st.session_state.session
     defaults = session.create_default_config().to_dict()
+
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val

@@ -1,7 +1,6 @@
 import streamlit as st
 from src.presentation.state.view_models import ExposureViewModel
-from src.presentation.components.sidebar.helpers import render_control_slider, st_init
-from src.config import DEFAULT_WORKSPACE_CONFIG
+from src.presentation.components.sidebar.helpers import render_control_slider
 
 
 def render_exposure_section() -> None:

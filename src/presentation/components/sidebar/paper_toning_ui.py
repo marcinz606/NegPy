@@ -1,6 +1,9 @@
 import streamlit as st
 from src.presentation.state.view_models import ToningViewModel
-from src.presentation.components.sidebar.helpers import render_control_slider, st_init
+from src.presentation.components.sidebar.helpers import (
+    render_control_slider,
+    render_control_selectbox,
+)
 from src.config import DEFAULT_WORKSPACE_CONFIG
 
 
@@ -12,18 +15,15 @@ def render_paper_section() -> None:
 
     with st.expander(":material/colorize: Paper & Toning", expanded=True):
         # 1. Paper Substrate Selection
-        st_init(
-            vm.get_key("paper_profile"), DEFAULT_WORKSPACE_CONFIG.toning.paper_profile
-        )
-        st.selectbox(
+        render_control_selectbox(
             "Paper Profile",
             ["None", "Neutral RC", "Cool Glossy", "Warm Fiber", "Antique Ivory"],
+            default_val=DEFAULT_WORKSPACE_CONFIG.toning.paper_profile,
             key=vm.get_key("paper_profile"),
-            help="Simulates the specific spectral reflectance and D-max of analog paper bases.",
+            help_text="Simulates the specific spectral reflectance and D-max of analog paper bases.",
         )
 
         # 2. Chemical Toning (B&W Simulation)
-        st_init("process_mode", DEFAULT_WORKSPACE_CONFIG.process_mode)
         if st.session_state.get("process_mode") == "B&W":
             st.subheader("Chemical Toning")
             render_control_slider(

@@ -1,4 +1,3 @@
-import os
 import unittest
 from unittest.mock import MagicMock, patch
 from src.core.session.manager import WorkspaceSession
@@ -40,7 +39,7 @@ class TestWorkspaceSession(unittest.TestCase):
     @patch("src.config.APP_CONFIG")
     def test_create_default_config_defaults(self, mock_app_config):
         """
-        Verifies that other defaults (like Lab Settings) are correctly populated 
+        Verifies that other defaults (like Lab Settings) are correctly populated
         from the static DEFAULT_WORKSPACE_CONFIG.
         """
         # Arrange
@@ -54,11 +53,14 @@ class TestWorkspaceSession(unittest.TestCase):
         self.assertEqual(config.lab.color_separation, 1.0)
         self.assertEqual(config.lab.c_noise_strength, 0.25)
         self.assertEqual(config.retouch.dust_size, 3)
-        self.assertEqual(config.export.export_size, 27.0)
+        # Check export defaults
+        self.assertEqual(config.export.export_fmt, "JPEG")
+        self.assertEqual(config.export.export_print_size, 27.0)
+        self.assertEqual(config.export.export_dpi, 300)
 
     def test_get_active_settings_creates_defaults_if_empty(self):
         """
-        Verifies that asking for settings for a file with no DB entry 
+        Verifies that asking for settings for a file with no DB entry
         returns a fresh default config via create_default_config.
         """
         # Arrange
@@ -67,7 +69,7 @@ class TestWorkspaceSession(unittest.TestCase):
             {"name": "test.dng", "path": "/tmp/test.dng", "hash": "abc123hash"}
         ]
         self.session.selected_file_idx = 0
-        
+
         # Mock repo returning None (no saved settings)
         self.mock_repo.load_file_settings.return_value = None
 
@@ -79,7 +81,7 @@ class TestWorkspaceSession(unittest.TestCase):
         # Verify it called load_file_settings with correct hash
         self.mock_repo.load_file_settings.assert_called_with("abc123hash")
         # Verify it used defaults (check a known default)
-        self.assertEqual(settings.lab.sharpen, 0.25) 
+        self.assertEqual(settings.lab.sharpen, 0.25)
         # Verify it cached it in memory
         self.assertEqual(self.session.file_settings["abc123hash"], settings)
 
@@ -91,7 +93,7 @@ class TestWorkspaceSession(unittest.TestCase):
         self.session.uploaded_files = [
             {"name": "test.dng", "path": "/tmp/test.dng", "hash": "saved_hash"}
         ]
-        
+
         # Create a "saved" config that differs from defaults
         saved_config = self.session.create_default_config()
         # Modify it effectively (using replace or manual reconstruction since it's frozen)
@@ -106,6 +108,7 @@ class TestWorkspaceSession(unittest.TestCase):
         # Assert
         self.toBe = saved_config
         self.assertEqual(result, saved_config)
+
 
 if __name__ == "__main__":
     unittest.main()

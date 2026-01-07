@@ -13,10 +13,10 @@ class ExportConfig:
     Configuration for the image export process.
     """
 
-    export_path: str
+    export_path: str = "export"
     export_fmt: str = "JPEG"
     export_color_space: str = "sRGB"
-    export_size: float = 27.0
+    export_print_size: float = 27.0
     export_dpi: int = 300
     export_add_border: bool = False
     export_border_size: float = 0.5
@@ -41,13 +41,7 @@ class WorkspaceConfig:
     lab: LabConfig = field(default_factory=LabConfig)
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
-    export: ExportConfig = field(
-        default_factory=lambda: ExportConfig(
-            export_path="export",
-            export_size=27.0,
-            export_dpi=300,
-        )
-    )
+    export: ExportConfig = field(default_factory=ExportConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         """

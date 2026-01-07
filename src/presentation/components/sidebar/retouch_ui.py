@@ -1,8 +1,7 @@
 import streamlit as st
 from src.presentation.state.view_models import RetouchViewModel
 from src.presentation.state.state_manager import save_settings
-from src.presentation.components.sidebar.helpers import st_init, render_control_slider
-from src.config import DEFAULT_WORKSPACE_CONFIG
+from src.presentation.components.sidebar.helpers import render_control_slider, render_control_checkbox
 
 
 def render_retouch_section() -> None:
@@ -12,10 +11,13 @@ def render_retouch_section() -> None:
     vm = RetouchViewModel()
 
     with st.expander(":material/brush: Retouch", expanded=True):
-        st_init(vm.get_key("dust_remove"), True)
-        st.checkbox("Automatic dust removal", key=vm.get_key("dust_remove"))
+        render_control_checkbox(
+            "Automatic dust removal",
+            default_val=True,
+            key=vm.get_key("dust_remove")
+        )
         c1, c2 = st.columns(2)
-        
+
         with c1:
             render_control_slider(
                 label="Threshold",
@@ -42,14 +44,15 @@ def render_retouch_section() -> None:
             )
 
         c1, c2 = st.columns([2, 1])
-        st_init("pick_dust", False)
-        c1.checkbox("Manual Dust Correction", key="pick_dust")
+        with c1:
+            render_control_checkbox("Manual Dust Correction", default_val=False, key=vm.get_key("pick_dust"))
+
         manual_spots_key = vm.get_key("manual_dust_spots")
         manual_spots = st.session_state.get(manual_spots_key)
         if manual_spots is not None and len(manual_spots) > 0:
             c2.caption(f"{len(manual_spots)} spots")
 
-        if st.session_state.get("pick_dust"):
+        if st.session_state.get(vm.get_key("pick_dust")):
             render_control_slider(
                 label="Manual Spot Size",
                 min_val=1.0,
@@ -59,10 +62,12 @@ def render_retouch_section() -> None:
                 key=vm.get_key("manual_dust_size"),
                 format="%d",
             )
-            st.checkbox(
-                "Scratch Mode (Click Start -> Click End)", key="dust_scratch_mode"
+            render_control_checkbox(
+                "Scratch Mode (Click Start -> Click End)",
+                default_val=False,
+                key=vm.get_key("dust_scratch_mode")
             )
-            st.checkbox("Show Patches", key="show_dust_patches")
+            render_control_checkbox("Show Patches", default_val=False, key=vm.get_key("show_dust_patches"))
 
             c1, c2 = st.columns(2)
             if c1.button("Undo Last", width="stretch"):

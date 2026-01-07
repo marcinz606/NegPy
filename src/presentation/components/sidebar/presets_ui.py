@@ -2,6 +2,10 @@ import streamlit as st
 from src.features.presets.service import PresetService
 from src.presentation.state.state_manager import save_settings, load_settings
 from src.core.session.manager import WorkspaceSession
+from src.presentation.components.sidebar.helpers import (
+    render_control_selectbox,
+    render_control_text_input,
+)
 
 
 def load_preset_callback() -> None:
@@ -62,12 +66,14 @@ def render_presets() -> None:
         presets = PresetService.list_presets()
         c1, c2 = st.columns([2, 1])
 
-        c1.selectbox(
-            "Select Preset",
-            presets,
-            label_visibility="collapsed",
-            key="selected_preset_name",
-        )
+        with c1:
+            render_control_selectbox(
+                "Select Preset",
+                presets,
+                default_val=presets[0] if presets else None,
+                label_visibility="collapsed",
+                key="selected_preset_name",
+            )
 
         c2.button(
             "Load",
@@ -79,12 +85,14 @@ def render_presets() -> None:
         st.divider()
         c1, c2 = st.columns([2, 1])
 
-        c1.text_input(
-            "Preset Name",
-            label_visibility="collapsed",
-            placeholder="New Preset Name",
-            key="new_preset_name",
-        )
+        with c1:
+            render_control_text_input(
+                "Preset Name",
+                default_val="",
+                label_visibility="collapsed",
+                placeholder="New Preset Name",
+                key="new_preset_name",
+            )
 
         c2.button(
             "Save",

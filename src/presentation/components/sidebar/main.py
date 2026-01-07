@@ -6,6 +6,7 @@ from src.presentation.components.sidebar.collect_adjustments import render_adjus
 from src.presentation.components.sidebar.soft_proofing_ui import render_soft_proofing
 from src.infrastructure.loaders.native_picker import NativeFilePicker
 from src.config import APP_CONFIG
+from src.presentation.components.sidebar.helpers import render_control_checkbox
 
 
 def render_file_manager() -> None:
@@ -51,10 +52,11 @@ def render_file_manager() -> None:
                             session.watched_folders.add(root_path)
                         st.rerun()
 
-            st.checkbox(
+            render_control_checkbox(
                 "Hot Folder Mode",
+                default_val=False,
                 key="hot_folder_mode",
-                help="Automatically discover new files in picked folders.",
+                help_text="Automatically discover new files in picked folders.",
             )
         else:
             # 2. Standard Web Uploader (Docker Mode)

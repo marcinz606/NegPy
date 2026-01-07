@@ -43,7 +43,7 @@ class ExportService:
                     f_export_settings = ExportConfig(
                         export_fmt=sidebar_data.out_fmt,
                         export_color_space=sidebar_data.color_space,
-                        export_size=sidebar_data.print_width,
+                        export_print_size=sidebar_data.print_width,
                         export_dpi=sidebar_data.print_dpi,
                         export_add_border=sidebar_data.add_border,
                         export_border_size=sidebar_data.border_size,

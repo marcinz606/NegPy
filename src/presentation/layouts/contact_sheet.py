@@ -1,5 +1,5 @@
 import streamlit as st
-from src.presentation.layouts.navigation import change_file
+from src.presentation.components.sidebar.navigation_ui import change_file
 from src.core.session.manager import WorkspaceSession
 from src.config import APP_CONFIG
 

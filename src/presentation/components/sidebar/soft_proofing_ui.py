@@ -2,6 +2,7 @@ import streamlit as st
 import os
 from src.config import APP_CONFIG
 from src.core.session.manager import WorkspaceSession
+from src.presentation.components.sidebar.helpers import render_control_selectbox
 
 
 def render_soft_proofing() -> None:
@@ -27,14 +28,16 @@ def render_soft_proofing() -> None:
 
         all_icc_paths = built_in_icc + user_icc
 
-        selected_idx = 0
-        if session.icc_profile_path in all_icc_paths:
-            selected_idx = all_icc_paths.index(session.icc_profile_path) + 1
+        # The helper requires a key. Soft proofing didn't use one before, it used index.
+        # We'll use "soft_proof_icc" as key and sync it.
+        if "soft_proof_icc" not in st.session_state:
+            st.session_state.soft_proof_icc = session.icc_profile_path or "None"
 
-        selected_path = st.selectbox(
+        selected_path = render_control_selectbox(
             "ICC Profile",
             ["None"] + all_icc_paths,
-            index=selected_idx,
+            default_val=session.icc_profile_path or "None",
+            key="soft_proof_icc",
             format_func=lambda x: os.path.basename(x) if x != "None" else "None",
         )
 
