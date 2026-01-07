@@ -64,7 +64,7 @@ def render_exposure_section() -> None:
                 default_val=2.5,
                 step=0.01,
                 key=vm.get_key("grade"),
-                help_text="Paper Contrast Grade. 2 is Neutral. 0 is Soft. 5 is Hard.",
+                help_text="Paper Contrast Grade. 2.5 is Neutral. 0 is Soft. 5 is Hard.",
             )
 
         # Tone Curve Controls
@@ -106,7 +106,7 @@ def render_exposure_section() -> None:
         c_sh1, c_sh2, c_sh3 = st.columns([1.5, 1, 1])
         with c_sh1:
             render_control_slider(
-                label="Shoulder (S roll-off)",
+                label="Shoulder (H roll-off)",
                 min_val=-1.0,
                 max_val=1.0,
                 default_val=0.0,

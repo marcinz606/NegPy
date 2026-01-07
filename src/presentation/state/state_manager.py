@@ -33,8 +33,6 @@ GLOBAL_PERSIST_KEYS = {
     "last_picker_dir",
     "autocrop",
     "autocrop_ratio",
-    "autocrop_offset",
-    "fine_rotation",
 }
 
 

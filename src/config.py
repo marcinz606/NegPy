@@ -14,7 +14,7 @@ BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
 APP_CONFIG = AppConfig(
     thumbnail_size=100,
     max_workers=max(1, (os.cpu_count() or 1) - 1),
-    preview_render_size=1200,
+    preview_render_size=1000,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),
@@ -41,7 +41,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         rotation=0,
         fine_rotation=0.0,
         autocrop=True,
-        autocrop_offset=1,
+        autocrop_offset=2,
         autocrop_ratio="3:2",
     ),
     lab=LabConfig(

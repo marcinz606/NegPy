@@ -74,7 +74,6 @@ def time_function(func: Callable[P, R]) -> Callable[P, R]:
                     shape = getattr(val, "shape")
                     break
 
-        logger.info(f"PERF: {func.__name__} took {duration_ms:.3f}ms (shape: {shape})")
         log_to_csv(func.__name__, duration_ms, shape)
         return result
 
