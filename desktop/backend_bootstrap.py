@@ -43,7 +43,6 @@ if __name__ == "__main__":
     # Check for subtasks (native dialogs) before starting Streamlit
     if "--pick-files" in sys.argv:
         from src.infrastructure.loaders.dialog_worker import pick_files
-
         # The initial_dir is passed as the next argument after the flag
         idx = sys.argv.index("--pick-files")
         initial_dir = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else None
@@ -55,6 +54,13 @@ if __name__ == "__main__":
         idx = sys.argv.index("--pick-folder")
         initial_dir = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else None
         pick_folder(initial_dir)
+        sys.exit(0)
+    elif "--pick-export-folder" in sys.argv:
+        from src.infrastructure.loaders.dialog_worker import pick_export_folder
+
+        idx = sys.argv.index("--pick-export-folder")
+        initial_dir = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else None
+        pick_export_folder(initial_dir)
         sys.exit(0)
 
     # Streamlit execution

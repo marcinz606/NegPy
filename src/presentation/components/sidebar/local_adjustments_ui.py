@@ -38,10 +38,15 @@ def render_local_adjustments() -> None:
                 for i, a in enumerate(st.session_state.local_adjustments)
             ]
 
+            # Ensure active index is within bounds
+            current_idx = st.session_state.get("active_adjustment_idx", 0)
+            if current_idx < 0 or current_idx >= len(adj_names):
+                st.session_state.active_adjustment_idx = 0
+
             selected_idx = render_control_selectbox(
                 "Active Layer",
                 options=list(range(len(adj_names))),
-                default_val=max(0, st.session_state.get("active_adjustment_idx", 0)),
+                default_val=0,
                 key="active_adjustment_idx",
                 format_func=lambda x: adj_names[x],
             )
@@ -53,7 +58,8 @@ def render_local_adjustments() -> None:
             c1, c2 = st.columns(2)
             if c2.button("Delete Layer", width="stretch"):
                 st.session_state.local_adjustments.pop(selected_idx)
-                st.session_state.active_adjustment_idx = -1
+                # Select the previous layer or the first one
+                st.session_state.active_adjustment_idx = max(0, selected_idx - 1)
                 st.rerun()
 
             # Brush controls
@@ -128,7 +134,10 @@ def render_local_adjustments() -> None:
 
             # Mode toggle
             render_control_checkbox(
-                "Paint Mode", default_val=False, key="pick_local", is_toggle=True
+                ":material/brush: Paint Mode",
+                default_val=False,
+                key="pick_local",
+                is_toggle=True,
             )
 
             if st.session_state.get("pick_local"):

@@ -19,30 +19,6 @@ class RetouchProcessor(IProcessor):
         # context.original_size is (Height, Width)
         orig_h, orig_w = context.original_size
 
-        # We need to know the current rotation state to map coordinates correctly.
-        # Ideally, this should be passed in the context or the points should be mapped
-        # by the UI before reaching here.
-        # However, following the original engine design, the 'settings' (now Config)
-        # contains Raw/Original coordinates, and the Processor maps them to the
-        # current image state (which might be rotated by GeometryProcessor).
-
-        # Limitation: The RetouchConfig doesn't know about Rotation.
-        # We must either:
-        # 1. Pass Rotation info in PipelineContext (added by GeometryProcessor).
-        # 2. Inject Rotation info into RetouchProcessor (coupling).
-
-        # Let's check context.metrics. GeometryProcessor could store rotation there?
-        # For now, we'll rely on the fact that if we want this to work strictly,
-        # we need the rotation parameters.
-        # But wait! 'map_coords_to_geometry' requires rotation/fine_rotation params.
-        # These are in GeometryConfig, not RetouchConfig.
-
-        # Solution: The Engine should probably resolve coordinates or we pass them in context.
-        # For this refactor step, we will check if context has 'geometry_state'.
-        # If not, we skip mapping (or assume 0 rotation) which might be a regression
-        # unless we update GeometryProcessor to write to context.
-
-        # Let's assume GeometryProcessor writes 'rotation_params' to context.metrics.
         rot_params = context.metrics.get(
             "geometry_params", {"rotation": 0, "fine_rotation": 0.0}
         )
@@ -70,9 +46,6 @@ class RetouchProcessor(IProcessor):
                     )
                     new_points.append((mnx, mny))
 
-                # We use replace() or manual copy since dataclass is frozen?
-                # RetouchConfig is frozen, LocalAdjustmentConfig is not frozen in models.py (default).
-                # But let's be safe and create new instance.
                 mapped_adj = LocalAdjustmentConfig(
                     points=new_points,
                     strength=adj.strength,

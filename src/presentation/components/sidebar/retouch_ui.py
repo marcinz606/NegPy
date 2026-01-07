@@ -13,7 +13,7 @@ def render_retouch_section() -> None:
     """
     vm = RetouchViewModel()
 
-    with st.expander(":material/brush: Retouch", expanded=True):
+    with st.expander(":material/ink_eraser: Retouch", expanded=True):
         render_control_checkbox(
             "Automatic dust removal", default_val=False, key=vm.get_key("dust_remove")
         )
@@ -26,10 +26,13 @@ def render_retouch_section() -> None:
                     label="Threshold",
                     min_val=0.01,
                     max_val=1.0,
-                    default_val=0.75,
+                    default_val=0.8,
                     step=0.01,
                     key=vm.get_key("dust_threshold"),
-                    help_text="Sensitivity of automatic dust detection. Lower values detect more spots.",
+                    help_text=(
+                        "Sensitivity of automatic dust detection."
+                        "Lower values catch more spots but might mistake fine detail for dust."
+                    ),
                 )
 
             with c2:

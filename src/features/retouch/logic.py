@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from numba import njit, prange  # type: ignore
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from src.core.types import ImageBuffer
 from src.features.retouch.models import LocalAdjustmentConfig
 from src.core.validation import ensure_image
@@ -48,7 +48,7 @@ def _apply_local_exposure_kernel(
     Fast JIT application of exposure multipliers.
     """
     h, w, c = img.shape
-    ln2 = 0.69314718056
+    ln2 = 0.69314718056 # litral hardcoded for jit
     for y in prange(h):
         for x in range(w):
             m_val = mask[y, x]
@@ -289,7 +289,10 @@ def generate_local_mask(
 
 @time_function
 def calculate_luma_mask(
-    img: ImageBuffer, luma_range: Tuple[float, float], softness: float
+    img: ImageBuffer,
+    luma_range: Tuple[float, float],
+    softness: float,
+    lum: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Calculates a luminosity mask based on image luminance levels.
@@ -297,7 +300,9 @@ def calculate_luma_mask(
     Luminosity masking (tonal masking) allows for selective adjustments to specific
     zones (e.g., highlights only, deep shadows only) with controllable softness.
     """
-    lum = get_luminance(img)
+    if lum is None:
+        lum = get_luminance(img)
+
     low, high = luma_range
 
     if softness <= 0:
@@ -315,16 +320,16 @@ def apply_local_adjustments(
     img: ImageBuffer, adjustments: List[LocalAdjustmentConfig], scale_factor: float
 ) -> ImageBuffer:
     """
-    Applies a list of 'Dodge and Burn' adjustments to the image.
-
-    Dodging (lightening) and Burning (darkening) are classic darkroom techniques
-    used to locally manipulate exposure. This implementation uses spatial brushes
-    combined with optional tonal masking for precise control.
+    Applies a list of 'Dodge and Burn' adjustments to the mask.
     """
     if not adjustments:
         return img
 
     h, w = img.shape[:2]
+
+    # Calculate base luminance once for all adjustments in this pass
+    # to ensure consistency and prevent "drifting" masks.
+    base_lum = get_luminance(img)
 
     for adj in adjustments:
         points = adj.points
@@ -334,8 +339,10 @@ def apply_local_adjustments(
         # Spatial Mask
         mask = generate_local_mask(h, w, points, adj.radius, adj.feather, scale_factor)
 
-        # Tonal Mask
-        luma_mask = calculate_luma_mask(img, adj.luma_range, adj.luma_softness)
+        # Tonal Mask (using static base_lum)
+        luma_mask = calculate_luma_mask(
+            img, adj.luma_range, adj.luma_softness, lum=base_lum
+        )
 
         # Combined Mask
         final_mask = mask * luma_mask

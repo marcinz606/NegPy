@@ -77,6 +77,10 @@ def render_exposure_section() -> None:
                 default_val=0.0,
                 step=0.01,
                 key=vm.get_key("toe"),
+                help_text=(
+                    "Adjusts how shadows compress as they approach maximum density (D-max)."
+                    "(+) lifts the shadows, (-) crushes the shadows."
+                ),
             )
         with c_toe2:
             render_control_slider(
@@ -86,6 +90,7 @@ def render_exposure_section() -> None:
                 default_val=3.0,
                 step=0.05,
                 key=vm.get_key("toe_width"),
+                help_text="The exposure range affected by the highlight roll-off.",
             )
         with c_toe3:
             render_control_slider(
@@ -95,17 +100,22 @@ def render_exposure_section() -> None:
                 default_val=1.0,
                 step=0.01,
                 key=vm.get_key("toe_hardness"),
+                help_text="The curvature of the shadow roll-off.",
             )
 
         c_sh1, c_sh2, c_sh3 = st.columns([1.5, 1, 1])
         with c_sh1:
             render_control_slider(
-                label="Shoulder (H roll-off)",
+                label="Shoulder (S roll-off)",
                 min_val=-1.0,
                 max_val=1.0,
                 default_val=0.0,
                 step=0.01,
                 key=vm.get_key("shoulder"),
+                help_text=(
+                    "Adjusts how gently highlights fade into the paper base (white)."
+                    "(+) softens the highlights, (-) brightens them."
+                ),
             )
         with c_sh2:
             render_control_slider(
@@ -115,6 +125,7 @@ def render_exposure_section() -> None:
                 default_val=3.0,
                 step=0.01,
                 key=vm.get_key("shoulder_width"),
+                help_text="The exposure range affected by the highlight roll-off.",
             )
         with c_sh3:
             render_control_slider(
@@ -124,4 +135,5 @@ def render_exposure_section() -> None:
                 default_val=1.0,
                 step=0.01,
                 key=vm.get_key("shoulder_hardness"),
+                help_text="The curvature of the highlight roll-off.",
             )

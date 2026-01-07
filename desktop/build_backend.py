@@ -28,6 +28,7 @@ params = [
     "--hidden-import=rawpy",
     "--hidden-import=cv2",
     "--hidden-import=numpy",
+    "--hidden-import=numba",
     "--hidden-import=PIL",
     "--hidden-import=PIL.Image",
     "--hidden-import=PIL.ImageEnhance",
@@ -50,7 +51,7 @@ params = [
     "--add-data=src:src",
     "--add-data=icc:icc",
     "--add-data=media:media",
-    # Streamlit files (crucial)
+    # Streamlit files
     f"--add-data={streamlit_dir}:streamlit",
     f"--add-data={streamlit_image_coordinates_dir}:streamlit_image_coordinates",
     # Config for streamlit
@@ -80,7 +81,7 @@ if os.path.exists(src_path):
             shutil.rmtree(dst_path)
         else:
             os.remove(dst_path)
-    
+
     shutil.move(src_path, dst_path)
     print(f"Successfully built and moved to {dst_path}")
 

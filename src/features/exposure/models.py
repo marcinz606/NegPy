@@ -4,9 +4,9 @@ from typing import Dict, Any
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "cmy_max_density": 0.1,  # Max absolute density shift for CMY sliders
     "density_multiplier": 0.2,  # Maps Density slider to Log Exposure shift
-    "grade_multiplier": 2.0,    # Maps Grade slider to Sigmoid Slope
+    "grade_multiplier": 2.0,  # Maps Grade slider to Sigmoid Slope
     "target_paper_range": 2.1,  # To mimic exposure range of darkroom paper.
-    "anchor_midpoint": 0.0,     # Sigmoid Center in centered log space (Zone V)
+    "anchor_midpoint": 0.0,  # Sigmoid Center in centered log space (Zone V)
 }
 
 

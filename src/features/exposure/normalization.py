@@ -36,6 +36,7 @@ class LogNegativeBounds:
     Represents the sensitometric boundaries (black point and white point)
     of a negative emulsion in log-exposure space.
     """
+
     def __init__(
         self, floors: Tuple[float, float, float], ceils: Tuple[float, float, float]
     ):
@@ -55,7 +56,7 @@ def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     ceils: List[float] = []
     for ch in range(3):
         # 0.25th and 99.75th percentiles capture the usable density range
-        # but avoiding clipping 
+        # but avoiding clipping
         f, c = np.percentile(img[:, :, ch], [0.5, 99.5])
         floors.append(float(f))
         ceils.append(float(c))
