@@ -1,9 +1,41 @@
-import numpy as np
 from typing import Tuple, List
+import numpy as np
+from numba import njit, prange  # type: ignore
 from src.core.types import ImageBuffer
+from src.core.performance import time_function
+from src.core.validation import ensure_image
+
+
+@njit(parallel=True)
+def _normalize_log_image_jit(
+    img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray
+) -> np.ndarray:
+    """
+    Fast JIT normalization of log-exposure images to a 0.0-1.0 range.
+    """
+    h, w, c = img_log.shape
+    res = np.empty_like(img_log)
+    epsilon = 1e-6
+
+    for y in prange(h):
+        for x in range(w):
+            for ch in range(3):
+                f = floors[ch]
+                c_val = ceils[ch]
+                norm = (img_log[y, x, ch] - f) / (max(c_val - f, epsilon))
+                if norm < 0.0:
+                    norm = 0.0
+                elif norm > 1.0:
+                    norm = 1.0
+                res[y, x, ch] = norm
+    return res
 
 
 class LogNegativeBounds:
+    """
+    Represents the sensitometric boundaries (black point and white point)
+    of a negative emulsion in log-exposure space.
+    """
     def __init__(
         self, floors: Tuple[float, float, float], ceils: Tuple[float, float, float]
     ):
@@ -13,14 +45,18 @@ class LogNegativeBounds:
 
 def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     """
-    Finds the robust floor and ceiling of each channel in Log10 space.
-    Input should be Log10(Linear + epsilon).
+    Finds the robust floor (D-min) and ceiling (D-max) of each emulsion layer.
+
+    This function analyzes the image histogram in log-exposure space to identify
+    the usable dynamic range of the latent image. The 'floors' correspond to
+    the film base plus fog (B+F), while 'ceils' capture the densest highlights.
     """
     floors: List[float] = []
     ceils: List[float] = []
     for ch in range(3):
-        # 1st and 99.5th percentiles capture the usable density range
-        f, c = np.percentile(img[:, :, ch], [1.0, 99.5])
+        # 0.25th and 99.75th percentiles capture the usable density range
+        # but avoiding clipping 
+        f, c = np.percentile(img[:, :, ch], [0.5, 99.5])
         floors.append(float(f))
         ceils.append(float(c))
 
@@ -30,14 +66,17 @@ def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     )
 
 
+@time_function
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
-    Normalizes log image using the provided bounds.
+    Normalizes a log-exposure image using the measured sensitometric bounds.
+
+    This ensures that the latent image is correctly 'framed' within the dynamic
+    range of the subsequent characteristic curve processing.
     """
-    res = np.zeros_like(img_log)
-    epsilon = 1e-6
-    for ch in range(3):
-        f, c = bounds.floors[ch], bounds.ceils[ch]
-        # (val - min) / (max - min)
-        res[:, :, ch] = np.clip((img_log[:, :, ch] - f) / (max(c - f, epsilon)), 0, 1)
-    return res
+    floors = np.array(bounds.floors, dtype=np.float32)
+    ceils = np.array(bounds.ceils, dtype=np.float32)
+
+    return ensure_image(
+        _normalize_log_image_jit(img_log.astype(np.float32), floors, ceils)
+    )

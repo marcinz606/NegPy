@@ -119,7 +119,10 @@ async def main() -> None:
 
         # 8. Handle Export Logic via Service
         if sidebar_data.export_btn:
+            import time
+
             with status_area.status("Exporting...") as status:
+                start_time = time.perf_counter()
                 f_hash = current_file["hash"]
                 f_params = session.file_settings.get(f_hash, WorkspaceConfig())
 
@@ -148,11 +151,13 @@ async def main() -> None:
                     )
                     with open(out_path, "wb") as out_f:
                         out_f.write(img_bytes)
+
+                    elapsed = time.perf_counter() - start_time
                     status.update(
-                        label=f"Exported to {os.path.basename(out_path)}",
+                        label=f"Exported to {os.path.basename(out_path)} ({elapsed:.2f}s)",
                         state="complete",
                     )
-                    st.toast(f"Exported to {os.path.basename(out_path)}")
+                    st.toast(f"Exported to {os.path.basename(out_path)} in {elapsed:.2f}s")
 
         if sidebar_data.process_btn:
             await ExportService.run_batch(

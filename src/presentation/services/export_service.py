@@ -22,9 +22,15 @@ class ExportService:
         """
         Executes a multi-threaded batch export.
         """
-        os.makedirs(sidebar_data.export_path, exist_ok=True)
+        import time
 
-        with status_area.status("Batch processing...", expanded=True) as status:
+        os.makedirs(sidebar_data.export_path, exist_ok=True)
+        total_files = len(files)
+        start_time = time.perf_counter()
+
+        with status_area.status(
+            f"Processing {total_files} images...", expanded=True
+        ) as status:
             with concurrent.futures.ProcessPoolExecutor(
                 max_workers=APP_CONFIG.max_workers
             ) as executor:
@@ -54,15 +60,14 @@ class ExportService:
                         export_path=sidebar_data.export_path,
                     )
 
-                    batch_tasks.append(
-                        loop.run_in_executor(
-                            executor,
-                            renderer.load_raw_and_process,
-                            f_meta["path"],
-                            f_params,
-                            f_export_settings,
-                        )
+                    task = loop.run_in_executor(
+                        executor,
+                        renderer.load_raw_and_process,
+                        f_meta["path"],
+                        f_params,
+                        f_export_settings,
                     )
+                    batch_tasks.append(task)
 
                 results = await asyncio.gather(*batch_tasks, return_exceptions=True)
 
@@ -79,4 +84,7 @@ class ExportService:
                     elif isinstance(res, Exception):
                         st.error(f"Error processing {fname}: {res}")
 
-            status.update(label="Batch Processing Complete", state="complete")
+            elapsed = time.perf_counter() - start_time
+            status.update(
+                label=f"Batch Processing Complete in {elapsed:.2f}s", state="complete"
+            )

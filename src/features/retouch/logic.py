@@ -1,17 +1,151 @@
 import numpy as np
 import cv2
+from numba import njit, prange  # type: ignore
 from typing import List, Tuple
 from src.core.types import ImageBuffer
 from src.features.retouch.models import LocalAdjustmentConfig
 from src.core.validation import ensure_image
+from src.core.performance import time_function
+
+
+@njit(parallel=True)
+def _calculate_luma_mask_jit(
+    lum: np.ndarray, low: float, high: float, softness: float
+) -> np.ndarray:
+    """
+    Fast JIT calculation of luma mask with softness.
+    """
+    h, w = lum.shape
+    res = np.empty((h, w), dtype=np.float32)
+    soft_eps = softness + 1e-6
+
+    for y in prange(h):
+        for x in range(w):
+            val = lum[y, x]
+            # mask_low
+            m_low = (val - (low - softness)) / soft_eps
+            if m_low < 0.0:
+                m_low = 0.0
+            elif m_low > 1.0:
+                m_low = 1.0
+
+            # mask_high
+            m_high = ((high + softness) - val) / soft_eps
+            if m_high < 0.0:
+                m_high = 0.0
+            elif m_high > 1.0:
+                m_high = 1.0
+
+            res[y, x] = m_low * m_high
+    return res
+
+
+@njit(parallel=True)
+def _apply_local_exposure_kernel(
+    img: np.ndarray, mask: np.ndarray, strength: float
+) -> None:
+    """
+    Fast JIT application of exposure multipliers.
+    """
+    h, w, c = img.shape
+    ln2 = 0.69314718056
+    for y in prange(h):
+        for x in range(w):
+            m_val = mask[y, x]
+            if m_val > 0.0:
+                mult = np.exp(m_val * strength * ln2)
+                for ch in range(3):
+                    img[y, x, ch] *= mult
+
+
+@njit(parallel=True)
+def _compute_dust_masks_jit(
+    img: np.ndarray,
+    img_median: np.ndarray,
+    std: np.ndarray,
+    sens_factor: np.ndarray,
+    detail_boost: np.ndarray,
+    dust_threshold: float,
+) -> np.ndarray:
+    """
+    Fuses the dust detection logic.
+    """
+    h, w, c = img.shape
+    raw_mask = np.empty((h, w), dtype=np.float32)
+
+    for y in prange(h):
+        for x in range(w):
+            max_diff = 0.0
+            for ch in range(3):
+                d = abs(img[y, x, ch] - img_median[y, x, ch])
+                if d > max_diff:
+                    max_diff = d
+
+            thresh = dust_threshold * sens_factor[y, x] + detail_boost[y, x]
+            if max_diff > thresh and std[y, x] <= 0.2:
+                raw_mask[y, x] = 1.0
+            else:
+                raw_mask[y, x] = 0.0
+    return raw_mask
+
+
+@njit(parallel=True)
+def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
+    """
+    Fast JIT luminance calculation.
+    """
+    h, w, _ = img.shape
+    res = np.empty((h, w), dtype=np.float32)
+    for y in prange(h):
+        for x in range(w):
+            res[y, x] = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+    return res
 
 
 def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    # Rec.709 luma
-    res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
-    return ensure_image(res)
+    """
+    Calculates relative luminance using Rec. 709 coefficients.
+    """
+    return ensure_image(_get_luminance_jit(img.astype(np.float32)))
 
 
+@njit(parallel=True)
+def _apply_inpainting_grain_jit(
+    img: np.ndarray,
+    img_inpainted: np.ndarray,
+    mask_final: np.ndarray,
+    noise: np.ndarray,
+) -> np.ndarray:
+    """
+    Fuses inpainting blending and grain matching.
+    """
+    h, w, c = img_inpainted.shape
+    res = np.empty_like(img_inpainted)
+
+    for y in prange(h):
+        for x in range(w):
+            # Fused Luminance for noise modulation
+            lum = (
+                0.2126 * img_inpainted[y, x, 0]
+                + 0.7152 * img_inpainted[y, x, 1]
+                + 0.0722 * img_inpainted[y, x, 2]
+            ) / 255.0
+
+            mod = 5.0 * lum * (1.0 - lum)
+            m = mask_final[y, x, 0]
+
+            for ch in range(3):
+                # Inpaint + Noise
+                val = img_inpainted[y, x, ch] + noise[y, x, ch] * mod * m
+                # Blend with original
+                res[y, x, ch] = img[y, x, ch] * (1.0 - m) + (val / 255.0) * m
+
+    return res
+
+
+@time_function
 def apply_dust_removal(
     img: ImageBuffer,
     dust_remove: bool,
@@ -21,7 +155,11 @@ def apply_dust_removal(
     scale_factor: float,
 ) -> ImageBuffer:
     """
-    Applies both automatic and manual dust removal (healing).
+    Applies both automatic and manual dust removal (healing/inpainting).
+
+    Automatic detection identifies small, high-contrast irregularities (dust/scratches)
+    on the negative and heals them using median statistics. Manual healing uses
+    Telea inpainting with fused grain matching to preserve the photographic texture.
     """
     if not (dust_remove or manual_spots):
         return img
@@ -38,18 +176,24 @@ def apply_dust_removal(
         mean = cv2.blur(gray, (blur_win, blur_win))
         sq_mean = cv2.blur(gray**2, (blur_win, blur_win))
         std = np.sqrt(np.clip(sq_mean - mean**2, 0, None))
+
         flatness = np.clip(1.0 - (std / 0.08), 0, 1)
         flatness_weight = np.sqrt(flatness)
         brightness = np.clip(gray, 0, 1)
         highlight_sens = np.clip((brightness - 0.4) * 1.5, 0, 1)
+
         detail_boost = (1.0 - flatness) * 0.05
         sens_factor = (1.0 - 0.98 * flatness_weight) * (1.0 - 0.5 * highlight_sens)
-        adaptive_thresh = dust_threshold * sens_factor + detail_boost
 
-        diff = np.max(np.abs(img - img_median), axis=2)
-        raw_mask = (diff > adaptive_thresh).astype(np.float32)
-        exclusion_mask = (std > 0.2).astype(np.float32)
-        raw_mask = raw_mask * (1.0 - exclusion_mask)
+        # Use JIT for channel diff and thresholding
+        raw_mask = _compute_dust_masks_jit(
+            img.astype(np.float32),
+            img_median.astype(np.float32),
+            std.astype(np.float32),
+            sens_factor.astype(np.float32),
+            detail_boost.astype(np.float32),
+            float(dust_threshold),
+        )
 
         if np.any(raw_mask > 0):
             m_kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -82,25 +226,24 @@ def apply_dust_removal(
             cv2.inpaint(img_u8, manual_mask_u8, inpaint_rad, cv2.INPAINT_TELEA)
         )
 
-        # Grain Matching (Simple Noise addition to inpainted areas)
-        noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape)
-        noise_f32 = noise_arr.astype(np.float32)
-        lum_arr = get_luminance(
-            ensure_image(img_inpainted_u8.astype(np.float32) / 255.0)
-        )
-        mod_arr = 5.0 * lum_arr * (1.0 - lum_arr)
-        final_noise = noise_f32 * mod_arr[:, :, None]
+        # Grain Matching & Blending using fused JIT kernel
+        noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
 
         mask_base = manual_mask_u8.astype(np.float32) / 255.0
         mask_3d = mask_base[:, :, None]
         mask_blur = cv2.GaussianBlur(mask_3d, (3, 3), 0)
-        if mask_blur.ndim == 2:
-            mask_final = mask_blur[:, :, None]
-        else:
-            mask_final = mask_blur
+        mask_final = (
+            mask_blur[:, :, None] if mask_blur.ndim == 2 else mask_blur
+        ).astype(np.float32)
 
-        img_inpainted_f = img_inpainted_u8.astype(np.float32) + final_noise * mask_final
-        img = ensure_image(np.clip(img_inpainted_f, 0, 255) / 255.0)
+        img = ensure_image(
+            _apply_inpainting_grain_jit(
+                img.astype(np.float32),
+                img_inpainted_u8.astype(np.float32),
+                mask_final,
+                noise_arr,
+            )
+        )
 
     return ensure_image(img)
 
@@ -144,32 +287,39 @@ def generate_local_mask(
     return mask
 
 
+@time_function
 def calculate_luma_mask(
     img: ImageBuffer, luma_range: Tuple[float, float], softness: float
 ) -> np.ndarray:
     """
-    Calculates a mask based on image luminance levels.
+    Calculates a luminosity mask based on image luminance levels.
+
+    Luminosity masking (tonal masking) allows for selective adjustments to specific
+    zones (e.g., highlights only, deep shadows only) with controllable softness.
     """
     lum = get_luminance(img)
-
     low, high = luma_range
 
     if softness <= 0:
         return ((lum >= low) & (lum <= high)).astype(np.float32)
 
-    # Soft thresholds using smoothstep-like logic or simple linear ramps
-    mask_low = np.clip((lum - (low - softness)) / (softness + 1e-6), 0, 1)
-    # Upper bound ramp
-    mask_high = np.clip(((high + softness) - lum) / (softness + 1e-6), 0, 1)
+    return ensure_image(
+        _calculate_luma_mask_jit(
+            lum.astype(np.float32), float(low), float(high), float(softness)
+        )
+    )
 
-    return mask_low * mask_high
 
-
+@time_function
 def apply_local_adjustments(
     img: ImageBuffer, adjustments: List[LocalAdjustmentConfig], scale_factor: float
 ) -> ImageBuffer:
     """
-    Applies a list of dodge/burn adjustments to the image in linear space.
+    Applies a list of 'Dodge and Burn' adjustments to the image.
+
+    Dodging (lightening) and Burning (darkening) are classic darkroom techniques
+    used to locally manipulate exposure. This implementation uses spatial brushes
+    combined with optional tonal masking for precise control.
     """
     if not adjustments:
         return img
@@ -181,23 +331,16 @@ def apply_local_adjustments(
         if not points:
             continue
 
-        strength = adj.strength  # In EV stops
-        radius = adj.radius
-        feather = adj.feather
-        luma_range = adj.luma_range
-        luma_softness = adj.luma_softness
-
         # Spatial Mask
-        mask = generate_local_mask(h, w, points, radius, feather, scale_factor)
+        mask = generate_local_mask(h, w, points, adj.radius, adj.feather, scale_factor)
 
         # Tonal Mask
-        luma_mask = calculate_luma_mask(img, luma_range, luma_softness)
+        luma_mask = calculate_luma_mask(img, adj.luma_range, adj.luma_softness)
 
         # Combined Mask
         final_mask = mask * luma_mask
 
-        # Exposure math: New_Val = Old_Val * 2^(mask * EV)
-        exposure_mult = 2.0 ** (final_mask[:, :, None] * strength)
-        img *= exposure_mult
+        # Apply using JIT
+        _apply_local_exposure_kernel(img, final_mask, float(adj.strength))
 
     return ensure_image(np.clip(img, 0, 1))

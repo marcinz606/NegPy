@@ -30,7 +30,10 @@ def render_export_section() -> SidebarState:
                 color_options,
                 default_val=DEFAULT_WORKSPACE_CONFIG.export.export_color_space,
                 key="export_color_space",
-                help_text="Select color space of export file. sRGB is best for screen, AdobeRGB for print and Greyscale for B&W (not toned) prints.",
+                help_text=(
+                    "Select color space of export file. sRGB is best for screen, "
+                    "AdobeRGB for print and Greyscale for B&W (not toned) prints."
+                ),
             )
 
         c1, c2 = st.columns(2)

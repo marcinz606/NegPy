@@ -82,7 +82,7 @@ def render_exposure_section() -> None:
             render_control_slider(
                 label="Reach",
                 min_val=1.0,
-                max_val=10.0,
+                max_val=6.0,
                 default_val=3.0,
                 step=0.05,
                 key=vm.get_key("toe_width"),
@@ -91,7 +91,7 @@ def render_exposure_section() -> None:
             render_control_slider(
                 label="Hardness",
                 min_val=0.1,
-                max_val=5.0,
+                max_val=3.0,
                 default_val=1.0,
                 step=0.01,
                 key=vm.get_key("toe_hardness"),
@@ -120,7 +120,7 @@ def render_exposure_section() -> None:
             render_control_slider(
                 label="Hardness",
                 min_val=0.1,
-                max_val=5.0,
+                max_val=3.0,
                 default_val=1.0,
                 step=0.01,
                 key=vm.get_key("shoulder_hardness"),

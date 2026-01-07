@@ -3,12 +3,13 @@ import numpy as np
 from src.presentation.components.plots import plot_histogram, plot_photometric_curve
 from src.presentation.state.view_models import ExposureViewModel
 
+
 def render_analysis_section() -> None:
     """
     Renders the Analysis section (Histogram and Photometric Curve) of the sidebar.
     """
     exp_vm = ExposureViewModel()
-    
+
     with st.expander(":material/analytics: Analysis", expanded=True):
         if "preview_raw" in st.session_state:
             if "last_pil_prev" in st.session_state:

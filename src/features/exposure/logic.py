@@ -1,21 +1,126 @@
 import numpy as np
+from numba import njit, prange  # type: ignore
 from scipy.special import expit
 from typing import Tuple
 from src.core.types import ImageBuffer
 from src.core.validation import ensure_image
+from src.core.performance import time_function
+
+
+@njit(inline="always")
+def _fast_sigmoid(x: float) -> float:
+    """
+    Fast implementation of the logistic sigmoid function.
+    expit(x) = 1 / (1 + exp(-x))
+    """
+    if x >= 0:
+        z = np.exp(-x)
+        return float(1.0 / (1.0 + z))
+    else:
+        z = np.exp(x)
+        return float(z / (1.0 + z))
+
+
+@njit(parallel=True)
+def _apply_photometric_fused_kernel(
+    img: np.ndarray,
+    pivots: np.ndarray,
+    slopes: np.ndarray,
+    toe: float,
+    toe_width: float,
+    toe_hardness: float,
+    shoulder: float,
+    shoulder_width: float,
+    shoulder_hardness: float,
+    cmy_offsets: np.ndarray,
+    d_max: float = 4.0,
+    gamma: float = 2.2,
+) -> np.ndarray:
+    """
+    Fused JIT kernel that applies Hurter-Driffield (H&D) characteristic curves to all
+    channels in a single pass.
+
+    This kernel simulates the response of photographic paper or film by mapping
+    log-exposure to optical density using a sigmoid function. It incorporates
+    local contrast adjustments for the toe (highlights) and shoulder (shadows)
+    to mimic chemical roll-off and compression.
+
+    Args:
+        img: Input image in log-exposure space.
+        pivots: Log-exposure anchor points for each channel (Zone V equivalent).
+        slopes: Contrast grades (gamma) for each channel.
+        toe: Highlight compression strength (flaring/roll-off).
+        toe_width: Exposure range affected by highlight compression.
+        toe_hardness: Curvature shape of the highlight roll-off.
+        shoulder: Shadow compression strength (D-max approach).
+        shoulder_width: Exposure range affected by shadow compression.
+        shoulder_hardness: Curvature shape of the shadow roll-off.
+        cmy_offsets: Density offsets for color filtration (Cyan, Magenta, Yellow).
+        d_max: Maximum optical density of the simulated medium.
+        gamma: Display gamma for encoding the final transmittance.
+    """
+    h, w, c = img.shape
+    res = np.empty_like(img)
+    inv_gamma = 1.0 / gamma
+
+    for y in prange(h):
+        for x in range(w):
+            for ch in range(3):
+                val = img[y, x, ch] + cmy_offsets[ch]
+                diff = val - pivots[ch]
+                epsilon = 1e-6
+
+                # --- SHOULDER (Shadows) ---
+                sw_val = shoulder_width * (diff / max(float(pivots[ch]), epsilon))
+                w_s = _fast_sigmoid(sw_val)
+                prot_s = (4.0 * ((w_s - 0.5) ** 2)) ** shoulder_hardness
+                damp_shoulder = shoulder * (1.0 - w_s) * prot_s
+
+                # --- TOE (Highlights) ---
+                tw_val = toe_width * (diff / max(1.0 - float(pivots[ch]), epsilon))
+                w_t = _fast_sigmoid(tw_val)
+                prot_t = (4.0 * ((w_t - 0.5) ** 2)) ** toe_hardness
+                damp_toe = toe * w_t * prot_t
+
+                k_mod = 1.0 - damp_toe - damp_shoulder
+                if k_mod < 0.1:
+                    k_mod = 0.1
+                elif k_mod > 2.0:
+                    k_mod = 2.0
+
+                # Final Sigmoid -> Density
+                density = d_max * _fast_sigmoid(float(slopes[ch]) * diff * k_mod)
+
+                # Transmittance -> Gamma
+                transmittance = 10.0 ** (-density)
+                final_val = transmittance**inv_gamma
+
+                if final_val < 0.0:
+                    final_val = 0.0
+                elif final_val > 1.0:
+                    final_val = 1.0
+
+                res[y, x, ch] = final_val
+    return res
 
 
 class LogisticSigmoid:
     """
-    Models a photometric H&D Characteristic Curve using a logistic sigmoid.
-    D = L / (1 + exp(-k * (x - x0)))
+    Models a photometric H&D Characteristic Curve using a logistic sigmoid function.
+
+    The Hurter-Driffield curve describes the relationship between log-exposure (H)
+    and resulting optical density (D). This implementation uses a sigmoid as a
+    mathematical approximation of the linear region (gamma), the toe, and the shoulder.
+
+    Equation: D = L / (1 + exp(-k * (x - x0)))
+    where L is D-max, k is contrast grade, and x0 is the exposure pivot.
     """
 
     def __init__(
         self,
         contrast: float,
         pivot: float,
-        d_max: float = 3.5,
+        d_max: float = 4.0,
         toe: float = 0.0,
         toe_width: float = 3.0,
         toe_hardness: float = 1.0,
@@ -33,6 +138,7 @@ class LogisticSigmoid:
         self.shoulder_width = shoulder_width
         self.shoulder_hardness = shoulder_hardness
 
+    @time_function
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
         # Avoid log(0)
         diff = x - self.x0
@@ -56,6 +162,7 @@ class LogisticSigmoid:
         return ensure_image(res)
 
 
+@time_function
 def apply_characteristic_curve(
     img: ImageBuffer,
     params_r: Tuple[float, float],
@@ -71,86 +178,59 @@ def apply_characteristic_curve(
 ) -> ImageBuffer:
     """
     Applies a film/paper characteristic curve (Sigmoid) per channel in Log-Density space.
-    Input 'img' is expected to be Normalized Log Negative (or similar).
+
+    This function performs the core 'printing' operation, mapping the latent image
+    (log-exposure) to the visible positive (transmittance) through a simulated
+    sensitometric response. It handles per-channel pivots and slopes to allow
+    for both exposure/contrast control and color timing.
+
+    Args:
+        img: Normalized Log Negative image.
+        params_r/g/b: (Pivot, Slope) pairs for each emulsion layer.
+        toe/shoulder: Sensitometric roll-off parameters for highlights and shadows.
+        cmy_offsets: Subtractive filtration offsets in density units.
     """
-    d_max = 3.5
-
     # Unpack parameters (Pivot, Slope)
-    pivot_r, slope_r = params_r
-    pivot_g, slope_g = params_g
-    pivot_b, slope_b = params_b
+    pivots = np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32)
+    slopes = np.array([params_r[1], params_g[1], params_b[1]], dtype=np.float32)
+    offsets = np.array(cmy_offsets, dtype=np.float32)
 
-    # Initialize Curves
-    curve_r = LogisticSigmoid(
-        slope_r,
-        pivot_r,
-        d_max,
-        toe,
-        toe_width,
-        toe_hardness,
-        shoulder,
-        shoulder_width,
-        shoulder_hardness,
-    )
-    curve_g = LogisticSigmoid(
-        slope_g,
-        pivot_g,
-        d_max,
-        toe,
-        toe_width,
-        toe_hardness,
-        shoulder,
-        shoulder_width,
-        shoulder_hardness,
-    )
-    curve_b = LogisticSigmoid(
-        slope_b,
-        pivot_b,
-        d_max,
-        toe,
-        toe_width,
-        toe_hardness,
-        shoulder,
-        shoulder_width,
-        shoulder_hardness,
+    # Use the fused JIT kernel
+    res = _apply_photometric_fused_kernel(
+        img.astype(np.float32),
+        pivots,
+        slopes,
+        float(toe),
+        float(toe_width),
+        float(toe_hardness),
+        float(shoulder),
+        float(shoulder_width),
+        float(shoulder_hardness),
+        offsets,
     )
 
-    # Use the input directly (assumed to be pre-logged by Normalization step)
-    log_exp = img
-
-    # Apply per-channel Sigmoid -> Density
-    d_r = curve_r(log_exp[:, :, 0] + cmy_offsets[0])
-    d_g = curve_g(log_exp[:, :, 1] + cmy_offsets[1])
-    d_b = curve_b(log_exp[:, :, 2] + cmy_offsets[2])
-
-    # Calculate Transmittance (Positive Reflection)
-    t_r = np.power(10.0, -d_r)
-    t_g = np.power(10.0, -d_g)
-    t_b = np.power(10.0, -d_b)
-
-    res = np.stack([t_r, t_g, t_b], axis=-1)
-
-    # Gamma 2.2 for display/print linearity
-    res_gamma = np.power(res, 1.0 / 2.2)
-
-    return ensure_image(np.clip(res_gamma, 0.0, 1.0))
+    return ensure_image(res)
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:
     """
-    Converts a CMY slider value (-1.0..1.0) to a density shift.
-    """
-    from src.core.constants import PIPELINE_CONSTANTS
+    Converts a CMY slider value (-1.0..1.0) to a physical density shift (D).
 
-    absolute_density = val * PIPELINE_CONSTANTS["cmy_max_density"]
+    In subtractive color printing, filtration is measured in density units.
+    This helper maps the normalized UI units to the internal sensitometric
+    engine's log-density offsets.
+    """
+    from src.features.exposure.models import EXPOSURE_CONSTANTS
+
+    absolute_density = val * EXPOSURE_CONSTANTS["cmy_max_density"]
     return float(absolute_density / max(log_range, 1e-6))
 
 
 def density_to_cmy(density: float, log_range: float = 1.0) -> float:
     """
-    Converts a density shift back to a CMY slider value (-1.0..1.0).
+    Converts a physical density shift (D) back to a normalized CMY slider value.
     """
-    from src.core.constants import PIPELINE_CONSTANTS
+    from src.features.exposure.models import EXPOSURE_CONSTANTS
 
     absolute_density = density * log_range
-    return float(absolute_density / PIPELINE_CONSTANTS["cmy_max_density"])
+    return float(absolute_density / EXPOSURE_CONSTANTS["cmy_max_density"])

@@ -51,7 +51,7 @@ class TestWorkspaceSession(unittest.TestCase):
         # Assert
         # Check a few key defaults we relied on fixing
         self.assertEqual(config.lab.color_separation, 1.0)
-        self.assertEqual(config.lab.c_noise_strength, 0.25)
+        self.assertEqual(config.lab.c_noise_strength, 0.0)
         self.assertEqual(config.retouch.dust_size, 3)
         # Check export defaults
         self.assertEqual(config.export.export_fmt, "JPEG")

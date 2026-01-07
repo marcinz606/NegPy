@@ -1,13 +1,100 @@
 import numpy as np
+from numba import njit, prange  # type: ignore
 from typing import Dict
 from src.core.types import ImageBuffer
 from src.core.validation import ensure_image
 from src.features.toning.models import PaperSubstrate
+from src.core.performance import time_function
+
+
+@njit(parallel=True)
+def _apply_paper_substrate_jit(
+    img: np.ndarray, tint: np.ndarray, dmax_boost: float
+) -> np.ndarray:
+    """
+    Fast JIT simulation of paper substrate.
+    """
+    h, w, c = img.shape
+    res = np.empty_like(img)
+    for y in prange(h):
+        for x in range(w):
+            for ch in range(3):
+                val = img[y, x, ch] * tint[ch]
+                if dmax_boost != 1.0:
+                    val = val**dmax_boost
+                if val < 0.0:
+                    val = 0.0
+                elif val > 1.0:
+                    val = 1.0
+                res[y, x, ch] = val
+    return res
+
+
+@njit(parallel=True)
+def _apply_chemical_toning_jit(
+    img: np.ndarray, sel_strength: float, sep_strength: float
+) -> np.ndarray:
+    """
+    Fast JIT simulation of Selenium and Sepia toning with fused luminance calculation.
+    """
+    h, w, c = img.shape
+    res = np.empty_like(img)
+    sel_color = np.array([0.85, 0.75, 0.85], dtype=np.float32)
+    sep_color = np.array([1.1, 0.99, 0.825], dtype=np.float32)
+
+    for y in prange(h):
+        for x in range(w):
+            # Fused Luminance (Rec. 709)
+            lum_val = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+
+            sel_m = 0.0
+            if sel_strength > 0:
+                sel_m = 1.0 - lum_val
+                if sel_m < 0.0:
+                    sel_m = 0.0
+                sel_m = sel_m * sel_m * sel_strength
+
+            sep_m = 0.0
+            if sep_strength > 0:
+                sep_m = np.exp(-((lum_val - 0.6) ** 2) / 0.08) * sep_strength
+
+            for ch in range(3):
+                pixel = img[y, x, ch]
+                if sel_m > 0:
+                    pixel = pixel * (1.0 - sel_m) + (pixel * sel_color[ch]) * sel_m
+                if sep_m > 0:
+                    pixel = pixel * (1.0 - sep_m) + (pixel * sep_color[ch]) * sep_m
+
+                if pixel < 0.0:
+                    pixel = 0.0
+                elif pixel > 1.0:
+                    pixel = 1.0
+                res[y, x, ch] = pixel
+    return res
+
+
+@njit(parallel=True)
+def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
+    """
+    Fast JIT luminance calculation.
+    """
+    h, w, _ = img.shape
+    res = np.empty((h, w), dtype=np.float32)
+    for y in prange(h):
+        for x in range(w):
+            res[y, x] = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+    return res
 
 
 def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
-    return ensure_image(res)
+    """
+    Calculates relative luminance using Rec. 709 coefficients.
+    """
+    return ensure_image(_get_luminance_jit(img.astype(np.float32)))
 
 
 PAPER_PROFILES: Dict[str, PaperSubstrate] = {
@@ -19,59 +106,46 @@ PAPER_PROFILES: Dict[str, PaperSubstrate] = {
 }
 
 
+@time_function
 def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer:
     """
-    Simulates the physics of a photographic paper substrate.
+    Simulates the physical and optical properties of a photographic paper substrate.
+
+    Photographic papers have unique base tints (e.g., warm fiber, cool glossy RC)
+    and varying degrees of maximum achievable density (D-max). This function
+    tints the highlights and scales the shadows to mimic the chosen paper stock.
     """
     profile = PAPER_PROFILES.get(profile_name, PAPER_PROFILES["None"])
     tint = np.array(profile.tint, dtype=np.float32)
 
-    # Reflectance Simulation
-    res = img * tint
-
-    # D-Max Simulation
-    if profile.dmax_boost != 1.0:
-        boosted = np.power(res, profile.dmax_boost)
-        res = boosted if isinstance(boosted, np.ndarray) else np.array(boosted)
-
-    return ensure_image(np.clip(res, 0.0, 1.0))
+    return ensure_image(
+        _apply_paper_substrate_jit(
+            img.astype(np.float32), tint, float(profile.dmax_boost)
+        )
+    )
 
 
+@time_function
 def apply_chemical_toning(
     img: ImageBuffer,
     selenium_strength: float = 0.0,
     sepia_strength: float = 0.0,
 ) -> ImageBuffer:
     """
-    Simulates chemical reactivity of toners with silver halides.
+    Simulates the chemical reactivity of archival toners with silver halides.
+
+    - Selenium Toning: Mimics the replacement of silver with silver selenide,
+      primarily affecting the shadows and increasing D-max and permanence.
+    - Sepia Toning: Mimics the conversion of silver to silver sulfide,
+      producing characteristic warm, brownish tones in the midtones and highlights.
     """
     if selenium_strength == 0 and sepia_strength == 0:
         return img
 
-    res = img.copy()
-    lum = get_luminance(img)
-
-    # 1. Selenium (Shadow Focus)
-    if selenium_strength > 0:
-        sel_mask = np.clip(1.0 - lum, 0.0, 1.0)
-        sel_mask = sel_mask * sel_mask
-
-        sel_color = np.array([0.85, 0.75, 0.85], dtype=np.float32)
-
-        toned_sel = res * sel_color
-        res = ensure_image(
-            res * (1.0 - selenium_strength * sel_mask[:, :, None])
-            + toned_sel * (selenium_strength * sel_mask[:, :, None])
+    return ensure_image(
+        _apply_chemical_toning_jit(
+            img.astype(np.float32),
+            float(selenium_strength),
+            float(sepia_strength),
         )
-
-    # 2. Sepia (Mid/Highlight Focus)
-    if sepia_strength > 0:
-        sep_mask = np.exp(-((lum - 0.6) ** 2) / (2 * (0.2**2)))
-        sep_color = np.array([1.0, 0.9, 0.75], dtype=np.float32)
-
-        toned_sep = res * sep_color * 1.1
-        res = res * (1.0 - sepia_strength * sep_mask[:, :, None]) + toned_sep * (
-            sepia_strength * sep_mask[:, :, None]
-        )
-
-    return ensure_image(np.clip(res, 0.0, 1.0))
+    )
