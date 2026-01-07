@@ -1,6 +1,7 @@
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.idea/
 node_modules/
 # Electron & Packaging
 node_modules/

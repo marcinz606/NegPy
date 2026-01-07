@@ -195,6 +195,9 @@ class RetouchViewModel(BaseViewModel):
             "dust_size": "dust_size",
             "manual_dust_spots": "manual_dust_spots",
             "manual_dust_size": "manual_dust_size",
+            "pick_dust": "pick_dust",
+            "dust_scratch_mode": "dust_scratch_mode",
+            "show_dust_patches": "show_dust_patches",
             "local_adjustments": "local_adjustments",
         }
 

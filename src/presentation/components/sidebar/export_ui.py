@@ -1,7 +1,12 @@
 import streamlit as st
-from src.config import APP_CONFIG
+from src.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from src.presentation.state.view_models import SidebarState
-from src.presentation.components.sidebar.helpers import st_init, render_control_slider
+from src.presentation.components.sidebar.helpers import (
+    render_control_slider,
+    render_control_selectbox,
+    render_control_text_input,
+    render_control_color_picker,
+)
 
 
 def render_export_section() -> SidebarState:
@@ -10,17 +15,23 @@ def render_export_section() -> SidebarState:
     """
     with st.expander(":material/file_export: Export", expanded=True):
         c1, c2 = st.columns(2)
-        st_init("export_fmt", "JPEG")
-        c1.selectbox("Format", ["JPEG", "TIFF"], key="export_fmt")
+        with c1:
+            render_control_selectbox(
+                "Format",
+                ["JPEG", "TIFF"],
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_fmt,
+                key="export_fmt",
+            )
 
-        st_init("export_color_space", "sRGB")
         color_options = ["sRGB", "Adobe RGB", "Greyscale"]
-        c2.selectbox(
-            "Color Space",
-            color_options,
-            key="export_color_space",
-            help="Select color space of export file. sRGB is best for screen, AdobeRGB for print and Greyscale for B&W (not toned) prints.",
-        )
+        with c2:
+            render_control_selectbox(
+                "Color Space",
+                color_options,
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_color_space,
+                key="export_color_space",
+                help_text="Select color space of export file. sRGB is best for screen, AdobeRGB for print and Greyscale for B&W (not toned) prints.",
+            )
 
         c1, c2 = st.columns(2)
         with c1:
@@ -28,9 +39,9 @@ def render_export_section() -> SidebarState:
                 label="Size (cm)",
                 min_val=10.0,
                 max_val=60.0,
-                default_val=27.0,
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_print_size,
                 step=0.5,
-                key="export_size",
+                key="export_print_size",
                 help_text="Longer dimension of the print.",
             )
 
@@ -39,17 +50,16 @@ def render_export_section() -> SidebarState:
                 label="DPI",
                 min_val=100.0,
                 max_val=1600.0,
-                default_val=300.0,
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_dpi,
                 step=100.0,
                 key="export_dpi",
                 format="%d",
                 help_text="Desired DPI (dots per inch) resolution for printing.",
             )
 
-        st_init("export_path", APP_CONFIG.default_export_dir)
-        st.text_input(
+        render_control_text_input(
             "Export Directory",
-            value=st.session_state.get("export_path", APP_CONFIG.default_export_dir),
+            default_val=APP_CONFIG.default_export_dir,
             key="export_path",
         )
 
@@ -59,7 +69,7 @@ def render_export_section() -> SidebarState:
                 label="Border Size (cm)",
                 min_val=0.0,
                 max_val=2.5,
-                default_val=0.5,
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_border_size,
                 step=0.05,
                 key="export_border_size",
                 help_text=(
@@ -68,17 +78,18 @@ def render_export_section() -> SidebarState:
                 ),
             )
 
-        st_init("export_border_color", "#ffffff")
-        c_b2.color_picker(
-            "Border Color",
-            key="export_border_color",
-            help="Color (hex) of the added border.",
-        )
+        with c_b2:
+            render_control_color_picker(
+                "Border Color",
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_border_color,
+                key="export_border_color",
+                help_text="Color (hex) of the added border.",
+            )
 
     return SidebarState(
         out_fmt=st.session_state.export_fmt,
         color_space=st.session_state.export_color_space,
-        print_width=float(st.session_state.export_size),
+        print_width=float(st.session_state.export_print_size),
         print_dpi=int(st.session_state.export_dpi),
         export_path=st.session_state.export_path,
         add_border=float(st.session_state.export_border_size) > 0,

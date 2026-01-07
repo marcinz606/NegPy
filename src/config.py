@@ -8,7 +8,7 @@ from src.features.retouch.models import RetouchConfig
 from src.features.toning.models import ToningConfig
 
 # User dir env (mapped to OS Documents folder)
-BASE_USER_DIR = os.getenv("DARKROOM_USER_DIR", "user")
+BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
 
 # Global application constants
 APP_CONFIG = AppConfig(
@@ -72,11 +72,11 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     export=ExportConfig(
         export_fmt="JPEG",
         export_color_space="sRGB",
-        export_size=27.0,
+        export_print_size=27.0,
         export_dpi=300,
         export_add_border=False,
         export_border_size=0.5,
-        export_border_color="#ffffff",
+        export_border_color="#FFFFFF",
         export_path=APP_CONFIG.default_export_dir,
     ),
 )

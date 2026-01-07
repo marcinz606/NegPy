@@ -133,7 +133,9 @@ class WorkspaceSession:
 
         return self.file_settings[f_hash]
 
-    def update_active_settings(self, settings: WorkspaceConfig, persist: bool = True) -> None:
+    def update_active_settings(
+        self, settings: WorkspaceConfig, persist: bool = True
+    ) -> None:
         """
         Updates memory and persistent storage with provided settings for the active file.
         """
