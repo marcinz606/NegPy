@@ -54,8 +54,9 @@ def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     floors: List[float] = []
     ceils: List[float] = []
     for ch in range(3):
-        # 1st and 99.5th percentiles capture the usable density range
-        f, c = np.percentile(img[:, :, ch], [1.0, 99.5])
+        # 0.25th and 99.75th percentiles capture the usable density range
+        # but avoiding clipping 
+        f, c = np.percentile(img[:, :, ch], [0.5, 99.5])
         floors.append(float(f))
         ceils.append(float(c))
 

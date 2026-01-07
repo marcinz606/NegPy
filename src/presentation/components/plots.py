@@ -3,9 +3,8 @@ import matplotlib.pyplot as plt
 import scipy.ndimage as ndimage
 from typing import Tuple
 from src.core.types import ImageBuffer
-from src.core.constants import PIPELINE_CONSTANTS
 from src.features.exposure.logic import LogisticSigmoid
-from src.features.exposure.models import ExposureConfig
+from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
 from src.core.validation import ensure_image
 
 
@@ -64,9 +63,9 @@ def plot_photometric_curve(
     fig.patch.set_facecolor("#000000")
 
     master_ref = 1.0
-    exposure_shift = 0.1 + (params.density * PIPELINE_CONSTANTS["density_multiplier"])
+    exposure_shift = 0.1 + (params.density * EXPOSURE_CONSTANTS["density_multiplier"])
     pivot = master_ref - exposure_shift
-    slope = 1.0 + (params.grade * PIPELINE_CONSTANTS["grade_multiplier"])
+    slope = 1.0 + (params.grade * EXPOSURE_CONSTANTS["grade_multiplier"])
 
     curve = LogisticSigmoid(
         contrast=slope,

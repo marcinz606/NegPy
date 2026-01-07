@@ -1,76 +1,71 @@
 # 🎞️ DarkroomPy
 
-**DarkroomPy** is a professional, open-source RAW film negative processor built with Python. It provides a non-destructive workflow for converting film scans into high-quality images using physically accurate algorithms that mimic traditional darkroom chemistry and physics.
+**DarkroomPy** is an open-source tool for processing RAW film negatives. I built it because I wanted a way to convert my film scans using algorithms that actually act like a physical darkroom, rather than just tweaking RGB curves.
+
+The core idea is simple: treat the digital file like a physical negative. Instead of arbitrary sliders, you work with **Exposure**, **Contrast Grade**, and **CMY Filters**. It feels more like printing in a darkroom and less like wrestling with Photoshop.
+
+[📖 Read about the math behind the pipeline](docs/PIPELINE.md)
 
 ---
 
-## ✨ Key Features
+## ✨ Features
 
-### 🚀 Enterprise-Grade Architecture
-- **Vertical Slice Modularization**: A clean, modular design where each feature (Exposure, Geometry, Retouch, etc.) is an independent, testable unit.
-- **MVC / MVVM Pattern**: Strict separation of concerns between core logic (Services), coordination (Controllers), and rendering (Views).
-- **Zero-Copy Asset Management**: High-performance local workflows. Files are referenced from their original location without duplication, eliminating I/O overhead.
-- **Hot Folder Mode**: Real-time asset discovery. Automatically monitors watched directories and imports new RAW files as they appear.
-- **Persistent Asset Caching**: Hash-keyed thumbnail cache ensures instant UI responsiveness across sessions.
-- **Smart Global Persistence**: Remembers your entire environment (Export settings, Lab parameters, UI state) across application restarts and new file imports.
+### 🛠️ Under the Hood
+I've tried to keep the code clean and modular so it's easy to hack on:
+- **Modular Design**: Each tool (Exposure, Retouch, Geometry) is its own isolated module.
+- **Fast & Local**: No cloud nonsense. It scans your folders for new files and keeps everything on your disk.
+- **Smart Caching**: Thumbnails and settings are cached locally, so it feels snappy even with large libraries.
+- **Auto-Save**: All your edits (Exposure, Crop, etc.) are saved automatically to a local SQLite database.
 
-### ⚙️ Modular Processing Pipeline
-DarkroomPy implements an injectable 7-stage physical simulation pipeline:
+### 🧪 The Processing Pipeline
+The image goes through a 7-stage simulation:
 
-1.  **Geometry**: High-precision rotation and multi-aspect ratio autocrop (3:2, 4:3, 6:7, XPan).
-2.  **Normalization**: Simulates scanner gain to maximize SNR and measures log-density bounds.
+1.  **Geometry**: Auto-rotates and auto-crops to standard ratios (3:2, 6:7, etc.) by detecting the film borders.
+2.  **Normalization**: Strips away the film base (D-min) to get a clean signal.
 3.  **Photometric Engine**:
-    *   **H&D Curve Inversion**: Uses a logistic sigmoid characteristic curve to invert the negative.
-    *   **Sensitometric Solver**: Automatically determines optimal exposure using *Range-Based Anchoring* (Zone V placement) and *Auto-Grade*.
-    *   **Dichroic Filtration**: Professional subtractive CMY color correction model.
-4.  **Local Retouching**:
-    *   **Auto/Manual Dust Removal**: Adaptive healing algorithm that repairs defects while preserving grain.
-    *   **Dodge & Burn**: Linear-space local exposure adjustments with real-time "Rubylith" masks.
-5.  **PhotoLab Simulation**:
-    *   **Spectral Crosstalk**: Mathematically "un-mixes" film dye impurities (Color Separation).
-    *   **Hypertone**: Fuji Frontier-style contrast limited adaptive equalization (CLAHE).
-    *   **Chroma Denoise**: Targeted L*a*b* shadow noise filtering.
-6.  **Toning & Substrate**:
-    *   **Paper Simulation**: Physical modeling of paper tint and D-max boost (Warm Fiber, Cool Glossy).
-    *   **Chemical Toning**: Simulates Selenium (shadow cooling) and Sepia (highlight warming).
-7.  **Output Mapping**: Final non-destructive crop and resolution-agnostic rendering.
+    *   **Inversion**: Uses a sigmoid curve that mimics H&D film characteristic curves.
+    *   **Auto-Exposure**: Tries to find a good starting point (Zone V) automatically.
+    *   **Color**: Subtractive CMY filtration, just like a color enlarger head.
+4.  **Retouching**:
+    *   **Dust Removal**: Automatic median-based healing or manual "spotting" with grain matching.
+    *   **Dodge & Burn**: classic local exposure tools with soft masking.
+5.  **Lab Tools**:
+    *   **Crosstalk**: Fixes color purity by un-mixing dye overlap.
+    *   **Hypertone**: A local contrast boost (similar to Fuji Frontier scanners).
+    *   **Denoise**: Targets color noise in the shadows without killing grain.
+6.  **Toning**:
+    *   **Paper**: Simulates different paper bases (Warm, Cool, Glossy).
+    *   **Chemistry**: Simulates Selenium or Sepia toning for archival looks.
+7.  **Output**: Exports your final print.
 
 ---
 
 ## 🚀 Getting Started
 
-### Standalone Desktop App (Recommended)
-The easiest way to use DarkroomPy is to download the standalone installer. The desktop app leverages **Native OS Integration**, providing direct filesystem access and native file picker dialogs.
+### Download the App
+If you just want to use it, grab the installer for your OS from the **[Releases Page](https://github.com/USER/darkroom-py/releases)**.
 
-1.  Go to the **[Latest Releases](https://github.com/USER/darkroom-py/releases)**.
-2.  Download the installer for your platform:
-    *   **Windows**: `.exe` (NSIS Installer)
-    *   **macOS**: `.dmg` (Disk Image)
-    *   **Linux**: `.AppImage` or `.deb`
+### For Developers
+If you want to contribute or poke around the code, it's pretty standard Python stuff. I use Docker to keep the environment consistent.
 
-### Development Environment
-For developers, DarkroomPy provides a robust Docker-based environment and a comprehensive automation suite.
-
-#### Docker
+#### Run with Docker
 `make run-app`
 
-#### Automation (Makefile)
-- `make all`: Run the full verification suite (Lint -> Typecheck -> Test).
-- `make test`: Run unit tests.
-- `make type`: Execute strict Mypy type checks.
-- `make format`: Automatically format and fix style issues using Ruff.
+#### Run Tests & Checks
+There's a Makefile to help with quality control:
+- `make all`: Runs everything (Lint, Typecheck, Tests).
+- `make format`: Auto-formats code with Ruff.
 
 ---
 
-## 📂 Data & Persistence
-DarkroomPy maintains a professional data structure in your **Documents/DarkroomPy** folder:
-- **`edits.db`**: SQLite database storing all non-destructive per-file adjustments.
-- **`settings.db`**: Global persistence for environment preferences (Export DPI, Color Spaces, etc.).
-- **`cache/thumbnails/`**: Persistent PNG previews keyed by file content hash.
-- **`export/`**: Default high-resolution rendering output directory.
-- **`presets/`**: JSON-based look definitions.
+## 📂 Where's my data?
+DarkroomPy keeps everything in your **Documents/DarkroomPy** folder:
+- **`edits.db`**: Your edits.
+- **`settings.db`**: App preferences.
+- **`cache/`**: Thumbnails (safe to delete).
+- **`export/`**: Where your finished JPEGs go by default.
 
 ---
 
 ## ⚖️ License
-Distributed under the GNU General Public License v3 (GPL-3). See `LICENSE` for more information.
+This project is free software under the **GPL-3 License**. Feel free to use it, study it, and share it.

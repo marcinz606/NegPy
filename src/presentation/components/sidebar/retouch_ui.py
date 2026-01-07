@@ -15,34 +15,34 @@ def render_retouch_section() -> None:
 
     with st.expander(":material/brush: Retouch", expanded=True):
         render_control_checkbox(
-            "Automatic dust removal", default_val=True, key=vm.get_key("dust_remove")
+            "Automatic dust removal", default_val=False, key=vm.get_key("dust_remove")
         )
-        c1, c2 = st.columns(2)
 
-        with c1:
-            render_control_slider(
-                label="Threshold",
-                min_val=0.01,
-                max_val=1.0,
-                default_val=0.75,
-                step=0.01,
-                key=vm.get_key("dust_threshold"),
-                help_text="Sensitivity of automatic dust detection. Lower values detect more spots.",
-                disabled=not st.session_state.get(vm.get_key("dust_remove")),
-            )
+        if st.session_state.get(vm.get_key("dust_remove")):
+            c1, c2 = st.columns(2)
 
-        with c2:
-            render_control_slider(
-                label="Size",
-                min_val=1.0,
-                max_val=20.0,
-                default_val=3.0,
-                step=1.0,
-                key=vm.get_key("dust_size"),
-                format="%d",
-                help_text="Maximum size of spots to be automatically removed.",
-                disabled=not st.session_state.get(vm.get_key("dust_remove")),
-            )
+            with c1:
+                render_control_slider(
+                    label="Threshold",
+                    min_val=0.01,
+                    max_val=1.0,
+                    default_val=0.75,
+                    step=0.01,
+                    key=vm.get_key("dust_threshold"),
+                    help_text="Sensitivity of automatic dust detection. Lower values detect more spots.",
+                )
+
+            with c2:
+                render_control_slider(
+                    label="Size",
+                    min_val=1.0,
+                    max_val=20.0,
+                    default_val=3.0,
+                    step=1.0,
+                    key=vm.get_key("dust_size"),
+                    format="%d",
+                    help_text="Maximum size of spots to be automatically removed.",
+                )
 
         c1, c2 = st.columns([2, 1])
         with c1:

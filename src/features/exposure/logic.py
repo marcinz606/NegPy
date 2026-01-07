@@ -33,7 +33,7 @@ def _apply_photometric_fused_kernel(
     shoulder_width: float,
     shoulder_hardness: float,
     cmy_offsets: np.ndarray,
-    d_max: float = 3.5,
+    d_max: float = 4.0,
     gamma: float = 2.2,
 ) -> np.ndarray:
     """
@@ -120,7 +120,7 @@ class LogisticSigmoid:
         self,
         contrast: float,
         pivot: float,
-        d_max: float = 3.5,
+        d_max: float = 4.0,
         toe: float = 0.0,
         toe_width: float = 3.0,
         toe_hardness: float = 1.0,
@@ -220,9 +220,9 @@ def cmy_to_density(val: float, log_range: float = 1.0) -> float:
     This helper maps the normalized UI units to the internal sensitometric
     engine's log-density offsets.
     """
-    from src.core.constants import PIPELINE_CONSTANTS
+    from src.features.exposure.models import EXPOSURE_CONSTANTS
 
-    absolute_density = val * PIPELINE_CONSTANTS["cmy_max_density"]
+    absolute_density = val * EXPOSURE_CONSTANTS["cmy_max_density"]
     return float(absolute_density / max(log_range, 1e-6))
 
 
@@ -230,7 +230,7 @@ def density_to_cmy(density: float, log_range: float = 1.0) -> float:
     """
     Converts a physical density shift (D) back to a normalized CMY slider value.
     """
-    from src.core.constants import PIPELINE_CONSTANTS
+    from src.features.exposure.models import EXPOSURE_CONSTANTS
 
     absolute_density = density * log_range
-    return float(absolute_density / PIPELINE_CONSTANTS["cmy_max_density"])
+    return float(absolute_density / EXPOSURE_CONSTANTS["cmy_max_density"])

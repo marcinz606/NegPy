@@ -24,15 +24,6 @@ APP_CONFIG = AppConfig(
     adobe_rgb_profile="icc/AdobeCompat-v4.icc",
 )
 
-# Centralized multipliers and targets for the photometric engine
-PIPELINE_CONSTANTS = {
-    "cmy_max_density": 0.2,  # Max absolute density shift for CMY sliders
-    "density_multiplier": 0.4,  # Maps Density slider to Log Exposure shift
-    "grade_multiplier": 1.5,  # Maps Grade slider to Sigmoid Slope
-    "target_paper_range": 2.1,  # To mimic exposure range of darkroom paper.
-    "anchor_midpoint": 0.0,  # Sigmoid Center in centered log space (Zone V)
-}
-
 # The modular default configuration for every newly imported RAW file
 DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     process_mode="C41",
@@ -65,7 +56,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         sepia_strength=0.0,
     ),
     retouch=RetouchConfig(
-        dust_remove=True,
+        dust_remove=False,
         dust_threshold=0.75,
         dust_size=3,
     ),

@@ -10,7 +10,7 @@ from src.features.exposure.analysis import (
     prepare_exposure_analysis,
     analyze_sensitometry,
 )
-from src.core.constants import PIPELINE_CONSTANTS
+from src.features.exposure.models import EXPOSURE_CONSTANTS
 from src.core.validation import validate_int
 from src.presentation.state.state_manager import save_settings
 from src.presentation.state.view_models import SidebarState
@@ -164,7 +164,7 @@ def render_image_view(
             norm_log, _ = prepare_exposure_analysis(img_raw)
             dr, mid = analyze_sensitometry(norm_log)
             exp_vm = ExposureViewModel()
-            shift = 0.1 + (exp_vm.density * PIPELINE_CONSTANTS["density_multiplier"])
+            shift = 0.1 + (exp_vm.density * EXPOSURE_CONSTANTS["density_multiplier"])
             pivot = 1.0 - shift
             zone_diff = mid - pivot
 

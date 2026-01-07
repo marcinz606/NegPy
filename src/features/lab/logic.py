@@ -121,14 +121,14 @@ def apply_hypertone(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
 
-    'Hypertone' simulates high-acutance development techniques that enhance edge
+    It's called 'Hypertone' by Fuji and is "baked in" Frontier scanner. It enhances edge
     definition and texture without significantly affecting global tonality.
     It operates on the Lightness (L) channel to preserve color relationships.
     """
     if strength <= 0:
         return img
 
-    # RGB to LAB
+    # RGB to LAB space
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l_chan, a, b = cv2.split(lab)
 
@@ -141,7 +141,7 @@ def apply_hypertone(img: ImageBuffer, strength: float) -> ImageBuffer:
 
     l_enhanced = l_enhanced_u16.astype(np.float32) * (100.0 / 65535.0)
 
-    # Blend original and enhanced
+    # Blend original and enhanced to keep exposure
     l_final = l_chan * (1.0 - strength) + l_enhanced * strength
 
     lab_enhanced = cv2.merge([l_final, a, b])
@@ -156,11 +156,7 @@ def apply_chroma_noise_removal(
 ) -> ImageBuffer:
     """
     Reduces color (chrominance) noise in deep shadows.
-
-    This process mimics the smoothing of irregular silver grain clusters or
-    scanner-induced color noise in dark areas of the negative. It uses a
-    combination of bilateral filtering and Gaussian blurs on the A and B
-    channels of the LAB color space.
+    Also standard in Lab scanners.
     """
     if strength_input <= 0:
         return img
@@ -242,10 +238,7 @@ def _apply_unsharp_mask_jit(
 def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
     """
     Applies Unsharp Mask (USM) sharpening to the Lightness channel.
-
-    USM simulates the 'acutance' effect in darkroom printing, where a slightly
-    blurred negative (mask) is used to enhance edges. This implementation
-    uses a JIT kernel for efficient processing in the LAB color space.
+    Uses a JIT kernel for efficient processing in the LAB color space.
     """
     if amount <= 0:
         return img
