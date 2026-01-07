@@ -1,7 +1,10 @@
 import streamlit as st
 from src.presentation.state.view_models import RetouchViewModel
 from src.presentation.state.state_manager import save_settings
-from src.presentation.components.sidebar.helpers import render_control_slider, render_control_checkbox
+from src.presentation.components.sidebar.helpers import (
+    render_control_slider,
+    render_control_checkbox,
+)
 
 
 def render_retouch_section() -> None:
@@ -12,9 +15,7 @@ def render_retouch_section() -> None:
 
     with st.expander(":material/brush: Retouch", expanded=True):
         render_control_checkbox(
-            "Automatic dust removal",
-            default_val=True,
-            key=vm.get_key("dust_remove")
+            "Automatic dust removal", default_val=True, key=vm.get_key("dust_remove")
         )
         c1, c2 = st.columns(2)
 
@@ -45,7 +46,9 @@ def render_retouch_section() -> None:
 
         c1, c2 = st.columns([2, 1])
         with c1:
-            render_control_checkbox("Manual Dust Correction", default_val=False, key=vm.get_key("pick_dust"))
+            render_control_checkbox(
+                "Manual Dust Correction", default_val=False, key=vm.get_key("pick_dust")
+            )
 
         manual_spots_key = vm.get_key("manual_dust_spots")
         manual_spots = st.session_state.get(manual_spots_key)
@@ -65,9 +68,11 @@ def render_retouch_section() -> None:
             render_control_checkbox(
                 "Scratch Mode (Click Start -> Click End)",
                 default_val=False,
-                key=vm.get_key("dust_scratch_mode")
+                key=vm.get_key("dust_scratch_mode"),
             )
-            render_control_checkbox("Show Patches", default_val=False, key=vm.get_key("show_dust_patches"))
+            render_control_checkbox(
+                "Show Patches", default_val=False, key=vm.get_key("show_dust_patches")
+            )
 
             c1, c2 = st.columns(2)
             if c1.button("Undo Last", width="stretch"):

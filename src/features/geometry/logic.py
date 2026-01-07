@@ -3,8 +3,10 @@ import cv2
 from typing import Tuple, Optional
 from src.core.types import ImageBuffer, ROI
 from src.core.validation import ensure_image
+from src.perf_utils import time_function
 
 
+@time_function
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     """
     Rotates the image by a specific angle (in degrees).
@@ -34,6 +36,7 @@ def get_luminance(img: ImageBuffer) -> ImageBuffer:
     return ensure_image(res)
 
 
+@time_function
 def get_autocrop_coords(
     img: ImageBuffer,
     offset_px: int = 0,
@@ -104,6 +107,7 @@ def get_autocrop_coords(
     return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
 
 
+@time_function
 def map_coords_to_geometry(
     nx: float,
     ny: float,

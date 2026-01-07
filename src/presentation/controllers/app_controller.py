@@ -80,13 +80,14 @@ class AppController:
         # 2. Run Engine with explicit context to capture intermediate states
         h_orig, w_cols = raw.shape[:2]
         context = PipelineContext(
-            scale_factor=max(h_orig, w_cols) / float(self.engine.config.preview_render_size),
+            scale_factor=max(h_orig, w_cols)
+            / float(self.engine.config.preview_render_size),
             original_size=(h_orig, w_cols),
             process_mode=params.process_mode,
         )
 
         processed = self.engine.process(raw.copy(), params, context=context)
-        
+
         # Capture base positive for accurate mask rendering in UI
         if "base_positive" in context.metrics:
             st.session_state.base_positive = context.metrics["base_positive"]

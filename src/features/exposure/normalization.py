@@ -1,6 +1,34 @@
-import numpy as np
 from typing import Tuple, List
+import numpy as np
+from numba import njit, prange  # type: ignore
 from src.core.types import ImageBuffer
+from src.perf_utils import time_function
+from src.core.validation import ensure_image
+
+
+@njit(parallel=True)
+def _normalize_log_image_jit(
+    img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray
+) -> np.ndarray:
+    """
+    Fast JIT normalization of log images.
+    """
+    h, w, c = img_log.shape
+    res = np.empty_like(img_log)
+    epsilon = 1e-6
+
+    for y in prange(h):
+        for x in range(w):
+            for ch in range(3):
+                f = floors[ch]
+                c_val = ceils[ch]
+                norm = (img_log[y, x, ch] - f) / (max(c_val - f, epsilon))
+                if norm < 0.0:
+                    norm = 0.0
+                elif norm > 1.0:
+                    norm = 1.0
+                res[y, x, ch] = norm
+    return res
 
 
 class LogNegativeBounds:
@@ -30,14 +58,14 @@ def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     )
 
 
+@time_function
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
     Normalizes log image using the provided bounds.
     """
-    res = np.zeros_like(img_log)
-    epsilon = 1e-6
-    for ch in range(3):
-        f, c = bounds.floors[ch], bounds.ceils[ch]
-        # (val - min) / (max - min)
-        res[:, :, ch] = np.clip((img_log[:, :, ch] - f) / (max(c - f, epsilon)), 0, 1)
-    return res
+    floors = np.array(bounds.floors, dtype=np.float32)
+    ceils = np.array(bounds.ceils, dtype=np.float32)
+
+    return ensure_image(
+        _normalize_log_image_jit(img_log.astype(np.float32), floors, ceils)
+    )

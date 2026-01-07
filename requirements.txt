@@ -1,6 +1,7 @@
 # backend stuff
 opencv-python-headless==4.12.0.88
 numpy==2.2.6
+numba==0.63.1
 rawpy==0.25.1
 imageio==2.37.2
 tifffile==2025.12.20

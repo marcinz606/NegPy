@@ -112,7 +112,7 @@ def render_image_view(
             adj.luma_softness,
             geo_conf,
             roi,
-            border_px
+            border_px,
         )
 
     current_file = session.current_file
@@ -129,10 +129,12 @@ def render_image_view(
 
         is_dust_mode = st.session_state.get(vm_retouch.get_key("pick_dust"), False)
         img_display = pil_prev.copy()
-        
+
         # --- Dust Patches Overlay ---
         if st.session_state.get(vm_retouch.get_key("show_dust_patches")):
-            manual_spots = st.session_state.get(vm_retouch.get_key("manual_dust_spots"), [])
+            manual_spots = st.session_state.get(
+                vm_retouch.get_key("manual_dust_spots"), []
+            )
             img_display = OverlayService.apply_dust_patches(
                 img_display,
                 manual_spots,
@@ -140,7 +142,7 @@ def render_image_view(
                 geo_conf,
                 roi,
                 border_px,
-                alpha=100
+                alpha=100,
             )
 
         working_size = ctx.working_copy_size
@@ -199,7 +201,10 @@ def render_image_view(
                     else:
                         sx, sy = st.session_state.dust_start_point
                         size = validate_int(
-                            st.session_state.get(vm_retouch.get_key("manual_dust_size"), 10), 10
+                            st.session_state.get(
+                                vm_retouch.get_key("manual_dust_size"), 10
+                            ),
+                            10,
                         )
                         dist = np.hypot(rx - sx, ry - sy)
                         num_steps = int(
@@ -220,7 +225,10 @@ def render_image_view(
                         st.rerun()
                 else:
                     size = validate_int(
-                        st.session_state.get(vm_retouch.get_key("manual_dust_size"), 10), 10
+                        st.session_state.get(
+                            vm_retouch.get_key("manual_dust_size"), 10
+                        ),
+                        10,
                     )
                     st.session_state[manual_spots_key].append((rx, ry, size))
                     save_settings()

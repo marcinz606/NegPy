@@ -38,7 +38,12 @@ class DarkroomEngine:
             CropProcessor(),
         ]
 
-    def process(self, img: ImageBuffer, settings: WorkspaceConfig, context: Optional[PipelineContext] = None) -> ImageBuffer:
+    def process(
+        self,
+        img: ImageBuffer,
+        settings: WorkspaceConfig,
+        context: Optional[PipelineContext] = None,
+    ) -> ImageBuffer:
         """
         Executes the processing pipeline.
         """
@@ -51,7 +56,8 @@ class DarkroomEngine:
         # Shared execution context
         if context is None:
             context = PipelineContext(
-                scale_factor=max(h_orig, w_cols) / float(self.config.preview_render_size),
+                scale_factor=max(h_orig, w_cols)
+                / float(self.config.preview_render_size),
                 original_size=(h_orig, w_cols),
                 process_mode=settings.process_mode,
             )
@@ -62,6 +68,8 @@ class DarkroomEngine:
         for processor in pipeline:
             img = processor.process(img, context)
             if isinstance(processor, PhotometricProcessor):
+                # Keep positive from this point in the pipeline
+                # for the purpose of computing masks for dodge & burn
                 context.metrics["base_positive"] = img.copy()
 
         return img

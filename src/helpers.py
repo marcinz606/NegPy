@@ -1,6 +1,24 @@
 import hashlib
 import os
 import numpy as np
+from numba import njit, prange  # type: ignore
+from src.perf_utils import time_function
+from src.core.validation import ensure_image
+
+
+@njit(parallel=True)
+def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
+    """
+    Fast JIT luminance calculation.
+    """
+    h, w, _ = img.shape
+    res = np.empty((h, w), dtype=np.float32)
+    for y in prange(h):
+        for x in range(w):
+            res[y, x] = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+    return res
 
 
 def ensure_rgb(img: np.ndarray) -> np.ndarray:
@@ -16,11 +34,16 @@ def ensure_rgb(img: np.ndarray) -> np.ndarray:
     return img
 
 
+@time_function
 def get_luminance(img: np.ndarray) -> np.ndarray:
     """
     Calculates relative luminance using Rec. 709 coefficients.
     Supports both 3D (H, W, 3) and 2D (N, 3) arrays.
     """
+    if img.ndim == 3:
+        return ensure_image(_get_luminance_jit(img.astype(np.float32)))
+
+    # Fallback for 2D (flattened) arrays
     res: np.ndarray = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
     return res
 

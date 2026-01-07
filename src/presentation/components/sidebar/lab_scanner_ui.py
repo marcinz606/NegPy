@@ -1,7 +1,6 @@
 import streamlit as st
 from src.presentation.state.view_models import LabViewModel
 from src.presentation.components.sidebar.helpers import render_control_slider
-from src.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def render_lab_scanner_section() -> None:

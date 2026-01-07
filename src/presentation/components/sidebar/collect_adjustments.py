@@ -1,5 +1,4 @@
 from src.presentation.state.view_models import SidebarState
-import streamlit as st
 from src.presentation.components.sidebar.local_adjustments_ui import (
     render_local_adjustments,
 )
@@ -61,7 +60,7 @@ def render_adjustments() -> SidebarState:
 
     # 5. Retouch
     render_retouch_section()
-    
+
     # 6. Export
     export_data = render_export_section()
     export_data.export_btn = export_btn_sidebar

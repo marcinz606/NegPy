@@ -122,10 +122,14 @@ def render_local_adjustments() -> None:
                 active_adj.points = []
                 st.rerun()
 
-            render_control_checkbox("Show Mask Overlay", default_val=True, key="show_active_mask")
+            render_control_checkbox(
+                "Show Mask Overlay", default_val=True, key="show_active_mask"
+            )
 
             # Mode toggle
-            render_control_checkbox("Paint Mode", default_val=False, key="pick_local", is_toggle=True)
+            render_control_checkbox(
+                "Paint Mode", default_val=False, key="pick_local", is_toggle=True
+            )
 
             if st.session_state.get("pick_local"):
                 st.info("Click on the image to paint the adjustment.")
