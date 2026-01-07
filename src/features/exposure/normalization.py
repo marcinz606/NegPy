@@ -11,7 +11,7 @@ def _normalize_log_image_jit(
     img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray
 ) -> np.ndarray:
     """
-    Fast JIT normalization of log images.
+    Fast JIT normalization of log-exposure images to a 0.0-1.0 range.
     """
     h, w, c = img_log.shape
     res = np.empty_like(img_log)
@@ -32,6 +32,10 @@ def _normalize_log_image_jit(
 
 
 class LogNegativeBounds:
+    """
+    Represents the sensitometric boundaries (black point and white point)
+    of a negative emulsion in log-exposure space.
+    """
     def __init__(
         self, floors: Tuple[float, float, float], ceils: Tuple[float, float, float]
     ):
@@ -41,8 +45,11 @@ class LogNegativeBounds:
 
 def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     """
-    Finds the robust floor and ceiling of each channel in Log10 space.
-    Input should be Log10(Linear + epsilon).
+    Finds the robust floor (D-min) and ceiling (D-max) of each emulsion layer.
+
+    This function analyzes the image histogram in log-exposure space to identify
+    the usable dynamic range of the latent image. The 'floors' correspond to
+    the film base plus fog (B+F), while 'ceils' capture the densest highlights.
     """
     floors: List[float] = []
     ceils: List[float] = []
@@ -61,7 +68,10 @@ def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
 @time_function
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
-    Normalizes log image using the provided bounds.
+    Normalizes a log-exposure image using the measured sensitometric bounds.
+
+    This ensures that the latent image is correctly 'framed' within the dynamic
+    range of the subsequent characteristic curve processing.
     """
     floors = np.array(bounds.floors, dtype=np.float32)
     ceils = np.array(bounds.ceils, dtype=np.float32)

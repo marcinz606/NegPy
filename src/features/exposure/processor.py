@@ -12,7 +12,10 @@ from src.features.exposure.normalization import (
 
 class NormalizationProcessor(IProcessor):
     """
-    Step 1 of Exposure: Log-Normalization.
+    Handles Log-Normalization of the linear RAW input.
+
+    This stage converts linear photometric data into a logarithmic negative-like
+    representation and normalizes it based on the detected dynamic range (D-min/D-max).
     """
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
@@ -37,7 +40,11 @@ class NormalizationProcessor(IProcessor):
 
 class PhotometricProcessor(IProcessor):
     """
-    Step 2 of Exposure: Inversion & Grading.
+    Simulates the Photometric 'Printing' process.
+
+    This processor applies the Hurter-Driffield characteristic curves to the
+    normalized log-exposure data. It handles 'printing' parameters such as
+    Exposure (Density), Contrast (Grade), and Color Filtration (CMY).
     """
 
     def __init__(self, config: ExposureConfig):

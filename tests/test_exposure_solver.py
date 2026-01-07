@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 from src.features.exposure.analysis import (
     prepare_exposure_analysis,

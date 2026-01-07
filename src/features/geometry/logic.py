@@ -10,6 +10,9 @@ from src.core.performance import time_function
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     """
     Rotates the image by a specific angle (in degrees).
+
+    Used for horizon leveling and precise alignment. Uses bilinear interpolation
+    to preserve fine photographic detail during the transformation.
     """
     if angle == 0.0:
         return img
@@ -45,8 +48,11 @@ def get_autocrop_coords(
     detect_res: int = 1800,
 ) -> ROI:
     """
-    Calculates the autocrop coordinates.
-    Returns (y1, y2, x1, x2).
+    Autonomously detects the image boundaries of a scanned negative.
+
+    This function identifies the frame edges (rebates) by analyzing the
+    intensity transitions between the latent image and the unexposed film base.
+    It then enforces a specific aspect ratio (e.g., 3:2, 6:7) for the final crop.
     """
     h, w = img.shape[:2]
     det_scale = detect_res / max(h, w)

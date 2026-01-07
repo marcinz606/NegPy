@@ -37,7 +37,27 @@ def _apply_photometric_fused_kernel(
     gamma: float = 2.2,
 ) -> np.ndarray:
     """
-    Fused JIT kernel that applies characteristic curves to all channels in one pass.
+    Fused JIT kernel that applies Hurter-Driffield (H&D) characteristic curves to all
+    channels in a single pass.
+
+    This kernel simulates the response of photographic paper or film by mapping
+    log-exposure to optical density using a sigmoid function. It incorporates
+    local contrast adjustments for the toe (highlights) and shoulder (shadows)
+    to mimic chemical roll-off and compression.
+
+    Args:
+        img: Input image in log-exposure space.
+        pivots: Log-exposure anchor points for each channel (Zone V equivalent).
+        slopes: Contrast grades (gamma) for each channel.
+        toe: Highlight compression strength (flaring/roll-off).
+        toe_width: Exposure range affected by highlight compression.
+        toe_hardness: Curvature shape of the highlight roll-off.
+        shoulder: Shadow compression strength (D-max approach).
+        shoulder_width: Exposure range affected by shadow compression.
+        shoulder_hardness: Curvature shape of the shadow roll-off.
+        cmy_offsets: Density offsets for color filtration (Cyan, Magenta, Yellow).
+        d_max: Maximum optical density of the simulated medium.
+        gamma: Display gamma for encoding the final transmittance.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -86,8 +106,14 @@ def _apply_photometric_fused_kernel(
 
 class LogisticSigmoid:
     """
-    Models a photometric H&D Characteristic Curve using a logistic sigmoid.
-    D = L / (1 + exp(-k * (x - x0)))
+    Models a photometric H&D Characteristic Curve using a logistic sigmoid function.
+
+    The Hurter-Driffield curve describes the relationship between log-exposure (H)
+    and resulting optical density (D). This implementation uses a sigmoid as a
+    mathematical approximation of the linear region (gamma), the toe, and the shoulder.
+
+    Equation: D = L / (1 + exp(-k * (x - x0)))
+    where L is D-max, k is contrast grade, and x0 is the exposure pivot.
     """
 
     def __init__(
@@ -152,8 +178,17 @@ def apply_characteristic_curve(
 ) -> ImageBuffer:
     """
     Applies a film/paper characteristic curve (Sigmoid) per channel in Log-Density space.
-    Input 'img' is expected to be Normalized Log Negative (or similar).
-    Uses Numba JIT for high-performance fused execution.
+
+    This function performs the core 'printing' operation, mapping the latent image
+    (log-exposure) to the visible positive (transmittance) through a simulated
+    sensitometric response. It handles per-channel pivots and slopes to allow
+    for both exposure/contrast control and color timing.
+
+    Args:
+        img: Normalized Log Negative image.
+        params_r/g/b: (Pivot, Slope) pairs for each emulsion layer.
+        toe/shoulder: Sensitometric roll-off parameters for highlights and shadows.
+        cmy_offsets: Subtractive filtration offsets in density units.
     """
     # Unpack parameters (Pivot, Slope)
     pivots = np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32)
@@ -179,7 +214,11 @@ def apply_characteristic_curve(
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:
     """
-    Converts a CMY slider value (-1.0..1.0) to a density shift.
+    Converts a CMY slider value (-1.0..1.0) to a physical density shift (D).
+
+    In subtractive color printing, filtration is measured in density units.
+    This helper maps the normalized UI units to the internal sensitometric
+    engine's log-density offsets.
     """
     from src.core.constants import PIPELINE_CONSTANTS
 
@@ -189,7 +228,7 @@ def cmy_to_density(val: float, log_range: float = 1.0) -> float:
 
 def density_to_cmy(density: float, log_range: float = 1.0) -> float:
     """
-    Converts a density shift back to a CMY slider value (-1.0..1.0).
+    Converts a physical density shift (D) back to a normalized CMY slider value.
     """
     from src.core.constants import PIPELINE_CONSTANTS
 

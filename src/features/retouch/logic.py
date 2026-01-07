@@ -89,10 +89,60 @@ def _compute_dust_masks_jit(
     return raw_mask
 
 
+@njit(parallel=True)
+def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
+    """
+    Fast JIT luminance calculation.
+    """
+    h, w, _ = img.shape
+    res = np.empty((h, w), dtype=np.float32)
+    for y in prange(h):
+        for x in range(w):
+            res[y, x] = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+    return res
+
+
 def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    # Rec.709 luma
-    res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
-    return ensure_image(res)
+    """
+    Calculates relative luminance using Rec. 709 coefficients.
+    """
+    return ensure_image(_get_luminance_jit(img.astype(np.float32)))
+
+
+@njit(parallel=True)
+def _apply_inpainting_grain_jit(
+    img: np.ndarray,
+    img_inpainted: np.ndarray,
+    mask_final: np.ndarray,
+    noise: np.ndarray,
+) -> np.ndarray:
+    """
+    Fuses inpainting blending and grain matching.
+    """
+    h, w, c = img_inpainted.shape
+    res = np.empty_like(img_inpainted)
+
+    for y in prange(h):
+        for x in range(w):
+            # Fused Luminance for noise modulation
+            lum = (
+                0.2126 * img_inpainted[y, x, 0]
+                + 0.7152 * img_inpainted[y, x, 1]
+                + 0.0722 * img_inpainted[y, x, 2]
+            ) / 255.0
+
+            mod = 5.0 * lum * (1.0 - lum)
+            m = mask_final[y, x, 0]
+
+            for ch in range(3):
+                # Inpaint + Noise
+                val = img_inpainted[y, x, ch] + noise[y, x, ch] * mod * m
+                # Blend with original
+                res[y, x, ch] = img[y, x, ch] * (1.0 - m) + (val / 255.0) * m
+
+    return res
 
 
 @time_function
@@ -105,7 +155,11 @@ def apply_dust_removal(
     scale_factor: float,
 ) -> ImageBuffer:
     """
-    Applies both automatic and manual dust removal (healing).
+    Applies both automatic and manual dust removal (healing/inpainting).
+
+    Automatic detection identifies small, high-contrast irregularities (dust/scratches)
+    on the negative and heals them using median statistics. Manual healing uses
+    Telea inpainting with fused grain matching to preserve the photographic texture.
     """
     if not (dust_remove or manual_spots):
         return img
@@ -172,25 +226,24 @@ def apply_dust_removal(
             cv2.inpaint(img_u8, manual_mask_u8, inpaint_rad, cv2.INPAINT_TELEA)
         )
 
-        # Grain Matching (Simple Noise addition to inpainted areas)
-        noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape)
-        noise_f32 = noise_arr.astype(np.float32)
-        lum_arr = get_luminance(
-            ensure_image(img_inpainted_u8.astype(np.float32) / 255.0)
-        )
-        mod_arr = 5.0 * lum_arr * (1.0 - lum_arr)
-        final_noise = noise_f32 * mod_arr[:, :, None]
+        # Grain Matching & Blending using fused JIT kernel
+        noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
 
         mask_base = manual_mask_u8.astype(np.float32) / 255.0
         mask_3d = mask_base[:, :, None]
         mask_blur = cv2.GaussianBlur(mask_3d, (3, 3), 0)
-        if mask_blur.ndim == 2:
-            mask_final = mask_blur[:, :, None]
-        else:
-            mask_final = mask_blur
+        mask_final = (
+            mask_blur[:, :, None] if mask_blur.ndim == 2 else mask_blur
+        ).astype(np.float32)
 
-        img_inpainted_f = img_inpainted_u8.astype(np.float32) + final_noise * mask_final
-        img = ensure_image(np.clip(img_inpainted_f, 0, 255) / 255.0)
+        img = ensure_image(
+            _apply_inpainting_grain_jit(
+                img.astype(np.float32),
+                img_inpainted_u8.astype(np.float32),
+                mask_final,
+                noise_arr,
+            )
+        )
 
     return ensure_image(img)
 
@@ -239,7 +292,10 @@ def calculate_luma_mask(
     img: ImageBuffer, luma_range: Tuple[float, float], softness: float
 ) -> np.ndarray:
     """
-    Calculates a mask based on image luminance levels.
+    Calculates a luminosity mask based on image luminance levels.
+
+    Luminosity masking (tonal masking) allows for selective adjustments to specific
+    zones (e.g., highlights only, deep shadows only) with controllable softness.
     """
     lum = get_luminance(img)
     low, high = luma_range
@@ -259,7 +315,11 @@ def apply_local_adjustments(
     img: ImageBuffer, adjustments: List[LocalAdjustmentConfig], scale_factor: float
 ) -> ImageBuffer:
     """
-    Applies a list of dodge/burn adjustments to the image in linear space.
+    Applies a list of 'Dodge and Burn' adjustments to the image.
+
+    Dodging (lightening) and Burning (darkening) are classic darkroom techniques
+    used to locally manipulate exposure. This implementation uses spatial brushes
+    combined with optional tonal masking for precise control.
     """
     if not adjustments:
         return img

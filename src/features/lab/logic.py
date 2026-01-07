@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 from numba import njit, prange  # type: ignore
-from PIL import Image, ImageFilter
 from typing import List, Optional
 from src.core.types import ImageBuffer
 from src.core.validation import ensure_image
@@ -90,7 +89,11 @@ def apply_spectral_crosstalk(
 ) -> ImageBuffer:
     """
     Applies a color crosstalk matrix to an RGB image in density space.
-    Input 'img_dens' is expected to be in Density space.
+
+    This simulates the spectral sensitivities of film emulsion layers and the
+    spectral characteristics of the subtractive dyes (interlayer effects).
+    Higher strength increases color separation and 'purity', mimicking
+    optimized modern color negative stocks.
     """
     if strength == 0.0 or matrix is None:
         return img_dens
@@ -116,7 +119,11 @@ def apply_spectral_crosstalk(
 @time_function
 def apply_hypertone(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
-    Applies local contrast enhancement using CLAHE in LAB space.
+    Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
+
+    'Hypertone' simulates high-acutance development techniques that enhance edge
+    definition and texture without significantly affecting global tonality.
+    It operates on the Lightness (L) channel to preserve color relationships.
     """
     if strength <= 0:
         return img
@@ -148,7 +155,12 @@ def apply_chroma_noise_removal(
     img: ImageBuffer, strength_input: float, scale_factor: float = 1.0
 ) -> ImageBuffer:
     """
-    Reduces color noise in deep shadows.
+    Reduces color (chrominance) noise in deep shadows.
+
+    This process mimics the smoothing of irregular silver grain clusters or
+    scanner-induced color noise in dark areas of the negative. It uses a
+    combination of bilateral filtering and Gaussian blurs on the A and B
+    channels of the LAB color space.
     """
     if strength_input <= 0:
         return img
@@ -198,24 +210,59 @@ def apply_chroma_noise_removal(
     return ensure_image(res.astype(np.float32) / 255.0)
 
 
+@njit(parallel=True)
+def _apply_unsharp_mask_jit(
+    l_chan: np.ndarray, l_blur: np.ndarray, amount: float, threshold: float
+) -> np.ndarray:
+    """
+    Fast JIT implementation of Unsharp Mask on the Lightness channel.
+    """
+    h, w = l_chan.shape
+    res = np.empty((h, w), dtype=np.float32)
+    amount_f = amount * 2.5  # Scale to match PIL 'percent' roughly
+
+    for y in prange(h):
+        for x in range(w):
+            orig = l_chan[y, x]
+            blur = l_blur[y, x]
+            diff = orig - blur
+            if abs(diff) > threshold:
+                val = orig + diff * amount_f
+                if val < 0.0:
+                    val = 0.0
+                elif val > 100.0:
+                    val = 100.0
+                res[y, x] = val
+            else:
+                res[y, x] = orig
+    return res
+
+
 @time_function
 def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
     """
-    Applies Unsharp Mask sharpening to the Lightness channel.
+    Applies Unsharp Mask (USM) sharpening to the Lightness channel.
+
+    USM simulates the 'acutance' effect in darkroom printing, where a slightly
+    blurred negative (mask) is used to enhance edges. This implementation
+    uses a JIT kernel for efficient processing in the LAB color space.
     """
     if amount <= 0:
         return img
 
-    img_u8 = (img * 255).astype(np.uint8)
-    img_lab = cv2.cvtColor(img_u8, cv2.COLOR_RGB2LAB)
-    l_chan, a, b = cv2.split(img_lab)
+    # RGB to LAB (float32)
+    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    l_chan, a, b = cv2.split(lab)
 
-    l_pil = Image.fromarray(l_chan)
-    l_sharpened = l_pil.filter(
-        ImageFilter.UnsharpMask(radius=1.0, percent=int(amount * 250), threshold=5)
+    # Gaussian Blur for Unsharp Mask (radius=1.0 roughly corresponds to ksize=5)
+    l_blur = cv2.GaussianBlur(l_chan, (5, 5), 1.0)
+
+    # Threshold 5.0 in PIL is roughly 2.0 in 0-100 LAB space
+    l_sharpened = _apply_unsharp_mask_jit(
+        l_chan, l_blur, float(amount), 2.0
     )
 
-    img_lab_sharpened = cv2.merge([np.array(l_sharpened), a, b])
-    result_rgb = cv2.cvtColor(img_lab_sharpened, cv2.COLOR_LAB2RGB)
+    res_lab = cv2.merge([l_sharpened, a, b])
+    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
 
-    return ensure_image(result_rgb.astype(np.float32) / 255.0)
+    return ensure_image(np.clip(res_rgb, 0.0, 1.0))

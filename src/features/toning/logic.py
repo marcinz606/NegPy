@@ -32,10 +32,10 @@ def _apply_paper_substrate_jit(
 
 @njit(parallel=True)
 def _apply_chemical_toning_jit(
-    img: np.ndarray, lum: np.ndarray, sel_strength: float, sep_strength: float
+    img: np.ndarray, sel_strength: float, sep_strength: float
 ) -> np.ndarray:
     """
-    Fast JIT simulation of Selenium and Sepia toning.
+    Fast JIT simulation of Selenium and Sepia toning with fused luminance calculation.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -44,11 +44,15 @@ def _apply_chemical_toning_jit(
 
     for y in prange(h):
         for x in range(w):
-            lum_val = lum[y, x]
+            # Fused Luminance (Rec. 709)
+            lum_val = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+
             sel_m = 0.0
             if sel_strength > 0:
                 sel_m = 1.0 - lum_val
-                if sel_m < 0:
+                if sel_m < 0.0:
                     sel_m = 0.0
                 sel_m = sel_m * sel_m * sel_strength
 
@@ -62,6 +66,7 @@ def _apply_chemical_toning_jit(
                     pixel = pixel * (1.0 - sel_m) + (pixel * sel_color[ch]) * sel_m
                 if sep_m > 0:
                     pixel = pixel * (1.0 - sep_m) + (pixel * sep_color[ch]) * sep_m
+
                 if pixel < 0.0:
                     pixel = 0.0
                 elif pixel > 1.0:
@@ -70,9 +75,26 @@ def _apply_chemical_toning_jit(
     return res
 
 
+@njit(parallel=True)
+def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
+    """
+    Fast JIT luminance calculation.
+    """
+    h, w, _ = img.shape
+    res = np.empty((h, w), dtype=np.float32)
+    for y in prange(h):
+        for x in range(w):
+            res[y, x] = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+    return res
+
+
 def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
-    return ensure_image(res)
+    """
+    Calculates relative luminance using Rec. 709 coefficients.
+    """
+    return ensure_image(_get_luminance_jit(img.astype(np.float32)))
 
 
 PAPER_PROFILES: Dict[str, PaperSubstrate] = {
@@ -87,7 +109,11 @@ PAPER_PROFILES: Dict[str, PaperSubstrate] = {
 @time_function
 def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer:
     """
-    Simulates the physics of a photographic paper substrate.
+    Simulates the physical and optical properties of a photographic paper substrate.
+
+    Photographic papers have unique base tints (e.g., warm fiber, cool glossy RC)
+    and varying degrees of maximum achievable density (D-max). This function
+    tints the highlights and scales the shadows to mimic the chosen paper stock.
     """
     profile = PAPER_PROFILES.get(profile_name, PAPER_PROFILES["None"])
     tint = np.array(profile.tint, dtype=np.float32)
@@ -106,17 +132,19 @@ def apply_chemical_toning(
     sepia_strength: float = 0.0,
 ) -> ImageBuffer:
     """
-    Simulates chemical reactivity of toners with silver halides.
+    Simulates the chemical reactivity of archival toners with silver halides.
+
+    - Selenium Toning: Mimics the replacement of silver with silver selenide,
+      primarily affecting the shadows and increasing D-max and permanence.
+    - Sepia Toning: Mimics the conversion of silver to silver sulfide,
+      producing characteristic warm, brownish tones in the midtones and highlights.
     """
     if selenium_strength == 0 and sepia_strength == 0:
         return img
 
-    lum = get_luminance(img)
-
     return ensure_image(
         _apply_chemical_toning_jit(
             img.astype(np.float32),
-            lum.astype(np.float32),
             float(selenium_strength),
             float(sepia_strength),
         )
