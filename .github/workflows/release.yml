@@ -76,22 +76,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Upload Artifacts
-
-              uses: actions/upload-artifact@v4
-
-              with:
-
-                name: release-${{ matrix.os }}-${{ github.event.inputs.version }}
-
-                path: |
-
-                  dist/*.exe
-
-                  dist/*.dmg
-
-                  dist/*.AppImage
-
-                  dist/*.deb
-
-      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}-${{ github.event.inputs.version }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
