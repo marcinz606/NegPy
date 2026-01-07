@@ -12,15 +12,38 @@ from src.core.session.manager import WorkspaceSession
 
 def change_file(new_idx: int) -> None:
     """
+
+
     Callback to switch the currently selected file.
+
+
     """
+
     session: WorkspaceSession = st.session_state.session
+
     if session.selected_file_idx < len(session.uploaded_files):
         save_settings(persist=True)
 
     session.selected_file_idx = new_idx
+
+    # Aggressively clear geometric state to prevent leakage
+
+    # We must clear the canonical keys AND the shadow keys used by the UI widgets
+
+    for key in ["rotation", "fine_rotation"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
+        if f"w_{key}" in st.session_state:
+            del st.session_state[f"w_{key}"]
+
+        if f"last_{key}" in st.session_state:
+            del st.session_state[f"last_{key}"]
+
     load_settings()
+
     st.session_state.dust_start_point = None
+
     st.session_state.last_dust_click = None
 
 
