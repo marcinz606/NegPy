@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from src.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from src.presentation.state.view_models import SidebarState
 from src.presentation.components.sidebar.helpers import (
@@ -7,6 +8,7 @@ from src.presentation.components.sidebar.helpers import (
     render_control_text_input,
     render_control_color_picker,
 )
+from src.infrastructure.loaders.native_picker import NativeFilePicker
 
 
 def render_export_section() -> SidebarState:
@@ -60,11 +62,31 @@ def render_export_section() -> SidebarState:
                 help_text="Desired DPI (dots per inch) resolution for printing.",
             )
 
-        render_control_text_input(
-            "Export Directory",
-            default_val=APP_CONFIG.default_export_dir,
-            key="export_path",
-        )
+        is_docker = os.path.exists("/.dockerenv")
+        if not is_docker:
+            c_path, c_btn = st.columns([0.8, 0.2])
+            with c_path:
+                render_control_text_input(
+                    "Export Directory",
+                    default_val=APP_CONFIG.default_export_dir,
+                    key="export_path",
+                )
+            with c_btn:
+                st.write("##")  # Spacer to align with text input
+                if st.button(":material/folder_open:", help="Pick export folder"):
+                    picker = NativeFilePicker()
+                    new_path = picker.pick_export_folder(
+                        initial_dir=st.session_state.get("export_path")
+                    )
+                    if new_path:
+                        st.session_state.export_path = new_path
+                        st.rerun()
+        else:
+            render_control_text_input(
+                "Export Directory",
+                default_val=APP_CONFIG.default_export_dir,
+                key="export_path",
+            )
 
         c_b1, c_b2 = st.columns([2, 1])
         with c_b1:

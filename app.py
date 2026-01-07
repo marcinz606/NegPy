@@ -19,6 +19,11 @@ def handle_subtask() -> bool:
 
             pick_folder(initial_dir)
             return True
+        elif sys.argv[1] == "--pick-export-folder":
+            from src.infrastructure.loaders.dialog_worker import pick_export_folder
+
+            pick_export_folder(initial_dir)
+            return True
     return False
 
 

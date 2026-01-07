@@ -25,25 +25,44 @@ def get_thumbnail_worker(file_path: str, file_hash: str) -> Optional[Image.Image
         # 2. Generate if missing
         ts = APP_CONFIG.thumbnail_size
         with loader_factory.get_loader(file_path) as raw:
-            # Use fastest possible demosaicing for thumbnails
-            algo = rawpy.DemosaicAlgorithm.LINEAR
+            img: Optional[Image.Image] = None
 
-            rgb = raw.postprocess(
-                use_camera_wb=False,
-                user_wb=[1, 1, 1, 1],
-                half_size=True,
-                no_auto_bright=True,
-                bright=1.0,
-                demosaic_algorithm=algo,
-            )
-            rgb = ensure_rgb(rgb)
-            img = Image.fromarray(rgb)
+            # 2a. Try extracting embedded thumbnail (much faster)
+            if hasattr(raw, "extract_thumb"):
+                try:
+                    thumb = raw.extract_thumb()
+                    if thumb.format == rawpy.ThumbFormat.JPEG:
+                        import io
 
+                        img = Image.open(io.BytesIO(thumb.data))
+                    elif thumb.format == rawpy.ThumbFormat.BITMAP:
+                        img = Image.fromarray(thumb.data)
+                except Exception:
+                    # Fallback to full process if extraction fails
+                    pass
+
+            # 2b. Fallback to full process (or if loader doesn't support extraction)
+            if img is None:
+                # Use fastest possible demosaicing for thumbnails
+                algo = rawpy.DemosaicAlgorithm.LINEAR
+
+                rgb = raw.postprocess(
+                    use_camera_wb=False,
+                    user_wb=[1, 1, 1, 1],
+                    half_size=True,
+                    no_auto_bright=True,
+                    bright=1.0,
+                    demosaic_algorithm=algo,
+                )
+                rgb = ensure_rgb(rgb)
+                img = Image.fromarray(rgb)
+
+            # 3. Resize and Frame
             img.thumbnail((ts, ts))
             square_img = Image.new("RGB", (ts, ts), (14, 17, 23))
             square_img.paste(img, ((ts - img.width) // 2, (ts - img.height) // 2))
 
-            # 3. Cache for future sessions
+            # 4. Cache for future sessions
             store.save_thumbnail(file_hash, square_img)
 
             return square_img

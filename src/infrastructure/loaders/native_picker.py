@@ -96,3 +96,21 @@ class NativeFilePicker(IFilePicker):
                     continue
 
         return "", []
+
+    def pick_export_folder(self, initial_dir: Optional[str] = None) -> str:
+        """Opens a directory selection dialog for export via app subtask."""
+        output = self._run_subtask("--pick-export-folder", initial_dir)
+        if not output:
+            return ""
+
+        for line in reversed(output.splitlines()):
+            line = line.strip()
+            if line.startswith('"') and line.endswith('"'):
+                try:
+                    path = str(json.loads(line))
+                    logger.info(f"Native export folder picker returned: {path}")
+                    return path
+                except json.JSONDecodeError:
+                    continue
+
+        return ""

@@ -37,7 +37,7 @@ class LocalAssetStore(IAssetStore):
         If source is an uploaded buffer, it persists it to session cache.
         """
         try:
-            # 1. Zero-Copy for local paths
+            # 1. Zero-Copy for local paths, default way when running desktop app.
             if isinstance(source, str) and os.path.exists(source):
                 f_hash = calculate_file_hash(source)
                 logger.info(f"Zero-copy registration: {source} (hash: {f_hash[:8]})")
@@ -45,7 +45,8 @@ class LocalAssetStore(IAssetStore):
             elif isinstance(source, str):
                 logger.warning(f"Registration failed: Path does not exist: {source}")
 
-            # 2. Managed persistence for UploadedFiles (Streamlit)
+            # 2. Managed persistence for UploadedFiles (Streamlit native)
+            # Used when running via docker-compose
             # local pahts from option 1 are preffered, with streamlit uploader
             # we effectively need to copy files to temp folder.
             if hasattr(source, "getbuffer") and hasattr(source, "name"):
@@ -67,7 +68,7 @@ class LocalAssetStore(IAssetStore):
 
     def get_thumbnail(self, file_hash: str) -> Optional[Image.Image]:
         """Loads a cached thumbnail from disk if it exists."""
-        thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.png")
+        thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
         if os.path.exists(thumb_path):
             try:
                 return Image.open(thumb_path)
@@ -78,9 +79,9 @@ class LocalAssetStore(IAssetStore):
     def save_thumbnail(self, file_hash: str, image: Image.Image) -> None:
         """Saves a generated thumbnail to the persistent cache."""
         try:
-            thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.png")
-            # Save as PNG for lossless UI preview quality
-            image.save(thumb_path, "PNG")
+            thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
+            # Save as JPEG for speed and smaller file size
+            image.save(thumb_path, "JPEG", quality=85)
         except Exception as e:
             logger.error(f"Failed to save thumbnail {file_hash}: {e}")
 

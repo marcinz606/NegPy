@@ -13,7 +13,7 @@ def render_paper_section() -> None:
     """
     vm = ToningViewModel()
 
-    with st.expander(":material/colorize: Paper & Toning", expanded=True):
+    with st.expander(":material/colorize: Paper & Toning", expanded=False):
         # 1. Paper Substrate Selection
         render_control_selectbox(
             "Paper Profile",

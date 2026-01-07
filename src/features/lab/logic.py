@@ -251,9 +251,7 @@ def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
     l_blur = cv2.GaussianBlur(l_chan, (5, 5), 1.0)
 
     # Threshold 5.0 in PIL is roughly 2.0 in 0-100 LAB space
-    l_sharpened = _apply_unsharp_mask_jit(
-        l_chan, l_blur, float(amount), 2.0
-    )
+    l_sharpened = _apply_unsharp_mask_jit(l_chan, l_blur, float(amount), 2.0)
 
     res_lab = cv2.merge([l_sharpened, a, b])
     res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)

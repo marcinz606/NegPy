@@ -44,7 +44,6 @@ async def main() -> None:
 
     if "assets_initialized" not in st.session_state:
         session.asset_store.initialize()
-        session.asset_store.clear_all()
         st.session_state.assets_initialized = True
 
     apply_custom_css()
@@ -65,7 +64,7 @@ async def main() -> None:
             load_settings()
 
     # 2. Main Area: Header & Status
-    main_area, status_area = render_layout_header()
+    main_area, status_area = render_layout_header(ctx)
 
     if session.uploaded_files:
         current_file = session.current_file
@@ -78,6 +77,7 @@ async def main() -> None:
         # 3. Handle I/O (Loading RAW)
         if controller.handle_file_loading(current_file, current_cs):
             status_area.success(f"Loaded {current_file['name']}")
+            st.rerun()
 
         # 4. Sidebar: Settings
         sidebar_data = render_sidebar_content()
@@ -157,7 +157,9 @@ async def main() -> None:
                         label=f"Exported to {os.path.basename(out_path)} ({elapsed:.2f}s)",
                         state="complete",
                     )
-                    st.toast(f"Exported to {os.path.basename(out_path)} in {elapsed:.2f}s")
+                    st.toast(
+                        f"Exported to {os.path.basename(out_path)} in {elapsed:.2f}s"
+                    )
 
         if sidebar_data.process_btn:
             await ExportService.run_batch(

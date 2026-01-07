@@ -27,6 +27,8 @@ GLOBAL_PERSIST_KEYS = {
     "color_separation",
     "c_noise_strength",
     "working_copy_size",
+    "working_copy_size_vertical",
+    "working_copy_size_horizontal",
     "hot_folder_mode",
     "last_picker_dir",
     "autocrop",
@@ -75,6 +77,12 @@ def init_session_state() -> None:
 
     if "working_copy_size" not in st.session_state:
         st.session_state.working_copy_size = APP_CONFIG.preview_render_size
+
+    if "working_copy_size_vertical" not in st.session_state:
+        st.session_state.working_copy_size_vertical = APP_CONFIG.preview_render_size
+
+    if "working_copy_size_horizontal" not in st.session_state:
+        st.session_state.working_copy_size_horizontal = APP_CONFIG.preview_render_size
 
     if "last_dust_click" not in st.session_state:
         st.session_state.last_dust_click = None

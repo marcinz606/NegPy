@@ -36,8 +36,8 @@ def render_analysis_section() -> None:
                 help=(
                     "This H&D Characteristic Curve represents the relationship between Subject Brightness and Print Density. "
                     "It visualizes how the engine simulates light-sensitive paper: 'Density' shifts the exposure, "
-                    "'Grade' controls contrast slope, while 'Toe' and 'Shoulder' manage the roll-off in highlights "
-                    "and shadows respectively."
+                    "'Grade' controls contrast slope, while 'Toe' and 'Shoulder' manage the roll-off in shadows "
+                    "and highlights respectively."
                 ),
             )
 
