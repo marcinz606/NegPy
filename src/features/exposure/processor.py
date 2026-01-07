@@ -1,8 +1,7 @@
 import numpy as np
 from src.core.interfaces import IProcessor, PipelineContext
 from src.core.types import ImageBuffer
-from src.core.constants import PIPELINE_CONSTANTS
-from src.features.exposure.models import ExposureConfig
+from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
 from src.features.exposure.logic import apply_characteristic_curve
 from src.features.exposure.normalization import (
     measure_log_negative_bounds,
@@ -12,7 +11,10 @@ from src.features.exposure.normalization import (
 
 class NormalizationProcessor(IProcessor):
     """
-    Step 1 of Exposure: Log-Normalization.
+    Handles Log-Normalization of the linear RAW input.
+
+    This stage converts linear photometric data into a logarithmic negative-like
+    representation and normalizes it based on the detected dynamic range (D-min/D-max).
     """
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
@@ -37,7 +39,11 @@ class NormalizationProcessor(IProcessor):
 
 class PhotometricProcessor(IProcessor):
     """
-    Step 2 of Exposure: Inversion & Grading.
+    Simulates the Photometric 'Printing' process.
+
+    This processor applies the Hurter-Driffield characteristic curves to the
+    normalized log-exposure data. It handles 'printing' parameters such as
+    Exposure (Density), Contrast (Grade), and Color Filtration (CMY).
     """
 
     def __init__(self, config: ExposureConfig):
@@ -50,17 +56,15 @@ class PhotometricProcessor(IProcessor):
 
         master_ref = 1.0
         exposure_shift = 0.1 + (
-            self.config.density * PIPELINE_CONSTANTS["density_multiplier"]
+            self.config.density * EXPOSURE_CONSTANTS["density_multiplier"]
         )
-        slope = 1.0 + (self.config.grade * PIPELINE_CONSTANTS["grade_multiplier"])
+        slope = 1.0 + (self.config.grade * EXPOSURE_CONSTANTS["grade_multiplier"])
 
         # Base pivot (Midpoint - Exposure)
         pivots = [master_ref - exposure_shift] * 3
 
         # Convert CMY sliders to density offsets
-        # cmy_max_density usually e.g. 0.2
-        cmy_max = PIPELINE_CONSTANTS["cmy_max_density"]
-
+        cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = (
             self.config.wb_cyan * cmy_max,
             self.config.wb_magenta * cmy_max,

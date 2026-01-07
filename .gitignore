@@ -6,7 +6,6 @@ node_modules/
 # Electron & Packaging
 node_modules/
 dist/
-dist_electron/
 build/
 desktop/bin/
 *.spec

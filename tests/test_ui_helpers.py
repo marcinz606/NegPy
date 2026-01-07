@@ -1,5 +1,5 @@
 import numpy as np
-from src.config import PIPELINE_CONSTANTS
+from src.features.exposure.models import EXPOSURE_CONSTANTS
 from src.presentation.components.sidebar.helpers import apply_wb_gains_to_sliders
 
 
@@ -14,7 +14,7 @@ def test_apply_wb_gains_identity():
 def test_apply_wb_gains_magenta_yellow():
     # log10(1.479) is ~0.17 density
     # Calculate expected slider value based on current config
-    max_d = PIPELINE_CONSTANTS["cmy_max_density"]
+    max_d = EXPOSURE_CONSTANTS["cmy_max_density"]
     expected = np.log10(1.479) / max_d
     expected = float(np.clip(expected, -1.0, 1.0))
 

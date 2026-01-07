@@ -8,17 +8,13 @@ T = TypeVar("T")
 def ensure_image(arr: Any) -> ImageBuffer:
     """
     Ensures the input is a float32 numpy array and returns it as an ImageBuffer.
-    This is preferred over a raw cast because it performs runtime validation.
     """
     if not isinstance(arr, np.ndarray):
         raise TypeError(f"Expected numpy.ndarray, got {type(arr)}")
 
-    # We convert to float32 if needed
     if arr.dtype != np.float32:
         arr = arr.astype(np.float32)
 
-    # We still need one internal cast to satisfy the TypeAlias,
-    # but it's encapsulated in a validation function.
     return cast(ImageBuffer, arr)
 
 

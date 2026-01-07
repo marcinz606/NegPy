@@ -7,6 +7,9 @@
     "start": "electron .",
     "build:backend": "python desktop/build_backend.py",
     "dist": "npm run build:backend && electron-builder",
+    "dist:win": "npm run build:backend && electron-builder --win",
+    "dist:mac": "npm run build:backend && electron-builder --mac",
+    "dist:linux": "npm run build:backend && electron-builder --linux",
     "postinstall": "electron-builder install-app-deps"
   },
   "author": "Marcin Zawalski<zawalskimarcin@gmail.com>",

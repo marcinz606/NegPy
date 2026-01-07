@@ -1,7 +1,7 @@
+from typing import Optional, Dict, Any, Literal
 from src.features.exposure.logic import density_to_cmy
 import streamlit as st
 import numpy as np
-from typing import Optional, Dict, Any
 from src.presentation.state.state_manager import save_settings
 
 
@@ -26,15 +26,15 @@ def st_init(key: str, default_val: Any) -> Any:
 
 
 def render_control_slider(
-        label: str,
-        min_val: float,
-        max_val: float,
-        default_val: float,
-        step: float,
-        key: str,
-        help_text: Optional[str] = None,
-        format: str = "%.2f",
-        disabled: bool = False,
+    label: str,
+    min_val: float,
+    max_val: float,
+    default_val: float,
+    step: float,
+    key: str,
+    help_text: Optional[str] = None,
+    format: str = "%.2f",
+    disabled: bool = False,
 ) -> float:
     """
     Standardized slider renderer for the sidebar.
@@ -86,13 +86,13 @@ def render_control_slider(
 
 
 def render_control_checkbox(
-        label: str,
-        default_val: bool,
-        key: str,
-        help_text: Optional[str] = None,
-        disabled: bool = False,
-        is_toggle: bool = False,
-        label_visibility: str = "visible",
+    label: str,
+    default_val: bool,
+    key: str,
+    help_text: Optional[str] = None,
+    disabled: bool = False,
+    is_toggle: bool = False,
+    label_visibility: Literal["visible", "hidden", "collapsed"] = "visible",
 ) -> bool:
     """
     Standardized checkbox renderer for the sidebar.
@@ -134,17 +134,17 @@ def render_control_checkbox(
 
 
 def render_control_selectbox(
-        label: str,
-        options: list,
-        default_val: Any,
-        key: str,
-        help_text: Optional[str] = None,
-        disabled: bool = False,
-        format_func: Any = str,
-        on_change: Optional[Any] = None,
-        args: Optional[tuple] = None,
-        kwargs: Optional[dict] = None,
-        label_visibility: str = "visible",
+    label: str,
+    options: list,
+    default_val: Any,
+    key: str,
+    help_text: Optional[str] = None,
+    disabled: bool = False,
+    format_func: Any = str,
+    on_change: Optional[Any] = None,
+    args: Optional[tuple] = None,
+    kwargs: Optional[dict] = None,
+    label_visibility: Literal["visible", "hidden", "collapsed"] = "visible",
 ) -> Any:
     """
     Standardized selectbox renderer for the sidebar.
@@ -182,14 +182,14 @@ def render_control_selectbox(
 
 
 def render_control_text_input(
-        label: str,
-        default_val: str,
-        key: str,
-        help_text: Optional[str] = None,
-        disabled: bool = False,
-        placeholder: str = "",
-        type: str = "default",
-        label_visibility: str = "visible",
+    label: str,
+    default_val: str,
+    key: str,
+    help_text: Optional[str] = None,
+    disabled: bool = False,
+    placeholder: str = "",
+    type: Literal["default", "password"] = "default",
+    label_visibility: Literal["visible", "hidden", "collapsed"] = "visible",
 ) -> str:
     """
     Standardized text_input renderer for the sidebar.
@@ -224,11 +224,11 @@ def render_control_text_input(
 
 
 def render_control_color_picker(
-        label: str,
-        default_val: str,
-        key: str,
-        help_text: Optional[str] = None,
-        disabled: bool = False,
+    label: str,
+    default_val: str,
+    key: str,
+    help_text: Optional[str] = None,
+    disabled: bool = False,
 ) -> str:
     """
     Standardized color_picker renderer for the sidebar.

@@ -3,11 +3,16 @@ import cv2
 from typing import Tuple, Optional
 from src.core.types import ImageBuffer, ROI
 from src.core.validation import ensure_image
+from src.core.performance import time_function
 
 
+@time_function
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     """
     Rotates the image by a specific angle (in degrees).
+
+    Used for horizon leveling and precise alignment. Uses bilinear interpolation
+    to preserve fine photographic detail during the transformation.
     """
     if angle == 0.0:
         return img
@@ -34,6 +39,7 @@ def get_luminance(img: ImageBuffer) -> ImageBuffer:
     return ensure_image(res)
 
 
+@time_function
 def get_autocrop_coords(
     img: ImageBuffer,
     offset_px: int = 0,
@@ -42,8 +48,11 @@ def get_autocrop_coords(
     detect_res: int = 1800,
 ) -> ROI:
     """
-    Calculates the autocrop coordinates.
-    Returns (y1, y2, x1, x2).
+    Autonomously detects the image boundaries of a scanned negative.
+
+    This function identifies the frame edges (rebates) by analyzing the
+    intensity transitions between the latent image and the unexposed film base.
+    It then enforces a specific aspect ratio (e.g., 3:2, 6:7) for the final crop.
     """
     h, w = img.shape[:2]
     det_scale = detect_res / max(h, w)
@@ -104,6 +113,7 @@ def get_autocrop_coords(
     return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
 
 
+@time_function
 def map_coords_to_geometry(
     nx: float,
     ny: float,

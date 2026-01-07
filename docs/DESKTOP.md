@@ -43,7 +43,7 @@ The build process involves two steps: bundling the Python engine and then packag
 ```bash
 npm run dist
 ```
-This runs `build_backend.py` (PyInstaller) and then `electron-builder`. Output is found in `dist_electron/`.
+This runs `build_backend.py` (PyInstaller) and then `electron-builder`. Output is found in `dist/`.
 
 ### Automated Build (GitHub Actions)
 Pushing a tag (e.g., `v1.0.0`) triggers `.github/workflows/release.yml`, which builds installers for all three platforms simultaneously.
