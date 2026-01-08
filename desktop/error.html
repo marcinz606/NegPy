@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <style>
         body {
@@ -13,6 +14,7 @@
             margin: 0;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
+
         .error-box {
             background-color: #161b22;
             padding: 30px;
@@ -21,12 +23,18 @@
             text-align: center;
             max-width: 80%;
         }
+
         .icon {
             width: 60px;
             height: 60px;
             margin-bottom: 20px;
         }
-        h1 { color: #ff4b4b; margin-top: 0; }
+
+        h1 {
+            color: #ff4b4b;
+            margin-top: 0;
+        }
+
         button {
             background-color: #ff4b4b;
             color: white;
@@ -38,12 +46,15 @@
         }
     </style>
 </head>
+
 <body>
     <div class="error-box">
-        <img src="../media/icon.svg" class="icon" alt="DarkroomPy Icon">
+        <img src="../media/icons/icon.svg" class="icon" alt="DarkroomPy Icon">
         <h1>Startup Error</h1>
-        <p>The DarkroomPy engine failed to start. Please check if another instance is running or if Docker is interfering.</p>
+        <p>The DarkroomPy engine failed to start. Please check if another instance is running or if Docker is
+            interfering.</p>
         <button onclick="window.close()">Close Application</button>
     </div>
 </body>
+
 </html>

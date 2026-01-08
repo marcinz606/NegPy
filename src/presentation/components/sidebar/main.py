@@ -6,6 +6,7 @@ from src.presentation.components.sidebar.collect_adjustments import render_adjus
 from src.presentation.components.sidebar.soft_proofing_ui import render_soft_proofing
 from src.infrastructure.loaders.native_picker import NativeFilePicker
 from src.config import APP_CONFIG
+from src.presentation.state.state_manager import save_settings
 from src.presentation.components.sidebar.helpers import render_control_checkbox
 
 
@@ -33,6 +34,7 @@ def render_file_manager() -> None:
                 if st.button(
                     ":material/file_open: Pick Files", use_container_width=True
                 ):
+                    save_settings(persist=True)
                     paths = picker.pick_files(initial_dir=last_dir)
                     if paths:
                         session.add_local_assets(paths)
@@ -42,6 +44,7 @@ def render_file_manager() -> None:
                 if st.button(
                     ":material/folder_open: Pick Folder", use_container_width=True
                 ):
+                    save_settings(persist=True)
                     root_path, paths = picker.pick_folder(initial_dir=last_dir)
                     if paths:
                         session.add_local_assets(paths)

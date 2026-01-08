@@ -34,7 +34,6 @@ class RetouchProcessor(IProcessor):
                     (orig_h, orig_w),
                     rotation,
                     fine_rotation,
-                    roi=context.active_roi,
                 )
                 mapped_spots.append((mnx, mny, size))
 
@@ -49,7 +48,6 @@ class RetouchProcessor(IProcessor):
                         (orig_h, orig_w),
                         rotation,
                         fine_rotation,
-                        roi=context.active_roi,
                     )
                     new_points.append((mnx, mny))
 

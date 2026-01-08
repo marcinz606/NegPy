@@ -30,7 +30,7 @@
       "desktop/splash.html",
       "desktop/error.html",
       "desktop/bin/darkroompy/**/*",
-      "media/*"
+      "media/**/*"
     ],
     "extraResources": [
       {
