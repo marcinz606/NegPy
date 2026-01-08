@@ -15,11 +15,14 @@ def change_file(new_idx: int) -> None:
     Callback to switch the currently selected file.
     """
     session: WorkspaceSession = st.session_state.session
+
     if session.selected_file_idx < len(session.uploaded_files):
         save_settings(persist=True)
 
     session.selected_file_idx = new_idx
+
     load_settings()
+
     st.session_state.dust_start_point = None
     st.session_state.last_dust_click = None
 

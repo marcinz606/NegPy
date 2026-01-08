@@ -39,42 +39,31 @@ def get_luminance(img: ImageBuffer) -> ImageBuffer:
     return ensure_image(res)
 
 
-@time_function
-def get_autocrop_coords(
-    img: ImageBuffer,
-    offset_px: int = 0,
-    scale_factor: float = 1.0,
-    target_ratio_str: str = "3:2",
-    detect_res: int = 1800,
+def apply_margin_to_roi(
+    roi: ROI,
+    h: int,
+    w: int,
+    margin_px: float,
 ) -> ROI:
     """
-    Autonomously detects the image boundaries of a scanned negative.
-
-    This function identifies the frame edges (rebates) by analyzing the
-    intensity transitions between the latent image and the unexposed film base.
-    It then enforces a specific aspect ratio (e.g., 3:2, 6:7) for the final crop.
+    Applies a uniform margin (in pixels) to an ROI, ensuring it stays within bounds.
+    Positive margin crops IN, negative margin expands OUT.
     """
-    h, w = img.shape[:2]
-    det_scale = detect_res / max(h, w)
+    y1, y2, x1, x2 = roi
+    ny1, ny2, nx1, nx2 = y1 + margin_px, y2 - margin_px, x1 + margin_px, x2 - margin_px
+    return int(max(0, ny1)), int(min(h, ny2)), int(max(0, nx1)), int(min(w, nx2))
 
-    # Resize for detection
-    d_h, d_w = int(h * det_scale), int(w * det_scale)
-    img_small = cv2.resize(img, (d_w, d_h), interpolation=cv2.INTER_AREA)
 
-    lum = get_luminance(ensure_image(img_small))
-
-    # Threshold for film base detection (detecting darker frame)
-    rows_det = np.where(np.mean(lum, axis=1) < 0.96)[0]
-    cols_det = np.where(np.mean(lum, axis=0) < 0.96)[0]
-
-    if len(rows_det) < 10 or len(cols_det) < 10:
-        return 0, h, 0, w
-
-    y1, y2 = rows_det[0] / det_scale, rows_det[-1] / det_scale
-    x1, x2 = cols_det[0] / det_scale, cols_det[-1] / det_scale
-
-    margin = (2 + offset_px) * scale_factor
-    y1, y2, x1, x2 = y1 + margin, y2 - margin, x1 + margin, x2 - margin
+def enforce_roi_aspect_ratio(
+    roi: ROI,
+    h: int,
+    w: int,
+    target_ratio_str: str = "3:2",
+) -> ROI:
+    """
+    Adjusts the ROI to match a specific aspect ratio, centering the crop.
+    """
+    y1, y2, x1, x2 = roi
     cw, ch = x2 - x1, y2 - y1
 
     if cw <= 0 or ch <= 0:
@@ -102,15 +91,85 @@ def get_autocrop_coords(
     if current_aspect > target_aspect:
         # Too wide, crop width
         target_w = ch * target_aspect
-        x1 = x1 + (cw - target_w) // 2
-        x2 = x1 + target_w
+        nx1 = x1 + (cw - target_w) / 2
+        nx2 = nx1 + target_w
+        x1, x2 = int(nx1), int(nx2)
     else:
         # Too tall, crop height
         target_h = cw / target_aspect
-        y1 = y1 + (ch - target_h) // 2
-        y2 = y1 + target_h
+        ny1 = y1 + (ch - target_h) / 2
+        ny2 = ny1 + target_h
+        y1, y2 = int(ny1), int(ny2)
 
     return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
+
+
+@time_function
+def get_manual_crop_coords(
+    img: ImageBuffer,
+    offset_px: int = 0,
+    scale_factor: float = 1.0,
+) -> ROI:
+    """
+    Calculates crop coordinates based on image center and a manual offset.
+    Used when autocrop is disabled but the user still wants to crop in/out.
+    """
+    h, w = img.shape[:2]
+    roi = (0, h, 0, w)
+    margin = offset_px * scale_factor
+    return apply_margin_to_roi(roi, h, w, margin)
+
+
+@time_function
+def get_autocrop_coords(
+    img: ImageBuffer,
+    offset_px: int = 0,
+    scale_factor: float = 1.0,
+    target_ratio_str: str = "3:2",
+    detect_res: int = 1800,
+    assist_point: Optional[Tuple[float, float]] = None,
+    assist_luma: Optional[float] = None,
+) -> ROI:
+    """
+    Autonomously detects the image boundaries of a scanned negative.
+
+    This function identifies the frame edges (rebates) by analyzing the
+    intensity transitions between the latent image and the unexposed film base.
+    It then enforces a specific aspect ratio (e.g., 3:2, 6:7) for the final crop.
+    """
+    h, w = img.shape[:2]
+    det_scale = detect_res / max(h, w)
+
+    # Resize for detection
+    d_h, d_w = int(h * det_scale), int(w * det_scale)
+    img_small = cv2.resize(img, (d_w, d_h), interpolation=cv2.INTER_AREA)
+
+    lum = get_luminance(ensure_image(img_small))
+
+    # Threshold for film base detection (detecting darker frame)
+    # Default is 0.96 for typical scans, but can be assisted by user click.
+    threshold = 0.96
+    if assist_luma is not None:
+        # If user assisted, we set threshold slightly BELOW their clicked point (film base)
+        # so that only pixels DARKER than the film base are detected as "image".
+        threshold = float(np.clip(assist_luma - 0.02, 0.5, 0.98))
+
+    rows_det = np.where(np.mean(lum, axis=1) < threshold)[0]
+    cols_det = np.where(np.mean(lum, axis=0) < threshold)[0]
+
+    if len(rows_det) < 10 or len(cols_det) < 10:
+        return 0, h, 0, w
+
+    y1, y2 = rows_det[0] / det_scale, rows_det[-1] / det_scale
+    x1, x2 = cols_det[0] / det_scale, cols_det[-1] / det_scale
+
+    # Apply detected ROI with margin
+    margin = (2 + offset_px) * scale_factor
+    roi = (y1, y2, x1, x2)
+    roi = apply_margin_to_roi(roi, h, w, margin)
+
+    # Enforce aspect ratio
+    return enforce_roi_aspect_ratio(roi, h, w, target_ratio_str)
 
 
 @time_function

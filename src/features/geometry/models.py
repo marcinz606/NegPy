@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -9,3 +10,7 @@ class GeometryConfig:
     autocrop: bool = True
     autocrop_offset: int = 2
     autocrop_ratio: str = "3:2"
+
+    # Assisted autocrop
+    autocrop_assist_point: Optional[Tuple[float, float]] = None
+    autocrop_assist_luma: Optional[float] = None

@@ -30,7 +30,12 @@ class RetouchProcessor(IProcessor):
         if self.config.manual_dust_spots:
             for nx, ny, size in self.config.manual_dust_spots:
                 mnx, mny = map_coords_to_geometry(
-                    nx, ny, (orig_h, orig_w), rotation, fine_rotation, roi=None
+                    nx,
+                    ny,
+                    (orig_h, orig_w),
+                    rotation,
+                    fine_rotation,
+                    roi=context.active_roi,
                 )
                 mapped_spots.append((mnx, mny, size))
 
@@ -42,7 +47,12 @@ class RetouchProcessor(IProcessor):
                 new_points = []
                 for nx, ny in adj.points:
                     mnx, mny = map_coords_to_geometry(
-                        nx, ny, (orig_h, orig_w), rotation, fine_rotation, roi=None
+                        nx,
+                        ny,
+                        (orig_h, orig_w),
+                        rotation,
+                        fine_rotation,
+                        roi=context.active_roi,
                     )
                     new_points.append((mnx, mny))
 

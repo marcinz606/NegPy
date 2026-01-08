@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen } = require('electron');
+const { app, BrowserWindow, screen, Tray, Menu } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const os = require('os');
@@ -7,6 +7,7 @@ const fs = require('fs');
 let mainWindow;
 let splashWindow;
 let backendProcess;
+let tray = null;
 
 const isPackaged = app.isPackaged;
 const port = 8501;
@@ -22,7 +23,7 @@ function getDarkroomUserDir() {
 }
 
 function startBackend() {
-    // Proactively kill anything on our port
+    // Proactively kill anything on our port (eg previous dangling instance that didn't close properly)
     if (process.platform === 'win32') {
         // Windows port cleanup (optional, taskkill in will-quit is usually enough)
         try {
@@ -45,16 +46,10 @@ function startBackend() {
     if (isPackaged) {
         // Path to the bundled binary
         if (os.platform() === 'win32') {
-            pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend.exe');
-        } else if (os.platform() === 'darwin') {
-            // macOS PyInstaller --windowed creates a .app bundle
-            pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend.app', 'Contents', 'MacOS', 'backend');
-            // Fallback for non-windowed or if it was moved differently
-            if (!fs.existsSync(pythonExecutable)) {
-                pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend');
-            }
+            pythonExecutable = path.join(process.resourcesPath, 'darkroompy', 'darkroompy.exe');
         } else {
-            pythonExecutable = path.join(process.resourcesPath, 'backend', 'backend');
+            // macOS and Linux now both produce a single binary file named 'darkroompy'
+            pythonExecutable = path.join(process.resourcesPath, 'darkroompy', 'darkroompy');
         }
     } else {
         // Path to local python/streamlit
@@ -111,6 +106,39 @@ function createSplashWindow() {
     splashWindow.loadFile(path.join(__dirname, 'splash.html'));
 }
 
+function createTray() {
+    const iconPath = path.join(__dirname, '..', 'media', os.platform() === 'win32' ? 'icon.ico' : 'icon.png');
+    tray = new Tray(iconPath);
+    
+    const contextMenu = Menu.buildFromTemplate([
+        { label: 'Show DarkroomPy', click: () => {
+            if (mainWindow) {
+                mainWindow.show();
+                mainWindow.focus();
+            }
+        }},
+        { type: 'separator' },
+        { label: 'Quit', click: () => {
+            app.isQuitting = true;
+            app.quit();
+        }}
+    ]);
+
+    tray.setToolTip('DarkroomPy');
+    tray.setContextMenu(contextMenu);
+
+    tray.on('click', () => {
+        if (mainWindow) {
+            if (mainWindow.isVisible()) {
+                mainWindow.hide();
+            } else {
+                mainWindow.show();
+                mainWindow.focus();
+            }
+        }
+    });
+}
+
 function createMainWindow() {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -136,12 +164,21 @@ function createMainWindow() {
         mainWindow.show();
     });
 
+    mainWindow.on('close', (event) => {
+        if (!app.isQuitting) {
+            event.preventDefault();
+            mainWindow.hide();
+        }
+        return false;
+    });
+
     mainWindow.on('closed', () => {
         mainWindow = null;
     });
 }
 
 app.on('ready', () => {
+    createTray();
     createSplashWindow();
     startBackend();
     

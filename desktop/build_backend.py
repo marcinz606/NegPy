@@ -15,12 +15,11 @@ streamlit_image_coordinates_dir = os.path.dirname(streamlit_image_coordinates.__
 
 # Define the build parameters
 params = [
-    "desktop/backend_bootstrap.py",  # Entry point
-    "--name=backend",  # Output name
-    "--onefile",  # Bundle into a single executable
-    "--windowed",  # No console window
-    "--clean",  # Clean cache
-    "--noconfirm",  # Overwrite output directory without asking
+    "desktop/backend_bootstrap.py",  # electron point
+    "--name=darkroompy",
+    "--onefile",
+    "--clean",
+    "--noconfirm",
     "--additional-hooks-dir=desktop",
     "--copy-metadata=streamlit",
     "--copy-metadata=streamlit-image-coordinates",
@@ -58,22 +57,23 @@ params = [
     "--add-data=.streamlit:.streamlit",
 ]
 
+if platform.system() == "Windows":
+    params.append("--windowed")
+
 # Run PyInstaller
 PyInstaller.__main__.run(params)
 
-# Move the result to desktop/bin/backend
-os.makedirs("desktop/bin/backend", exist_ok=True)
+# Move the result to desktop/bin/darkroompy
+os.makedirs("desktop/bin/darkroompy", exist_ok=True)
 
 # Determine the source name (PyInstaller output)
 if platform.system() == "Windows":
-    dist_name = "backend.exe"
-elif platform.system() == "Darwin":
-    dist_name = "backend.app"
+    dist_name = "darkroompy.exe"
 else:
-    dist_name = "backend"
+    dist_name = "darkroompy"
 
 src_path = os.path.join("dist", dist_name)
-dst_path = os.path.join("desktop/bin/backend", dist_name)
+dst_path = os.path.join("desktop/bin/darkroompy", dist_name)
 
 if os.path.exists(src_path):
     if os.path.exists(dst_path):

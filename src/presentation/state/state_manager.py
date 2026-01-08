@@ -103,6 +103,15 @@ def load_settings() -> None:
         f_hash = session.uploaded_files[session.selected_file_idx]["hash"]
         has_edits = session.repository.load_file_settings(f_hash) is not None
 
+        # 1. Clear Shadow and Last keys to force Widget Refresh
+        # This is CRITICAL because the shadow-key pattern in helpers.py
+        # will not update the widget if the 'last_' key matches the 'w_' key.
+        for key in list(st.session_state.keys()):
+            if isinstance(key, str) and (
+                key.startswith("w_") or key.startswith("last_")
+            ):
+                del st.session_state[key]
+
         for key, value in settings_dict.items():
             # If the file has NO EDITS, we want to respect current global UI state
             # for keys in GLOBAL_PERSIST_KEYS, BUT ONLY if that state is valid.
