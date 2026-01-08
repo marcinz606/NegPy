@@ -1,24 +1,26 @@
 # 🎞️ DarkroomPy
 
-**DarkroomPy** is an open-source tool for processing RAW film negatives. I built it because I wanted a way to convert my film scans using algorithms that actually act like a physical darkroom, rather than just tweaking RGB curves.
+**DarkroomPy** is an open-source tool for processing RAW film negatives. I built it because I wanted a way to convert my film scans using algorithms that actually act like a physical darkroom, rather than just another primarly digital photo editor. I throw in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
 
-The core idea is simple: treat the digital file like a physical negative. Instead of arbitrary sliders, you work with **Exposure**, **Contrast Grade**, and **CMY Filters**. It feels more like printing in a darkroom and less like wrestling with Photoshop.
+Also I'm Linux user and linux seriously lacks good options for this kind of workflow.
 
-[📖 Read about the math behind the pipeline](docs/PIPELINE.md)
 
 ---
 
 ## ✨ Features
 
 ### 🛠️ Under the Hood
-I've tried to keep the code clean and modular so it's easy to hack on:
-- **Modular Design**: Each tool (Exposure, Retouch, Geometry) is its own isolated module.
-- **Fast & Local**: No cloud nonsense. It scans your folders for new files and keeps everything on your disk.
-- **Smart Caching**: Thumbnails and settings are cached locally, so it feels snappy even with large libraries.
-- **Auto-Save**: All your edits (Exposure, Crop, etc.) are saved automatically to a local SQLite database.
+I've tried to keep the code clean and modular so it's easy to extend:
+- **Modular Design**: Each tool (Exposure, Retouch, Geometry, Toning) is its own isolated module.
+- **Caching & Persistence**: Thumbnails and settings are cached locally, so it feels snappy even with large libraries.
+- **Auto-Save**: All your edits (Exposure, Crop, etc.) are saved automatically to a local SQLite database. We don't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
+
+---
 
 ### 🧪 The Processing Pipeline
-The image goes through a 7-stage simulation:
+Most important part, the image goes through a 7-stage simulation:
+
+[📖 Read about the math behind the pipeline](docs/PIPELINE.md)
 
 1.  **Geometry**: Auto-rotates and auto-crops to standard ratios (3:2, 6:7, etc.) by detecting the film borders.
 2.  **Normalization**: Strips away the film base (D-min) to get a clean signal.
@@ -30,12 +32,12 @@ The image goes through a 7-stage simulation:
     *   **Dust Removal**: Automatic median-based healing or manual "spotting" with grain matching.
     *   **Dodge & Burn**: classic local exposure tools with soft masking.
 5.  **Lab Tools**:
-    *   **Crosstalk**: Fixes color purity by un-mixing dye overlap.
+    *   **Crosstalk/Color Separation**: Fixes color purity by un-mixing dye overlap.
     *   **Hypertone**: A local contrast boost (similar to Fuji Frontier scanners).
-    *   **Denoise**: Targets color noise in the shadows without killing grain.
+    *   **Chroma Denoise**: Targets color noise in the shadows without killing grain.
 6.  **Toning**:
     *   **Paper**: Simulates different paper bases (Warm, Cool, Glossy).
-    *   **Chemistry**: Simulates Selenium or Sepia toning for archival looks.
+    *   **Chemistry**: Simulates Selenium or Sepia toning for archival looks (for B&W mode).
 7.  **Output**: Exports your final print.
 
 ---
@@ -46,7 +48,7 @@ The image goes through a 7-stage simulation:
 If you just want to use it, grab the installer for your OS from the **[Releases Page](https://github.com/USER/darkroom-py/releases)**.
 
 ### 🛡️ Installation & Security
-Because DarkroomPy is a self-funded open-source project, the installers are not "digitally signed" by Apple or Microsoft (which costs hundreds of dollars a year). You will see a security warning the first time you run it.
+Because DarkroomPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them for that). You will see a security warning the first time you run it.
 
 #### **macOS (Gatekeeper)**
 When you open the app, you may see a message saying it is "corrupted" or from an "unidentified developer."
@@ -63,10 +65,13 @@ Windows might show a blue "Windows protected your PC" window.
 ---
 
 ### For Developers
-If you want to contribute or poke around the code, it's pretty standard Python stuff. I use Docker to keep the environment consistent.
+If you want to contribute or poke around the code, I use Docker to keep the environment consistent.
 
 #### Run with Docker
 `make run-app`
+
+#### Build electron app locally
+`make dist`
 
 #### Run Tests & Checks
 There's a Makefile to help with quality control:
@@ -85,4 +90,7 @@ DarkroomPy keeps everything in your **Documents/DarkroomPy** folder:
 ---
 
 ## ⚖️ License
-This project is free software under the **GPL-3 License**. Feel free to use it, study it, and share it.
+This project is free software under the **GPL-3 License**. Feel free to use it, study it, and share it. If you use it, also keep it open.
+
+## Support
+If you like the project and want to support it, consider buying me a coffee or a roll of film to have material for testing. [Ko-Fi](https://ko-fi.com/marcinzawalski)

@@ -1,11 +1,10 @@
 import os
-
-# Fix for Numba TBB error: "Attempted to fork from a non-main thread"
 os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
-
 import sys
 import streamlit.web.cli as stcli
 
+# This script is used to bootstrap the python app
+# within Electron environment.
 
 def resolve_path(path):
     resolved_path = os.path.abspath(os.path.join(os.getcwd(), path))
@@ -33,8 +32,8 @@ if __name__ == "__main__":
     sys.stderr.write(f"User Directory: {user_dir}\n")
     sys.stderr.write(f"Is Bundled: {getattr(sys, 'frozen', False)}\n")
 
+    # Hack to make native file picker work with streamlit
     os.chdir(bundle_dir)
-
     if "--pick-files" in sys.argv:
         from src.infrastructure.loaders.dialog_worker import pick_files
 

@@ -5,15 +5,14 @@ import platform
 import streamlit
 import streamlit_image_coordinates
 
-# Since this script is now in /desktop, we should change CWD to root
-# so PyInstaller can find app.py, src/, etc. easily.
-os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# This script is used to build python app using pyinstaller
+# It is not used in the app itself
 
-# Get the directory of the streamlit library
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 streamlit_dir = os.path.dirname(streamlit.__file__)
 streamlit_image_coordinates_dir = os.path.dirname(streamlit_image_coordinates.__file__)
 
-# Define the build parameters
+# build params
 params = [
     "desktop/backend_bootstrap.py",  # electron point
     "--name=darkroompy",
@@ -29,8 +28,7 @@ params = [
     "--hidden-import=numpy",
     "--hidden-import=numba",
     "--hidden-import=PIL",
-    "--hidden-import=PIL.Image",
-    "--hidden-import=PIL.ImageEnhance",
+    "--hidden-import=PIL.Image", "--hidden-import=PIL.ImageEnhance",
     "--hidden-import=PIL.ImageFilter",
     "--hidden-import=PIL.ImageCms",
     "--hidden-import=PIL.ImageDraw",
@@ -60,13 +58,9 @@ params = [
 if platform.system() == "Windows":
     params.append("--windowed")
 
-# Run PyInstaller
 PyInstaller.__main__.run(params)
-
-# Move the result to desktop/bin/darkroompy
 os.makedirs("desktop/bin/darkroompy", exist_ok=True)
 
-# Determine the source name (PyInstaller output)
 if platform.system() == "Windows":
     dist_name = "darkroompy.exe"
 else:
