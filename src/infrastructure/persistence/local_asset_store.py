@@ -40,7 +40,6 @@ class LocalAssetStore(IAssetStore):
             # 1. Zero-Copy for local paths, default way when running desktop app.
             if isinstance(source, str) and os.path.exists(source):
                 f_hash = calculate_file_hash(source)
-                logger.info(f"Zero-copy registration: {source} (hash: {f_hash[:8]})")
                 return source, f_hash
             elif isinstance(source, str):
                 logger.warning(f"Registration failed: Path does not exist: {source}")
@@ -58,7 +57,6 @@ class LocalAssetStore(IAssetStore):
                     f_out.write(source.getbuffer())
 
                 f_hash = calculate_file_hash(file_path)
-                logger.info(f"Buffered asset persisted: {source.name} -> {file_path}")
                 return file_path, f_hash
 
             return None

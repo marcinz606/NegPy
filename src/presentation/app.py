@@ -56,7 +56,10 @@ async def main() -> None:
 
     if session.uploaded_files:
         current_file = session.current_file
-        if current_file and current_file["hash"] not in session.file_settings:
+        if current_file and (
+            current_file["hash"] not in session.file_settings
+            or ctx.last_file != current_file["name"]
+        ):
             from src.presentation.state.state_manager import load_settings
 
             load_settings()
