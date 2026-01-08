@@ -25,7 +25,6 @@ class RetouchProcessor(IProcessor):
         rotation = rot_params["rotation"]
         fine_rotation = rot_params["fine_rotation"]
 
-        # 1. Map Manual Dust Spots
         mapped_spots = []
         if self.config.manual_dust_spots:
             for nx, ny, size in self.config.manual_dust_spots:
@@ -39,11 +38,9 @@ class RetouchProcessor(IProcessor):
                 )
                 mapped_spots.append((mnx, mny, size))
 
-        # 2. Map Local Adjustments
         mapped_adjustments = []
         if self.config.local_adjustments:
             for adj in self.config.local_adjustments:
-                # Create a copy with mapped points
                 new_points = []
                 for nx, ny in adj.points:
                     mnx, mny = map_coords_to_geometry(
@@ -66,7 +63,6 @@ class RetouchProcessor(IProcessor):
                 )
                 mapped_adjustments.append(mapped_adj)
 
-        # 3. Apply Dust Removal
         img = apply_dust_removal(
             img,
             self.config.dust_remove,
@@ -76,7 +72,6 @@ class RetouchProcessor(IProcessor):
             scale_factor,
         )
 
-        # 4. Apply Local Adjustments
         if mapped_adjustments:
             img = apply_local_adjustments(img, mapped_adjustments, scale_factor)
 

@@ -48,12 +48,10 @@ async def main() -> None:
 
     apply_custom_css()
 
-    # 0. Sync Hot Folders
     if controller.sync_hot_folders():
         st.toast("New files discovered in hot folder!")
         st.rerun()
 
-    # 1. Sidebar: File Management
     render_file_manager()
 
     if session.uploaded_files:
@@ -63,7 +61,6 @@ async def main() -> None:
 
             load_settings()
 
-    # 2. Main Area: Header & Status
     main_area, status_area = render_layout_header(ctx)
 
     if session.uploaded_files:
@@ -74,15 +71,12 @@ async def main() -> None:
 
         current_cs = st.session_state.get("export_color_space", "sRGB")
 
-        # 3. Handle I/O (Loading RAW)
         if controller.handle_file_loading(current_file, current_cs):
             status_area.success(f"Loaded {current_file['name']}")
             st.rerun()
 
-        # 4. Sidebar: Settings
         sidebar_data = render_sidebar_content()
 
-        # 5. Background Tasks: Thumbnails
         missing_thumbs = [
             f for f in session.uploaded_files if f["name"] not in session.thumbnails
         ]
@@ -107,17 +101,14 @@ async def main() -> None:
                             session.thumbnails[f_meta["name"]] = thumb
                 status.update(label="Thumbnails ready", state="complete")
 
-        # 6. Core Workflow: Processing & Color
         from src.presentation.state.state_manager import save_settings
 
         save_settings()
         pil_prev = controller.process_frame()
         st.session_state.last_pil_prev = pil_prev
 
-        # 7. Rendering (Visualization Overlay and Layout)
         render_main_layout(pil_prev, sidebar_data, main_area)
 
-        # 8. Handle Export Logic via Service
         if sidebar_data.export_btn:
             import time
 

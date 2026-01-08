@@ -24,7 +24,6 @@ def render_adjustments() -> SidebarState:
     """
     Renders the various image adjustment expanders by delegating to sub-components.
     """
-    # --- Top Controls ---
     render_control_selectbox(
         "Processing Mode",
         ["C41", "B&W"],
@@ -37,31 +36,15 @@ def render_adjustments() -> SidebarState:
     # Navigation buttons (Back, Forward, Rotate, Delete, Copy, Paste, Reset, Export)
     export_btn_sidebar, process_all_btn = render_navigation()
 
-    # --- Geometry & Auto-Crop ---
     render_geometry_section()
-
-    # --- Presets ---
     render_presets()
-
-    # --- Analysis Plots (Histogram, Curve) ---
     render_analysis_section()
-
-    # 1. Exposure & Tonality
     render_exposure_section()
-
-    # 2. Lab Scanner Simulation
     render_lab_scanner_section()
-
-    # 3. Color & Balance (includes Selective Color)
     render_paper_section()
-
-    # 4. Dodge & Burn
     render_local_adjustments()
-
-    # 5. Retouch
     render_retouch_section()
 
-    # 6. Export
     export_data = render_export_section()
     export_data.export_btn = export_btn_sidebar
     export_data.process_btn = process_all_btn

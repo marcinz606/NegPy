@@ -15,11 +15,12 @@ class PhotoLabProcessor(IProcessor):
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
+        """
+        Apply effects from logic.py in sequence
+        """
         img = image
         scale_factor = context.scale_factor
 
-        # 1. Spectral Crosstalk (Needs Density Space)
-        # Original logic: crosstalk_strength = max(0.0, settings.color_separation - 1.0)
         c_strength = max(0.0, self.config.color_separation - 1.0)
         if c_strength > 0:
             epsilon = 1e-6
@@ -29,17 +30,14 @@ class PhotoLabProcessor(IProcessor):
             )
             img = np.power(10.0, -img_dens)
 
-        # 2. Scanner Emulation (Hypertone)
         if self.config.hypertone_strength > 0:
             img = apply_hypertone(img, self.config.hypertone_strength)
 
-        # 3. Chroma Noise Removal
         if self.config.c_noise_strength > 0:
             img = apply_chroma_noise_removal(
                 img, self.config.c_noise_strength, scale_factor
             )
 
-        # 4. Output Sharpening
         if self.config.sharpen > 0:
             img = apply_output_sharpening(img, self.config.sharpen)
 
