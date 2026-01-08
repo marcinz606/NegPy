@@ -38,7 +38,7 @@ def render_retouch_section() -> None:
             with c2:
                 render_control_slider(
                     label="Size",
-                    min_val=1.0,
+                    min_val=2.0,
                     max_val=20.0,
                     default_val=3.0,
                     step=1.0,
@@ -61,7 +61,7 @@ def render_retouch_section() -> None:
         if st.session_state.get(vm.get_key("pick_dust")):
             render_control_slider(
                 label="Manual Spot Size",
-                min_val=1.0,
+                min_val=2.0,
                 max_val=50.0,
                 default_val=5.0,
                 step=1.0,

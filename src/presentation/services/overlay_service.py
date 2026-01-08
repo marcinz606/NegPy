@@ -6,6 +6,7 @@ from typing import List, Tuple, Optional
 from src.features.retouch.logic import generate_local_mask, calculate_luma_mask
 from src.features.geometry.models import GeometryConfig
 from src.core.validation import ensure_image
+from src.core.types import ImageBuffer
 
 
 class OverlayService:
@@ -36,7 +37,7 @@ class OverlayService:
         # 1. Generate Raw Mask
         mask = generate_local_mask(rh_orig, rw_orig, points, radius, feather, 1.0)
 
-        # Use base_positive (post-photometric) for luminance masking if available
+        # Use base_positive (post-photometric) for luminance masking
         base_pos = st.session_state.get("base_positive")
         if base_pos is not None and base_pos.shape[:2] == (rh_orig, rw_orig):
             luma_mask = calculate_luma_mask(
@@ -88,7 +89,7 @@ class OverlayService:
         geo_conf: GeometryConfig,
         roi: Optional[Tuple[int, int, int, int]],
         border_px: int = 0,
-        alpha: int = 100,
+        alpha: int = 75,
     ) -> Image.Image:
         """
         Renders semi-transparent green patches over manual dust correction spots.
@@ -101,11 +102,15 @@ class OverlayService:
         orig_h = pil_img.size[1] - 2 * border_px
 
         # 1. Generate Dust Mask
-        mask_manual = np.zeros((rh_orig, rw_orig), dtype=np.float32)
+        mask_manual: ImageBuffer = np.zeros((rh_orig, rw_orig), dtype=np.float32)
         for rx, ry, size in manual_spots:
             px = int(rx * rw_orig)
             py = int(ry * rh_orig)
             cv2.circle(mask_manual, (px, py), int(size), 1.0, -1)
+
+        # Apply same feathering as in logic.py
+        # inpaint_rad = 3, feather = 3
+        mask_manual = ensure_image(cv2.GaussianBlur(mask_manual, (3, 3), 0))
 
         # 2. Apply Geometry Transformations
         mask_manual = OverlayService._transform_mask(

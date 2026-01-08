@@ -211,6 +211,7 @@ def apply_dust_removal(
         manual_mask_u8 = np.zeros((h_img, w_img), dtype=np.uint8)
         for spot in manual_spots:
             nx, ny, s_size = spot
+            # size is in preview-pixels, scale it up for full-res or down for preview
             radius = int(s_size * scale_factor)
 
             if radius < 1:
@@ -231,7 +232,10 @@ def apply_dust_removal(
 
         mask_base = manual_mask_u8.astype(np.float32) / 255.0
         mask_3d = mask_base[:, :, None]
-        mask_blur = cv2.GaussianBlur(mask_3d, (3, 3), 0)
+
+        # Consistent feathering with inpaint radius
+        feather_size = inpaint_rad | 1
+        mask_blur = cv2.GaussianBlur(mask_3d, (feather_size, feather_size), 0)
         mask_final = (
             mask_blur[:, :, None] if mask_blur.ndim == 2 else mask_blur
         ).astype(np.float32)
@@ -264,6 +268,7 @@ def generate_local_mask(
         return mask
 
     # Calculate pixel radius
+    # radius is in pixels relative to the preview viewport
     px_radius = int(radius * scale_factor)
     if px_radius < 1:
         px_radius = 1
