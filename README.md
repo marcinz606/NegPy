@@ -1,10 +1,8 @@
 # 🎞️ DarkroomPy
 
-**DarkroomPy** is an open-source tool for processing RAW film negatives. I built it because I wanted a way to convert my film scans using algorithms that actually act like a physical darkroom, rather than just another primarly digital photo editor. I throw in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
+**DarkroomPy** is an open-source tool for processing RAW film negatives. I built it because I wanted something made specifically for film scans but going beyond being simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
 
-Also I'm Linux user and linux seriously lacks good options for this kind of workflow.
-
-
+Also I'm Linux user and we really lack good options working with negatives.
 ---
 
 ## ✨ Features

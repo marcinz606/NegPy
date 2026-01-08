@@ -34,7 +34,7 @@ async def main() -> None:
     Primary Application Entry Point (OO Orchestrator).
     """
     st.set_page_config(
-        page_title="DarkroomPy", layout="wide", page_icon="media/icon.png"
+        page_title="DarkroomPy", layout="wide", page_icon="media/icons/icon.png"
     )
     init_session_state()
 

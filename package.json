@@ -43,25 +43,24 @@
     ],
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
       ],
       "category": "Graphics",
-      "icon": "icons"
+      "icon": "media/icons"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "media/icon.ico"
+      "icon": "media/icons/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "shortcutName": "DarkroomPy",
-      "installerIcon": "media/icon.ico",
-      "uninstallerIcon": "media/icon.ico"
+      "installerIcon": "media/icons/icon.ico",
+      "uninstallerIcon": "media/icons/icon.ico"
     },
     "mac": {
       "target": "dmg",

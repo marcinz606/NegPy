@@ -22,8 +22,8 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
 ## 3. Photometric Exposure (Making the Print)
 **Code**: `src.features.exposure`
 
-* Key part of the pipeline. We don't do simple linear inversion or basic s-curve. We base it on the [The H&D Curve](https://www.shutterbug.com/content/darkroombrwhat-do-those-h-and-d-curves-really-mean)
-*   **Filtration**: We subtract C/M/Y offsets from the density values *before* the curve, just like physical filters block light.
+* Key part of the pipeline. We don't do simple linear inversion or basic s-curve. We base it on the [The H&D Curve](https://www.shutterbug.com/content/darkroombrwhat-do-those-h-and-d-curves-really-mean) (highly recommended reading).
+*   **Filtration**: We subtract C/M/Y offsets from the density values *before* the curve, just like physical filters in enlarger head block light.
 *   **The Math**: We model the film/paper response using a **Logistic Sigmoid Function**:
     $$D_{out} = \frac{L}{1 + e^{-k(x - x_0)}}$$
     *   $k$ is your Contrast Grade.
@@ -32,7 +32,7 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
 *   **Linear Region (Gamma)**: The straight middle part. The slope of this line ($\gamma$) defines the contrast. A steep slope means high contrast (Hard Grade); a shallow slope means low contrast (Soft Grade).
 *   **Shoulder**: The curved top part. Eventually, you run out of silver to react. The density flattens out, compressing the shadows so they don't clip harshly to black.
 
-Sliders in Exposure & Tonality UI section allow you to control parameters of our our sigmoid curve. Aka "your print" 
+Sliders in Exposure & Tonality UI section allow you to control parameters of our our sigmoid curve. Aka "your print". You can observe the effect on ploted curve, histogram and on preview image itself.
 
 ## 4. Retouching (Dodge, Burn & Spot)
 **Code**: `src.features.retouch`
@@ -47,8 +47,10 @@ Sliders in Exposure & Tonality UI section allow you to control parameters of our
 
 ---
 
-## 5. Lab Scanner Simulation
+## 5. Lab Scanner
 **Code**: `src.features.lab`
+
+Less darkroom-y part of the pipeline. We try to replicate things that lab scanners like Frontier or Noritsu do well.
 
 *   **Spectral Crosstalk**: We use a $3 \times 3$ matrix multiplication to "un-mix" the colors, effectively correcting for the impure spectral response of the film dyes. Lab scanners like Frontier and Noritsu have it "baked in".
 *   **CLAHE**: Contrast Limited Adaptive Histogram Equalization applied in LAB space. It boosts local micro-contrast (texture) without messing up the overall brightness. Fuji Frontier calls this "Hypertone".
@@ -56,7 +58,9 @@ Sliders in Exposure & Tonality UI section allow you to control parameters of our
 
 ---
 
-## 6. Toning & Paper (The Final Look)
+## 6. Toning & Paper 
+**Code**: `src.features.toning`
+
 *   **Paper Simulation**: We tint the highlights (paper base) and apply a gamma curve to the shadows to mimic the reflectivity of different paper surfaces.
 *   **Chemical Toning**: We use a function that calculates pixel luminance and interpolates the color towards a Selenium or Sepia target vector. Since toners affect silver, the effect is strongest in the dense areas (shadows) and weak in the highlights.
 
@@ -66,3 +70,5 @@ Sliders in Exposure & Tonality UI section allow you to control parameters of our
 **Code**: `src.features.geometry.processor.CropProcessor`
 
 Calculated and detemined in 1st step but we apply it last. By waiting until the very end, we ensured that all our median filters and blur kernels had plenty of border data to work with, preventing weird edge artifacts.
+
+During export we can also easily apply nice border (white or any other color you like) without affecting total desired print size. 
