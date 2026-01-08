@@ -1,4 +1,8 @@
 import os
+
+# Fix for Numba TBB error: "Attempted to fork from a non-main thread"
+os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
+
 import sys
 import streamlit.web.cli as stcli
 

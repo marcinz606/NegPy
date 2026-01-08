@@ -65,6 +65,7 @@
     },
     "mac": {
       "target": "dmg",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "category": "public.app-category.photography",
       "entitlements": "desktop/entitlements.mac.plist",
       "entitlementsInherit": "desktop/entitlements.mac.plist",

@@ -4,6 +4,9 @@ import numpy as np
 from numba import njit, prange  # type: ignore
 from src.core.performance import time_function
 from src.core.validation import ensure_image
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @njit(parallel=True)
@@ -68,7 +71,9 @@ def calculate_file_hash(file_path: str) -> str:
                 hasher.update(f.read(1024 * 1024))
 
         return hasher.hexdigest()
-    except Exception:
+    except Exception as e:
         import uuid
+
+        logger.error(f"Error calculating hash for {file_path}: {e}")
 
         return f"err_{uuid.uuid4()}"
