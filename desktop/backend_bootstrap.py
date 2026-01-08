@@ -13,18 +13,11 @@ def resolve_path(path):
 
 
 if __name__ == "__main__":
-    # Check if running in a bundled PyInstaller environment
     if getattr(sys, "frozen", False):
-        # We are running in a bundle
         bundle_dir = sys._MEIPASS
     else:
-        # We are running in a normal Python environment
         bundle_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Handle DARKROOM_USER_DIR
-    # Docker usually sets this to /app/user
-    # Electron sets this to Documents/DarkroomPy
-    # If not set, we default to ./user
     user_dir = os.environ.get("DARKROOM_USER_DIR")
     if not user_dir:
         if os.path.exists("/.dockerenv"):
@@ -40,15 +33,11 @@ if __name__ == "__main__":
     sys.stderr.write(f"User Directory: {user_dir}\n")
     sys.stderr.write(f"Is Bundled: {getattr(sys, 'frozen', False)}\n")
 
-    # Change CWD to bundle_dir so relative paths in the app (like 'icc/')
-    # resolve correctly to the bundled files.
     os.chdir(bundle_dir)
 
-    # Check for subtasks (native dialogs) before starting Streamlit
     if "--pick-files" in sys.argv:
         from src.infrastructure.loaders.dialog_worker import pick_files
 
-        # The initial_dir is passed as the next argument after the flag
         idx = sys.argv.index("--pick-files")
         initial_dir = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else None
         pick_files(initial_dir)
@@ -68,9 +57,6 @@ if __name__ == "__main__":
         pick_export_folder(initial_dir)
         sys.exit(0)
 
-    # Streamlit execution
-    # If bundled, app.py is at the root of bundle_dir.
-    # If dev, app.py is in the parent directory of this script.
     if getattr(sys, "frozen", False):
         app_path = os.path.join(bundle_dir, "app.py")
     else:

@@ -20,21 +20,17 @@ class GeometryProcessor(IProcessor):
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
 
-        # 1. 90-degree Rotations
         if self.config.rotation != 0:
             img = np.rot90(img, k=self.config.rotation)
 
-        # 2. Fine Rotation
         if self.config.fine_rotation != 0.0:
             img = apply_fine_rotation(img, self.config.fine_rotation)
 
-        # Store rotation state for downstream processors (like Retouch) that map coordinates
         context.metrics["geometry_params"] = {
             "rotation": self.config.rotation,
             "fine_rotation": self.config.fine_rotation,
         }
 
-        # 3. Detect ROI (Autocrop)
         if self.config.autocrop:
             roi = get_autocrop_coords(
                 img,
@@ -46,7 +42,6 @@ class GeometryProcessor(IProcessor):
             )
             context.active_roi = roi
         else:
-            # Use manual crop offset even if autocrop is disabled
             roi = get_manual_crop_coords(
                 img,
                 offset_px=self.config.autocrop_offset,

@@ -6,11 +6,6 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 from src.logging_config import get_logger
 from src.config import APP_CONFIG
 from src.features.geometry.logic import get_autocrop_coords
-from src.features.exposure.analysis import (
-    prepare_exposure_analysis,
-    analyze_sensitometry,
-)
-from src.features.exposure.models import EXPOSURE_CONSTANTS
 from src.core.validation import validate_int
 from src.presentation.state.state_manager import save_settings
 from src.presentation.state.view_models import SidebarState
@@ -19,7 +14,6 @@ from src.presentation.services.geometry_service import GeometryService
 from src.presentation.services.overlay_service import OverlayService
 from src.presentation.state.view_models import (
     GeometryViewModel,
-    ExposureViewModel,
     RetouchViewModel,
 )
 
@@ -38,7 +32,6 @@ def render_image_view(
     border_px = 0
     orig_w, orig_h = pil_prev.size
 
-    # --- Border Preview ---
     if border_config and border_config.add_border:
         try:
             print_w = border_config.print_width
@@ -54,7 +47,6 @@ def render_image_view(
         except Exception as e:
             logger.error(f"Border preview error: {e}")
 
-    # 1. State & Geometry
     geo_vm = GeometryViewModel()
     geo_conf = geo_vm.to_config()
 
@@ -92,7 +84,6 @@ def render_image_view(
         {"roi": roi} if roi else None,
     )
 
-    # --- Mask Overlay ---
     is_local_mode = ctx.pick_local
     active_idx = ctx.active_adjustment_idx
 
@@ -131,7 +122,6 @@ def render_image_view(
         is_assist_mode = st.session_state.get(geo_vm.get_key("pick_assist"), False)
         img_display = pil_prev.copy()
 
-        # --- Dust Patches Overlay ---
         if st.session_state.get(vm_retouch.get_key("show_dust_patches")):
             manual_spots = st.session_state.get(
                 vm_retouch.get_key("manual_dust_spots"), []
@@ -161,24 +151,6 @@ def render_image_view(
             else:
                 st.image(img_display, width=working_size)
                 value = None
-
-        # Footer Analysis
-        try:
-            norm_log, _ = prepare_exposure_analysis(img_raw)
-            dr, mid = analyze_sensitometry(norm_log)
-            exp_vm = ExposureViewModel()
-            shift = 0.1 + (exp_vm.density * EXPOSURE_CONSTANTS["density_multiplier"])
-            pivot = 1.0 - shift
-            zone_diff = mid - pivot
-
-            f1, f2 = st.columns(2)
-            f1.markdown(f"**DR:** {dr:.2f}")
-            f2.markdown(
-                f"<div style='text-align: right;'>**Zone V:** {zone_diff:+.2f}</div>",
-                unsafe_allow_html=True,
-            )
-        except Exception as e:
-            logger.warning(f"Footer analysis error: {e}")
 
     if value:
         scale = pil_prev.width / float(working_size)

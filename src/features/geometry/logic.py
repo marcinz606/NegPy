@@ -21,7 +21,6 @@ def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     center = (w / 2.0, h / 2.0)
     m_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
 
-    # Ensure float32 (borderValue black)
     res = cv2.warpAffine(
         img,
         m_mat,
@@ -34,7 +33,6 @@ def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
 
 
 def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    # Simple Rec.709 luma
     res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
     return ensure_image(res)
 
@@ -69,14 +67,12 @@ def enforce_roi_aspect_ratio(
     if cw <= 0 or ch <= 0:
         return 0, h, 0, w
 
-    # Parse target ratio
     try:
         w_r, h_r = map(float, target_ratio_str.split(":"))
         target_aspect = w_r / h_r
     except Exception:
         target_aspect = 1.5
 
-    # Handle Orientation
     is_vertical = ch > cw
     if is_vertical:
         if target_aspect > 1.0:
@@ -85,17 +81,14 @@ def enforce_roi_aspect_ratio(
         if target_aspect < 1.0:
             target_aspect = 1.0 / target_aspect
 
-    # Enforce Ratio
     current_aspect = cw / ch
 
     if current_aspect > target_aspect:
-        # Too wide, crop width
         target_w = ch * target_aspect
         nx1 = x1 + (cw - target_w) / 2
         nx2 = nx1 + target_w
         x1, x2 = int(nx1), int(nx2)
     else:
-        # Too tall, crop height
         target_h = cw / target_aspect
         ny1 = y1 + (ch - target_h) / 2
         ny2 = ny1 + target_h
@@ -140,18 +133,13 @@ def get_autocrop_coords(
     h, w = img.shape[:2]
     det_scale = detect_res / max(h, w)
 
-    # Resize for detection
     d_h, d_w = int(h * det_scale), int(w * det_scale)
     img_small = cv2.resize(img, (d_w, d_h), interpolation=cv2.INTER_AREA)
 
     lum = get_luminance(ensure_image(img_small))
 
-    # Threshold for film base detection (detecting darker frame)
-    # Default is 0.96 for typical scans, but can be assisted by user click.
     threshold = 0.96
     if assist_luma is not None:
-        # If user assisted, we set threshold slightly BELOW their clicked point (film base)
-        # so that only pixels DARKER than the film base are detected as "image".
         threshold = float(np.clip(assist_luma - 0.02, 0.5, 0.98))
 
     rows_det = np.where(np.mean(lum, axis=1) < threshold)[0]
@@ -163,12 +151,10 @@ def get_autocrop_coords(
     y1, y2 = rows_det[0] / det_scale, rows_det[-1] / det_scale
     x1, x2 = cols_det[0] / det_scale, cols_det[-1] / det_scale
 
-    # Apply detected ROI with margin
     margin = (2 + offset_px) * scale_factor
     roi = (y1, y2, x1, x2)
     roi = apply_margin_to_roi(roi, h, w, margin)
 
-    # Enforce aspect ratio
     return enforce_roi_aspect_ratio(roi, h, w, target_ratio_str)
 
 
@@ -186,42 +172,32 @@ def map_coords_to_geometry(
     to the current geometric state (rotated and optionally cropped).
     """
     h_orig, w_orig = orig_shape
-    # 1. Start with absolute pixels in original space
     px, py = nx * w_orig, ny * h_orig
     h, w = h_orig, w_orig
 
-    # 2. Apply 90-degree rotations (match np.rot90 which is CCW)
     k = rotation_k % 4
     if k == 1:  # 90 CCW
-        # Original (x, y) in (W, H) -> (y, W-x) in (H, W)
         px, py = py, w - px
         h, w = w, h
     elif k == 2:  # 180
-        # Original (x, y) in (W, H) -> (W-x, H-y) in (W, H)
         px, py = w - px, h - py
     elif k == 3:  # 270 CCW (90 CW)
-        # Original (x, y) in (W, H) -> (H-y, x) in (H, W)
         px, py = h - py, px
         h, w = w, h
 
-    # 3. Apply Fine Rotation
     if fine_rotation != 0.0:
         center = (w / 2.0, h / 2.0)
         m_mat = cv2.getRotationMatrix2D(center, fine_rotation, 1.0)
-        # To map a point from src -> dst, we use M @ P
         pt = np.array([px, py, 1.0])
         res_pt = m_mat @ pt
         px, py = float(res_pt[0]), float(res_pt[1])
 
-    # 4. Apply ROI Offset (if we want coordinates relative to the crop)
     if roi:
         y1, y2, x1, x2 = roi
         px -= x1
         py -= y1
         h, w = y2 - y1, x2 - x1
 
-    # 5. Return normalized to the NEW shape
-    # Clip to [0, 1] to ensure we stay within image bounds
     nx_new = np.clip(px / max(w, 1), 0.0, 1.0)
     ny_new = np.clip(py / max(h, 1), 0.0, 1.0)
 

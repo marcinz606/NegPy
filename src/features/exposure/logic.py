@@ -70,13 +70,11 @@ def _apply_photometric_fused_kernel(
                 diff = val - pivots[ch]
                 epsilon = 1e-6
 
-                # --- SHOULDER (Shadows) ---
                 sw_val = shoulder_width * (diff / max(float(pivots[ch]), epsilon))
                 w_s = _fast_sigmoid(sw_val)
                 prot_s = (4.0 * ((w_s - 0.5) ** 2)) ** shoulder_hardness
                 damp_shoulder = shoulder * (1.0 - w_s) * prot_s
 
-                # --- TOE (Highlights) ---
                 tw_val = toe_width * (diff / max(1.0 - float(pivots[ch]), epsilon))
                 w_t = _fast_sigmoid(tw_val)
                 prot_t = (4.0 * ((w_t - 0.5) ** 2)) ** toe_hardness
@@ -88,10 +86,8 @@ def _apply_photometric_fused_kernel(
                 elif k_mod > 2.0:
                     k_mod = 2.0
 
-                # Final Sigmoid -> Density
                 density = d_max * _fast_sigmoid(float(slopes[ch]) * diff * k_mod)
 
-                # Transmittance -> Gamma
                 transmittance = 10.0 ** (-density)
                 final_val = transmittance**inv_gamma
 
@@ -140,16 +136,13 @@ class LogisticSigmoid:
 
     @time_function
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
-        # Avoid log(0)
         diff = x - self.x0
         epsilon = 1e-6
 
-        # --- SHOULDER (Shadows) ---
         w_s = expit(self.shoulder_width * (diff / max(self.x0, epsilon)))
         prot_s = (4.0 * ((w_s - 0.5) ** 2)) ** self.shoulder_hardness
         damp_shoulder = self.shoulder * (1.0 - w_s) * prot_s
 
-        # --- TOE (Highlights) ---
         w_t = expit(self.toe_width * (diff / max(1.0 - self.x0, epsilon)))
         prot_t = (4.0 * ((w_t - 0.5) ** 2)) ** self.toe_hardness
         damp_toe = self.toe * w_t * prot_t
@@ -190,12 +183,10 @@ def apply_characteristic_curve(
         toe/shoulder: Sensitometric roll-off parameters for highlights and shadows.
         cmy_offsets: Subtractive filtration offsets in density units.
     """
-    # Unpack parameters (Pivot, Slope)
     pivots = np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32)
     slopes = np.array([params_r[1], params_g[1], params_b[1]], dtype=np.float32)
     offsets = np.array(cmy_offsets, dtype=np.float32)
 
-    # Use the fused JIT kernel
     res = _apply_photometric_fused_kernel(
         img.astype(np.float32),
         pivots,

@@ -155,7 +155,7 @@ def apply_chroma_noise_removal(
     img: ImageBuffer, strength_input: float, scale_factor: float = 1.0
 ) -> ImageBuffer:
     """
-    Reduces color (chrominance) noise in deep shadows.
+    Reduces color noise in deep shadows.
     Also standard in Lab scanners.
     """
     if strength_input <= 0:
@@ -166,7 +166,7 @@ def apply_chroma_noise_removal(
     lab = cv2.cvtColor(img_u8, cv2.COLOR_RGB2LAB)
     l_chan, a_chan, b_chan = cv2.split(lab)
 
-    # 1. Bilateral Filter
+    # Bilateral Filter
     d_val = int(9 * scale_factor) | 1
     f_strength = float(strength)
     sc_val = f_strength * 2.0
@@ -175,7 +175,7 @@ def apply_chroma_noise_removal(
     a_bilat = cv2.bilateralFilter(a_chan, d_val, sc_val, ss_val)
     b_bilat = cv2.bilateralFilter(b_chan, d_val, sc_val, ss_val)
 
-    # 2. Strong Blur for Deep Shadows
+    # Strong Blur for Deep Shadows
     base_k = 11 if strength > 50 else 7
     k_size = int(base_k * scale_factor) | 1
     a_blur = cv2.GaussianBlur(a_bilat, (k_size, k_size), 0)
@@ -183,7 +183,7 @@ def apply_chroma_noise_removal(
 
     l_float = l_chan.astype(np.float32)
 
-    # 3. Broad Masking
+    # Broad Masking
     broad_mask = np.clip(1.0 - ((l_float - 150.0) / 80.0), 0.0, 1.0)
     broad_mask = cv2.GaussianBlur(broad_mask, (21, 21), 0)
 
@@ -215,7 +215,7 @@ def _apply_unsharp_mask_jit(
     """
     h, w = l_chan.shape
     res = np.empty((h, w), dtype=np.float32)
-    amount_f = amount * 2.5  # Scale to match PIL 'percent' roughly
+    amount_f = amount * 2.5
 
     for y in prange(h):
         for x in range(w):
@@ -243,14 +243,11 @@ def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
     if amount <= 0:
         return img
 
-    # RGB to LAB (float32)
     lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
     l_chan, a, b = cv2.split(lab)
 
-    # Gaussian Blur for Unsharp Mask (radius=1.0 roughly corresponds to ksize=5)
     l_blur = cv2.GaussianBlur(l_chan, (5, 5), 1.0)
 
-    # Threshold 5.0 in PIL is roughly 2.0 in 0-100 LAB space
     l_sharpened = _apply_unsharp_mask_jit(l_chan, l_blur, float(amount), 2.0)
 
     res_lab = cv2.merge([l_sharpened, a, b])

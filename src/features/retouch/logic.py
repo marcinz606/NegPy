@@ -164,7 +164,6 @@ def apply_dust_removal(
     if not (dust_remove or manual_spots):
         return img
 
-    # --- Automatic Detection & Healing ---
     if dust_remove:
         d_size = int(dust_size * 2.0 * scale_factor) | 1
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
@@ -185,7 +184,6 @@ def apply_dust_removal(
         detail_boost = (1.0 - flatness) * 0.05
         sens_factor = (1.0 - 0.98 * flatness_weight) * (1.0 - 0.5 * highlight_sens)
 
-        # Use JIT for channel diff and thresholding
         raw_mask = _compute_dust_masks_jit(
             img.astype(np.float32),
             img_median.astype(np.float32),
@@ -204,14 +202,12 @@ def apply_dust_removal(
             mask = cv2.GaussianBlur(mask, (feather, feather), 0)
             img = img * (1.0 - mask[:, :, None]) + img_median * mask[:, :, None]
 
-    # --- Manual Healing (using Inpainting) ---
     if manual_spots:
         h_img, w_img = img.shape[:2]
 
         manual_mask_u8 = np.zeros((h_img, w_img), dtype=np.uint8)
         for spot in manual_spots:
             nx, ny, s_size = spot
-            # size is in preview-pixels, scale it up for full-res or down for preview
             radius = int(s_size * scale_factor)
 
             if radius < 1:
@@ -227,13 +223,11 @@ def apply_dust_removal(
             cv2.inpaint(img_u8, manual_mask_u8, inpaint_rad, cv2.INPAINT_TELEA)
         )
 
-        # Grain Matching & Blending using fused JIT kernel
         noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
 
         mask_base = manual_mask_u8.astype(np.float32) / 255.0
         mask_3d = mask_base[:, :, None]
 
-        # Consistent feathering with inpaint radius
         feather_size = inpaint_rad | 1
         mask_blur = cv2.GaussianBlur(mask_3d, (feather_size, feather_size), 0)
         mask_final = (
