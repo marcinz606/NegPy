@@ -72,7 +72,7 @@ jobs:
         run: npm run build:backend
 
       - name: Build Electron App
-        run: npm run dist -- -c.extraMetadata.version=${{ github.event.inputs.version }}
+        run: npx electron-builder "--config.extraMetadata.version=${{ github.event.inputs.version }}" --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
