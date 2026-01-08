@@ -11,6 +11,7 @@ let tray = null;
 
 const isPackaged = app.isPackaged;
 const port = 8501;
+const ICON_PATH = path.join(__dirname, '..', 'media', 'icons', os.platform() === 'win32' ? 'icon.ico' : 'icon.png');
 
 // --- Single Instance Lock ---
 const gotTheLock = app.requestSingleInstanceLock();
@@ -46,7 +47,7 @@ function startBackend() {
         // Windows port cleanup (optional, taskkill in will-quit is usually enough)
         try {
             spawn('cmd', ['/c', `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /f /pid %a`]);
-        } catch (e) {}
+        } catch (e) { }
     } else {
         try {
             spawn('sh', ['-c', `lsof -ti :${port} | xargs kill -9`]);
@@ -72,10 +73,10 @@ function startBackend() {
     } else {
         // Path to local python/streamlit
         // Try to find venv python first
-        const venvPython = os.platform() === 'win32' 
+        const venvPython = os.platform() === 'win32'
             ? path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe')
             : path.join(__dirname, '..', 'venv', 'bin', 'python');
-        
+
         pythonExecutable = fs.existsSync(venvPython) ? venvPython : 'python';
         args = ['-m', 'streamlit', 'run', 'app.py', '--server.port=' + port, '--server.headless=true', '--browser.gatherUsageStats=false'];
     }
@@ -83,8 +84,8 @@ function startBackend() {
     console.log(`Starting backend: ${pythonExecutable} ${args.join(' ')}`);
     console.log(`User directory: ${userDir}`);
 
-    backendProcess = spawn(pythonExecutable, args, { 
-        env, 
+    backendProcess = spawn(pythonExecutable, args, {
+        env,
         cwd: isPackaged ? process.resourcesPath : path.join(__dirname, '..'),
         detached: process.platform !== 'win32' // Required for process group kill
     });
@@ -115,7 +116,7 @@ function createSplashWindow() {
         frame: false,
         alwaysOnTop: true,
         transparent: true,
-        icon: path.join(__dirname, '..', 'media', os.platform() === 'win32' ? 'icon.ico' : 'icon.png'),
+        icon: ICON_PATH,
         webPreferences: {
             nodeIntegration: false
         }
@@ -125,21 +126,25 @@ function createSplashWindow() {
 }
 
 function createTray() {
-    const iconPath = path.join(__dirname, '..', 'media', os.platform() === 'win32' ? 'icon.ico' : 'icon.png');
+    const iconPath = ICON_PATH;
     tray = new Tray(iconPath);
-    
+
     const contextMenu = Menu.buildFromTemplate([
-        { label: 'Show DarkroomPy', click: () => {
-            if (mainWindow) {
-                mainWindow.show();
-                mainWindow.focus();
+        {
+            label: 'Show DarkroomPy', click: () => {
+                if (mainWindow) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
             }
-        }},
+        },
         { type: 'separator' },
-        { label: 'Quit', click: () => {
-            app.isQuitting = true;
-            app.quit();
-        }}
+        {
+            label: 'Quit', click: () => {
+                app.isQuitting = true;
+                app.quit();
+            }
+        }
     ]);
 
     tray.setToolTip('DarkroomPy');
@@ -165,7 +170,7 @@ function createMainWindow() {
         height: Math.min(1000, height),
         show: false,
         autoHideMenuBar: true,
-        icon: path.join(__dirname, '..', 'media', os.platform() === 'win32' ? 'icon.ico' : 'icon.png'),
+        icon: ICON_PATH,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true
@@ -199,7 +204,7 @@ app.on('ready', () => {
     createTray();
     createSplashWindow();
     startBackend();
-    
+
     // Fallback: If it takes too long, just try to show the main window or show error
     setTimeout(() => {
         if (splashWindow && !mainWindow) {
