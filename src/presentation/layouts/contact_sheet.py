@@ -13,7 +13,7 @@ def render_contact_sheet() -> None:
         return
 
     # Use a scrollable container with fixed height suitable for ~1 row when stuck to bottom
-    with st.container(height=250):
+    with st.container(height=260):
         ts = APP_CONFIG.thumbnail_size
         # Dynamically calculate number of columns based on thumbnail size and container width
         # Assuming sidebar is ~300px and main is ~1200px.

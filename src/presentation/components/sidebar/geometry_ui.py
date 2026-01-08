@@ -57,7 +57,7 @@ def render_geometry_section() -> None:
             render_control_slider(
                 label="Crop Offset",
                 min_val=-20.0,
-                max_val=50.0,
+                max_val=100.0,
                 default_val=4.0,
                 step=1.0,
                 key=geo_vm.get_key("autocrop_offset"),
