@@ -96,7 +96,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: all-binaries
-          pattern: binaries-*
+          pattern: darkroompy-*
           merge-multiple: true
 
       - name: Create GitHub Release
@@ -107,9 +107,9 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            all-binaries/*.exe
-            all-binaries/*.dmg
-            all-binaries/*.AppImage
-            all-binaries/*.deb
+            darkroompy-*.exe
+            darkroompy-*.dmg
+            darkroompy-*.AppImage
+            darkroompy-*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
