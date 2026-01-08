@@ -12,6 +12,24 @@ let tray = null;
 const isPackaged = app.isPackaged;
 const port = 8501;
 
+// --- Single Instance Lock ---
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    app.quit();
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Someone tried to run a second instance, we should focus our window.
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+
+    // The rest of your app initialization goes inside this block or after it
+}
+
 function getDarkroomUserDir() {
     // DARKROOM_USER_DIR: platform-specific Documents/DarkroomPy
     const homeDocs = app.getPath('documents');

@@ -29,13 +29,13 @@
       "desktop/main.js",
       "desktop/splash.html",
       "desktop/error.html",
-      "desktop/bin/backend/**/*",
+      "desktop/bin/darkroompy/**/*",
       "media/*"
     ],
     "extraResources": [
       {
-        "from": "desktop/bin/backend",
-        "to": "backend",
+        "from": "desktop/bin/darkroompy",
+        "to": "darkroompy",
         "filter": [
           "**/*"
         ]
@@ -50,11 +50,25 @@
       "icon": "icons"
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        "nsis"
+      ],
+      "icon": "media/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "shortcutName": "DarkroomPy",
+      "installerIcon": "media/icon.ico",
+      "uninstallerIcon": "media/icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.photography"
+      "category": "public.app-category.photography",
+      "entitlements": "desktop/entitlements.mac.plist",
+      "entitlementsInherit": "desktop/entitlements.mac.plist",
+      "hardenedRuntime": true
     }
   }
 }

@@ -45,6 +45,23 @@ The image goes through a 7-stage simulation:
 ### Download the App
 If you just want to use it, grab the installer for your OS from the **[Releases Page](https://github.com/USER/darkroom-py/releases)**.
 
+### 🛡️ Installation & Security
+Because DarkroomPy is a self-funded open-source project, the installers are not "digitally signed" by Apple or Microsoft (which costs hundreds of dollars a year). You will see a security warning the first time you run it.
+
+#### **macOS (Gatekeeper)**
+When you open the app, you may see a message saying it is "corrupted" or from an "unidentified developer."
+1.  Drag **DarkroomPy** to your `/Applications` folder.
+2.  **Right-Click** (or Ctrl+Click) the app icon and select **Open**.
+3.  When the dialog appears, click **Open** again.
+4.  *Alternatively*, run this in your Terminal: `xattr -cr /Applications/DarkroomPy.app`
+
+#### **Windows (SmartScreen)**
+Windows might show a blue "Windows protected your PC" window.
+1.  Click **More info**.
+2.  Click **Run anyway**.
+
+---
+
 ### For Developers
 If you want to contribute or poke around the code, it's pretty standard Python stuff. I use Docker to keep the environment consistent.
 
