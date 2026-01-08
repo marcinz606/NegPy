@@ -41,7 +41,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         rotation=0,
         fine_rotation=0.0,
         autocrop=True,
-        autocrop_offset=2,
+        autocrop_offset=4,
         autocrop_ratio="3:2",
     ),
     lab=LabConfig(
