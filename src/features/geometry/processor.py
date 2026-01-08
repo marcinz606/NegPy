@@ -2,7 +2,11 @@ import numpy as np
 from src.core.interfaces import IProcessor, PipelineContext
 from src.core.types import ImageBuffer
 from src.features.geometry.models import GeometryConfig
-from src.features.geometry.logic import apply_fine_rotation, get_autocrop_coords
+from src.features.geometry.logic import (
+    apply_fine_rotation,
+    get_autocrop_coords,
+    get_manual_crop_coords,
+)
 
 
 class GeometryProcessor(IProcessor):
@@ -37,10 +41,18 @@ class GeometryProcessor(IProcessor):
                 offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
                 target_ratio_str=self.config.autocrop_ratio,
+                assist_point=self.config.autocrop_assist_point,
+                assist_luma=self.config.autocrop_assist_luma,
             )
             context.active_roi = roi
         else:
-            context.active_roi = None
+            # Use manual crop offset even if autocrop is disabled
+            roi = get_manual_crop_coords(
+                img,
+                offset_px=self.config.autocrop_offset,
+                scale_factor=context.scale_factor,
+            )
+            context.active_roi = roi
 
         return img
 

@@ -123,6 +123,9 @@ class GeometryViewModel(BaseViewModel):
             "autocrop": "autocrop",
             "autocrop_offset": "autocrop_offset",
             "autocrop_ratio": "autocrop_ratio",
+            "autocrop_assist_point": "autocrop_assist_point",
+            "autocrop_assist_luma": "autocrop_assist_luma",
+            "pick_assist": "pick_assist",
         }
 
     def get_key(self, field_name: str) -> str:
@@ -135,6 +138,12 @@ class GeometryViewModel(BaseViewModel):
             autocrop=self._get_bool(self.get_key("autocrop"), True),
             autocrop_offset=self._get_int(self.get_key("autocrop_offset"), 2),
             autocrop_ratio=self._get_str(self.get_key("autocrop_ratio"), "3:2"),
+            autocrop_assist_point=self._get_raw(
+                self.get_key("autocrop_assist_point"), None
+            ),
+            autocrop_assist_luma=self._get_raw(
+                self.get_key("autocrop_assist_luma"), None
+            ),
         )
 
 

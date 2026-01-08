@@ -6,6 +6,7 @@ from src.presentation.components.sidebar.helpers import (
     render_control_selectbox,
 )
 from src.config import DEFAULT_WORKSPACE_CONFIG
+from src.presentation.state.state_manager import save_settings
 
 
 def render_geometry_section() -> None:
@@ -13,6 +14,7 @@ def render_geometry_section() -> None:
     Renders the Geometry/Auto-Crop section of the sidebar.
     """
     geo_vm = GeometryViewModel()
+    geo_conf = geo_vm.to_config()
 
     with st.expander(":material/crop: Geometry", expanded=True):
         c_main1, c_main2 = st.columns([1, 1])
@@ -23,6 +25,19 @@ def render_geometry_section() -> None:
                 key=geo_vm.get_key("autocrop"),
                 help_text="Automatically detect film borders and crop to desired aspect ratio.",
             )
+            render_control_checkbox(
+                "Pick Assist",
+                default_val=False,
+                key=geo_vm.get_key("pick_assist"),
+                is_toggle=True,
+                help_text="Click on the film border (unexposed area) in the preview to assist crop detection.",
+            )
+            if geo_conf.autocrop_assist_luma is not None:
+                if st.button("Clear Assist", use_container_width=True):
+                    st.session_state[geo_vm.get_key("autocrop_assist_point")] = None
+                    st.session_state[geo_vm.get_key("autocrop_assist_luma")] = None
+                    save_settings()
+                    st.rerun()
         with c_main2:
             render_control_selectbox(
                 "Ratio",
@@ -36,13 +51,14 @@ def render_geometry_section() -> None:
         with c_geo2:
             render_control_slider(
                 label="Crop Offset",
-                min_val=0.0,
+                min_val=-20.0,
                 max_val=100.0,
                 default_val=1.0,
                 step=1.0,
                 key=geo_vm.get_key("autocrop_offset"),
                 format="%d",
-                help_text="Buffer/offset (pixels) to crop beyond automatically detected border, might be useful when border is uneven.",
+                help_text="Buffer/offset (pixels) to crop beyond automatically detected border. "
+                "Positive values crop IN, negative values expand OUT.",
             )
         with c_geo1:
             render_control_slider(

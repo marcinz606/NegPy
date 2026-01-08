@@ -128,6 +128,7 @@ def render_image_view(
             )
 
         is_dust_mode = st.session_state.get(vm_retouch.get_key("pick_dust"), False)
+        is_assist_mode = st.session_state.get(geo_vm.get_key("pick_assist"), False)
         img_display = pil_prev.copy()
 
         # --- Dust Patches Overlay ---
@@ -149,12 +150,14 @@ def render_image_view(
 
         _, center_col, _ = st.columns([0.1, 0.8, 0.1])
         with center_col:
-            if is_dust_mode or is_local_mode:
+            if is_dust_mode or is_local_mode or is_assist_mode:
                 value = streamlit_image_coordinates(
                     img_display, key=f"picker_{working_size}", width=working_size
                 )
                 if is_dust_mode:
                     st.info("Click to remove dust spot.")
+                elif is_assist_mode:
+                    st.info("Click on the film border (unexposed area) to assist crop.")
             else:
                 st.image(img_display, width=working_size)
                 value = None
@@ -233,6 +236,25 @@ def render_image_view(
                     st.session_state[manual_spots_key].append((rx, ry, size))
                     save_settings()
                     st.rerun()
+
+            elif is_assist_mode and value != st.session_state.get("last_assist_click"):
+                st.session_state.last_assist_click = value
+
+                # Sample luma at (rx, ry) on img_raw
+                raw_h, raw_w = img_raw.shape[:2]
+                px = int(np.clip(rx * raw_w, 0, raw_w - 1))
+                py = int(np.clip(ry * raw_h, 0, raw_h - 1))
+
+                pixel = img_raw[py, px]
+                luma = 0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]
+
+                st.session_state[geo_vm.get_key("autocrop_assist_point")] = (rx, ry)
+                st.session_state[geo_vm.get_key("autocrop_assist_luma")] = float(luma)
+                st.session_state[geo_vm.get_key("pick_assist")] = False  # Auto-off
+
+                save_settings()
+                st.toast(f"Assisted luma set to {luma:.3f}")
+                st.rerun()
 
             elif is_local_mode and active_idx >= 0:
                 points = st.session_state.local_adjustments[active_idx].points
