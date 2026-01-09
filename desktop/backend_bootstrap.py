@@ -1,6 +1,4 @@
 import os
-
-os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 import sys
 import streamlit.web.cli as stcli
 

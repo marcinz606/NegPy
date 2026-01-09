@@ -1,26 +1,22 @@
 import os
 import asyncio
-import concurrent.futures
 from typing import List, Dict, Any
 import streamlit as st
-from src.config import APP_CONFIG
 from src.core.session.models import WorkspaceConfig, ExportConfig
 from src.core.io.templating import FilenameTemplater
 
 templater = FilenameTemplater()
 
 
-def _export_worker_task(
+def _process_and_save(
     file_path: str,
     file_meta: Dict[str, str],
     f_params: WorkspaceConfig,
     export_settings: ExportConfig,
 ) -> str:
     """
-    Top-level worker function for ProcessPoolExecutor.
-    Handles rendering, templating, and saving in the child process.
+    Handles rendering, templating, and saving.
     """
-
     # avoid circular imports
     import src.orchestration.render_service as renderer
     from src.core.io.templating import FilenameTemplater
@@ -30,7 +26,7 @@ def _export_worker_task(
     res = renderer.load_raw_and_process(file_path, f_params, export_settings)
     img_bytes, ext = res
     if img_bytes is None:
-        return ""
+        raise RuntimeError(f"Render failed: {ext}")
 
     context = {
         "original_name": file_meta["name"].rsplit(".", 1)[0],
@@ -77,7 +73,7 @@ class ExportService:
             filename_pattern=sidebar_data.filename_pattern,
         )
 
-        return _export_worker_task(
+        return _process_and_save(
             file_meta["path"], file_meta, f_params, export_settings
         )
 
@@ -89,7 +85,8 @@ class ExportService:
         status_area: Any,
     ) -> None:
         """
-        Executes a multi-threaded batch export with parallel I/O.
+        Executes a sequential batch export.
+        Leverages full multi-threading capability of the engine for each image.
         """
         import time
 
@@ -97,51 +94,51 @@ class ExportService:
         total_files = len(files)
         start_time = time.perf_counter()
 
+        loop = asyncio.get_running_loop()
+
         with status_area.status(
             f"Processing {total_files} images...", expanded=True
         ) as status:
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=APP_CONFIG.max_workers
-            ) as executor:
-                loop = asyncio.get_running_loop()
-                batch_tasks = []
+            # Prepare all tasks data upfront to minimize MainThread interaction inside the loop
+            tasks_data = []
+            for f_meta in files:
+                f_hash = f_meta["hash"]
+                f_params = settings_map.get(f_hash, WorkspaceConfig())
 
-                for f_meta in files:
-                    f_hash = f_meta["hash"]
-                    f_settings = settings_map.get(f_hash, WorkspaceConfig())
+                f_export_settings = ExportConfig(
+                    export_fmt=sidebar_data.out_fmt,
+                    export_color_space=sidebar_data.color_space,
+                    export_print_size=sidebar_data.print_width,
+                    export_dpi=sidebar_data.print_dpi,
+                    export_add_border=sidebar_data.add_border,
+                    export_border_size=sidebar_data.border_size,
+                    export_border_color=sidebar_data.border_color,
+                    icc_profile_path=st.session_state.session.icc_profile_path
+                    if sidebar_data.apply_icc
+                    else None,
+                    export_path=sidebar_data.export_path,
+                    filename_pattern=sidebar_data.filename_pattern,
+                )
+                tasks_data.append((f_meta, f_params, f_export_settings))
 
-                    f_export_settings = ExportConfig(
-                        export_fmt=sidebar_data.out_fmt,
-                        export_color_space=sidebar_data.color_space,
-                        export_print_size=sidebar_data.print_width,
-                        export_dpi=sidebar_data.print_dpi,
-                        export_add_border=sidebar_data.add_border,
-                        export_border_size=sidebar_data.border_size,
-                        export_border_color=sidebar_data.border_color,
-                        icc_profile_path=st.session_state.session.icc_profile_path
-                        if sidebar_data.apply_icc
-                        else None,
-                        export_path=sidebar_data.export_path,
-                        filename_pattern=sidebar_data.filename_pattern,
-                    )
+            def _sequence_runner() -> List[Any]:
+                results: List[Any] = []
+                for i, (meta, params, settings) in enumerate(tasks_data):
+                    try:
+                        path = _process_and_save(meta["path"], meta, params, settings)
+                        results.append(path)
+                    except Exception as e:
+                        results.append(e)
+                return results
 
-                    task = loop.run_in_executor(
-                        executor,
-                        _export_worker_task,
-                        f_meta["path"],
-                        f_meta,
-                        f_settings,
-                        f_export_settings
-                    )
-                    batch_tasks.append(task)
+            # Run the heavy loop in a separate thread            # This allows the UI to remain responsive while the CPU churns through images
+            results = await loop.run_in_executor(None, _sequence_runner)
 
-                results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-
-                for f_meta, res in zip(files, results):
-                    if isinstance(res, Exception):
-                        st.error(f"Error processing {f_meta['name']}: {res}")
-                    elif not res:
-                        st.warning(f"Failed to export {f_meta['name']}")
+            for f_meta, res in zip(files, results):
+                if isinstance(res, Exception):
+                    st.error(f"Error processing {f_meta['name']}: {res}")
+                elif not res:
+                    st.warning(f"Failed to export {f_meta['name']}")
 
             elapsed = time.perf_counter() - start_time
             status.update(

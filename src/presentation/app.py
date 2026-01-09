@@ -1,15 +1,5 @@
-import os
-# Prevent "Fork Bombs" and OOM crashes by restricting low-level libraries to 1 thread.
-# This ensures that when running batch exports (multiprocessing), we don't spawn
-# N_PROCESSES * N_CORES threads.
-# batch export is likely primary workflow so we a bit of single export performance
-# for the sake of stability.
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["NUMBA_NUM_THREADS"] = "1"
-
 import streamlit as st
+import os
 import asyncio
 import concurrent.futures
 from PIL import Image
