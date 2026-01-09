@@ -126,7 +126,7 @@ async def main() -> None:
                     )
 
         if sidebar_data.process_btn:
-            ExportService.run_batch(
+            await ExportService.run_batch(
                 session.uploaded_files,
                 session.get_settings_for_file,
                 sidebar_data,

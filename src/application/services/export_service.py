@@ -1,12 +1,14 @@
 import os
 import time
 import gc
-from typing import List, Dict, Any, Callable
+import asyncio
 import streamlit as st
+import src.application.services.render_service as renderer
+from typing import List, Dict, Any, Callable
 from src.core.models import WorkspaceConfig, ExportConfig
 from src.core.templating import FilenameTemplater
 from src.logging_config import get_logger
-import src.application.services.render_service as renderer
+from src.config import APP_CONFIG
 
 templater = FilenameTemplater()
 logger = get_logger(__name__)
@@ -42,7 +44,6 @@ def _process_and_save(
     with open(out_path, "wb") as out_f:
         out_f.write(img_bytes)
 
-    # Log completion
     logger.info(f"Exported {file_meta['name']} to {os.path.basename(out_path)}")
 
     return out_path
@@ -52,7 +53,6 @@ class ExportService:
     """
     Service responsible for single and batch file exports.
     """
-
     @staticmethod
     def run_single(
         file_meta: Dict[str, str],
@@ -81,27 +81,26 @@ class ExportService:
         )
 
     @staticmethod
-    def run_batch(
+    async def run_batch(
         files: List[Dict[str, str]],
         get_settings_cb: Callable[[str], WorkspaceConfig],
         sidebar_data: Any,
         status_area: Any,
     ) -> None:
         """
-        Executes a synchronous sequential batch export. Single export is already
-        multithreaded via numba, adding parallel processing on top of that just
-        creates issues (fork bombs + ooms) without significant speedup
-        so we resort to just simple for loop
+        Executes a parallelized batch export using a semaphore to limit concurrency.
         """
         os.makedirs(sidebar_data.export_path, exist_ok=True)
         total_files = len(files)
         start_time = time.perf_counter()
 
-        with status_area.status(
-            f"Processing {total_files} images...", expanded=True
-        ) as status:
-            logger.info(f"Processing {total_files} images...")
-            for f_meta in files:
+        # Limit concurrency to 1/3 of available workers to avoid oversubscription
+        # and potential fork bombs (numba jit compiled functions are already parallelized)
+        limit = max(1, APP_CONFIG.max_workers // 3)
+        semaphore = asyncio.Semaphore(limit)
+
+        async def _worker(f_meta: Dict[str, str]) -> Any:
+            async with semaphore:
                 f_hash = f_meta["hash"]
                 f_settings = get_settings_cb(f_hash)
 
@@ -125,16 +124,34 @@ class ExportService:
                 )
 
                 try:
-                    _process_and_save(
-                        f_meta["path"], f_meta, f_settings, f_export_settings, templater
+                    result = await asyncio.to_thread(
+                        _process_and_save,
+                        f_meta["path"],
+                        f_meta,
+                        f_settings,
+                        f_export_settings,
+                        templater,
                     )
+                    return result
                 except Exception as e:
-                    logger.error(f"Error processing {f_meta['name']}: {e}")
-                    st.error(f"Error processing {f_meta['name']}: {e}")
+                    return e
+                finally:
+                    gc.collect()
 
-                # Stability measures
-                gc.collect()
-                time.sleep(0.05)
+        with status_area.status(
+            f"Processing {total_files} images...", expanded=True
+        ) as status:
+            logger.info(f"Processing {total_files} images with concurrency {limit}...")
+
+            tasks = [_worker(f) for f in files]
+            results = await asyncio.gather(*tasks)
+
+            for f_meta, res in zip(files, results):
+                if isinstance(res, Exception):
+                    logger.error(f"Error processing {f_meta['name']}: {res}")
+                    st.error(f"Error processing {f_meta['name']}: {res}")
+                elif not res:
+                    st.warning(f"Failed to export {f_meta['name']}")
 
             elapsed = time.perf_counter() - start_time
             status.update(
