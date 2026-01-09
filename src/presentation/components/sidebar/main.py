@@ -2,7 +2,6 @@ import streamlit as st
 from src.core.session.manager import WorkspaceSession
 from src.presentation.state.view_models import SidebarState
 from src.presentation.components.sidebar.collect_adjustments import render_adjustments
-from src.presentation.state.state_manager import save_settings
 
 
 def render_sidebar_content() -> SidebarState:

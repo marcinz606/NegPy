@@ -5,8 +5,7 @@ import concurrent.futures
 from PIL import Image
 from typing import Any
 from src.config import APP_CONFIG
-from src.core.session.models import WorkspaceConfig, ExportConfig
-from src.orchestration.render_service import load_raw_and_process
+from src.core.session.models import WorkspaceConfig
 from src.presentation.state.state_manager import init_session_state
 from src.presentation.styles.theme import apply_custom_css
 from src.presentation.components.sidebar.files_ui import render_file_manager
@@ -89,7 +88,11 @@ async def main() -> None:
 
                     tasks = [
                         loop.run_in_executor(
-                            executor, worker.get_thumbnail_worker, f["path"], f["hash"]
+                            executor,
+                            worker.get_thumbnail_worker,
+                            f["path"],
+                            f["hash"],
+                            session.asset_store,
                         )
                         for f in missing_thumbs
                     ]
@@ -115,32 +118,14 @@ async def main() -> None:
                 f_hash = current_file["hash"]
                 f_params = session.file_settings.get(f_hash, WorkspaceConfig())
 
-                export_settings = ExportConfig(
-                    export_fmt=sidebar_data.out_fmt,
-                    export_color_space=sidebar_data.color_space,
-                    export_print_size=sidebar_data.print_width,
-                    export_dpi=sidebar_data.print_dpi,
-                    export_add_border=sidebar_data.add_border,
-                    export_border_size=sidebar_data.border_size,
-                    export_border_color=sidebar_data.border_color,
-                    icc_profile_path=session.icc_profile_path
-                    if sidebar_data.apply_icc
-                    else None,
-                    export_path=sidebar_data.export_path,
+                out_path = ExportService.run_single(
+                    current_file,
+                    f_params,
+                    sidebar_data,
+                    session.icc_profile_path,
                 )
 
-                img_bytes, ext = load_raw_and_process(
-                    current_file["path"], f_params, export_settings
-                )
-                if img_bytes is not None:
-                    os.makedirs(sidebar_data.export_path, exist_ok=True)
-                    out_path = os.path.join(
-                        sidebar_data.export_path,
-                        f"processed_{current_file['name'].rsplit('.', 1)[0]}.{ext}",
-                    )
-                    with open(out_path, "wb") as out_f:
-                        out_f.write(img_bytes)
-
+                if out_path:
                     elapsed = time.perf_counter() - start_time
                     status.update(
                         label=f"Exported to {os.path.basename(out_path)} ({elapsed:.2f}s)",

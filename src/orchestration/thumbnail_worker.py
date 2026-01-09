@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 from PIL import Image
 import rawpy
 from src.config import APP_CONFIG
@@ -6,21 +6,19 @@ from src.helpers import ensure_rgb
 from src.infrastructure.loaders.factory import loader_factory
 
 
-def get_thumbnail_worker(file_path: str, file_hash: str) -> Optional[Image.Image]:
+def get_thumbnail_worker(
+    file_path: str, file_hash: str, asset_store: Any = None
+) -> Optional[Image.Image]:
     """
     Worker function for parallel thumbnail generation.
     Checks persistent cache before parsing RAW data.
     """
     try:
-        from src.presentation.state.session_context import SessionContext
-
-        ctx = SessionContext()
-        store = ctx.session.asset_store
-
         # 1. Check Cache First
-        cached = store.get_thumbnail(file_hash)
-        if isinstance(cached, Image.Image):
-            return cached
+        if asset_store:
+            cached = asset_store.get_thumbnail(file_hash)
+            if isinstance(cached, Image.Image):
+                return cached
 
         # 2. Generate if missing
         ts = APP_CONFIG.thumbnail_size
@@ -63,7 +61,8 @@ def get_thumbnail_worker(file_path: str, file_hash: str) -> Optional[Image.Image
             square_img.paste(img, ((ts - img.width) // 2, (ts - img.height) // 2))
 
             # 4. Cache for future sessions
-            store.save_thumbnail(file_hash, square_img)
+            if asset_store:
+                asset_store.save_thumbnail(file_hash, square_img)
 
             return square_img
     except Exception as e:

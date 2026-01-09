@@ -30,11 +30,10 @@ class PresetService:
             "grade",
             "crosstalk_matrix",
             "export_path",
-            "apply_icc"
-            "icc_profile_path",
+            "apply_iccicc_profile_path",
             "autocrop_assist_point",
             "autocrop_assist_luma",
-            "manual_dust_size"
+            "manual_dust_size",
         }
 
         settings_dict = settings.to_dict()

@@ -110,7 +110,11 @@ def render_image_view(
     if current_file:
         h1, h2 = st.columns([3, 1])
         with h1:
-            st.subheader(current_file["name"])
+            name = current_file["name"]
+            st.markdown(
+                f"<div style='text-align: left; padding-top: 1rem; color: gray;'>{name}</div>",
+                unsafe_allow_html=True,
+            )
         with h2:
             w, h = ctx.original_res
             st.markdown(

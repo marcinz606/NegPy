@@ -23,6 +23,7 @@ class SidebarState:
     add_border: bool = True
     border_size: float = 0.25
     border_color: str = "#ffffff"
+    filename_pattern: str = "positive_{{ original_name }}"
     apply_icc: bool = False
     process_btn: bool = False
     export_btn: bool = False
