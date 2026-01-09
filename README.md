@@ -35,7 +35,7 @@ Most important part, the image goes through a 7-stage simulation:
     *   **Dust Removal**: Automatic median-based healing or manual "spotting" with grain matching.
     *   **Dodge & Burn**: classic local exposure tools with soft masking.
 5.  **Lab Tools**:
-    *   **Crosstalk/Color Separation**: Fixes color purity by un-mixing dye overlap.
+    *   **Color Separation**: Fixes color purity by un-mixing dye overlap.
     *   **Hypertone**: A local contrast boost (similar to Fuji Frontier scanners).
     *   **Chroma Denoise**: Targets color noise in the shadows without killing grain.
 6.  **Toning**:

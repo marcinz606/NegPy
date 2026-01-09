@@ -13,8 +13,8 @@ BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
 # Global application constants
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
-    max_workers=max(1, (os.cpu_count() or 1) // 2),  # Use half of the CPU cores
-    preview_render_size=800,
+    max_workers=max(1, (os.cpu_count() or 1) - 1),
+    preview_render_size=1000,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),

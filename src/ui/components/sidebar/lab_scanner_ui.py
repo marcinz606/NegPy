@@ -61,5 +61,5 @@ def render_lab_scanner_section() -> None:
                     "Applies Unsharp Masking only to the Luminance channel. "
                     "Crispens details and grain structure without introducing "
                     "color halos or enhancing chromatic noise."
-            ),
-        )
+                ),
+            )
