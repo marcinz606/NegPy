@@ -45,7 +45,6 @@ params = [
     "--hidden-import=imageio.v3",
     "--hidden-import=tifffile",
     "--hidden-import=streamlit_image_coordinates",
-    "--hidden-import=psutil",
     "--hidden-import=jinja2",
     # Include the main app logic
     "--add-data=app.py:.",
