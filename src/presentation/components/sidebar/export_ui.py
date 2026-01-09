@@ -15,7 +15,7 @@ def render_export_section() -> SidebarState:
     """
     Renders the 'Export' section of the sidebar.
     """
-    with st.expander(":material/file_export: Export", expanded=True):
+    with st.expander("Export", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
             render_control_selectbox(
@@ -62,7 +62,7 @@ def render_export_section() -> SidebarState:
                 help_text="Desired DPI (dots per inch) resolution for printing.",
             )
 
-        c_b1, c_b2 = st.columns([2, 1])
+        c_b1, c_b2 = st.columns(2)
         with c_b1:
             render_control_slider(
                 label="Border Size (cm)",
@@ -84,6 +84,13 @@ def render_export_section() -> SidebarState:
                 key="export_border_color",
                 help_text="Color (hex) of the added border.",
             )
+
+        render_control_text_input(
+            "Filename Pattern",
+            default_val=DEFAULT_WORKSPACE_CONFIG.export.filename_pattern,
+            key="filename_pattern",
+            help_text="Jinja2 template. Available: {{ original_name }}, {{ date }}, {{ mode }}, {{ fmt }}, {{ colorspace }}, {{ border }}",
+        )
 
         is_docker = os.path.exists("/.dockerenv")
         if not is_docker:
@@ -111,7 +118,6 @@ def render_export_section() -> SidebarState:
                 key="export_path",
             )
 
-
     return SidebarState(
         out_fmt=st.session_state.export_fmt,
         color_space=st.session_state.export_color_space,
@@ -121,6 +127,7 @@ def render_export_section() -> SidebarState:
         add_border=float(st.session_state.export_border_size) > 0,
         border_size=float(st.session_state.export_border_size),
         border_color=st.session_state.export_border_color,
+        filename_pattern=st.session_state.filename_pattern,
         apply_icc=bool(st.session_state.get("apply_icc", False)),
         process_btn=False,
     )

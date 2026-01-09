@@ -45,7 +45,7 @@ def render_adjustments() -> SidebarState:
     render_paper_section()
     render_local_adjustments()
     render_retouch_section()
-    render_soft_proofing() 
+    render_soft_proofing()
 
     export_data = render_export_section()
     export_data.export_btn = export_btn_sidebar

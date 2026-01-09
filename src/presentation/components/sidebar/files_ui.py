@@ -15,7 +15,6 @@ def render_file_manager() -> None:
     is_docker = os.path.exists("/.dockerenv")
 
     with st.sidebar:
-
         # 1. Native Picker - Hidden if in Docker
         if not is_docker:
             picker = NativeFilePicker()

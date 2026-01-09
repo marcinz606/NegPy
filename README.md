@@ -8,13 +8,14 @@ Also I'm Linux user and we really lack good options working with negatives.
 
 ## ✨ Features
 
-- **Modular Design**: Each tool (Exposure, Retouch, Geometry, Toning) is its own isolated module.
-- **Caching & Persistence**: Thumbnails and settings are cached locally, so it feels snappy even with large libraries. Settings & edits are stored in local SQLite database, moving them between computers is as simple as copying the database file.
-- **Optimization & Multiprocessing**: To speed up the processing, we compile functions to low level machine code and employ multiprocessing for batch exports process multiple files in parallel.
 - **Hot folder**: Optionally watch folder for new files and load them automatically.
 - **Non-destructive**: It doesn't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
 - **Copy-paste**: Copy-paste settings between images.
 - **Presets**: Save your favorite settings as presets. Presets are saved in JSON format so they can be easily shared.
+- **Caching**: Thumbnails for film strip view are processed once are cached locally, so it feels snappy even with large libraries.
+- **Persistence**: All your edits are tied to hashes calcualated based on file contents (so won't be lost when you rename/move files) and stored in local SQLite database, moving them between computers is as simple as copying the database file.
+- **Optimization & Multiprocessing**: To speed up the processing, we compile functions to low level machine code on startup and employ multiprocessing for batch exports process multiple files in parallel.
+- **Comprehensive print preparation**: Export module is tailored towards getting your scans printed (as you should be doing) We export with certain print size & DPI in mind, have very convinitent way to add border (while keeping target size) and also soft-proofing option to preview image with applied .icc profile.
 
 ---
 

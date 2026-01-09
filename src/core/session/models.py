@@ -18,8 +18,10 @@ class ExportConfig:
     export_color_space: str = "sRGB"
     export_print_size: float = 27.0
     export_dpi: int = 300
+    export_add_border: bool = False
     export_border_size: float = 0.0
     export_border_color: str = "#ffffff"
+    filename_pattern: str = "processed_{{ original_name }}"
     apply_icc: bool = False
     icc_profile_path: Optional[str] = None
 
