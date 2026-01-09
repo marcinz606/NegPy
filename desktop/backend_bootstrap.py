@@ -1,10 +1,12 @@
 import os
+
 os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 import sys
 import streamlit.web.cli as stcli
 
 # This script is used to bootstrap the python app
 # within Electron environment.
+
 
 def resolve_path(path):
     resolved_path = os.path.abspath(os.path.join(os.getcwd(), path))

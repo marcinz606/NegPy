@@ -70,7 +70,7 @@ def init_session_state() -> None:
     defaults = session.create_default_config().to_dict()
 
     for key, val in defaults.items():
-        if key not in st.session_state:
+        if st.session_state.get(key) is None:
             st.session_state[key] = val
 
     if "working_copy_size" not in st.session_state:
@@ -103,32 +103,12 @@ def load_settings() -> None:
         f_hash = session.uploaded_files[session.selected_file_idx]["hash"]
         has_edits = session.repository.load_file_settings(f_hash) is not None
 
-        # 1. Clear Shadow and Last keys to force Widget Refresh
-        # This is CRITICAL because the shadow-key pattern in helpers.py
-        # will not update the widget if the 'last_' key matches the 'w_' key.
-        for key in list(st.session_state.keys()):
-            if isinstance(key, str) and (
-                key.startswith("w_") or key.startswith("last_")
-            ):
-                del st.session_state[key]
-
         for key, value in settings_dict.items():
             # If the file has NO EDITS, we want to respect current global UI state
-            # for keys in GLOBAL_PERSIST_KEYS, BUT ONLY if that state is valid.
+            # for keys in GLOBAL_PERSIST_KEYS.
             if not has_edits and key in GLOBAL_PERSIST_KEYS:
-                # Robustness check: if key is missing or has an empty/zero value
-                # that differs from our intended default, we force the default.
-                current_val = st.session_state.get(key)
-
-                # Special cases for strings/paths
-                if isinstance(value, str) and not current_val:
-                    st.session_state[key] = value
-                    continue
-
-                # Numeric checks (don't overwrite if it's explicitly 0.0 but default is not 0.0?)
-                # Actually, if has_edits is False, we just want to ensure we're not
-                # stuck with accidental Streamlit zeroes.
-                if current_val is not None:
+                # If key already exists and is not None, don't overwrite it with default
+                if st.session_state.get(key) is not None:
                     continue
 
             # Apply value from settings object
