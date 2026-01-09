@@ -91,6 +91,7 @@ class ExportService:
         Executes a synchronous sequential batch export. Single export is already
         multithreaded via numba, adding parallel processing on top of that just
         creates issues (fork bombs + ooms) without significant speedup
+        so we resort to just simple for loop
         """
         os.makedirs(sidebar_data.export_path, exist_ok=True)
         total_files = len(files)
