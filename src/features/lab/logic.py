@@ -7,7 +7,7 @@ from src.core.validation import ensure_image
 from src.core.performance import time_function
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _apply_spectral_crosstalk_jit(
     img_dens: np.ndarray, applied_matrix: np.ndarray
 ) -> np.ndarray:
@@ -39,50 +39,6 @@ def _apply_spectral_crosstalk_jit(
     return res
 
 
-@njit(parallel=True)
-def _apply_chroma_masking_jit(
-    a_chan: np.ndarray,
-    b_chan: np.ndarray,
-    a_bilat: np.ndarray,
-    b_bilat: np.ndarray,
-    a_blur: np.ndarray,
-    b_blur: np.ndarray,
-    l_chan: np.ndarray,
-    broad_mask: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Fuses multiple masking steps for chroma noise removal.
-    """
-    h, w = a_chan.shape
-    res_a = np.empty((h, w), dtype=np.float32)
-    res_b = np.empty((h, w), dtype=np.float32)
-    for y in prange(h):
-        for x in range(w):
-            l_val = l_chan[y, x]
-            deep_m = 1.0 - (l_val / 60.0)
-            if deep_m < 0:
-                deep_m = 0.0
-            elif deep_m > 1:
-                deep_m = 1.0
-            deep_m = deep_m * deep_m
-            a_comb = a_bilat[y, x] * (1.0 - deep_m) + a_blur[y, x] * deep_m
-            b_comb = b_bilat[y, x] * (1.0 - deep_m) + b_blur[y, x] * deep_m
-            bm = broad_mask[y, x]
-            final_a = a_chan[y, x] * (1.0 - bm) + a_comb * bm
-            final_b = b_chan[y, x] * (1.0 - bm) + b_comb * bm
-            if final_a < 0:
-                final_a = 0
-            elif final_a > 255:
-                final_a = 255
-            if final_b < 0:
-                final_b = 0
-            elif final_b > 255:
-                final_b = 255
-            res_a[y, x] = final_a
-            res_b[y, x] = final_b
-    return res_a, res_b
-
-
 @time_function
 def apply_spectral_crosstalk(
     img_dens: ImageBuffer, strength: float, matrix: Optional[List[float]]
@@ -110,7 +66,8 @@ def apply_spectral_crosstalk(
 
     # Use JIT for matrix multiplication
     res = _apply_spectral_crosstalk_jit(
-        img_dens.astype(np.float32), applied_matrix.astype(np.float32)
+        np.ascontiguousarray(img_dens.astype(np.float32)),
+        np.ascontiguousarray(applied_matrix.astype(np.float32)),
     )
 
     return ensure_image(res)
@@ -150,63 +107,7 @@ def apply_hypertone(img: ImageBuffer, strength: float) -> ImageBuffer:
     return ensure_image(np.clip(res, 0.0, 1.0))
 
 
-@time_function
-def apply_chroma_noise_removal(
-    img: ImageBuffer, strength_input: float, scale_factor: float = 1.0
-) -> ImageBuffer:
-    """
-    Reduces color noise in deep shadows.
-    Also standard in Lab scanners.
-    """
-    if strength_input <= 0:
-        return img
-
-    strength = strength_input * 100.0
-    img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
-    lab = cv2.cvtColor(img_u8, cv2.COLOR_RGB2LAB)
-    l_chan, a_chan, b_chan = cv2.split(lab)
-
-    # Bilateral Filter
-    d_val = int(9 * scale_factor) | 1
-    f_strength = float(strength)
-    sc_val = f_strength * 2.0
-    ss_val = f_strength * 0.75 * scale_factor
-
-    a_bilat = cv2.bilateralFilter(a_chan, d_val, sc_val, ss_val)
-    b_bilat = cv2.bilateralFilter(b_chan, d_val, sc_val, ss_val)
-
-    # Strong Blur for Deep Shadows
-    base_k = 11 if strength > 50 else 7
-    k_size = int(base_k * scale_factor) | 1
-    a_blur = cv2.GaussianBlur(a_bilat, (k_size, k_size), 0)
-    b_blur = cv2.GaussianBlur(b_bilat, (k_size, k_size), 0)
-
-    l_float = l_chan.astype(np.float32)
-
-    # Broad Masking
-    broad_mask = np.clip(1.0 - ((l_float - 150.0) / 80.0), 0.0, 1.0)
-    broad_mask = cv2.GaussianBlur(broad_mask, (21, 21), 0)
-
-    # Use JIT for all masking and combinations
-    a_final_f32, b_final_f32 = _apply_chroma_masking_jit(
-        a_chan.astype(np.float32),
-        b_chan.astype(np.float32),
-        a_bilat.astype(np.float32),
-        b_bilat.astype(np.float32),
-        a_blur.astype(np.float32),
-        b_blur.astype(np.float32),
-        l_float,
-        broad_mask.astype(np.float32),
-    )
-
-    a_final = a_final_f32.astype(np.uint8)
-    b_final = b_final_f32.astype(np.uint8)
-
-    res = cv2.cvtColor(cv2.merge([l_chan, a_final, b_final]), cv2.COLOR_LAB2RGB)
-    return ensure_image(res.astype(np.float32) / 255.0)
-
-
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _apply_unsharp_mask_jit(
     l_chan: np.ndarray, l_blur: np.ndarray, amount: float, threshold: float
 ) -> np.ndarray:
@@ -248,7 +149,12 @@ def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
 
     l_blur = cv2.GaussianBlur(l_chan, (5, 5), 1.0)
 
-    l_sharpened = _apply_unsharp_mask_jit(l_chan, l_blur, float(amount), 2.0)
+    l_sharpened = _apply_unsharp_mask_jit(
+        np.ascontiguousarray(l_chan),
+        np.ascontiguousarray(l_blur),
+        float(amount),
+        2.0,
+    )
 
     res_lab = cv2.merge([l_sharpened, a, b])
     res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)

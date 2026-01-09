@@ -2,7 +2,7 @@ import json
 import os
 from typing import List, Dict, Any, Optional
 from src.config import APP_CONFIG
-from src.core.session.models import WorkspaceConfig
+from src.core.models import WorkspaceConfig
 
 
 class PresetService:

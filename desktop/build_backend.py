@@ -1,3 +1,6 @@
+# This script is used to build python app using pyinstaller
+# It is not used in the app itself
+
 import PyInstaller.__main__
 import os
 import shutil
@@ -5,8 +8,6 @@ import platform
 import streamlit
 import streamlit_image_coordinates
 
-# This script is used to build python app using pyinstaller
-# It is not used in the app itself
 
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 streamlit_dir = os.path.dirname(streamlit.__file__)
@@ -44,6 +45,8 @@ params = [
     "--hidden-import=imageio.v3",
     "--hidden-import=tifffile",
     "--hidden-import=streamlit_image_coordinates",
+    "--hidden-import=psutil",
+    "--hidden-import=jinja2",
     # Include the main app logic
     "--add-data=app.py:.",
     "--add-data=src:src",

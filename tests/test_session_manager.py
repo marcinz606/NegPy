@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from src.core.session.manager import WorkspaceSession
-from src.core.session.models import WorkspaceConfig, ExportConfig
-from src.core.persistence.interfaces import IRepository, IAssetStore
-from src.orchestration.engine import DarkroomEngine
+from src.core.session import WorkspaceSession
+from src.core.models import WorkspaceConfig, ExportConfig
+from src.core.interfaces import IRepository, IAssetStore
+from src.application.engine import DarkroomEngine
 
 
 class TestWorkspaceSession(unittest.TestCase):
@@ -51,7 +51,6 @@ class TestWorkspaceSession(unittest.TestCase):
         # Assert
         # Check a few key defaults we relied on fixing
         self.assertEqual(config.lab.color_separation, 1.0)
-        self.assertEqual(config.lab.c_noise_strength, 0.0)
         self.assertEqual(config.retouch.dust_size, 3)
         # Check export defaults
         self.assertEqual(config.export.export_fmt, "JPEG")

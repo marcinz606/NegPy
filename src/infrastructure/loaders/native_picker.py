@@ -4,7 +4,7 @@ import subprocess
 import sys
 import json
 from typing import List, Tuple
-from src.core.io.interfaces import IFilePicker
+from src.core.interfaces import IFilePicker
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)

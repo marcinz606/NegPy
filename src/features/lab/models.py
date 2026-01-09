@@ -10,7 +10,6 @@ class LabConfig:
 
     color_separation: float = 1.0
     hypertone_strength: float = 0.0
-    c_noise_strength: float = 0.25
     sharpen: float = 0.25
     crosstalk_matrix: Optional[List[float]] = field(
         default_factory=lambda: [
