@@ -10,7 +10,7 @@ import streamlit.web.cli as stcli
 
 def resolve_path(path):
     resolved_path = os.path.abspath(os.path.join(os.getcwd(), path))
-    return resolved_path
+    return resolved_patt
 
 
 if __name__ == "__main__":

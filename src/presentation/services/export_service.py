@@ -20,10 +20,11 @@ def _export_worker_task(
     Top-level worker function for ProcessPoolExecutor.
     Handles rendering, templating, and saving in the child process.
     """
+
+    # avoid circular imports
     import src.orchestration.render_service as renderer
     from src.core.io.templating import FilenameTemplater
 
-    # Re-initialize templater in worker process
     worker_templater = FilenameTemplater()
 
     res = renderer.load_raw_and_process(file_path, f_params, export_settings)
@@ -130,7 +131,7 @@ class ExportService:
                         f_meta["path"],
                         f_meta,
                         f_settings,
-                        f_export_settings,
+                        f_export_settings
                     )
                     batch_tasks.append(task)
 

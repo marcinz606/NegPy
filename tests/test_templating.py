@@ -37,11 +37,11 @@ def test_filename_templater_fallback() -> None:
     context = {"original_name": "IMG_1234"}
     # Invalid Jinja2 syntax
     pattern = "processed_{{ original_name"
-    assert templater.render(pattern, context) == "processed_IMG_1234"
+    assert templater.render(pattern, context) == "positive_IMG_1234"
 
 
 def test_filename_templater_empty_result_fallback() -> None:
     templater = FilenameTemplater()
     context = {"original_name": "IMG_1234"}
     pattern = "{% if False %}nothing{% endif %}"
-    assert templater.render(pattern, context) == "processed_IMG_1234"
+    assert templater.render(pattern, context) == "positive_IMG_1234"
