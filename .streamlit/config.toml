@@ -5,6 +5,9 @@ gatherUsageStats = false
 [theme]
 base = "dark"
 
+# Main section BG - dark grey
+backgroundColor = "#2e2e2e"
+
 # General color setup - Monochrome with Red Accent
 textColor = "#c3c3c3"
 primaryColor = "#b10000" # sliders, button accents, etc
@@ -16,8 +19,6 @@ blueColor = "#00b1b1" # remap to cyan for cmy slider
 violetColor = "#b100b1" # remap to magenta for cmy slider
 yellowColor = "#b1b100"
 
-# Main section BG
-backgroundColor = "#161616"
 
 # Widgets
 showWidgetBorder = true

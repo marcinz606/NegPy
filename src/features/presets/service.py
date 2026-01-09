@@ -17,6 +17,7 @@ class PresetService:
         """
         os.makedirs(APP_CONFIG.presets_dir, exist_ok=True)
 
+        # Exclude keys that are not relevant for presets
         exclude_keys = {
             "rotation",
             "fine_rotation",
@@ -25,6 +26,15 @@ class PresetService:
             "manual_dust_spots",
             "local_adjustments",
             "active_adjustment_idx",
+            "density",
+            "grade",
+            "crosstalk_matrix",
+            "export_path",
+            "apply_icc"
+            "icc_profile_path",
+            "autocrop_assist_point",
+            "autocrop_assist_luma",
+            "manual_dust_size"
         }
 
         settings_dict = settings.to_dict()

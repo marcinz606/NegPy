@@ -65,9 +65,8 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         export_color_space="sRGB",
         export_print_size=27.0,
         export_dpi=300,
-        export_add_border=False,
-        export_border_size=0.5,
-        export_border_color="#FFFFFF",
+        export_border_size=0.0,
+        export_border_color="#ffffff",
         export_path=APP_CONFIG.default_export_dir,
     ),
 )
