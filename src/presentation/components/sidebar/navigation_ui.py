@@ -16,8 +16,7 @@ def change_file(new_idx: int) -> None:
     """
     session: WorkspaceSession = st.session_state.session
 
-    if session.selected_file_idx < len(session.uploaded_files):
-        save_settings(persist=True)
+    save_settings(persist=True)
 
     session.selected_file_idx = new_idx
 

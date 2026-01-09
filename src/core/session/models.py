@@ -65,7 +65,7 @@ class WorkspaceConfig:
 
         def filter_keys(config_cls: Any, d: Dict[str, Any]) -> Dict[str, Any]:
             valid_keys = config_cls.__dataclass_fields__.keys()
-            return {k: v for k, v in d.items() if k in valid_keys}
+            return {k: v for k, v in d.items() if k in valid_keys and v is not None}
 
         return cls(
             process_mode=str(data.get("process_mode", "C41")),

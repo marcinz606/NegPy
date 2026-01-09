@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, Callable
 from src.features.exposure.logic import density_to_cmy
 import streamlit as st
 import numpy as np
@@ -25,6 +25,72 @@ def st_init(key: str, default_val: Any) -> Any:
     return st.session_state[key]
 
 
+def _ensure_and_get_state(
+    key: str, default_val: Any, cast_func: Callable[[Any], Any]
+) -> Any:
+    """
+    Internal helper:
+    1. Recovers state from Domain Session if missing (partial session loss).
+    2. Initializes default if still missing.
+    3. Safely casts and returns the current canonical value.
+    """
+    # 1. Recovery
+    if st.session_state.get(key) is None:
+        session = st.session_state.get("session")
+        if session:
+            try:
+                active_settings = session.get_active_settings()
+                if active_settings:
+                    val = active_settings.to_dict().get(key)
+                    if val is not None:
+                        st.session_state[key] = cast_func(val)
+            except Exception:
+                pass
+
+    # 2. Default Initialization
+    if st.session_state.get(key) is None:
+        st.session_state[key] = default_val
+
+    # 3. Safe Casting
+    try:
+        return cast_func(st.session_state[key])
+    except (ValueError, TypeError):
+        # Fallback to default if cast fails
+        safe_val = cast_func(default_val)
+        st.session_state[key] = safe_val
+        return safe_val
+
+
+def _sync_shadow_state(key: str, current_val: Any) -> str:
+    """
+    Internal helper:
+    Synchronizes the canonical value to the shadow key (`w_key`) used by the widget.
+    Returns the shadow key name.
+    """
+    w_key = f"w_{key}"
+    last_key = f"last_{key}"
+
+    # Sync only if mismatch or missing, to avoid extraneous updates
+    if st.session_state.get(last_key) != current_val or w_key not in st.session_state:
+        st.session_state[w_key] = current_val
+        st.session_state[last_key] = current_val
+
+    return w_key
+
+
+def _update_canonical_state(key: str, new_val: Any, old_val: Any) -> Any:
+    """
+    Internal helper:
+    Updates the canonical session state if the widget result differs from the old value.
+    Returns the updated (or original) value.
+    """
+    if new_val is not None and new_val != old_val:
+        st.session_state[key] = new_val
+        st.session_state[f"last_{key}"] = new_val
+        return new_val
+    return old_val
+
+
 def render_control_slider(
     label: str,
     min_val: float,
@@ -38,38 +104,19 @@ def render_control_slider(
 ) -> float:
     """
     Standardized slider renderer for the sidebar.
-    Uses a shadow-key sync pattern to avoid 'double-set' warnings while ensuring
-    backend updates (Reset, Auto-WB) are reflected in the UI.
     """
-    # 1. Ensure canonical state exists
-    if key not in st.session_state:
-        st.session_state[key] = default_val
+    current_val = _ensure_and_get_state(key, default_val, float)
 
-    # 2. Clamping/Sanity check on canonical state
-    current_val = float(st.session_state[key])
-    if current_val < float(min_val):
-        current_val = float(min_val)
-        st.session_state[key] = current_val
-    elif current_val > float(max_val):
-        current_val = float(max_val)
-        st.session_state[key] = current_val
+    # Specific logic: Clamping
+    current_val = float(np.clip(current_val, min_val, max_val))
 
-    # 3. Synchronize to Shadow Key (Widget State)
-    # We use a shadow key for the widget to avoid Session State API conflicts.
-    w_key = f"w_{key}"
-    last_key = f"last_{key}"
+    w_key = _sync_shadow_state(key, current_val)
 
-    # If canonical value changed from outside (e.g. Reset or Auto-WB), force sync to widget
-    if st.session_state.get(last_key) != current_val:
-        st.session_state[w_key] = current_val
-        st.session_state[last_key] = current_val
-
-    # 4. Render Slider (NO explicit value argument to avoid warnings)
-    # Streamlit automatically uses st.session_state[w_key]
     res = st.slider(
         label,
         min_value=float(min_val),
         max_value=float(max_val),
+        value=float(st.session_state[w_key]),
         step=float(step),
         format=format,
         key=w_key,
@@ -77,12 +124,11 @@ def render_control_slider(
         disabled=disabled,
     )
 
-    # 5. Sync back to canonical state
-    if float(res) != current_val:
-        st.session_state[key] = float(res)
-        st.session_state[last_key] = float(res)
-
-    return float(st.session_state[key])
+    return float(
+        _update_canonical_state(
+            key, float(res) if res is not None else None, current_val
+        )
+    )
 
 
 def render_control_checkbox(
@@ -96,22 +142,14 @@ def render_control_checkbox(
 ) -> bool:
     """
     Standardized checkbox renderer for the sidebar.
-    Uses a shadow-key sync pattern.
     """
-    if key not in st.session_state:
-        st.session_state[key] = default_val
-
-    current_val = bool(st.session_state[key])
-    w_key = f"w_{key}"
-    last_key = f"last_{key}"
-
-    if st.session_state.get(last_key) != current_val:
-        st.session_state[w_key] = current_val
-        st.session_state[last_key] = current_val
+    current_val = _ensure_and_get_state(key, default_val, bool)
+    w_key = _sync_shadow_state(key, current_val)
 
     if is_toggle:
         res = st.toggle(
             label,
+            value=bool(st.session_state[w_key]),
             key=w_key,
             help=help_text,
             disabled=disabled,
@@ -120,17 +158,14 @@ def render_control_checkbox(
     else:
         res = st.checkbox(
             label,
+            value=bool(st.session_state[w_key]),
             key=w_key,
             help=help_text,
             disabled=disabled,
             label_visibility=label_visibility,
         )
 
-    if res != current_val:
-        st.session_state[key] = res
-        st.session_state[last_key] = res
-
-    return bool(st.session_state[key])
+    return bool(_update_canonical_state(key, res, current_val))
 
 
 def render_control_selectbox(
@@ -148,22 +183,20 @@ def render_control_selectbox(
 ) -> Any:
     """
     Standardized selectbox renderer for the sidebar.
-    Uses a shadow-key sync pattern.
     """
-    if key not in st.session_state:
-        st.session_state[key] = default_val
+    current_val = _ensure_and_get_state(key, default_val, lambda x: x)  # No-op cast
+    w_key = _sync_shadow_state(key, current_val)
 
-    current_val = st.session_state[key]
-    w_key = f"w_{key}"
-    last_key = f"last_{key}"
-
-    if st.session_state.get(last_key) != current_val:
-        st.session_state[w_key] = current_val
-        st.session_state[last_key] = current_val
+    # Specific logic: Find index
+    try:
+        idx = options.index(current_val)
+    except ValueError:
+        idx = 0
 
     res = st.selectbox(
         label,
         options=options,
+        index=idx,
         key=w_key,
         help=help_text,
         disabled=disabled,
@@ -174,11 +207,7 @@ def render_control_selectbox(
         label_visibility=label_visibility,
     )
 
-    if res != current_val:
-        st.session_state[key] = res
-        st.session_state[last_key] = res
-
-    return st.session_state[key]
+    return _update_canonical_state(key, res, current_val)
 
 
 def render_control_text_input(
@@ -193,21 +222,13 @@ def render_control_text_input(
 ) -> str:
     """
     Standardized text_input renderer for the sidebar.
-    Uses a shadow-key sync pattern.
     """
-    if key not in st.session_state:
-        st.session_state[key] = default_val
-
-    current_val = str(st.session_state[key])
-    w_key = f"w_{key}"
-    last_key = f"last_{key}"
-
-    if st.session_state.get(last_key) != current_val:
-        st.session_state[w_key] = current_val
-        st.session_state[last_key] = current_val
+    current_val = _ensure_and_get_state(key, default_val, str)
+    w_key = _sync_shadow_state(key, current_val)
 
     res = st.text_input(
         label,
+        value=str(st.session_state[w_key]),
         key=w_key,
         help=help_text,
         disabled=disabled,
@@ -216,11 +237,7 @@ def render_control_text_input(
         label_visibility=label_visibility,
     )
 
-    if res != current_val:
-        st.session_state[key] = res
-        st.session_state[last_key] = res
-
-    return str(st.session_state[key])
+    return str(_update_canonical_state(key, res, current_val))
 
 
 def render_control_color_picker(
@@ -232,31 +249,25 @@ def render_control_color_picker(
 ) -> str:
     """
     Standardized color_picker renderer for the sidebar.
-    Uses a shadow-key sync pattern.
     """
-    if key not in st.session_state:
-        st.session_state[key] = default_val
+    current_val = _ensure_and_get_state(key, default_val, str)
 
-    current_val = str(st.session_state[key])
-    w_key = f"w_{key}"
-    last_key = f"last_{key}"
+    # Specific logic: Hex validation
+    if not (current_val.startswith("#") and len(current_val) in (4, 7, 9)):
+        current_val = str(default_val)
+        st.session_state[key] = current_val
 
-    if st.session_state.get(last_key) != current_val:
-        st.session_state[w_key] = current_val
-        st.session_state[last_key] = current_val
+    w_key = _sync_shadow_state(key, current_val)
 
     res = st.color_picker(
         label,
+        value=str(st.session_state[w_key]),
         key=w_key,
         help=help_text,
         disabled=disabled,
     )
 
-    if res != current_val:
-        st.session_state[key] = res
-        st.session_state[last_key] = res
-
-    return str(st.session_state[key])
+    return str(_update_canonical_state(key, res, current_val))
 
 
 def apply_wb_gains_to_sliders(r: float, g: float, b: float) -> Dict[str, Any]:

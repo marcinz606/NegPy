@@ -1,3 +1,7 @@
+[global]
+disableWidgetStateDuplicationWarning = true
+gatherUsageStats = false
+
 [theme]
 base = "dark"
 
@@ -8,6 +12,9 @@ secondaryBackgroundColor = "#080808" # Left panel BG
 
 # Colors
 redColor = "#b10000"
+blueColor = "#00b1b1" # remap to cyan for cmy slider
+violetColor = "#b100b1" # remap to magenta for cmy slider
+yellowColor = "#b1b100"
 
 # Main section BG
 backgroundColor = "#161616"
