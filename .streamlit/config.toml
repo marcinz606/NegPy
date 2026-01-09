@@ -5,6 +5,9 @@ gatherUsageStats = false
 [theme]
 base = "dark"
 
+# Main section BG - dark grey
+backgroundColor = "#2e2e2e"
+
 # General color setup - Monochrome with Red Accent
 textColor = "#c3c3c3"
 primaryColor = "#b10000" # sliders, button accents, etc
@@ -16,8 +19,6 @@ blueColor = "#00b1b1" # remap to cyan for cmy slider
 violetColor = "#b100b1" # remap to magenta for cmy slider
 yellowColor = "#b1b100"
 
-# Main section BG
-backgroundColor = "#161616"
 
 # Widgets
 showWidgetBorder = true
@@ -26,12 +27,7 @@ borderColor = "#181818"          # Subtle border contrast
 # Base text
 font = "'Roboto':https://fonts.googleapis.com/css2?family=Roboto:wght@300..700&display=swap"
 baseFontWeight = 400
-baseFontSize = 18
-
-# Heading text
-headingFont = "Roboto"
-headingFontWeights = [300, 400, 400, 300, 300, 300]
-headingFontSizes = ["2.5rem", "2.0rem", "1.5rem"]
+baseFontSize = 16
 
 [client]
 toolbarMode = "minimal"

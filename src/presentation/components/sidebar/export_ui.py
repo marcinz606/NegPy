@@ -62,6 +62,29 @@ def render_export_section() -> SidebarState:
                 help_text="Desired DPI (dots per inch) resolution for printing.",
             )
 
+        c_b1, c_b2 = st.columns([2, 1])
+        with c_b1:
+            render_control_slider(
+                label="Border Size (cm)",
+                min_val=0.0,
+                max_val=2.5,
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_border_size,
+                step=0.05,
+                key="export_border_size",
+                help_text=(
+                    "Border width (cm). When border is added we retain our total print size, "
+                    "actual image gets scaled down. Set to 0 to disable."
+                ),
+            )
+
+        with c_b2:
+            render_control_color_picker(
+                "Border Color",
+                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_border_color,
+                key="export_border_color",
+                help_text="Color (hex) of the added border.",
+            )
+
         is_docker = os.path.exists("/.dockerenv")
         if not is_docker:
             c_path, c_btn = st.columns([0.8, 0.2])
@@ -88,28 +111,6 @@ def render_export_section() -> SidebarState:
                 key="export_path",
             )
 
-        c_b1, c_b2 = st.columns([2, 1])
-        with c_b1:
-            render_control_slider(
-                label="Border Size (cm)",
-                min_val=0.0,
-                max_val=2.5,
-                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_border_size,
-                step=0.05,
-                key="export_border_size",
-                help_text=(
-                    "Border width (cm). When border is added we retain our total print size, "
-                    "actual image gets scaled down. Set to 0 to disable."
-                ),
-            )
-
-        with c_b2:
-            render_control_color_picker(
-                "Border Color",
-                default_val=DEFAULT_WORKSPACE_CONFIG.export.export_border_color,
-                key="export_border_color",
-                help_text="Color (hex) of the added border.",
-            )
 
     return SidebarState(
         out_fmt=st.session_state.export_fmt,

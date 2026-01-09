@@ -253,7 +253,7 @@ def render_control_color_picker(
     current_val = _ensure_and_get_state(key, default_val, str)
 
     # Specific logic: Hex validation
-    if not (current_val.startswith("#") and len(current_val) in (4, 7, 9)):
+    if not (current_val.startswith("#") and len(current_val) == 7):
         current_val = str(default_val)
         st.session_state[key] = current_val
 

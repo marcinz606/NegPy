@@ -9,10 +9,8 @@ from src.core.session.models import WorkspaceConfig, ExportConfig
 from src.orchestration.render_service import load_raw_and_process
 from src.presentation.state.state_manager import init_session_state
 from src.presentation.styles.theme import apply_custom_css
-from src.presentation.components.sidebar.main import (
-    render_file_manager,
-    render_sidebar_content,
-)
+from src.presentation.components.sidebar.files_ui import render_file_manager
+from src.presentation.components.sidebar.main import render_sidebar_content
 from src.presentation.layouts.main_layout import (
     render_layout_header,
     render_main_layout,

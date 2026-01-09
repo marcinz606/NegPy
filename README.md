@@ -8,11 +8,13 @@ Also I'm Linux user and we really lack good options working with negatives.
 
 ## ✨ Features
 
-### 🛠️ Under the Hood
-I've tried to keep the code clean and modular so it's easy to extend:
 - **Modular Design**: Each tool (Exposure, Retouch, Geometry, Toning) is its own isolated module.
-- **Caching & Persistence**: Thumbnails and settings are cached locally, so it feels snappy even with large libraries.
-- **Auto-Save**: All your edits (Exposure, Crop, etc.) are saved automatically to a local SQLite database. We don't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
+- **Caching & Persistence**: Thumbnails and settings are cached locally, so it feels snappy even with large libraries. Settings & edits are stored in local SQLite database, moving them between computers is as simple as copying the database file.
+- **Optimization & Multiprocessing**: To speed up the processing, we compile functions to low level machine code and employ multiprocessing for batch exports process multiple files in parallel.
+- **Hot folder**: Optionally watch folder for new files and load them automatically.
+- **Non-destructive**: It doesn't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
+- **Copy-paste**: Copy-paste settings between images.
+- **Presets**: Save your favorite settings as presets. Presets are saved in JSON format so they can be easily shared.
 
 ---
 
