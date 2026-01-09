@@ -18,7 +18,6 @@ def render_file_manager() -> None:
     is_docker = os.path.exists("/.dockerenv")
 
     with st.sidebar:
-        st.title(":red[:material/camera_roll:] DarkroomPy")
 
         # 1. Native Picker - Hidden if in Docker
         if not is_docker:
@@ -84,20 +83,12 @@ def render_sidebar_content() -> SidebarState:
     """
     session: WorkspaceSession = st.session_state.session
     with st.sidebar:
-        # 0. Global Actions
+        st.title(":red[:material/camera_roll:] DarkroomPy")
+
         current_file = session.current_file
         if not current_file:
             return SidebarState()
 
-        # 4. Main Adjustments
         adjustments_data = render_adjustments()
 
-        st.divider()
-
-        # 5. Soft Proofing
-        render_soft_proofing()
-
-        st.divider()
-
-        # Consolidate data for the main app
         return adjustments_data

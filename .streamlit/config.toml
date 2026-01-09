@@ -26,12 +26,7 @@ borderColor = "#181818"          # Subtle border contrast
 # Base text
 font = "'Roboto':https://fonts.googleapis.com/css2?family=Roboto:wght@300..700&display=swap"
 baseFontWeight = 400
-baseFontSize = 18
-
-# Heading text
-headingFont = "Roboto"
-headingFontWeights = [300, 400, 400, 300, 300, 300]
-headingFontSizes = ["2.5rem", "2.0rem", "1.5rem"]
+baseFontSize = 16
 
 [client]
 toolbarMode = "minimal"
