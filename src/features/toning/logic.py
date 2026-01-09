@@ -7,7 +7,7 @@ from src.features.toning.models import PaperSubstrate
 from src.core.performance import time_function
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _apply_paper_substrate_jit(
     img: np.ndarray, tint: np.ndarray, dmax_boost: float
 ) -> np.ndarray:
@@ -30,7 +30,7 @@ def _apply_paper_substrate_jit(
     return res
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _apply_chemical_toning_jit(
     img: np.ndarray, sel_strength: float, sep_strength: float
 ) -> np.ndarray:
@@ -75,7 +75,7 @@ def _apply_chemical_toning_jit(
     return res
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
     """
     Fast JIT luminance calculation.
@@ -94,7 +94,9 @@ def get_luminance(img: ImageBuffer) -> ImageBuffer:
     """
     Calculates relative luminance using Rec. 709 coefficients.
     """
-    return ensure_image(_get_luminance_jit(img.astype(np.float32)))
+    return ensure_image(
+        _get_luminance_jit(np.ascontiguousarray(img.astype(np.float32)))
+    )
 
 
 PAPER_PROFILES: Dict[str, PaperSubstrate] = {
@@ -116,11 +118,13 @@ def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer
     tints the highlights and scales the shadows to mimic the chosen paper stock.
     """
     profile = PAPER_PROFILES.get(profile_name, PAPER_PROFILES["None"])
-    tint = np.array(profile.tint, dtype=np.float32)
+    tint = np.ascontiguousarray(np.array(profile.tint, dtype=np.float32))
 
     return ensure_image(
         _apply_paper_substrate_jit(
-            img.astype(np.float32), tint, float(profile.dmax_boost)
+            np.ascontiguousarray(img.astype(np.float32)),
+            tint,
+            float(profile.dmax_boost),
         )
     )
 
@@ -144,7 +148,7 @@ def apply_chemical_toning(
 
     return ensure_image(
         _apply_chemical_toning_jit(
-            img.astype(np.float32),
+            np.ascontiguousarray(img.astype(np.float32)),
             float(selenium_strength),
             float(sepia_strength),
         )

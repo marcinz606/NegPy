@@ -1,7 +1,7 @@
 import numpy as np
 import imageio.v3 as iio
 from typing import Any, ContextManager
-from src.core.io.interfaces import IImageLoader
+from src.core.interfaces import IImageLoader
 
 
 class NonStandardFileWrapper:

@@ -1,6 +1,6 @@
 import os
 from src.core.types import AppConfig
-from src.core.session.models import WorkspaceConfig, ExportConfig
+from src.core.models import WorkspaceConfig, ExportConfig
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
@@ -47,7 +47,6 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     lab=LabConfig(
         color_separation=1.0,
         hypertone_strength=0.0,
-        c_noise_strength=0.0,
         sharpen=0.25,
     ),
     toning=ToningConfig(

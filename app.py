@@ -1,8 +1,8 @@
-import os
 import asyncio
 import logging
 import multiprocessing
 import sys
+
 from src.logging_config import setup_logging
 
 
@@ -29,7 +29,7 @@ def handle_subtask() -> bool:
 
 
 async def start_app() -> None:
-    from src.presentation.app import main
+    from src.ui.app import main
 
     await main()
 
@@ -41,6 +41,14 @@ if __name__ == "__main__":
 
     multiprocessing.freeze_support()
     setup_logging(level=logging.INFO)
+
+    # Limit OpenCV internal threading to prevent contention with Numba
+    try:
+        import cv2
+
+        cv2.setNumThreads(1)
+    except ImportError:
+        pass
 
     from src.core.performance import clear_perf_log
 

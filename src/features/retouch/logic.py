@@ -8,7 +8,7 @@ from src.core.validation import ensure_image
 from src.core.performance import time_function
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _calculate_luma_mask_jit(
     lum: np.ndarray, low: float, high: float, softness: float
 ) -> np.ndarray:
@@ -40,7 +40,7 @@ def _calculate_luma_mask_jit(
     return res
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _apply_local_exposure_kernel(
     img: np.ndarray, mask: np.ndarray, strength: float
 ) -> None:
@@ -58,7 +58,7 @@ def _apply_local_exposure_kernel(
                     img[y, x, ch] *= mult
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _compute_dust_masks_jit(
     img: np.ndarray,
     img_median: np.ndarray,
@@ -89,7 +89,7 @@ def _compute_dust_masks_jit(
     return raw_mask
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
     """
     Fast JIT luminance calculation.
@@ -108,10 +108,12 @@ def get_luminance(img: ImageBuffer) -> ImageBuffer:
     """
     Calculates relative luminance using Rec. 709 coefficients.
     """
-    return ensure_image(_get_luminance_jit(img.astype(np.float32)))
+    return ensure_image(
+        _get_luminance_jit(np.ascontiguousarray(img.astype(np.float32)))
+    )
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _apply_inpainting_grain_jit(
     img: np.ndarray,
     img_inpainted: np.ndarray,
@@ -185,11 +187,11 @@ def apply_dust_removal(
         sens_factor = (1.0 - 0.98 * flatness_weight) * (1.0 - 0.5 * highlight_sens)
 
         raw_mask = _compute_dust_masks_jit(
-            img.astype(np.float32),
-            img_median.astype(np.float32),
-            std.astype(np.float32),
-            sens_factor.astype(np.float32),
-            detail_boost.astype(np.float32),
+            np.ascontiguousarray(img.astype(np.float32)),
+            np.ascontiguousarray(img_median.astype(np.float32)),
+            np.ascontiguousarray(std.astype(np.float32)),
+            np.ascontiguousarray(sens_factor.astype(np.float32)),
+            np.ascontiguousarray(detail_boost.astype(np.float32)),
             float(dust_threshold),
         )
 
@@ -236,10 +238,10 @@ def apply_dust_removal(
 
         img = ensure_image(
             _apply_inpainting_grain_jit(
-                img.astype(np.float32),
-                img_inpainted_u8.astype(np.float32),
-                mask_final,
-                noise_arr,
+                np.ascontiguousarray(img.astype(np.float32)),
+                np.ascontiguousarray(img_inpainted_u8.astype(np.float32)),
+                np.ascontiguousarray(mask_final.astype(np.float32)),
+                np.ascontiguousarray(noise_arr.astype(np.float32)),
             )
         )
 
@@ -347,6 +349,10 @@ def apply_local_adjustments(
         final_mask = mask * luma_mask
 
         # Apply using JIT
-        _apply_local_exposure_kernel(img, final_mask, float(adj.strength))
+        _apply_local_exposure_kernel(
+            np.ascontiguousarray(img),
+            np.ascontiguousarray(final_mask),
+            float(adj.strength),
+        )
 
     return ensure_image(np.clip(img, 0, 1))

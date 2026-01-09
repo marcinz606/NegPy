@@ -1,12 +1,38 @@
 import logging
 import sys
+import io
+
+
+class _DummyStream(io.TextIOBase):
+    """
+    A file-like object that discards all input.
+    Prevents AttributeError when sys.stdout/stderr are None in GUI apps.
+    """
+
+    def write(self, x: str) -> int:
+        return len(x)
+
+    def flush(self) -> None:
+        pass
+
+
+def init_streams() -> None:
+    """
+    Ensures sys.stdout and sys.stderr are not None.
+    Required for Windows bundled applications without a console.
+    """
+    if sys.stdout is None:
+        sys.stdout = _DummyStream()
+    if sys.stderr is None:
+        sys.stderr = _DummyStream()
 
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     """
     Sets up the global logging configuration for the application.
-    Logs to stdout with a clean, professional format.
     """
+    init_streams()
+
     # Create logger
     logger = logging.getLogger("darkroom")
     logger.setLevel(level)
@@ -15,7 +41,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     if logger.handlers:
         return logger
 
-    # Create console handler
+    # Create console handler using the now-guaranteed sys.stdout
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
 

@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from typing import Any, List, Dict, ContextManager
-from src.core.io.interfaces import IImageLoader
+from src.core.interfaces import IImageLoader
 from src.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
 
 

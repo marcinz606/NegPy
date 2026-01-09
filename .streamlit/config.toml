@@ -1,9 +1,14 @@
 [global]
 disableWidgetStateDuplicationWarning = true
+
+[browser]
 gatherUsageStats = false
 
 [theme]
 base = "dark"
+
+# rounding of corners
+baseRadius = "none"
 
 # Main section BG - dark grey
 backgroundColor = "#2e2e2e"
@@ -25,9 +30,10 @@ showWidgetBorder = true
 borderColor = "#181818"          # Subtle border contrast
 
 # Base text
-font = "'Roboto':https://fonts.googleapis.com/css2?family=Roboto:wght@300..700&display=swap"
+font = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap"
 baseFontWeight = 400
 baseFontSize = 16
+headingFont = "Inter"
 
 [client]
 toolbarMode = "minimal"

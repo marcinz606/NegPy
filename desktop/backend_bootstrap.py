@@ -1,14 +1,17 @@
+# This script is used to bootstrap the python app
+# within Electron environment.
 import os
 import sys
 import streamlit.web.cli as stcli
+from src.logging_config import init_streams
 
-# This script is used to bootstrap the python app
-# within Electron environment.
+# Ensure stdout and stderr are not None (windows specific workaround)
+init_streams()
 
 
 def resolve_path(path):
     resolved_path = os.path.abspath(os.path.join(os.getcwd(), path))
-    return resolved_patt
+    return resolved_path
 
 
 if __name__ == "__main__":

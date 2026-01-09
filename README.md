@@ -8,6 +8,7 @@ Also I'm Linux user and we really lack good options working with negatives.
 
 ## ✨ Basic Features
 
+- **File support**: Supports raw formats that you would expect, tiff but also weird Planar RAW from Kodak Pakon scanner.
 - **Hot folder**: Optionally watch folder for new files and load them automatically.
 - **Non-destructive**: It doesn't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
 - **Copy-paste**: Copy-paste settings between images.

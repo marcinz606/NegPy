@@ -5,7 +5,6 @@ from src.features.lab.models import LabConfig
 from src.features.lab.logic import (
     apply_spectral_crosstalk,
     apply_hypertone,
-    apply_chroma_noise_removal,
     apply_output_sharpening,
 )
 
@@ -19,7 +18,6 @@ class PhotoLabProcessor(IProcessor):
         Apply effects from logic.py in sequence
         """
         img = image
-        scale_factor = context.scale_factor
 
         c_strength = max(0.0, self.config.color_separation - 1.0)
         if c_strength > 0:
@@ -32,11 +30,6 @@ class PhotoLabProcessor(IProcessor):
 
         if self.config.hypertone_strength > 0:
             img = apply_hypertone(img, self.config.hypertone_strength)
-
-        if self.config.c_noise_strength > 0:
-            img = apply_chroma_noise_removal(
-                img, self.config.c_noise_strength, scale_factor
-            )
 
         if self.config.sharpen > 0:
             img = apply_output_sharpening(img, self.config.sharpen)

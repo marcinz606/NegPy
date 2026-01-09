@@ -2,8 +2,8 @@ import sqlite3
 import json
 import os
 from typing import Any, Optional
-from src.core.session.models import WorkspaceConfig
-from src.core.persistence.interfaces import IRepository
+from src.core.models import WorkspaceConfig
+from src.core.interfaces import IRepository
 
 
 class SQLiteRepository(IRepository):

@@ -6,7 +6,7 @@ from src.core.performance import time_function
 from src.core.validation import ensure_image
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _normalize_log_image_jit(
     img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray
 ) -> np.ndarray:
@@ -75,9 +75,11 @@ def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> Imag
     This ensures that the latent image is correctly 'framed' within the dynamic
     range of the subsequent characteristic curve processing.
     """
-    floors = np.array(bounds.floors, dtype=np.float32)
-    ceils = np.array(bounds.ceils, dtype=np.float32)
+    floors = np.ascontiguousarray(np.array(bounds.floors, dtype=np.float32))
+    ceils = np.ascontiguousarray(np.array(bounds.ceils, dtype=np.float32))
 
     return ensure_image(
-        _normalize_log_image_jit(img_log.astype(np.float32), floors, ceils)
+        _normalize_log_image_jit(
+            np.ascontiguousarray(img_log.astype(np.float32)), floors, ceils
+        )
     )

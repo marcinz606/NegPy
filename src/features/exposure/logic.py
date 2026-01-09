@@ -21,7 +21,7 @@ def _fast_sigmoid(x: float) -> float:
         return float(z / (1.0 + z))
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True, fastmath=True)
 def _apply_photometric_fused_kernel(
     img: np.ndarray,
     pivots: np.ndarray,
@@ -183,12 +183,16 @@ def apply_characteristic_curve(
         toe/shoulder: Sensitometric roll-off parameters for highlights and shadows.
         cmy_offsets: Subtractive filtration offsets in density units.
     """
-    pivots = np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32)
-    slopes = np.array([params_r[1], params_g[1], params_b[1]], dtype=np.float32)
-    offsets = np.array(cmy_offsets, dtype=np.float32)
+    pivots = np.ascontiguousarray(
+        np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32)
+    )
+    slopes = np.ascontiguousarray(
+        np.array([params_r[1], params_g[1], params_b[1]], dtype=np.float32)
+    )
+    offsets = np.ascontiguousarray(np.array(cmy_offsets, dtype=np.float32))
 
     res = _apply_photometric_fused_kernel(
-        img.astype(np.float32),
+        np.ascontiguousarray(img.astype(np.float32)),
         pivots,
         slopes,
         float(toe),

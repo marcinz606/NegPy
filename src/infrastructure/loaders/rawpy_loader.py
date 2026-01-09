@@ -1,6 +1,6 @@
 import rawpy
 from typing import Any, ContextManager
-from src.core.io.interfaces import IImageLoader
+from src.core.interfaces import IImageLoader
 
 
 class RawpyLoader(IImageLoader):
