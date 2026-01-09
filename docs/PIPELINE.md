@@ -52,8 +52,8 @@ Sliders in Exposure & Tonality UI section allow you to control parameters of our
 
 Less darkroom-y part of the pipeline. We try to replicate things that lab scanners like Frontier or Noritsu do well.
 
-*   **Spectral Crosstalk**: We use a $3 \times 3$ matrix multiplication to "un-mix" the colors, effectively correcting for the impure spectral response of the film dyes. Lab scanners like Frontier and Noritsu have it "baked in".
-*   **CLAHE**: Contrast Limited Adaptive Histogram Equalization applied in LAB space. It boosts local micro-contrast (texture) without messing up the overall brightness. Fuji Frontier calls this "Hypertone".
+*   **Color Separation**: We use a $3 \times 3$ matrix multiplication to "un-mix" the colors, effectively correcting for the impure spectral response of the film dyes. Lab scanners like Frontier and Noritsu have it "baked in".
+*   **CLAHE**: Contrast Limited Adaptive Histogram Equalization applied in LAB space. It boosts local micro-contrast without messing up the overall brightness. Fuji Frontier calls this "Hypertone".
 *   **Unsharp Mask (USM)**: Standard sharpening technique. We subtract a blurred version of the Lightness channel from the original to make edges pop without affecting the colors.
 
 ---

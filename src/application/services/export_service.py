@@ -88,7 +88,10 @@ class ExportService:
         status_area: Any,
     ) -> None:
         """
-        Executes a synchronous sequential batch export.
+        Executes a synchronous sequential batch export. Single export is already
+        multithreaded via numba, adding parallel processing on top of that just
+        creates issues (fork bombs + ooms) without significant speedup
+        so we resort to just simple for loop
         """
         os.makedirs(sidebar_data.export_path, exist_ok=True)
         total_files = len(files)
@@ -97,9 +100,6 @@ class ExportService:
         with status_area.status(
             f"Processing {total_files} images...", expanded=True
         ) as status:
-            # we are running dumb for loop because trying any parallelism or asyncio
-            # kills all performance gains we get from numba jit compiled functions
-            # and it's actually faster to just do it sequentially
             logger.info(f"Processing {total_files} images...")
             for f_meta in files:
                 f_hash = f_meta["hash"]
