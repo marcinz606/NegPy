@@ -1,5 +1,5 @@
 import numpy as np
-from src.core.interfaces import IProcessor, PipelineContext
+from src.core.interfaces import PipelineContext
 from src.core.types import ImageBuffer
 from src.features.lab.models import LabConfig
 from src.features.lab.logic import (
@@ -9,7 +9,7 @@ from src.features.lab.logic import (
 )
 
 
-class PhotoLabProcessor(IProcessor):
+class PhotoLabProcessor:
     def __init__(self, config: LabConfig):
         self.config = config
 

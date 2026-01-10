@@ -1,5 +1,5 @@
 import numpy as np
-from src.core.interfaces import IProcessor, PipelineContext
+from src.core.interfaces import PipelineContext
 from src.core.types import ImageBuffer
 from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
 from src.features.exposure.logic import apply_characteristic_curve
@@ -9,7 +9,7 @@ from src.features.exposure.normalization import (
 )
 
 
-class NormalizationProcessor(IProcessor):
+class NormalizationProcessor:
     """
     Handles Log-Normalization of the linear RAW input.
 
@@ -32,7 +32,7 @@ class NormalizationProcessor(IProcessor):
         return normalize_log_image(img_log, bounds)
 
 
-class PhotometricProcessor(IProcessor):
+class PhotometricProcessor:
     """
     Simulates the Photometric 'Printing' process.
 

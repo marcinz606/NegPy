@@ -13,7 +13,7 @@ class TestDarkroomEngine(unittest.TestCase):
             {"autocrop": False, "autocrop_offset": 0}
         )
 
-        res = engine.process(img, settings)
+        res = engine.process(img, settings, source_hash="dummy")
 
         # Output should be 100x100 since autocrop is off and offset is 0
         self.assertEqual(res.shape, (100, 100, 3))
@@ -28,7 +28,7 @@ class TestDarkroomEngine(unittest.TestCase):
             {"autocrop": False, "autocrop_offset": 10}
         )
 
-        res = engine.process(img, settings)
+        res = engine.process(img, settings, source_hash="dummy")
 
         self.assertLess(res.shape[0], 200)
         self.assertLess(res.shape[1], 200)

@@ -1,5 +1,5 @@
 import numpy as np
-from src.core.interfaces import IProcessor, PipelineContext
+from src.core.interfaces import PipelineContext
 from src.core.types import ImageBuffer
 from src.features.toning.models import ToningConfig
 from src.features.toning.logic import simulate_paper_substrate, apply_chemical_toning
@@ -15,7 +15,7 @@ def apply_chromaticity_preserving_black_point(
     return np.clip(res, 0.0, 1.0).astype(np.float32)  # type: ignore
 
 
-class ToningProcessor(IProcessor):
+class ToningProcessor:
     def __init__(self, config: ToningConfig):
         self.config = config
 

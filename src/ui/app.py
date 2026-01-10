@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import asyncio
-from PIL import Image
 from typing import Any
 from src.core.models import WorkspaceConfig
 from src.ui.state.state_manager import init_session_state
@@ -77,19 +76,13 @@ async def main() -> None:
         ]
         if missing_thumbs:
             with status_area.status("Generating thumbnails...") as status:
-                import src.application.services.thumbnail_service as worker
+                import src.application.services.thumbnail_service as thumb_service
 
-                def _generate_thumbnails_seq() -> None:
-                    for f in missing_thumbs:
-                        thumb = worker.get_thumbnail_worker(
-                            f["path"], f["hash"], session.asset_store
-                        )
-                        if isinstance(thumb, Image.Image):
-                            session.thumbnails[f["name"]] = thumb
-
-                # Run sequentially in a thread to avoid PID leaks and memory fragmentation
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, _generate_thumbnails_seq)
+                # Generate in parallel with controlled concurrency
+                new_thumbs = await thumb_service.generate_batch_thumbnails(
+                    missing_thumbs, session.asset_store
+                )
+                session.thumbnails.update(new_thumbs)
                 status.update(label="Thumbnails ready", state="complete")
 
         from src.ui.state.state_manager import save_settings

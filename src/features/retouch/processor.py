@@ -1,4 +1,4 @@
-from src.core.interfaces import IProcessor, PipelineContext
+from src.core.interfaces import PipelineContext
 from src.core.types import ImageBuffer
 from src.features.retouch.models import RetouchConfig, LocalAdjustmentConfig
 from src.features.retouch.logic import apply_dust_removal, apply_local_adjustments
@@ -7,7 +7,7 @@ from src.features.retouch.logic import apply_dust_removal, apply_local_adjustmen
 from src.features.geometry.logic import map_coords_to_geometry
 
 
-class RetouchProcessor(IProcessor):
+class RetouchProcessor:
     def __init__(self, config: RetouchConfig):
         self.config = config
 

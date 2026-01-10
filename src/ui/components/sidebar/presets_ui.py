@@ -1,5 +1,5 @@
 import streamlit as st
-from src.features.presets.service import PresetService
+from src.application.services.preset_service import PresetService
 from src.ui.state.state_manager import save_settings, load_settings
 from src.core.session import WorkspaceSession
 from src.ui.components.sidebar.helpers import (
@@ -31,7 +31,7 @@ def load_preset_callback() -> None:
         from src.core.models import WorkspaceConfig
 
         session.file_settings[f_hash] = WorkspaceConfig.from_flat_dict(current_dict)
-        load_settings()
+        load_settings(force=True)
         st.toast(f"Loaded preset: {selected_p}")
 
 

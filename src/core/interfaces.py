@@ -3,7 +3,6 @@ from typing import (
     Optional,
     Any,
     Tuple,
-    runtime_checkable,
     ContextManager,
     List,
 )
@@ -25,15 +24,6 @@ class PipelineContext:
     active_roi: Optional[ROI] = None
     # Metrics gathered by analysis steps (e.g., histogram bounds)
     metrics: dict[str, Any] = field(default_factory=dict)
-
-
-@runtime_checkable
-class IProcessor(Protocol):
-    """
-    Interface for any image processing step.
-    """
-
-    def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer: ...
 
 
 class IImageSource(Protocol):
