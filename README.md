@@ -24,6 +24,7 @@ Most important part, the image goes through a 7-stage simulation:
 [📖 Read about the math behind the pipeline](docs/PIPELINE.md)
 
 1.  **Geometry**: Auto-rotates and auto-crops to standard ratios (3:2, 6:7, etc.) by detecting the film borders.
+    you can also choose to keep the full frame in final output.
 2.  **Normalization**: Strips away the film base (D-min) to get a clean signal.
 3.  **Photometric Engine**:
     *   **Inversion**: Uses a sigmoid curve that mimics H&D film characteristic curves.
@@ -51,7 +52,7 @@ I have some more ideas for next features & improvements:
 ## 🚀 Getting Started
 
 ### Download the App
-If you just want to use it, grab the installer for your OS from the **[Releases Page](https://github.com/USER/darkroom-py/releases)**.
+Grab the app for your OS from the **[Releases Page](https://github.com/marcinz606/darkroom-py/releases)**.
 
 ### 🛡️ Installation & Security
 Because DarkroomPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them $ for that). You will see a security warning the first time you run it.
@@ -103,4 +104,4 @@ There's a Makefile to help with quality control:
 This project is free software under the **GPL-3 License**. Feel free to use it, study it, and share it. If you use it, also keep it open.
 
 ## Support
-If you like the project and want to support it, consider buying me a coffee or a roll of film to have material for testing. [Ko-Fi](https://ko-fi.com/marcinzawalski)
+If you like the project and want to support it, consider buying me a coffee or a roll of film to have material for testing. [Ko-Fi](https://ko-fi.com/marcinzawalski). Also watch the repository for updates and leave a star :) 

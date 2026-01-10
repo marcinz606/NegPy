@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from PIL import Image
 from src.ui.state.session_context import SessionContext
 from src.services.rendering.preview_manager import PreviewManager
@@ -26,6 +27,12 @@ class AppController:
         Returns True if new files were added.
         """
         session = self.ctx.session
+        if not st.session_state.get("hot_folder_mode"):
+            return False
+
+        for f in session.uploaded_files:
+            session.watched_folders.add(os.path.dirname(f["path"]))
+
         if not session.watched_folders:
             return False
 
@@ -70,12 +77,10 @@ class AppController:
         if raw is None:
             return Image.new("RGB", (100, 100), (0, 0, 0))
 
-        # 1. Compose settings from UI state
         from src.ui.app import get_processing_params_composed
 
         params = get_processing_params_composed(st.session_state)
 
-        # 2. Execute Pipeline
         f_hash = (
             self.ctx.session.current_file["hash"]
             if self.ctx.session.current_file
@@ -89,14 +94,12 @@ class AppController:
             render_size_ref=self.image_service.engine.config.preview_render_size,
         )
 
-        # 3. Finalize to PIL for display
         pil_prev = self.image_service.buffer_to_pil(buffer, params, bit_depth=8)
 
-        # Sync metrics for specialized UI overlays (e.g. D&B masks)
+        st.session_state.last_metrics = metrics
         if "base_positive" in metrics:
             st.session_state.base_positive = metrics["base_positive"]
 
-        # 4. Apply Display Color Management
         color_space = self.ctx.last_preview_color_space
         if self.ctx.session.icc_profile_path:
             pil_prev = self.color_service.apply_icc_profile(

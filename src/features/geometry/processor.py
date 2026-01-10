@@ -49,6 +49,7 @@ class GeometryProcessor:
             )
             context.active_roi = roi
 
+        context.metrics["active_roi"] = context.active_roi
         return img
 
 
