@@ -1,4 +1,5 @@
-from typing import Optional, Any
+import asyncio
+from typing import Optional, Any, List, Dict, Tuple
 from PIL import Image
 import rawpy
 from src.config import APP_CONFIG
@@ -7,6 +8,35 @@ from src.infrastructure.loaders.factory import loader_factory
 from logging import getLogger
 
 logger = getLogger(__name__)
+
+
+async def generate_batch_thumbnails(
+    files: List[Dict[str, str]], asset_store: Any
+) -> Dict[str, Image.Image]:
+    """
+    Generates thumbnails in parallel using a semaphore to limit concurrency.
+    Returns a dictionary mapping filenames to PIL Images.
+    """
+
+    # Limit concurrency to half of available cores
+    limit = max(1, APP_CONFIG.max_workers // 2)
+    semaphore = asyncio.Semaphore(limit)
+
+    async def _worker(f_info: Dict[str, str]) -> Tuple[str, Optional[Image.Image]]:
+        async with semaphore:
+            thumb = await asyncio.to_thread(
+                get_thumbnail_worker, f_info["path"], f_info["hash"], asset_store
+            )
+            return f_info["name"], thumb
+
+    tasks = [_worker(f) for f in files]
+    results = await asyncio.gather(*tasks)
+
+    return {
+        name: thumb
+        for name, thumb in results
+        if isinstance(thumb, Image.Image)
+    }
 
 
 def get_thumbnail_worker(
