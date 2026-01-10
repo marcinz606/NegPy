@@ -1,7 +1,7 @@
 {
-  "name": "darkroom-py",
+  "name": "DarkroomPy",
   "version": "0.1.0",
-  "description": "Professional RAW Photo Development Tool",
+  "description": ">We have darkroom at home. >Darkroom at home: DarkroomPy",
   "main": "desktop/main.js",
   "scripts": {
     "start": "electron .",
