@@ -39,7 +39,7 @@ def render_lab_scanner_section() -> None:
                 max_val=1.0,
                 default_val=0.0,
                 step=0.05,
-                key=vm.get_key("hypertone_strength"),
+                key=vm.get_key("clahe_strength"),
                 format="%.2f",
                 help_text=(
                     "Contrast Limited Adaptive Histogram Equalization. "

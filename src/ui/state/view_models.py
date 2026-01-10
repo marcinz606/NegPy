@@ -173,7 +173,7 @@ class LabViewModel(BaseViewModel):
         super().__init__(data_source)
         self._keys = {
             "color_separation": "color_separation",
-            "hypertone_strength": "hypertone_strength",
+            "clahe_strength": "clahe_strength",
             "sharpen": "sharpen",
             "crosstalk_matrix": "crosstalk_matrix",
         }
@@ -188,7 +188,7 @@ class LabViewModel(BaseViewModel):
 
         return LabConfig(
             color_separation=self._get_float(self.get_key("color_separation"), 1.0),
-            hypertone_strength=self._get_float(self.get_key("hypertone_strength")),
+            clahe_strength=self._get_float(self.get_key("clahe_strength")),
             sharpen=self._get_float(self.get_key("sharpen"), 0.25),
             crosstalk_matrix=crosstalk,
         )

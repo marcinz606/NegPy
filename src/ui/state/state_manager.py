@@ -24,7 +24,7 @@ GLOBAL_PERSIST_KEYS = {
     "filename_pattern",
     "apply_icc",
     "sharpen",
-    "hypertone_strength",
+    "clahe_strength",
     "color_separation",
     "working_copy_size",
     "working_copy_size_vertical",

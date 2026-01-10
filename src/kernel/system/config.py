@@ -46,7 +46,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     ),
     lab=LabConfig(
         color_separation=1.0,
-        hypertone_strength=0.0,
+        clahe_strength=0.0,
         sharpen=0.25,
     ),
     toning=ToningConfig(

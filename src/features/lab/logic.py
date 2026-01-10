@@ -69,7 +69,7 @@ def apply_spectral_crosstalk(
 
 
 @time_function
-def apply_hypertone(img: ImageBuffer, strength: float) -> ImageBuffer:
+def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
     """
