@@ -33,6 +33,7 @@ GLOBAL_PERSIST_KEYS = {
     "last_picker_dir",
     "autocrop",
     "autocrop_ratio",
+    "keep_full_frame",
 }
 
 
@@ -61,6 +62,11 @@ def init_session_state() -> None:
             val = repo.get_global_setting(key)
             if val is not None:
                 st.session_state[key] = val
+
+        # Restore watched folders
+        watched = repo.get_global_setting("watched_folders")
+        if watched and isinstance(watched, list):
+            session.watched_folders = set(watched)
 
     session = st.session_state.session
     defaults = session.create_default_config().to_dict()
@@ -121,6 +127,11 @@ def save_settings(persist: bool = False) -> None:
         for key in GLOBAL_PERSIST_KEYS:
             if key in st.session_state:
                 session.repository.save_global_setting(key, st.session_state[key])
+
+        # Save watched folders
+        session.repository.save_global_setting(
+            "watched_folders", list(session.watched_folders)
+        )
 
     if not session.uploaded_files:
         return

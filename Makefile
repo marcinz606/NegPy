@@ -1,5 +1,5 @@
 # Variables
-VENV = venv
+VENV = .venv
 PYTHON = $(VENV)/bin/python
 PYTEST = $(PYTHON) -m pytest
 MYPY = $(PYTHON) -m mypy

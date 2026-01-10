@@ -15,17 +15,22 @@ class FolderWatchService:
     ) -> List[str]:
         """
         Scans a folder and returns absolute paths of supported files not in existing_paths.
+        Performs a shallow scan for performance.
         """
         if not os.path.exists(folder_path):
             return []
 
         new_files = []
-        for root, _, files in os.walk(folder_path):
-            for file in files:
-                ext = os.path.splitext(file)[1].lower()
-                if ext in cls.SUPPORTED_EXTS:
-                    full_path = os.path.abspath(os.path.join(root, file))
-                    if full_path not in existing_paths:
-                        new_files.append(full_path)
+        try:
+            with os.scandir(folder_path) as it:
+                for entry in it:
+                    if entry.is_file():
+                        ext = os.path.splitext(entry.name)[1].lower()
+                        if ext in cls.SUPPORTED_EXTS:
+                            full_path = os.path.abspath(entry.path)
+                            if full_path not in existing_paths:
+                                new_files.append(full_path)
+        except Exception:
+            pass
 
         return new_files

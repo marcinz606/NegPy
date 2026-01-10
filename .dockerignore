@@ -10,6 +10,7 @@ desktop
 desktop/bin
 *.spec
 venv
+.venv
 __pycache__
 *.pyc
 .pytest_cache

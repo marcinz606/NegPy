@@ -15,7 +15,7 @@ def render_file_manager() -> None:
     is_docker = os.path.exists("/.dockerenv")
 
     with st.sidebar:
-        # 1. Native Picker - Hidden if in Docker
+        # Native Picker - Hidden if in Docker
         if not is_docker:
             picker = NativeFilePicker()
 
@@ -34,6 +34,9 @@ def render_file_manager() -> None:
                     if paths:
                         session.add_local_assets(paths)
                         st.session_state.last_picker_dir = os.path.dirname(paths[0])
+                        # If hot folder mode is enabled, watch the directory of picked files
+                        if st.session_state.get("hot_folder_mode"):
+                            session.watched_folders.add(os.path.dirname(paths[0]))
                         st.rerun()
             with c2:
                 if st.button(
@@ -57,7 +60,7 @@ def render_file_manager() -> None:
                 help_text="Automatically discover new files in picked folders.",
             )
         else:
-            # 2. Standard Web Uploader (Docker Mode)
+            # Streamlit uploader (Docker Mode)
             raw_uploaded_files = st.file_uploader(
                 "Load RAW files",
                 type=["dng", "tiff", "nef", "arw", "raw", "raf"],
@@ -67,7 +70,6 @@ def render_file_manager() -> None:
                 {f.name for f in raw_uploaded_files} if raw_uploaded_files else set()
             )
 
-            # Sync files via Session object
             session.sync_files(
                 current_uploaded_names, raw_uploaded_files if raw_uploaded_files else []
             )

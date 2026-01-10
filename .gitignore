@@ -2,6 +2,7 @@
 .ruff_cache/
 .mypy_cache/
 .idea/
+.python-version
 node_modules/
 # Electron & Packaging
 node_modules/
@@ -17,5 +18,6 @@ user/
 
 # Virtual Environment
 venv/
+.venv
 
 __pycache__

@@ -122,6 +122,6 @@ class DarkroomEngine:
         )
 
         current_img = ToningProcessor(settings.toning).process(current_img, context)
-        current_img = CropProcessor().process(current_img, context)
+        current_img = CropProcessor(settings.geometry).process(current_img, context)
 
         return current_img

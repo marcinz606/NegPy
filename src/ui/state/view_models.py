@@ -127,6 +127,7 @@ class GeometryViewModel(BaseViewModel):
             "autocrop_assist_point": "autocrop_assist_point",
             "autocrop_assist_luma": "autocrop_assist_luma",
             "pick_assist": "pick_assist",
+            "keep_full_frame": "keep_full_frame",
         }
 
     def get_key(self, field_name: str) -> str:
@@ -145,6 +146,7 @@ class GeometryViewModel(BaseViewModel):
             autocrop_assist_luma=self._get_raw(
                 self.get_key("autocrop_assist_luma"), None
             ),
+            keep_full_frame=self._get_bool(self.get_key("keep_full_frame"), False),
         )
 
 

@@ -49,15 +49,22 @@ class GeometryProcessor:
             )
             context.active_roi = roi
 
+        context.metrics["active_roi"] = context.active_roi
         return img
 
 
 class CropProcessor:
     """
-    Applies the active ROI crop.
+    Applies the active ROI crop unless keep_full_frame is enabled.
     """
 
+    def __init__(self, config: GeometryConfig):
+        self.config = config
+
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
+        if self.config.keep_full_frame:
+            return image
+
         if context.active_roi:
             y1, y2, x1, x2 = context.active_roi
             return image[y1:y2, x1:x2]

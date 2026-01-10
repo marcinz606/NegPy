@@ -43,6 +43,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         autocrop=True,
         autocrop_offset=4,
         autocrop_ratio="3:2",
+        keep_full_frame=False,
     ),
     lab=LabConfig(
         color_separation=1.0,

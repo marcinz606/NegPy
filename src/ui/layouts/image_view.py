@@ -1,11 +1,9 @@
 import streamlit as st
 import numpy as np
-import cv2
 from PIL import Image, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
 from src.kernel.system.logging import get_logger
 from src.kernel.system.config import APP_CONFIG
-from src.features.geometry.logic import get_autocrop_coords
 from src.kernel.image.validation import validate_int
 from src.domain.types import LUMA_R, LUMA_G, LUMA_B
 from src.ui.state.state_manager import save_settings
@@ -57,31 +55,16 @@ def render_image_view(
 
     rh_orig, rw_orig = img_raw.shape[:2]
 
-    # Calculate ROI for UV grid
-    roi = None
-    if geo_conf.autocrop:
-        img_geom = np.rot90(img_raw, k=geo_conf.rotation % 4)
-        if geo_conf.fine_rotation != 0.0:
-            h_f, w_f = img_geom.shape[:2]
-            m_f = cv2.getRotationMatrix2D(
-                (w_f / 2, h_f / 2), geo_conf.fine_rotation, 1.0
-            )
-            img_geom = cv2.warpAffine(img_geom, m_f, (w_f, h_f)).astype(np.float32)
-
-        roi = get_autocrop_coords(
-            img_geom,
-            geo_conf.autocrop_offset,
-            1.0,
-            geo_conf.autocrop_ratio,
-            detect_res=APP_CONFIG.preview_render_size,
-        )
+    # Retrieve ROI from the latest engine pass for perfect alignment
+    metrics = st.session_state.get("last_metrics", {})
+    roi = metrics.get("active_roi")
 
     uv_grid = CoordinateMapping.create_uv_grid(
         rh_orig,
         rw_orig,
         geo_conf.rotation % 4,
         geo_conf.fine_rotation,
-        geo_conf.autocrop,
+        geo_conf.autocrop and not geo_conf.keep_full_frame,
         {"roi": roi} if roi else None,
     )
 
