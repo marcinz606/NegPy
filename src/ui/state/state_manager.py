@@ -33,6 +33,7 @@ GLOBAL_PERSIST_KEYS = {
     "last_picker_dir",
     "autocrop",
     "autocrop_ratio",
+    "keep_full_frame",
 }
 
 

@@ -17,7 +17,7 @@ def render_geometry_section() -> None:
     geo_conf = geo_vm.to_config()
 
     with st.expander(":material/crop: Geometry", expanded=True):
-        c_main1, c_main2 = st.columns([1, 1])
+        c_main1, c_main2, c_main3 = st.columns([1, 1, 1.2])
         with c_main1:
             render_control_selectbox(
                 "Ratio",
@@ -33,6 +33,14 @@ def render_geometry_section() -> None:
                 default_val=DEFAULT_WORKSPACE_CONFIG.geometry.autocrop,
                 key=geo_vm.get_key("autocrop"),
                 help_text="Automatically detect film borders and crop to desired aspect ratio.",
+            )
+        with c_main3:
+            render_control_checkbox(
+                "Keep Borders",
+                default_val=DEFAULT_WORKSPACE_CONFIG.geometry.keep_full_frame,
+                key=geo_vm.get_key("keep_full_frame"),
+                help_text="Keep entire image and film borders in final export. "
+                "Crop area is still used for internal analysis.",
             )
 
         c_a1, c_a2 = st.columns(2)

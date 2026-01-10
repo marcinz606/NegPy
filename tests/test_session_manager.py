@@ -54,7 +54,7 @@ class TestWorkspaceSession(unittest.TestCase):
         self.assertEqual(config.retouch.dust_size, 3)
         # Check export defaults
         self.assertEqual(config.export.export_fmt, "JPEG")
-        self.assertEqual(config.export.export_print_size, 27.0)
+        self.assertEqual(config.export.export_print_size, 30.0)
         self.assertEqual(config.export.export_dpi, 300)
 
     def test_get_active_settings_creates_defaults_if_empty(self):

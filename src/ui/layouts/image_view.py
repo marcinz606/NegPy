@@ -81,7 +81,7 @@ def render_image_view(
         rw_orig,
         geo_conf.rotation % 4,
         geo_conf.fine_rotation,
-        geo_conf.autocrop,
+        geo_conf.autocrop and not geo_conf.keep_full_frame,
         {"roi": roi} if roi else None,
     )
 

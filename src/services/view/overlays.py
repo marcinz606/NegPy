@@ -156,8 +156,8 @@ class Overlays:
             M = cv2.getRotationMatrix2D((w / 2, h / 2), geo_conf.fine_rotation, 1.0)
             mask = cv2.warpAffine(mask, M, (w, h), flags=cv2.INTER_LINEAR)
 
-        # ROI Crop
-        if roi:
+        # ROI Crop - skip if keep_full_frame is enabled
+        if roi and not geo_conf.keep_full_frame:
             y1, y2, x1, x2 = roi
             mask = mask[y1:y2, x1:x2]
 

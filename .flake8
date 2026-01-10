@@ -3,6 +3,7 @@ extend-ignore = E203, E402
 max-line-length = 140
 exclude =
     venv,
+    .venv,
     __pycache__,
     .git,
     .github,
