@@ -72,12 +72,10 @@ class AppController:
         if raw is None:
             return Image.new("RGB", (100, 100), (0, 0, 0))
 
-        # 1. Compose full settings from session state
         from src.ui.app import get_processing_params_composed
 
         params = get_processing_params_composed(st.session_state)
 
-        # 2. Run Engine with explicit context to capture intermediate states
         h_orig, w_cols = raw.shape[:2]
         context = PipelineContext(
             scale_factor=max(h_orig, w_cols)
@@ -95,15 +93,12 @@ class AppController:
             raw.copy(), params, source_hash=f_hash, context=context
         )
 
-        # Capture base positive for accurate mask rendering in UI
         if "base_positive" in context.metrics:
             st.session_state.base_positive = context.metrics["base_positive"]
 
-        # 3. Convert to PIL
         img_uint8 = np.clip(np.nan_to_num(processed * 255), 0, 255).astype(np.uint8)
         pil_prev = Image.fromarray(img_uint8)
 
-        # 4. Handle Post-Processing (B&W Toning)
         is_toned = (
             params.toning.selenium_strength != 0.0
             or params.toning.sepia_strength != 0.0
@@ -112,7 +107,6 @@ class AppController:
         if params.process_mode == "B&W" and not is_toned:
             pil_prev = pil_prev.convert("L")
 
-        # 5. Apply ICC/Simulation
         color_space = self.ctx.last_preview_color_space
         if self.ctx.session.icc_profile_path:
             pil_prev = self.color_service.apply_icc_profile(
