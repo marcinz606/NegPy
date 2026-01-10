@@ -1,9 +1,9 @@
 import os
 import numpy as np
 from typing import Any, List, Dict, ContextManager
-from src.core.interfaces import IImageLoader
+from src.domain.interfaces import IImageLoader
 from src.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
-from src.helpers import uint16_to_float32
+from src.kernel.image.logic import uint16_to_float32
 
 
 class PakonLoader(IImageLoader):

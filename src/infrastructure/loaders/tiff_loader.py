@@ -1,8 +1,8 @@
 import numpy as np
 import imageio.v3 as iio
 from typing import Any, ContextManager
-from src.core.interfaces import IImageLoader
-from src.helpers import uint8_to_float32, uint16_to_float32
+from src.domain.interfaces import IImageLoader
+from src.kernel.image.logic import uint8_to_float32, uint16_to_float32
 
 
 class NonStandardFileWrapper:

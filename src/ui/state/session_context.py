@@ -1,12 +1,12 @@
 from typing import Optional
 import streamlit as st
-from src.core.types import ImageBuffer, Dimensions
-from src.core.validation import (
+from src.domain.types import ImageBuffer, Dimensions
+from src.kernel.image.validation import (
     validate_int,
     validate_bool,
     ensure_image,
 )
-from src.core.session import WorkspaceSession
+from src.domain.session import WorkspaceSession
 
 
 class SessionContext:

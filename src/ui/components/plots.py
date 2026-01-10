@@ -2,11 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.ndimage as ndimage
 from typing import Tuple
-from src.core.types import ImageBuffer
+from src.domain.types import ImageBuffer
 from src.features.exposure.logic import LogisticSigmoid
 from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
-from src.core.validation import ensure_image
-from src.helpers import get_luminance
+from src.kernel.image.validation import ensure_image
+from src.kernel.image.logic import get_luminance
 
 
 def plot_histogram(

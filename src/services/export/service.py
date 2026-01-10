@@ -4,15 +4,15 @@ import gc
 import asyncio
 from typing import List, Dict, Any, Callable
 import streamlit as st
-from src.core.models import WorkspaceConfig, ExportConfig
-from src.core.templating import FilenameTemplater
-from src.logging_config import get_logger
-from src.config import APP_CONFIG
-from src.application.services.image_service import ImageService
+from src.domain.models import WorkspaceConfig, ExportConfig
+from src.services.export.templating import FilenameTemplater
+from src.kernel.system.logging import get_logger
+from src.kernel.system.config import APP_CONFIG
+from src.services.rendering.image_processor import ImageProcessor
 
 templater = FilenameTemplater()
 logger = get_logger(__name__)
-image_service = ImageService()
+image_service = ImageProcessor()
 
 
 def _process_and_save(

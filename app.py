@@ -3,7 +3,7 @@ import logging
 import multiprocessing
 import sys
 
-from src.logging_config import setup_logging
+from src.kernel.system.logging import setup_logging
 
 
 def handle_subtask() -> bool:
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     except ImportError:
         pass
 
-    from src.core.performance import clear_perf_log
+    from src.kernel.system.performance import clear_perf_log
 
     clear_perf_log()
     asyncio.run(start_app())

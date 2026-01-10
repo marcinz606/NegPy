@@ -2,7 +2,7 @@ import numpy as np
 from src.features.geometry.logic import get_manual_crop_coords, get_autocrop_coords
 from src.features.geometry.processor import GeometryProcessor
 from src.features.geometry.models import GeometryConfig
-from src.core.interfaces import PipelineContext
+from src.domain.interfaces import PipelineContext
 
 
 def test_get_manual_crop_coords_zero_offset():

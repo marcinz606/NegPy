@@ -1,7 +1,7 @@
 import streamlit as st
 from src.ui.components.sidebar.navigation_ui import change_file
-from src.core.session import WorkspaceSession
-from src.config import APP_CONFIG
+from src.domain.session import WorkspaceSession
+from src.kernel.system.config import APP_CONFIG
 
 
 def render_contact_sheet() -> None:

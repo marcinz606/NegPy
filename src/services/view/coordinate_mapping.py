@@ -3,7 +3,7 @@ import cv2
 from typing import Tuple, Optional
 
 
-class GeometryService:
+class CoordinateMapping:
     """
     Service for UI-related coordinate transformations and geometric mapping.
     """

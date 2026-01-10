@@ -1,6 +1,6 @@
 import numpy as np
-from src.core.interfaces import PipelineContext
-from src.core.types import ImageBuffer
+from src.domain.interfaces import PipelineContext
+from src.domain.types import ImageBuffer
 from src.features.geometry.models import GeometryConfig
 from src.features.geometry.logic import (
     apply_fine_rotation,

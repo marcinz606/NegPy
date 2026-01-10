@@ -2,11 +2,11 @@ import sqlite3
 import json
 import os
 from typing import Any, Optional
-from src.core.models import WorkspaceConfig
-from src.core.interfaces import IRepository
+from src.domain.models import WorkspaceConfig
+from src.domain.interfaces import IRepository
 
 
-class SQLiteRepository(IRepository):
+class StorageRepository(IRepository):
     """
     Concrete implementation of IRepository using SQLite.
     """

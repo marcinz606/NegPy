@@ -1,5 +1,5 @@
 import streamlit as st
-from src.core.session import WorkspaceSession
+from src.domain.session import WorkspaceSession
 from src.ui.state.view_models import SidebarState
 from src.ui.components.sidebar.collect_adjustments import render_adjustments
 

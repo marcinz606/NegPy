@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from src.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
+from src.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from src.ui.state.view_models import SidebarState
 from src.ui.components.sidebar.helpers import (
     render_control_slider,

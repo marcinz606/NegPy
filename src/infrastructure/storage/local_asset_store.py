@@ -3,9 +3,9 @@ import shutil
 import uuid
 from typing import Optional, Tuple, Any
 from PIL import Image
-from src.helpers import calculate_file_hash
-from src.logging_config import get_logger
-from src.core.interfaces import IAssetStore
+from src.kernel.image.logic import calculate_file_hash
+from src.kernel.system.logging import get_logger
+from src.domain.interfaces import IAssetStore
 
 logger = get_logger(__name__)
 

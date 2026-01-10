@@ -5,11 +5,11 @@ from PIL import Image
 from typing import List, Tuple, Optional
 from src.features.retouch.logic import generate_local_mask, calculate_luma_mask
 from src.features.geometry.models import GeometryConfig
-from src.core.validation import ensure_image
-from src.core.types import ImageBuffer
+from src.kernel.image.validation import ensure_image
+from src.domain.types import ImageBuffer
 
 
-class OverlayService:
+class Overlays:
     """
     Service for rendering visual overlays (masks, dust patches) on the preview image.
     """
@@ -50,7 +50,7 @@ class OverlayService:
 
         final_vis_mask = mask * luma_mask
 
-        final_vis_mask = OverlayService._transform_mask(
+        final_vis_mask = Overlays._transform_mask(
             final_vis_mask, geo_conf, roi, orig_w, orig_h
         )
 
@@ -108,7 +108,7 @@ class OverlayService:
         # inpaint_rad = 3, feather = 3
         mask_manual = ensure_image(cv2.GaussianBlur(mask_manual, (3, 3), 0))
 
-        mask_manual = OverlayService._transform_mask(
+        mask_manual = Overlays._transform_mask(
             mask_manual, geo_conf, roi, orig_w, orig_h
         )
 

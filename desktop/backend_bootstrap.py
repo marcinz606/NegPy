@@ -3,7 +3,7 @@
 import os
 import sys
 import streamlit.web.cli as stcli
-from src.logging_config import init_streams
+from src.kernel.system.logging import init_streams
 
 # Ensure stdout and stderr are not None (windows specific workaround)
 init_streams()

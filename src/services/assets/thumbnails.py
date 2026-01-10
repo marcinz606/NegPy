@@ -2,12 +2,12 @@ import asyncio
 from typing import Optional, Any, List, Dict, Tuple
 from PIL import Image
 import rawpy
-from src.config import APP_CONFIG
-from src.helpers import ensure_rgb
+from src.kernel.system.config import APP_CONFIG
+from src.kernel.image.logic import ensure_rgb
 from src.infrastructure.loaders.factory import loader_factory
-from logging import getLogger
+from src.kernel.system.logging import get_logger
 
-logger = getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def generate_batch_thumbnails(

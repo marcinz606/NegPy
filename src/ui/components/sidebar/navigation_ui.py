@@ -7,7 +7,7 @@ from src.ui.state.state_manager import (
     paste_settings,
     reset_file_settings,
 )
-from src.core.session import WorkspaceSession
+from src.domain.session import WorkspaceSession
 
 
 def change_file(new_idx: int) -> None:

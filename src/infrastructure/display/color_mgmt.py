@@ -1,7 +1,7 @@
 import os
 from typing import Any, Optional
 from PIL import Image, ImageCms
-from src.config import APP_CONFIG
+from src.kernel.system.config import APP_CONFIG
 
 
 class ColorService:

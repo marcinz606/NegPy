@@ -1,7 +1,7 @@
 import streamlit as st
-from src.application.services.preset_service import PresetService
+from src.services.assets.presets import Presets
 from src.ui.state.state_manager import save_settings, load_settings
-from src.core.session import WorkspaceSession
+from src.domain.session import WorkspaceSession
 from src.ui.components.sidebar.helpers import (
     render_control_selectbox,
     render_control_text_input,
@@ -22,13 +22,13 @@ def load_preset_callback() -> None:
     if not selected_p:
         return
 
-    p_settings = PresetService.load_preset(selected_p)
+    p_settings = Presets.load_preset(selected_p)
     if p_settings:
         current_settings = session.file_settings[f_hash]
         current_dict = current_settings.to_dict()
         current_dict.update(p_settings)
 
-        from src.core.models import WorkspaceConfig
+        from src.domain.models import WorkspaceConfig
 
         session.file_settings[f_hash] = WorkspaceConfig.from_flat_dict(current_dict)
         load_settings(force=True)
@@ -50,7 +50,7 @@ def save_preset_callback() -> None:
         return
 
     save_settings()
-    PresetService.save_preset(preset_name, session.file_settings[f_hash])
+    Presets.save_preset(preset_name, session.file_settings[f_hash])
     st.toast(f"Saved preset: {preset_name}")
 
 
@@ -63,7 +63,7 @@ def render_presets() -> None:
         return
 
     with st.expander(":material/pages: Presets"):
-        presets = PresetService.list_presets()
+        presets = Presets.list_presets()
         c1, c2 = st.columns([2, 1])
 
         with c1:

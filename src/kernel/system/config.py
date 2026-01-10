@@ -1,6 +1,6 @@
 import os
-from src.core.types import AppConfig
-from src.core.models import WorkspaceConfig, ExportConfig
+from src.domain.types import AppConfig
+from src.domain.models import WorkspaceConfig, ExportConfig
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
@@ -14,7 +14,7 @@ BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
     max_workers=max(1, (os.cpu_count() or 1) - 1),
-    preview_render_size=1000,
+    preview_render_size=800,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),

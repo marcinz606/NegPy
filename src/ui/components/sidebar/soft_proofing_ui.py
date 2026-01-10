@@ -1,7 +1,7 @@
 import streamlit as st
 import os
-from src.config import APP_CONFIG
-from src.core.session import WorkspaceSession
+from src.kernel.system.config import APP_CONFIG
+from src.domain.session import WorkspaceSession
 from src.ui.components.sidebar.helpers import render_control_selectbox
 
 

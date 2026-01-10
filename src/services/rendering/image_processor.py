@@ -6,13 +6,13 @@ import tifffile
 import numpy as np
 from PIL import Image, ImageCms
 from typing import Tuple, Optional, Any, Dict
-from src.logging_config import get_logger
-from src.config import APP_CONFIG
-from src.core.types import ImageBuffer
-from src.core.models import WorkspaceConfig, ExportConfig
-from src.core.interfaces import PipelineContext
-from src.application.engine import DarkroomEngine
-from src.helpers import (
+from src.kernel.system.logging import get_logger
+from src.kernel.system.config import APP_CONFIG
+from src.domain.types import ImageBuffer
+from src.domain.models import WorkspaceConfig, ExportConfig
+from src.domain.interfaces import PipelineContext
+from src.services.rendering.engine import DarkroomEngine
+from src.kernel.image.logic import (
     float_to_uint8,
     float_to_uint16,
     ensure_rgb,
@@ -24,7 +24,7 @@ from src.infrastructure.loaders.factory import loader_factory
 logger = get_logger(__name__)
 
 
-class ImageService:
+class ImageProcessor:
     """
     Unified service for image processing and output generation.
     Supports interactive previews and high-quality file exports.

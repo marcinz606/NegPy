@@ -6,7 +6,7 @@ from src.features.geometry.models import GeometryConfig
 from src.features.toning.models import ToningConfig
 from src.features.lab.models import LabConfig
 from src.features.retouch.models import RetouchConfig
-from src.core.validation import validate_float, validate_int, validate_bool
+from src.kernel.image.validation import validate_float, validate_int, validate_bool
 
 
 @dataclass

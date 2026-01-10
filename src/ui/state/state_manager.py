@@ -1,11 +1,11 @@
 import streamlit as st
 import uuid
-from src.core.session import WorkspaceSession
-from src.core.models import WorkspaceConfig
-from src.infrastructure.persistence.sqlite_repository import SQLiteRepository
-from src.infrastructure.persistence.local_asset_store import LocalAssetStore
-from src.application.engine import DarkroomEngine
-from src.config import APP_CONFIG
+from src.domain.session import WorkspaceSession
+from src.domain.models import WorkspaceConfig
+from src.infrastructure.storage.repository import StorageRepository
+from src.infrastructure.storage.local_asset_store import LocalAssetStore
+from src.services.rendering.engine import DarkroomEngine
+from src.kernel.system.config import APP_CONFIG
 
 # Keys that should persist globally across all files if no specific edits exist
 GLOBAL_PERSIST_KEYS = {
@@ -45,7 +45,7 @@ def init_session_state() -> None:
         st.session_state.session_id = str(uuid.uuid4())[:8]
 
     if "session" not in st.session_state:
-        repo = SQLiteRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
+        repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
         repo.initialize()
 
         store = LocalAssetStore(APP_CONFIG.cache_dir, APP_CONFIG.user_icc_dir)

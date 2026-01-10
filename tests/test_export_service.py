@@ -1,10 +1,10 @@
 import numpy as np
-from src.application.services.image_service import ImageService
-from src.core.models import WorkspaceConfig, ExportConfig
+from src.services.rendering.image_processor import ImageProcessor
+from src.domain.models import WorkspaceConfig, ExportConfig
 
 
 def test_apply_scaling_f32() -> None:
-    service = ImageService()
+    service = ImageProcessor()
     # 100x100 white square
     img = np.ones((100, 100, 3), dtype=np.float32)
     params = WorkspaceConfig()
@@ -21,7 +21,7 @@ def test_apply_scaling_f32() -> None:
 
 
 def test_apply_border_f32() -> None:
-    service = ImageService()
+    service = ImageProcessor()
     img = np.ones((100, 100, 3), dtype=np.float32)
     params = WorkspaceConfig()
 

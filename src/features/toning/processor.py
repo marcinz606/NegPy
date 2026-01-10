@@ -1,9 +1,9 @@
 import numpy as np
-from src.core.interfaces import PipelineContext
-from src.core.types import ImageBuffer
+from src.domain.interfaces import PipelineContext
+from src.domain.types import ImageBuffer
 from src.features.toning.models import ToningConfig
 from src.features.toning.logic import simulate_paper_substrate, apply_chemical_toning
-from src.helpers import get_luminance
+from src.kernel.image.logic import get_luminance
 
 
 # We need to port this helper locally or into logic as well

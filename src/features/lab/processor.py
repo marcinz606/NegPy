@@ -1,6 +1,6 @@
 import numpy as np
-from src.core.interfaces import PipelineContext
-from src.core.types import ImageBuffer
+from src.domain.interfaces import PipelineContext
+from src.domain.types import ImageBuffer
 from src.features.lab.models import LabConfig
 from src.features.lab.logic import (
     apply_spectral_crosstalk,

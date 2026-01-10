@@ -1,5 +1,5 @@
-from src.core.interfaces import PipelineContext
-from src.core.types import ImageBuffer
+from src.domain.interfaces import PipelineContext
+from src.domain.types import ImageBuffer
 from src.features.retouch.models import RetouchConfig, LocalAdjustmentConfig
 from src.features.retouch.logic import apply_dust_removal, apply_local_adjustments
 
