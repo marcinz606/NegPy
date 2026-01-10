@@ -1,10 +1,10 @@
 import numpy as np
 import cv2
 from typing import Tuple, Optional
-from src.core.types import ImageBuffer, ROI
-from src.core.validation import ensure_image
-from src.core.performance import time_function
-from src.helpers import get_luminance
+from src.domain.types import ImageBuffer, ROI
+from src.kernel.image.validation import ensure_image
+from src.kernel.system.performance import time_function
+from src.kernel.image.logic import get_luminance
 
 
 @time_function

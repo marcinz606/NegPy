@@ -1,10 +1,10 @@
 import numpy as np
 from numba import njit, prange  # type: ignore
 from typing import Dict
-from src.core.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
-from src.core.validation import ensure_image
+from src.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
+from src.kernel.image.validation import ensure_image
 from src.features.toning.models import PaperSubstrate
-from src.core.performance import time_function
+from src.kernel.system.performance import time_function
 
 
 @njit(parallel=True, cache=True, fastmath=True)

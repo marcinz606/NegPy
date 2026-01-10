@@ -2,9 +2,9 @@ import numpy as np
 from numba import njit, prange  # type: ignore
 from scipy.special import expit
 from typing import Tuple
-from src.core.types import ImageBuffer
-from src.core.validation import ensure_image
-from src.core.performance import time_function
+from src.domain.types import ImageBuffer
+from src.kernel.image.validation import ensure_image
+from src.kernel.system.performance import time_function
 
 
 @njit(inline="always")

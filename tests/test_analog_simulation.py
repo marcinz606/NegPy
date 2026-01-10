@@ -3,7 +3,7 @@ import numpy as np
 from src.features.exposure.logic import apply_characteristic_curve
 from src.features.lab.logic import (
     apply_spectral_crosstalk,
-    apply_hypertone,
+    apply_clahe,
 )
 
 
@@ -54,9 +54,9 @@ class TestAnalogSimulation(unittest.TestCase):
         # So the output should still be 0.5
         self.assertAlmostEqual(np.mean(res), 0.5)
 
-    def test_hypertone_preserves_color(self):
+    def test_clahe_preserves_color(self):
         """
-        Verify that Hypertone (CLAHE in LAB) doesn't shift the mean color significantly.
+        Verify that CLAHE doesn't shift the mean color significantly.
         """
         # Create a colorized image
         img = np.zeros((100, 100, 3), dtype=np.float32)
@@ -64,7 +64,7 @@ class TestAnalogSimulation(unittest.TestCase):
         img[:, :, 1] = 0.4
         img[:, :, 2] = 0.2
 
-        res = apply_hypertone(img, 0.5)
+        res = apply_clahe(img, 0.5)
 
         # Check that ratio of channels is roughly preserved
         mean_orig = np.mean(img, axis=(0, 1))

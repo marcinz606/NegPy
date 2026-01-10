@@ -1,8 +1,8 @@
 import streamlit as st
 from PIL import Image
 from src.ui.state.session_context import SessionContext
-from src.application.services.preview_service import PreviewService
-from src.application.services.image_service import ImageService
+from src.services.rendering.preview_manager import PreviewManager
+from src.services.rendering.image_processor import ImageProcessor
 from src.infrastructure.display.color_mgmt import ColorService
 from src.infrastructure.filesystem.watcher import FolderWatchService
 
@@ -15,10 +15,10 @@ class AppController:
 
     def __init__(self, context: SessionContext):
         self.ctx = context
-        self.preview_service = PreviewService()
+        self.preview_service = PreviewManager()
         self.color_service = ColorService()
         self.folder_watch_service = FolderWatchService()
-        self.image_service = ImageService()
+        self.image_service = ImageProcessor()
 
     def sync_hot_folders(self) -> bool:
         """

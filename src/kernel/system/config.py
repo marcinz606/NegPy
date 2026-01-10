@@ -1,6 +1,6 @@
 import os
-from src.core.types import AppConfig
-from src.core.models import WorkspaceConfig, ExportConfig
+from src.domain.types import AppConfig
+from src.domain.models import WorkspaceConfig, ExportConfig
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
@@ -14,7 +14,7 @@ BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
     max_workers=max(1, (os.cpu_count() or 1) - 1),
-    preview_render_size=1000,
+    preview_render_size=800,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),
@@ -46,7 +46,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     ),
     lab=LabConfig(
         color_separation=1.0,
-        hypertone_strength=0.0,
+        clahe_strength=0.0,
         sharpen=0.25,
     ),
     toning=ToningConfig(
@@ -62,7 +62,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     export=ExportConfig(
         export_fmt="JPEG",
         export_color_space="sRGB",
-        export_print_size=27.0,
+        export_print_size=30.0,
         export_dpi=300,
         export_border_size=0.0,
         export_border_color="#ffffff",

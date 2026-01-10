@@ -3,16 +3,16 @@ import numpy as np
 import cv2
 from PIL import Image, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
-from src.logging_config import get_logger
-from src.config import APP_CONFIG
+from src.kernel.system.logging import get_logger
+from src.kernel.system.config import APP_CONFIG
 from src.features.geometry.logic import get_autocrop_coords
-from src.core.validation import validate_int
-from src.core.types import LUMA_R, LUMA_G, LUMA_B
+from src.kernel.image.validation import validate_int
+from src.domain.types import LUMA_R, LUMA_G, LUMA_B
 from src.ui.state.state_manager import save_settings
 from src.ui.state.view_models import SidebarState
 from src.ui.state.session_context import SessionContext
-from src.application.services.geometry_service import GeometryService
-from src.application.services.overlay_service import OverlayService
+from src.services.view.coordinate_mapping import CoordinateMapping
+from src.services.view.overlays import Overlays
 from src.ui.state.view_models import (
     GeometryViewModel,
     RetouchViewModel,
@@ -76,7 +76,7 @@ def render_image_view(
             detect_res=APP_CONFIG.preview_render_size,
         )
 
-    uv_grid = GeometryService.create_uv_grid(
+    uv_grid = CoordinateMapping.create_uv_grid(
         rh_orig,
         rw_orig,
         geo_conf.rotation % 4,
@@ -94,7 +94,7 @@ def render_image_view(
         and st.session_state.get("show_active_mask", True)
     ):
         adj = st.session_state.local_adjustments[active_idx]
-        pil_prev = OverlayService.apply_adjustment_mask(
+        pil_prev = Overlays.apply_adjustment_mask(
             pil_prev,
             img_raw,
             adj.points,
@@ -131,7 +131,7 @@ def render_image_view(
             manual_spots = st.session_state.get(
                 vm_retouch.get_key("manual_dust_spots"), []
             )
-            img_display = OverlayService.apply_dust_patches(
+            img_display = Overlays.apply_dust_patches(
                 img_display,
                 manual_spots,
                 (rh_orig, rw_orig),
@@ -163,7 +163,7 @@ def render_image_view(
         content_y = (value["y"] * scale) - border_px
 
         if 0 <= content_x < orig_w and 0 <= content_y < orig_h:
-            rx, ry = GeometryService.map_click_to_raw(
+            rx, ry = CoordinateMapping.map_click_to_raw(
                 content_x / orig_w, content_y / orig_h, uv_grid
             )
 

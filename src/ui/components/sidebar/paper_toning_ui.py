@@ -4,7 +4,7 @@ from src.ui.components.sidebar.helpers import (
     render_control_slider,
     render_control_selectbox,
 )
-from src.config import DEFAULT_WORKSPACE_CONFIG
+from src.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def render_paper_section() -> None:

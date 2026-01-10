@@ -2,9 +2,9 @@ import numpy as np
 import cv2
 from numba import njit, prange  # type: ignore
 from typing import List, Optional
-from src.core.types import ImageBuffer
-from src.core.validation import ensure_image
-from src.core.performance import time_function
+from src.domain.types import ImageBuffer
+from src.kernel.image.validation import ensure_image
+from src.kernel.system.performance import time_function
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -45,11 +45,6 @@ def apply_spectral_crosstalk(
 ) -> ImageBuffer:
     """
     Applies a color crosstalk matrix to an RGB image in density space.
-
-    This simulates the spectral sensitivities of film emulsion layers and the
-    spectral characteristics of the subtractive dyes (interlayer effects).
-    Higher strength increases color separation and 'purity', mimicking
-    optimized modern color negative stocks.
     """
     if strength == 0.0 or matrix is None:
         return img_dens
@@ -74,7 +69,7 @@ def apply_spectral_crosstalk(
 
 
 @time_function
-def apply_hypertone(img: ImageBuffer, strength: float) -> ImageBuffer:
+def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
     """

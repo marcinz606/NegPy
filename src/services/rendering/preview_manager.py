@@ -2,14 +2,14 @@ import numpy as np
 import rawpy
 import cv2
 from typing import Tuple
-from src.config import APP_CONFIG
-from src.helpers import ensure_rgb, uint16_to_float32
+from src.kernel.system.config import APP_CONFIG
+from src.kernel.image.logic import ensure_rgb, uint16_to_float32
 from src.infrastructure.loaders.factory import loader_factory
-from src.core.types import ImageBuffer, Dimensions
-from src.core.validation import ensure_image
+from src.domain.types import ImageBuffer, Dimensions
+from src.kernel.image.validation import ensure_image
 
 
-class PreviewService:
+class PreviewManager:
     """
     Service responsible for loading and preparing linear RAW data for the UI.
     """

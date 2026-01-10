@@ -1,16 +1,17 @@
 from typing import Optional, Any, Callable, Tuple
-from src.core.types import ImageBuffer
-from src.core.interfaces import PipelineContext
-from src.core.models import WorkspaceConfig
-from src.core.caching import PipelineCache, calculate_config_hash, CacheEntry
-from src.core.validation import ensure_image
-from src.logging_config import get_logger
+from src.domain.types import ImageBuffer
+from src.domain.interfaces import PipelineContext
+from src.domain.models import WorkspaceConfig
+from src.kernel.caching.manager import PipelineCache
+from src.kernel.caching.logic import calculate_config_hash, CacheEntry
+from src.kernel.image.validation import ensure_image
+from src.kernel.system.logging import get_logger
 from src.features.geometry.processor import GeometryProcessor, CropProcessor
 from src.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
 from src.features.toning.processor import ToningProcessor
 from src.features.lab.processor import PhotoLabProcessor
 from src.features.retouch.processor import RetouchProcessor
-from src.config import APP_CONFIG
+from src.kernel.system.config import APP_CONFIG
 
 logger = get_logger(__name__)
 

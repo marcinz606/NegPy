@@ -1,6 +1,6 @@
 from typing import Any, TypeVar, cast
 import numpy as np
-from src.core.types import ImageBuffer
+from src.domain.types import ImageBuffer
 
 T = TypeVar("T")
 

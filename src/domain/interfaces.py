@@ -7,8 +7,8 @@ from typing import (
     List,
 )
 from dataclasses import dataclass, field
-from src.core.types import ImageBuffer, ROI, Dimensions
-from src.core.models import WorkspaceConfig
+from src.domain.types import ImageBuffer, ROI, Dimensions
+from src.domain.models import WorkspaceConfig
 
 
 @dataclass

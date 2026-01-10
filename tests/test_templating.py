@@ -1,5 +1,5 @@
 import datetime
-from src.core.templating import FilenameTemplater
+from src.services.export.templating import FilenameTemplater
 
 
 def test_filename_templater_basic() -> None:

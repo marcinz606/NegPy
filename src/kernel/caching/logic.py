@@ -2,7 +2,7 @@ import hashlib
 import json
 from dataclasses import dataclass, asdict
 from typing import Optional, Any, Dict
-from src.core.types import ImageBuffer, ROI
+from src.domain.types import ImageBuffer, ROI
 
 
 @dataclass
@@ -15,28 +15,6 @@ class CacheEntry:
     data: ImageBuffer
     metrics: Dict[str, Any]
     active_roi: Optional[ROI] = None
-
-
-class PipelineCache:
-    """
-    Holds intermediate results of the processing pipeline for the ACTIVE image.
-    This cache is reset when switching source files.
-    """
-
-    source_hash: str = ""
-
-    # Checkpoints
-    base: Optional[CacheEntry] = None
-    exposure: Optional[CacheEntry] = None
-    retouch: Optional[CacheEntry] = None
-    lab: Optional[CacheEntry] = None
-
-    def clear(self) -> None:
-        self.base = None
-        self.exposure = None
-        self.retouch = None
-        self.lab = None
-        self.source_hash = ""
 
 
 def calculate_config_hash(config: Any) -> str:

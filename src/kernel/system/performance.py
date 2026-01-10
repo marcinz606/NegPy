@@ -4,8 +4,8 @@ import os
 import csv
 from typing import Any, Callable, TypeVar
 from typing_extensions import ParamSpec
-from src.logging_config import get_logger
-from src.config import APP_CONFIG
+from src.kernel.system.logging import get_logger
+from src.kernel.system.config import APP_CONFIG
 
 logger = get_logger("perf")
 

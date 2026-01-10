@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import asyncio
 from typing import Any
-from src.core.models import WorkspaceConfig
+from src.domain.models import WorkspaceConfig
 from src.ui.state.state_manager import init_session_state
 from src.ui.styles.theme import apply_custom_css
 from src.ui.components.sidebar.files_ui import render_file_manager
@@ -13,7 +13,7 @@ from src.ui.layouts.main_layout import (
 )
 from src.ui.state.session_context import SessionContext
 from src.ui.controllers.app_controller import AppController
-from src.application.services.export_service import ExportService
+from src.services.export.service import ExportService
 
 
 def get_processing_params_composed(source: Any) -> WorkspaceConfig:
@@ -76,7 +76,7 @@ async def main() -> None:
         ]
         if missing_thumbs:
             with status_area.status("Generating thumbnails...") as status:
-                import src.application.services.thumbnail_service as thumb_service
+                import src.services.assets.thumbnails as thumb_service
 
                 # Generate in parallel with controlled concurrency
                 new_thumbs = await thumb_service.generate_batch_thumbnails(

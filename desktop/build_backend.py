@@ -15,7 +15,7 @@ streamlit_image_coordinates_dir = os.path.dirname(streamlit_image_coordinates.__
 
 # build params
 params = [
-    "desktop/backend_bootstrap.py",  # electron point
+    "desktop/backend_bootstrap.py",  # electron entry point
     "--name=darkroompy",
     "--onefile",
     "--clean",

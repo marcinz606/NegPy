@@ -1,9 +1,9 @@
 import numpy as np
-from src.core.interfaces import PipelineContext
-from src.core.types import ImageBuffer
+from src.domain.interfaces import PipelineContext
+from src.domain.types import ImageBuffer
 from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
 from src.features.exposure.logic import apply_characteristic_curve
-from src.helpers import get_luminance
+from src.kernel.image.logic import get_luminance
 from src.features.exposure.normalization import (
     measure_log_negative_bounds,
     normalize_log_image,

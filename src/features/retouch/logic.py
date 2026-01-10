@@ -2,11 +2,11 @@ import numpy as np
 import cv2
 from numba import njit, prange  # type: ignore
 from typing import List, Tuple, Optional
-from src.core.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
+from src.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from src.features.retouch.models import LocalAdjustmentConfig
-from src.core.validation import ensure_image
-from src.core.performance import time_function
-from src.helpers import get_luminance
+from src.kernel.image.validation import ensure_image
+from src.kernel.system.performance import time_function
+from src.kernel.image.logic import get_luminance
 
 
 @njit(parallel=True, cache=True, fastmath=True)

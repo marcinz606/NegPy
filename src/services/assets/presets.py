@@ -1,11 +1,11 @@
 import json
 import os
 from typing import List, Dict, Any, Optional
-from src.config import APP_CONFIG
-from src.core.models import WorkspaceConfig
+from src.kernel.system.config import APP_CONFIG
+from src.domain.models import WorkspaceConfig
 
 
-class PresetService:
+class Presets:
     """
     Handles the I/O operations for user presets.
     """

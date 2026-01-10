@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from src.core.session import WorkspaceSession
-from src.core.models import WorkspaceConfig, ExportConfig
-from src.core.interfaces import IRepository, IAssetStore
-from src.application.engine import DarkroomEngine
+from src.domain.session import WorkspaceSession
+from src.domain.models import WorkspaceConfig, ExportConfig
+from src.domain.interfaces import IRepository, IAssetStore
+from src.services.rendering.engine import DarkroomEngine
 
 
 class TestWorkspaceSession(unittest.TestCase):
@@ -19,7 +19,7 @@ class TestWorkspaceSession(unittest.TestCase):
             self.session_id, self.mock_repo, self.mock_store, self.mock_engine
         )
 
-    @patch("src.config.APP_CONFIG")
+    @patch("src.kernel.system.config.APP_CONFIG")
     def test_create_default_config_uses_app_config_path(self, mock_app_config):
         """
         Verifies that create_default_config() respects the APP_CONFIG.default_export_dir.
@@ -36,7 +36,7 @@ class TestWorkspaceSession(unittest.TestCase):
         self.assertIsInstance(config.export, ExportConfig)
         self.assertEqual(config.export.export_path, expected_path)
 
-    @patch("src.config.APP_CONFIG")
+    @patch("src.kernel.system.config.APP_CONFIG")
     def test_create_default_config_defaults(self, mock_app_config):
         """
         Verifies that other defaults (like Lab Settings) are correctly populated

@@ -1,4 +1,5 @@
-from src.core.caching import calculate_config_hash, PipelineCache, CacheEntry
+from src.kernel.caching.logic import calculate_config_hash, CacheEntry
+from src.kernel.caching.manager import PipelineCache
 from src.features.exposure.models import ExposureConfig
 import numpy as np
 

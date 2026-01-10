@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
-from src.application.engine import DarkroomEngine
-from src.core.models import WorkspaceConfig
+from src.services.rendering.engine import DarkroomEngine
+from src.domain.models import WorkspaceConfig
 
 
 class TestDarkroomEngine(unittest.TestCase):

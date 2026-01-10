@@ -1,8 +1,8 @@
 import os
 from typing import List, Dict, Optional, Any, Set
-from src.core.models import WorkspaceConfig
-from src.core.interfaces import IRepository, IAssetStore
-from src.application.engine import DarkroomEngine
+from src.domain.models import WorkspaceConfig
+from src.domain.interfaces import IRepository, IAssetStore
+from src.services.rendering.engine import DarkroomEngine
 
 
 class WorkspaceSession:
@@ -102,7 +102,7 @@ class WorkspaceSession:
         Creates a fresh WorkspaceConfig with correct defaults, ensuring
         environment-dependent values (like export_path) are applied.
         """
-        from src.config import DEFAULT_WORKSPACE_CONFIG, APP_CONFIG
+        from src.kernel.system.config import DEFAULT_WORKSPACE_CONFIG, APP_CONFIG
 
         # Start with the static default
         defaults = DEFAULT_WORKSPACE_CONFIG.to_dict()

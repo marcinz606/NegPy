@@ -1,8 +1,8 @@
 import streamlit as st
 import os
-from src.core.session import WorkspaceSession
+from src.domain.session import WorkspaceSession
 from src.infrastructure.loaders.native_picker import NativeFilePicker
-from src.config import APP_CONFIG
+from src.kernel.system.config import APP_CONFIG
 from src.ui.state.state_manager import save_settings
 from src.ui.components.sidebar.helpers import render_control_checkbox
 
