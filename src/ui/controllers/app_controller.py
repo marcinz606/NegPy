@@ -86,7 +86,14 @@ class AppController:
             process_mode=params.process_mode,
         )
 
-        processed = self.engine.process(raw.copy(), params, context=context)
+        f_hash = (
+            self.ctx.session.current_file["hash"]
+            if self.ctx.session.current_file
+            else ""
+        )
+        processed = self.engine.process(
+            raw.copy(), params, source_hash=f_hash, context=context
+        )
 
         # Capture base positive for accurate mask rendering in UI
         if "base_positive" in context.metrics:

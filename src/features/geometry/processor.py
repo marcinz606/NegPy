@@ -1,5 +1,5 @@
 import numpy as np
-from src.core.interfaces import IProcessor, PipelineContext
+from src.core.interfaces import PipelineContext
 from src.core.types import ImageBuffer
 from src.features.geometry.models import GeometryConfig
 from src.features.geometry.logic import (
@@ -9,7 +9,7 @@ from src.features.geometry.logic import (
 )
 
 
-class GeometryProcessor(IProcessor):
+class GeometryProcessor:
     """
     Applies Rotation and detects ROI.
     """
@@ -52,7 +52,7 @@ class GeometryProcessor(IProcessor):
         return img
 
 
-class CropProcessor(IProcessor):
+class CropProcessor:
     """
     Applies the active ROI crop.
     """

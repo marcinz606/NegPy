@@ -44,7 +44,6 @@ def init_session_state() -> None:
         st.session_state.session_id = str(uuid.uuid4())[:8]
 
     if "session" not in st.session_state:
-        # Instantiate Infrastructure
         repo = SQLiteRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
         repo.initialize()
 
@@ -53,7 +52,6 @@ def init_session_state() -> None:
 
         engine = DarkroomEngine()
 
-        # Create Domain Session
         session = WorkspaceSession(st.session_state.session_id, repo, store, engine)
         st.session_state.session = session
 
@@ -63,8 +61,6 @@ def init_session_state() -> None:
             if val is not None:
                 st.session_state[key] = val
 
-    # 1. Always ensure session state is populated with defaults for any missing keys
-    # This guards against stale state or new keys being added during development
     session = st.session_state.session
     defaults = session.create_default_config().to_dict()
 
@@ -88,7 +84,7 @@ def init_session_state() -> None:
         st.session_state.dust_start_point = None
 
 
-def load_settings() -> None:
+def load_settings(force: bool = False) -> None:
     """
     Loads settings for the current file.
     """
@@ -105,12 +101,11 @@ def load_settings() -> None:
         for key, value in settings_dict.items():
             # If the file has NO EDITS, we want to respect current global UI state
             # for keys in GLOBAL_PERSIST_KEYS.
-            if not has_edits and key in GLOBAL_PERSIST_KEYS:
-                # If key already exists and is not None, don't overwrite it with default
+            # UNLESS force=True (e.g. loading a preset)
+            if not force and not has_edits and key in GLOBAL_PERSIST_KEYS:
                 if st.session_state.get(key) is not None:
                     continue
 
-            # Apply value from settings object
             st.session_state[key] = value
 
 
@@ -121,7 +116,6 @@ def save_settings(persist: bool = False) -> None:
     """
     session: WorkspaceSession = st.session_state.session
 
-    # Save Global Persistent Settings (Only if persisting)
     if persist:
         for key in GLOBAL_PERSIST_KEYS:
             if key in st.session_state:
@@ -176,7 +170,6 @@ def reset_file_settings() -> None:
 
     f_hash = session.current_file["hash"]
 
-    # Use centralized factory to ensure correct defaults (including export paths)
     new_settings = session.create_default_config()
 
     session.file_settings[f_hash] = new_settings

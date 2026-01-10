@@ -32,11 +32,7 @@ async def generate_batch_thumbnails(
     tasks = [_worker(f) for f in files]
     results = await asyncio.gather(*tasks)
 
-    return {
-        name: thumb
-        for name, thumb in results
-        if isinstance(thumb, Image.Image)
-    }
+    return {name: thumb for name, thumb in results if isinstance(thumb, Image.Image)}
 
 
 def get_thumbnail_worker(

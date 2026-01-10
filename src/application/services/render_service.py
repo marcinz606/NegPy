@@ -34,6 +34,7 @@ def load_raw_and_process(
     file_path: str,
     params: WorkspaceConfig,
     export_settings: ExportConfig,
+    source_hash: str,
 ) -> Tuple[Optional[bytes], str]:
     """
     Worker function for high-resolution processing and export.
@@ -61,7 +62,7 @@ def load_raw_and_process(
         img = rgb.astype(np.float32) / 65535.0
 
         # Execute Photometric Engine
-        img = engine.process(img, params)
+        img = engine.process(img, params, source_hash=source_hash)
 
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
         pil_img = Image.fromarray(img_uint8)

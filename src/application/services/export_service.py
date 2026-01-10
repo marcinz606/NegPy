@@ -24,7 +24,9 @@ def _process_and_save(
     """
     Handles rendering, templating, and saving.
     """
-    res = renderer.load_raw_and_process(file_path, f_params, export_settings)
+    res = renderer.load_raw_and_process(
+        file_path, f_params, export_settings, source_hash=file_meta["hash"]
+    )
 
     img_bytes, ext = res
     if img_bytes is None:
@@ -53,6 +55,7 @@ class ExportService:
     """
     Service responsible for single and batch file exports.
     """
+
     @staticmethod
     def run_single(
         file_meta: Dict[str, str],
