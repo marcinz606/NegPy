@@ -1,5 +1,5 @@
 {
-  "name": "DarkroomPy",
+  "name": "darkroompy",
   "version": "0.1.0",
   "description": ">We have darkroom at home. >Darkroom at home: DarkroomPy",
   "main": "desktop/main.js",
