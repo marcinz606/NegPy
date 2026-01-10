@@ -21,6 +21,7 @@ GLOBAL_PERSIST_KEYS = {
     "export_border_size",
     "export_border_color",
     "export_path",
+    "filename_pattern",
     "apply_icc",
     "sharpen",
     "hypertone_strength",

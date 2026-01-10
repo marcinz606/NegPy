@@ -24,6 +24,7 @@ params = [
     "--copy-metadata=streamlit",
     "--copy-metadata=streamlit-image-coordinates",
     "--copy-metadata=imageio",
+    "--collect-all=imagecodecs",
     "--hidden-import=rawpy",
     "--hidden-import=cv2",
     "--hidden-import=numpy",

@@ -20,7 +20,6 @@ class ColorService:
             return pil_img
 
         try:
-            # Determine source profile
             profile_src: Any
             if src_color_space == "Adobe RGB" and os.path.exists(
                 APP_CONFIG.adobe_rgb_profile
@@ -34,7 +33,6 @@ class ColorService:
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
 
-            # Perform the transformation
             result_icc = ImageCms.profileToProfile(
                 pil_img,
                 profile_src,

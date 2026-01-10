@@ -77,10 +77,6 @@ def apply_spectral_crosstalk(
 def apply_hypertone(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
-
-    It's called 'Hypertone' by Fuji and is "baked in" Frontier scanner. It enhances edge
-    definition and texture without significantly affecting global tonality.
-    It operates on the Lightness (L) channel to preserve color relationships.
     """
     if strength <= 0:
         return img

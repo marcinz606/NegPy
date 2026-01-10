@@ -4,6 +4,7 @@ from typing import Tuple, Optional
 from src.core.types import ImageBuffer, ROI
 from src.core.validation import ensure_image
 from src.core.performance import time_function
+from src.helpers import get_luminance
 
 
 @time_function
@@ -29,11 +30,6 @@ def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=(0, 0, 0),
     )
-    return ensure_image(res)
-
-
-def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
     return ensure_image(res)
 
 

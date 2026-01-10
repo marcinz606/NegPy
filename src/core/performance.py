@@ -61,9 +61,7 @@ def time_function(func: Callable[P, R]) -> Callable[P, R]:
         end = time.perf_counter()
         duration_ms = (end - start) * 1000
 
-        # Try to find image shape for context
         shape = "N/A"
-        # Check all args for something with a .shape
         for arg in args:
             if hasattr(arg, "shape"):
                 shape = getattr(arg, "shape")

@@ -2,7 +2,7 @@ import hashlib
 import json
 from dataclasses import dataclass, asdict
 from typing import Optional, Any, Dict
-from src.core.types import ImageBuffer
+from src.core.types import ImageBuffer, ROI
 
 
 @dataclass
@@ -14,6 +14,7 @@ class CacheEntry:
     config_hash: str
     data: ImageBuffer
     metrics: Dict[str, Any]
+    active_roi: Optional[ROI] = None
 
 
 class PipelineCache:
@@ -22,16 +23,15 @@ class PipelineCache:
     This cache is reset when switching source files.
     """
 
-    source_hash: str = ""  # Hash of the currently loaded RAW file
+    source_hash: str = ""
 
     # Checkpoints
-    base: Optional[CacheEntry] = None  # After Geometry + Norm (Stage 1)
-    exposure: Optional[CacheEntry] = None  # After Photometric (Stage 2)
-    retouch: Optional[CacheEntry] = None  # After Retouch (Stage 3)
-    lab: Optional[CacheEntry] = None  # After Lab (Stage 4)
+    base: Optional[CacheEntry] = None
+    exposure: Optional[CacheEntry] = None
+    retouch: Optional[CacheEntry] = None
+    lab: Optional[CacheEntry] = None
 
     def clear(self) -> None:
-        """Invalidates all cache entries."""
         self.base = None
         self.exposure = None
         self.retouch = None

@@ -3,6 +3,7 @@ from src.core.interfaces import PipelineContext
 from src.core.types import ImageBuffer
 from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
 from src.features.exposure.logic import apply_characteristic_curve
+from src.helpers import get_luminance
 from src.features.exposure.normalization import (
     measure_log_negative_bounds,
     normalize_log_image,
@@ -35,10 +36,6 @@ class NormalizationProcessor:
 class PhotometricProcessor:
     """
     Simulates the Photometric 'Printing' process.
-
-    This processor applies the Hurter-Driffield characteristic curves to the
-    normalized log-exposure data. It handles 'printing' parameters such as
-    Exposure (Density), Contrast (Grade), and Color Filtration (CMY).
     """
 
     def __init__(self, config: ExposureConfig):
@@ -75,11 +72,7 @@ class PhotometricProcessor:
         )
 
         if context.process_mode == "B&W":
-            res = (
-                0.2126 * img_pos[..., 0]
-                + 0.7152 * img_pos[..., 1]
-                + 0.0722 * img_pos[..., 2]
-            )
+            res = get_luminance(img_pos)
             res = np.stack([res, res, res], axis=-1)
             return res
 

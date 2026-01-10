@@ -3,6 +3,7 @@ import numpy as np
 from typing import Any, List, Dict, ContextManager
 from src.core.interfaces import IImageLoader
 from src.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
+from src.helpers import uint16_to_float32
 
 
 class PakonLoader(IImageLoader):
@@ -33,4 +34,4 @@ class PakonLoader(IImageLoader):
             data = np.fromfile(f, dtype="<u2", count=expected_pixels)
 
         data = data.reshape((3, h, w)).transpose((1, 2, 0))
-        return NonStandardFileWrapper(data.astype(np.float32) / 65535.0)
+        return NonStandardFileWrapper(uint16_to_float32(np.ascontiguousarray(data)))

@@ -3,7 +3,7 @@ import rawpy
 import cv2
 from typing import Tuple
 from src.config import APP_CONFIG
-from src.helpers import ensure_rgb
+from src.helpers import ensure_rgb, uint16_to_float32
 from src.infrastructure.loaders.factory import loader_factory
 from src.core.types import ImageBuffer, Dimensions
 from src.core.validation import ensure_image
@@ -39,7 +39,7 @@ class PreviewService:
             )
             rgb = ensure_rgb(rgb)
 
-            full_linear = rgb.astype(np.float32) / 65535.0
+            full_linear = uint16_to_float32(np.ascontiguousarray(rgb))
             h_orig, w_orig = full_linear.shape[:2]
 
             max_res = APP_CONFIG.preview_render_size

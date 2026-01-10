@@ -4,11 +4,33 @@ from src.helpers import (
     ensure_rgb,
     get_luminance,
     calculate_file_hash,
+    float_to_uint8,
+    float_to_uint16,
 )
 from src.core.validation import ensure_image
 
 
-def test_ensure_image_valid():
+def test_float_to_uint8() -> None:
+    img = np.array([[0.0, 0.5, 1.0], [2.0, -1.0, 0.5]], dtype=np.float32)
+    res = float_to_uint8(img)
+    assert res.dtype == np.uint8
+    assert res[0, 0] == 0
+    assert res[0, 1] == 127
+    assert res[0, 2] == 255
+    assert res[1, 0] == 255  # Clamped
+    assert res[1, 1] == 0  # Clamped
+
+
+def test_float_to_uint16() -> None:
+    img = np.array([[0.0, 0.5, 1.0]], dtype=np.float32)
+    res = float_to_uint16(img)
+    assert res.dtype == np.uint16
+    assert res[0, 0] == 0
+    assert res[0, 1] == 32767
+    assert res[0, 2] == 65535
+
+
+def test_ensure_image_valid() -> None:
     arr = np.zeros((5, 5), dtype=np.float32)
     assert ensure_image(arr) is arr
 

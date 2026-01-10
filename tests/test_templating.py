@@ -11,8 +11,8 @@ def test_filename_templater_basic() -> None:
         "colorspace": "sRGB",
         "border": False,
     }
-    pattern = "processed_{{ original_name }}"
-    assert templater.render(pattern, context) == "processed_IMG_1234"
+    pattern = "positive_{{ original_name }}"
+    assert templater.render(pattern, context) == "positive_IMG_1234"
 
 
 def test_filename_templater_complex() -> None:
@@ -36,7 +36,7 @@ def test_filename_templater_fallback() -> None:
     templater = FilenameTemplater()
     context = {"original_name": "IMG_1234"}
     # Invalid Jinja2 syntax
-    pattern = "processed_{{ original_name"
+    pattern = "positive_{{ original_name"
     assert templater.render(pattern, context) == "positive_IMG_1234"
 
 
