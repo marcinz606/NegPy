@@ -3,13 +3,14 @@ from src.core.interfaces import PipelineContext
 from src.core.types import ImageBuffer
 from src.features.toning.models import ToningConfig
 from src.features.toning.logic import simulate_paper_substrate, apply_chemical_toning
+from src.helpers import get_luminance
 
 
 # We need to port this helper locally or into logic as well
 def apply_chromaticity_preserving_black_point(
     img: ImageBuffer, percentile: float
 ) -> ImageBuffer:
-    lum = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
+    lum = get_luminance(img)
     bp = np.percentile(lum, percentile)
     res = (img - bp) / (1.0 - bp + 1e-6)
     return np.clip(res, 0.0, 1.0).astype(np.float32)  # type: ignore
@@ -21,10 +22,8 @@ class ToningProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
-        # 1. Simulate Physical Paper Substrate
         img = simulate_paper_substrate(img, self.config.paper_profile)
 
-        # 2. Apply Chemical Toning Simulation (B&W only)
         if context.process_mode == "B&W":
             img = apply_chemical_toning(
                 img,
@@ -32,7 +31,6 @@ class ToningProcessor:
                 sepia_strength=self.config.sepia_strength,
             )
 
-            # 3. Final Black Point (B&W only)
             img = apply_chromaticity_preserving_black_point(img, 0.05)
 
         return img

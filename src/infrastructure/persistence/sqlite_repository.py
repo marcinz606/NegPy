@@ -39,7 +39,7 @@ class SQLiteRepository(IRepository):
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None:
         with sqlite3.connect(self.edits_db_path) as conn:
-            settings_json = json.dumps(settings.to_dict())
+            settings_json = json.dumps(settings.to_dict(), default=str)
             conn.execute(
                 "INSERT OR REPLACE INTO file_settings (file_hash, settings_json) VALUES (?, ?)",
                 (file_hash, settings_json),
@@ -61,7 +61,7 @@ class SQLiteRepository(IRepository):
         with sqlite3.connect(self.settings_db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)",
-                (key, json.dumps(value)),
+                (key, json.dumps(value, default=str)),
             )
 
     def get_global_setting(self, key: str, default: Any = None) -> Any:

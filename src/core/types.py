@@ -17,6 +17,12 @@ Dimensions: TypeAlias = Tuple[int, int]
 # Domain Types
 HistogramData: TypeAlias = Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]
 
+# https://en.wikipedia.org/wiki/Luma_(video)
+LUMA_COEFFS = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+LUMA_R = 0.2126
+LUMA_G = 0.7152
+LUMA_B = 0.0722
+
 
 @dataclass
 class AppConfig:

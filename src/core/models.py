@@ -21,7 +21,7 @@ class ExportConfig:
     export_add_border: bool = False
     export_border_size: float = 0.0
     export_border_color: str = "#ffffff"
-    filename_pattern: str = "processed_{{ original_name }}"
+    filename_pattern: str = "positive_{{ original_name }}"
     apply_icc: bool = False
     icc_profile_path: Optional[str] = None
 
@@ -33,10 +33,7 @@ class WorkspaceConfig:
     Centralizes global processing decisions like process_mode.
     """
 
-    # --- Global Workspace Settings ---
-    process_mode: str = "C41"  # "C41" or "B&W"
-
-    # --- Feature Specific Configs ---
+    process_mode: str = "C41"
     exposure: ExposureConfig = field(default_factory=ExposureConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     lab: LabConfig = field(default_factory=LabConfig)

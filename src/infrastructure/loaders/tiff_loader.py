@@ -2,6 +2,7 @@ import numpy as np
 import imageio.v3 as iio
 from typing import Any, ContextManager
 from src.core.interfaces import IImageLoader
+from src.helpers import uint8_to_float32, uint16_to_float32
 
 
 class NonStandardFileWrapper:
@@ -43,9 +44,9 @@ class TiffLoader(IImageLoader):
             img = img[:, :, :3]
 
         if img.dtype == np.uint8:
-            f32 = img.astype(np.float32) / 255.0
+            f32 = uint8_to_float32(np.ascontiguousarray(img))
         elif img.dtype == np.uint16:
-            f32 = img.astype(np.float32) / 65535.0
+            f32 = uint16_to_float32(np.ascontiguousarray(img))
         else:
             f32 = np.clip(img.astype(np.float32), 0, 1)
 

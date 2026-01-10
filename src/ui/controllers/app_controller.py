@@ -1,18 +1,16 @@
-import numpy as np
 import streamlit as st
 from PIL import Image
 from src.ui.state.session_context import SessionContext
 from src.application.services.preview_service import PreviewService
+from src.application.services.image_service import ImageService
 from src.infrastructure.display.color_mgmt import ColorService
 from src.infrastructure.filesystem.watcher import FolderWatchService
-from src.application.engine import DarkroomEngine
-from src.core.interfaces import PipelineContext
 
 
 class AppController:
     """
     Main Application Controller (Orchestrator).
-    Bridges the UI ViewModels, Background Services, and the Photometric Engine.
+    Bridges UI ViewModels, Application Services, and the Pixel Engine.
     """
 
     def __init__(self, context: SessionContext):
@@ -20,7 +18,7 @@ class AppController:
         self.preview_service = PreviewService()
         self.color_service = ColorService()
         self.folder_watch_service = FolderWatchService()
-        self.engine = DarkroomEngine()
+        self.image_service = ImageService()
 
     def sync_hot_folders(self) -> bool:
         """
@@ -66,47 +64,39 @@ class AppController:
 
     def process_frame(self) -> Image.Image:
         """
-        Executes the full photometric pipeline and color transformations for the current frame.
+        Executes the full pixel pipeline and color management for the current frame.
         """
         raw = self.ctx.preview_raw
         if raw is None:
             return Image.new("RGB", (100, 100), (0, 0, 0))
 
+        # 1. Compose settings from UI state
         from src.ui.app import get_processing_params_composed
 
         params = get_processing_params_composed(st.session_state)
 
-        h_orig, w_cols = raw.shape[:2]
-        context = PipelineContext(
-            scale_factor=max(h_orig, w_cols)
-            / float(self.engine.config.preview_render_size),
-            original_size=(h_orig, w_cols),
-            process_mode=params.process_mode,
-        )
-
+        # 2. Execute Pipeline
         f_hash = (
             self.ctx.session.current_file["hash"]
             if self.ctx.session.current_file
             else ""
         )
-        processed = self.engine.process(
-            raw.copy(), params, source_hash=f_hash, context=context
+
+        buffer, metrics = self.image_service.run_pipeline(
+            raw.copy(),
+            params,
+            f_hash,
+            render_size_ref=self.image_service.engine.config.preview_render_size,
         )
 
-        if "base_positive" in context.metrics:
-            st.session_state.base_positive = context.metrics["base_positive"]
+        # 3. Finalize to PIL for display
+        pil_prev = self.image_service.buffer_to_pil(buffer, params, bit_depth=8)
 
-        img_uint8 = np.clip(np.nan_to_num(processed * 255), 0, 255).astype(np.uint8)
-        pil_prev = Image.fromarray(img_uint8)
+        # Sync metrics for specialized UI overlays (e.g. D&B masks)
+        if "base_positive" in metrics:
+            st.session_state.base_positive = metrics["base_positive"]
 
-        is_toned = (
-            params.toning.selenium_strength != 0.0
-            or params.toning.sepia_strength != 0.0
-            or params.toning.paper_profile != "None"
-        )
-        if params.process_mode == "B&W" and not is_toned:
-            pil_prev = pil_prev.convert("L")
-
+        # 4. Apply Display Color Management
         color_space = self.ctx.last_preview_color_space
         if self.ctx.session.icc_profile_path:
             pil_prev = self.color_service.apply_icc_profile(

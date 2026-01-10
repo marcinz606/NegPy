@@ -6,12 +6,7 @@ from src.core.types import ImageBuffer
 from src.features.exposure.logic import LogisticSigmoid
 from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
 from src.core.validation import ensure_image
-
-
-# Helper to avoid importing domain objects or full backend stuff
-def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    res = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
-    return ensure_image(res)
+from src.helpers import get_luminance
 
 
 def plot_histogram(
@@ -79,10 +74,7 @@ def plot_photometric_curve(
         shoulder_hardness=params.shoulder_hardness,
     )
 
-    # Subject Brightness range for plotting (0=Black, 1=White)
     plt_x = np.linspace(-0.1, 1.1, 100)
-
-    # Map Subject Brightness to Log Exposure on paper (1=Shadows, 0=Highlights)
     x_log_exp = 1.0 - plt_x
 
     d = curve(ensure_image(x_log_exp))

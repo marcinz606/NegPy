@@ -2,16 +2,17 @@ import os
 import time
 import gc
 import asyncio
-import streamlit as st
-import src.application.services.render_service as renderer
 from typing import List, Dict, Any, Callable
+import streamlit as st
 from src.core.models import WorkspaceConfig, ExportConfig
 from src.core.templating import FilenameTemplater
 from src.logging_config import get_logger
 from src.config import APP_CONFIG
+from src.application.services.image_service import ImageService
 
 templater = FilenameTemplater()
 logger = get_logger(__name__)
+image_service = ImageService()
 
 
 def _process_and_save(
@@ -22,9 +23,9 @@ def _process_and_save(
     templater_instance: FilenameTemplater,
 ) -> str:
     """
-    Handles rendering, templating, and saving.
+    Orchestrates the rendering, filename templating, and disk write for a single export.
     """
-    res = renderer.load_raw_and_process(
+    res = image_service.process_export(
         file_path, f_params, export_settings, source_hash=file_meta["hash"]
     )
 
@@ -47,13 +48,12 @@ def _process_and_save(
         out_f.write(img_bytes)
 
     logger.info(f"Exported {file_meta['name']} to {os.path.basename(out_path)}")
-
     return out_path
 
 
 class ExportService:
     """
-    Service responsible for single and batch file exports.
+    Application service for managing single and batch exports.
     """
 
     @staticmethod
@@ -64,7 +64,7 @@ class ExportService:
         icc_profile_path: Any,
     ) -> str:
         """
-        Executes a single file export.
+        Executes a single image export based on sidebar state.
         """
         export_settings = ExportConfig(
             export_fmt=sidebar_data.out_fmt,
@@ -97,9 +97,9 @@ class ExportService:
         total_files = len(files)
         start_time = time.perf_counter()
 
-        # Limit concurrency to 1/3 of available workers to avoid oversubscription
-        # and potential fork bombs (numba jit compiled functions are already parallelized)
-        limit = max(1, APP_CONFIG.max_workers // 3)
+        # Limit concurrency to 1/3 of available cores to avoid oversubscription
+        # and 'fork bombs' as numba compiled functions are already multi-threaded
+        limit = APP_CONFIG.max_workers // 3
         semaphore = asyncio.Semaphore(limit)
 
         async def _worker(f_meta: Dict[str, str]) -> Any:

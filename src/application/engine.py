@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 
 class DarkroomEngine:
     """
-    The orchestrator that assembles the modular pipeline with smart caching.
+    Orchestrates the modular image processing pipeline with stage-level caching.
     """
 
     def __init__(self) -> None:
@@ -33,34 +33,22 @@ class DarkroomEngine:
         context: PipelineContext,
         pipeline_changed: bool,
     ) -> Tuple[ImageBuffer, bool]:
-        """
-        Generic helper to execute a pipeline stage with caching logic.
-
-        Args:
-            img: Input image buffer.
-            config: Configuration object for this stage (used for hashing).
-            cache_field: Name of the attribute in PipelineCache to store result.
-            processor_fn: Lambda/Function to execute the actual processing logic.
-            context: Pipeline context.
-            pipeline_changed: Boolean flag indicating if previous stages changed.
-
-        Returns:
-            Tuple[ImageBuffer, bool]: (Resulting Image, is_changed flag)
-        """
         conf_hash = calculate_config_hash(config)
-
         cached_entry = getattr(self.cache, cache_field)
+
         if (
             not pipeline_changed
             and cached_entry
             and cached_entry.config_hash == conf_hash
         ):
             context.metrics.update(cached_entry.metrics)
-            return cached_entry.data, False  # Not changed
+            context.active_roi = cached_entry.active_roi
+            return cached_entry.data, False
 
         new_img = processor_fn(img, context)
-
-        new_entry = CacheEntry(conf_hash, new_img, context.metrics.copy())
+        new_entry = CacheEntry(
+            conf_hash, new_img, context.metrics.copy(), context.active_roi
+        )
         setattr(self.cache, cache_field, new_entry)
 
         return new_img, True
@@ -72,11 +60,7 @@ class DarkroomEngine:
         source_hash: str,
         context: Optional[PipelineContext] = None,
     ) -> ImageBuffer:
-        """
-        Executes the processing pipeline with stage-level caching.
-        """
         img = ensure_image(img)
-
         h_orig, w_cols = img.shape[:2]
 
         if context is None:
@@ -87,31 +71,26 @@ class DarkroomEngine:
                 process_mode=settings.process_mode,
             )
 
-        # Invalidate cache if source file changed
+        pipeline_changed = False
         if self.cache.source_hash != source_hash:
             self.cache.clear()
             self.cache.source_hash = source_hash
+            pipeline_changed = True
 
         current_img = img
-        pipeline_changed = False
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
             return NormalizationProcessor().process(img_in, ctx)
 
         current_img, pipeline_changed = self._run_stage(
-            current_img,
-            settings.geometry,
-            "base",
-            run_base,
-            context,
-            pipeline_changed,
+            current_img, settings.geometry, "base", run_base, context, pipeline_changed
         )
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
-            img_in = PhotometricProcessor(settings.exposure).process(img_in, ctx)
-            ctx.metrics["base_positive"] = img_in.copy()
-            return img_in
+            img_out = PhotometricProcessor(settings.exposure).process(img_in, ctx)
+            ctx.metrics["base_positive"] = img_out.copy()
+            return img_out
 
         current_img, pipeline_changed = self._run_stage(
             current_img,
@@ -138,12 +117,7 @@ class DarkroomEngine:
             return PhotoLabProcessor(settings.lab).process(img_in, ctx)
 
         current_img, pipeline_changed = self._run_stage(
-            current_img,
-            settings.lab,
-            "lab",
-            run_lab,
-            context,
-            pipeline_changed,
+            current_img, settings.lab, "lab", run_lab, context, pipeline_changed
         )
 
         current_img = ToningProcessor(settings.toning).process(current_img, context)

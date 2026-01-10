@@ -7,6 +7,7 @@ from src.logging_config import get_logger
 from src.config import APP_CONFIG
 from src.features.geometry.logic import get_autocrop_coords
 from src.core.validation import validate_int
+from src.core.types import LUMA_R, LUMA_G, LUMA_B
 from src.ui.state.state_manager import save_settings
 from src.ui.state.view_models import SidebarState
 from src.ui.state.session_context import SessionContext
@@ -222,7 +223,7 @@ def render_image_view(
                 py = int(np.clip(ry * raw_h, 0, raw_h - 1))
 
                 pixel = img_raw[py, px]
-                luma = 0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]
+                luma = LUMA_R * pixel[0] + LUMA_G * pixel[1] + LUMA_B * pixel[2]
 
                 st.session_state[geo_vm.get_key("autocrop_assist_point")] = (rx, ry)
                 st.session_state[geo_vm.get_key("autocrop_assist_luma")] = float(luma)

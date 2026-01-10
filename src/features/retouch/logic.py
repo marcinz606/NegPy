@@ -2,10 +2,11 @@ import numpy as np
 import cv2
 from numba import njit, prange  # type: ignore
 from typing import List, Tuple, Optional
-from src.core.types import ImageBuffer
+from src.core.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from src.features.retouch.models import LocalAdjustmentConfig
 from src.core.validation import ensure_image
 from src.core.performance import time_function
+from src.helpers import get_luminance
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -90,30 +91,6 @@ def _compute_dust_masks_jit(
 
 
 @njit(parallel=True, cache=True, fastmath=True)
-def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
-    """
-    Fast JIT luminance calculation.
-    """
-    h, w, _ = img.shape
-    res = np.empty((h, w), dtype=np.float32)
-    for y in prange(h):
-        for x in range(w):
-            res[y, x] = (
-                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
-            )
-    return res
-
-
-def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    """
-    Calculates relative luminance using Rec. 709 coefficients.
-    """
-    return ensure_image(
-        _get_luminance_jit(np.ascontiguousarray(img.astype(np.float32)))
-    )
-
-
-@njit(parallel=True, cache=True, fastmath=True)
 def _apply_inpainting_grain_jit(
     img: np.ndarray,
     img_inpainted: np.ndarray,
@@ -130,9 +107,9 @@ def _apply_inpainting_grain_jit(
         for x in range(w):
             # Fused Luminance for noise modulation
             lum = (
-                0.2126 * img_inpainted[y, x, 0]
-                + 0.7152 * img_inpainted[y, x, 1]
-                + 0.0722 * img_inpainted[y, x, 2]
+                LUMA_R * img_inpainted[y, x, 0]
+                + LUMA_G * img_inpainted[y, x, 1]
+                + LUMA_B * img_inpainted[y, x, 2]
             ) / 255.0
 
             mod = 5.0 * lum * (1.0 - lum)
@@ -263,13 +240,10 @@ def generate_local_mask(
     if not points:
         return mask
 
-    # Calculate pixel radius
-    # radius is in pixels relative to the preview viewport
     px_radius = int(radius * scale_factor)
     if px_radius < 1:
         px_radius = 1
 
-    # Draw strokes
     for i in range(len(points)):
         p1 = (int(points[i][0] * w), int(points[i][1] * h))
         if i > 0:
@@ -277,9 +251,7 @@ def generate_local_mask(
             cv2.line(mask, p0, p1, 1.0, px_radius * 2)
         cv2.circle(mask, p1, px_radius, 1.0, -1)
 
-    # Apply feathering (Blur)
     if feather > 0:
-        # Blur size based on radius and feather intensity
         blur_size = int(px_radius * 2 * feather) | 1
         if blur_size >= 3:
             mask_blurred: np.ndarray = cv2.GaussianBlur(mask, (blur_size, blur_size), 0)
@@ -328,8 +300,6 @@ def apply_local_adjustments(
 
     h, w = img.shape[:2]
 
-    # Calculate base luminance once for all adjustments in this pass
-    # to ensure consistency and prevent "drifting" masks.
     base_lum = get_luminance(img)
 
     for adj in adjustments:
@@ -337,18 +307,14 @@ def apply_local_adjustments(
         if not points:
             continue
 
-        # Spatial Mask
         mask = generate_local_mask(h, w, points, adj.radius, adj.feather, scale_factor)
 
-        # Tonal Mask (using static base_lum)
         luma_mask = calculate_luma_mask(
             img, adj.luma_range, adj.luma_softness, lum=base_lum
         )
 
-        # Combined Mask
         final_mask = mask * luma_mask
 
-        # Apply using JIT
         _apply_local_exposure_kernel(
             np.ascontiguousarray(img),
             np.ascontiguousarray(final_mask),

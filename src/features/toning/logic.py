@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit, prange  # type: ignore
 from typing import Dict
-from src.core.types import ImageBuffer
+from src.core.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from src.core.validation import ensure_image
 from src.features.toning.models import PaperSubstrate
 from src.core.performance import time_function
@@ -46,7 +46,7 @@ def _apply_chemical_toning_jit(
         for x in range(w):
             # Fused Luminance (Rec. 709)
             lum_val = (
-                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+                LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
             )
 
             sel_m = 0.0
@@ -75,30 +75,6 @@ def _apply_chemical_toning_jit(
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
-def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
-    """
-    Fast JIT luminance calculation.
-    """
-    h, w, _ = img.shape
-    res = np.empty((h, w), dtype=np.float32)
-    for y in prange(h):
-        for x in range(w):
-            res[y, x] = (
-                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
-            )
-    return res
-
-
-def get_luminance(img: ImageBuffer) -> ImageBuffer:
-    """
-    Calculates relative luminance using Rec. 709 coefficients.
-    """
-    return ensure_image(
-        _get_luminance_jit(np.ascontiguousarray(img.astype(np.float32)))
-    )
-
-
 PAPER_PROFILES: Dict[str, PaperSubstrate] = {
     "None": PaperSubstrate("None", (1.0, 1.0, 1.0), 1.0),
     "Neutral RC": PaperSubstrate("Neutral RC", (0.99, 0.99, 0.99), 1.0),
@@ -112,10 +88,6 @@ PAPER_PROFILES: Dict[str, PaperSubstrate] = {
 def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer:
     """
     Simulates the physical and optical properties of a photographic paper substrate.
-
-    Photographic papers have unique base tints (e.g., warm fiber, cool glossy RC)
-    and varying degrees of maximum achievable density (D-max). This function
-    tints the highlights and scales the shadows to mimic the chosen paper stock.
     """
     profile = PAPER_PROFILES.get(profile_name, PAPER_PROFILES["None"])
     tint = np.ascontiguousarray(np.array(profile.tint, dtype=np.float32))
@@ -137,11 +109,6 @@ def apply_chemical_toning(
 ) -> ImageBuffer:
     """
     Simulates the chemical reactivity of archival toners with silver halides.
-
-    - Selenium Toning: Mimics the replacement of silver with silver selenide,
-      primarily affecting the shadows and increasing D-max and permanence.
-    - Sepia Toning: Mimics the conversion of silver to silver sulfide,
-      producing characteristic warm, brownish tones in the midtones and highlights.
     """
     if selenium_strength == 0 and sepia_strength == 0:
         return img
