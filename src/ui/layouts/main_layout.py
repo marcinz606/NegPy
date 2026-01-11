@@ -12,10 +12,12 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
     """
     Initializes the main layout and returns (main_area, status_area).
     """
-    rotation = st.session_state.get("rotation", 0)
+    rotation = int(st.session_state.get("rotation", 0))
     h_orig, w_orig = ctx.original_res
 
-    if abs(rotation) % 180 != 0:
+    # rotation is k (number of 90deg CCW steps).
+    # Swap dimensions only if rotation is 1 or 3 (90 or 270 degrees)
+    if rotation % 2 != 0:
         h_orig, w_orig = w_orig, h_orig
 
     is_vertical = h_orig > w_orig
