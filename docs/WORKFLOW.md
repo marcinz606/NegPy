@@ -39,7 +39,7 @@ Before adjusting colors, fix the orientation and framing.
 You can select **Keep Full Frame** if you want to see the film borders and sprockets in your final print/export.
 
 ### Step B: Photometric Exposure (The "Inversion")
-This is the heart of the app. It simulates the response of film & photographic paper using an H&D characteristic curve.
+This is the heart of the app. It simulates the response of film & photographic paper using an H&D characteristic curve. Default auto-conversion settings are just a neutral starting point.
 - **CMY Filtration**: Simulate a color enlarger head. Use these sliders to fine-tune color balance to your liking (e.g., add Yellow to reduce Blue).
 - **Density**: Adjust the overall brightness/exposure.
 - **Contrast**: Change the "Paper Grade." High values produce a punchy look; lower values preserve more shadow and highlight detail.
