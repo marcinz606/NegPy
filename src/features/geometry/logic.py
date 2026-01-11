@@ -3,11 +3,9 @@ import cv2
 from typing import Tuple, Optional
 from src.domain.types import ImageBuffer, ROI
 from src.kernel.image.validation import ensure_image
-from src.kernel.system.performance import time_function
 from src.kernel.image.logic import get_luminance
 
 
-@time_function
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     """
     Rotates the image by a specific angle (in degrees).
@@ -93,7 +91,6 @@ def enforce_roi_aspect_ratio(
     return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
 
 
-@time_function
 def get_manual_crop_coords(
     img: ImageBuffer,
     offset_px: int = 0,
@@ -109,7 +106,6 @@ def get_manual_crop_coords(
     return apply_margin_to_roi(roi, h, w, margin)
 
 
-@time_function
 def get_autocrop_coords(
     img: ImageBuffer,
     offset_px: int = 0,
@@ -154,7 +150,6 @@ def get_autocrop_coords(
     return enforce_roi_aspect_ratio(roi, h, w, target_ratio_str)
 
 
-@time_function
 def map_coords_to_geometry(
     nx: float,
     ny: float,

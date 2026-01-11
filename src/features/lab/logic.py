@@ -4,7 +4,6 @@ from numba import njit, prange  # type: ignore
 from typing import List, Optional
 from src.domain.types import ImageBuffer
 from src.kernel.image.validation import ensure_image
-from src.kernel.system.performance import time_function
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -39,7 +38,6 @@ def _apply_spectral_crosstalk_jit(
     return res
 
 
-@time_function
 def apply_spectral_crosstalk(
     img_dens: ImageBuffer, strength: float, matrix: Optional[List[float]]
 ) -> ImageBuffer:
@@ -68,7 +66,6 @@ def apply_spectral_crosstalk(
     return ensure_image(res)
 
 
-@time_function
 def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
@@ -126,7 +123,6 @@ def _apply_unsharp_mask_jit(
     return res
 
 
-@time_function
 def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
     """
     Applies Unsharp Mask (USM) sharpening to the Lightness channel.

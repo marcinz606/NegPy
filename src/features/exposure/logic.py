@@ -4,7 +4,6 @@ from scipy.special import expit
 from typing import Tuple
 from src.domain.types import ImageBuffer
 from src.kernel.image.validation import ensure_image
-from src.kernel.system.performance import time_function
 
 
 @njit(inline="always")
@@ -118,7 +117,6 @@ class LogisticSigmoid:
         self.shoulder_width = shoulder_width
         self.shoulder_hardness = shoulder_hardness
 
-    @time_function
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
         diff = x - self.x0
         epsilon = 1e-6
@@ -139,7 +137,6 @@ class LogisticSigmoid:
         return ensure_image(res)
 
 
-@time_function
 def apply_characteristic_curve(
     img: ImageBuffer,
     params_r: Tuple[float, float],

@@ -3,7 +3,6 @@ import os
 import numpy as np
 from numba import njit, prange  # type: ignore
 from src.domain.types import LUMA_R, LUMA_G, LUMA_B
-from src.kernel.system.performance import time_function
 from src.kernel.image.validation import ensure_image
 from src.kernel.system.logging import get_logger
 
@@ -218,7 +217,6 @@ def ensure_rgb(img: np.ndarray) -> np.ndarray:
     return img
 
 
-@time_function
 def get_luminance(img: np.ndarray) -> np.ndarray:
     """
     Calculates relative luminance. Supports (H, W, 3) and (N, 3) arrays.

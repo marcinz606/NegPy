@@ -4,7 +4,6 @@ from typing import Dict
 from src.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from src.kernel.image.validation import ensure_image
 from src.features.toning.models import PaperSubstrate
-from src.kernel.system.performance import time_function
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -84,7 +83,6 @@ PAPER_PROFILES: Dict[str, PaperSubstrate] = {
 }
 
 
-@time_function
 def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer:
     """
     Simulates the physical and optical properties of a photographic paper substrate.
@@ -101,7 +99,6 @@ def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer
     )
 
 
-@time_function
 def apply_chemical_toning(
     img: ImageBuffer,
     selenium_strength: float = 0.0,

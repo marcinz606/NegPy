@@ -2,7 +2,6 @@ from typing import Tuple, List
 import numpy as np
 from numba import njit, prange  # type: ignore
 from src.domain.types import ImageBuffer
-from src.kernel.system.performance import time_function
 from src.kernel.image.validation import ensure_image
 
 
@@ -63,7 +62,6 @@ def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     )
 
 
-@time_function
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
     Normalizes a log-exposure image using the measured sensitometric bounds.

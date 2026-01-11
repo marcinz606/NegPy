@@ -5,7 +5,6 @@ from typing import List, Tuple, Optional
 from src.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from src.features.retouch.models import LocalAdjustmentConfig
 from src.kernel.image.validation import ensure_image
-from src.kernel.system.performance import time_function
 from src.kernel.image.logic import get_luminance
 
 
@@ -124,7 +123,6 @@ def _apply_inpainting_grain_jit(
     return res
 
 
-@time_function
 def apply_dust_removal(
     img: ImageBuffer,
     dust_remove: bool,
@@ -260,7 +258,6 @@ def generate_local_mask(
     return mask
 
 
-@time_function
 def calculate_luma_mask(
     img: ImageBuffer,
     luma_range: Tuple[float, float],
@@ -288,7 +285,6 @@ def calculate_luma_mask(
     )
 
 
-@time_function
 def apply_local_adjustments(
     img: ImageBuffer, adjustments: List[LocalAdjustmentConfig], scale_factor: float
 ) -> ImageBuffer:

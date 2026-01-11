@@ -75,7 +75,7 @@ Short guide on how to use the app:
 DarkroomPy keeps everything in your **Documents/DarkroomPy** folder:
 - **`edits.db`**: Your edits.
 - **`settings.db`**: Global settings like export size, image preview size etc.
-- **`cache/`**: Thumbnails & performance logs (safe to delete).
+- **`cache/`**: Thumbnails (safe to delete).
 - **`export/`**: Where your finished positives go by default.
 - **`icc/`**: Where your loaded ICC profiles go.
 
