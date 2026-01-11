@@ -55,7 +55,7 @@ The sliders in the Exposure & Tonality UI allow you to control the parameters of
 
 The less "darkroom-y" part of the pipeline. We try to replicate the automated enhancements that lab scanners like the Frontier or Noritsu perform.
 
-* **Color Separation**: We use a $3 \times 3$ **Color Correction Matrix (CCM)** to "un-mix" the colors. This corrects for the impure spectral response of the film dyes (cross-talk). Lab scanners have these matrices "baked in" for specific film stocks.
+* **Color Separation**: We use a $3 \times 3$ **Color Correction Matrix (CCM)** to "un-mix" the colors. This corrects for the impure spectral response of the film dyes (cross-talk). Lab scanners have these matrices "baked in" for specific film stocks, we have one generice color negative matrix that combined with strength slider should work okay for most cases. 
 * **CLAHE**: Contrast Limited Adaptive Histogram Equalization applied in LAB space. It boosts local micro-contrast without distorting the global brightness. This is functionally similar to the "Hypertone" feature found in Fuji Frontier scanners.
 * **Unsharp Mask (USM)**: A standard sharpening technique. We subtract a blurred version of the Lightness channel from the original to make edges pop without creating color artifacts.
 

@@ -80,7 +80,7 @@ Windows might show a "Windows protected your PC" window.
 DarkroomPy keeps everything in your **Documents/DarkroomPy** folder:
 - **`edits.db`**: Your edits.
 - **`settings.db`**: Global settings like export size, image preview size etc.
-- **`cache/`**: Thumbnails (safe to delete).
+- **`cache/`**: Thumbnails & performance logs (safe to delete).
 - **`export/`**: Where your finished positives go by default.
 
 ---
@@ -96,12 +96,14 @@ If you want to contribute or poke around the code, I use Docker to make building
 
 #### Run Tests & Checks
 There's a Makefile to help with quality control:
-- `make all`: Runs everything (Lint, Typecheck, Tests).
+- `make all`: Runs everything (Lint, Typecheck, Unit Tests).
 - `make format`: Auto-formats code with Ruff.
 
 
 ## ⚖️ License
-This project is free software under the **GPL-3 License**. Feel free to use it, study it, and share it. If you use it, also keep it open.
+This project is free software under the copyleft **[GPL-3 License](LICENSE)**. Feel free to use it, study it, and share it. If you use it, also keep it open.
 
 ## Support
-If you like the project and want to support it, consider buying me a coffee or a roll of film to have material for testing. [Ko-Fi](https://ko-fi.com/marcinzawalski). Also watch the repository for updates and leave a star :) 
+If you like the project and want to support it, consider buying me a coffee or a roll of film to have material for testing.
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/marcinzawalski)
