@@ -48,7 +48,7 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
         with c_slider:
             st.slider(
                 "Display Size",
-                800,
+                600,
                 2400,
                 step=100,
                 key="working_copy_size",
