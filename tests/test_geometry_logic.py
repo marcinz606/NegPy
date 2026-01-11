@@ -62,3 +62,36 @@ def test_geometry_processor_no_autocrop_no_offset():
     processor.process(img, context)
 
     assert context.active_roi == (0, 100, 0, 200)
+
+
+def test_crop_consistency_across_resolutions():
+    # Simulate a full res image and a preview image
+    full_h, full_w = 3000, 4500
+    prev_h, prev_w = 1000, 1500
+
+    config = GeometryConfig(autocrop=False, autocrop_offset=10)
+    processor = GeometryProcessor(config)
+
+    # Full res context
+    ctx_full = PipelineContext(
+        scale_factor=max(full_h, full_w) / float(max(full_h, full_w)),
+        original_size=(full_h, full_w),
+    )
+    processor.process(np.zeros((full_h, full_w, 3)), ctx_full)
+
+    # Preview context (relative to full res)
+    ctx_prev = PipelineContext(
+        scale_factor=max(prev_h, prev_w) / float(max(full_h, full_w)),
+        original_size=(prev_h, prev_w),
+    )
+    processor.process(np.zeros((prev_h, prev_w, 3)), ctx_prev)
+
+    # Relative crops should be identical
+    # Full: margin = 10 * 1.0 = 10. ROI = (10, 2990, 10, 4490)
+    # Prev: margin = 10 * (1500/4500) = 3.33 -> 3. ROI = (3, 997, 3, 1497)
+
+    y1_f, y2_f, x1_f, x2_f = ctx_full.active_roi
+    y1_p, y2_p, x1_p, x2_p = ctx_prev.active_roi
+
+    assert abs(y1_f / full_h - y1_p / prev_h) < 0.001
+    assert abs(x1_f / full_w - x1_p / prev_w) < 0.001

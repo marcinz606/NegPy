@@ -87,11 +87,14 @@ class AppController:
             else ""
         )
 
+        orig_res_max = max(self.ctx.original_res)
+        ref_res = float(orig_res_max) if orig_res_max > 0 else float(self.image_service.engine.config.preview_render_size)
+
         buffer, metrics = self.image_service.run_pipeline(
             raw.copy(),
             params,
             f_hash,
-            render_size_ref=self.image_service.engine.config.preview_render_size,
+            render_size_ref=ref_res,
         )
 
         pil_prev = self.image_service.buffer_to_pil(buffer, params, bit_depth=8)
