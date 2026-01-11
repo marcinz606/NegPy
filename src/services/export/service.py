@@ -97,9 +97,9 @@ class ExportService:
         total_files = len(files)
         start_time = time.perf_counter()
 
-        # Limit concurrency to 1/2 of available cores to avoid oversubscription
+        # Limit concurrency to 1/4 of available cores to avoid oversubscription
         # as numba compiled functions are already multi-threaded
-        limit = APP_CONFIG.max_workers // 2
+        limit = APP_CONFIG.max_workers // 4
         semaphore = asyncio.Semaphore(limit)
 
         async def _worker(f_meta: Dict[str, str]) -> Any:
