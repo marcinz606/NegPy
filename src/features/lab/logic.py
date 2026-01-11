@@ -66,7 +66,7 @@ def apply_spectral_crosstalk(
     return ensure_image(res)
 
 
-def apply_clahe(img: ImageBuffer, strength: float, scale_factor: float = 1.0) -> ImageBuffer:
+def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
     """

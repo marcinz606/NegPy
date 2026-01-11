@@ -29,7 +29,7 @@ class PhotoLabProcessor:
             img = np.power(10.0, -img_dens)
 
         if self.config.clahe_strength > 0:
-            img = apply_clahe(img, self.config.clahe_strength, context.scale_factor)
+            img = apply_clahe(img, self.config.clahe_strength)
 
         if self.config.sharpen > 0:
             img = apply_output_sharpening(img, self.config.sharpen, context.scale_factor)
