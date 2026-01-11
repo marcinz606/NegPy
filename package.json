@@ -15,8 +15,8 @@
   "author": "Marcin Zawalski<zawalskimarcin@gmail.com>",
   "license": "GPL-3.0-or-later",
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^24.13.3"
+    "electron": "^39.2.7",
+    "electron-builder": "^26.4.0"
   },
   "build": {
     "appId": "com.darkroom.py",

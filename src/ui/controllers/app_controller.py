@@ -91,7 +91,7 @@ class AppController:
             raw.copy(),
             params,
             f_hash,
-            render_size_ref=self.image_service.engine.config.preview_render_size,
+            render_size_ref=float(self.image_service.engine.config.preview_render_size),
         )
 
         pil_prev = self.image_service.buffer_to_pil(buffer, params, bit_depth=8)

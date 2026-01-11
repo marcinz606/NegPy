@@ -2,6 +2,13 @@
 
 This guide walks you through the typical workflow of processing a RAW film scan in DarkroomPy, from importing your negatives to exporting a finished digital print.
 
+
+## 0. General Information
+
+You can scale the UI by using the `Ctrl` + `+` and `Ctrl` + `-` shortcuts. (or `Cmd` + `+` and `Cmd` + `-` on macOS).
+
+By default app closes to the system tray when you close the window. To kill it completely right click on icon in the system tray and select "Quit".
+
 ---
 
 ## 1. Importing Files

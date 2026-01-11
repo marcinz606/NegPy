@@ -123,7 +123,9 @@ def _apply_unsharp_mask_jit(
     return res
 
 
-def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
+def apply_output_sharpening(
+    img: ImageBuffer, amount: float, scale_factor: float = 1.0
+) -> ImageBuffer:
     """
     Applies Unsharp Mask (USM) sharpening to the Lightness channel.
     Uses a JIT kernel for efficient processing in the LAB color space.
@@ -134,7 +136,9 @@ def apply_output_sharpening(img: ImageBuffer, amount: float) -> ImageBuffer:
     lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
     l_chan, a, b = cv2.split(lab)
 
-    l_blur = cv2.GaussianBlur(l_chan, (5, 5), 1.0)
+    k_size = max(3, int(5 * scale_factor) | 1)
+    sigma = 1.0 * scale_factor
+    l_blur = cv2.GaussianBlur(l_chan, (k_size, k_size), sigma)
 
     l_sharpened = _apply_unsharp_mask_jit(
         np.ascontiguousarray(l_chan),

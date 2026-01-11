@@ -33,7 +33,7 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
 
     main_area = st.container()
     with main_area:
-        c_logo, c_status, c_empty, c_slider = st.columns([2.5, 5, 1.25, 1.25])
+        c_logo, c_status, c_empty, c_slider = st.columns([2, 3, 1, 1])
         with c_logo:
             version = get_app_version()
             st.title(
@@ -48,7 +48,7 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
         with c_slider:
             st.slider(
                 "Display Size",
-                800,
+                600,
                 2400,
                 step=100,
                 key="working_copy_size",

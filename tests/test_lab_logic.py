@@ -12,7 +12,7 @@ class TestLabLogic(unittest.TestCase):
         img = np.zeros((100, 100, 3), dtype=np.float32)
         img[25:75, 25:75, :] = 0.5
 
-        res = apply_output_sharpening(img, amount=1.0)
+        res = apply_output_sharpening(img, amount=1.0, scale_factor=1.0)
 
         # Sharpening should increase variance on edges
         self.assertGreater(np.var(res), np.var(img))

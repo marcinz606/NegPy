@@ -27,6 +27,6 @@ def get_app_version() -> str:
         pkg_json_path = os.path.join(root_dir, "package.json")
         with open(pkg_json_path, "r") as f:
             data = json.load(f)
-            return data.get("version", "unknown")
+            return str(data.get("version", "unknown"))
     except Exception:
         return "unknown"
