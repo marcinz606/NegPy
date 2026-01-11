@@ -71,7 +71,6 @@ def render_navigation() -> Tuple[bool, bool]:
     """
     session: WorkspaceSession = st.session_state.session
 
-    # 1. Navigation row (5 columns)
     c1, c2, c3, c4, c5 = st.columns(5)
 
     with c1:
@@ -119,7 +118,6 @@ def render_navigation() -> Tuple[bool, bool]:
             args=(session.selected_file_idx,),
         )
 
-    # 2. Copy/Paste/Reset row (3 columns)
     ca, cb, cc = st.columns(3)
     with ca:
         st.button(
@@ -146,7 +144,6 @@ def render_navigation() -> Tuple[bool, bool]:
             help="Reset all settings for this negative to defaults.",
         )
 
-    # 3. Export row (2 columns)
     ea, eb = st.columns(2)
     with ea:
         export_btn_sidebar = st.button(

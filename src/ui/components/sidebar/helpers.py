@@ -34,7 +34,6 @@ def _ensure_and_get_state(
     2. Initializes default if still missing.
     3. Safely casts and returns the current canonical value.
     """
-    # 1. Recovery
     if st.session_state.get(key) is None:
         session = st.session_state.get("session")
         if session:
@@ -47,11 +46,9 @@ def _ensure_and_get_state(
             except Exception:
                 pass
 
-    # 2. Default Initialization
     if st.session_state.get(key) is None:
         st.session_state[key] = default_val
 
-    # 3. Safe Casting
     try:
         return cast_func(st.session_state[key])
     except (ValueError, TypeError):
@@ -107,7 +104,6 @@ def render_control_slider(
     """
     current_val = _ensure_and_get_state(key, default_val, float)
 
-    # Specific logic: Clamping
     current_val = float(np.clip(current_val, min_val, max_val))
 
     w_key = _sync_shadow_state(key, current_val)
@@ -187,7 +183,6 @@ def render_control_selectbox(
     current_val = _ensure_and_get_state(key, default_val, lambda x: x)  # No-op cast
     w_key = _sync_shadow_state(key, current_val)
 
-    # Specific logic: Find index
     try:
         idx = options.index(current_val)
     except ValueError:
@@ -252,7 +247,6 @@ def render_control_color_picker(
     """
     current_val = _ensure_and_get_state(key, default_val, str)
 
-    # Specific logic: Hex validation
     if not (current_val.startswith("#") and len(current_val) == 7):
         current_val = str(default_val)
         st.session_state[key] = current_val

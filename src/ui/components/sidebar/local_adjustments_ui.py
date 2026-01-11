@@ -36,7 +36,6 @@ def render_local_adjustments() -> None:
                 for i, a in enumerate(st.session_state.local_adjustments)
             ]
 
-            # Ensure active index is within bounds
             current_idx = st.session_state.get("active_adjustment_idx", 0)
             if current_idx < 0 or current_idx >= len(adj_names):
                 st.session_state.active_adjustment_idx = 0
@@ -61,7 +60,6 @@ def render_local_adjustments() -> None:
 
             st.markdown("---")
 
-            # Ensure state is synced for dynamic keys before rendering to avoid warnings
             s_key = f"adj_str_{selected_idx}"
             if s_key not in st.session_state:
                 st.session_state[s_key] = float(active_adj.strength)

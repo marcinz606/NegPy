@@ -43,7 +43,6 @@ def render_exposure_section() -> None:
                     help_text="Yellow filtration (removes Blue cast).",
                 )
 
-        # Primary Print Controls
         e1, e2 = st.columns(2)
         with e1:
             render_control_slider(
@@ -61,13 +60,12 @@ def render_exposure_section() -> None:
                 label="Grade",
                 min_val=0.0,
                 max_val=5.0,
-                default_val=2.5,
+                default_val=2.0,
                 step=0.01,
                 key=vm.get_key("grade"),
-                help_text="Paper Contrast Grade. 2.5 is Neutral. 0 is Soft. 5 is Hard.",
+                help_text="Paper Contrast Grade. 2 is Neutral. 0 is Soft. 5 is Hard.",
             )
 
-        # Tone Curve Controls
         c_toe1, c_toe2, c_toe3 = st.columns([1.5, 1, 1])
         with c_toe1:
             render_control_slider(

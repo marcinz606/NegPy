@@ -14,7 +14,6 @@ def render_paper_section() -> None:
     vm = ToningViewModel()
 
     with st.expander(":material/colorize: Paper & Toning", expanded=False):
-        # 1. Paper Substrate Selection
         render_control_selectbox(
             "Paper Profile",
             ["None", "Neutral RC", "Cool Glossy", "Warm Fiber", "Antique Ivory"],
@@ -23,7 +22,6 @@ def render_paper_section() -> None:
             help_text="Simulates the specific spectral reflectance and D-max of analog paper bases.",
         )
 
-        # 2. Chemical Toning (B&W Simulation)
         if st.session_state.get("process_mode") == "B&W":
             st.subheader("Chemical Toning")
             render_control_slider(
