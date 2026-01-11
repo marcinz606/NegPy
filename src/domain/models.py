@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
-from src.features.retouch.models import RetouchConfig
+from src.features.retouch.models import RetouchConfig, LocalAdjustmentConfig
 from src.features.toning.models import ToningConfig
 
 
@@ -65,12 +65,25 @@ class WorkspaceConfig:
             valid_keys = config_cls.__dataclass_fields__.keys()
             return {k: v for k, v in d.items() if k in valid_keys and v is not None}
 
+        # handle nested objects in RetouchConfig
+        retouch_data = filter_keys(RetouchConfig, data)
+        if "local_adjustments" in retouch_data:
+            raw_adjustments = retouch_data["local_adjustments"]
+            if isinstance(raw_adjustments, list):
+                deserialized = []
+                for adj in raw_adjustments:
+                    if isinstance(adj, dict):
+                        deserialized.append(LocalAdjustmentConfig(**adj))
+                    else:
+                        deserialized.append(adj)
+                retouch_data["local_adjustments"] = deserialized
+
         return cls(
             process_mode=str(data.get("process_mode", "C41")),
             exposure=ExposureConfig(**filter_keys(ExposureConfig, data)),
             geometry=GeometryConfig(**filter_keys(GeometryConfig, data)),
             lab=LabConfig(**filter_keys(LabConfig, data)),
-            retouch=RetouchConfig(**filter_keys(RetouchConfig, data)),
+            retouch=RetouchConfig(**retouch_data),
             toning=ToningConfig(**filter_keys(ToningConfig, data)),
             export=ExportConfig(**filter_keys(ExportConfig, data)),
         )
