@@ -1,16 +1,16 @@
 <div align="center">
-  <img src="media/icons/icon.svg" width="96" height="96" alt="DarkroomPy Logo"><h1>DarkroomPy</h1>
+  <img src="media/icons/icon.svg" width="96" height="96" alt="NegativePy Logo"><h1>NegativePy</h1>
 </div>
 
 
-**DarkroomPy** is an open-source tool for processing RAW film negatives. I built it because I wanted something made specifically for film scans but going beyond being simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
+**NegativePy** is an open-source tool for processing RAW film negatives. I built it because I wanted something made specifically for film scans but going beyond being simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
 
 ---
 
 ## ✨ Basic Features
 
 - **Math-based Inversion**: No camera profiles (DCP) or "film base color picking" required. It uses per-channel sensitometric normalization to automatically neutralize the orange mask.
-- **Physical Modeling**: It doesn't just linearly "invert colors". It models the physics of a darkroom print using a Logistic Sigmoid function to model the **H&D Characteristic Curve** of film & photographic paper.
+- **Physical Modeling**: It doesn't just linearly "invert colors". It simulates the physics of a darkroom print using a Logistic Sigmoid function to model the **H&D Characteristic Curve** of film & photographic paper.
 - **File support**: Supports raw formats that you would expect, tiff but also weird Planar RAW from Kodak Pakon scanner.
 - **Hot folder**: Optionally watch folder for new files and load them automatically.
 - **Non-destructive**: It doesn't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
@@ -33,7 +33,7 @@
 ## 🚀 Getting Started
 
 ### Download the App
-Grab the app for your OS from the **[Releases Page](https://github.com/marcinz606/darkroom-py/releases)**.
+Grab the app for your OS from the **[Releases Page](https://github.com/marcinz606/NegativePy/releases)**.
 
 
 #### **🐧 Linux**
@@ -43,14 +43,14 @@ I supply a .AppImage file for Linux, it should work out of the box. Here is [qui
 I will also add it to Arch User Repository (AUR) as soon as I get around to it.
 
 ### 🛡️ Installation & Security
-Because DarkroomPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them ransom for that). You will see a security warning the first time you run it.
+Because NegativePy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them ransom for that). You will see a security warning the first time you run it.
 
 #### **🍎 MacOS**
 When you open the app, you may see a message saying it is "corrupted" or from an "unidentified developer."
-1.  Drag **DarkroomPy** to your `/Applications` folder.
+1.  Drag **NegativePy** to your `/Applications` folder.
 2.  **Right-Click** (or Ctrl+Click) the app icon and select **Open**.
 3.  When the dialog appears, click **Open** again.
-4.  *Alternatively*, run this in your Terminal: `xattr -cr /Applications/DarkroomPy.app`
+4.  *Alternatively*, run this in your Terminal: `xattr -cr /Applications/NegativePy.app`
 
 #### **🪟 Windows**
 Windows might show a "Windows protected your PC" window.
@@ -72,7 +72,7 @@ Short guide on how to use the app:
 [WORKFLOW.md](docs/WORKFLOW.md) 
 
 ## 📂 Where's my data?
-DarkroomPy keeps everything in your **Documents/DarkroomPy** folder:
+NegativePy keeps everything in your **Documents/NegativePy** folder:
 - **`edits.db`**: Your edits.
 - **`settings.db`**: Global settings like export size, image preview size etc.
 - **`cache/`**: Thumbnails (safe to delete).

@@ -122,7 +122,10 @@ class ImageProcessor:
             f32_buffer = uint16_to_float32(np.ascontiguousarray(rgb))
 
             buffer, _ = self.run_pipeline(
-                f32_buffer, params, source_hash, render_size_ref=float(APP_CONFIG.preview_render_size)
+                f32_buffer,
+                params,
+                source_hash,
+                render_size_ref=float(APP_CONFIG.preview_render_size),
             )
 
             buffer = self._apply_scaling_and_border_f32(buffer, params, export_settings)

@@ -33,10 +33,10 @@ if (!gotTheLock) {
         console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     });
 
-    function getDarkroomUserDir() {
-        // DARKROOM_USER_DIR: platform-specific Documents/DarkroomPy
+    function getNegativePyUserDir() {
+        // NEGATIVEPY_USER_DIR: platform-specific Documents/NegativePy
         const homeDocs = app.getPath('documents');
-        const userDir = path.join(homeDocs, 'DarkroomPy');
+        const userDir = path.join(homeDocs, 'NegativePy');
         if (!fs.existsSync(userDir)) {
             fs.mkdirSync(userDir, { recursive: true });
         }
@@ -58,8 +58,8 @@ if (!gotTheLock) {
             }
         }
 
-        const userDir = getDarkroomUserDir();
-        const env = { ...process.env, DARKROOM_USER_DIR: userDir };
+        const userDir = getNegativePyUserDir();
+        const env = { ...process.env, NEGATIVEPY_USER_DIR: userDir };
 
         let pythonExecutable;
         let args = [];
@@ -67,10 +67,10 @@ if (!gotTheLock) {
         if (isPackaged) {
             // Path to the bundled binary
             if (os.platform() === 'win32') {
-                pythonExecutable = path.join(process.resourcesPath, 'darkroompy', 'darkroompy.exe');
+                pythonExecutable = path.join(process.resourcesPath, 'negativepy', 'negativepy.exe');
             } else {
-                // macOS and Linux now both produce a single binary file named 'darkroompy'
-                pythonExecutable = path.join(process.resourcesPath, 'darkroompy', 'darkroompy');
+                // macOS and Linux now both produce a single binary file named 'negativepy'
+                pythonExecutable = path.join(process.resourcesPath, 'negativepy', 'negativepy');
             }
         } else {
             // Path to local python/streamlit
@@ -133,7 +133,7 @@ if (!gotTheLock) {
 
         const contextMenu = Menu.buildFromTemplate([
             {
-                label: 'Show DarkroomPy', click: () => {
+                label: 'Show NegativePy', click: () => {
                     if (mainWindow) {
                         mainWindow.show();
                         mainWindow.focus();
@@ -149,7 +149,7 @@ if (!gotTheLock) {
             }
         ]);
 
-        tray.setToolTip('DarkroomPy');
+        tray.setToolTip('NegativePy');
         tray.setContextMenu(contextMenu);
 
         tray.on('click', () => {
@@ -248,7 +248,7 @@ if (!gotTheLock) {
                     spawnSync("taskkill", ["/pid", backendProcess.pid, '/f', '/t'], { timeout: 1000 });
 
                     // Fallback: Kill by image name if it's still hanging
-                    spawnSync("taskkill", ["/f", "/im", "darkroompy.exe"], { timeout: 1000 });
+                    spawnSync("taskkill", ["/f", "/im", "negativepy.exe"], { timeout: 1000 });
 
                     // Extra safety: Cleanup port 8501 just in case
                     spawnSync('cmd', ['/c', `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /f /pid %a`], { timeout: 1000 });

@@ -1,5 +1,6 @@
 import streamlit as st
 import uuid
+from typing import Dict, Any
 from src.domain.session import WorkspaceSession
 from src.domain.models import WorkspaceConfig
 from src.infrastructure.storage.repository import StorageRepository
@@ -91,6 +92,16 @@ def init_session_state() -> None:
         st.session_state.dust_start_point = None
 
 
+def _to_ui_state_dict(config: WorkspaceConfig) -> Dict[str, Any]:
+    """
+    Flattens the configuration for UI consumption.
+    while preserving complex objects (like local_adjustments)
+    """
+    data = config.to_dict()
+    data["local_adjustments"] = config.retouch.local_adjustments
+    return data
+
+
 def load_settings(force: bool = False) -> None:
     """
     Loads settings for the current file.
@@ -99,7 +110,7 @@ def load_settings(force: bool = False) -> None:
     settings = session.get_active_settings()
 
     if settings:
-        settings_dict = settings.to_dict()
+        settings_dict = _to_ui_state_dict(settings)
 
         # Check if this file has existing edits in DB
         f_hash = session.uploaded_files[session.selected_file_idx]["hash"]

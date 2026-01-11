@@ -1,14 +1,14 @@
 services:
-  darkroom-py:
+  negative-py:
     build:
       context: .
       network: host
-    container_name: darkroom-py
+    container_name: negative-py
     ports:
       - "8501:8501"
     volumes:
       - ./:/app
-      - ${DARKROOM_HOST_DIR}:/app/user
+      - ${NEGATIVEPY_HOST_DIR}:/app/user
     environment:
-      - DARKROOM_USER_DIR=user
+      - NEGATIVEPY_USER_DIR=user
     restart: unless-stopped

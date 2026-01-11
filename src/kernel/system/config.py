@@ -8,7 +8,7 @@ from src.features.retouch.models import RetouchConfig
 from src.features.toning.models import ToningConfig
 
 
-BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
+BASE_USER_DIR = os.path.abspath(os.getenv("NEGATIVEPY_USER_DIR", "user"))
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
     max_workers=max(1, (os.cpu_count() or 1)),

@@ -66,7 +66,7 @@ def apply_spectral_crosstalk(
     return ensure_image(res)
 
 
-def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
+def apply_clahe(img: ImageBuffer, strength: float, scale_factor: float = 1.0) -> ImageBuffer:
     """
     Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
     """
@@ -80,8 +80,9 @@ def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     # CLAHE on uint16 for precision
     l_u16 = (l_chan * (65535.0 / 100.0)).astype(np.uint16)
 
-    clip_limit = strength * 5.0
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
+    clip_limit = strength * 2.5
+    grid_dim = max(2, int(8 * scale_factor))
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(grid_dim, grid_dim))
     l_enhanced_u16 = clahe.apply(l_u16)
 
     l_enhanced = l_enhanced_u16.astype(np.float32) * (100.0 / 65535.0)

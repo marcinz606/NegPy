@@ -58,12 +58,12 @@ format:
 # Run the application (Docker)
 .PHONY: run-app
 run-app:
-	@echo "Starting DarkroomPy via Docker..."
+	@echo "Starting NegativePy via Docker..."
 	@$(PYTHON) start.py
 
 .PHONY: run-app-rebuild
 run-app-rebuild:
-	@echo "Rebuilding and starting DarkroomPy via Docker..."
+	@echo "Rebuilding and starting NegativePy via Docker..."
 	@$(PYTHON) start.py --build
 
 # Build Electron application (Host OS)
