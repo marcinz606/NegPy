@@ -1,4 +1,7 @@
-# 🎞️ DarkroomPy
+<div align="center">
+  <img src="media/icons/icon.svg" width="96" height="96" alt="DarkroomPy Logo"><h1>DarkroomPy</h1>
+</div>
+
 
 **DarkroomPy** is an open-source tool for processing RAW film negatives. I built it because I wanted something made specifically for film scans but going beyond being simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
 
@@ -21,7 +24,6 @@
 ---
 
 ### 🧪 The Processing Pipeline
-Most important part, the image goes through a 7-stage simulation:
 
 [📖 Read about the math behind the pipeline](docs/PIPELINE.md)
 
@@ -41,7 +43,7 @@ I supply a .AppImage file for Linux, it should work out of the box. Here is [qui
 I will also add it to Arch User Repository (AUR) as soon as I get around to it.
 
 ### 🛡️ Installation & Security
-Because DarkroomPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them $ for that). You will see a security warning the first time you run it.
+Because DarkroomPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them ransom for that). You will see a security warning the first time you run it.
 
 #### **🍎 MacOS**
 When you open the app, you may see a message saying it is "corrupted" or from an "unidentified developer."
@@ -59,6 +61,7 @@ Windows might show a "Windows protected your PC" window.
 
 #### **⚠️ Important**
 App is compiling functions to machine code on startup, so it might take a while to start up on slower CPUs.
+Also, app closes to tray by default so if you want to kill it, right click tray icon and quit.
 
 ---
 
