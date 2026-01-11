@@ -16,7 +16,7 @@ streamlit_image_coordinates_dir = os.path.dirname(streamlit_image_coordinates.__
 # build params
 params = [
     "desktop/backend_bootstrap.py",  # electron entry point
-    "--name=darkroompy",
+    "--name=negativepy",
     "--onefile",
     "--clean",
     "--noconfirm",
@@ -64,15 +64,15 @@ if platform.system() == "Windows":
     params.append("--windowed")
 
 PyInstaller.__main__.run(params)
-os.makedirs("desktop/bin/darkroompy", exist_ok=True)
+os.makedirs("desktop/bin/negativepy", exist_ok=True)
 
 if platform.system() == "Windows":
-    dist_name = "darkroompy.exe"
+    dist_name = "negativepy.exe"
 else:
-    dist_name = "darkroompy"
+    dist_name = "negativepy"
 
 src_path = os.path.join("dist", dist_name)
-dst_path = os.path.join("desktop/bin/darkroompy", dist_name)
+dst_path = os.path.join("desktop/bin/negativepy", dist_name)
 
 if os.path.exists(src_path):
     if os.path.exists(dst_path):

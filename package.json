@@ -1,7 +1,7 @@
 {
-  "name": "darkroompy",
+  "name": "negativepy",
   "version": "0.8.1",
-  "description": ">We have darkroom at home. >Darkroom at home: DarkroomPy",
+  "description": ">We have darkroom at home. >Darkroom at home: NegativePy",
   "main": "desktop/main.js",
   "scripts": {
     "start": "electron .",
@@ -19,8 +19,8 @@
     "electron-builder": "^26.4.0"
   },
   "build": {
-    "appId": "com.darkroom.py",
-    "productName": "DarkroomPy",
+    "appId": "com.negative.py",
+    "productName": "NegativePy",
     "directories": {
       "output": "dist",
       "buildResources": "media"
@@ -29,13 +29,13 @@
       "desktop/main.js",
       "desktop/splash.html",
       "desktop/error.html",
-      "desktop/bin/darkroompy/**/*",
+      "desktop/bin/negativepy/**/*",
       "media/**/*"
     ],
     "extraResources": [
       {
-        "from": "desktop/bin/darkroompy",
-        "to": "darkroompy",
+        "from": "desktop/bin/negativepy",
+        "to": "negativepy",
         "filter": [
           "**/*"
         ]
@@ -58,7 +58,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
-      "shortcutName": "DarkroomPy",
+      "shortcutName": "NegativePy",
       "installerIcon": "media/icons/icon.ico",
       "uninstallerIcon": "media/icons/icon.ico"
     },

@@ -17,13 +17,12 @@ if __name__ == "__main__":
     else:
         bundle_dir = os.path.dirname(os.path.abspath(__file__))
 
-    user_dir = os.environ.get("DARKROOM_USER_DIR")
+    user_dir = os.environ.get("NEGATIVEPY_USER_DIR")
     if not user_dir:
-        if os.path.exists("/.dockerenv"):
-            user_dir = "/app/user"
-        else:
-            user_dir = os.path.join(os.getcwd(), "user")
-        os.environ["DARKROOM_USER_DIR"] = user_dir
+        # Standard fallback for development
+        docs = Path.home() / "Documents"
+        user_dir = str(docs / "NegativePy")
+        os.environ["NEGATIVEPY_USER_DIR"] = user_dir
 
     if not os.path.exists(user_dir):
         os.makedirs(user_dir, exist_ok=True)

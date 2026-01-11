@@ -84,7 +84,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: darkroompy-${{ matrix.os }}-${{ github.event.inputs.version }}
+          name: negativepy-${{ matrix.os }}-${{ github.event.inputs.version }}
           path: |
             dist/*.exe
             dist/*.dmg
@@ -101,7 +101,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: all-binaries
-          pattern: darkroompy-*
+          pattern: negativepy-*
           merge-multiple: true
 
       - name: Display structure of downloaded files
@@ -111,7 +111,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version }}
-          name: DarkroomPy ${{ github.event.inputs.version }}
+          name: NegativePy ${{ github.event.inputs.version }}
           draft: false
           prerelease: false
           files: |
