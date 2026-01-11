@@ -56,6 +56,10 @@ Windows might show a "Windows protected your PC" window.
 2.  Click **Run anyway**.
 3.  Because proper startup process was blocked, you might get white screen on first run. Just close and restart the app (if it minimizes to tray right click and quit).
 
+
+#### **⚠️ Important**
+App is compiling functions to machine code on startup, so it might take a while to start up on slower CPUs.
+
 ---
 
 ## 🦮 User Guide
