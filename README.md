@@ -33,7 +33,7 @@
 ## 🚀 Getting Started
 
 ### Download the App
-Grab the app for your OS from the **[Releases Page](https://github.com/marcinz606/negative-py/releases)**.
+Grab the app for your OS from the **[Releases Page](https://github.com/marcinz606/NegativePy/releases)**.
 
 
 #### **🐧 Linux**
