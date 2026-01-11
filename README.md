@@ -6,6 +6,8 @@
 
 ## ✨ Basic Features
 
+- **Math-based Inversion**: No camera profiles (DCP) or "film base color picking" required. We use per-channel sensitometric normalization to automatically neutralize the orange mask.
+- **Physical Modeling**: We don't just "invert colors." We simulate the physics of a darkroom print using a Logistic Sigmoid function to model the **H&D Characteristic Curve** of film & photographic paper.
 - **File support**: Supports raw formats that you would expect, tiff but also weird Planar RAW from Kodak Pakon scanner.
 - **Hot folder**: Optionally watch folder for new files and load them automatically.
 - **Non-destructive**: It doesn't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
@@ -23,31 +25,8 @@ Most important part, the image goes through a 7-stage simulation:
 
 [📖 Read about the math behind the pipeline](docs/PIPELINE.md)
 
-1.  **Geometry**: Auto-rotates and auto-crops to standard ratios (3:2, 6:7, etc.) by detecting the film borders.
-    you can also choose to keep the full frame in final output.
-2.  **Normalization**: Strips away the film base (D-min) to get a clean signal.
-3.  **Photometric Engine**:
-    *   **Inversion**: Uses a sigmoid curve that mimics H&D film characteristic curves.
-    *   **Auto-Exposure**: Tries to find a good starting point (Zone V) automatically.
-    *   **Color**: Subtractive CMY filtration, just like a color enlarger head.
-4.  **Retouching**:
-    *   **Dust Removal**: Automatic median-based healing or manual "spotting" with grain matching.
-    *   **Dodge & Burn**: Classic local exposure tools with soft luminance masking.
-5.  **Lab Tools**:
-    *   **Color Separation**: Fixes color purity by un-mixing dye overlap.
-    *   **Hypertone**: A local contrast boost (similar to Fuji Frontier scanners).
-    *   **Luma sharpening**: Sharpens the image without affecting grain and color.
-6.  **Toning**:
-    *   **Paper**: Simulates different paper bases (Warm, Cool, Glossy).
-    *   **Chemistry**: Simulates Selenium or Sepia toning for archival looks (for B&W mode).
-7.  **Output**: Exports your final print.
 
 ---
-
-## Roadmap
-I have some more ideas for next features & improvements:
-
-[ROADMAP.md](docs/ROADMAP.md)
 
 ## 🚀 Getting Started
 
@@ -91,6 +70,14 @@ DarkroomPy keeps everything in your **Documents/DarkroomPy** folder:
 - **`settings.db`**: Global settings like export size, image preview size etc.
 - **`cache/`**: Thumbnails & performance logs (safe to delete).
 - **`export/`**: Where your finished positives go by default.
+- **`icc/`**: Where your loaded ICC profiles go.
+
+---
+
+## Roadmap
+I have some more ideas for next features & improvements:
+
+[ROADMAP.md](docs/ROADMAP.md)
 
 ---
 
