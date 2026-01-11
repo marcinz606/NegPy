@@ -44,31 +44,11 @@ def test_geometry_processor_manual_offset():
 
 
 def test_get_autocrop_coords_assisted():
-    # Create an image where "film base" is 0.94 luma
-    # Default threshold 0.96 would detect the entire image as "latent image"
-    # because 0.94 < 0.96.
+    # Verify that providing an assist luma (film base) improves crop detection
     img = np.ones((100, 100, 3), dtype=np.float32) * 0.94
-    # "Image" area is 0.5
     img[20:80, 20:80] = 0.5
 
-    # Without assist, it might fail to find a proper crop or crop to full image
     roi_no_assist = get_autocrop_coords(img)
-    # Actually if everything is < 0.96, rows_det will be [0...99]
-    # margin will be applied to 0 and 99.
-    # We just want to see that assist CHANGED it.
-
-    # With assist (pointing to 0.94 area)
-    # threshold will be 0.94 + 0.02 = 0.96.
-    # Wait, if assist_luma is 0.94, threshold is 0.96. Still 0.94 < 0.96.
-    # I should use a lower threshold or different assist luma.
-    # If I click on 0.94, I expect the threshold to be slightly LOWER than 0.94?
-    # No, we want to find stuff DARKER than the film base.
-    # If film base is 0.94, and latent image starts at say 0.90.
-    # We want threshold to be say 0.92.
-
-    # Let's change the logic in logic.py: threshold = assist_luma - 0.02?
-    # If I click on film base (0.94), I want to detect stuff < 0.92.
-
     roi_assist = get_autocrop_coords(img, assist_luma=0.94)
     assert roi_assist != roi_no_assist
 

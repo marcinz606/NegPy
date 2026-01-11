@@ -40,9 +40,6 @@ class WorkspaceSession:
         Synchronizes the session's file list with the provided set of file names.
         Only affects 'managed' assets (those in the cache).
         """
-        # In this architecture, we know that assets in the cache_dir are managed by UI
-        # We need to access cache_dir from the asset_store.
-        # Since IAssetStore is a Protocol, we might need a runtime check or cast.
         cache_dir = getattr(self.asset_store, "cache_dir", "")
 
         managed_files = [
@@ -54,7 +51,6 @@ class WorkspaceSession:
         last_managed_names = {f["name"] for f in managed_files}
         new_names = current_uploaded_names - last_managed_names
 
-        # 1. Add new uploads
         if new_names:
             for f in raw_files:
                 if f.name in new_names:
@@ -65,7 +61,6 @@ class WorkspaceSession:
                             {"name": f.name, "path": cached_path, "hash": f_hash}
                         )
 
-        # 2. Remove only managed files that are no longer in the uploader
         removed_from_widget = last_managed_names - current_uploaded_names
         if removed_from_widget:
             self.uploaded_files = [
@@ -107,8 +102,6 @@ class WorkspaceSession:
         # Start with the static default
         defaults = DEFAULT_WORKSPACE_CONFIG.to_dict()
 
-        # Enforce dynamic defaults that might depend on env vars
-        # This fixes the issue where default_factory in models.py uses hardcoded "export"
         if "export_path" in defaults:
             defaults["export_path"] = APP_CONFIG.default_export_dir
 

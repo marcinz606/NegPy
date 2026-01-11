@@ -30,7 +30,6 @@ def pick_files(initial_dir: Optional[str] = None) -> None:
             ("All files", "*.*"),
         ],
     )
-    # Ensure pure output
     output = json.dumps([os.path.abspath(p) for p in file_paths])
     sys.stdout.write(output + "\n")
     sys.stdout.flush()

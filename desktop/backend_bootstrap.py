@@ -1,11 +1,8 @@
-# This script is used to bootstrap the python app
-# within Electron environment.
 import os
 import sys
 import streamlit.web.cli as stcli
 from src.kernel.system.logging import init_streams
 
-# Ensure stdout and stderr are not None (windows specific workaround)
 init_streams()
 
 

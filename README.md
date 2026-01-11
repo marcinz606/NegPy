@@ -54,27 +54,36 @@ I have some more ideas for next features & improvements:
 ### Download the App
 Grab the app for your OS from the **[Releases Page](https://github.com/marcinz606/darkroom-py/releases)**.
 
-### 🛡️ Installation & Security
-Because DarkroomPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them $ for that). You will see a security warning the first time you run it.
 
-#### **Linux**
+#### **🐧 Linux**
 
 I supply a .AppImage file for Linux, it should work out of the box. Here is [quick guide](https://docs.appimage.org/introduction/quickstart.html) if you never used AppImage before
 
-#### **macOS**
+I will also add it to Arch User Repository (AUR) as soon as I get around to it.
+
+### 🛡️ Installation & Security
+Because DarkroomPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them $ for that). You will see a security warning the first time you run it.
+
+#### **🍎 MacOS**
 When you open the app, you may see a message saying it is "corrupted" or from an "unidentified developer."
 1.  Drag **DarkroomPy** to your `/Applications` folder.
 2.  **Right-Click** (or Ctrl+Click) the app icon and select **Open**.
 3.  When the dialog appears, click **Open** again.
 4.  *Alternatively*, run this in your Terminal: `xattr -cr /Applications/DarkroomPy.app`
 
-#### **Windows**
+#### **🪟 Windows**
 Windows might show a "Windows protected your PC" window.
 1.  Click **More info**.
 2.  Click **Run anyway**.
 3.  Because proper startup process was blocked, you might get white screen on first run. Just close and restart the app (if it minimizes to tray right click and quit).
 
 ---
+
+## 🦮 User Guide
+
+Short guide on how to use the app:
+
+[WORKFLOW.md](docs/WORKFLOW.md) 
 
 ## 📂 Where's my data?
 DarkroomPy keeps everything in your **Documents/DarkroomPy** folder:

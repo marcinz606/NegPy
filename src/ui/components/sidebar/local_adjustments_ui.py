@@ -13,7 +13,6 @@ def render_local_adjustments() -> None:
     with st.expander(":material/pen_size_5: Dodge & Burn", expanded=False):
         st.subheader("Adjustment Masks")
 
-        # Layer Management
         c1, c2 = st.columns([2, 1])
         if c1.button("Add Mask", width="stretch"):
             new_adj = LocalAdjustmentConfig(
@@ -32,7 +31,6 @@ def render_local_adjustments() -> None:
             st.rerun()
 
         if st.session_state.get("local_adjustments"):
-            # List layers
             adj_names = [
                 f"{i + 1}. ({'Dodge' if a.strength > 0 else 'Burn' if a.strength < 0 else 'Neutral'})"
                 for i, a in enumerate(st.session_state.local_adjustments)
@@ -54,7 +52,6 @@ def render_local_adjustments() -> None:
             st.session_state.active_adjustment_idx = selected_idx
             active_adj = st.session_state.local_adjustments[selected_idx]
 
-            # Layer controls
             c1, c2 = st.columns(2)
             if c2.button("Delete Layer", width="stretch"):
                 st.session_state.local_adjustments.pop(selected_idx)
@@ -62,7 +59,6 @@ def render_local_adjustments() -> None:
                 st.session_state.active_adjustment_idx = max(0, selected_idx - 1)
                 st.rerun()
 
-            # Brush controls
             st.markdown("---")
 
             # Ensure state is synced for dynamic keys before rendering to avoid warnings
@@ -132,7 +128,6 @@ def render_local_adjustments() -> None:
                 "Show Mask Overlay", default_val=True, key="show_active_mask"
             )
 
-            # Mode toggle
             render_control_checkbox(
                 ":material/brush: Paint Mode",
                 default_val=False,

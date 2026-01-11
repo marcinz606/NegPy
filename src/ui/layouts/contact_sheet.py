@@ -15,10 +15,6 @@ def render_contact_sheet() -> None:
     # Use a scrollable container with fixed height suitable for ~1 row when stuck to bottom
     with st.container(height=250):
         ts = APP_CONFIG.thumbnail_size
-        # Dynamically calculate number of columns based on thumbnail size and container width
-        # Assuming sidebar is ~300px and main is ~1200px.
-        # But for simplicity, we can just use more columns or let streamlit handle it.
-        # Let's use 10 columns for smaller thumbs.
         num_cols = 12
         uploaded_files = session.uploaded_files
         for i in range(0, len(uploaded_files), num_cols):
