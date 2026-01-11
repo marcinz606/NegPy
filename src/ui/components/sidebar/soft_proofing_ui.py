@@ -37,8 +37,9 @@ def render_soft_proofing() -> None:
             default_val=session.icc_profile_path or "None",
             key="soft_proof_icc",
             format_func=lambda x: os.path.basename(x) if x != "None" else "None",
-            help_text=("Select an ICC profile to use for soft proofing."
-            "You can put your own profiles in the `icc` folder in the user directory. (Documents/DakroomPy)"
+            help_text=(
+                "Select an ICC profile to use for soft proofing."
+                "You can put your own profiles in the `icc` folder in the user directory. (Documents/DakroomPy)"
             ),
         )
 

@@ -57,6 +57,7 @@ params = [
     f"--add-data={streamlit_image_coordinates_dir}:streamlit_image_coordinates",
     # Config for streamlit
     "--add-data=.streamlit:.streamlit",
+    "--add-data=VERSION:.",
 ]
 
 if platform.system() == "Windows":

@@ -23,6 +23,7 @@ redColor = "#b10000"
 blueColor = "#00b1b1" # remap to cyan for cmy slider
 violetColor = "#b100b1" # remap to magenta for cmy slider
 yellowColor = "#b1b100"
+grayColor = "#4c4c4c"
 
 
 # Widgets
@@ -34,6 +35,7 @@ font = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@300..700&dis
 baseFontWeight = 400
 baseFontSize = 16
 headingFont = "Inter"
+headingFontSizes = ["1.8rem", "1.7rem", "1.6rem", "1.5rem", "1.3rem", "1rem"]
 
 [client]
 toolbarMode = "minimal"

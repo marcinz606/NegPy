@@ -1,6 +1,6 @@
 {
   "name": "darkroompy",
-  "version": "0.1.0",
+  "version": "0.8.1",
   "description": ">We have darkroom at home. >Darkroom at home: DarkroomPy",
   "main": "desktop/main.js",
   "scripts": {

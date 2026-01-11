@@ -7,10 +7,8 @@ from src.features.lab.models import LabConfig
 from src.features.retouch.models import RetouchConfig
 from src.features.toning.models import ToningConfig
 
-# User dir env (mapped to OS Documents folder)
-BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
 
-# Global application constants
+BASE_USER_DIR = os.path.abspath(os.getenv("DARKROOM_USER_DIR", "user"))
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
     max_workers=max(1, (os.cpu_count() or 1)),
@@ -24,7 +22,7 @@ APP_CONFIG = AppConfig(
     adobe_rgb_profile="icc/AdobeCompat-v4.icc",
 )
 
-# The modular default configuration for every newly imported RAW file
+
 DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     process_mode="C41",
     exposure=ExposureConfig(

@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image
 from typing import Any, Tuple
 from src.ui.state.session_context import SessionContext
+from src.kernel.system.version import get_app_version
 from src.ui.state.view_models import SidebarState
 from src.ui.layouts.contact_sheet import render_contact_sheet
 from src.ui.layouts.image_view import render_image_view
@@ -32,13 +33,18 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
 
     main_area = st.container()
     with main_area:
-        c_logo, c_status, c_slider = st.columns([1, 4, 1])
+        c_logo, c_status, c_empty, c_slider = st.columns([2.5, 5, 1.25, 1.25])
         with c_logo:
-            st.title(":red[:material/camera_roll:] DarkroomPy")
+            version = get_app_version()
+            st.title(
+                f":red[:material/camera_roll:] DarkroomPy :grey[{version}]",
+                width="stretch",
+            )
         with c_status:
-            status_container = st.container(height=48, border=False)
+            status_container = st.container(height=48, border=False, width="stretch")
             status_area = status_container.empty()
-
+        with c_empty:
+            pass
         with c_slider:
             st.slider(
                 "Display Size",
