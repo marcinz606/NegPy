@@ -1,6 +1,6 @@
-# User Guide: The NegativePy Workflow
+# User Guide: The NegPy Workflow
 
-This guide walks you through the typical workflow of processing a RAW film scan in NegativePy, from importing your negatives to exporting a finished digital print.
+This guide walks you through the typical workflow of processing a RAW film scan in NegPy, from importing your negatives to exporting a finished digital print.
 
 
 ## 0. General Information
@@ -13,24 +13,24 @@ By default app closes to the system tray when you close the window. To kill it c
 
 ## 1. Importing Files
 
-NegativePy supports a variety of RAW formats (`.dng`, `.nef`, `.arw`, etc.) as well as TIFF files.
+NegPy supports a variety of RAW formats (`.dng`, `.nef`, `.arw`, etc.) as well as TIFF files.
 
 ### Manual Import
-Use the **Files** section in the sidebar to pick individual files or a whole folder. NegativePy calculates a unique hash for each file, so your edits remain linked even if you move or rename the files later.
+Use the **Files** section in the sidebar to pick individual files or a whole folder. NegPy calculates a unique hash for each file, so your edits remain linked even if you move or rename the files later.
 
 ### Hot Folder Mode
-If you are scanning in real-time, enable **Hot Folder Mode**. Select the directory where your scanner saves files, and NegativePy will automatically load new images into the film strip.
+If you are scanning in real-time, enable **Hot Folder Mode**. Select the directory where your scanner saves files, and NegPy will automatically load new images into the film strip.
 
 ---
 
 ## 2. The Processing Pipeline
 
-NegativePy uses a non-destructive pipeline. Your original RAW files are never touched; instead, a set of instructions is applied in a specific order to generate the preview and the final export.
+NegPy uses a non-destructive pipeline. Your original RAW files are never touched; instead, a set of instructions is applied in a specific order to generate the preview and the final export.
 
 ### Step A: Geometry & Composition
 Before adjusting colors, fix the orientation and framing.
 - **Rotation**: Rotate the image in 90° increments.
-- **Auto-Crop**: NegativePy attempts to detect the film borders automatically. If the detection fails (common with thin negatives), use the **Manual Assist** tool to click on the film base area.
+- **Auto-Crop**: NegPy attempts to detect the film borders automatically. If the detection fails (common with thin negatives), use the **Manual Assist** tool to click on the film base area.
 - **Aspect Ratio**: Choose standard ratios like 3:2, 6:7, or 4:5.
 - **Keep Full Frame**: Toggle this if you want to see the film borders and sprockets in your final print.
 
@@ -48,7 +48,7 @@ This is the heart of the app. It simulates the response of film & photographic p
 ### Step C: Retouching
 - **Dust Removal**: 
     - **Auto**: Detects and heals small dust specs automatically. You can play with detection threshold to fine-tune the results. Setting it too low might accidentally remove fine detail in the highlights misinterpreting it as dust.
-    - **Manual Spotting**: Click on the image to remove larger distractions. NegativePy synthesizes matching grain to hide the repair.
+    - **Manual Spotting**: Click on the image to remove larger distractions. NegPy synthesizes matching grain to hide the repair.
 - **Dodge & Burn**: Add local adjustment layers. Use the brush to paint exposure changes on specific areas. You can use **Luminance Masking** to ensure your "Burn" only affects the highlights.
 
 ### Step D: Photo Lab Tools
@@ -61,15 +61,15 @@ Optionally simulate different paper types and chemical toning (Selenium and Sepi
 
 ## 3. Managing Your Session
 - **Copy/Paste Settings**: Use the buttons on side panelto copy settings from one frame and apply them to another. You can also easily reset the settings to default.
-- **Presets**: Save your favorite "look" as a JSON preset to reuse later. Files are saved in `Documents/NegativePy/presets`. As simple json that you can edit "offline".
+- **Presets**: Save your favorite "look" as a JSON preset to reuse later. Files are saved in `Documents/NegPy/presets`. As simple json that you can edit "offline".
 
 ---
 
 ## 4. Exporting the Print
 
 The Export module is designed to prepare your file for physical printing or high-quality sharing.
-- **Print Size & DPI**: Specify the physical size of long edge (e.g., 30cm @ 300 DPI). NegativePy handles the math.
-- **Soft Proofing**: Preview how your image will look when printed by loading your lab's `.icc` profile (Put it in `Documents/NegativePy/icc`)
+- **Print Size & DPI**: Specify the physical size of long edge (e.g., 30cm @ 300 DPI). NegPy handles the math.
+- **Soft Proofing**: Preview how your image will look when printed by loading your lab's `.icc` profile (Put it in `Documents/NegPy/icc`)
 - **Borders**: Add a clean white (or custom) border. The border is added *inside* the target print size, ensuring it fits your paper perfectly.
 - **Format**: Export to high-quality JPEG or 16-bit TIFF in sRGB, AdobeRGB or Greyscale color space.
 - **File Name**: You can template output file names using Jinja2 templating (see the tooltip for more info)

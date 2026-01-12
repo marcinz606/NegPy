@@ -39,7 +39,7 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
         with c_logo:
             version = get_app_version()
             st.title(
-                f":red[:material/camera_roll:] NegativePy :grey[{version}]",
+                f":red[:material/camera_roll:] NegPy :grey[{version}]",
                 width="stretch",
             )
         with c_status:

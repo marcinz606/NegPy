@@ -1,14 +1,14 @@
 services:
-  negative-py:
+  negpy:
     build:
       context: .
       network: host
-    container_name: negative-py
+    container_name: negpy
     ports:
       - "8501:8501"
     volumes:
       - ./:/app
-      - ${NEGATIVEPY_HOST_DIR}:/app/user
+      - ${NEGPY_HOST_DIR}:/app/user
     environment:
-      - NEGATIVEPY_USER_DIR=user
+      - NEGPY_USER_DIR=user
     restart: unless-stopped

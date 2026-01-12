@@ -16,7 +16,7 @@ streamlit_image_coordinates_dir = os.path.dirname(streamlit_image_coordinates.__
 # build params
 params = [
     "desktop/backend_bootstrap.py",  # electron entry point
-    "--name=negativepy",
+    "--name=negpy",
     "--onefile",
     "--clean",
     "--noconfirm",
@@ -47,6 +47,8 @@ params = [
     "--hidden-import=tifffile",
     "--hidden-import=streamlit_image_coordinates",
     "--hidden-import=jinja2",
+    "--hidden-import=tkinter",
+    "--hidden-import=_tkinter",
     # Include the main app logic
     "--add-data=app.py:.",
     "--add-data=src:src",
@@ -64,15 +66,15 @@ if platform.system() == "Windows":
     params.append("--windowed")
 
 PyInstaller.__main__.run(params)
-os.makedirs("desktop/bin/negativepy", exist_ok=True)
+os.makedirs("desktop/bin/negpy", exist_ok=True)
 
 if platform.system() == "Windows":
-    dist_name = "negativepy.exe"
+    dist_name = "negpy.exe"
 else:
-    dist_name = "negativepy"
+    dist_name = "negpy"
 
 src_path = os.path.join("dist", dist_name)
-dst_path = os.path.join("desktop/bin/negativepy", dist_name)
+dst_path = os.path.join("desktop/bin/negpy", dist_name)
 
 if os.path.exists(src_path):
     if os.path.exists(dst_path):
