@@ -30,7 +30,11 @@ def pick_files(initial_dir: Optional[str] = None) -> None:
         title="Select RAW Files",
         initialdir=start_dir,
         filetypes=[
-            ("RAW files", "*.dng *.tiff *.tif *.nef *.arw *.raw *.raf"),
+            (
+                "RAW files",
+                "*.dng *.DNG *.tiff *.TIFF *.tif *.TIF *.nef *.NEF "
+                "*.arw *.ARW *.raw *.RAW *.raf *.RAF",
+            ),
             ("All files", "*.*"),
         ],
     )
