@@ -13,27 +13,34 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
 
 ---
 
-## 2. Normalization
+## 2. Scan Normalization
 **Code**: `src.features.exposure.normalization`
 
-* **Logarithmic Conversion**: Digital cameras see light linearly; film sees it logarithmically. We convert the raw data to **Optical Density** using the standard formula $D = -\log_{10}(T)$.
-* **Finding Bounds**: We calculate the "floor" (0.5th percentile) and "ceiling" (99.5th percentile) of the image data.
-* **Normalization**: We stretch that range to `0.0 - 1.0`. This effectively strips away the film base so the rest of the pipeline works on pure image data.
+* **Physical Model**: We treat the input image not as a digital photo, but as a **radiometric measurement of the negative**. The sensor data represents light passing through the film density.
+* **Logarithmic Inversion**: Since film density is logarithmic ($D \propto \log E$), and the scanner sensor is linear, we must mathematically invert the signal to recover the latent image:
+  $$E_{log} = \log_{10}(I_{scan})$$
+* **D-Min / D-Max Calibration**: We analyze the scan to find the physical boundaries of the film strip:
+  * **Floor ($P_{0.5}$):** The film base + fog (unexposed celluloid).
+  * **Ceiling ($P_{99.5}$):** The densest highlight on the negative.
+* **Normalization**: We stretch these bounds to $[0, 1]$. This effectively subtracts the orange film base and standardizes the density range, ensuring the next stage processes only the captured image data.
 
 ---
 
-## 3. Photometric Exposure
+## 3. Photometric Exposure (The "Print")
 **Code**: `src.features.exposure`
 
-* **Concept**: This is the key part of the pipeline. We don't use a simple linear inversion. We model the response based on [H&D Curve](https://www.shutterbug.com/content/darkroombrwhat-do-those-h-and-d-curves-really-mean), simulating how the film emulsion and darkroom paper respond to light, effectively making a **positive print**.
-* **Filtration**: We subtract C/M/Y offsets from the density values *before* the curve
-* **The Math**: We model the paper response using a **Logistic Sigmoid Function**:
-    $$D_{out} = \frac{L}{1 + e^{-k(x - x_0)}}$$
-    * $k$ is your Contrast Grade.
-    * $x_0$ is your Exposure Pivot (Zone V).
-* **The Toe (Shadows)**: The curved bottom part of the graph (low input, low output). This controls the deep shadows. By gently curving out of black, we ensure rich shadows without "crushing" texture immediately to zero.
-* **Linear Region (Gamma)**: The straight middle part. The slope of this line ($\gamma$) defines the contrast. A steep slope means high contrast (Hard Grade); a shallow slope means low contrast (Soft Grade).
-* **The Shoulder (Highlights)**: The curved top part of the graph (high input, high output). This rolls off the bright values gently. Instead of clipping harsh white (255), the highlights compress smoothly, mimicking the way photographic paper gradually loses its ability to reflect light.
+* **Virtual Darkroom**: This stage simulates the **optical printing process**. We are effectively shining light through the normalized "digital negative" onto virtual photographic paper to create a Positive.
+* **Color Timing**: Before the print is made, subtractive filtration (CMY) is applied to the digital negative to correct color casts, mimicking the usage of a dichroic color enlarger head.
+* **The H&D Model**: We model the paper's response using the **Hurter–Driffield Characteristic Curve**. For a given negative density $x$, the resulting print density $D$ is calculated via a **Logistic Sigmoid**:
+  $$D_{print} = \frac{D_{max}}{1 + e^{-k \cdot (x - x_0)}}$$
+    * $D_{max}$: The deepest black the paper can achieve.
+    * $k$: The paper contrast grade (slope).
+    * $x_0$: The exposure time (Mid-gray point).
+* **Slope Modulation (Toe & Shoulder)**: To capture the "analog look," the slope $k$ is dynamically modulated at the extremes to shape the positive image:
+    * **Toe (Shadows)**: Controls the bottom of the curve (deep blacks). A softer toe ensures rich shadows without crushing texture immediately to zero.
+    * **Shoulder (Highlights)**: Controls the top of the curve (bright whites). This rolls off highlights smoothly, simulating the chemical saturation limit of the paper emulsion.
+* **Final Visualization**: The calculated print density is converted to reflected light (Transmittance) and gamma-corrected for display/digital printing:
+  $$I_{out} = (10^{-D_{print}})^{1/\gamma}$$
 
 The sliders in the Exposure & Tonality UI allow you to control the parameters of this curve (aka "your print"). You can observe the effect on the plotted curve, histogram, and the preview image itself.
 
@@ -44,13 +51,16 @@ The sliders in the Exposure & Tonality UI allow you to control the parameters of
 ## 4. Retouching (Dodge, Burn & Spot)
 **Code**: `src.features.retouch`
 
-* **Healing (Dust)**:
-    * **Auto**: We look for high-frequency spikes (dust is sharp and small) and swap them with median values from the neighbors.
-    * **Manual**: We use **Telea Inpainting**. To prevent the healed spot from looking too smooth or blurred, we synthesize fake grain and blend it back in to match the surrounding texture.
-* **Local Adjustments**:
-    * **Masks**: We generate masks from your brush strokes.
-    * **Luminosity Masks**: We can restrict the mask to specific luminance ranges (e.g., "only affect the bright stuff").
-    * **Application**: Mathematically, dodging/burning is applying a local multiplier to the light intensity *after* the exposure curve but *before* the final output.
+* **Restoration (Dust & Scratch)**:
+    * **Auto-Detection**: We perform statistical analysis of the local texture. The algorithm calculates the local standard deviation ($\sigma$) to distinguish between actual image detail and defects. Dust is identified only where the pixel deviation exceeds a threshold modulated by local flatness:
+      $$|I - \text{median}(I)| > T \cdot f(\sigma)$$
+    * **Grain Re-synthesis**: When manually healing spots (using **Telea Inpainting**), simple blurring creates "plastic" artifacts. We solve this by injecting synthetic grain back into the healed area. The noise intensity is modulated by luminance ($L \cdot (1-L)$) to mimic the physics of film grain visibility (strongest in midtones).
+* **Local Adjustments (Dodge & Burn)**:
+    * **Geometry & Range**: Adjustments are defined by vector strokes converted to masks. These can be constrained by **Luminosity Masking** (e.g., "Burn only the highlights") using a soft-ramp function defined by range $[low, high]$ and softness $S$.
+    * **Photometric Math**: we apply a true **Exposure Value (EV) Offset**. The pixel intensity is multiplied exponentially akin to increasing/decreasing exposure time in the darkroom:
+      $$I_{out} = I_{in} \cdot 2^{(\text{strength} \cdot \text{mask})}$$
+      * A `strength` of +1.0 doubles the light (adds 1 Stop).
+      * A `strength` of -1.0 halves the light (subtracts 1 Stop).
 
 ---
 
