@@ -3,7 +3,7 @@
 </div>
 
 
-**NegPy** is an open-source tool for processing film negatives. I built it because I wanted something made specifically for film scans but going beyond being simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
+**NegPy** is an open-source tool for processing film negatives. I built it because I wanted something made specifically for film scans but going beyond being a simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
 
 ---
 
@@ -14,14 +14,14 @@
 
 - **Math-based Inversion**: No camera profiles (DCP) or "film base color picking" required. It uses per-channel sensitometric normalization to automatically neutralize the orange mask.
 - **Physical Modeling**: It doesn't just linearly "invert colors". It simulates the physics of a darkroom print using a Logistic Sigmoid function to model the **H&D Characteristic Curve** of film & photographic paper.
-- **File support**: Supports raw formats that you would expect, tiff but also weird Planar RAW from Kodak Pakon scanner.
-- **Hot folder**: Optionally watch folder for new files and load them automatically.
+- **File support**: Supports raw formats that you would expect, tiff but also weird Planar RAW files from the Kodak Pakon scanner.
+- **Hot folder**: Optionally watch a folder for new files and load them automatically.
 - **Non-destructive**: It doesn't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
 - **Copy-paste**: Copy-paste settings between images.
 - **Presets**: Save your favorite settings as presets. Presets are saved in JSON format so they can be easily shared.
 - **Caching**: Thumbnails for film strip view are processed once are cached locally, so it feels snappy even with large libraries.
-- **Persistence**: All your edits are tied to hashes calcualated based on file contents (so won't be lost when you rename/move files) and stored in local SQLite database, moving them between computers is as simple as copying the database file.
-- **Print preparation**: Export module is tailored towards getting your scans printed. We export with certain print size & DPI in mind, have very convinitent way to add border (while keeping target size) and also soft-proofing module to preview image with applied .icc profile.
+- **Persistence**: All your edits are tied to hashes calculated based on file contents (so won't be lost when you rename/move files) and stored in local SQLite database, moving them between computers is as simple as copying the database file.
+- **Print preparation**: Export module is tailored towards getting your scans printed. We export with certain print size & DPI in mind, have very convenient way to add border (while keeping target size) and also soft-proofing module to preview image with applied .icc profile.
 
 ---
 
@@ -48,8 +48,8 @@ I will also add it to Arch User Repository (AUR) as soon as I get around to it.
 Because NegPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them ransom for that). You will see a security warning the first time you run it.
 
 #### **🍎 MacOS**
-When you first try to open the app, you may see a message saying it is "corrupted" or from an "unidentified developer.". There is way around that **in point 2**
-1.  Doubleclick `.dng` **NegPy** and drag it to your `/Applications` folder.
+When you first try to open the app, you may see a message saying it is "corrupted" or from an "unidentified developer.". There is a way around that **in point 2**
+1.  Double-click `.dng` **NegPy** and drag it to your `/Applications` folder.
 2.  **Run this in your Terminal**: `xattr -cr /Applications/NegPy.app`
 3.  After that you should be able to just start the app normally.
 
@@ -63,7 +63,7 @@ Windows might show a "Windows protected your PC" window.
 ## Tips
 
 * You can scale the UI using `ctrl +` and `ctrl -` shortcuts. (`cmd +` and `cmd -` on MacOS)
-* Your edits to current file are saved on export or on switching to different file. If you close the app without exporting or switching to different sile edits might be lost.
+* Your edits to current file are saved on export or on switching to different file. If you close the app without exporting or switching to a different file edits might be lost.
 
 
 ## 📂 Where's my data?

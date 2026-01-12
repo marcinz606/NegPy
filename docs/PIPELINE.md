@@ -44,7 +44,7 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
 
 The sliders in the Exposure & Tonality UI allow you to control the parameters of this curve (aka "your print"). You can observe the effect on the plotted curve, histogram, and the preview image itself.
 
-***There is no one right way on how the print should look like, automatic exposure is just a neutral starting point that you can adjust to your liking.***
+***There is no one right way on how the print should look, automatic exposure is just a neutral starting point that you can adjust to your liking.***
 
 ---
 
@@ -57,7 +57,7 @@ The sliders in the Exposure & Tonality UI allow you to control the parameters of
     * **Grain Re-synthesis**: When manually healing spots (using **Telea Inpainting**), simple blurring creates "plastic" artifacts. We solve this by injecting synthetic grain back into the healed area. The noise intensity is modulated by luminance ($L \cdot (1-L)$) to mimic the physics of film grain visibility (strongest in midtones).
 * **Local Adjustments (Dodge & Burn)**:
     * **Geometry & Range**: Adjustments are defined by vector strokes converted to masks. These can be constrained by **Luminosity Masking** (e.g., "Burn only the highlights") using a soft-ramp function defined by range $[low, high]$ and softness $S$.
-    * **Photometric Math**: we apply a true **Exposure Value (EV) Offset**. The pixel intensity is multiplied exponentially akin to increasing/decreasing exposure time in the darkroom:
+    * **Photometric Math**: We apply a true **Exposure Value (EV) Offset**. The pixel intensity is multiplied exponentially akin to increasing/decreasing exposure time in the darkroom:
       $$I_{out} = I_{in} \cdot 2^{(\text{strength} \cdot \text{mask})}$$
       * A `strength` of +1.0 doubles the light (adds 1 Stop).
       * A `strength` of -1.0 halves the light (subtracts 1 Stop).
@@ -82,7 +82,7 @@ L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L, \text{clip}=2.5\
 $$
 
 *  This is functionally similar to the "Hypertone" feature found in Fuji Frontier scanners.
-* **Luma Sharpening**: The algorithm implements Luminance-Preserving Unsharp Masking in the CIELAB color space. It isolates the $L$ channel and applies a high-pass filter: $L' = L + \lambda(L - G_\sigma * L)$, subject to a noise threshold $|\Delta| > 2.0$. The chrominance channels $a$ and $b$ remain mathematically invariant to prevent saturation artifacts..
+* **Luma Sharpening**: The algorithm implements Luminance-Preserving Unsharp Masking in the CIELAB color space. It isolates the $L$ channel and applies a high-pass filter: $L' = L + \lambda(L - G_\sigma * L)$, subject to a noise threshold $|\Delta| > 2.0$. The chrominance channels $a$ and $b$ remain mathematically invariant to prevent saturation artifacts.
 
 ---
 
