@@ -6,7 +6,6 @@ const fs = require('fs');
 let mainWindow;
 let splashWindow;
 let backendProcess;
-let tray = null;
 const isPackaged = app.isPackaged;
 const port = 8501;
 const ICON_PATH = path.join(__dirname, '..', 'media', 'icons', os.platform() === 'win32' ? 'icon.ico' : 'icon.png');
@@ -127,44 +126,7 @@ if (!gotTheLock) {
         splashWindow.loadFile(path.join(__dirname, 'splash.html'));
     }
 
-    function createTray() {
-        const iconPath = ICON_PATH;
-        tray = new Tray(iconPath);
-
-        const contextMenu = Menu.buildFromTemplate([
-            {
-                label: 'Show NegPy', click: () => {
-                    if (mainWindow) {
-                        mainWindow.show();
-                        mainWindow.focus();
-                    }
-                }
-            },
-            { type: 'separator' },
-            {
-                label: 'Quit', click: () => {
-                    app.isQuitting = true;
-                    app.quit();
-                }
-            }
-        ]);
-
-        tray.setToolTip('NegPy');
-        tray.setContextMenu(contextMenu);
-
-        tray.on('click', () => {
-            if (mainWindow) {
-                if (mainWindow.isVisible()) {
-                    mainWindow.hide();
-                } else {
-                    mainWindow.show();
-                    mainWindow.focus();
-                }
-            }
-        });
-    }
-
-    function createMainWindow() {
+    function createSplashWindow() {
         const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
         mainWindow = new BrowserWindow({
@@ -189,21 +151,12 @@ if (!gotTheLock) {
             mainWindow.show();
         });
 
-        mainWindow.on('close', (event) => {
-            if (!app.isQuitting) {
-                event.preventDefault();
-                mainWindow.hide();
-            }
-            return false;
-        });
-
         mainWindow.on('closed', () => {
             mainWindow = null;
         });
     }
 
     app.on('ready', () => {
-        createTray();
         createSplashWindow();
         startBackend();
 
@@ -217,9 +170,7 @@ if (!gotTheLock) {
     });
 
     app.on('window-all-closed', () => {
-        if (process.platform !== 'darwin') {
-            app.quit();
-        }
+        app.quit();
     });
 
     app.on('activate', () => {
