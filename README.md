@@ -3,7 +3,7 @@
 </div>
 
 
-**NegPy** is an open-source tool for processing RAW film negatives. I built it because I wanted something made specifically for film scans but going beyond being simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
+**NegPy** is an open-source tool for processing film negatives. I built it because I wanted something made specifically for film scans but going beyond being simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
 
 ---
 
