@@ -1,7 +1,7 @@
 {
   "name": "negpy",
   "version": "0.9.0",
-  "description": ">We have darkroom at home. >Darkroom at home: NegPy",
+  "description": "Film scan editor",
   "main": "desktop/main.js",
   "scripts": {
     "start": "electron .",
