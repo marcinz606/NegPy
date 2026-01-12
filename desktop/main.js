@@ -65,11 +65,12 @@ if (!gotTheLock) {
         let args = [];
 
         if (isPackaged) {
-            // Path to the bundled binary
+             // In the flat structure, the executable is directly inside resources/negpy
+             // Win: resources/negpy/negpy.exe
+             // Mac/Linux: resources/negpy/negpy
             if (os.platform() === 'win32') {
                 pythonExecutable = path.join(process.resourcesPath, 'negpy', 'negpy.exe');
             } else {
-                // macOS and Linux now both produce a single binary file named 'negpy'
                 pythonExecutable = path.join(process.resourcesPath, 'negpy', 'negpy');
             }
         } else {

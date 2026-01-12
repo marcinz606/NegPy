@@ -1,6 +1,6 @@
 {
   "name": "negpy",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": ">We have darkroom at home. >Darkroom at home: NegPy",
   "main": "desktop/main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "build:backend": "python desktop/build_backend.py",
     "dist": "npm run build:backend && electron-builder",
     "dist:win": "npm run build:backend && electron-builder --win",
-    "dist:mac": "npm run build:backend && electron-builder --mac",
+    "dist:mac": "npm run build:backend && electron-builder --mac --arm64",
     "dist:linux": "npm run build:backend && electron-builder --linux",
     "postinstall": "electron-builder install-app-deps"
   },
@@ -46,7 +46,7 @@
         "AppImage"
       ],
       "category": "Graphics",
-      "icon": "media/icons"
+      "icon": "media/icons/icon.png"
     },
     "win": {
       "target": [
