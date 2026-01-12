@@ -113,8 +113,8 @@ if (!gotTheLock) {
 
     function createSplashWindow() {
         splashWindow = new BrowserWindow({
-            width: 400,
-            height: 300,
+            width: 600,
+            height: 400,
             frame: false,
             alwaysOnTop: true,
             transparent: true,
@@ -170,7 +170,7 @@ if (!gotTheLock) {
         mainWindow = new BrowserWindow({
             width: Math.min(1600, width),
             height: Math.min(1000, height),
-            show: false,
+            show: true,
             autoHideMenuBar: true,
             icon: ICON_PATH,
             webPreferences: {
@@ -234,7 +234,7 @@ if (!gotTheLock) {
                 console.log("Timeout waiting for backend, trying to connect anyway...");
                 createMainWindow();
             }
-        }, 30000);
+        }, 10000);
     });
 
     app.on('window-all-closed', () => {
