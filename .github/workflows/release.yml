@@ -54,9 +54,9 @@ jobs:
           npm version ${{ github.event.inputs.version }} --no-git-tag-version
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 25
           cache: 'npm'
 
       - name: Setup Python
