@@ -25,7 +25,7 @@
 
 ### 🧪 The Processing Pipeline
 
-[📖 Read about the math behind the pipeline](docs/PIPELINE.md)
+[📖 Read about the math behind the pipeline and the basic workflow of NegPy](docs/PIPELINE.md)
 
 
 ---
@@ -60,7 +60,7 @@ Windows might show a "Windows protected your PC" window.
 
 
 #### **⚠️ Important**
-App is compiling functions to machine code on startup, so it might take a while to start up on slower CPUs.
+App is compiling functions to machine code on first startup, so it might take a while to start up on slower CPUs.
 Also, app closes to tray by default so if you want to kill it, right click tray icon and quit.
 
 ---

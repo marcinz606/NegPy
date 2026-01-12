@@ -213,7 +213,7 @@ if (!gotTheLock) {
                 console.log("Timeout waiting for backend, trying to connect anyway...");
                 createMainWindow();
             }
-        }, 10000);
+        }, 30000);
     });
 
     app.on('window-all-closed', () => {

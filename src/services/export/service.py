@@ -2,7 +2,8 @@ import os
 import time
 import gc
 import asyncio
-from typing import List, Dict, Any, Callable
+import concurrent.futures
+from typing import List, Dict, Any, Callable, Optional
 import streamlit as st
 from src.domain.models import WorkspaceConfig, ExportConfig
 from src.services.export.templating import FilenameTemplater
@@ -10,21 +11,27 @@ from src.kernel.system.logging import get_logger
 from src.kernel.system.config import APP_CONFIG
 from src.services.rendering.image_processor import ImageProcessor
 
-templater = FilenameTemplater()
 logger = get_logger(__name__)
-image_service = ImageProcessor()
 
 
-def _process_and_save(
+def _process_and_save_worker(
     file_path: str,
     file_meta: Dict[str, str],
     f_params: WorkspaceConfig,
     export_settings: ExportConfig,
-    templater_instance: FilenameTemplater,
 ) -> str:
     """
-    Orchestrates the rendering, filename templating, and disk write for a single export.
+    Worker function for ProcessPoolExecutor. 
+    Initializes its own processor and templater to ensure thread/process safety.
     """
+    # import cv2
+    # Disable OpenCV's internal threading to avoid conflicts with multiprocessing
+    #cv2.setNumThreads(0)
+    
+    # Lazy init inside worker to avoid issues with unpicklable objects or shared state
+    image_service = ImageProcessor()
+    templater_instance = FilenameTemplater()
+
     res = image_service.process_export(
         file_path, f_params, export_settings, source_hash=file_meta["hash"]
     )
@@ -47,7 +54,6 @@ def _process_and_save(
     with open(out_path, "wb") as out_f:
         out_f.write(img_bytes)
 
-    logger.info(f"Exported {file_meta['name']} to {os.path.basename(out_path)}")
     return out_path
 
 
@@ -79,8 +85,8 @@ class ExportService:
             filename_pattern=sidebar_data.filename_pattern,
         )
 
-        return _process_and_save(
-            file_meta["path"], file_meta, f_params, export_settings, templater
+        return _process_and_save_worker(
+            file_meta["path"], file_meta, f_params, export_settings
         )
 
     @staticmethod
@@ -91,63 +97,54 @@ class ExportService:
         status_area: Any,
     ) -> None:
         """
-        Executes a parallelized batch export using a semaphore to limit concurrency.
+        Executes a parallelized batch export using ProcessPoolExecutor.
+        This provides better isolation for heavy C-libraries (rawpy, opencv)
+        and avoids threading crashes specifically on macOS/Apple Silicon.
         """
         os.makedirs(sidebar_data.export_path, exist_ok=True)
         total_files = len(files)
         start_time = time.perf_counter()
 
-        # Limit concurrency to 1/4 of available cores to avoid oversubscription
-        # as numba compiled functions are already multi-threaded
-        limit = APP_CONFIG.max_workers // 4
-        semaphore = asyncio.Semaphore(limit)
+        # Concurrency limit for batch exports
+        limit = max(1, APP_CONFIG.max_workers // 4)
+        
+        icc_path = (
+            st.session_state.session.icc_profile_path
+            if sidebar_data.apply_icc
+            else None
+        )
 
-        async def _worker(f_meta: Dict[str, str]) -> Any:
-            async with semaphore:
-                f_hash = f_meta["hash"]
-                f_settings = get_settings_cb(f_hash)
-
-                icc_path = (
-                    st.session_state.session.icc_profile_path
-                    if sidebar_data.apply_icc
-                    else None
-                )
-
-                f_export_settings = ExportConfig(
-                    export_fmt=sidebar_data.out_fmt,
-                    export_color_space=sidebar_data.color_space,
-                    export_print_size=sidebar_data.print_width,
-                    export_dpi=sidebar_data.print_dpi,
-                    export_add_border=sidebar_data.add_border,
-                    export_border_size=sidebar_data.border_size,
-                    export_border_color=sidebar_data.border_color,
-                    icc_profile_path=icc_path,
-                    export_path=sidebar_data.export_path,
-                    filename_pattern=sidebar_data.filename_pattern,
-                )
-
-                try:
-                    result = await asyncio.to_thread(
-                        _process_and_save,
-                        f_meta["path"],
-                        f_meta,
-                        f_settings,
-                        f_export_settings,
-                        templater,
-                    )
-                    return result
-                except Exception as e:
-                    return e
-                finally:
-                    gc.collect()
+        tasks_args = []
+        for f_meta in files:
+            f_settings = get_settings_cb(f_meta["hash"])
+            f_export_settings = ExportConfig(
+                export_fmt=sidebar_data.out_fmt,
+                export_color_space=sidebar_data.color_space,
+                export_print_size=sidebar_data.print_width,
+                export_dpi=sidebar_data.print_dpi,
+                export_add_border=sidebar_data.add_border,
+                export_border_size=sidebar_data.border_size,
+                export_border_color=sidebar_data.border_color,
+                icc_profile_path=icc_path,
+                export_path=sidebar_data.export_path,
+                filename_pattern=sidebar_data.filename_pattern,
+            )
+            tasks_args.append((f_meta["path"], f_meta, f_settings, f_export_settings))
 
         with status_area.status(
             f"Processing {total_files} images...", expanded=True
         ) as status:
-            logger.info(f"Processing {total_files} images with concurrency {limit}...")
-
-            tasks = [_worker(f) for f in files]
-            results = await asyncio.gather(*tasks)
+            logger.info(f"Starting batch export with {limit} workers...")
+            
+            loop = asyncio.get_running_loop()
+            results = []
+            
+            with concurrent.futures.ProcessPoolExecutor(max_workers=limit) as executor:
+                futures = [
+                    loop.run_in_executor(executor, _process_and_save_worker, *args)
+                    for args in tasks_args
+                ]
+                results = await asyncio.gather(*futures, return_exceptions=True)
 
             for f_meta, res in zip(files, results):
                 if isinstance(res, Exception):
