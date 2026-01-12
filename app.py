@@ -6,7 +6,6 @@ import sys
 from src.kernel.system.logging import setup_logging
 
 
-
 def handle_subtask() -> bool:
     """Checks if the app was called to perform a CLI subtask (like picking files)."""
     if len(sys.argv) > 1:

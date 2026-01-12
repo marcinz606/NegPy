@@ -1,14 +1,9 @@
 import os
 import sys
-from src.kernel.system.config import APP_CONFIG
-from src.kernel.system.logging import init_streams
 from pathlib import Path
-
+from src.kernel.system.logging import init_streams
 import streamlit.web.cli as stcli
 
-
-# Set numba cache folder first so that we won't need to compile on each startup
-os.environ["NUMBA_CACHE_DIR"] = os.path.join(APP_CONFIG.cache_dir, "numba_cache")
 
 init_streams()
 
