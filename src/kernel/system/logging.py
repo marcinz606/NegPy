@@ -34,7 +34,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     init_streams()
 
     # Create logger
-    logger = logging.getLogger("negativepy")
+    logger = logging.getLogger("negpy")
     logger.setLevel(level)
 
     # Prevent duplicate handlers if called multiple times
@@ -63,5 +63,5 @@ def get_logger(name: str | None = None) -> logging.Logger:
     Helper to get a sub-logger for a specific module.
     """
     if name:
-        return logging.getLogger(f"negativepy.{name}")
-    return logging.getLogger("negativepy")
+        return logging.getLogger(f"negpy.{name}")
+    return logging.getLogger("negpy")

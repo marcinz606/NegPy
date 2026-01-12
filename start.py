@@ -49,7 +49,7 @@ def get_documents_dir() -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Start NegativePy via Docker Compose")
+    parser = argparse.ArgumentParser(description="Start NegPy via Docker Compose")
     parser.add_argument(
         "--build", action="store_true", help="Rebuild the container before starting"
     )
@@ -57,7 +57,7 @@ def main() -> None:
     args, unknown = parser.parse_known_args()
 
     documents_dir = get_documents_dir()
-    app_data_dir = documents_dir / "NegativePy"
+    app_data_dir = documents_dir / "NegPy"
 
     print(f"[{platform.system()}] Located Documents dir: {documents_dir}")
     print(f"Setting up application data at: {app_data_dir}")
@@ -71,7 +71,7 @@ def main() -> None:
 
     # Prepare environment variables
     env = os.environ.copy()
-    env["NEGATIVEPY_HOST_DIR"] = str(app_data_dir.absolute())
+    env["NEGPY_HOST_DIR"] = str(app_data_dir.absolute())
 
     # Check if docker-compose or docker compose command is available
     cmd = ["docker", "compose", "up"]

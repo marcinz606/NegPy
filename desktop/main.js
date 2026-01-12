@@ -33,10 +33,10 @@ if (!gotTheLock) {
         console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     });
 
-    function getNegativePyUserDir() {
-        // NEGATIVEPY_USER_DIR: platform-specific Documents/NegativePy
+    function getNegPyUserDir() {
+        // NEGPY_USER_DIR: platform-specific Documents/NegPy
         const homeDocs = app.getPath('documents');
-        const userDir = path.join(homeDocs, 'NegativePy');
+        const userDir = path.join(homeDocs, 'NegPy');
         if (!fs.existsSync(userDir)) {
             fs.mkdirSync(userDir, { recursive: true });
         }
@@ -58,8 +58,8 @@ if (!gotTheLock) {
             }
         }
 
-        const userDir = getNegativePyUserDir();
-        const env = { ...process.env, NEGATIVEPY_USER_DIR: userDir };
+        const userDir = getNegPyUserDir();
+        const env = { ...process.env, NEGPY_USER_DIR: userDir };
 
         let pythonExecutable;
         let args = [];
@@ -67,10 +67,10 @@ if (!gotTheLock) {
         if (isPackaged) {
             // Path to the bundled binary
             if (os.platform() === 'win32') {
-                pythonExecutable = path.join(process.resourcesPath, 'negativepy', 'negativepy.exe');
+                pythonExecutable = path.join(process.resourcesPath, 'negpy', 'negpy.exe');
             } else {
-                // macOS and Linux now both produce a single binary file named 'negativepy'
-                pythonExecutable = path.join(process.resourcesPath, 'negativepy', 'negativepy');
+                // macOS and Linux now both produce a single binary file named 'negpy'
+                pythonExecutable = path.join(process.resourcesPath, 'negpy', 'negpy');
             }
         } else {
             // Path to local python/streamlit
@@ -133,7 +133,7 @@ if (!gotTheLock) {
 
         const contextMenu = Menu.buildFromTemplate([
             {
-                label: 'Show NegativePy', click: () => {
+                label: 'Show NegPy', click: () => {
                     if (mainWindow) {
                         mainWindow.show();
                         mainWindow.focus();
@@ -149,7 +149,7 @@ if (!gotTheLock) {
             }
         ]);
 
-        tray.setToolTip('NegativePy');
+        tray.setToolTip('NegPy');
         tray.setContextMenu(contextMenu);
 
         tray.on('click', () => {
@@ -248,7 +248,7 @@ if (!gotTheLock) {
                     spawnSync("taskkill", ["/pid", backendProcess.pid, '/f', '/t'], { timeout: 1000 });
 
                     // Fallback: Kill by image name if it's still hanging
-                    spawnSync("taskkill", ["/f", "/im", "negativepy.exe"], { timeout: 1000 });
+                    spawnSync("taskkill", ["/f", "/im", "negpy.exe"], { timeout: 1000 });
 
                     // Extra safety: Cleanup port 8501 just in case
                     spawnSync('cmd', ['/c', `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /f /pid %a`], { timeout: 1000 });
