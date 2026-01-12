@@ -25,7 +25,7 @@
 
 ### 🧪 The Processing Pipeline
 
-[📖 Read about the math behind the pipeline](docs/PIPELINE.md)
+[📖 Read about the math behind the pipeline and the basic workflow of NegPy](docs/PIPELINE.md)
 
 
 ---
@@ -47,10 +47,12 @@ Because NegPy is a hobby, open-source project, the installers are not "digitally
 
 #### **🍎 MacOS**
 When you open the app, you may see a message saying it is "corrupted" or from an "unidentified developer."
-1.  Drag **NegPy** to your `/Applications` folder.
+1.  Doubleclick on downloaded `.zip` file to extract it, you should se `.dng` file.
+1.  Doubleclick `.dng` **NegPy** and drag it to your `/Applications` folder.
 2.  **Right-Click** (or Ctrl+Click) the app icon and select **Open**.
-3.  When the dialog appears, click **Open** again.
-4.  *Alternatively*, run this in your Terminal: `xattr -cr /Applications/NegPy.app`
+3.  *Alternatively*, run this in your Terminal: `xattr -cr /Applications/NegPy.app`
+4.  When the dialog appears, click **Open** again.
+5.  After that you should be able to just start the app normally.
 
 #### **🪟 Windows**
 Windows might show a "Windows protected your PC" window.
@@ -60,16 +62,15 @@ Windows might show a "Windows protected your PC" window.
 
 
 #### **⚠️ Important**
-App is compiling functions to machine code on startup, so it might take a while to start up on slower CPUs.
+App is compiling functions to machine code on first startup, so it might take a while to start up on slower CPUs.
 Also, app closes to tray by default so if you want to kill it, right click tray icon and quit.
 
----
 
-## 🦮 User Guide
+## Tips
 
-Short guide on how to use the app:
+* You can scale the UI using `ctrl +` and `ctrl -` shortcuts. (`cmd +` and `cmd -` on MacOS)
+* Your edits to current file are saved on export or on switching to different file. If you close the app without exporting or switching to different sile edits might be lost.
 
-[WORKFLOW.md](docs/WORKFLOW.md) 
 
 ## 📂 Where's my data?
 NegPy keeps everything in your **Documents/NegPy** folder:
