@@ -67,25 +67,18 @@ if platform.system() == "Windows":
 
 PyInstaller.__main__.run(params)
 
-# Define paths
 dest_dir = os.path.join("desktop", "bin", "negpy")
-src_folder_name = "negpy" # PyInstaller output folder name
+src_folder_name = "negpy"
 src_path = os.path.join("dist", src_folder_name)
 
-# Clean destination
 if os.path.exists(dest_dir):
     shutil.rmtree(dest_dir)
 
-# Move dist/negpy directly to desktop/bin/negpy
-# This ensures desktop/bin/negpy IS the folder containing the binary, not a parent
 if os.path.exists(src_path):
-    # We want to rename 'dist/negpy' to 'desktop/bin/negpy'
-    # Ensure parent 'desktop/bin' exists
     os.makedirs(os.path.dirname(dest_dir), exist_ok=True)
     shutil.move(src_path, dest_dir)
     print(f"Successfully built and moved to {dest_dir}")
 
-    # Cleanup dist
     if os.path.exists("dist") and not os.listdir("dist"):
         os.rmdir("dist")
 else:
