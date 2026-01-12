@@ -171,7 +171,8 @@ if (!gotTheLock) {
         mainWindow = new BrowserWindow({
             width: Math.min(1600, width),
             height: Math.min(1000, height),
-            show: true,
+            show: false,
+            backgroundColor: '#0e1117',
             autoHideMenuBar: true,
             icon: ICON_PATH,
             webPreferences: {
@@ -197,11 +198,17 @@ if (!gotTheLock) {
         pollBackend();
 
         mainWindow.once('ready-to-show', () => {
-            if (splashWindow) {
-                splashWindow.close();
-                splashWindow = null;
-            }
-            mainWindow.show();
+            // Give Streamlit a moment to render its UI after the initial load
+            setTimeout(() => {
+                if (splashWindow) {
+                    splashWindow.close();
+                    splashWindow = null;
+                }
+                if (mainWindow) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+            }, 800);
         });
 
         // If it fails to load (e.g. race condition), reload after a short delay
