@@ -1,9 +1,8 @@
 import os
 import time
-import gc
 import asyncio
 import concurrent.futures
-from typing import List, Dict, Any, Callable, Optional
+from typing import List, Dict, Any, Callable
 import streamlit as st
 from src.domain.models import WorkspaceConfig, ExportConfig
 from src.services.export.templating import FilenameTemplater
@@ -21,13 +20,13 @@ def _process_and_save_worker(
     export_settings: ExportConfig,
 ) -> str:
     """
-    Worker function for ProcessPoolExecutor. 
+    Worker function for ProcessPoolExecutor.
     Initializes its own processor and templater to ensure thread/process safety.
     """
     # import cv2
     # Disable OpenCV's internal threading to avoid conflicts with multiprocessing
-    #cv2.setNumThreads(0)
-    
+    # cv2.setNumThreads(0)
+
     # Lazy init inside worker to avoid issues with unpicklable objects or shared state
     image_service = ImageProcessor()
     templater_instance = FilenameTemplater()
@@ -106,8 +105,10 @@ class ExportService:
         start_time = time.perf_counter()
 
         # Concurrency limit for batch exports
+        # to avoid threadig issues when combined with numba and opencv
+        # internal threading
         limit = max(1, APP_CONFIG.max_workers // 4)
-        
+
         icc_path = (
             st.session_state.session.icc_profile_path
             if sidebar_data.apply_icc
@@ -132,13 +133,13 @@ class ExportService:
             tasks_args.append((f_meta["path"], f_meta, f_settings, f_export_settings))
 
         with status_area.status(
-            f"Processing {total_files} images...", expanded=True
+            f"Printing {total_files} images...", expanded=True
         ) as status:
-            logger.info(f"Starting batch export with {limit} workers...")
-            
+            logger.info(f"Starting batch print with {limit} workers...")
+
             loop = asyncio.get_running_loop()
             results = []
-            
+
             with concurrent.futures.ProcessPoolExecutor(max_workers=limit) as executor:
                 futures = [
                     loop.run_in_executor(executor, _process_and_save_worker, *args)
@@ -148,12 +149,12 @@ class ExportService:
 
             for f_meta, res in zip(files, results):
                 if isinstance(res, Exception):
-                    logger.error(f"Error processing {f_meta['name']}: {res}")
-                    st.error(f"Error processing {f_meta['name']}: {res}")
+                    logger.error(f"Error printing {f_meta['name']}: {res}")
+                    st.error(f"Error printing {f_meta['name']}: {res}")
                 elif not res:
-                    st.warning(f"Failed to export {f_meta['name']}")
+                    st.warning(f"Failed to print {f_meta['name']}")
 
             elapsed = time.perf_counter() - start_time
             status.update(
-                label=f"Batch Processing Complete in {elapsed:.2f}s", state="complete"
+                label=f"Batch Printing Complete in {elapsed:.2f}s", state="complete"
             )
