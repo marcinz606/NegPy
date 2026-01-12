@@ -79,7 +79,6 @@ PAPER_PROFILES: Dict[str, PaperSubstrate] = {
     "Neutral RC": PaperSubstrate("Neutral RC", (0.99, 0.99, 0.99), 1.0),
     "Cool Glossy": PaperSubstrate("Cool Glossy", (0.98, 0.99, 1.02), 1.1),
     "Warm Fiber": PaperSubstrate("Warm Fiber", (1.0, 0.97, 0.92), 1.15),
-    "Antique Ivory": PaperSubstrate("Antique Ivory", (0.98, 0.94, 0.88), 1.05),
 }
 
 
