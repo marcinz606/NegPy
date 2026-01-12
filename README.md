@@ -48,11 +48,10 @@ I will also add it to Arch User Repository (AUR) as soon as I get around to it.
 Because NegPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them ransom for that). You will see a security warning the first time you run it.
 
 #### **🍎 MacOS**
-When you first try to open the app, you may see a message saying it is "corrupted" or from an "unidentified developer.". There is way around that **in point 3**
-1.  Doubleclick on downloaded `.zip` file to extract it, you should se `.dng` file.
-2.  Doubleclick `.dng` **NegPy** and drag it to your `/Applications` folder.
-3.  **Run this in your Terminal**: `xattr -cr /Applications/NegPy.app`
-4.  After that you should be able to just start the app normally.
+When you first try to open the app, you may see a message saying it is "corrupted" or from an "unidentified developer.". There is way around that **in point 2**
+1.  Doubleclick `.dng` **NegPy** and drag it to your `/Applications` folder.
+2.  **Run this in your Terminal**: `xattr -cr /Applications/NegPy.app`
+3.  After that you should be able to just start the app normally.
 
 #### **🪟 Windows**
 Windows might show a "Windows protected your PC" window.

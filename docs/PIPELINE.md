@@ -8,7 +8,7 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
 * **Rotation**: We spin the image array (90° steps) and then if needed fine-tune it with affine transformations (`cv2.warpAffine`). We use bilinear interpolation so we don't lose sharpness during the fine rotation.
 * **Autocrop**: The code scans the image to find where the "film base" (the clear edge) ends and the actual picture begins by detecting the density jump. Some scans are tricky (not scanned flat, light source showing outside the film mask, light leaks, etc.), so as a fallback, there is a button to manually point to where the film border is.
 
-**Cropping is crucial for the next step as normalization is easily thrown off by the film base or, even worse, the light source appearing outside of the negative.** So make sure that you crop the image to the actual picture Using autocrop + crop offset. If you want to keep your film border in your final export you can just select `Keep Borders` checkbox.
+**Cropping is crucial for the next step as normalization is easily thrown off by the film base or, even worse, the light source appearing outside of the negative.** So make sure that you crop the image to the actual picture using autocrop & crop offset. If you want to keep your film border in your final export you can just select `Keep Borders` checkbox.
 
 
 ---
@@ -77,9 +77,9 @@ $$
 * **CLAHE**:  
 Local micro-contrast is enhanced by applying Contrast Limited Adaptive Histogram Equalization (CLAHE) strictly to the luminance component $L$ in CIELAB space. The final output is a linear blend of the original lightness and the equalized signal $L_{eq}$, controlled by the strength parameter $\alpha$:
 
-    $$
-    L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L, \text{clip}=2.5\alpha)
-    $$
+$$
+L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L, \text{clip}=2.5\alpha)
+$$
 
   This is functionally similar to the "Hypertone" feature found in Fuji Frontier scanners.
 * **Luma Sharpening**: The algorithm implements Luminance-Preserving Unsharp Masking in the CIELAB color space. It isolates the $L$ channel and applies a high-pass filter: $L' = L + \lambda(L - G_\sigma * L)$, subject to a noise threshold $|\Delta| > 2.0$. The chrominance channels $a$ and $b$ remain mathematically invariant to prevent saturation artifacts..
