@@ -77,9 +77,9 @@ $$
 * **CLAHE**:  
 Local micro-contrast is enhanced by applying Contrast Limited Adaptive Histogram Equalization (CLAHE) strictly to the luminance component $L$ in CIELAB space. The final output is a linear blend of the original lightness and the equalized signal $L_{eq}$, controlled by the strength parameter $\alpha$:
 
-    $$
-    L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L, \text{clip}=2.5\alpha)
-    $$
+$$
+L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L, \text{clip}=2.5\alpha)
+$$
 
   This is functionally similar to the "Hypertone" feature found in Fuji Frontier scanners.
 * **Luma Sharpening**: The algorithm implements Luminance-Preserving Unsharp Masking in the CIELAB color space. It isolates the $L$ channel and applies a high-pass filter: $L' = L + \lambda(L - G_\sigma * L)$, subject to a noise threshold $|\Delta| > 2.0$. The chrominance channels $a$ and $b$ remain mathematically invariant to prevent saturation artifacts..
