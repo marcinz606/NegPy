@@ -132,11 +132,7 @@ def apply_dust_removal(
     scale_factor: float,
 ) -> ImageBuffer:
     """
-    Applies both automatic and manual dust removal (healing/inpainting).
-
-    Automatic detection identifies small, high-contrast irregularities (dust/scratches)
-    on the negative and heals them using median statistics. Manual healing uses
-    Telea inpainting with fused grain matching to preserve the photographic texture.
+    Automatic (median) and manual (Telea + grain) healing.
     """
     if not (dust_remove or manual_spots):
         return img
@@ -232,7 +228,7 @@ def generate_local_mask(
     scale_factor: float,
 ) -> np.ndarray:
     """
-    Generates a grayscale mask from a series of normalized points.
+    Grayscale mask from points (normalized).
     """
     mask = np.zeros((h, w), dtype=np.float32)
     if not points:
@@ -265,10 +261,7 @@ def calculate_luma_mask(
     lum: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
-    Calculates a luminosity mask based on image luminance levels.
-
-    Luminosity masking (tonal masking) allows for selective adjustments to specific
-    zones (e.g., highlights only, deep shadows only) with controllable softness.
+    Mask based on luminance range (tonal masking).
     """
     if lum is None:
         lum = get_luminance(img)
@@ -289,7 +282,7 @@ def apply_local_adjustments(
     img: ImageBuffer, adjustments: List[LocalAdjustmentConfig], scale_factor: float
 ) -> ImageBuffer:
     """
-    Applies a list of 'Dodge and Burn' adjustments to the mask.
+    Applies Dodge & Burn masks.
     """
     if not adjustments:
         return img

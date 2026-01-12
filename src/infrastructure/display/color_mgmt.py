@@ -6,7 +6,7 @@ from src.kernel.system.config import APP_CONFIG
 
 class ColorService:
     """
-    Service for applying ICC profiles and simulating color spaces.
+    ICC profile application & soft-proofing.
     """
 
     @staticmethod
@@ -14,7 +14,7 @@ class ColorService:
         pil_img: Image.Image, src_color_space: str, dst_profile_path: Optional[str]
     ) -> Image.Image:
         """
-        Transforms a PIL image to a target ICC profile for soft-proofing.
+        Applies ICC for proofing.
         """
         if not dst_profile_path or not os.path.exists(dst_profile_path):
             return pil_img
@@ -48,7 +48,7 @@ class ColorService:
     @staticmethod
     def simulate_on_srgb(pil_img: Image.Image, src_color_space: str) -> Image.Image:
         """
-        Simulates how an image in a wide color space (Adobe RGB) looks on an sRGB screen.
+        AdobeRGB -> sRGB (approximate look).
         """
         if src_color_space != "Adobe RGB":
             return pil_img

@@ -13,4 +13,7 @@ exclude =
     .pytest_cache,
     icc,
     processed,
-    node_modules
+    node_modules,
+    dist
+    desktop/bin,
+    build

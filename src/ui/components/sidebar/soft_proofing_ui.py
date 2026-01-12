@@ -6,9 +6,6 @@ from src.ui.components.sidebar.helpers import render_control_selectbox
 
 
 def render_soft_proofing() -> None:
-    """
-    Renders the Soft Proofing section of the sidebar.
-    """
     session: WorkspaceSession = st.session_state.session
 
     with st.expander(":material/imagesearch_roller: Soft Proofing", expanded=False):
@@ -37,10 +34,7 @@ def render_soft_proofing() -> None:
             default_val=session.icc_profile_path or "None",
             key="soft_proof_icc",
             format_func=lambda x: os.path.basename(x) if x != "None" else "None",
-            help_text=(
-                "Select an ICC profile to use for soft proofing."
-                "You can put your own profiles in the `icc` folder in the user directory. (Documents/DakroomPy)"
-            ),
+            help_text="Select ICC for screen simulation.",
         )
 
         if selected_path == "None":

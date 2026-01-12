@@ -11,7 +11,7 @@ from src.domain.types import ImageBuffer
 
 class Overlays:
     """
-    Service for rendering visual overlays (masks, dust patches) on the preview image.
+    Draws UI overlays (Masks, Spot patches).
     """
 
     @staticmethod
@@ -28,7 +28,7 @@ class Overlays:
         border_px: int = 0,
     ) -> Image.Image:
         """
-        Renders a red mask overlay for local adjustments.
+        Red overlay for dodge/burn masks.
         """
         rh_orig, rw_orig = img_raw.shape[:2]
         orig_w = pil_img.size[0] - 2 * border_px
@@ -89,7 +89,7 @@ class Overlays:
         alpha: int = 75,
     ) -> Image.Image:
         """
-        Renders semi-transparent green patches over manual dust correction spots.
+        Green patches for manual spots.
         """
         if not manual_spots:
             return pil_img
@@ -146,7 +146,7 @@ class Overlays:
         target_h: int,
     ) -> np.ndarray:
         """
-        Applies rotation, fine rotation, and ROI cropping to a mask.
+        Geometry pipeline for masks (Rot -> Crop -> Resize).
         """
         if geo_conf.rotation % 4 != 0:
             mask = np.rot90(mask, k=geo_conf.rotation % 4)

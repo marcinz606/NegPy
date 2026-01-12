@@ -5,7 +5,7 @@ from src.features.retouch.models import LocalAdjustmentConfig
 
 class TestConfigDeserialization(unittest.TestCase):
     def test_local_adjustments_deserialization(self):
-        # Create a flat dictionary that mimics what comes from JSON/DB
+        # Mock serialized JSON data
         flat_data = {
             "process_mode": "C41",
             "dust_remove": True,

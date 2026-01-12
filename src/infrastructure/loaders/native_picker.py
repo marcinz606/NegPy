@@ -12,15 +12,13 @@ logger = get_logger(__name__)
 
 class NativeFilePicker(IFilePicker):
     """
-    OS-native file and folder picker.
-    Calls the main entry point with specific flags to execute dialogs
-    without starting the full Streamlit app.
+    Spawns CLI subtask for OS dialogs (avoiding Streamlit loop).
     """
 
     def _run_subtask(self, flag: str, initial_dir: Optional[str] = None) -> str:
         """Runs the app as a subtask and returns stdout."""
         try:
-            # Construct command based on execution environment
+            # Build CLI command
             if getattr(sys, "frozen", False):
                 cmd = [sys.executable, flag]
             else:
@@ -54,12 +52,12 @@ class NativeFilePicker(IFilePicker):
             raise RuntimeError(f"Native dialog failed: {e.stderr}") from e
 
     def pick_files(self, initial_dir: Optional[str] = None) -> List[str]:
-        """Opens a multi-file selection dialog via app subtask."""
+        """Multi-file dialog."""
         output = self._run_subtask("--pick-files", initial_dir)
         if not output:
             return []
 
-        # Search for JSON array in the output buffer
+        # Parse JSON from stdout (reverse scan)
         for line in reversed(output.splitlines()):
             line = line.strip()
             if line.startswith("[") and line.endswith("]"):
@@ -76,7 +74,7 @@ class NativeFilePicker(IFilePicker):
         return []
 
     def pick_folder(self, initial_dir: Optional[str] = None) -> Tuple[str, List[str]]:
-        """Opens a directory selection dialog via app subtask."""
+        """Folder dialog."""
         output = self._run_subtask("--pick-folder", initial_dir)
         if not output:
             return "", []
@@ -98,7 +96,7 @@ class NativeFilePicker(IFilePicker):
         return "", []
 
     def pick_export_folder(self, initial_dir: Optional[str] = None) -> str:
-        """Opens a directory selection dialog for export via app subtask."""
+        """Export destination dialog."""
         output = self._run_subtask("--pick-export-folder", initial_dir)
         if not output:
             return ""

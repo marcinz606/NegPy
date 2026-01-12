@@ -40,8 +40,7 @@ GLOBAL_PERSIST_KEYS = {
 
 def init_session_state() -> None:
     """
-    Initializes the WorkspaceSession and core infrastructure.
-    Forcefully seeds defaults on first run to ensure environment variables are respected.
+    Setup WorkspaceSession and persistent UI state.
     """
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -58,7 +57,7 @@ def init_session_state() -> None:
         session = WorkspaceSession(st.session_state.session_id, repo, store, engine)
         st.session_state.session = session
 
-        # Restore Global Settings from DB if they exist (Fresh Session Only)
+        # Restore Global Settings (Fresh Session)
         for key in GLOBAL_PERSIST_KEYS:
             val = repo.get_global_setting(key)
             if val is not None:
@@ -94,8 +93,7 @@ def init_session_state() -> None:
 
 def _to_ui_state_dict(config: WorkspaceConfig) -> Dict[str, Any]:
     """
-    Flattens the configuration for UI consumption.
-    while preserving complex objects (like local_adjustments)
+    Flatten WorkspaceConfig for Streamlit session_state.
     """
     data = config.to_dict()
     data["local_adjustments"] = config.retouch.local_adjustments
@@ -104,7 +102,7 @@ def _to_ui_state_dict(config: WorkspaceConfig) -> Dict[str, Any]:
 
 def load_settings(force: bool = False) -> None:
     """
-    Loads settings for the current file.
+    Hydrates st.session_state from DB or memory.
     """
     session: WorkspaceSession = st.session_state.session
     settings = session.get_active_settings()
@@ -117,9 +115,7 @@ def load_settings(force: bool = False) -> None:
         has_edits = session.repository.load_file_settings(f_hash) is not None
 
         for key, value in settings_dict.items():
-            # If the file has NO EDITS, we want to respect current global UI state
-            # for keys in GLOBAL_PERSIST_KEYS.
-            # UNLESS force=True (e.g. loading a preset)
+            # Respect global UI state if file has no previous edits
             if not force and not has_edits and key in GLOBAL_PERSIST_KEYS:
                 if st.session_state.get(key) is not None:
                     continue
@@ -129,8 +125,7 @@ def load_settings(force: bool = False) -> None:
 
 def save_settings(persist: bool = False) -> None:
     """
-    Saves file settings. Defaults to memory-only (persist=False) for performance.
-    Set persist=True for commit points (file switch, export).
+    Syncs UI state back to Session/DB.
     """
     session: WorkspaceSession = st.session_state.session
 

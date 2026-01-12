@@ -4,11 +4,10 @@ from jinja2 import Environment, BaseLoader
 
 class FilenameTemplater:
     """
-    Handles generation of filenames using Jinja2 templates.
+    Jinja2 filename generator.
     """
 
     def __init__(self) -> None:
-        # Using a minimal environment for performance and safety
         self.env = Environment(
             loader=BaseLoader(),
             autoescape=False,
@@ -17,13 +16,8 @@ class FilenameTemplater:
         )
 
     def render(self, pattern: str, context: dict) -> str:
-        """
-        Renders the filename pattern with the provided context.
-        Falls back to a safe default if rendering fails.
-        """
         try:
             template = self.env.from_string(pattern)
-            # Add common defaults to context
             render_context = {"date": datetime.date.today().isoformat(), **context}
             rendered = template.render(render_context).strip()
             if not rendered:

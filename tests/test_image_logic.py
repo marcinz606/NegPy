@@ -15,10 +15,9 @@ def test_apply_film_characteristic_curve_range():
 
 
 def test_apply_film_characteristic_curve_positive_output():
-    # Ensure that the output is POSITIVE (Bright Input -> Dark Output)
-    # Input is Negative Scan:
-    # 0.1 = Highlight (Clear Neg) -> Low Exposure -> Low Density -> High Transmittance (Bright Print).
-    # 0.9 = Shadow (Dense Neg) -> High Exposure -> High Density -> Low Transmittance (Dark Print).
+    # Ensure POSITIVE output (Bright Input -> Dark Output)
+    # 0.1 (Highlight) -> Bright Print
+    # 0.9 (Shadow) -> Dark Print
 
     img = np.array([[[0.1, 0.1, 0.1], [0.9, 0.9, 0.9]]])
 

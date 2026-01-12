@@ -26,8 +26,7 @@ logger = get_logger(__name__)
 
 class ImageProcessor:
     """
-    Unified service for image processing and output generation.
-    Supports interactive previews and high-quality file exports.
+    Pipeline runner for exports & previews.
     """
 
     def __init__(self) -> None:
@@ -41,7 +40,7 @@ class ImageProcessor:
         render_size_ref: float,
     ) -> Tuple[ImageBuffer, Dict[str, Any]]:
         """
-        Runs the full processing pipeline and returns the float32 buffer and metrics.
+        Executes the engine, returns buffer + metrics.
         """
         h_orig, w_cols = img.shape[:2]
 
@@ -58,7 +57,7 @@ class ImageProcessor:
         self, buffer: ImageBuffer, settings: WorkspaceConfig, bit_depth: int = 8
     ) -> Image.Image:
         """
-        Converts a float32 buffer to a PIL Image with specified bit depth.
+        Float32 -> PIL (uint8/16).
         """
         is_toned = (
             settings.toning.selenium_strength != 0.0
@@ -97,7 +96,7 @@ class ImageProcessor:
         source_hash: str,
     ) -> Tuple[Optional[bytes], str]:
         """
-        Orchestrates full-resolution processing and file encoding for export.
+        Full-res render + encoding (TIFF/JPEG).
         """
         try:
             color_space = str(export_settings.export_color_space)

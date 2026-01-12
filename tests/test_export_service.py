@@ -10,7 +10,7 @@ def test_apply_scaling_f32() -> None:
     params = WorkspaceConfig()
 
     # Export config for 50px result (approx)
-    # 2.54 cm = 1 inch. 1 inch @ 50 DPI = 50px
+    # 1 inch @ 50 DPI
     export_settings = ExportConfig(
         export_print_size=2.54, export_dpi=50, export_add_border=False
     )
@@ -26,7 +26,7 @@ def test_apply_border_f32() -> None:
     params = WorkspaceConfig()
 
     # 1 inch @ 100 DPI = 100px total
-    # 0.254 cm border = 0.1 inch = 10px border
+    # 0.1 inch border = 10px
     export_settings = ExportConfig(
         export_print_size=2.54,
         export_dpi=100,

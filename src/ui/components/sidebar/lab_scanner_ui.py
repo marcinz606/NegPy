@@ -4,9 +4,6 @@ from src.ui.components.sidebar.helpers import render_control_slider
 
 
 def render_lab_scanner_section() -> None:
-    """
-    Renders the 'Lab Scanner Parameters' section of the sidebar.
-    """
     vm = LabViewModel()
     is_bw = st.session_state.get("process_mode") == "B&W"
 
@@ -23,11 +20,7 @@ def render_lab_scanner_section() -> None:
                     step=0.05,
                     key=vm.get_key("color_separation"),
                     format="%.2f",
-                    help_text=(
-                        "Corrects spectral overlap between film dyes and scanner sensors. "
-                        "Mathematically 'un-mixes' muddy colors to restore pure, distinct hues "
-                        "mimicking the spectral response of the human eye."
-                    ),
+                    help_text="Color matrix strength (un-mixing dyes).",
                 )
             else:
                 st.write("")
@@ -41,12 +34,7 @@ def render_lab_scanner_section() -> None:
                 step=0.05,
                 key=vm.get_key("clahe_strength"),
                 format="%.2f",
-                help_text=(
-                    "Contrast Limited Adaptive Histogram Equalization. "
-                    "Simulates the 'Hyper-Tone' engine of Fuji Frontier scanners. "
-                    "Intelligently compresses high-contrast negatives to fit the dynamic range "
-                    "of print paper, recovering shadow detail without flattening the image."
-                ),
+                help_text="Local contrast (Frontier Hyper-Tone simulation).",
             )
 
         with c3:
@@ -57,9 +45,5 @@ def render_lab_scanner_section() -> None:
                 default_val=0.25,
                 step=0.05,
                 key=vm.get_key("sharpen"),
-                help_text=(
-                    "Applies Unsharp Masking only to the Luminance channel. "
-                    "Crispens details and grain structure without introducing "
-                    "color halos or enhancing chromatic noise."
-                ),
+                help_text="USM on L channel (no color halos).",
             )

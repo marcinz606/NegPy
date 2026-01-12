@@ -7,13 +7,13 @@ from src.domain.models import WorkspaceConfig
 
 class Presets:
     """
-    Handles the I/O operations for user presets.
+    JSON I/O for user presets.
     """
 
     @staticmethod
     def save_preset(name: str, settings: WorkspaceConfig) -> None:
         """
-        Saves a filtered subset of settings to a JSON file.
+        Saves partial WorkspaceConfig to JSON.
         """
         os.makedirs(APP_CONFIG.presets_dir, exist_ok=True)
 

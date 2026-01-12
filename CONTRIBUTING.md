@@ -1,22 +1,17 @@
 # Contributing to NegPy
 
-Thank you for your interest in contributing to **NegPy**! This project is an open-source tool dedicated to high-quality film negative processing.
-
-By participating in this project, you agree to abide by the terms of the **GPL-3.0 License**.
+Thank you for your interest in contributing to **NegPy**!
 
 ## 🛠️ Development Setup
 
 NegPy requires **Python 3.13+** and **Node.js** (for desktop builds).
 
 ### 1. Python Environment
-We use a virtual environment named `.venv`.
+We use a virtual environment named `.venv` (dot is important due to Makefile).
 
 ```bash
-# Create and activate venv
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -28,7 +23,7 @@ npm install
 ```
 
 ### 3. Docker (Optional)
-For a quick setup without local dependencies:
+For quicker testing (frontend accessible via `http://localhost:8501`):
 
 ```bash
 make run-app
@@ -48,12 +43,13 @@ The codebase is organized into layers:
 
 ## 📐 Coding Standards
 
-We maintain high code quality through automated checks. **Always run `make format` before committing.**
+**Always run `make format` before committing.**
 
 ### 1. Style & Formatting
 - **Ruff**: Used for both linting and formatting.
-- **Type Hints**: Required for all new function definitions (`mypy` is enforced).
+- **Type Hints**: Required for all new function definitions (`mypy` is enforced). Using `cast` to get around it is frowned upon.
 - **Docstrings**: Use clear, concise docstrings for classes and public methods.
+- **Style**: Use double quotes for strings, snake_case for variables and functions, and PascalCase for classes.
 
 ### 2. Testing
 We use `pytest`. New features should include unit tests in the `tests/` directory.
@@ -69,14 +65,8 @@ The `Makefile` is the central source of truth for developer commands:
 - `make test`: Run all unit tests.
 - `make format`: Auto-format code with Ruff.
 - `make all`: Run lint, type, and test in sequence.
+- `make clean`: Removes cache from tests.
 
-## 🚀 How to Contribute
-
-1. **Check Issues**: Look for existing issues or open a new one to discuss your idea.
-2. **Fork & Branch**: Create a feature branch from `main`.
-3. **Implement**: Write your code, following existing patterns.
-4. **Verify**: Ensure `make all` passes successfully.
-5. **PR**: Open a Pull Request with a clear description of your changes.
 
 ## 📦 Building and Packaging
 

@@ -10,7 +10,7 @@ def _normalize_log_image_jit(
     img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray
 ) -> np.ndarray:
     """
-    Fast JIT normalization of log-exposure images to a 0.0-1.0 range.
+    Log -> 0.0-1.0 (Linear stretch).
     """
     h, w, c = img_log.shape
     res = np.empty_like(img_log)
@@ -32,8 +32,7 @@ def _normalize_log_image_jit(
 
 class LogNegativeBounds:
     """
-    Represents the sensitometric boundaries (black point and white point)
-    of a negative emulsion in log-exposure space.
+    D-min / D-max container.
     """
 
     def __init__(
@@ -45,7 +44,7 @@ class LogNegativeBounds:
 
 def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     """
-    Finds the floor (D-min) and ceiling (D-max) of each emulsion layer.
+    Detects floor/ceiling (0.5% - 99.5%).
     """
     floors: List[float] = []
     ceils: List[float] = []
@@ -64,10 +63,7 @@ def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
 
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
-    Normalizes a log-exposure image using the measured sensitometric bounds.
-
-    This ensures that the latent image is correctly 'framed' within the dynamic
-    range of the subsequent characteristic curve processing.
+    Stretches log-data to fit [0, 1].
     """
     floors = np.ascontiguousarray(np.array(bounds.floors, dtype=np.float32))
     ceils = np.ascontiguousarray(np.array(bounds.ceils, dtype=np.float32))

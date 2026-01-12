@@ -10,9 +10,6 @@ from src.ui.state.state_manager import save_settings
 
 
 def render_geometry_section() -> None:
-    """
-    Renders the Geometry/Auto-Crop section of the sidebar.
-    """
     geo_vm = GeometryViewModel()
     geo_conf = geo_vm.to_config()
 

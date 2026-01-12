@@ -2,12 +2,14 @@ from src.domain.interfaces import PipelineContext
 from src.domain.types import ImageBuffer
 from src.features.retouch.models import RetouchConfig, LocalAdjustmentConfig
 from src.features.retouch.logic import apply_dust_removal, apply_local_adjustments
-
-# We need the geometry mapper to transform raw coordinates to the current rotated image space
 from src.features.geometry.logic import map_coords_to_geometry
 
 
 class RetouchProcessor:
+    """
+    Applies healing and dodge/burn.
+    """
+
     def __init__(self, config: RetouchConfig):
         self.config = config
 

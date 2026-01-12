@@ -4,8 +4,7 @@ from src.kernel.caching.logic import CacheEntry
 
 class PipelineCache:
     """
-    Holds intermediate results of the processing pipeline for the ACTIVE image.
-    This cache is reset when switching source files.
+    Stores intermediate stage results for the active image.
     """
 
     source_hash: str = ""

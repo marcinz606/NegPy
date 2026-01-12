@@ -11,7 +11,7 @@ def _apply_paper_substrate_jit(
     img: np.ndarray, tint: np.ndarray, dmax_boost: float
 ) -> np.ndarray:
     """
-    Fast JIT simulation of paper substrate.
+    Applies tint & density boost.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -34,7 +34,7 @@ def _apply_chemical_toning_jit(
     img: np.ndarray, sel_strength: float, sep_strength: float
 ) -> np.ndarray:
     """
-    Fast JIT simulation of Selenium and Sepia toning with fused luminance calculation.
+    Selenium (Shadows) & Sepia (Mids) toning.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -85,7 +85,7 @@ PAPER_PROFILES: Dict[str, PaperSubstrate] = {
 
 def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer:
     """
-    Simulates the physical and optical properties of a photographic paper substrate.
+    Look-up profile -> Apply tint.
     """
     profile = PAPER_PROFILES.get(profile_name, PAPER_PROFILES["None"])
     tint = np.ascontiguousarray(np.array(profile.tint, dtype=np.float32))
@@ -105,7 +105,7 @@ def apply_chemical_toning(
     sepia_strength: float = 0.0,
 ) -> ImageBuffer:
     """
-    Simulates the chemical reactivity of archival toners with silver halides.
+    Applies split-toning based on luminance.
     """
     if selenium_strength == 0 and sepia_strength == 0:
         return img

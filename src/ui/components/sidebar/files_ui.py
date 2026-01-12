@@ -9,17 +9,17 @@ from src.ui.components.sidebar.helpers import render_control_checkbox
 
 def render_file_manager() -> None:
     """
-    Handles file uploading and session synchronization.
+    File picker & session sync.
     """
     session: WorkspaceSession = st.session_state.session
     is_docker = os.path.exists("/.dockerenv")
 
     with st.sidebar:
-        # Native Picker - Hidden if in Docker
+        # Native Picker (Desktop)
         if not is_docker:
             picker = NativeFilePicker()
 
-            # Use persisted last dir or default to project user root
+            # Resume last dir
             last_dir = st.session_state.get("last_picker_dir")
             if not last_dir or not os.path.exists(last_dir):
                 last_dir = os.path.dirname(APP_CONFIG.edits_db_path)
@@ -34,7 +34,7 @@ def render_file_manager() -> None:
                     if paths:
                         session.add_local_assets(paths)
                         st.session_state.last_picker_dir = os.path.dirname(paths[0])
-                        # If hot folder mode is enabled, watch the directory of picked files
+                        # Update hot folder
                         if st.session_state.get("hot_folder_mode"):
                             session.watched_folders.add(os.path.dirname(paths[0]))
                         st.rerun()
@@ -48,7 +48,7 @@ def render_file_manager() -> None:
                         session.add_local_assets(paths)
                         # Update last used directory
                         st.session_state.last_picker_dir = root_path
-                        # If hot folder mode is enabled, start watching this root folder
+                        # Update hot folder
                         if st.session_state.get("hot_folder_mode") and root_path:
                             session.watched_folders.add(root_path)
                         st.rerun()
@@ -60,7 +60,7 @@ def render_file_manager() -> None:
                 help_text="Automatically discover new files in picked folders.",
             )
         else:
-            # Streamlit uploader (Docker Mode)
+            # Streamlit uploader (Docker)
             raw_uploaded_files = st.file_uploader(
                 "Load RAW files",
                 type=["dng", "tiff", "nef", "arw", "raw", "raf"],

@@ -12,7 +12,7 @@ class PaperSubstrate:
 @dataclass(frozen=True)
 class ToningConfig:
     """
-    Configuration for paper simulation and chemical toning.
+    Paper & Toner params.
     """
 
     paper_profile: str = "None"

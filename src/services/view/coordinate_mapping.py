@@ -5,7 +5,7 @@ from typing import Tuple, Optional
 
 class CoordinateMapping:
     """
-    Service for UI-related coordinate transformations and geometric mapping.
+    Raw <-> Viewport coordinate transforms.
     """
 
     @staticmethod
@@ -18,7 +18,7 @@ class CoordinateMapping:
         autocrop_params: Optional[dict] = None,
     ) -> np.ndarray:
         """
-        Creates a coordinate mapping grid (UV grid) for the current geometric state.
+        Generates UV map for geometric state.
         """
         u_raw, v_raw = np.meshgrid(
             np.linspace(0, 1, rw_orig), np.linspace(0, 1, rh_orig)
@@ -46,7 +46,7 @@ class CoordinateMapping:
         nx: float, ny: float, uv_grid: np.ndarray
     ) -> Tuple[float, float]:
         """
-        Maps a normalized click (0-1) on the current viewport to normalized raw coordinates.
+        Viewport (0-1) -> Raw (0-1).
         """
         h_uv, w_uv = uv_grid.shape[:2]
         px = int(np.clip(nx * (w_uv - 1), 0, w_uv - 1))

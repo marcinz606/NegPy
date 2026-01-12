@@ -5,7 +5,7 @@ from src.domain.interfaces import IImageLoader
 
 class RawpyLoader(IImageLoader):
     """
-    Standard loader for digital RAW files (DNG, CR2, NEF, etc.)
+    Standard RAW loader (libraw).
     """
 
     def load(self, file_path: str) -> ContextManager[Any]:

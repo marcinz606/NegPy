@@ -1,4 +1,3 @@
-import os
 import asyncio
 import logging
 import multiprocessing
@@ -7,7 +6,7 @@ from src.kernel.system.logging import setup_logging
 
 
 def handle_subtask() -> bool:
-    """Checks if the app was called to perform a CLI subtask (like picking files)."""
+    """CLI handling for file pickers."""
     if len(sys.argv) > 1:
         initial_dir = sys.argv[2] if len(sys.argv) > 2 else None
         if sys.argv[1] == "--pick-files":

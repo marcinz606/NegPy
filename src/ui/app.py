@@ -18,14 +18,14 @@ from src.services.export.service import ExportService
 
 def get_processing_params_composed(source: Any) -> WorkspaceConfig:
     """
-    Consolidates parameter gathering into the modular WorkspaceConfig object.
+    Creates WorkspaceConfig from st.session_state.
     """
     return WorkspaceConfig.from_flat_dict(source)
 
 
 async def main() -> None:
     """
-    Primary Application Entry Point (OO Orchestrator).
+    App entry point.
     """
     st.set_page_config(
         page_title="NegPy", layout="wide", page_icon="media/icons/icon.png"

@@ -13,7 +13,7 @@ def plot_histogram(
     img_arr: ImageBuffer, figsize: Tuple[float, float] = (3, 1.4), dpi: int = 150
 ) -> plt.Figure:
     """
-    Generates a professional RGB + Luminance histogram plot.
+    RGB + Luma histogram plot.
     """
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     ax.set_facecolor("#000000")
@@ -51,7 +51,7 @@ def plot_photometric_curve(
     params: ExposureConfig, figsize: Tuple[float, float] = (3, 1.4), dpi: int = 150
 ) -> plt.Figure:
     """
-    Plots the Photometric H&D Curve (Sigmoid).
+    Sigmoid curve visualization.
     """
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     ax.set_facecolor("#000000")

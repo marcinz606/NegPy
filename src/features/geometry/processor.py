@@ -11,7 +11,7 @@ from src.features.geometry.logic import (
 
 class GeometryProcessor:
     """
-    Applies Rotation and detects ROI.
+    Rotates and detects crop.
     """
 
     def __init__(self, config: GeometryConfig):
@@ -55,7 +55,7 @@ class GeometryProcessor:
 
 class CropProcessor:
     """
-    Applies the active ROI crop unless keep_full_frame is enabled.
+    Executes final crop.
     """
 
     def __init__(self, config: GeometryConfig):

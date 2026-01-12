@@ -8,9 +8,6 @@ from src.ui.components.sidebar.helpers import (
 
 
 def render_retouch_section() -> None:
-    """
-    Renders the 'Retouch' section of the sidebar.
-    """
     vm = RetouchViewModel()
 
     with st.expander(":material/ink_eraser: Retouch", expanded=True):
@@ -29,10 +26,7 @@ def render_retouch_section() -> None:
                     default_val=0.8,
                     step=0.01,
                     key=vm.get_key("dust_threshold"),
-                    help_text=(
-                        "Sensitivity of automatic dust detection."
-                        "Lower values catch more spots but might mistake fine detail for dust."
-                    ),
+                    help_text="Dust detection sensitivity.",
                 )
 
             with c2:
@@ -44,7 +38,7 @@ def render_retouch_section() -> None:
                     step=1.0,
                     key=vm.get_key("dust_size"),
                     format="%d",
-                    help_text="Maximum size of spots to be automatically removed.",
+                    help_text="Max spot diameter.",
                 )
 
         c1, c2 = st.columns([2, 1])

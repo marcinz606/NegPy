@@ -9,9 +9,6 @@ from src.ui.layouts.image_view import render_image_view
 
 
 def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
-    """
-    Initializes the main layout and returns (main_area, status_area).
-    """
     rotation = int(st.session_state.get("rotation", 0))
     h_orig, w_orig = ctx.original_res
 
@@ -66,9 +63,6 @@ def render_main_layout(
     sidebar_data: SidebarState,
     main_area: Any,
 ) -> None:
-    """
-    Renders the image preview and a collapsible contact sheet fixed at the bottom.
-    """
     with main_area:
         preview_container = st.container()
         with preview_container:

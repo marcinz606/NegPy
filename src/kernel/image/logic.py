@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 @njit(parallel=True, cache=True, fastmath=True)
 def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
     """
-    Fast JIT luminance calculation using Rec. 709 coefficients.
+    Rec. 709 luminance.
     """
     h, w, _ = img.shape
     res = np.empty((h, w), dtype=np.float32)
@@ -27,7 +27,7 @@ def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
 @njit(parallel=True, cache=True, fastmath=True)
 def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     """
-    Fuses scaling, nan_to_num, and clipping into a single parallel pass.
+    Scale to uint16 (clips & handles NaNs).
     """
     res = np.empty_like(img, dtype=np.uint16)
     img_flat = img.reshape(-1)
@@ -52,7 +52,7 @@ def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
 @njit(parallel=True, cache=True, fastmath=True)
 def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     """
-    Fuses scaling, nan_to_num, and clipping into a single parallel pass.
+    Scale to uint8 (clips & handles NaNs).
     """
     res = np.empty_like(img, dtype=np.uint8)
     img_flat = img.reshape(-1)
@@ -107,7 +107,7 @@ def uint16_to_float32(img: np.ndarray) -> np.ndarray:
 @njit(parallel=True, cache=True, fastmath=True)
 def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
     """
-    Fuses luminance calculation and 8-bit conversion.
+    Luminance -> uint8.
     """
     scale = 255.0
     dtype = np.uint8
@@ -146,7 +146,7 @@ def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
 @njit(parallel=True, cache=True, fastmath=True)
 def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
     """
-    Fuses luminance calculation and 16-bit conversion.
+    Luminance -> uint16.
     """
     scale = 65535.0
     dtype = np.uint16
@@ -231,7 +231,7 @@ def get_luminance(img: np.ndarray) -> np.ndarray:
 
 def calculate_file_hash(file_path: str) -> str:
     """
-    Generates a fast fingerprint by hashing file size and content samples.
+    Fingerprint using file size + head/tail samples.
     """
     try:
         file_size = os.path.getsize(file_path)

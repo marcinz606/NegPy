@@ -36,7 +36,7 @@ class IImageSource(Protocol):
 
 class IRepository(Protocol):
     """
-    Interface for settings and metadata persistence.
+    Persists settings and metadata.
     """
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None: ...
@@ -50,8 +50,7 @@ class IRepository(Protocol):
 
 class IAssetStore(Protocol):
     """
-    Interface for physical asset management.
-    Handles zero-copy registration for local files and persistent thumbnail caching.
+    Manages physical assets (files, thumbnails).
     """
 
     def register_asset(
@@ -69,7 +68,7 @@ class IAssetStore(Protocol):
 
 class IImageLoader(Protocol):
     """
-    Strategy interface for loading different image formats.
+    Loads specific image formats.
     """
 
     def load(self, file_path: str) -> ContextManager[Any]: ...
@@ -77,7 +76,7 @@ class IImageLoader(Protocol):
 
 class IFilePicker(Protocol):
     """
-    Interface for picking assets from the filesystem.
+    System file dialog wrapper.
     """
 
     def pick_files(self, initial_dir: Optional[str] = None) -> List[str]: ...

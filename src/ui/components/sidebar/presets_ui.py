@@ -55,9 +55,6 @@ def save_preset_callback() -> None:
 
 
 def render_presets() -> None:
-    """
-    Renders the Presets expander.
-    """
     session: WorkspaceSession = st.session_state.session
     if not session.current_file:
         return

@@ -7,7 +7,7 @@ from src.features.lab.logic import (
 
 class TestLabLogic(unittest.TestCase):
     def test_output_sharpening(self) -> None:
-        """Verify that sharpening increases local variance (edge contrast)."""
+        """Sharpening should increase local variance."""
         # Create a simple square
         img = np.zeros((100, 100, 3), dtype=np.float32)
         img[25:75, 25:75, :] = 0.5

@@ -7,7 +7,7 @@ T = TypeVar("T")
 
 def ensure_image(arr: Any) -> ImageBuffer:
     """
-    Ensures the input is a float32 numpy array and returns it as an ImageBuffer.
+    Casts to float32 ndarray.
     """
     if not isinstance(arr, np.ndarray):
         raise TypeError(f"Expected numpy.ndarray, got {type(arr)}")
@@ -19,7 +19,6 @@ def ensure_image(arr: Any) -> ImageBuffer:
 
 
 def validate_float(val: Any, default: float = 0.0) -> float:
-    """Ensures a value is a float, providing a default if None."""
     if val is None:
         return default
     try:
@@ -29,7 +28,6 @@ def validate_float(val: Any, default: float = 0.0) -> float:
 
 
 def validate_int(val: Any, default: int = 0) -> int:
-    """Ensures a value is an int, providing a default if None."""
     if val is None:
         return default
     try:
@@ -39,7 +37,6 @@ def validate_int(val: Any, default: int = 0) -> int:
 
 
 def validate_bool(val: Any, default: bool = False) -> bool:
-    """Ensures a value is a bool."""
     if val is None:
         return default
     return bool(val)

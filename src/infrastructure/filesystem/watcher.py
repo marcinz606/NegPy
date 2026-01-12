@@ -4,7 +4,7 @@ from typing import List, Set
 
 class FolderWatchService:
     """
-    Service for scanning directories to discover new RAW assets.
+    Scans for new RAW/TIFF assets.
     """
 
     SUPPORTED_EXTS = {".dng", ".tiff", ".tif", ".nef", ".arw", ".raw", ".raf"}
@@ -14,8 +14,7 @@ class FolderWatchService:
         cls, folder_path: str, existing_paths: Set[str]
     ) -> List[str]:
         """
-        Scans a folder and returns absolute paths of supported files not in existing_paths.
-        Performs a shallow scan for performance.
+        Shallow scan for unindexed files.
         """
         if not os.path.exists(folder_path):
             return []

@@ -3,7 +3,7 @@ import streamlit as st
 
 def apply_custom_css() -> None:
     """
-    Applies custom CSS to the Streamlit app for professional darkroom styling.
+    Injects darkroom CSS.
     """
     st.markdown(
         """

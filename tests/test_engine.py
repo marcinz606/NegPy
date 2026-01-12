@@ -6,7 +6,7 @@ from src.domain.models import WorkspaceConfig
 
 class TestDarkroomEngine(unittest.TestCase):
     def test_pipeline_execution(self):
-        """Verify that the engine can process an image from start to finish."""
+        """End-to-end pipeline smoke test."""
         engine = DarkroomEngine()
         img = np.random.rand(100, 100, 3).astype(np.float32)
         settings = WorkspaceConfig.from_flat_dict(
@@ -20,7 +20,7 @@ class TestDarkroomEngine(unittest.TestCase):
         self.assertGreaterEqual(np.min(res), 0.0)
 
     def test_pipeline_with_crop(self):
-        """Verify that engine correctly handles cropping."""
+        """Engine respects crop settings."""
         engine = DarkroomEngine()
         img = np.random.rand(200, 200, 3).astype(np.float32)
         settings = WorkspaceConfig.from_flat_dict(
@@ -33,7 +33,7 @@ class TestDarkroomEngine(unittest.TestCase):
         self.assertLess(res.shape[1], 200)
 
     def test_engine_caching(self):
-        """Verify that the engine populates and uses cache."""
+        """Check intermediate result caching."""
         engine = DarkroomEngine()
         img = np.random.rand(100, 100, 3).astype(np.float32)
         settings = WorkspaceConfig()

@@ -12,9 +12,6 @@ from src.infrastructure.loaders.native_picker import NativeFilePicker
 
 
 def render_export_section() -> SidebarState:
-    """
-    Renders the 'Export' section of the sidebar.
-    """
     with st.expander("Export", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
@@ -32,10 +29,7 @@ def render_export_section() -> SidebarState:
                 color_options,
                 default_val=DEFAULT_WORKSPACE_CONFIG.export.export_color_space,
                 key="export_color_space",
-                help_text=(
-                    "Select color space of export file. sRGB is best for screen, "
-                    "AdobeRGB for print and Greyscale for B&W (not toned) prints."
-                ),
+                help_text="sRGB: screen, AdobeRGB: print, Greyscale: B&W.",
             )
 
         c1, c2 = st.columns(2)
@@ -47,7 +41,7 @@ def render_export_section() -> SidebarState:
                 default_val=DEFAULT_WORKSPACE_CONFIG.export.export_print_size,
                 step=0.5,
                 key="export_print_size",
-                help_text="Longer dimension of the print.",
+                help_text="Long dimension (cm).",
             )
 
         with c2:
@@ -59,7 +53,7 @@ def render_export_section() -> SidebarState:
                 step=100.0,
                 key="export_dpi",
                 format="%d",
-                help_text="Desired DPI (dots per inch) resolution for printing.",
+                help_text="Print resolution (dots per inch).",
             )
 
         c_b1, c_b2 = st.columns(2)
@@ -71,10 +65,7 @@ def render_export_section() -> SidebarState:
                 default_val=DEFAULT_WORKSPACE_CONFIG.export.export_border_size,
                 step=0.05,
                 key="export_border_size",
-                help_text=(
-                    "Border width (cm). When border is added we retain our total print size, "
-                    "actual image gets scaled down. Set to 0 to disable."
-                ),
+                help_text="Total size is preserved (image scales down). 0 = off.",
             )
 
         with c_b2:

@@ -8,7 +8,7 @@ from src.domain.types import ImageBuffer, ROI
 @dataclass
 class CacheEntry:
     """
-    Represents a cached intermediate processing result.
+    Intermediate pipeline stage result.
     """
 
     config_hash: str
@@ -19,8 +19,7 @@ class CacheEntry:
 
 def calculate_config_hash(config: Any) -> str:
     """
-    Calculates a stable MD5 hash for a dataclass configuration.
-    Values are sorted to ensure consistency.
+    Stable MD5 of config state.
     """
     if hasattr(config, "to_dict"):
         data = config.to_dict()

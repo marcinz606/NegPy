@@ -7,7 +7,7 @@ from typing import Optional
 
 
 def _bring_to_front() -> None:
-    """macOS specific fix to bring dialog to front."""
+    """macOS fix: bring dialog to front."""
     if sys.platform == "darwin":
         proc_name = os.path.basename(sys.executable)
         os.system(
@@ -16,7 +16,7 @@ def _bring_to_front() -> None:
 
 
 def pick_files(initial_dir: Optional[str] = None) -> None:
-    """Opens a multi-file selection dialog and prints JSON to stdout."""
+    """Multi-file dialog (tk)."""
     root = tk.Tk()
     root.withdraw()
 
@@ -24,7 +24,6 @@ def pick_files(initial_dir: Optional[str] = None) -> None:
 
     root.attributes("-topmost", True)
 
-    # Use initial_dir if provided and exists
     start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else None
 
     file_paths = filedialog.askopenfilenames(
@@ -42,7 +41,7 @@ def pick_files(initial_dir: Optional[str] = None) -> None:
 
 
 def pick_folder(initial_dir: Optional[str] = None) -> None:
-    """Opens a folder selection dialog and prints JSON result to stdout."""
+    """Folder dialog (tk)."""
     root = tk.Tk()
     root.withdraw()
 
@@ -72,7 +71,7 @@ def pick_folder(initial_dir: Optional[str] = None) -> None:
 
 
 def pick_export_folder(initial_dir: Optional[str] = None) -> None:
-    """Opens a folder selection dialog and prints the path as JSON string to stdout."""
+    """Export folder dialog (tk)."""
     root = tk.Tk()
     root.withdraw()
 

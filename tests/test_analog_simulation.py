@@ -10,8 +10,7 @@ from src.features.lab.logic import (
 class TestAnalogSimulation(unittest.TestCase):
     def test_cmy_offset_inverse_relationship(self):
         """
-        Verify that increasing Yellow Offset reduces the final Blue output
-        (Inverse relationship in positive printing).
+        Yellow offset should reduce Blue output (Positive process).
         """
         # Create a neutral grey input (log density space)
         img_log = np.full((10, 10, 3), 0.5, dtype=np.float32)
@@ -39,8 +38,7 @@ class TestAnalogSimulation(unittest.TestCase):
 
     def test_crosstalk_unmixing(self):
         """
-        Verify that the Crosstalk Matrix correctly un-mixes channels.
-        With row-normalization, neutral colors should be preserved.
+        Normalized matrix should preserve neutral grey.
         """
         # Neutral input in density space
         img_dens = np.full((10, 10, 3), 0.5, dtype=np.float32)
@@ -56,7 +54,7 @@ class TestAnalogSimulation(unittest.TestCase):
 
     def test_clahe_preserves_color(self):
         """
-        Verify that CLAHE doesn't shift the mean color significantly.
+        CLAHE should not skew channel ratios (color shift).
         """
         # Create a colorized image
         img = np.zeros((100, 100, 3), dtype=np.float32)

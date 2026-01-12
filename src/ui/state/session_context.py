@@ -11,8 +11,7 @@ from src.domain.session import WorkspaceSession
 
 class SessionContext:
     """
-    The 'Source of Truth' for the UI layer.
-    Typed facade over st.session_state.
+    Typed wrapper for st.session_state access.
     """
 
     @property
