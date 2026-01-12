@@ -89,7 +89,8 @@ class ExportService:
         status_area: Any,
     ) -> None:
         """
-        Executes a batch export sequentially.
+        Executes a batch export sequentially, mainly for stability reasons, with big raw files
+        parallelizing this can easily result on OOMs
         """
         os.makedirs(sidebar_data.export_path, exist_ok=True)
         total_files = len(files)
@@ -122,9 +123,6 @@ class ExportService:
                         filename_pattern=sidebar_data.filename_pattern,
                     )
 
-                    status.write(f"Processing {i+1}/{total_files}: {f_meta['name']}...")
-                    
-                    # Run processing in a separate thread to keep the event loop alive
                     await asyncio.to_thread(
                         ExportService._export_one,
                         f_meta["path"],

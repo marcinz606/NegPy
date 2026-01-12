@@ -7,6 +7,9 @@
 
 ---
 
+![alt text](docs/media/090_scr.png)
+---
+
 ## ✨ Basic Features
 
 - **Math-based Inversion**: No camera profiles (DCP) or "film base color picking" required. It uses per-channel sensitometric normalization to automatically neutralize the orange mask.
@@ -18,7 +21,6 @@
 - **Presets**: Save your favorite settings as presets. Presets are saved in JSON format so they can be easily shared.
 - **Caching**: Thumbnails for film strip view are processed once are cached locally, so it feels snappy even with large libraries.
 - **Persistence**: All your edits are tied to hashes calcualated based on file contents (so won't be lost when you rename/move files) and stored in local SQLite database, moving them between computers is as simple as copying the database file.
-- **Optimization & Multiprocessing**: To speed up the processing, we compile functions to low level machine code on startup and employ multiprocessing for batch exports process multiple files in parallel.
 - **Print preparation**: Export module is tailored towards getting your scans printed. We export with certain print size & DPI in mind, have very convinitent way to add border (while keeping target size) and also soft-proofing module to preview image with applied .icc profile.
 
 ---
@@ -46,24 +48,17 @@ I will also add it to Arch User Repository (AUR) as soon as I get around to it.
 Because NegPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them ransom for that). You will see a security warning the first time you run it.
 
 #### **🍎 MacOS**
-When you open the app, you may see a message saying it is "corrupted" or from an "unidentified developer."
+When you first try to open the app, you may see a message saying it is "corrupted" or from an "unidentified developer.". There is way around that **in point 3**
 1.  Doubleclick on downloaded `.zip` file to extract it, you should se `.dng` file.
-1.  Doubleclick `.dng` **NegPy** and drag it to your `/Applications` folder.
-2.  **Right-Click** (or Ctrl+Click) the app icon and select **Open**.
-3.  *Alternatively*, run this in your Terminal: `xattr -cr /Applications/NegPy.app`
-4.  When the dialog appears, click **Open** again.
-5.  After that you should be able to just start the app normally.
+2.  Doubleclick `.dng` **NegPy** and drag it to your `/Applications` folder.
+3.  **Run this in your Terminal**: `xattr -cr /Applications/NegPy.app`
+4.  After that you should be able to just start the app normally.
 
 #### **🪟 Windows**
 Windows might show a "Windows protected your PC" window.
 1.  Click **More info**.
 2.  Click **Run anyway**.
 3.  Because proper startup process was blocked, you might get white screen on first run. Just close and restart the app (if it minimizes to tray right click and quit).
-
-
-#### **⚠️ Important**
-App is compiling functions to machine code on first startup, so it might take a while to start up on slower CPUs.
-Also, app closes to tray by default so if you want to kill it, right click tray icon and quit.
 
 
 ## Tips
@@ -78,7 +73,7 @@ NegPy keeps everything in your **Documents/NegPy** folder:
 - **`settings.db`**: Global settings like export size, image preview size etc.
 - **`cache/`**: Thumbnails (safe to delete).
 - **`export/`**: Where your finished positives go by default.
-- **`icc/`**: Where your loaded ICC profiles go.
+- **`icc/`**: You can put your .icc profiles here.
 
 ---
 

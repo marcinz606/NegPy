@@ -17,7 +17,7 @@ streamlit_image_coordinates_dir = os.path.dirname(streamlit_image_coordinates.__
 params = [
     "desktop/backend_bootstrap.py",  # electron entry point
     "--name=negpy",
-    "--onefile",
+    "--onedir",
     "--clean",
     "--noconfirm",
     "--additional-hooks-dir=desktop",
@@ -66,27 +66,19 @@ if platform.system() == "Windows":
     params.append("--windowed")
 
 PyInstaller.__main__.run(params)
-os.makedirs("desktop/bin/negpy", exist_ok=True)
 
-if platform.system() == "Windows":
-    dist_name = "negpy.exe"
-else:
-    dist_name = "negpy"
+dest_dir = os.path.join("desktop", "bin", "negpy")
+src_folder_name = "negpy"
+src_path = os.path.join("dist", src_folder_name)
 
-src_path = os.path.join("dist", dist_name)
-dst_path = os.path.join("desktop/bin/negpy", dist_name)
+if os.path.exists(dest_dir):
+    shutil.rmtree(dest_dir)
 
 if os.path.exists(src_path):
-    if os.path.exists(dst_path):
-        if os.path.isdir(dst_path):
-            shutil.rmtree(dst_path)
-        else:
-            os.remove(dst_path)
+    os.makedirs(os.path.dirname(dest_dir), exist_ok=True)
+    shutil.move(src_path, dest_dir)
+    print(f"Successfully built and moved to {dest_dir}")
 
-    shutil.move(src_path, dst_path)
-    print(f"Successfully built and moved to {dst_path}")
-
-    # Cleanup empty dist folder created by PyInstaller
     if os.path.exists("dist") and not os.listdir("dist"):
         os.rmdir("dist")
 else:
