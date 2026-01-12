@@ -2,9 +2,7 @@
 
 Thank you for your interest in contributing to **NegPy**! This project is an open-source tool dedicated to high-quality film negative processing.
 
-## 📜 Code of Conduct
-
-By participating in this project, you agree to abide by the terms of the **GPL-3.0 License** and maintain a professional, respectful environment.
+By participating in this project, you agree to abide by the terms of the **GPL-3.0 License**,
 
 ## 🛠️ Development Setup
 
