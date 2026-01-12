@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 class ExportService:
     """
-    Application service for managing single and batch exports.
+    Handles file export (single & batch).
     """
 
     @staticmethod
@@ -24,8 +24,7 @@ class ExportService:
         export_settings: ExportConfig,
     ) -> str:
         """
-        Processes and saves a single image.
-        Raises exceptions on failure.
+        Renders and saves a single file.
         """
         image_service = ImageProcessor()
         templater_instance = FilenameTemplater()
@@ -62,7 +61,7 @@ class ExportService:
         icc_profile_path: Any,
     ) -> str:
         """
-        Executes a single image export based on sidebar state.
+        Export wrapper for UI calls.
         """
         export_settings = ExportConfig(
             export_fmt=sidebar_data.out_fmt,
@@ -89,8 +88,9 @@ class ExportService:
         status_area: Any,
     ) -> None:
         """
-        Executes a batch export sequentially, mainly for stability reasons, with big raw files
-        parallelizing this can easily result on OOMs
+        Sequential batch export.
+        Tried parallelizing but with big raws it can lead to OOM
+        fork bombs and general system instability.
         """
         os.makedirs(sidebar_data.export_path, exist_ok=True)
         total_files = len(files)
@@ -128,11 +128,13 @@ class ExportService:
                         f_meta["path"],
                         f_meta,
                         f_settings,
-                        f_export_settings
+                        f_export_settings,
                     )
-                
+
                 except Exception as e:
-                    logger.error(f"Exception during batch export for {f_meta.get('name', 'unknown')}: {e}")
+                    logger.error(
+                        f"Exception during batch export for {f_meta.get('name', 'unknown')}: {e}"
+                    )
                     st.error(f"Failed to export {f_meta.get('name', 'unknown')}: {e}")
 
             elapsed = time.perf_counter() - start_time

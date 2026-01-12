@@ -7,9 +7,6 @@ from src.ui.components.sidebar.helpers import (
 
 
 def render_local_adjustments() -> None:
-    """
-    Renders the Local Adjustments layer manager and brush controls.
-    """
     with st.expander(":material/pen_size_5: Dodge & Burn", expanded=False):
         st.subheader("Adjustment Masks")
 

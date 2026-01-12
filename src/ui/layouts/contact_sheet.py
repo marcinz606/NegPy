@@ -5,9 +5,6 @@ from src.kernel.system.config import APP_CONFIG
 
 
 def render_contact_sheet() -> None:
-    """
-    Renders a contact sheet of thumbnails in a scrollable container.
-    """
     session: WorkspaceSession = st.session_state.session
     if not session.uploaded_files:
         return

@@ -10,8 +10,7 @@ from src.features.exposure.logic import (
 class TestExposureLogic(unittest.TestCase):
     def test_apply_characteristic_curve_identity(self):
         """
-        With pivot=0, slope=0 and linear-like settings, check behavior.
-        Actually slope is contrast. In sigmoid, k=1.0 is roughly linear around pivot.
+        Verify math for neutral/flat settings.
         """
         img = np.full((10, 10, 3), 0.0, dtype=np.float32)  # Log space 0.0
         # If pivot=0, diff=0, sigmoid(0)=0.5.
@@ -23,7 +22,7 @@ class TestExposureLogic(unittest.TestCase):
         self.assertAlmostEqual(res[0, 0, 0], 0.01 ** (1 / 2.2), delta=0.01)
 
     def test_exposure_shift(self):
-        """Increasing pivot should increase final brightness (less density)."""
+        """Check density shift direction."""
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
 
         res1 = apply_characteristic_curve(img, (0.5, 2.0), (0.5, 2.0), (0.5, 2.0))
@@ -33,7 +32,7 @@ class TestExposureLogic(unittest.TestCase):
         self.assertGreater(np.mean(res2), np.mean(res1))
 
     def test_cmy_conversions(self):
-        """Verify round-trip or expected values for CMY density conversions."""
+        """Verify unit conversion roundtrip."""
         val = 0.5
         dens = cmy_to_density(val, log_range=1.0)
         # cmy_max_density is 0.1

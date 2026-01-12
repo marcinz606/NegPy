@@ -7,7 +7,7 @@ from src.kernel.image.logic import uint8_to_float32, uint16_to_float32
 
 class NonStandardFileWrapper:
     """
-    Wraps pre-loaded numpy data to provide a rawpy-compatible interface.
+    numpy -> rawpy-like interface.
     """
 
     def __init__(self, data: np.ndarray):

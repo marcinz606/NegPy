@@ -22,9 +22,6 @@ from src.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def render_adjustments() -> SidebarState:
-    """
-    Renders the various image adjustment expanders by delegating to sub-components.
-    """
     render_control_selectbox(
         "Processing Mode",
         ["C41", "B&W"],

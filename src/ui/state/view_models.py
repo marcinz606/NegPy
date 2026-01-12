@@ -12,7 +12,7 @@ from src.kernel.image.validation import validate_float, validate_int, validate_b
 @dataclass
 class SidebarState:
     """
-    Transient state for sidebar actions and export parameters.
+    Transient state for sidebar & export buttons.
     """
 
     out_fmt: str = "JPEG"
@@ -31,7 +31,7 @@ class SidebarState:
 
 class IViewModel(Protocol):
     """
-    Protocol for ViewModels that can sync with Streamlit state.
+    Interface for UI-to-Session syncing.
     """
 
     def get_key(self, field: str) -> str: ...

@@ -8,7 +8,7 @@ from src.domain.interfaces import IRepository
 
 class StorageRepository(IRepository):
     """
-    Concrete implementation of IRepository using SQLite.
+    SQLite backend for settings.
     """
 
     def __init__(self, edits_db_path: str, settings_db_path: str) -> None:
@@ -17,7 +17,7 @@ class StorageRepository(IRepository):
 
     def initialize(self) -> None:
         """
-        Initializes the SQLite databases and ensures directories exist.
+        Ensures DB tables exist.
         """
         os.makedirs(os.path.dirname(self.edits_db_path), exist_ok=True)
 

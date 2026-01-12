@@ -2,106 +2,78 @@
   <img src="media/icons/icon.svg" width="96" height="96" alt="NegPy Logo"><h1>NegPy</h1>
 </div>
 
+**NegPy** is a tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond simple inversion tool. It simulates how film & photographic paper works but also throws in some lab-scanner conveniences because who wouldn't want a Fuji Frontier at home?
 
-**NegPy** is an open-source tool for processing film negatives. I built it because I wanted something made specifically for film scans but going beyond being a simple converter. I try to simulate film & paper behavior while also throwing in some lab-scanner-like features because who wouldn't want to have Fuji Frontier at home?
+Also it runs on Linux! (macOS and Windows are supported too)
 
 ---
 
 ![alt text](docs/media/090_scr.png)
 ---
 
-## ✨ Basic Features
+## ✨ What it does
 
-- **Math-based Inversion**: No camera profiles (DCP) or "film base color picking" required. It uses per-channel sensitometric normalization to automatically neutralize the orange mask.
-- **Physical Modeling**: It doesn't just linearly "invert colors". It simulates the physics of a darkroom print using a Logistic Sigmoid function to model the **H&D Characteristic Curve** of film & photographic paper.
-- **File support**: Supports raw formats that you would expect, tiff but also weird Planar RAW files from the Kodak Pakon scanner.
-- **Hot folder**: Optionally watch a folder for new files and load them automatically.
-- **Non-destructive**: It doesn't touch your raws, we just keep track of all the settings that need to be applied to produce final "print".
-- **Copy-paste**: Copy-paste settings between images.
-- **Presets**: Save your favorite settings as presets. Presets are saved in JSON format so they can be easily shared.
-- **Caching**: Thumbnails for film strip view are processed once are cached locally, so it feels snappy even with large libraries.
-- **Persistence**: All your edits are tied to hashes calculated based on file contents (so won't be lost when you rename/move files) and stored in local SQLite database, moving them between computers is as simple as copying the database file.
-- **Print preparation**: Export module is tailored towards getting your scans printed. We export with certain print size & DPI in mind, have very convenient way to add border (while keeping target size) and also soft-proofing module to preview image with applied .icc profile.
+*   **No Camera Profiles**: It doesn't use camera profiles or ask you colorpick the border. It uses math to neutralize the orange mask based on channel sensitometry.
+*   **Real Physics**: It models the **H&D Characteristic Curve** of paper using a Logistic Sigmoid function instead of doing simple linear inversion.
+*   **File Support**: Supports standard RAWs/TIFFs, but also the weird raw files from Kodak Pakon scanners.
+*   **Non-destructive**: Your original files are never touched. Edits are just "recipe" for final print.
+*   **Database**: All edits are stored in a local SQLite file (`edits.db`), keyed by file hash. You can rename your files and your edits won't disappear.
+*   **Caching**: Thumbnails are cached so browsing large folders feels snappy.
+*   **Print Ready**: The export module is designed for printing, with easy border controls and soft-proofing.
 
 ---
 
-### 🧪 The Processing Pipeline
+### 🧪 How it works
 
-[📖 Read about the math behind the pipeline and the basic workflow of NegPy](docs/PIPELINE.md)
-
+[📖 Read about the math and the pipeline here](docs/PIPELINE.md)
 
 ---
 
 ## 🚀 Getting Started
 
-### Download the App
-Grab the app for your OS from the **[Releases Page](https://github.com/marcinz606/NegPy/releases)**.
-
+### Download
+Grab the latest release for your OS from the **[Releases Page](https://github.com/marcinz606/NegPy/releases)**.
 
 #### **🐧 Linux**
+I provide an `.AppImage`. It should just work.
+(I'll add it to the AUR eventually).
 
-I supply a .AppImage file for Linux, it should work out of the box. Here is [quick guide](https://docs.appimage.org/introduction/quickstart.html) if you never used AppImage before
+#### **🛡️ Unsigned Software Warning**
+Since this is a free hobby project, I don't pay Apple or Microsoft ransom for their developer certificates. You'll get a scary warning the first time you run it.
 
-I will also add it to Arch User Repository (AUR) as soon as I get around to it.
+**🍎 MacOS**:
+1.  Double click `.dng` file & drag the app to `/Applications`.
+2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app`
+3.  Launch it.
 
-### 🛡️ Installation & Security
-Because NegPy is a hobby, open-source project, the installers are not "digitally signed" by Apple or Microsoft (they want you to pay them ransom for that). You will see a security warning the first time you run it.
+**🪟 Windows**:
+1.  Click **More info** -> **Run anyway**.
 
-#### **🍎 MacOS**
-When you first try to open the app, you may see a message saying it is "corrupted" or from an "unidentified developer.". There is a way around that **in point 2**
-1.  Double-click `.dng` **NegPy** and drag it to your `/Applications` folder.
-2.  **Run this in your Terminal**: `xattr -cr /Applications/NegPy.app`
-3.  After that you should be able to just start the app normally.
+---
 
-#### **🪟 Windows**
-Windows might show a "Windows protected your PC" window.
-1.  Click **More info**.
-2.  Click **Run anyway**.
-3.  Because proper startup process was blocked, you might get white screen on first run. Just close and restart the app (if it minimizes to tray right click and quit).
-
-
-## Tips
-
-* You can scale the UI using `ctrl +` and `ctrl -` shortcuts. (`cmd +` and `cmd -` on MacOS)
-* Your edits to current file are saved on export or on switching to different file. If you close the app without exporting or switching to a different file edits might be lost.
-
-
-## 📂 Where's my data?
-NegPy keeps everything in your **Documents/NegPy** folder:
-- **`edits.db`**: Your edits.
-- **`settings.db`**: Global settings like export size, image preview size etc.
-- **`cache/`**: Thumbnails (safe to delete).
-- **`export/`**: Where your finished positives go by default.
-- **`icc/`**: You can put your .icc profiles here.
+## 📂 Data Location
+Everything lives in your `Documents/NegPy` folder:
+*   `edits.db`: Your edits.
+*   `settings.db`: Global settings like last used export settings or preview size.
+*   `cache/`: Thumbnails (safe to delete).
+*   `export/`: Default export location.
+*   `icc/`: Drop your paper/printer profiles here.
 
 ---
 
 ## Roadmap
-I have some more ideas for next features & improvements:
-
-[ROADMAP.md](docs/ROADMAP.md)
+Things I want to add later: [ROADMAP.md](docs/ROADMAP.md)
 
 ---
 
 ### For Developers
-If you want to contribute or poke around the code, I use Docker to make building and running the app easy and consistent.
 
-#### Run with Docker
-`make run-app`
-
-#### Build electron app locally
-`make dist`
-
-#### Run Tests & Checks
-There's a Makefile to help with quality control:
-- `make all`: Runs everything (Lint, Typecheck, Unit Tests).
-- `make format`: Auto-formats code with Ruff.
-
+Check [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## ⚖️ License
-This project is free software under the copyleft **[GPL-3 License](LICENSE)**. Feel free to use it, study it, and share it. If you use it, also keep it open.
+Copyleft under **[GPL-3](LICENSE)**.
 
 ## Support
-If you like the project and want to support it, consider buying me a coffee or a roll of film to have material for testing.
+If you like this tool, maybe buy me a roll of film so I have more test data :)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/marcinzawalski)

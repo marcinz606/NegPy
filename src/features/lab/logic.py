@@ -11,7 +11,7 @@ def _apply_spectral_crosstalk_jit(
     img_dens: np.ndarray, applied_matrix: np.ndarray
 ) -> np.ndarray:
     """
-    Fast JIT application of 3x3 crosstalk matrix in density space.
+    3x3 Matrix multiplication.
     """
     h, w, c = img_dens.shape
     res = np.empty_like(img_dens)
@@ -42,7 +42,7 @@ def apply_spectral_crosstalk(
     img_dens: ImageBuffer, strength: float, matrix: Optional[List[float]]
 ) -> ImageBuffer:
     """
-    Applies a color crosstalk matrix to an RGB image in density space.
+    Mixes channels using calibration matrix.
     """
     if strength == 0.0 or matrix is None:
         return img_dens
@@ -70,7 +70,7 @@ def apply_clahe(
     img: ImageBuffer, strength: float, scale_factor: float = 1.0
 ) -> ImageBuffer:
     """
-    Applies local contrast enhancement (micro-contrast) using CLAHE in LAB space.
+    L-channel Contrast Limited Adaptive Histogram Equalization.
     """
     if strength <= 0:
         return img
@@ -103,7 +103,7 @@ def _apply_unsharp_mask_jit(
     l_chan: np.ndarray, l_blur: np.ndarray, amount: float, threshold: float
 ) -> np.ndarray:
     """
-    Fast JIT implementation of Unsharp Mask on the Lightness channel.
+    USM Kernel (Orig + (Orig - Blur) * Amount).
     """
     h, w = l_chan.shape
     res = np.empty((h, w), dtype=np.float32)
@@ -130,8 +130,7 @@ def apply_output_sharpening(
     img: ImageBuffer, amount: float, scale_factor: float = 1.0
 ) -> ImageBuffer:
     """
-    Applies Unsharp Mask (USM) sharpening to the Lightness channel.
-    Uses a JIT kernel for efficient processing in the LAB color space.
+    LAB Lightness sharpening.
     """
     if amount <= 0:
         return img

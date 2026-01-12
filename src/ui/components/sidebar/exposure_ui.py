@@ -4,9 +4,6 @@ from src.ui.components.sidebar.helpers import render_control_slider
 
 
 def render_exposure_section() -> None:
-    """
-    Renders the 'Exposure & Tonality' section of the sidebar.
-    """
     vm = ExposureViewModel()
 
     with st.expander(":material/camera: Exposure & Tonality", expanded=True):

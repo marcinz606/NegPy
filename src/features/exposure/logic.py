@@ -36,11 +36,8 @@ def _apply_photometric_fused_kernel(
     gamma: float = 2.2,
 ) -> np.ndarray:
     """
-    Fused JIT kernel that applies Hurter-Driffield (H&D) characteristic curves to all
-    channels in a single pass.
-
-    This kernel simulates the response of photographic paper or film by mapping
-    log-exposure to optical density using a sigmoid function.
+    Fused JIT kernel for H&D curve application.
+    Maps log-exposure to optical density (D) in a single pass.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -85,14 +82,8 @@ def _apply_photometric_fused_kernel(
 
 class LogisticSigmoid:
     """
-    Models a photometric H&D Characteristic Curve using a logistic sigmoid function.
-
-    The Hurter-Driffield curve describes the relationship between log-exposure (H)
-    and resulting optical density (D). This implementation uses a sigmoid as a
-    mathematical approximation of the linear region (gamma), the toe, and the shoulder.
-
-    Equation: D = L / (1 + exp(-k * (x - x0)))
-    where L is D-max, k is contrast grade, and x0 is the exposure pivot.
+    Sigmoid approximation of the H&D curve (Linear + Toe + Shoulder).
+    D = L / (1 + exp(-k * (x - x0)))
     """
 
     def __init__(

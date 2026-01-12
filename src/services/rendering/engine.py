@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 class DarkroomEngine:
     """
-    Orchestrates the modular image processing pipeline with stage-level caching.
+    Runs the pipeline. Handles stage caching.
     """
 
     def __init__(self) -> None:

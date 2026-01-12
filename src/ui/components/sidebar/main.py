@@ -5,9 +5,6 @@ from src.ui.components.sidebar.collect_adjustments import render_adjustments
 
 
 def render_sidebar_content() -> SidebarState:
-    """
-    Renders the main sidebar content.
-    """
     session: WorkspaceSession = st.session_state.session
     with st.sidebar:
         current_file = session.current_file

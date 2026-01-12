@@ -9,13 +9,13 @@ from src.features.toning.logic import (
 
 class TestToningLogic(unittest.TestCase):
     def test_simulate_paper_substrate_none(self):
-        """None profile should return image as is if dmax_boost is 1.0"""
+        """Identity check for 'None' profile."""
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
         res = simulate_paper_substrate(img, "None")
         np.testing.assert_array_almost_equal(img, res)
 
     def test_simulate_paper_substrate_tint(self):
-        """Verify that paper tinting affects the output colors."""
+        """Verify tint application."""
         img = np.full((10, 10, 3), 1.0, dtype=np.float32)  # White input
         res = simulate_paper_substrate(img, "Antique Ivory")
 
@@ -24,7 +24,7 @@ class TestToningLogic(unittest.TestCase):
         np.testing.assert_array_almost_equal(res[0, 0], expected_tint, decimal=2)
 
     def test_apply_chemical_toning_selenium(self):
-        """Selenium should darken shadows (low lum) more than highlights."""
+        """Selenium targets shadows (low luma)."""
         # Create a gradient from 0 to 1
         img = (
             np.linspace(0, 1, 100)
@@ -44,7 +44,7 @@ class TestToningLogic(unittest.TestCase):
         self.assertGreater(diff_shadow, diff_highlight)
 
     def test_apply_chemical_toning_sepia(self):
-        """Sepia should warm up the midtones."""
+        """Sepia targets midtones (warm shift)."""
         img = np.full((10, 10, 3), 0.6, dtype=np.float32)
         res = apply_chemical_toning(img, selenium_strength=0.0, sepia_strength=1.0)
 

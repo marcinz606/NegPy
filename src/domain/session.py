@@ -7,8 +7,7 @@ from src.services.rendering.engine import DarkroomEngine
 
 class WorkspaceSession:
     """
-    Pure domain workspace session.
-    Manages state and orchestrates interactions without UI coupling.
+    Core application session. Orchestrates data flow, files, and settings.
     """
 
     def __init__(
@@ -37,8 +36,7 @@ class WorkspaceSession:
         self, current_uploaded_names: Set[str], raw_files: List[Any]
     ) -> None:
         """
-        Synchronizes the session's file list with the provided set of file names.
-        Only affects 'managed' assets (those in the cache).
+        Syncs 'managed' files (e.g., from drag-drop).
         """
         cache_dir = getattr(self.asset_store, "cache_dir", "")
 
@@ -74,8 +72,7 @@ class WorkspaceSession:
 
     def add_local_assets(self, paths: List[str]) -> None:
         """
-        Directly adds local files via path strings.
-        Bypasses Streamlit's buffer copying.
+        Registers local paths (skips upload buffers).
         """
         current_paths = {f["path"] for f in self.uploaded_files}
 
@@ -94,8 +91,7 @@ class WorkspaceSession:
 
     def create_default_config(self) -> WorkspaceConfig:
         """
-        Creates a fresh WorkspaceConfig with correct defaults, ensuring
-        environment-dependent values (like export_path) are applied.
+        New config with env-aware defaults.
         """
         from src.kernel.system.config import DEFAULT_WORKSPACE_CONFIG, APP_CONFIG
 
@@ -109,8 +105,7 @@ class WorkspaceSession:
 
     def get_settings_for_file(self, f_hash: str) -> WorkspaceConfig:
         """
-        Retrieves settings for a specific file hash.
-        Loads from repository if not in memory.
+        Loads settings (memory -> DB -> default).
         """
         if f_hash in self.file_settings:
             return self.file_settings[f_hash]
@@ -125,7 +120,6 @@ class WorkspaceSession:
     def get_active_settings(self) -> Optional[WorkspaceConfig]:
         """
         Returns settings for the currently selected file.
-        Loads from repository if not in memory.
         """
         if not self.uploaded_files:
             return None
@@ -145,7 +139,7 @@ class WorkspaceSession:
         self, settings: WorkspaceConfig, persist: bool = True
     ) -> None:
         """
-        Updates memory and persistent storage with provided settings for the active file.
+        Updates memory + DB.
         """
         if not self.uploaded_files:
             return

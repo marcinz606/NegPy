@@ -14,8 +14,7 @@ async def generate_batch_thumbnails(
     files: List[Dict[str, str]], asset_store: Any
 ) -> Dict[str, Image.Image]:
     """
-    Generates thumbnails in parallel using a semaphore to limit concurrency.
-    Returns a dictionary mapping filenames to PIL Images.
+    Parallel thumbnail generation (throttled).
     """
 
     # Limit concurrency to half of available cores
@@ -39,8 +38,7 @@ def get_thumbnail_worker(
     file_path: str, file_hash: str, asset_store: Any = None
 ) -> Optional[Image.Image]:
     """
-    Worker function for parallel thumbnail generation.
-    Checks persistent cache before parsing RAW data.
+    Checks cache -> extracts/renders -> resize.
     """
     try:
         if asset_store:

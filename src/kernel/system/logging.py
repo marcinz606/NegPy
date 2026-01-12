@@ -5,8 +5,7 @@ import io
 
 class _DummyStream(io.TextIOBase):
     """
-    A file-like object that discards all input.
-    Prevents AttributeError when sys.stdout/stderr are None in GUI apps.
+    DevNull replacement for GUI apps.
     """
 
     def write(self, x: str) -> int:
@@ -18,8 +17,7 @@ class _DummyStream(io.TextIOBase):
 
 def init_streams() -> None:
     """
-    Ensures sys.stdout and sys.stderr are not None.
-    Required for Windows bundled applications without a console.
+    Fixes None stdout/stderr in Windows GUI bundles.
     """
     if sys.stdout is None:
         sys.stdout = _DummyStream()
@@ -29,7 +27,7 @@ def init_streams() -> None:
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     """
-    Sets up the global logging configuration for the application.
+    Global log config.
     """
     init_streams()
 

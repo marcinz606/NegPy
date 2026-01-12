@@ -22,9 +22,6 @@ logger = get_logger(__name__)
 def render_image_view(
     pil_prev: Image.Image, border_config: SidebarState | None = None
 ) -> None:
-    """
-    Renders the main image viewport and handles coordinate-based interaction.
-    """
     ctx = SessionContext()
     session = ctx.session
     vm_retouch = RetouchViewModel()

@@ -65,10 +65,6 @@ def rotate_file(direction: int) -> None:
 
 
 def render_navigation() -> Tuple[bool, bool]:
-    """
-    Renders the navigation buttons, rotation, file removal, copy/paste/reset, and export actions.
-    Returns (export_single_btn_clicked, export_all_btn_clicked).
-    """
     session: WorkspaceSession = st.session_state.session
 
     c1, c2, c3, c4, c5 = st.columns(5)

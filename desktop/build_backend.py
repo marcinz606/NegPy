@@ -1,5 +1,5 @@
-# This script is used to build python app using pyinstaller
-# It is not used in the app itself
+# PyInstaller build script for the Python backend.
+# Not part of the runtime app.
 
 import PyInstaller.__main__
 import os

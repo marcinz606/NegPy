@@ -5,7 +5,7 @@ import json
 
 def get_app_version() -> str:
     """
-    Reads the application version.
+    Reads VERSION or package.json.
     """
     root_dir = os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__)))

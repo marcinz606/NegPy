@@ -12,10 +12,7 @@ from src.features.exposure.normalization import (
 
 class NormalizationProcessor:
     """
-    Handles Log-Normalization of the linear RAW input.
-
-    This stage converts linear photometric data into a logarithmic negative-like
-    representation and normalizes it based on the detected dynamic range (D-min/D-max).
+    Converts linear RAW to normalized log-density.
     """
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
@@ -35,7 +32,7 @@ class NormalizationProcessor:
 
 class PhotometricProcessor:
     """
-    Simulates the Photometric 'Printing' process.
+    Applies H&D curve simulation.
     """
 
     def __init__(self, config: ExposureConfig):

@@ -5,7 +5,7 @@ from typing import List, Optional
 @dataclass(frozen=True)
 class LabConfig:
     """
-    Scanner and high-end lab emulation parameters.
+    Scanner emulation (Sharpening, CLAHE).
     """
 
     color_separation: float = 1.0
@@ -23,4 +23,4 @@ class LabConfig:
             -0.1,
             1.0,
         ]
-    )
+    )  # generic color negative

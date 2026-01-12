@@ -10,7 +10,7 @@ from src.features.toning.models import ToningConfig
 @dataclass(frozen=True)
 class ExportConfig:
     """
-    Configuration for the image export process.
+    Export parameters (path, format, sizing).
     """
 
     export_path: str = "export"
@@ -29,8 +29,7 @@ class ExportConfig:
 @dataclass(frozen=True)
 class WorkspaceConfig:
     """
-    Composed configuration for a single image workspace.
-    Centralizes global processing decisions like process_mode.
+    Complete state for a single image edit.
     """
 
     process_mode: str = "C41"
@@ -43,8 +42,7 @@ class WorkspaceConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        Flattens the composed object into a single key-value store.
-        Ensures zero naming collisions by architectural design.
+        Flattens for serialization.
         """
         res = {"process_mode": self.process_mode}
         res.update(asdict(self.exposure))
@@ -58,7 +56,7 @@ class WorkspaceConfig:
     @classmethod
     def from_flat_dict(cls, data: Dict[str, Any]) -> "WorkspaceConfig":
         """
-        Reconstructs the composed object from a flat dictionary.
+        from DB/JSON.
         """
 
         def filter_keys(config_cls: Any, d: Dict[str, Any]) -> Dict[str, Any]:

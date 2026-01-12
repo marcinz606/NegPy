@@ -5,8 +5,6 @@ from src.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
 
 class TestRawHandlers(unittest.TestCase):
     def test_pakon_detection(self):
-        # We can't easily test real files without assets, but we can test the factory logic
-        # if we had mock files. For now just verify imports and basic types.
         pass
 
     def test_non_standard_wrapper(self):

@@ -13,7 +13,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
 @dataclass(frozen=True)
 class ExposureConfig:
     """
-    Configuration for the Photometric Exposure step.
+    Print parameters (Density, Grade, Color).
     """
 
     density: float = 1.0

@@ -8,9 +8,6 @@ from src.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
 def render_paper_section() -> None:
-    """
-    Renders the 'Color & Toning' section of the sidebar.
-    """
     vm = ToningViewModel()
 
     with st.expander(":material/colorize: Paper & Toning", expanded=False):
@@ -19,7 +16,7 @@ def render_paper_section() -> None:
             ["None", "Neutral RC", "Cool Glossy", "Warm Fiber", "Antique Ivory"],
             default_val=DEFAULT_WORKSPACE_CONFIG.toning.paper_profile,
             key=vm.get_key("paper_profile"),
-            help_text="Simulates the specific spectral reflectance and D-max of analog paper bases.",
+            help_text="Tint & D-max of specific paper stocks.",
         )
 
         if st.session_state.get("process_mode") == "B&W":
@@ -31,7 +28,7 @@ def render_paper_section() -> None:
                 default_val=0.0,
                 step=0.01,
                 key=vm.get_key("selenium_strength"),
-                help_text="Deepens D-max and shifts shadows towards purple/red-black by converting silver to silver selenide.",
+                help_text="Shadow tone shift (Silver Selenide simulation).",
             )
             render_control_slider(
                 label="Sepia",
@@ -40,5 +37,5 @@ def render_paper_section() -> None:
                 default_val=0.0,
                 step=0.01,
                 key=vm.get_key("sepia_strength"),
-                help_text="Adds a warm, orange-brown glow to mid-tones and highlights by converting silver to silver sulfide.",
+                help_text="Mid-tone warm shift (Silver Sulfide simulation).",
             )

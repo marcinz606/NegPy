@@ -65,9 +65,9 @@ if (!gotTheLock) {
         let args = [];
 
         if (isPackaged) {
-             // In the flat structure, the executable is directly inside resources/negpy
-             // Win: resources/negpy/negpy.exe
-             // Mac/Linux: resources/negpy/negpy
+            // In the flat structure, the executable is directly inside resources/negpy
+            // Win: resources/negpy/negpy.exe
+            // Mac/Linux: resources/negpy/negpy
             if (os.platform() === 'win32') {
                 pythonExecutable = path.join(process.resourcesPath, 'negpy', 'negpy.exe');
             } else {
@@ -208,7 +208,7 @@ if (!gotTheLock) {
                     mainWindow.show();
                     mainWindow.focus();
                 }
-            }, 800);
+            }, 2000);
         });
 
         // If it fails to load (e.g. race condition), reload after a short delay

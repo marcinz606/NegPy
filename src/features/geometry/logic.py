@@ -8,10 +8,7 @@ from src.kernel.image.logic import get_luminance
 
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     """
-    Rotates the image by a specific angle (in degrees).
-
-    Used for horizon leveling and precise alignment. Uses bilinear interpolation
-    to preserve fine photographic detail during the transformation.
+    Sub-degree rotation (bilinear).
     """
     if angle == 0.0:
         return img
@@ -38,8 +35,7 @@ def apply_margin_to_roi(
     margin_px: float,
 ) -> ROI:
     """
-    Applies a uniform margin (in pixels) to an ROI, ensuring it stays within bounds.
-    Positive margin crops IN, negative margin expands OUT.
+    Expands/Contracts ROI.
     """
     y1, y2, x1, x2 = roi
     ny1, ny2, nx1, nx2 = y1 + margin_px, y2 - margin_px, x1 + margin_px, x2 - margin_px
@@ -53,7 +49,7 @@ def enforce_roi_aspect_ratio(
     target_ratio_str: str = "3:2",
 ) -> ROI:
     """
-    Adjusts the ROI to match a specific aspect ratio, centering the crop.
+    Centers ROI within aspect ratio.
     """
     y1, y2, x1, x2 = roi
     cw, ch = x2 - x1, y2 - y1
@@ -97,8 +93,7 @@ def get_manual_crop_coords(
     scale_factor: float = 1.0,
 ) -> ROI:
     """
-    Calculates crop coordinates based on image center and a manual offset.
-    Used when autocrop is disabled but the user still wants to crop in/out.
+    Center crop + offset.
     """
     h, w = img.shape[:2]
     roi = (0, h, 0, w)
@@ -116,11 +111,7 @@ def get_autocrop_coords(
     assist_luma: Optional[float] = None,
 ) -> ROI:
     """
-    Autonomously detects the image boundaries of a scanned negative.
-
-    This function identifies the frame edges (rebates) by analyzing the
-    intensity transitions between the latent image and the unexposed film base.
-    It then enforces a specific aspect ratio (e.g., 3:2, 6:7) for the final crop.
+    Detects film border via density thresholding.
     """
     h, w = img.shape[:2]
     det_scale = detect_res / max(h, w)
@@ -159,8 +150,7 @@ def map_coords_to_geometry(
     roi: Optional[ROI] = None,
 ) -> Tuple[float, float]:
     """
-    Maps normalized coordinates (0-1) from the original image space
-    to the current geometric state (rotated and optionally cropped).
+    Raw (0-1) -> Rotated/Cropped (0-1) coords.
     """
     h_orig, w_orig = orig_shape
     px, py = nx * w_orig, ny * h_orig

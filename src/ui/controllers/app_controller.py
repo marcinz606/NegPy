@@ -10,8 +10,7 @@ from src.infrastructure.filesystem.watcher import FolderWatchService
 
 class AppController:
     """
-    Main Application Controller (Orchestrator).
-    Bridges UI ViewModels, Application Services, and the Pixel Engine.
+    Glue between UI and Pixel Engine.
     """
 
     def __init__(self, context: SessionContext):
@@ -23,8 +22,7 @@ class AppController:
 
     def sync_hot_folders(self) -> bool:
         """
-        Scans all watched folders for new assets.
-        Returns True if new files were added.
+        Polls watched directories for new files.
         """
         session = self.ctx.session
         if not st.session_state.get("hot_folder_mode"):
@@ -51,7 +49,7 @@ class AppController:
 
     def handle_file_loading(self, current_file: dict, current_color_space: str) -> bool:
         """
-        Triggers RAW loading and downsampling if the file or color space has changed.
+        Reloads linear RAW if file/CS changed.
         """
         needs_reload = (
             self.ctx.last_file != current_file["name"]
@@ -71,7 +69,7 @@ class AppController:
 
     def process_frame(self) -> Image.Image:
         """
-        Executes the full pixel pipeline and color management for the current frame.
+        Runs pipeline -> Color Mgmt -> Display PIL.
         """
         raw = self.ctx.preview_raw
         if raw is None:

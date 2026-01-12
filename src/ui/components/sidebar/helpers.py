@@ -100,7 +100,7 @@ def render_control_slider(
     disabled: bool = False,
 ) -> float:
     """
-    Standardized slider renderer for the sidebar.
+    Standard sidebar slider. Handles state sync.
     """
     current_val = _ensure_and_get_state(key, default_val, float)
 

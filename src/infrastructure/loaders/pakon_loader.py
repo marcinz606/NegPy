@@ -8,7 +8,7 @@ from src.kernel.image.logic import uint16_to_float32
 
 class PakonLoader(IImageLoader):
     """
-    Specialty loader for Pakon planar RAW files.
+    Loader for Pakon planar RAWs.
     """
 
     PAKON_SPECS: List[Dict[str, Any]] = [

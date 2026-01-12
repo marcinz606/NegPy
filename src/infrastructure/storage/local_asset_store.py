@@ -12,8 +12,7 @@ logger = get_logger(__name__)
 
 class LocalAssetStore(IAssetStore):
     """
-    Asset Store with Zero-Copy support for local paths and
-    persistent thumbnail caching.
+    Manages file access and thumbnail cache.
     """
 
     def __init__(self, cache_dir: str, icc_dir: str) -> None:
@@ -32,22 +31,17 @@ class LocalAssetStore(IAssetStore):
 
     def register_asset(self, source: Any, session_id: str) -> Optional[Tuple[str, str]]:
         """
-        Registers a file with the store.
-        If source is an existing path, it performs zero-copy registration.
-        If source is an uploaded buffer, it persists it to session cache.
+        Registers file (zero-copy for local paths, copies uploads).
         """
         try:
-            # 1. Zero-Copy for local paths, default way when running desktop app.
+            # Zero-Copy (Desktop/Local)
             if isinstance(source, str) and os.path.exists(source):
                 f_hash = calculate_file_hash(source)
                 return source, f_hash
             elif isinstance(source, str):
                 logger.warning(f"Registration failed: Path does not exist: {source}")
 
-            # 2. Managed persistence for UploadedFiles (Streamlit native)
-            # Used when running via docker-compose
-            # local pahts from option 1 are preffered, with streamlit uploader
-            # we effectively need to copy files to temp folder.
+            # Docker/Streamlit upload
             if hasattr(source, "getbuffer") and hasattr(source, "name"):
                 session_dir = self._get_session_dir(session_id)
                 unique_name = f"{uuid.uuid4()}_{source.name}"
@@ -65,7 +59,7 @@ class LocalAssetStore(IAssetStore):
             return None
 
     def get_thumbnail(self, file_hash: str) -> Optional[Image.Image]:
-        """Loads a cached thumbnail from disk if it exists."""
+        """Loads cached thumb."""
         thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
         if os.path.exists(thumb_path):
             try:
@@ -75,7 +69,7 @@ class LocalAssetStore(IAssetStore):
         return None
 
     def save_thumbnail(self, file_hash: str, image: Image.Image) -> None:
-        """Saves a generated thumbnail to the persistent cache."""
+        """Persists thumb to disk."""
         try:
             thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
             # Save as JPEG for speed and smaller file size
@@ -106,7 +100,7 @@ class LocalAssetStore(IAssetStore):
             shutil.rmtree(session_dir)
 
     def clear_all(self) -> None:
-        """Wipes the cache, including thumbnails."""
+        """Nukes the cache."""
         try:
             if os.path.exists(self.cache_dir):
                 for item in os.listdir(self.cache_dir):

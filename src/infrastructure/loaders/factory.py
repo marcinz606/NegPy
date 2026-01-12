@@ -7,7 +7,7 @@ from src.infrastructure.loaders.rawpy_loader import RawpyLoader
 
 class LoaderFactory:
     """
-    Dispatches the appropriate loader for a given file.
+    Selects loader based on file ext/header.
     """
 
     def __init__(self) -> None:
