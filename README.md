@@ -4,7 +4,7 @@
 
 **NegPy** is a tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond simple inversion tool. It simulates how film & photographic paper works but also throws in some lab-scanner conveniences because who wouldn't want a Fuji Frontier at home?
 
-Also it runs on Linux! (macOS and Windows are supported too)
+Also it runs on Linux, macOS and Windows.
 
 ---
 
@@ -19,7 +19,7 @@ Also it runs on Linux! (macOS and Windows are supported too)
 *   **Non-destructive**: Your original files are never touched. Edits are just "recipe" for final print.
 *   **Database**: All edits are stored in a local SQLite file (`edits.db`), keyed by file hash. You can rename your files and your edits won't disappear.
 *   **Caching**: Thumbnails are cached so browsing large folders feels snappy.
-*   **Print Ready**: The export module is designed for printing, with easy border controls and soft-proofing.
+*   **Print Ready**: The export module is designed for printing (because you should be printing your photos), with easy border controls and soft-proofing.
 
 ---
 
@@ -43,11 +43,12 @@ Since this is a free hobby project, I don't pay Apple or Microsoft ransom for th
 
 **🍎 MacOS**:
 1.  Double click `.dng` file & drag the app to `/Applications`.
-2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app`
+2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app` (this gets rid of the warning).
 3.  Launch it.
 
 **🪟 Windows**:
-1.  Click **More info** -> **Run anyway**.
+1. Run the installer
+2. Start the app and click through the warnings.
 
 ---
 
