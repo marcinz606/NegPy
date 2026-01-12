@@ -23,10 +23,6 @@ def _process_and_save_worker(
     Worker function for ProcessPoolExecutor.
     Initializes its own processor and templater to ensure thread/process safety.
     """
-    # import cv2
-    # Disable OpenCV's internal threading to avoid conflicts with multiprocessing
-    # cv2.setNumThreads(0)
-
     # Lazy init inside worker to avoid issues with unpicklable objects or shared state
     image_service = ImageProcessor()
     templater_instance = FilenameTemplater()
