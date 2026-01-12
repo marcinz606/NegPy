@@ -18,7 +18,7 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
 
 * **Physical Model**: We treat the input image not as a digital photo, but as a **radiometric measurement of the negative**. The sensor data represents light passing through the film density.
 * **Logarithmic Inversion**: Since film density is logarithmic ($D \propto \log E$), and the scanner sensor is linear, we must mathematically invert the signal to recover the latent image:
-  $$E_{log} = \log_{10}(I_{scan})$$
+$$E_{log} = \log_{10}(I_{scan})$$
 * **D-Min / D-Max Calibration**: We analyze the scan to find the physical boundaries of the film strip:
   * **Floor ($P_{0.5}$):** The film base + fog (unexposed celluloid).
   * **Ceiling ($P_{99.5}$):** The densest highlight on the negative.
@@ -32,7 +32,7 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
 * **Virtual Darkroom**: This stage simulates the **optical printing process**. We are effectively shining light through the normalized "digital negative" onto virtual photographic paper to create a Positive.
 * **Color Timing**: Before the print is made, subtractive filtration (CMY) is applied to the digital negative to correct color casts, mimicking the usage of a dichroic color enlarger head.
 * **The H&D Model**: We model the paper's response using the **Hurter–Driffield Characteristic Curve**. For a given negative density $x$, the resulting print density $D$ is calculated via a **Logistic Sigmoid**:
-  $$D_{print} = \frac{D_{max}}{1 + e^{-k \cdot (x - x_0)}}$$
+$$D_{print} = \frac{D_{max}}{1 + e^{-k \cdot (x - x_0)}}$$
     * $D_{max}$: The deepest black the paper can achieve.
     * $k$: The paper contrast grade (slope).
     * $x_0$: The exposure time (Mid-gray point).
@@ -40,7 +40,7 @@ Here's a breakdown of what happens to your image, step-by-step. We apply all the
     * **Toe (Shadows)**: Controls the bottom of the curve (deep blacks). A softer toe ensures rich shadows without crushing texture immediately to zero.
     * **Shoulder (Highlights)**: Controls the top of the curve (bright whites). This rolls off highlights smoothly, simulating the chemical saturation limit of the paper emulsion.
 * **Final Visualization**: The calculated print density is converted to reflected light (Transmittance) and gamma-corrected for display/digital printing:
-  $$I_{out} = (10^{-D_{print}})^{1/\gamma}$$
+$$I_{out} = (10^{-D_{print}})^{1/\gamma}$$
 
 The sliders in the Exposure & Tonality UI allow you to control the parameters of this curve (aka "your print"). You can observe the effect on the plotted curve, histogram, and the preview image itself.
 
@@ -53,12 +53,12 @@ The sliders in the Exposure & Tonality UI allow you to control the parameters of
 
 * **Restoration (Dust & Scratch)**:
     * **Auto-Detection**: We perform statistical analysis of the local texture. The algorithm calculates the local standard deviation ($\sigma$) to distinguish between actual image detail and defects. Dust is identified only where the pixel deviation exceeds a threshold modulated by local flatness:
-      $$|I - \text{median}(I)| > T \cdot f(\sigma)$$
+$$|I - \text{median}(I)| > T \cdot f(\sigma)$$
     * **Grain Re-synthesis**: When manually healing spots (using **Telea Inpainting**), simple blurring creates "plastic" artifacts. We solve this by injecting synthetic grain back into the healed area. The noise intensity is modulated by luminance ($L \cdot (1-L)$) to mimic the physics of film grain visibility (strongest in midtones).
 * **Local Adjustments (Dodge & Burn)**:
     * **Geometry & Range**: Adjustments are defined by vector strokes converted to masks. These can be constrained by **Luminosity Masking** (e.g., "Burn only the highlights") using a soft-ramp function defined by range $[low, high]$ and softness $S$.
     * **Photometric Math**: we apply a true **Exposure Value (EV) Offset**. The pixel intensity is multiplied exponentially akin to increasing/decreasing exposure time in the darkroom:
-      $$I_{out} = I_{in} \cdot 2^{(\text{strength} \cdot \text{mask})}$$
+$$I_{out} = I_{in} \cdot 2^{(\text{strength} \cdot \text{mask})}$$
       * A `strength` of +1.0 doubles the light (adds 1 Stop).
       * A `strength` of -1.0 halves the light (subtracts 1 Stop).
 
@@ -77,11 +77,9 @@ $$
 * **CLAHE**:  
 Local micro-contrast is enhanced by applying Contrast Limited Adaptive Histogram Equalization (CLAHE) strictly to the luminance component $L$ in CIELAB space. The final output is a linear blend of the original lightness and the equalized signal $L_{eq}$, controlled by the strength parameter $\alpha$:
 
-$$
-L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L, \text{clip}=2.5\alpha)
-$$
+$$ L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L, \text{clip}=2.5\alpha) $$
 
-  This is functionally similar to the "Hypertone" feature found in Fuji Frontier scanners.
+*  This is functionally similar to the "Hypertone" feature found in Fuji Frontier scanners.
 * **Luma Sharpening**: The algorithm implements Luminance-Preserving Unsharp Masking in the CIELAB color space. It isolates the $L$ channel and applies a high-pass filter: $L' = L + \lambda(L - G_\sigma * L)$, subject to a noise threshold $|\Delta| > 2.0$. The chrominance channels $a$ and $b$ remain mathematically invariant to prevent saturation artifacts..
 
 ---
@@ -101,15 +99,15 @@ $$
 * **Chemical Toning**: The effect is applied selectively based on pixel luminance $Y$ (calculated via Rec. 709 coefficients). Reactivity masks are generated to target specific tonal ranges:
 
     * **Selenium (Shadows):** Targets high-density regions using a quadratic inversion of luminance.
-    $$M_{sel} = S_{sel} \cdot (1 - Y)^2$$
+$$M_{sel} = S_{sel} \cdot (1 - Y)^2$$
     * **Sepia (Midtones):** Targets mid-tones using a Gaussian distribution centered at $Y=0.6$ with variance $\sigma^2 = 0.08$.
-    $$M_{sep} = S_{sep} \cdot \exp\left(-\frac{(Y - 0.6)^2}{0.08}\right)$$
+$$M_{sep} = S_{sep} \cdot \exp\left(-\frac{(Y - 0.6)^2}{0.08}\right)$$
 
     The toning is applied sequentially by linearly interpolating between the original pixel value $P$ and the toned value ($P \cdot C_{tone}$):
 
-    $$
-    P' = (1 - M) \cdot P + M \cdot (P \cdot C_{tone})
-    $$
+$$
+P' = (1 - M) \cdot P + M \cdot (P \cdot C_{tone})
+$$
 
     Where $C_{sel} \approx [0.85, 0.75, 0.85]$ (Purple shift) and $C_{sep} \approx [1.10, 0.99, 0.83]$ (Warm shift).
 
