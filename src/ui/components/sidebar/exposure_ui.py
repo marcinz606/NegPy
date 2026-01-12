@@ -85,7 +85,7 @@ def render_exposure_section() -> None:
                 default_val=3.0,
                 step=0.05,
                 key=vm.get_key("toe_width"),
-                help_text="The exposure range affected by the highlight roll-off.",
+                help_text="How far into the midtones the toe extends.",
             )
         with c_toe3:
             render_control_slider(
@@ -120,7 +120,7 @@ def render_exposure_section() -> None:
                 default_val=3.0,
                 step=0.01,
                 key=vm.get_key("shoulder_width"),
-                help_text="The exposure range affected by the highlight roll-off.",
+                help_text="How far into the midtones the shoulder extends.",
             )
         with c_sh3:
             render_control_slider(

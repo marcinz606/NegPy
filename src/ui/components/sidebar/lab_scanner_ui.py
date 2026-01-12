@@ -34,7 +34,7 @@ def render_lab_scanner_section() -> None:
                 step=0.05,
                 key=vm.get_key("clahe_strength"),
                 format="%.2f",
-                help_text="Local contrast (Frontier Hyper-Tone simulation).",
+                help_text="Increases local contrast.",
             )
 
         with c3:
@@ -45,5 +45,5 @@ def render_lab_scanner_section() -> None:
                 default_val=0.25,
                 step=0.05,
                 key=vm.get_key("sharpen"),
-                help_text="USM on L channel (no color halos).",
+                help_text="Unsharp mask on L channel.",
             )
