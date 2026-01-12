@@ -6,6 +6,7 @@ const fs = require('fs');
 let mainWindow;
 let splashWindow;
 let backendProcess;
+let tray = null;
 const isPackaged = app.isPackaged;
 const port = 8501;
 const ICON_PATH = path.join(__dirname, '..', 'media', 'icons', os.platform() === 'win32' ? 'icon.ico' : 'icon.png');
@@ -112,8 +113,8 @@ if (!gotTheLock) {
 
     function createSplashWindow() {
         splashWindow = new BrowserWindow({
-            width: 400,
-            height: 300,
+            width: 600,
+            height: 400,
             frame: false,
             alwaysOnTop: true,
             transparent: true,
@@ -126,13 +127,50 @@ if (!gotTheLock) {
         splashWindow.loadFile(path.join(__dirname, 'splash.html'));
     }
 
-    function createSplashWindow() {
+    function createTray() {
+        const iconPath = ICON_PATH;
+        tray = new Tray(iconPath);
+
+        const contextMenu = Menu.buildFromTemplate([
+            {
+                label: 'Show NegPy', click: () => {
+                    if (mainWindow) {
+                        mainWindow.show();
+                        mainWindow.focus();
+                    }
+                }
+            },
+            { type: 'separator' },
+            {
+                label: 'Quit', click: () => {
+                    app.isQuitting = true;
+                    app.quit();
+                }
+            }
+        ]);
+
+        tray.setToolTip('NegPy');
+        tray.setContextMenu(contextMenu);
+
+        tray.on('click', () => {
+            if (mainWindow) {
+                if (mainWindow.isVisible()) {
+                    mainWindow.hide();
+                } else {
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+            }
+        });
+    }
+
+    function createMainWindow() {
         const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
         mainWindow = new BrowserWindow({
             width: Math.min(1600, width),
             height: Math.min(1000, height),
-            show: false,
+            show: true,
             autoHideMenuBar: true,
             icon: ICON_PATH,
             webPreferences: {
@@ -141,7 +179,21 @@ if (!gotTheLock) {
             }
         });
 
-        mainWindow.loadURL(`http://localhost:${port}`);
+        // Use a recursive check to ensure Streamlit is actually ready
+        const pollBackend = () => {
+            const http = require('http');
+            http.get(`http://localhost:${port}`, (res) => {
+                if (res.statusCode === 200) {
+                    mainWindow.loadURL(`http://localhost:${port}`);
+                } else {
+                    setTimeout(pollBackend, 500);
+                }
+            }).on('error', () => {
+                setTimeout(pollBackend, 500);
+            });
+        };
+
+        pollBackend();
 
         mainWindow.once('ready-to-show', () => {
             if (splashWindow) {
@@ -151,12 +203,28 @@ if (!gotTheLock) {
             mainWindow.show();
         });
 
+        // If it fails to load (e.g. race condition), reload after a short delay
+        mainWindow.webContents.on('did-fail-load', () => {
+            setTimeout(() => {
+                mainWindow.loadURL(`http://localhost:${port}`);
+            }, 1000);
+        });
+
+        mainWindow.on('close', (event) => {
+            if (!app.isQuitting) {
+                event.preventDefault();
+                mainWindow.hide();
+            }
+            return false;
+        });
+
         mainWindow.on('closed', () => {
             mainWindow = null;
         });
     }
 
     app.on('ready', () => {
+        createTray();
         createSplashWindow();
         startBackend();
 
@@ -166,11 +234,13 @@ if (!gotTheLock) {
                 console.log("Timeout waiting for backend, trying to connect anyway...");
                 createMainWindow();
             }
-        }, 30000);
+        }, 10000);
     });
 
     app.on('window-all-closed', () => {
-        app.quit();
+        if (process.platform !== 'darwin') {
+            app.quit();
+        }
     });
 
     app.on('activate', () => {

@@ -1,6 +1,8 @@
 import os
 import time
 import asyncio
+import traceback
+import multiprocessing
 import concurrent.futures
 from typing import List, Dict, Any, Callable
 import streamlit as st
@@ -18,38 +20,54 @@ def _process_and_save_worker(
     file_meta: Dict[str, str],
     f_params: WorkspaceConfig,
     export_settings: ExportConfig,
-) -> str:
+) -> Any:
     """
     Worker function for ProcessPoolExecutor.
     Initializes its own processor and templater to ensure thread/process safety.
     """
-    # Lazy init inside worker to avoid issues with unpicklable objects or shared state
-    image_service = ImageProcessor()
-    templater_instance = FilenameTemplater()
+    try:
+        image_service = ImageProcessor()
+        templater_instance = FilenameTemplater()
 
-    res = image_service.process_export(
-        file_path, f_params, export_settings, source_hash=file_meta["hash"]
-    )
+        res = image_service.process_export(
+            file_path, f_params, export_settings, source_hash=file_meta["hash"]
+        )
 
-    img_bytes, ext = res
-    if img_bytes is None:
-        raise RuntimeError(f"Render failed: {ext}")
+        img_bytes, ext = res
+        if img_bytes is None:
+            raise RuntimeError(f"Render failed: {ext}")
 
-    context = {
-        "original_name": file_meta["name"].rsplit(".", 1)[0],
-        "mode": f_params.process_mode,
-        "colorspace": export_settings.export_color_space,
-        "border": "border" if (export_settings.export_border_size > 0.0) else "",
-    }
+        # Templating & File I/O
+        context = {
+            "original_name": file_meta["name"].rsplit(".", 1)[0],
+            "mode": f_params.process_mode,
+            "colorspace": export_settings.export_color_space,
+            "border": "border" if (export_settings.export_border_size > 0.0) else "",
+        }
 
-    base_name = templater_instance.render(export_settings.filename_pattern, context)
-    out_path = os.path.join(export_settings.export_path, f"{base_name}.{ext}")
+        base_name = templater_instance.render(export_settings.filename_pattern, context)
+        out_path = os.path.join(export_settings.export_path, f"{base_name}.{ext}")
 
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "wb") as out_f:
-        out_f.write(img_bytes)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "wb") as out_f:
+            out_f.write(img_bytes)
 
-    return out_path
+        return out_path
+    except Exception:
+        # Return full traceback so the main process can log it if child fails silently
+        return f"ERROR: {traceback.format_exc()}"
+
+
+def _get_mp_context() -> multiprocessing.context.BaseContext:
+    """
+    Returns the appropriate multiprocessing context for the current platform.
+    Uses "spawn" on macOS for stability with C-libraries, and defaults to
+    system standards elsewhere.
+    """
+    import platform
+
+    start_method = "spawn" if platform.system() == "Darwin" else None
+    return multiprocessing.get_context(start_method)
 
 
 class ExportService:
@@ -80,9 +98,13 @@ class ExportService:
             filename_pattern=sidebar_data.filename_pattern,
         )
 
-        return _process_and_save_worker(
+        result = _process_and_save_worker(
             file_meta["path"], file_meta, f_params, export_settings
         )
+        
+        if isinstance(result, str) and result.startswith("ERROR:"):
+            raise RuntimeError(result)
+        return str(result)
 
     @staticmethod
     async def run_batch(
@@ -93,16 +115,12 @@ class ExportService:
     ) -> None:
         """
         Executes a parallelized batch export using ProcessPoolExecutor.
-        This provides better isolation for heavy C-libraries (rawpy, opencv)
-        and avoids threading crashes specifically on macOS/Apple Silicon.
         """
         os.makedirs(sidebar_data.export_path, exist_ok=True)
         total_files = len(files)
         start_time = time.perf_counter()
 
-        # Concurrency limit for batch exports
-        # to avoid threadig issues when combined with numba and opencv
-        # internal threading
+        # Limit concurrency to prevent oversubscription
         limit = max(1, APP_CONFIG.max_workers // 4)
 
         icc_path = (
@@ -134,9 +152,9 @@ class ExportService:
             logger.info(f"Starting batch print with {limit} workers...")
 
             loop = asyncio.get_running_loop()
-            results = []
+            ctx = _get_mp_context()
 
-            with concurrent.futures.ProcessPoolExecutor(max_workers=limit) as executor:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=limit, mp_context=ctx) as executor:
                 futures = [
                     loop.run_in_executor(executor, _process_and_save_worker, *args)
                     for args in tasks_args
@@ -144,8 +162,11 @@ class ExportService:
                 results = await asyncio.gather(*futures, return_exceptions=True)
 
             for f_meta, res in zip(files, results):
-                if isinstance(res, Exception):
-                    logger.error(f"Error printing {f_meta['name']}: {res}")
+                if isinstance(res, str) and res.startswith("ERROR:"):
+                    logger.error(f"Error printing {f_meta['name']}:\n{res}")
+                    st.error(f"Error printing {f_meta['name']}: See logs for traceback.")
+                elif isinstance(res, Exception):
+                    logger.error(f"Pool Exception for {f_meta['name']}: {res}")
                     st.error(f"Error printing {f_meta['name']}: {res}")
                 elif not res:
                     st.warning(f"Failed to print {f_meta['name']}")
