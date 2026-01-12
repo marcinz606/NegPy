@@ -69,7 +69,7 @@ The sliders in the Exposure & Tonality UI allow you to control the parameters of
 
 The less "darkroom-y" part of the pipeline. We try to replicate the automated enhancements that lab scanners like the Frontier or Noritsu perform.
 
-* **Color Separation**: Color separation is achieved by applying a row-normalized mixing matrix $M$ to the RGB density vectors $\mathbf{v}$: $\mathbf{v}_{out} = M \mathbf{v}_{in}$. The matrix $M$ is linearly interpolated between the identity matrix $I$ and the generalized color negative calibration matrix $C$ based on strength $\beta$, ensuring neutral axis linearity:
+* **Color Separation**: Color separation is achieved by applying a row-normalized mixing matrix $M$ to the RGB density vectors $\mathbf{v}$: $\mathbf{v}_{\text{out}} = M \mathbf{v}_{\text{in}}$. The matrix $M$ is linearly interpolated between the identity matrix $I$ and the generalized color negative calibration matrix $C$ based on strength $\beta$, ensuring neutral axis linearity:
 
 $$
 M = \text{normalize}((1 - \beta)I + \beta C)
