@@ -3,13 +3,8 @@ import asyncio
 import logging
 import multiprocessing
 import sys
-
-from src.kernel.system.config import APP_CONFIG
 from src.kernel.system.logging import setup_logging
 
-
-# Set numba cache folder first so that we won't need to compile on each startup
-os.environ["NUMBA_CACHE_DIR"] = os.path.join(APP_CONFIG.cache_dir, "numba_cache")
 
 
 def handle_subtask() -> bool:
