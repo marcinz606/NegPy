@@ -35,7 +35,7 @@ Also it runs on Linux, macOS and Windows.
 Grab the latest release for your OS from the **[Releases Page](https://github.com/marcinz606/NegPy/releases)**.
 
 #### **🐧 Linux**
-I provide an `.AppImage`. It should just work. But across all different distros you never know :)
+I provide an `.AppImage`. Make it executable using `chmod +x` and It should just work. But across all different distros you never know :)
 
 (I'll add it to the AUR eventually).
 
