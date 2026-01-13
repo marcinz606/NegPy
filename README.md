@@ -14,7 +14,7 @@ Also it runs on Linux, macOS and Windows.
 ## ✨ Features
 
 *   **No Camera Profiles**: It doesn't use camera profiles or ask you colorpick the border. It uses math to neutralize the orange mask based on channel sensitometry.
-*   **Film Physics**: It models the **H&D Characteristic Curve** of paper using a Logistic Sigmoid function instead of doing simple linear inversion.
+*   **Film Physics**: It models the **H&D Characteristic Curve** of film and darkroom paper using a Logistic Sigmoid function instead of doing simple linear inversion.
 *   **File Support**: Supports standard RAWs/TIFFs, but also the weird raw files from Kodak Pakon scanners.
 *   **Non-destructive**: Your original files are never touched. Edits are just "recipe" for final print.
 *   **Database**: All edits are stored in a local SQLite database, keyed by file hash. You can rename your files and your edits won't disappear.
