@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, Tray, Menu } = require('electron');
+const { app, BrowserWindow, screen, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const os = require('os');
@@ -129,8 +129,12 @@ if (!gotTheLock) {
     }
 
     function createTray() {
-        const iconPath = ICON_PATH;
-        tray = new Tray(iconPath);
+        let trayIcon = ICON_PATH;
+        if (os.platform() === 'darwin') {
+            const image = nativeImage.createFromPath(ICON_PATH);
+            trayIcon = image.resize({ width: 20, height: 20 });
+        }
+        tray = new Tray(trayIcon);
 
         const contextMenu = Menu.buildFromTemplate([
             {
