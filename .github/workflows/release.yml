@@ -48,16 +48,16 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Update Version Files
-        run: |
-          echo "${{ github.event.inputs.version }}" | sed 's/^v//' > VERSION
-          npm version ${{ github.event.inputs.version }} --no-git-tag-version
-
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 25
           cache: 'npm'
+
+      - name: Update Version Files
+        run: |
+          echo "${{ github.event.inputs.version }}" | sed 's/^v//' > VERSION
+          npm version ${{ github.event.inputs.version }} --no-git-tag-version --allow-same-version
 
       - name: Setup Python
         uses: actions/setup-python@v5
