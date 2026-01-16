@@ -151,7 +151,7 @@ def render_actions_menu() -> bool:
         )
 
     # Row 2: Clipboard & Primary Action
-    ca, cb, cc, cd, ce = st.columns([1, 1, 1, 1, 2])
+    ca, cb, cc, cd, ce = st.columns([1, 1, 2, 1, 1])
     with ca:
         st.button(
             ":material/copy_all: Copy",
@@ -168,6 +168,13 @@ def render_actions_menu() -> bool:
             help="Paste settings from clipboard.",
         )
     with cc:
+        export_btn = st.button(
+            ":material/save: Export Image",
+            key="export_m",
+            width="stretch",
+            type="primary",
+        )
+    with cd:
         st.button(
             ":material/reset_image: Reset",
             key="reset_m",
@@ -176,7 +183,7 @@ def render_actions_menu() -> bool:
             type="secondary",
             help="Reset all settings for this negative to defaults.",
         )
-    with cd:
+    with ce:
         st.button(
             ":red[:material/delete:] Unload",
             key="unload_m",
@@ -184,13 +191,6 @@ def render_actions_menu() -> bool:
             type="secondary",
             on_click=unload_file,
             args=(session.selected_file_idx,),
-        )
-    with ce:
-        export_btn = st.button(
-            ":material/save: Export Image",
-            key="export_m",
-            width="stretch",
-            type="primary",
         )
 
     return export_btn

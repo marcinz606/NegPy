@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 from PIL import Image
+from typing import Any
 from streamlit_image_coordinates import streamlit_image_coordinates
 from src.kernel.system.logging import get_logger
 from src.kernel.system.config import APP_CONFIG
@@ -110,14 +111,16 @@ def render_image_view(
                 unsafe_allow_html=True,
             )
 
-        is_dust_mode = st.session_state.get(f"w_{vm_retouch.get_key('pick_dust')}", False)
-        is_assist_mode = st.session_state.get(f"w_{geo_vm.get_key('pick_assist')}", False)
-        is_manual_crop_mode = st.session_state.get(
-            f"w_{geo_vm.get_key('pick_manual_crop')}", False
-        )
+        def get_mode_state(vm: Any, field: str) -> bool:
+            key = vm.get_key(field)
+            return bool(st.session_state.get(f"w_{key}", False) or st.session_state.get(key, False))
+
+        is_dust_mode = get_mode_state(vm_retouch, "pick_dust")
+        is_assist_mode = get_mode_state(geo_vm, "pick_assist")
+        is_manual_crop_mode = get_mode_state(geo_vm, "pick_manual_crop")
 
         vm_exp = ExposureViewModel()
-        is_wb_mode = st.session_state.get(f"w_{vm_exp.get_key('pick_wb')}", False)
+        is_wb_mode = get_mode_state(vm_exp, "pick_wb")
 
         img_display = pil_prev.copy()
 
