@@ -151,6 +151,19 @@ class WorkspaceSession:
         if persist:
             self.repository.save_file_settings(f_hash, settings)
 
+    def clear_all_files(self) -> None:
+        """
+        Clears all files and associated state.
+        """
+        for f in self.uploaded_files:
+            self.asset_store.remove(f["path"])
+
+        self.uploaded_files = []
+        self.file_settings = {}
+        self.thumbnails = {}
+        self.selected_file_idx = 0
+        self.watched_folders = set()
+
     @property
     def current_file(self) -> Optional[Dict[str, str]]:
         if not self.uploaded_files:

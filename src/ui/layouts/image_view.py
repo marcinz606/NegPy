@@ -110,14 +110,14 @@ def render_image_view(
                 unsafe_allow_html=True,
             )
 
-        is_dust_mode = st.session_state.get(vm_retouch.get_key("pick_dust"), False)
-        is_assist_mode = st.session_state.get(geo_vm.get_key("pick_assist"), False)
+        is_dust_mode = st.session_state.get(f"w_{vm_retouch.get_key('pick_dust')}", False)
+        is_assist_mode = st.session_state.get(f"w_{geo_vm.get_key('pick_assist')}", False)
         is_manual_crop_mode = st.session_state.get(
-            geo_vm.get_key("pick_manual_crop"), False
+            f"w_{geo_vm.get_key('pick_manual_crop')}", False
         )
 
         vm_exp = ExposureViewModel()
-        is_wb_mode = st.session_state.get(vm_exp.get_key("pick_wb"), False)
+        is_wb_mode = st.session_state.get(f"w_{vm_exp.get_key('pick_wb')}", False)
 
         img_display = pil_prev.copy()
 

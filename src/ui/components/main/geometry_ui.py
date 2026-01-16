@@ -16,10 +16,8 @@ def render_geometry_section() -> None:
     geo_conf = geo_vm.to_config()
 
     with st.container(border=True):
-        st.markdown("**:material/crop: Geometry**")
-
-        # Row 1: Crop Mode, Ratio/Pick Crop, Assist/Reset, Keep Borders
-        c1, c2, c3, c4 = st.columns(4)
+        # Row 1: Crop Mode, Ratio/Pick, Assist/Reset, Keep Borders, Offset, Rotation
+        c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1.2, 1.2, 1.2, 2, 2])
 
         with c1:
             crop_modes = list(CropMode)
@@ -92,12 +90,10 @@ def render_geometry_section() -> None:
                 "Keep Borders",
                 default_val=DEFAULT_WORKSPACE_CONFIG.geometry.keep_full_frame,
                 key=geo_vm.get_key("keep_full_frame"),
-                help_text="Keep entire image and film borders in final export.",
+                help_text="Keep image and film borders.",
             )
 
-        # Row 2: Crop Offset, Fine Rotation
-        c_o, c_r = st.columns(2)
-        with c_o:
+        with c5:
             render_control_slider(
                 label="Crop Offset",
                 min_val=-20.0,
@@ -106,10 +102,9 @@ def render_geometry_section() -> None:
                 step=1.0,
                 key=geo_vm.get_key("autocrop_offset"),
                 format="%d",
-                help_text="Buffer/offset (pixels) to crop beyond automatically detected border. "
-                "Positive values crop IN, negative values expand OUT.",
+                help_text="Buffer/offset (pixels) to crop beyond detected border.",
             )
-        with c_r:
+        with c6:
             render_control_slider(
                 label="Fine Rotation (°)",
                 min_val=-5.0,

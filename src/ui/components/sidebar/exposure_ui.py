@@ -44,7 +44,8 @@ def render_exposure_section() -> None:
                 )
 
             def on_pick_wb_change() -> None:
-                if st.session_state.get(vm.get_key("pick_wb")):
+                # Check the widget state directly via its shadow key
+                if st.session_state.get(f"w_{vm.get_key('pick_wb')}"):
                     st.session_state[vm.get_key("wb_cyan")] = 0.0
                     st.session_state[vm.get_key("wb_magenta")] = 0.0
                     st.session_state[vm.get_key("wb_yellow")] = 0.0
