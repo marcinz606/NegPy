@@ -28,13 +28,13 @@ def render_image_view(
     ctx = SessionContext()
     session = ctx.session
     vm_retouch = RetouchViewModel()
-    border_px_w = 0
-    border_px_h = 0
+
     orig_w, orig_h = pil_prev.size
+    content_rect = (0, 0, orig_w, orig_h)
 
     if border_config and border_config.add_border:
         try:
-            pil_prev = PrintService.apply_preview_layout_to_pil(
+            pil_prev, content_rect = PrintService.apply_preview_layout_to_pil(
                 pil_prev,
                 border_config.paper_aspect_ratio,
                 border_config.border_size,
@@ -42,13 +42,10 @@ def render_image_view(
                 border_config.border_color,
                 float(ctx.working_copy_size),
             )
-
-            new_w, new_h = pil_prev.size
-            border_px_w = (new_w - orig_w) // 2
-            border_px_h = (new_h - orig_h) // 2
-
         except Exception as e:
             logger.error(f"Border preview error: {e}")
+
+    cx, cy, cw, ch = content_rect
 
     geo_vm = GeometryViewModel()
     geo_conf = geo_vm.to_config()
@@ -92,7 +89,7 @@ def render_image_view(
             adj.luma_softness,
             geo_conf,
             roi,
-            (border_px_w, border_px_h),
+            content_rect,
         )
 
     current_file = session.current_file
@@ -137,7 +134,7 @@ def render_image_view(
                 (rh_orig, rw_orig),
                 geo_conf,
                 roi,
-                (border_px_w, border_px_h),
+                content_rect,
                 alpha=100,
             )
 
@@ -173,20 +170,21 @@ def render_image_view(
     if value:
         scale = pil_prev.width / float(working_size)
 
-        content_x = (value["x"] * scale) - border_px_w
-        content_y = (value["y"] * scale) - border_px_h
+        canvas_x = value["x"] * scale
+        canvas_y = value["y"] * scale
 
-        if 0 <= content_x < orig_w and 0 <= content_y < orig_h:
-            rx, ry = CoordinateMapping.map_click_to_raw(
-                content_x / orig_w, content_y / orig_h, uv_grid
-            )
+        if cx <= canvas_x < (cx + cw) and cy <= canvas_y < (cy + ch):
+            nx = (canvas_x - cx) / cw
+            ny = (canvas_y - cy) / ch
+
+            rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
 
             if is_wb_mode and value != st.session_state.get("last_wb_click"):
                 st.session_state.last_wb_click = value
                 from src.ui.controllers.app_controller import AppController
 
                 ctrl = AppController(ctx)
-                ctrl.handle_wb_pick(content_x / orig_w, content_y / orig_h)
+                ctrl.handle_wb_pick(nx, ny)
                 st.rerun()
 
             elif is_manual_crop_mode and value != st.session_state.get(
@@ -264,7 +262,6 @@ def render_image_view(
             elif is_assist_mode and value != st.session_state.get("last_assist_click"):
                 st.session_state.last_assist_click = value
 
-                # Sample luma at (rx, ry) on img_raw
                 raw_h, raw_w = img_raw.shape[:2]
                 px = int(np.clip(rx * raw_w, 0, raw_w - 1))
                 py = int(np.clip(ry * raw_h, 0, raw_h - 1))

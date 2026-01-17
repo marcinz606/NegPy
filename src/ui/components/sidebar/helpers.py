@@ -208,7 +208,7 @@ def render_control_selectbox(
     """
     Standardized selectbox renderer for the sidebar.
     """
-    current_val = _ensure_and_get_state(key, default_val, lambda x: x)  # No-op cast
+    current_val = _ensure_and_get_state(key, default_val, lambda x: x)
     w_key = _sync_shadow_state(key, current_val)
 
     def _on_change_cb(*cb_args: Any, **cb_kwargs: Any) -> None:

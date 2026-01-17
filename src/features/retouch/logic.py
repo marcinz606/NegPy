@@ -48,7 +48,7 @@ def _apply_local_exposure_kernel(
     Fast JIT application of exposure multipliers.
     """
     h, w, c = img.shape
-    ln2 = 0.69314718056  # litral hardcoded for jit
+    ln2 = 0.69314718056
     for y in prange(h):
         for x in range(w):
             m_val = mask[y, x]

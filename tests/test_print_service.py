@@ -28,7 +28,7 @@ def test_apply_layout_padding():
         use_original_res=False,
     )
 
-    result = PrintService.apply_layout(img, config)
+    result, _ = PrintService.apply_layout(img, config)
 
     assert result.shape == (300, 300, 3)
     # Centered padding: (300-200)//2 = 50px
@@ -50,7 +50,7 @@ def test_apply_layout_with_border():
         use_original_res=True,
     )
 
-    result = PrintService.apply_layout(img, config)
+    result, _ = PrintService.apply_layout(img, config)
     # In 'Original' mode with use_original_res, paper should be img_size + 2*border
     # 300 + 60 = 360, 200 + 60 = 260
     assert result.shape == (260, 360, 3)

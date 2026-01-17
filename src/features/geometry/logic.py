@@ -104,7 +104,6 @@ def get_manual_rect_coords(
     h_curr, w_curr = img.shape[:2]
     x1_n, y1_n, x2_n, y2_n = manual_rect
 
-    # Map all 4 corners to handle rotation correctly
     corners = [(x1_n, y1_n), (x2_n, y1_n), (x2_n, y2_n), (x1_n, y2_n)]
     mapped_corners = []
 
@@ -117,11 +116,10 @@ def get_manual_rect_coords(
             fine_rotation,
             flip_horizontal,
             flip_vertical,
-            roi=None,  # We are calculating the ROI, not applying it yet
+            roi=None,
         )
         mapped_corners.append((mx, my))
 
-    # Find bounding box of mapped corners in current image space
     xs = [p[0] * w_curr for p in mapped_corners]
     ys = [p[1] * h_curr for p in mapped_corners]
 

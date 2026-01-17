@@ -17,8 +17,6 @@ class RetouchProcessor:
         img = image
         scale_factor = context.scale_factor
 
-        # Original size is needed for coordinate mapping
-        # context.original_size is (Height, Width)
         orig_h, orig_w = context.original_size
 
         rot_params = context.metrics.get(

@@ -18,10 +18,10 @@ class PrintService:
         print_size_cm: float,
         border_color_hex: str,
         preview_size_px: float,
-    ) -> Image.Image:
+    ) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
         """
         Pads a PIL image to match a specific paper aspect ratio for UI preview.
-        Uses a virtual DPI to maintain relative border scale at preview resolution.
+        Returns (Image, (content_x, content_y, content_w, content_h)).
         """
         img_np = np.array(pil_img).astype(np.float32) / 255.0
 
@@ -36,9 +36,9 @@ class PrintService:
             use_original_res=False,
         )
 
-        result_np = PrintService.apply_layout(img_np, config)
+        result_np, content_rect = PrintService.apply_layout(img_np, config)
         result_uint8 = (np.clip(result_np, 0, 1) * 255).astype(np.uint8)
-        return Image.fromarray(result_uint8)
+        return Image.fromarray(result_uint8), content_rect
 
     @staticmethod
     def calculate_paper_px(
@@ -71,9 +71,12 @@ class PrintService:
         return paper_w, paper_h
 
     @staticmethod
-    def apply_layout(img: np.ndarray, export_settings: ExportConfig) -> np.ndarray:
+    def apply_layout(
+        img: np.ndarray, export_settings: ExportConfig
+    ) -> Tuple[np.ndarray, Tuple[int, int, int, int]]:
         """
         Scales and pads image to fit paper aspect ratio and border requirements.
+        Returns (ImageBuffer, (content_x, content_y, content_w, content_h)).
         """
         img_h, img_w = img.shape[:2]
         img_aspect = img_w / img_h
@@ -170,4 +173,4 @@ class PrintService:
                 img_scaled[:h_copy, :w_copy]
             )
 
-        return paper
+        return paper, (offset_x, offset_y, w_copy, h_copy)

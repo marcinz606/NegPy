@@ -1,6 +1,6 @@
 import os
 
-os.environ["NUMBA_THREADING_LAYER"] = "omp"
+os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 import sys
 from pathlib import Path
 from src.kernel.system.logging import init_streams

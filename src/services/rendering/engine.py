@@ -101,6 +101,8 @@ class DarkroomEngine:
             pipeline_changed,
         )
 
+        context.metrics["retouch_source"] = current_img.copy()
+
         def run_retouch(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             return RetouchProcessor(settings.retouch).process(img_in, ctx)
 

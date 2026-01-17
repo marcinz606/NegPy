@@ -25,42 +25,68 @@ class Overlays:
         luma_softness: float,
         geo_conf: GeometryConfig,
         roi: Optional[Tuple[int, int, int, int]],
-        border_px: Tuple[int, int] | int = 0,
+        content_rect: Optional[Tuple[int, int, int, int]] = None,
     ) -> Image.Image:
         """
         Overlays red mask for local adjustments.
         """
-        if isinstance(border_px, tuple):
-            bpw, bph = border_px
+        canvas_w, canvas_h = pil_img.size
+
+        if content_rect:
+            cx, cy, cw, ch = content_rect
         else:
-            bpw = bph = border_px
+            cx, cy, cw, ch = 0, 0, canvas_w, canvas_h
 
         rh_orig, rw_orig = img_raw.shape[:2]
-        orig_w = pil_img.size[0] - 2 * bpw
-        orig_h = pil_img.size[1] - 2 * bph
 
         mask = generate_local_mask(rh_orig, rw_orig, points, radius, feather, 1.0)
 
-        base_pos = st.session_state.get("base_positive")
-        if base_pos is not None and base_pos.shape[:2] == (rh_orig, rw_orig):
+        retouch_source = st.session_state.get("retouch_source")
+
+        if retouch_source is not None:
+            h_rot, w_rot = retouch_source.shape[:2]
+
+            mask_rot = Overlays._transform_mask(
+                mask, geo_conf, roi=None, target_w=w_rot, target_h=h_rot
+            )
+
             luma_mask = calculate_luma_mask(
-                ensure_image(base_pos), luma_range, luma_softness
+                ensure_image(retouch_source), luma_range, luma_softness
+            )
+
+            final_vis_mask = mask_rot * luma_mask
+
+            final_vis_mask = Overlays._transform_mask(
+                final_vis_mask,
+                GeometryConfig(rotation=0),
+                roi,
+                cw,
+                ch,
             )
         else:
-            img_pos_lin = 1.0 - np.clip(img_raw, 0, 1)
-            luma_mask = calculate_luma_mask(
-                ensure_image(img_pos_lin), luma_range, luma_softness
-            )
-
-        final_vis_mask = mask * luma_mask
-        final_vis_mask = Overlays._transform_mask(
-            final_vis_mask, geo_conf, roi, orig_w, orig_h
-        )
+            final_vis_mask = Overlays._transform_mask(mask, geo_conf, roi, cw, ch)
 
         mask_u8: np.ndarray = (final_vis_mask * 180).astype(np.uint8)
-        if bpw > 0 or bph > 0:
+
+        pad_top = cy
+        pad_left = cx
+        pad_bottom = max(0, canvas_h - (cy + ch))
+        pad_right = max(0, canvas_w - (cx + cw))
+
+        if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
             mask_u8 = cv2.copyMakeBorder(
-                mask_u8, bph, bph, bpw, bpw, cv2.BORDER_CONSTANT, value=0
+                mask_u8,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                cv2.BORDER_CONSTANT,
+                value=0,
+            )
+
+        if mask_u8.shape[:2] != (canvas_h, canvas_w):
+            mask_u8 = cv2.resize(
+                mask_u8, (canvas_w, canvas_h), interpolation=cv2.INTER_NEAREST
             )
 
         mask_pil = Image.fromarray(mask_u8, mode="L")
@@ -81,7 +107,7 @@ class Overlays:
         img_raw_shape: Tuple[int, int],
         geo_conf: GeometryConfig,
         roi: Optional[Tuple[int, int, int, int]],
-        border_px: Tuple[int, int] | int = 0,
+        content_rect: Optional[Tuple[int, int, int, int]] = None,
         alpha: int = 75,
     ) -> Image.Image:
         """
@@ -90,14 +116,14 @@ class Overlays:
         if not manual_spots:
             return pil_img
 
-        if isinstance(border_px, tuple):
-            bpw, bph = border_px
+        canvas_w, canvas_h = pil_img.size
+
+        if content_rect:
+            cx, cy, cw, ch = content_rect
         else:
-            bpw = bph = border_px
+            cx, cy, cw, ch = 0, 0, canvas_w, canvas_h
 
         rh_orig, rw_orig = img_raw_shape
-        orig_w = pil_img.size[0] - 2 * bpw
-        orig_h = pil_img.size[1] - 2 * bph
 
         mask_manual: ImageBuffer = np.zeros((rh_orig, rw_orig), dtype=np.float32)
         for rx, ry, size in manual_spots:
@@ -106,14 +132,29 @@ class Overlays:
             cv2.circle(mask_manual, (px, py), int(size), 1.0, -1)
 
         mask_manual = ensure_image(cv2.GaussianBlur(mask_manual, (3, 3), 0))
-        mask_manual = Overlays._transform_mask(
-            mask_manual, geo_conf, roi, orig_w, orig_h
-        )
+        mask_manual = Overlays._transform_mask(mask_manual, geo_conf, roi, cw, ch)
 
         mask_u8: np.ndarray = (mask_manual * 255).astype(np.uint8)
-        if bpw > 0 or bph > 0:
+
+        pad_top = cy
+        pad_left = cx
+        pad_bottom = max(0, canvas_h - (cy + ch))
+        pad_right = max(0, canvas_w - (cx + cw))
+
+        if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
             mask_u8 = cv2.copyMakeBorder(
-                mask_u8, bph, bph, bpw, bpw, cv2.BORDER_CONSTANT, value=0
+                mask_u8,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                cv2.BORDER_CONSTANT,
+                value=0,
+            )
+
+        if mask_u8.shape[:2] != (canvas_h, canvas_w):
+            mask_u8 = cv2.resize(
+                mask_u8, (canvas_w, canvas_h), interpolation=cv2.INTER_NEAREST
             )
 
         mask_pil = Image.fromarray(mask_u8, mode="L")

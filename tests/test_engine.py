@@ -52,6 +52,20 @@ class TestDarkroomEngine(unittest.TestCase):
         assert engine.cache.source_hash == "file2"
         assert not np.array_equal(res1, res3)
 
+    def test_retouch_source_capture(self):
+        """Verify intermediate buffer capture for overlays."""
+        from src.domain.interfaces import PipelineContext
+
+        engine = DarkroomEngine()
+        img = np.random.rand(100, 100, 3).astype(np.float32)
+        settings = WorkspaceConfig()
+        context = PipelineContext(scale_factor=1.0, original_size=(100, 100))
+
+        engine.process(img, settings, source_hash="test", context=context)
+
+        self.assertIn("retouch_source", context.metrics)
+        self.assertEqual(context.metrics["retouch_source"].shape, (100, 100, 3))
+
 
 if __name__ == "__main__":
     unittest.main()

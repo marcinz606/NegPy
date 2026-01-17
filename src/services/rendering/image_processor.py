@@ -179,7 +179,8 @@ class ImageProcessor:
         params: WorkspaceConfig,
         export_settings: ExportConfig,
     ) -> np.ndarray:
-        return PrintService.apply_layout(img, export_settings)
+        result, _ = PrintService.apply_layout(img, export_settings)
+        return result
 
     def _get_target_icc_bytes(
         self, color_space: str, icc_path: Optional[str], inverse: bool = False

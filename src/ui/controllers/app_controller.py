@@ -79,6 +79,8 @@ class AppController:
                 del st.session_state.last_metrics
             if "base_positive" in st.session_state:
                 del st.session_state.base_positive
+            if "retouch_source" in st.session_state:
+                del st.session_state.retouch_source
 
             return True
         return False
@@ -100,7 +102,6 @@ class AppController:
 
         vm = ExposureViewModel()
         st.session_state[vm.get_key("wb_cyan")] = 0.0
-        # Use calculated shifts directly (no negation) to correct the cast
         st.session_state[vm.get_key("wb_magenta")] = float(np.clip(dm, -1, 1))
         st.session_state[vm.get_key("wb_yellow")] = float(np.clip(dy, -1, 1))
         st.session_state[vm.get_key("pick_wb")] = False
@@ -140,6 +141,8 @@ class AppController:
         st.session_state.last_metrics = metrics
         if "base_positive" in metrics:
             st.session_state.base_positive = metrics["base_positive"]
+        if "retouch_source" in metrics:
+            st.session_state.retouch_source = metrics["retouch_source"]
 
         color_space = self.ctx.last_preview_color_space
         target_icc = self.ctx.session.icc_profile_path

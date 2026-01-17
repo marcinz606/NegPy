@@ -1,6 +1,6 @@
 import os
 
-os.environ["NUMBA_THREADING_LAYER"] = "omp"
+os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 import asyncio
 import logging
 import multiprocessing
