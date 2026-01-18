@@ -16,7 +16,7 @@ class CoordinateMapping:
         fine_rot: float,
         flip_h: bool = False,
         flip_v: bool = False,
-        autocrop: bool = True,
+        autocrop: bool = False,
         autocrop_params: Optional[dict] = None,
     ) -> np.ndarray:
         """

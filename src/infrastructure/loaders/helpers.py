@@ -17,8 +17,7 @@ def get_best_demosaic_algorithm(raw: Any) -> Any:
 
 def get_supported_raw_wildcards() -> str:
     """
-    Returns raw formats as string for tkinter
-    for tkinter (e.g., "*.dng *.DNG *.nef *.NEF").
+    Returns raw formats as string for file dialogs.
     """
     wildcards = []
     for ext in sorted(SUPPORTED_RAW_EXTENSIONS):
@@ -27,10 +26,3 @@ def get_supported_raw_wildcards() -> str:
         wildcards.append(f"*.{base.upper()}")
 
     return " ".join(wildcards)
-
-
-def get_supported_raw_dotless() -> list[str]:
-    """
-    Returns in format for streamlit native dialog
-    """
-    return [ext.lstrip(".") for ext in sorted(SUPPORTED_RAW_EXTENSIONS)]

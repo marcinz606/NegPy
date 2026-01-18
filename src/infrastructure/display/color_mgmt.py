@@ -3,12 +3,28 @@ from typing import Any, Optional
 from PIL import Image, ImageCms
 from src.kernel.system.config import APP_CONFIG
 from src.domain.models import ColorSpace
+from src.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 
 class ColorService:
     """
     ICC profile application & soft-proofing.
     """
+
+    @staticmethod
+    def _get_profile(cs_name: str) -> Any:
+        """
+        Helper to load profile for a named color space.
+        """
+        path = ColorSpaceRegistry.get_icc_path(cs_name)
+        if path and os.path.exists(path):
+            return ImageCms.getOpenProfile(path)
+
+        # Fallback to built-in if possible, else sRGB
+        if cs_name == ColorSpace.XYZ.value:
+            return ImageCms.createProfile("XYZ")
+
+        return ImageCms.createProfile("sRGB")
 
     @staticmethod
     def apply_icc_profile(
@@ -19,21 +35,12 @@ class ColorService:
     ) -> Image.Image:
         """
         Applies ICC for proofing or correction.
-        If inverse=True, dst_profile_path is treated as the SOURCE profile,
-        and src_color_space as the DESTINATION.
         """
         if not dst_profile_path or not os.path.exists(dst_profile_path):
             return pil_img
 
         try:
-            profile_working: Any
-            if src_color_space == ColorSpace.ADOBE_RGB.value and os.path.exists(
-                APP_CONFIG.adobe_rgb_profile
-            ):
-                profile_working = ImageCms.getOpenProfile(APP_CONFIG.adobe_rgb_profile)
-            else:
-                profile_working = ImageCms.createProfile("sRGB")
-
+            profile_working = ColorService._get_profile(src_color_space)
             profile_selected: Any = ImageCms.getOpenProfile(dst_profile_path)
 
             if inverse:
@@ -61,27 +68,26 @@ class ColorService:
     @staticmethod
     def simulate_on_srgb(pil_img: Image.Image, src_color_space: str) -> Image.Image:
         """
-        AdobeRGB -> sRGB (approximate look).
+        Transforms working space buffer to sRGB for display.
         """
-        if src_color_space != ColorSpace.ADOBE_RGB.value:
+        if src_color_space == ColorSpace.SRGB.value:
             return pil_img
 
         try:
-            if os.path.exists(APP_CONFIG.adobe_rgb_profile):
-                adobe_prof = ImageCms.getOpenProfile(APP_CONFIG.adobe_rgb_profile)
-                srgb_prof: Any = ImageCms.createProfile("sRGB")
+            src_prof = ColorService._get_profile(src_color_space)
+            srgb_prof: Any = ImageCms.createProfile("sRGB")
 
-                if pil_img.mode != "RGB":
-                    pil_img = pil_img.convert("RGB")
+            if pil_img.mode != "RGB":
+                pil_img = pil_img.convert("RGB")
 
-                result_sim = ImageCms.profileToProfile(
-                    pil_img,
-                    adobe_prof,
-                    srgb_prof,
-                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
-                    outputMode="RGB",
-                )
-                return result_sim if result_sim is not None else pil_img
+            result_sim = ImageCms.profileToProfile(
+                pil_img,
+                src_prof,
+                srgb_prof,
+                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                outputMode="RGB",
+            )
+            return result_sim if result_sim is not None else pil_img
         except Exception:
             pass
         return pil_img

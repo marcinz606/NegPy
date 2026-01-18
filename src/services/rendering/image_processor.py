@@ -1,6 +1,5 @@
 import os
 import io
-import rawpy
 import tifffile
 import numpy as np
 from PIL import Image, ImageCms
@@ -8,7 +7,7 @@ from typing import Tuple, Optional, Any, Dict
 from src.kernel.system.logging import get_logger
 from src.kernel.system.config import APP_CONFIG
 from src.domain.types import ImageBuffer
-from src.domain.models import WorkspaceConfig, ExportConfig, ColorSpace
+from src.domain.models import WorkspaceConfig, ExportConfig
 from src.domain.interfaces import PipelineContext
 from src.services.rendering.engine import DarkroomEngine
 from src.kernel.image.logic import (
@@ -21,6 +20,7 @@ from src.kernel.image.logic import (
 from src.infrastructure.loaders.factory import loader_factory
 from src.infrastructure.loaders.helpers import get_best_demosaic_algorithm
 from src.services.export.print import PrintService
+from src.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 logger = get_logger(__name__)
 
@@ -102,17 +102,29 @@ class ImageProcessor:
         Full-res render + encoding (TIFF/JPEG).
         """
         try:
-            color_space = str(export_settings.export_color_space)
-            raw_color_space = rawpy.ColorSpace.sRGB
-
             ctx_mgr, metadata = loader_factory.get_loader(file_path)
+
+            # Resolve the working space (Source space)
+            source_cs = metadata.get("color_space", "Adobe RGB")
+            raw_color_space = ColorSpaceRegistry.get_rawpy_space(source_cs)
+
+            # Resolve export target
+            target_cs = export_settings.export_color_space
+            if target_cs == "Same as Source":
+                target_cs = source_cs
+
+            color_space = str(target_cs)
+
             with ctx_mgr as raw:
                 algo = get_best_demosaic_algorithm(raw)
+                use_camera_wb = params.lab.use_camera_wb
+                user_wb = None if use_camera_wb else [1, 1, 1, 1]
+
                 rgb = raw.postprocess(
                     gamma=(1, 1),
                     no_auto_bright=True,
-                    use_camera_wb=False,
-                    user_wb=[1, 1, 1, 1],
+                    use_camera_wb=use_camera_wb,
+                    user_wb=user_wb,
                     output_bps=16,
                     output_color=raw_color_space,
                     demosaic_algorithm=algo,
@@ -188,10 +200,11 @@ class ImageProcessor:
         if not inverse and icc_path and os.path.exists(icc_path):
             with open(icc_path, "rb") as f:
                 return f.read()
-        elif color_space == ColorSpace.ADOBE_RGB.value and os.path.exists(
-            APP_CONFIG.adobe_rgb_profile
-        ):
-            with open(APP_CONFIG.adobe_rgb_profile, "rb") as f:
+
+        # Fallback to standard registry profile
+        path = ColorSpaceRegistry.get_icc_path(color_space)
+        if path and os.path.exists(path):
+            with open(path, "rb") as f:
                 return f.read()
         return None
 
@@ -203,16 +216,23 @@ class ImageProcessor:
         inverse: bool = False,
     ) -> Tuple[Image.Image, Optional[bytes]]:
         target_icc_bytes = None
-        profile_working = ImageCms.createProfile("sRGB")
+
+        # Determine source profile (buffer state)
+        profile_working: Any
+        path_src = ColorSpaceRegistry.get_icc_path(color_space)
+        if path_src and os.path.exists(path_src):
+            profile_working = ImageCms.getOpenProfile(path_src)
+        else:
+            profile_working = ImageCms.createProfile("sRGB")
 
         try:
             profile_selected: Optional[Any] = None
             if icc_path and os.path.exists(icc_path):
                 profile_selected = ImageCms.getOpenProfile(icc_path)
-            elif color_space == ColorSpace.ADOBE_RGB.value and os.path.exists(
-                APP_CONFIG.adobe_rgb_profile
-            ):
-                profile_selected = ImageCms.getOpenProfile(APP_CONFIG.adobe_rgb_profile)
+            else:
+                path_dst = ColorSpaceRegistry.get_icc_path(color_space)
+                if path_dst and os.path.exists(path_dst):
+                    profile_selected = ImageCms.getOpenProfile(path_dst)
 
             if profile_selected:
                 if inverse:
@@ -236,20 +256,22 @@ class ImageProcessor:
                 if result_pil is not None:
                     pil_img = result_pil
 
+                # Extract bytes for embedding
                 if not inverse:
                     if icc_path and os.path.exists(icc_path):
                         with open(icc_path, "rb") as f:
                             target_icc_bytes = f.read()
-                    elif color_space == ColorSpace.ADOBE_RGB.value and os.path.exists(
-                        APP_CONFIG.adobe_rgb_profile
-                    ):
-                        with open(APP_CONFIG.adobe_rgb_profile, "rb") as f:
-                            target_icc_bytes = f.read()
-            elif color_space == ColorSpace.ADOBE_RGB.value and os.path.exists(
-                APP_CONFIG.adobe_rgb_profile
-            ):
-                with open(APP_CONFIG.adobe_rgb_profile, "rb") as f:
-                    target_icc_bytes = f.read()
+                    else:
+                        path_emb = ColorSpaceRegistry.get_icc_path(color_space)
+                        if path_emb and os.path.exists(path_emb):
+                            with open(path_emb, "rb") as f:
+                                target_icc_bytes = f.read()
+            else:
+                # No target profile, just extract standard bytes if available
+                path_emb = ColorSpaceRegistry.get_icc_path(color_space)
+                if path_emb and os.path.exists(path_emb):
+                    with open(path_emb, "rb") as f:
+                        target_icc_bytes = f.read()
 
         except Exception as e:
             logger.error(f"ICC Error: {e}")

@@ -12,6 +12,7 @@ from src.features.toning.processor import ToningProcessor
 from src.features.lab.processor import PhotoLabProcessor
 from src.features.retouch.processor import RetouchProcessor
 from src.kernel.system.config import APP_CONFIG
+from src.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
 
@@ -78,7 +79,22 @@ class DarkroomEngine:
             self.cache.source_hash = source_hash
             pipeline_changed = True
 
+        if self.cache.process_mode != settings.process_mode:
+            # Mode change affects photometric and subsequent stages.
+            # We don't necessarily need to clear 'base' (geometry/normalization)
+            # but we must ensure 'exposure' and beyond are re-run.
+            self.cache.process_mode = settings.process_mode
+            self.cache.exposure = None
+            self.cache.retouch = None
+            self.cache.lab = None
+            pipeline_changed = True
+
         current_img = img
+
+        if settings.geometry.manual_crop_rect:
+            print(
+                f"DEBUG: Engine process with manual_crop_rect: {settings.geometry.manual_crop_rect}"
+            )
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
@@ -124,6 +140,26 @@ class DarkroomEngine:
 
         current_img = ToningProcessor(settings.toning).process(current_img, context)
         current_img = CropProcessor(settings.geometry).process(current_img, context)
+
+        # Generate UV Grid for coordinate mapping
+        try:
+            # We need to pass the state of autocrop to create_uv_grid
+            # If keep_full_frame is True, we don't slice the grid
+            uv_grid = CoordinateMapping.create_uv_grid(
+                rh_orig=h_orig,
+                rw_orig=w_cols,
+                rotation=settings.geometry.rotation,
+                fine_rot=settings.geometry.fine_rotation,
+                flip_h=settings.geometry.flip_horizontal,
+                flip_v=settings.geometry.flip_vertical,
+                autocrop=not settings.geometry.keep_full_frame,
+                autocrop_params={"roi": context.active_roi}
+                if context.active_roi
+                else None,
+            )
+            context.metrics["uv_grid"] = uv_grid
+        except Exception as e:
+            logger.error(f"Failed to generate UV grid: {e}")
 
         context.metrics["base_positive"] = current_img.copy()
 

@@ -4,11 +4,11 @@ services:
       context: .
       network: host
     container_name: negpy
-    ports:
-      - "8501:8501"
     volumes:
       - ./:/app
       - ${NEGPY_HOST_DIR}:/app/user
+      - /tmp/.X11-unix:/tmp/.X11-unix
     environment:
       - NEGPY_USER_DIR=user
-    restart: unless-stopped
+      - DISPLAY=${DISPLAY}
+    network_mode: host

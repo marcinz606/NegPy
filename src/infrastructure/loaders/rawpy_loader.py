@@ -18,6 +18,10 @@ class RawpyLoader(IImageLoader):
         flip_map = {0: 0, 3: 2, 5: 1, 6: 3}
         orientation = flip_map.get(raw.sizes.flip, 0)
 
-        metadata = {"orientation": orientation, "raw_flip": raw.sizes.flip}
+        metadata = {
+            "orientation": orientation,
+            "raw_flip": raw.sizes.flip,
+            "color_space": "Adobe RGB",
+        }
 
         return cast(ContextManager[Any], raw), metadata

@@ -26,8 +26,6 @@ class Presets:
             "manual_dust_spots",
             "local_adjustments",
             "active_adjustment_idx",
-            "density",
-            "grade",
             "crosstalk_matrix",
             "export_path",
             "apply_iccicc_profile_path",

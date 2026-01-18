@@ -1,5 +1,4 @@
 import numpy as np
-import rawpy
 import cv2
 from typing import Tuple
 from src.kernel.system.config import APP_CONFIG
@@ -8,6 +7,7 @@ from src.infrastructure.loaders.factory import loader_factory
 from src.infrastructure.loaders.helpers import get_best_demosaic_algorithm
 from src.domain.types import ImageBuffer, Dimensions
 from src.kernel.image.validation import ensure_image
+from src.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 
 class PreviewManager:
@@ -17,23 +17,31 @@ class PreviewManager:
 
     @staticmethod
     def load_linear_preview(
-        file_path: str, color_space: str
+        file_path: str,
+        color_space: str | None = None,
+        use_camera_wb: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
+        If color_space is None, uses the source's declared space (metadata).
         """
-        raw_color_space = rawpy.ColorSpace.sRGB
-        if color_space == "Adobe RGB":
-            raw_color_space = rawpy.ColorSpace.Adobe
-
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
+
+        # Resolve target color space
+        if color_space is None:
+            color_space = metadata.get("color_space", "Adobe RGB")
+
+        raw_color_space = ColorSpaceRegistry.get_rawpy_space(color_space)
+
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
+            user_wb = None if use_camera_wb else [1, 1, 1, 1]
+
             rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
-                use_camera_wb=False,
-                user_wb=[1, 1, 1, 1],
+                use_camera_wb=use_camera_wb,
+                user_wb=user_wb,
                 output_bps=16,
                 output_color=raw_color_space,
                 demosaic_algorithm=algo,

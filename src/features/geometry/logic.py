@@ -57,6 +57,9 @@ def enforce_roi_aspect_ratio(
     if cw <= 0 or ch <= 0:
         return 0, h, 0, w
 
+    if target_ratio_str == "Free":
+        return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
+
     try:
         w_r, h_r = map(float, target_ratio_str.split(":"))
         target_aspect = w_r / h_r

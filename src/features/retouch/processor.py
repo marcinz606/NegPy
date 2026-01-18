@@ -1,13 +1,13 @@
 from src.domain.interfaces import PipelineContext
 from src.domain.types import ImageBuffer
-from src.features.retouch.models import RetouchConfig, LocalAdjustmentConfig
-from src.features.retouch.logic import apply_dust_removal, apply_local_adjustments
+from src.features.retouch.models import RetouchConfig
+from src.features.retouch.logic import apply_dust_removal
 from src.features.geometry.logic import map_coords_to_geometry
 
 
 class RetouchProcessor:
     """
-    Applies healing and dodge/burn.
+    Applies healing and automatic dust removal.
     """
 
     def __init__(self, config: RetouchConfig):
@@ -47,32 +47,6 @@ class RetouchProcessor:
                 )
                 mapped_spots.append((mnx, mny, size))
 
-        mapped_adjustments = []
-        if self.config.local_adjustments:
-            for adj in self.config.local_adjustments:
-                new_points = []
-                for nx, ny in adj.points:
-                    mnx, mny = map_coords_to_geometry(
-                        nx,
-                        ny,
-                        (orig_h, orig_w),
-                        rotation,
-                        fine_rotation,
-                        flip_h,
-                        flip_v,
-                    )
-                    new_points.append((mnx, mny))
-
-                mapped_adj = LocalAdjustmentConfig(
-                    points=new_points,
-                    strength=adj.strength,
-                    radius=adj.radius,
-                    feather=adj.feather,
-                    luma_range=adj.luma_range,
-                    luma_softness=adj.luma_softness,
-                )
-                mapped_adjustments.append(mapped_adj)
-
         img = apply_dust_removal(
             img,
             self.config.dust_remove,
@@ -81,8 +55,5 @@ class RetouchProcessor:
             mapped_spots,
             scale_factor,
         )
-
-        if mapped_adjustments:
-            img = apply_local_adjustments(img, mapped_adjustments, scale_factor)
 
         return img

@@ -5,7 +5,6 @@ from src.features.geometry.models import GeometryConfig
 from src.features.geometry.logic import (
     apply_fine_rotation,
     get_autocrop_coords,
-    get_manual_crop_coords,
     get_manual_rect_coords,
 )
 
@@ -41,7 +40,7 @@ class GeometryProcessor:
             "flip_vertical": self.config.flip_vertical,
         }
 
-        if self.config.manual_crop and self.config.manual_crop_rect:
+        if self.config.manual_crop_rect:
             roi = get_manual_rect_coords(
                 img,
                 self.config.manual_crop_rect,
@@ -54,21 +53,12 @@ class GeometryProcessor:
                 scale_factor=context.scale_factor,
             )
             context.active_roi = roi
-        elif self.config.autocrop:
+        else:
             roi = get_autocrop_coords(
                 img,
                 offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
                 target_ratio_str=self.config.autocrop_ratio,
-                assist_point=self.config.autocrop_assist_point,
-                assist_luma=self.config.autocrop_assist_luma,
-            )
-            context.active_roi = roi
-        else:
-            roi = get_manual_crop_coords(
-                img,
-                offset_px=self.config.autocrop_offset,
-                scale_factor=context.scale_factor,
             )
             context.active_roi = roi
 

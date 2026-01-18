@@ -38,7 +38,6 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     geometry=GeometryConfig(
         rotation=0,
         fine_rotation=0.0,
-        autocrop=True,
         autocrop_offset=4,
         autocrop_ratio="3:2",
         keep_full_frame=False,
@@ -61,7 +60,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     ),
     export=ExportConfig(
         export_fmt="JPEG",
-        export_color_space=ColorSpace.SRGB.value,
+        export_color_space=ColorSpace.ADOBE_RGB.value,
         export_print_size=30.0,
         export_dpi=300,
         export_border_size=0.0,

@@ -1,6 +1,6 @@
 {
   "name": "negpy",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Film scan editor",
   "main": "desktop/main.js",
   "scripts": {

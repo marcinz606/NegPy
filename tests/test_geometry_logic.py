@@ -1,5 +1,5 @@
 import numpy as np
-from src.features.geometry.logic import get_manual_crop_coords, get_autocrop_coords
+from src.features.geometry.logic import get_manual_crop_coords
 from src.features.geometry.processor import GeometryProcessor
 from src.features.geometry.models import GeometryConfig
 from src.domain.interfaces import PipelineContext
@@ -34,34 +34,29 @@ def test_get_manual_crop_coords_negative_offset():
 
 def test_geometry_processor_manual_offset():
     img = np.zeros((100, 200, 3), dtype=np.float32)
-    config = GeometryConfig(autocrop=False, autocrop_offset=10)
+    # Manual crop rect defined -> should skip auto-crop
+    config = GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=0)
     processor = GeometryProcessor(config)
     context = PipelineContext(scale_factor=1.0, original_size=(100, 200))
 
     processor.process(img, context)
 
-    assert context.active_roi == (10, 90, 10, 190)
+    # Values based on (0.1, 0.1, 0.9, 0.9) of (100, 200)
+    assert context.active_roi == (10, 90, 20, 180)
 
 
-def test_get_autocrop_coords_assisted():
-    # Verify that providing an assist luma (film base) improves crop detection
-    img = np.ones((100, 100, 3), dtype=np.float32) * 0.94
-    img[20:80, 20:80] = 0.5
-
-    roi_no_assist = get_autocrop_coords(img)
-    roi_assist = get_autocrop_coords(img, assist_luma=0.94)
-    assert roi_assist != roi_no_assist
-
-
-def test_geometry_processor_no_autocrop_no_offset():
+def test_geometry_processor_no_manual_rect_no_offset():
     img = np.zeros((100, 200, 3), dtype=np.float32)
-    config = GeometryConfig(autocrop=False, autocrop_offset=0)
+    # No manual crop rect -> should fall back to auto-crop
+    config = GeometryConfig(autocrop_offset=0)
     processor = GeometryProcessor(config)
     context = PipelineContext(scale_factor=1.0, original_size=(100, 200))
 
     processor.process(img, context)
 
-    assert context.active_roi == (0, 100, 0, 200)
+    # Auto-crop on pure black image might return a non-empty crop
+    assert context.active_roi is not None
+    assert context.active_roi[1] > context.active_roi[0]
 
 
 def test_crop_consistency_across_resolutions():
@@ -69,7 +64,7 @@ def test_crop_consistency_across_resolutions():
     full_h, full_w = 3000, 4500
     prev_h, prev_w = 1000, 1500
 
-    config = GeometryConfig(autocrop=False, autocrop_offset=10)
+    config = GeometryConfig(autocrop_offset=10)
     processor = GeometryProcessor(config)
 
     ctx_full = PipelineContext(

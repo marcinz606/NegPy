@@ -8,6 +8,7 @@ class PipelineCache:
     """
 
     source_hash: str = ""
+    process_mode: str = ""
 
     # Checkpoints
     base: Optional[CacheEntry] = None

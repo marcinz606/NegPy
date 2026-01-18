@@ -55,27 +55,22 @@ format:
 	@$(RUFF) format .
 	@$(RUFF) check --fix .
 
-# Run the application (Docker)
+# Run the application (Docker with X11)
 .PHONY: run-app
 run-app:
-	@echo "Starting NegPy via Docker..."
+	@echo "Starting NegPy Desktop via Docker (X11)..."
 	@$(PYTHON) start.py
 
 .PHONY: run-app-rebuild
 run-app-rebuild:
-	@echo "Rebuilding and starting NegPy via Docker..."
+	@echo "Rebuilding and starting NegPy Desktop via Docker (X11)..."
 	@$(PYTHON) start.py --build
 
-# Build Electron application (Host OS)
-.PHONY: dist
-dist:
-	@$(call update_version)
-	@echo "Building Electron application for host OS..."
-	@start=$$(date +%s); \
-	rm -rf dist; \
-	PATH=$(CURDIR)/$(VENV)/bin:$(PATH) npm run dist; \
-	end=$$(date +%s); \
-	echo "Build took $$(($$end - $$start)) seconds"
+# Run locally on host
+.PHONY: run-desktop
+run-desktop:
+	@echo "Starting NegPy Desktop locally..."
+	@$(PYTHON) desktop.py
 
 # Clean up caches
 .PHONY: clean

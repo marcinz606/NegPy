@@ -4,8 +4,9 @@ from enum import Enum
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
-from src.features.retouch.models import RetouchConfig, LocalAdjustmentConfig
+from src.features.retouch.models import RetouchConfig
 from src.features.toning.models import ToningConfig
+from src.features.metadata.models import FilmMetadataConfig
 
 
 class ICCMode(Enum):
@@ -16,6 +17,12 @@ class ICCMode(Enum):
 class ColorSpace(Enum):
     SRGB = "sRGB"
     ADOBE_RGB = "Adobe RGB"
+    PROPHOTO = "ProPhoto RGB"
+    WIDE = "Wide Gamut RGB"
+    ACES = "ACES"
+    P3_D65 = "P3 D65"
+    REC2020 = "Rec 2020"
+    XYZ = "XYZ"
     GREYSCALE = "Greyscale"
 
 
@@ -27,7 +34,7 @@ class ExportConfig:
 
     export_path: str = "export"
     export_fmt: str = "JPEG"
-    export_color_space: str = ColorSpace.SRGB.value
+    export_color_space: str = ColorSpace.ADOBE_RGB.value
     paper_aspect_ratio: str = "Original"
     export_print_size: float = 27.0
     export_dpi: int = 300
@@ -53,6 +60,7 @@ class WorkspaceConfig:
     lab: LabConfig = field(default_factory=LabConfig)
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
+    metadata: FilmMetadataConfig = field(default_factory=FilmMetadataConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -65,6 +73,7 @@ class WorkspaceConfig:
         res.update(asdict(self.lab))
         res.update(asdict(self.retouch))
         res.update(asdict(self.toning))
+        res.update(asdict(self.metadata))
         res.update(asdict(self.export))
         return res
 
@@ -78,25 +87,13 @@ class WorkspaceConfig:
             valid_keys = config_cls.__dataclass_fields__.keys()
             return {k: v for k, v in d.items() if k in valid_keys and v is not None}
 
-        # handle nested objects in RetouchConfig
-        retouch_data = filter_keys(RetouchConfig, data)
-        if "local_adjustments" in retouch_data:
-            raw_adjustments = retouch_data["local_adjustments"]
-            if isinstance(raw_adjustments, list):
-                deserialized = []
-                for adj in raw_adjustments:
-                    if isinstance(adj, dict):
-                        deserialized.append(LocalAdjustmentConfig(**adj))
-                    else:
-                        deserialized.append(adj)
-                retouch_data["local_adjustments"] = deserialized
-
         return cls(
             process_mode=str(data.get("process_mode", "C41")),
             exposure=ExposureConfig(**filter_keys(ExposureConfig, data)),
             geometry=GeometryConfig(**filter_keys(GeometryConfig, data)),
             lab=LabConfig(**filter_keys(LabConfig, data)),
-            retouch=RetouchConfig(**retouch_data),
+            retouch=RetouchConfig(**filter_keys(RetouchConfig, data)),
             toning=ToningConfig(**filter_keys(ToningConfig, data)),
+            metadata=FilmMetadataConfig(**filter_keys(FilmMetadataConfig, data)),
             export=ExportConfig(**filter_keys(ExportConfig, data)),
         )
