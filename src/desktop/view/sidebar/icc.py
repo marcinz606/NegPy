@@ -1,7 +1,5 @@
 import os
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
     QComboBox,
     QCheckBox,
     QRadioButton,
@@ -9,28 +7,16 @@ from PyQt6.QtWidgets import (
     QLabel,
     QGroupBox,
 )
-from src.desktop.controller import AppController
+from src.desktop.view.sidebar.base import BaseSidebar
 from src.infrastructure.display.color_mgmt import ColorService
 
 
-class ICCSidebar(QWidget):
+class ICCSidebar(BaseSidebar):
     """
     Panel for custom ICC profile application and soft-proofing.
     """
 
-    def __init__(self, controller: AppController):
-        super().__init__()
-        self.controller = controller
-        self.session = controller.session
-        self.state = controller.state
-
-        self._init_ui()
-        self._connect_signals()
-
     def _init_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 0, 5, 5)
-
         # Profile Selection
         available = ColorService.get_available_profiles()
         self.profiles = ["None"] + available
@@ -38,9 +24,9 @@ class ICCSidebar(QWidget):
         self.profile_combo = QComboBox()
         self.profile_combo.addItems([os.path.basename(p) for p in self.profiles])
 
-        current = self.state.icc_profile_path
-        if current:
-            self.profile_combo.setCurrentText(os.path.basename(current))
+        path = self.state.icc_profile_path
+        if path:
+            self.profile_combo.setCurrentText(os.path.basename(path))
         else:
             self.profile_combo.setCurrentText("None")
 
@@ -62,10 +48,10 @@ class ICCSidebar(QWidget):
         self.apply_export_check = QCheckBox("Apply to Export")
         self.apply_export_check.setChecked(self.state.apply_icc_to_export)
 
-        layout.addWidget(QLabel("Profile:"))
-        layout.addWidget(self.profile_combo)
-        layout.addWidget(self.mode_group)
-        layout.addWidget(self.apply_export_check)
+        self.layout.addWidget(QLabel("Profile:"))
+        self.layout.addWidget(self.profile_combo)
+        self.layout.addWidget(self.mode_group)
+        self.layout.addWidget(self.apply_export_check)
 
     def _connect_signals(self) -> None:
         self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
@@ -86,14 +72,7 @@ class ICCSidebar(QWidget):
         self.controller.request_render()
 
     def sync_ui(self) -> None:
-        """
-        Updates widgets from current state.
-        """
-        self.profile_combo.blockSignals(True)
-        self.radio_input.blockSignals(True)
-        self.radio_output.blockSignals(True)
-        self.apply_export_check.blockSignals(True)
-
+        self.block_signals(True)
         try:
             path = self.state.icc_profile_path
             if path:
@@ -108,7 +87,10 @@ class ICCSidebar(QWidget):
 
             self.apply_export_check.setChecked(self.state.apply_icc_to_export)
         finally:
-            self.profile_combo.blockSignals(False)
-            self.radio_input.blockSignals(False)
-            self.radio_output.blockSignals(False)
-            self.apply_export_check.blockSignals(False)
+            self.block_signals(False)
+
+    def block_signals(self, blocked: bool) -> None:
+        self.profile_combo.blockSignals(blocked)
+        self.radio_input.blockSignals(blocked)
+        self.radio_output.blockSignals(blocked)
+        self.apply_export_check.blockSignals(blocked)

@@ -1,84 +1,79 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QHBoxLayout, QLabel
 from src.desktop.view.widgets.sliders import CompactSlider
-from src.desktop.controller import AppController
+from src.desktop.view.sidebar.base import BaseSidebar
+from src.desktop.view.styles.theme import THEME
 
 
-class LabSidebar(QWidget):
+class LabSidebar(BaseSidebar):
     """
     Panel for color separation and sharpening with high-density horizontal layout.
     """
 
-    def __init__(self, controller: AppController):
-        super().__init__()
-        self.controller = controller
-        self.state = controller.state
-
-        self._init_ui()
-        self._connect_signals()
-
     def _init_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 0, 5, 5)
-        layout.setSpacing(10)
-
+        self.layout.setSpacing(10)
         conf = self.state.config.lab
 
-        # 1. Color Calibration Row
-        layout.addWidget(QLabel("<b>Color Calibration</b>"))
+        # Color Calibration
+        label_color = QLabel("Color Calibration")
+        label_color.setStyleSheet(
+            f"font-size: {THEME.font_size_header}px; font-weight: bold;"
+        )
+        self.layout.addWidget(label_color)
+
         color_row = QHBoxLayout()
         self.sep_slider = CompactSlider("Separation", 0.5, 2.0, conf.color_separation)
         self.sat_slider = CompactSlider("Saturation", 0.0, 2.0, conf.saturation)
         color_row.addWidget(self.sep_slider)
         color_row.addWidget(self.sat_slider)
-        layout.addLayout(color_row)
+        self.layout.addLayout(color_row)
 
-        # 2. Detail & Clarity Row
-        layout.addWidget(QLabel("<b>Detail & Clarity</b>"))
+        # Detail & Clarity
+        label_detail = QLabel("Detail & Clarity")
+        label_detail.setStyleSheet(
+            f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
+        )
+        self.layout.addWidget(label_detail)
+
         detail_row = QHBoxLayout()
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
         self.sharp_slider = CompactSlider("Sharpen", 0.0, 1.0, conf.sharpen)
         detail_row.addWidget(self.clahe_slider)
         detail_row.addWidget(self.sharp_slider)
-        layout.addLayout(detail_row)
+        self.layout.addLayout(detail_row)
 
-        layout.addStretch()
+        self.layout.addStretch()
 
     def _connect_signals(self) -> None:
         self.sep_slider.valueChanged.connect(
-            lambda v: self._update_lab("color_separation", v)
+            lambda v: self.update_config_section("lab", color_separation=v)
         )
         self.sat_slider.valueChanged.connect(
-            lambda v: self._update_lab("saturation", v)
+            lambda v: self.update_config_section("lab", saturation=v)
         )
         self.clahe_slider.valueChanged.connect(
-            lambda v: self._update_lab("clahe_strength", v)
+            lambda v: self.update_config_section("lab", clahe_strength=v)
         )
-        self.sharp_slider.valueChanged.connect(lambda v: self._update_lab("sharpen", v))
-
-    def _update_lab(self, field: str, val: float) -> None:
-        from dataclasses import replace
-
-        new_lab = replace(self.state.config.lab, **{field: val})
-        self.controller.session.update_config(replace(self.state.config, lab=new_lab))
-        self.controller.request_render()
+        self.sharp_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", sharpen=v)
+        )
 
     def sync_ui(self) -> None:
-        """
-        Updates widgets from current state.
-        """
         conf = self.state.config.lab
-        self.sep_slider.blockSignals(True)
-        self.sat_slider.blockSignals(True)
-        self.clahe_slider.blockSignals(True)
-        self.sharp_slider.blockSignals(True)
-
+        self.block_signals(True)
         try:
             self.sep_slider.setValue(conf.color_separation)
             self.sat_slider.setValue(conf.saturation)
             self.clahe_slider.setValue(conf.clahe_strength)
             self.sharp_slider.setValue(conf.sharpen)
         finally:
-            self.sep_slider.blockSignals(False)
-            self.sat_slider.blockSignals(False)
-            self.clahe_slider.blockSignals(False)
-            self.sharp_slider.blockSignals(False)
+            self.block_signals(False)
+
+    def block_signals(self, blocked: bool) -> None:
+        widgets = [
+            self.sep_slider,
+            self.sat_slider,
+            self.clahe_slider,
+            self.sharp_slider,
+        ]
+        for w in widgets:
+            w.blockSignals(blocked)

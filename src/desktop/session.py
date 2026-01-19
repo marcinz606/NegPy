@@ -89,6 +89,48 @@ class DesktopSessionManager(QObject):
         self.state = AppState()
         self.asset_model = AssetListModel(self.state)
 
+    def _apply_sticky_settings(self, config: WorkspaceConfig) -> WorkspaceConfig:
+        """
+        Overlays globally persisted settings (Mode, Export, Ratio) onto the config.
+        """
+        from dataclasses import replace
+        from src.domain.models import ExportConfig
+
+        # 1. Process Mode
+        sticky_mode = self.repo.get_global_setting("last_process_mode")
+        if sticky_mode:
+            config = replace(config, process_mode=sticky_mode)
+
+        # 2. Aspect Ratio
+        sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
+        if sticky_ratio:
+            new_geo = replace(config.geometry, autocrop_ratio=sticky_ratio)
+            config = replace(config, geometry=new_geo)
+
+        # 3. Export Settings
+        sticky_export = self.repo.get_global_setting("last_export_config")
+        if sticky_export:
+            # Reconstruct ExportConfig from dict
+            # We filter keys just in case the schema evolved
+            valid_keys = ExportConfig.__dataclass_fields__.keys()
+            filtered = {k: v for k, v in sticky_export.items() if k in valid_keys}
+            new_export = ExportConfig(**filtered)
+            config = replace(config, export=new_export)
+
+        return config
+
+    def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
+        """
+        Saves current Mode, Ratio, and Export settings to global storage.
+        """
+        from dataclasses import asdict
+
+        self.repo.save_global_setting("last_process_mode", config.process_mode)
+        self.repo.save_global_setting(
+            "last_aspect_ratio", config.geometry.autocrop_ratio
+        )
+        self.repo.save_global_setting("last_export_config", asdict(config.export))
+
     def select_file(self, index: int) -> None:
         """
         Changes active file and hydrates state from repository.
@@ -107,7 +149,10 @@ class DesktopSessionManager(QObject):
 
             # Load settings for new file
             saved_config = self.repo.load_file_settings(file_info["hash"])
-            self.state.config = saved_config or WorkspaceConfig()
+            base_config = saved_config or WorkspaceConfig()
+
+            # Apply sticky globals (last used mode/export/ratio)
+            self.state.config = self._apply_sticky_settings(base_config)
 
             self.file_selected.emit(file_info["path"])
             self.state_changed.emit()
@@ -125,6 +170,10 @@ class DesktopSessionManager(QObject):
         Updates global config and optionally saves to disk.
         """
         self.state.config = config
+
+        # Update sticky settings whenever config changes
+        self._persist_sticky_settings(config)
+
         if persist and self.state.current_file_hash:
             self.repo.save_file_settings(self.state.current_file_hash, config)
         self.state_changed.emit()

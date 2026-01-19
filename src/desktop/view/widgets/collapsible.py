@@ -1,4 +1,7 @@
+from typing import Optional
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFrame
+from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QSize
 from src.desktop.view.styles.theme import THEME
 
 
@@ -7,7 +10,13 @@ class CollapsibleSection(QWidget):
     A simple collapsible container with a header button and configurable initial state.
     """
 
-    def __init__(self, title: str, expanded: bool = True, parent=None):
+    def __init__(
+        self,
+        title: str,
+        expanded: bool = True,
+        icon: Optional[QIcon] = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._title_text = title
 
@@ -16,9 +25,14 @@ class CollapsibleSection(QWidget):
         self.main_layout.setSpacing(0)
 
         prefix = "▼" if expanded else "▶"
-        self.toggle_button = QPushButton(f"{prefix} {title}")
+        self.toggle_button = QPushButton(f" {prefix} {title}")
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(expanded)
+
+        if icon:
+            self.toggle_button.setIcon(icon)
+            self.toggle_button.setIconSize(QSize(16, 16))
+
         self.toggle_button.setStyleSheet(
             f"""
             QPushButton {{
@@ -60,4 +74,4 @@ class CollapsibleSection(QWidget):
     def _on_toggle(self, checked: bool) -> None:
         self.content_area.setVisible(checked)
         prefix = "▼" if checked else "▶"
-        self.toggle_button.setText(f"{prefix} {self._title_text}")
+        self.toggle_button.setText(f" {prefix} {self._title_text}")

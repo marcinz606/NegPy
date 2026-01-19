@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from src.domain.models import WorkspaceConfig
@@ -15,6 +16,9 @@ class RenderTask:
     config: WorkspaceConfig
     source_hash: str
     preview_size: float
+    icc_profile_path: Optional[str] = None
+    icc_invert: bool = False
+    color_space: str = "Adobe RGB"
 
 
 class RenderWorker(QObject):
@@ -44,6 +48,26 @@ class RenderWorker(QObject):
                 task.source_hash,
                 render_size_ref=task.preview_size,
             )
+
+            # Apply Soft Proofing / ICC if requested
+            if task.icc_profile_path:
+                pil_img = self._processor.buffer_to_pil(result, task.config)
+                pil_proof, _ = self._processor._apply_color_management(
+                    pil_img,
+                    task.color_space,
+                    task.icc_profile_path,
+                    task.icc_invert,
+                )
+                # Convert back to float32 buffer for display
+                # Note: This is a visualization transform, typically 8-bit precision is fine for preview
+                arr = np.array(pil_proof)
+                if arr.dtype == np.uint8:
+                    result = arr.astype(np.float32) / 255.0
+                elif arr.dtype == np.uint16:
+                    result = arr.astype(np.float32) / 65535.0
+
+                # Update metrics to reflect the proofed image if needed by other components
+                metrics["base_positive"] = result
 
             self.finished.emit(result, metrics)
         except Exception as e:

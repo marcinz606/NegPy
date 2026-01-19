@@ -11,38 +11,26 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect
 from src.desktop.view.styles.theme import THEME
 
 
-class SignalSlider(QWidget):
+class BaseSlider(QWidget):
     """
-    Standard slider with value label and debounced signal emission.
-    Supports double-click to reset.
+    Base class for sliders with value synchronization, debouncing, and reset functionality.
     """
 
     valueChanged = pyqtSignal(float)
 
     def __init__(
         self,
-        label: str,
         min_val: float,
         max_val: float,
         default_val: float,
-        step: float = 0.01,
-        color: str = None,
+        precision: int = 100,
         parent=None,
     ):
         super().__init__(parent)
         self._min = min_val
         self._max = max_val
         self._default = default_val
-        self._precision = 100
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.label = QLabel(label)
-        self.label.setMinimumWidth(80)
-        self.label.setStyleSheet(
-            f"font-size: {THEME.font_size_base}px; color: {color if color else THEME.text_primary};"
-        )
+        self._precision = precision
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(
@@ -52,22 +40,16 @@ class SignalSlider(QWidget):
 
         self.spin = QDoubleSpinBox()
         self.spin.setRange(min_val, max_val)
-        self.spin.setSingleStep(step)
         self.spin.setValue(default_val)
-        self.spin.setFixedWidth(70)
-        self.spin.setStyleSheet(f"font-size: {THEME.font_size_base}px;")
 
-        layout.addWidget(self.label)
-        layout.addWidget(self.slider)
-        layout.addWidget(self.spin)
-
+        # Debounce timer
         self.timer = QTimer()
         self.timer.setSingleShot(True)
         self.timer.setInterval(50)
 
-        self._connect_signals()
+        self._connect_base_signals()
 
-    def _connect_signals(self) -> None:
+    def _connect_base_signals(self) -> None:
         self.slider.valueChanged.connect(self._on_slider_changed)
         self.spin.valueChanged.connect(self._on_spin_changed)
         self.timer.timeout.connect(self._emit_value)
@@ -97,18 +79,50 @@ class SignalSlider(QWidget):
         self.spin.blockSignals(False)
 
     def mouseDoubleClickEvent(self, event) -> None:
-        """Lightroom-style reset."""
+        """Resets to default value."""
         self.setValue(self._default)
         self._emit_value()
 
 
-class CompactSlider(QWidget):
+class SignalSlider(BaseSlider):
     """
-    Compact horizontal slider with label and integrated spinbox in header.
-    Supports double-click to reset and debouncing.
+    Standard slider with side-by-side label, slider, and spinbox.
     """
 
-    valueChanged = pyqtSignal(float)
+    def __init__(
+        self,
+        label: str,
+        min_val: float,
+        max_val: float,
+        default_val: float,
+        step: float = 0.01,
+        color: str = None,
+        parent=None,
+    ):
+        super().__init__(min_val, max_val, default_val, parent=parent)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.label = QLabel(label)
+        self.label.setMinimumWidth(80)
+        self.label.setStyleSheet(
+            f"font-size: {THEME.font_size_base}px; color: {color if color else THEME.text_primary};"
+        )
+
+        self.spin.setSingleStep(step)
+        self.spin.setFixedWidth(70)
+        self.spin.setStyleSheet(f"font-size: {THEME.font_size_base}px;")
+
+        layout.addWidget(self.label)
+        layout.addWidget(self.slider)
+        layout.addWidget(self.spin)
+
+
+class CompactSlider(BaseSlider):
+    """
+    Compact slider with label and value in a header row, slider below.
+    """
 
     def __init__(
         self,
@@ -119,9 +133,8 @@ class CompactSlider(QWidget):
         color: str = None,
         parent=None,
     ):
-        super().__init__(parent)
-        self._precision = 100
-        self._default = default_val
+        super().__init__(min_val, max_val, default_val, parent=parent)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(2)
@@ -132,10 +145,7 @@ class CompactSlider(QWidget):
             f"font-size: {THEME.font_size_base}px; color: {color if color else THEME.text_secondary};"
         )
 
-        self.spin = QDoubleSpinBox()
-        self.spin.setRange(min_val, max_val)
         self.spin.setSingleStep(0.01)
-        self.spin.setValue(default_val)
         self.spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.spin.setFixedWidth(50)
         self.spin.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -146,12 +156,6 @@ class CompactSlider(QWidget):
         header.addWidget(self.label)
         header.addStretch()
         header.addWidget(self.spin)
-
-        self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setRange(
-            int(min_val * self._precision), int(max_val * self._precision)
-        )
-        self.slider.setValue(int(default_val * self._precision))
 
         if color:
             self.slider.setStyleSheet(
@@ -175,47 +179,6 @@ class CompactSlider(QWidget):
 
         layout.addLayout(header)
         layout.addWidget(self.slider)
-
-        # Debounce timer
-        self.timer = QTimer()
-        self.timer.setSingleShot(True)
-        self.timer.setInterval(50)
-
-        self._connect_signals()
-
-    def _connect_signals(self) -> None:
-        self.slider.valueChanged.connect(self._on_slider_changed)
-        self.spin.valueChanged.connect(self._on_spin_changed)
-        self.timer.timeout.connect(self._emit_value)
-
-    def _on_slider_changed(self, value: int) -> None:
-        f_val = value / self._precision
-        self.spin.blockSignals(True)
-        self.spin.setValue(f_val)
-        self.spin.blockSignals(False)
-        self.timer.start()
-
-    def _on_spin_changed(self, value: float) -> None:
-        self.slider.blockSignals(True)
-        self.slider.setValue(int(value * self._precision))
-        self.slider.blockSignals(False)
-        self.timer.start()
-
-    def _emit_value(self) -> None:
-        self.valueChanged.emit(self.spin.value())
-
-    def setValue(self, value: float) -> None:
-        self.slider.blockSignals(True)
-        self.spin.blockSignals(True)
-        self.slider.setValue(int(value * self._precision))
-        self.spin.setValue(value)
-        self.slider.blockSignals(False)
-        self.spin.blockSignals(False)
-
-    def mouseDoubleClickEvent(self, event) -> None:
-        """Lightroom-style reset."""
-        self.setValue(self._default)
-        self._emit_value()
 
 
 class RangeSlider(QWidget):
@@ -325,6 +288,6 @@ class RangeSlider(QWidget):
         self._active_handle = None
 
     def mouseDoubleClickEvent(self, event) -> None:
-        """Lightroom-style reset for the entire range."""
+        """Reset for the entire range."""
         self.setRange(0.0, 1.0)
         self.rangeChanged.emit(0.0, 1.0)

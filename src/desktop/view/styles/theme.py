@@ -38,10 +38,10 @@ class ThemeConfig:
             "geometry": True,
             "lab": True,
             "toning": False,
-            "retouch": False,
+            "retouch": True,
             "metadata": False,
             "icc": False,
-            "export": False,
+            "export": True,
         }
     )
 

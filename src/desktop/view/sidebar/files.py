@@ -1,3 +1,4 @@
+import os
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -10,8 +11,14 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QSize, Qt, QThread
 from PyQt6.QtGui import QPixmap
+
+import qtawesome as qta
 from src.desktop.controller import AppController
+from src.desktop.view.styles.theme import THEME
+from src.kernel.system.paths import get_resource_path
 from src.kernel.system.version import get_app_version, check_for_updates
+from src.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
+from src.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
 
 class UpdateCheckWorker(QThread):
@@ -45,13 +52,12 @@ class FilesSidebar(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
-        # Branding Header
         header_container = QVBoxLayout()
         header = QHBoxLayout()
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         icon_label = QLabel()
-        icon_pix = QPixmap("media/icons/icon.png")
+        icon_pix = QPixmap(get_resource_path("media/icons/icon.png"))
         if not icon_pix.isNull():
             icon_label.setPixmap(
                 icon_pix.scaled(
@@ -71,13 +77,11 @@ class FilesSidebar(QWidget):
         header.addWidget(name_label)
         header_container.addLayout(header)
 
-        # Version Info
         self.ver_label = QLabel(f"v{get_app_version()}")
         self.ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.ver_label.setStyleSheet("font-size: 18px; color: #888; margin-top: -5px;")
         header_container.addWidget(self.ver_label)
 
-        # Update Badge (Hidden by default)
         self.update_label = QLabel("")
         self.update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.update_label.setStyleSheet(
@@ -88,24 +92,32 @@ class FilesSidebar(QWidget):
 
         layout.addLayout(header_container)
 
-        # Start update check
         self.update_worker = UpdateCheckWorker()
         self.update_worker.finished.connect(self._on_update_found)
         self.update_worker.start()
 
-        # Actions Group
-        action_group = QGroupBox("Import")
+        action_group = QGroupBox("")
         action_layout = QHBoxLayout(action_group)
 
-        self.add_files_btn = QPushButton("Add Files")
-        self.add_folder_btn = QPushButton("Add Folder")
+        self.add_files_btn = QPushButton(" File")
+        self.add_files_btn.setIcon(
+            qta.icon("fa5s.file-import", color=THEME.text_primary)
+        )
+        self.add_folder_btn = QPushButton(" Folder")
+        self.add_folder_btn.setIcon(
+            qta.icon("fa5s.folder-plus", color=THEME.text_primary)
+        )
+        self.unload_btn = QPushButton(" Clear")
+        self.unload_btn.setIcon(qta.icon("fa5s.times-circle", color=THEME.text_primary))
 
         action_layout.addWidget(self.add_files_btn)
         action_layout.addWidget(self.add_folder_btn)
+        action_layout.addWidget(self.unload_btn)
+
 
         layout.addWidget(action_group)
 
-        # Asset List
+
         self.list_view = QListView()
         self.list_view.setModel(self.session.asset_model)
         self.list_view.setViewMode(QListView.ViewMode.IconMode)
@@ -122,10 +134,6 @@ class FilesSidebar(QWidget):
 
         layout.addWidget(self.list_view)
 
-        # Session Actions
-        self.unload_btn = QPushButton("Unload All")
-        layout.addWidget(self.unload_btn)
-
     def _connect_signals(self) -> None:
         self.add_files_btn.clicked.connect(self._on_add_files)
         self.add_folder_btn.clicked.connect(self._on_add_folder)
@@ -133,11 +141,12 @@ class FilesSidebar(QWidget):
         self.list_view.clicked.connect(self._on_item_clicked)
 
     def _on_add_files(self) -> None:
+        wildcards = get_supported_raw_wildcards()
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Images",
             "",
-            "Raw Images (*.orf *.dng *.arw *.cr2 *.nef);;TIFF (*.tiff *.tif)",
+            f"Supported Images ({wildcards})",
         )
         if files:
             self.session.add_files(files)
@@ -146,9 +155,7 @@ class FilesSidebar(QWidget):
     def _on_add_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
-            import os
-
-            valid_exts = (".orf", ".dng", ".arw", ".cr2", ".nef", ".tiff", ".tif")
+            valid_exts = tuple(SUPPORTED_RAW_EXTENSIONS)
             paths = []
             for f in os.listdir(folder):
                 if f.lower().endswith(valid_exts):

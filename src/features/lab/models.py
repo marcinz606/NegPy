@@ -12,7 +12,6 @@ class LabConfig:
     saturation: float = 1.0
     clahe_strength: float = 0.0
     sharpen: float = 0.25
-    use_camera_wb: bool = False
     crosstalk_matrix: Optional[List[float]] = field(
         default_factory=lambda: [
             1.0,

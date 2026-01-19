@@ -12,6 +12,7 @@ desktop/bin/
 *.spec
 .DS_Store
 build.log
+appimagetool-x86_64.AppImage
 
 # user settings 
 user/

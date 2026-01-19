@@ -1,6 +1,11 @@
 import os
+from dataclasses import replace
+from typing import List, Dict, Any
+
 import numpy as np
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMetaObject, Q_ARG, Qt
+from PyQt6.QtGui import QIcon, QPixmap
+
 from src.desktop.session import DesktopSessionManager, AppState, ToolMode
 from src.desktop.workers.render import RenderWorker, RenderTask, ThumbnailWorker
 from src.desktop.workers.export import ExportWorker, ExportTask
@@ -9,6 +14,8 @@ from src.infrastructure.filesystem.watcher import FolderWatchService
 from src.infrastructure.storage.local_asset_store import LocalAssetStore
 from src.services.view.coordinate_mapping import CoordinateMapping
 from src.kernel.system.config import APP_CONFIG
+from src.desktop.converters import ImageConverter
+from src.features.exposure.logic import calculate_wb_shifts
 
 
 class AppController(QObject):
@@ -22,7 +29,7 @@ class AppController(QObject):
     render_requested = pyqtSignal(RenderTask)
     thumbnail_requested = pyqtSignal(list)
     tool_sync_requested = pyqtSignal()
-    config_updated = pyqtSignal()  # To refresh sidebar sliders
+    config_updated = pyqtSignal()
 
     def __init__(self, session_manager: DesktopSessionManager):
         super().__init__()
@@ -83,18 +90,11 @@ class AppController(QObject):
         if missing:
             self.thumbnail_requested.emit(missing)
 
-    def _on_thumbnails_finished(self, new_thumbs: dict) -> None:
-        """
-        Updates state with new thumbnail icons and refreshes UI.
-        """
-        from PyQt6.QtGui import QIcon, QPixmap
-
+    def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
+        """Updates state with new thumbnail icons and refreshes UI."""
         for name, pil_img in new_thumbs.items():
             if pil_img:
-                # Convert PIL -> Numpy -> QImage (via safe converter)
                 u8_arr = np.array(pil_img.convert("RGB"))
-                from src.desktop.converters import ImageConverter
-
                 qimg = ImageConverter.to_qimage(u8_arr)
                 pixmap = QPixmap.fromImage(qimg)
                 self.state.thumbnails[name] = QIcon(pixmap)
@@ -103,7 +103,7 @@ class AppController(QObject):
 
     def load_file(self, file_path: str) -> None:
         target_cs = self.state.workspace_color_space
-        use_cam_wb = self.state.config.lab.use_camera_wb
+        use_cam_wb = self.state.config.exposure.use_camera_wb
 
         try:
             raw, dims, metadata = self.preview_service.load_linear_preview(
@@ -144,8 +144,6 @@ class AppController(QObject):
         ur1, ur2 = min(rx1, rx2), max(rx1, rx2)
         vr1, vr2 = min(ry1, ry2), max(ry1, ry2)
 
-        from dataclasses import replace
-
         new_geo = replace(
             self.state.config.geometry,
             manual_crop_rect=(ur1, vr1, ur2, vr2),
@@ -156,15 +154,11 @@ class AppController(QObject):
         self.request_render()
 
     def reset_crop(self) -> None:
-        from dataclasses import replace
-
         new_geo = replace(self.state.config.geometry, manual_crop_rect=None)
         self.session.update_config(replace(self.state.config, geometry=new_geo))
         self.request_render()
 
     def clear_retouch(self) -> None:
-        from dataclasses import replace
-
         new_ret = replace(self.state.config.retouch, manual_dust_spots=[])
         self.session.update_config(replace(self.state.config, retouch=new_ret))
         self.request_render()
@@ -176,8 +170,6 @@ class AppController(QObject):
 
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
         size = float(self.state.config.retouch.manual_dust_size)
-
-        from dataclasses import replace
 
         new_spots = self.state.config.retouch.manual_dust_spots + [(rx, ry, size)]
         new_retouch = replace(self.state.config.retouch, manual_dust_spots=new_spots)
@@ -194,11 +186,7 @@ class AppController(QObject):
         py = int(np.clip(ny * h, 0, h - 1))
         sampled = img[py, px]
 
-        from src.features.exposure.logic import calculate_wb_shifts
-
         dm, dy = calculate_wb_shifts(sampled)
-
-        from dataclasses import replace
 
         new_exp = replace(
             self.state.config.exposure,
@@ -219,6 +207,9 @@ class AppController(QObject):
             config=self.state.config,
             source_hash=self.state.current_file_hash or "preview",
             preview_size=1200.0,
+            icc_profile_path=self.state.icc_profile_path,
+            icc_invert=self.state.icc_invert,
+            color_space=self.state.workspace_color_space,
         )
         self.render_requested.emit(task)
 
@@ -254,9 +245,7 @@ class AppController(QObject):
         if tasks:
             self._run_export_tasks(tasks)
 
-    def _run_export_tasks(self, tasks: list) -> None:
-        from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
-
+    def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
         QMetaObject.invokeMethod(
             self.export_worker,
             "run_batch",
@@ -264,7 +253,7 @@ class AppController(QObject):
             Q_ARG(list, tasks),
         )
 
-    def _on_render_finished(self, buffer, metrics) -> None:
+    def _on_render_finished(self, buffer: np.ndarray, metrics: Dict[str, Any]) -> None:
         self.state.last_metrics = metrics
         self.state.is_processing = False
         self.image_updated.emit()
@@ -281,3 +270,5 @@ class AppController(QObject):
         self.render_thread.wait()
         self.export_thread.quit()
         self.export_thread.wait()
+        self.thumb_thread.quit()
+        self.thumb_thread.wait()

@@ -5,6 +5,7 @@ from PyQt6.QtGui import QPainter, QImage, QMouseEvent, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF
 from src.desktop.converters import ImageConverter
 from src.desktop.session import ToolMode, AppState
+from src.desktop.view.widgets.overlays import ImageInfoOverlay
 
 
 class ImageCanvas(QWidget):
@@ -21,6 +22,8 @@ class ImageCanvas(QWidget):
         self._qimage: Optional[QImage] = None
         self._display_rect: QRectF = QRectF()
         self._content_rect: Optional[Tuple[int, int, int, int]] = None
+
+        self.overlay = ImageInfoOverlay(self)
 
         # Interaction State
         self._crop_active: bool = False
@@ -222,4 +225,10 @@ class ImageCanvas(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self.overlay.resize(self.size())
         self.update()
+
+    def update_overlay(
+        self, filename: str, res: str, colorspace: str, extra: str
+    ) -> None:
+        self.overlay.update_info(filename, res, colorspace, extra)

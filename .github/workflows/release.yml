@@ -48,77 +48,140 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 25
-          cache: 'npm'
-
-      - name: Update Version Files
-        run: |
-          echo "${{ github.event.inputs.version }}" | sed 's/^v//' > VERSION
-          npm version ${{ github.event.inputs.version }} --no-git-tag-version --allow-same-version
-
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: 'pip'
 
-      - name: Install Python Dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+            - name: Install Dependencies
 
-      - name: Install Node Dependencies
-        run: npm install
+              run: |
 
-      - name: Build Backend (PyInstaller)
-        run: npm run build:backend
+                pip install -r requirements.txt
 
-      - name: Build Electron App
-        run: npx electron-builder "--config.extraMetadata.version=${{ github.event.inputs.version }}" --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                pip install pyinstaller
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: negpy-${{ matrix.os }}-${{ github.event.inputs.version }}
-          path: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.AppImage
-            dist/*.deb
+      
 
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-binaries
-          pattern: negpy-*
-          merge-multiple: true
+            - name: Install Packaging Tools (Linux)
 
-      - name: Display structure of downloaded files
-        run: ls -R all-binaries
+              if: matrix.os == 'ubuntu-latest'
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: NegPy ${{ github.event.inputs.version }}
-          draft: false
-          prerelease: false
-          files: |
-            all-binaries/**/*.exe
-            all-binaries/**/*.dmg
-            all-binaries/**/*.AppImage
-            all-binaries/**/*.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+
+                sudo apt-get update
+
+                sudo apt-get install -y libfuse2
+
+                wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+
+                chmod +x appimagetool-x86_64.AppImage
+
+      
+
+            - name: Install Packaging Tools (Windows)
+
+              if: matrix.os == 'windows-latest'
+
+              run: |
+
+                choco install nsis -y
+
+      
+
+            - name: Set Version
+
+              shell: bash
+
+              run: |
+
+                echo "${{ github.event.inputs.version }}" | sed 's/^v//' > VERSION
+
+      
+
+            - name: Build and Package Application
+
+              run: python build.py
+
+      
+
+            - name: Upload Artifacts
+
+              uses: actions/upload-artifact@v4
+
+              with:
+
+                name: negpy-${{ matrix.os }}-${{ github.event.inputs.version }}
+
+                path: |
+
+                  dist/*.AppImage
+
+                  dist/*_Setup.exe
+
+                  dist/*.dmg
+
+      
+
+        publish:
+
+          needs: build
+
+          runs-on: ubuntu-latest
+
+          if: success()
+
+          permissions:
+
+            contents: write
+
+          steps:
+
+            - name: Download all artifacts
+
+              uses: actions/download-artifact@v4
+
+              with:
+
+                path: all-binaries
+
+                pattern: negpy-*
+
+                merge-multiple: true
+
+      
+
+            - name: Display structure of downloaded files
+
+              run: ls -R all-binaries
+
+      
+
+            - name: Create GitHub Release
+
+              uses: softprops/action-gh-release@v2
+
+              with:
+
+                tag_name: ${{ github.event.inputs.version }}
+
+                name: NegPy ${{ github.event.inputs.version }}
+
+                draft: false
+
+                prerelease: false
+
+                files: |
+
+                  all-binaries/**/*.AppImage
+
+                  all-binaries/**/*_Setup.exe
+
+                  all-binaries/**/*.dmg
+
+              env:
+
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      

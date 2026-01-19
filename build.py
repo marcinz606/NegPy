@@ -1,0 +1,164 @@
+import PyInstaller.__main__
+import os
+import shutil
+import platform
+import subprocess
+
+# Define the application name
+APP_NAME = "NegPy"
+
+# Define the entry point
+ENTRY_POINT = "desktop.py"
+
+# Define platform-specific settings
+system = platform.system()
+is_windows = system == "Windows"
+is_macos = system == "Darwin"
+is_linux = system == "Linux"
+
+# Basic PyInstaller arguments
+params = [
+    ENTRY_POINT,
+    f"--name={APP_NAME}",
+    "--onedir",  # Use onedir for faster startup and easier debugging
+    "--clean",
+    "--noconfirm",
+    # Hidden imports (based on previous build_backend.py and new dependencies)
+    "--hidden-import=rawpy",
+    "--hidden-import=cv2",
+    "--hidden-import=numpy",
+    "--hidden-import=numba",
+    "--hidden-import=PIL",
+    "--hidden-import=PIL.Image",
+    "--hidden-import=PIL.ImageEnhance",
+    "--hidden-import=PIL.ImageFilter",
+    "--hidden-import=PIL.ImageCms",
+    "--hidden-import=PIL.ImageDraw",
+    "--hidden-import=PIL.ImageOps",
+    "--hidden-import=scipy",
+    "--hidden-import=scipy.ndimage",
+    "--hidden-import=scipy.stats",
+    "--hidden-import=scipy.special",
+    "--hidden-import=matplotlib",
+    "--hidden-import=matplotlib.pyplot",
+    "--hidden-import=imageio",
+    "--hidden-import=imageio.v3",
+    "--hidden-import=tifffile",
+    "--hidden-import=tkinter",
+    "--hidden-import=_tkinter",
+    "--hidden-import=PyQt6",
+    "--hidden-import=qtawesome",
+    # Metadata
+    "--copy-metadata=imageio",
+    # Data files
+    "--add-data=src:src",
+    "--add-data=icc:icc",
+    "--add-data=media:media",
+    "--add-data=VERSION:.",
+]
+
+
+def package_linux():
+    """Package the built application into an AppImage."""
+    print("Packaging for Linux (AppImage)...")
+    dist_dir = os.path.join("dist", APP_NAME)
+    appdir = os.path.join("dist", f"{APP_NAME}.AppDir")
+
+    if os.path.exists(appdir):
+        shutil.rmtree(appdir)
+
+    # 1. Create AppDir structure
+    shutil.copytree(dist_dir, appdir)
+
+    # 2. Add Desktop file and Icon
+    shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
+    shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
+
+    # 3. Create Symlink for AppRun if it doesn't exist
+    apprun_path = os.path.join(appdir, "AppRun")
+    if not os.path.exists(apprun_path):
+        with open(apprun_path, "w") as f:
+            f.write("#!/bin/sh\n")
+            f.write('HERE="$(dirname "$(readlink -f "${0}")")"\n')
+            f.write(f'exec "${{HERE}}/{APP_NAME}" "$@"\n')
+        os.chmod(apprun_path, 0o755)
+
+    # 4. Run appimagetool
+    try:
+        tool = "./appimagetool-x86_64.AppImage"
+        if not os.path.exists(tool):
+            tool = "appimagetool"
+
+        subprocess.run(
+            [tool, appdir, os.path.join("dist", f"{APP_NAME}.AppImage")], check=True
+        )
+        print(f"AppImage created: dist/{APP_NAME}.AppImage")
+    except Exception as e:
+        print(f"Error creating AppImage: {e}")
+        print(
+            "Make sure appimagetool is installed or available as ./appimagetool-x86_64.AppImage"
+        )
+
+
+def package_windows():
+    """Package the built application into an NSIS installer."""
+    print("Packaging for Windows (NSIS)...")
+    try:
+        # Assumes makensis is in PATH
+        subprocess.run(["makensis", "installer.nsi"], check=True)
+        print("Windows Installer created: dist/NegPy_Setup.exe")
+    except Exception as e:
+        print(f"Error creating Windows Installer: {e}")
+        print("Make sure NSIS (makensis) is installed and in your PATH.")
+
+
+def package_macos():
+    """Package the built application into a DMG."""
+    print("Packaging for macOS (DMG)...")
+    app_path = os.path.join("dist", f"{APP_NAME}.app")
+    dmg_path = os.path.join("dist", f"{APP_NAME}.dmg")
+
+    if os.path.exists(dmg_path):
+        os.remove(dmg_path)
+
+    try:
+        # Use hdiutil to create DMG from the .app bundle
+        subprocess.run(
+            [
+                "hdiutil",
+                "create",
+                "-volname",
+                APP_NAME,
+                "-srcfolder",
+                app_path,
+                "-ov",
+                "-format",
+                "UDZO",
+                dmg_path,
+            ],
+            check=True,
+        )
+        print(f"macOS DMG created: {dmg_path}")
+    except Exception as e:
+        print(f"Error creating macOS DMG: {e}")
+
+
+def build():
+    print(f"Building {APP_NAME} for {system}...")
+    print("PyInstaller parameters:", params)
+
+    PyInstaller.__main__.run(params)
+
+    print("Build complete.")
+    print(f"Output is in dist/{APP_NAME}")
+
+    if is_linux:
+        package_linux()
+    elif is_windows:
+        package_windows()
+    elif is_macos:
+        package_macos()
+
+
+if __name__ == "__main__":
+    build()

@@ -3,6 +3,7 @@ import os
 from typing import Optional, Dict
 from src.domain.models import ColorSpace
 from src.kernel.system.config import APP_CONFIG
+from src.kernel.system.paths import get_resource_path
 
 
 class ColorSpaceRegistry:
@@ -50,7 +51,7 @@ class ColorSpaceRegistry:
         # 1. Check mapped defaults
         filename = cls._ICC_MAP.get(cs_name)
         if filename:
-            path = os.path.join("icc", filename)
+            path = get_resource_path(os.path.join("icc", filename))
             if os.path.exists(path):
                 return path
 

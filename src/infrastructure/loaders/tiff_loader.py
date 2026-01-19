@@ -50,5 +50,5 @@ class TiffLoader(IImageLoader):
         else:
             f32 = np.clip(img.astype(np.float32), 0, 1)
 
-        metadata = {"orientation": 0, "color_space": "sRGB"}
+        metadata = {"orientation": 0, "color_space": "Adobe RGB"}
         return NonStandardFileWrapper(f32), metadata

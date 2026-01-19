@@ -1,4 +1,5 @@
 import os
+from src.kernel.system.paths import get_resource_path, get_default_user_dir
 from src.domain.types import AppConfig
 from src.domain.models import WorkspaceConfig, ExportConfig, ColorSpace
 from src.features.exposure.models import ExposureConfig
@@ -8,18 +9,18 @@ from src.features.retouch.models import RetouchConfig
 from src.features.toning.models import ToningConfig
 
 
-BASE_USER_DIR = os.path.abspath(os.getenv("NEGPY_USER_DIR", "user"))
+BASE_USER_DIR = get_default_user_dir()
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
     max_workers=max(1, (os.cpu_count() or 1)),
-    preview_render_size=1000,
+    preview_render_size=1200,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),
     cache_dir=os.path.join(BASE_USER_DIR, "cache"),
     user_icc_dir=os.path.join(BASE_USER_DIR, "icc"),
     default_export_dir=os.path.join(BASE_USER_DIR, "export"),
-    adobe_rgb_profile="icc/AdobeCompat-v4.icc",
+    adobe_rgb_profile=get_resource_path("icc/AdobeCompat-v4.icc"),
 )
 
 

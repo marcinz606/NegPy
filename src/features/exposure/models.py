@@ -18,6 +18,7 @@ class ExposureConfig:
 
     density: float = 1.0
     grade: float = 2.5
+    use_camera_wb: bool = False
     wb_cyan: float = 0.0
     wb_magenta: float = 0.0
     wb_yellow: float = 0.0

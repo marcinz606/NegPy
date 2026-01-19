@@ -117,9 +117,8 @@ class ImageProcessor:
 
             with ctx_mgr as raw:
                 algo = get_best_demosaic_algorithm(raw)
-                use_camera_wb = params.lab.use_camera_wb
+                use_camera_wb = params.exposure.use_camera_wb
                 user_wb = None if use_camera_wb else [1, 1, 1, 1]
-
                 rgb = raw.postprocess(
                     gamma=(1, 1),
                     no_auto_bright=True,

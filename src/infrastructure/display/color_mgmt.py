@@ -2,6 +2,7 @@ import os
 from typing import Any, Optional
 from PIL import Image, ImageCms
 from src.kernel.system.config import APP_CONFIG
+from src.kernel.system.paths import get_resource_path
 from src.domain.models import ColorSpace
 from src.infrastructure.display.color_spaces import ColorSpaceRegistry
 
@@ -97,11 +98,15 @@ class ColorService:
         """
         Returns list of available ICC profile paths.
         """
-        built_in_icc = [
-            os.path.join("icc", f)
-            for f in os.listdir("icc")
-            if f.lower().endswith((".icc", ".icm"))
-        ]
+        icc_root = get_resource_path("icc")
+        built_in_icc = []
+        if os.path.exists(icc_root):
+            built_in_icc = [
+                os.path.join(icc_root, f)
+                for f in os.listdir(icc_root)
+                if f.lower().endswith((".icc", ".icm"))
+            ]
+
         user_icc = []
         if os.path.exists(APP_CONFIG.user_icc_dir):
             user_icc = [
