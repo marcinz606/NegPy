@@ -20,7 +20,8 @@ is_linux = system == "Linux"
 params = [
     ENTRY_POINT,
     f"--name={APP_NAME}",
-    "--onedir",  # Use onedir for faster startup and easier debugging
+    "--onedir",
+    "--windowed",  # GUI app, no console
     "--clean",
     "--noconfirm",
     # Hidden imports (based on previous build_backend.py and new dependencies)
@@ -95,9 +96,7 @@ def package_linux():
         print(f"AppImage created: dist/{APP_NAME}.AppImage")
     except Exception as e:
         print(f"Error creating AppImage: {e}")
-        print(
-            "Make sure appimagetool is installed or available as ./appimagetool-x86_64.AppImage"
-        )
+        raise
 
 
 def package_windows():
@@ -109,7 +108,7 @@ def package_windows():
         print("Windows Installer created: dist/NegPy_Setup.exe")
     except Exception as e:
         print(f"Error creating Windows Installer: {e}")
-        print("Make sure NSIS (makensis) is installed and in your PATH.")
+        raise
 
 
 def package_macos():
@@ -141,6 +140,7 @@ def package_macos():
         print(f"macOS DMG created: {dmg_path}")
     except Exception as e:
         print(f"Error creating macOS DMG: {e}")
+        raise
 
 
 def build():
@@ -150,7 +150,12 @@ def build():
     PyInstaller.__main__.run(params)
 
     print("Build complete.")
-    print(f"Output is in dist/{APP_NAME}")
+    if os.path.exists("dist"):
+        print(f"Contents of dist: {os.listdir('dist')}")
+        if os.path.exists(f"dist/{APP_NAME}"):
+            print(f"Contents of dist/{APP_NAME}: {os.listdir(f'dist/{APP_NAME}')[:10]}... (truncated)")
+    else:
+        print("ERROR: dist directory not found!")
 
     if is_linux:
         package_linux()
