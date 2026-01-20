@@ -63,6 +63,10 @@ class AppController(QObject):
         self.thumb_worker.moveToThread(self.thumb_thread)
         self.thumb_thread.start()
 
+        # Render Flow Control
+        self._is_rendering = False
+        self._pending_render_task: Any = None
+
         self._connect_signals()
 
     def _connect_signals(self) -> None:
@@ -222,6 +226,12 @@ class AppController(QObject):
             icc_invert=self.state.icc_invert,
             color_space=self.state.workspace_color_space,
         )
+
+        if self._is_rendering:
+            self._pending_render_task = task
+            return
+
+        self._is_rendering = True
         self.render_requested.emit(task)
 
     def request_export(self) -> None:
@@ -273,8 +283,17 @@ class AppController(QObject):
             self._first_render_done = True
             self._update_thumbnail_from_state()
 
+        self._is_rendering = False
+        if self._pending_render_task:
+            task = self._pending_render_task
+            self._pending_render_task = None
+            self._is_rendering = True
+            self.render_requested.emit(task)
+
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = False
+        self._is_rendering = False
+        self._pending_render_task = None
         print(f"Render Error: {message}")
 
     def _on_export_finished(self) -> None:

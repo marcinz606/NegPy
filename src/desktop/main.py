@@ -27,6 +27,8 @@ def main() -> None:
     """
     Desktop entry point.
     """
+    os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
+    
     _bootstrap_environment()
 
     app = QApplication(sys.argv)
