@@ -92,6 +92,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: success()
+    environment: production
     permissions:
       contents: write
     steps:
