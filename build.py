@@ -102,9 +102,21 @@ def package_linux():
 def package_windows():
     """Package the built application into an NSIS installer."""
     print("Packaging for Windows (NSIS)...")
+    
+    cmd = "makensis"
+    # Try to find makensis in common locations if not in PATH
+    if not shutil.which(cmd):
+        common_paths = [
+            r"C:\Program Files (x86)\NSIS\makensis.exe",
+            r"C:\Program Files\NSIS\makensis.exe",
+        ]
+        for p in common_paths:
+            if os.path.exists(p):
+                cmd = p
+                break
+
     try:
-        # Assumes makensis is in PATH
-        subprocess.run(["makensis", "installer.nsi"], check=True)
+        subprocess.run([cmd, "installer.nsi"], check=True)
         print("Windows Installer created: dist/NegPy_Setup.exe")
     except Exception as e:
         print(f"Error creating Windows Installer: {e}")
