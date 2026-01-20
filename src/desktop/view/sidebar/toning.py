@@ -1,6 +1,8 @@
 from PyQt6.QtWidgets import QComboBox
 from src.desktop.view.widgets.sliders import SignalSlider
 from src.desktop.view.sidebar.base import BaseSidebar
+from src.features.toning.models import PaperProfileName
+from src.domain.models import ProcessMode
 
 
 class ToningSidebar(BaseSidebar):
@@ -13,9 +15,7 @@ class ToningSidebar(BaseSidebar):
 
         # Paper Profile
         self.paper_combo = QComboBox()
-        self.paper_combo.addItems(
-            ["None", "Generic Glossy", "Generic Matte", "Warmtone"]
-        )
+        self.paper_combo.addItems([p.value for p in PaperProfileName])
         self.paper_combo.setCurrentText(conf.paper_profile)
 
         # Toning Sliders
@@ -48,7 +48,7 @@ class ToningSidebar(BaseSidebar):
             self.sepia_slider.setValue(conf.sepia_strength)
 
             # Dynamic Visibility (Only B&W)
-            is_bw = self.state.config.process_mode == "B&W"
+            is_bw = self.state.config.process_mode == ProcessMode.BW
             self.selenium_slider.setVisible(is_bw)
             self.sepia_slider.setVisible(is_bw)
         finally:

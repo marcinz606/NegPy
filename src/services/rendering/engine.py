@@ -80,9 +80,6 @@ class DarkroomEngine:
             pipeline_changed = True
 
         if self.cache.process_mode != settings.process_mode:
-            # Mode change affects photometric and subsequent stages.
-            # We don't necessarily need to clear 'base' (geometry/normalization)
-            # but we must ensure 'exposure' and beyond are re-run.
             self.cache.process_mode = settings.process_mode
             self.cache.exposure = None
             self.cache.retouch = None
@@ -141,10 +138,7 @@ class DarkroomEngine:
         current_img = ToningProcessor(settings.toning).process(current_img, context)
         current_img = CropProcessor(settings.geometry).process(current_img, context)
 
-        # Generate UV Grid for coordinate mapping
         try:
-            # We need to pass the state of autocrop to create_uv_grid
-            # If keep_full_frame is True, we don't slice the grid
             uv_grid = CoordinateMapping.create_uv_grid(
                 rh_orig=h_orig,
                 rw_orig=w_cols,

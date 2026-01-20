@@ -1,12 +1,19 @@
 import os
 from src.kernel.system.paths import get_resource_path, get_default_user_dir
 from src.domain.types import AppConfig
-from src.domain.models import WorkspaceConfig, ExportConfig, ColorSpace
+from src.domain.models import (
+    WorkspaceConfig,
+    ExportConfig,
+    ColorSpace,
+    ProcessMode,
+    ExportFormat,
+    AspectRatio,
+)
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
 from src.features.retouch.models import RetouchConfig
-from src.features.toning.models import ToningConfig
+from src.features.toning.models import ToningConfig, PaperProfileName
 
 
 BASE_USER_DIR = get_default_user_dir()
@@ -25,7 +32,7 @@ APP_CONFIG = AppConfig(
 
 
 DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
-    process_mode="C41",
+    process_mode=ProcessMode.C41,
     exposure=ExposureConfig(
         density=1.0,
         grade=2.0,
@@ -40,7 +47,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         rotation=0,
         fine_rotation=0.0,
         autocrop_offset=4,
-        autocrop_ratio="3:2",
+        autocrop_ratio=AspectRatio.R_3_2,
         keep_full_frame=False,
     ),
     lab=LabConfig(
@@ -50,7 +57,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         sharpen=0.25,
     ),
     toning=ToningConfig(
-        paper_profile="None",
+        paper_profile=PaperProfileName.NONE,
         selenium_strength=0.0,
         sepia_strength=0.0,
     ),
@@ -60,7 +67,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         dust_size=3,
     ),
     export=ExportConfig(
-        export_fmt="JPEG",
+        export_fmt=ExportFormat.JPEG,
         export_color_space=ColorSpace.ADOBE_RGB.value,
         export_print_size=30.0,
         export_dpi=300,

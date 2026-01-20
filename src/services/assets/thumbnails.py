@@ -14,7 +14,7 @@ async def generate_batch_thumbnails(
     files: List[Dict[str, str]], asset_store: Any
 ) -> Dict[str, Image.Image]:
     """
-    Parallel thumbnail generation (throttled).
+    Parallel thumbnail generation.
     """
 
     # Limit concurrency to half of available cores
@@ -77,7 +77,6 @@ def get_thumbnail_worker(
                 rgb = ensure_rgb(rgb)
                 img = Image.fromarray(rgb)
 
-            # Apply orientation metadata if present
             rot = metadata.get("orientation", 0)
             if rot != 0:
                 img = img.rotate(rot * -90, expand=True)

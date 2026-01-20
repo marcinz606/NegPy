@@ -14,8 +14,7 @@ from PyQt6.QtGui import QColor
 import qtawesome as qta
 from src.desktop.view.styles.theme import THEME
 from src.desktop.view.sidebar.base import BaseSidebar
-from src.domain.models import ColorSpace
-from src.domain.constants import SUPPORTED_ASPECT_RATIOS
+from src.domain.models import ColorSpace, AspectRatio, ExportFormat
 
 
 class ExportSidebar(BaseSidebar):
@@ -35,7 +34,7 @@ class ExportSidebar(BaseSidebar):
 
         fmt_row = QHBoxLayout()
         self.fmt_combo = QComboBox()
-        self.fmt_combo.addItems(["JPEG", "TIFF"])
+        self.fmt_combo.addItems([f.value for f in ExportFormat])
         self.fmt_combo.setCurrentText(conf.export_fmt)
 
         self.cs_combo = QComboBox()
@@ -52,7 +51,11 @@ class ExportSidebar(BaseSidebar):
         self.layout.addWidget(label_size)
 
         self.ratio_combo = QComboBox()
-        self.ratio_combo.addItems(["Original"] + SUPPORTED_ASPECT_RATIOS)
+        # "Original" is first, then the rest
+        ratios = [AspectRatio.ORIGINAL] + [
+            r.value for r in AspectRatio if r != AspectRatio.ORIGINAL
+        ]
+        self.ratio_combo.addItems(ratios)
         self.ratio_combo.setCurrentText(conf.paper_aspect_ratio)
         self.layout.addWidget(self.ratio_combo)
 

@@ -4,6 +4,7 @@ from src.domain.types import ImageBuffer
 from src.features.toning.models import ToningConfig
 from src.features.toning.logic import simulate_paper_substrate, apply_chemical_toning
 from src.kernel.image.logic import get_luminance
+from src.domain.models import ProcessMode
 
 
 # We need to port this helper locally or into logic as well
@@ -24,7 +25,7 @@ class ToningProcessor:
         img = image
         img = simulate_paper_substrate(img, self.config.paper_profile)
 
-        if context.process_mode == "B&W":
+        if context.process_mode == ProcessMode.BW:
             img = apply_chemical_toning(
                 img,
                 selenium_strength=self.config.selenium_strength,

@@ -9,6 +9,7 @@ from src.desktop.view.widgets.sliders import SignalSlider, CompactSlider
 from src.desktop.view.styles.theme import THEME
 from src.desktop.view.sidebar.base import BaseSidebar
 from src.desktop.session import ToolMode
+from src.domain.models import ProcessMode
 
 
 class ExposureSidebar(BaseSidebar):
@@ -28,7 +29,7 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(mode_label)
 
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["C41", "B&W"])
+        self.mode_combo.addItems([m.value for m in ProcessMode])
         self.mode_combo.setCurrentText(mode)
         self.mode_combo.setStyleSheet(
             f"font-size: {THEME.font_size_base}px; padding: 4px;"

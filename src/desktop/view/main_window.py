@@ -3,74 +3,25 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
     QDockWidget,
     QStatusBar,
     QScrollArea,
-    QProgressBar,
 )
-from PyQt6.QtGui import QShortcut, QKeySequence
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PIL import Image
 import numpy as np
 
-import qtawesome as qta
 from src.desktop.view.canvas.widget import ImageCanvas
 from src.desktop.view.canvas.toolbar import ActionToolbar
-from src.desktop.view.sidebar.analysis import AnalysisSidebar
-from src.desktop.view.sidebar.presets import PresetsSidebar
-from src.desktop.view.sidebar.exposure import ExposureSidebar
-from src.desktop.view.sidebar.geometry import GeometrySidebar
-from src.desktop.view.sidebar.lab import LabSidebar
-from src.desktop.view.sidebar.toning import ToningSidebar
-from src.desktop.view.sidebar.retouch import RetouchSidebar
-from src.desktop.view.sidebar.metadata import MetadataSidebar
-from src.desktop.view.sidebar.icc import ICCSidebar
-from src.desktop.view.sidebar.export import ExportSidebar
-from src.desktop.view.sidebar.files import FilesSidebar
-from src.desktop.view.widgets.collapsible import CollapsibleSection
-from src.desktop.view.styles.theme import THEME
+from src.desktop.view.sidebar.session_panel import SessionPanel
+from src.desktop.view.sidebar.controls_panel import ControlsPanel
+from src.desktop.view.widgets.status_bar import TopStatusBar
+from src.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
 from src.desktop.controller import AppController
 from src.desktop.session import ToolMode
 from src.services.export.print import PrintService
 from src.kernel.image.logic import float_to_uint8
-
-
-class TopStatusBar(QWidget):
-    """Integrated status bar at the top of the viewport."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedHeight(48)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
-
-        self.msg_label = QLabel("Ready")
-        self.msg_label.setStyleSheet("color: #aaa; font-size: 16px;")
-
-        self.progress = QProgressBar()
-        self.progress.setMaximumWidth(150)
-        self.progress.setFixedHeight(12)
-        self.progress.setVisible(False)
-        self.progress.setTextVisible(False)
-        self.progress.setStyleSheet(
-            """
-            QProgressBar { background-color: #222; border: 1px solid #333; border-radius: 6px; }
-            QProgressBar::chunk { background-color: #2e7d32; border-radius: 5px; }
-        """
-        )
-
-        layout.addWidget(self.msg_label)
-        layout.addStretch()
-        layout.addWidget(self.progress)
-
-    def showMessage(self, text: str, timeout: int = 0):
-        if text == "Image Updated":
-            return
-        self.msg_label.setText(text)
-        if timeout > 0:
-            QTimer.singleShot(timeout, lambda: self.msg_label.setText("Ready"))
+from src.domain.models import AspectRatio
 
 
 class MainWindow(QMainWindow):
@@ -88,41 +39,7 @@ class MainWindow(QMainWindow):
 
         self._init_ui()
         self._connect_signals()
-        self._setup_shortcuts()
-
-    def _setup_shortcuts(self) -> None:
-        """Defines global application hotkeys."""
-        # Navigation
-        QShortcut(
-            QKeySequence(Qt.Key.Key_Left), self, self.controller.session.prev_file
-        )
-        QShortcut(
-            QKeySequence(Qt.Key.Key_Right), self, self.controller.session.next_file
-        )
-
-        # Geometry
-        QShortcut(QKeySequence("["), self, lambda: self.toolbar.rotate(1))
-        QShortcut(QKeySequence("]"), self, lambda: self.toolbar.rotate(-1))
-        QShortcut(QKeySequence("H"), self, lambda: self.toolbar.flip("horizontal"))
-        QShortcut(QKeySequence("V"), self, lambda: self.toolbar.flip("vertical"))
-
-        # Tools
-        QShortcut(
-            QKeySequence("W"), self, lambda: self.exposure_sidebar.pick_wb_btn.toggle()
-        )
-        QShortcut(
-            QKeySequence("C"),
-            self,
-            lambda: self.geometry_sidebar.manual_crop_btn.toggle(),
-        )
-        QShortcut(
-            QKeySequence("D"), self, lambda: self.retouch_sidebar.pick_dust_btn.toggle()
-        )
-
-        # Actions
-        QShortcut(QKeySequence("Ctrl+E"), self, self.controller.request_export)
-        QShortcut(QKeySequence("Ctrl+C"), self, self.controller.session.copy_settings)
-        QShortcut(QKeySequence("Ctrl+V"), self, self.controller.session.paste_settings)
+        setup_keyboard_shortcuts(self)
 
     def _init_ui(self) -> None:
         """Setup widgets and layout."""
@@ -151,122 +68,20 @@ class MainWindow(QMainWindow):
         self.scroll.setWidgetResizable(True)
         self.scroll.setStyleSheet("QScrollArea { border: none; }")
 
-        self.sidebar_widget = QWidget()
-        self.sidebar_layout = QVBoxLayout(self.sidebar_widget)
-        self.sidebar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.sidebar_layout.setContentsMargins(0, 0, 0, 0)
-        self.sidebar_layout.setSpacing(1)
+        self.controls_panel = ControlsPanel(self.controller)
 
-        self._init_sidebar_panels()
-
-        self.scroll.setWidget(self.sidebar_widget)
+        self.scroll.setWidget(self.controls_panel)
         self.drawer.setWidget(self.scroll)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.drawer)
 
         self.session_dock = QDockWidget("Session", self)
-        self.files_sidebar = FilesSidebar(self.controller)
-        self.session_dock.setWidget(self.files_sidebar)
+        self.session_panel = SessionPanel(self.controller)
+        self.session_dock.setWidget(self.session_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.session_dock)
 
         # hide status bar - we use TopStatusBar instead
         self.setStatusBar(QStatusBar())
         self.statusBar().hide()
-
-    def _init_sidebar_panels(self) -> None:
-        """Initialize and add all sidebar sections."""
-        icon_color = "#aaa"
-
-        self.analysis_sidebar = AnalysisSidebar(self.controller)
-        self._add_sidebar_section(
-            "Analysis",
-            "analysis",
-            self.analysis_sidebar,
-            icon=qta.icon("fa5s.chart-bar", color=icon_color),
-        )
-
-        self.presets_sidebar = PresetsSidebar(self.controller)
-        self._add_sidebar_section(
-            "Presets",
-            "presets",
-            self.presets_sidebar,
-            icon=qta.icon("fa5s.magic", color=icon_color),
-        )
-
-        self.exposure_sidebar = ExposureSidebar(self.controller)
-        self._add_sidebar_section(
-            "Exposure",
-            "exposure",
-            self.exposure_sidebar,
-            icon=qta.icon("fa5s.sun", color=icon_color),
-        )
-
-        self.geometry_sidebar = GeometrySidebar(self.controller)
-        self._add_sidebar_section(
-            "Geometry",
-            "geometry",
-            self.geometry_sidebar,
-            icon=qta.icon("fa5s.crop", color=icon_color),
-        )
-
-        self.lab_sidebar = LabSidebar(self.controller)
-        self._add_sidebar_section(
-            "Lab",
-            "lab",
-            self.lab_sidebar,
-            icon=qta.icon("fa5s.flask", color=icon_color),
-        )
-
-        self.toning_sidebar = ToningSidebar(self.controller)
-        self._add_sidebar_section(
-            "Toning",
-            "toning",
-            self.toning_sidebar,
-            icon=qta.icon("fa5s.tint", color=icon_color),
-        )
-
-        self.retouch_sidebar = RetouchSidebar(self.controller)
-        self._add_sidebar_section(
-            "Retouch",
-            "retouch",
-            self.retouch_sidebar,
-            icon=qta.icon("fa5s.brush", color=icon_color),
-        )
-
-        self.metadata_sidebar = MetadataSidebar(self.controller)
-        self._add_sidebar_section(
-            "Metadata",
-            "metadata",
-            self.metadata_sidebar,
-            icon=qta.icon("fa5s.info-circle", color=icon_color),
-        )
-
-        self.icc_sidebar = ICCSidebar(self.controller)
-        self._add_sidebar_section(
-            "ICC",
-            "icc",
-            self.icc_sidebar,
-            icon=qta.icon("fa5s.eye", color=icon_color),
-        )
-
-        self.export_sidebar = ExportSidebar(self.controller)
-        self._add_sidebar_section(
-            "Export",
-            "export",
-            self.export_sidebar,
-            icon=qta.icon("fa5s.download", color=icon_color),
-        )
-
-    def _add_sidebar_section(
-        self, title: str, key: str, widget: QWidget, icon=None
-    ) -> None:
-        """Helper to create and add a collapsible section."""
-        is_expanded = THEME.sidebar_expanded_defaults.get(key, False)
-        if key in ["exposure", "geometry", "lab", "retouch", "export", "analysis"]:
-            is_expanded = THEME.sidebar_expanded_defaults.get(key, True)
-
-        section = CollapsibleSection(title, expanded=is_expanded, icon=icon)
-        section.set_content(widget)
-        self.sidebar_layout.addWidget(section)
 
     def _connect_signals(self) -> None:
         """Wire controller and view."""
@@ -278,19 +93,6 @@ class MainWindow(QMainWindow):
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
-        self.controller.config_updated.connect(self._sync_all_sidebars)
-
-    def _sync_all_sidebars(self) -> None:
-        """Force all sidebar panels to update their widgets from current AppState."""
-        self.exposure_sidebar.sync_ui()
-        self.geometry_sidebar.sync_ui()
-        self.lab_sidebar.sync_ui()
-        self.toning_sidebar.sync_ui()
-        self.retouch_sidebar.sync_ui()
-        self.metadata_sidebar.sync_ui()
-        self.icc_sidebar.sync_ui()
-        self.export_sidebar.sync_ui()
-        self.presets_sidebar.sync_ui()
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
@@ -304,7 +106,12 @@ class MainWindow(QMainWindow):
 
         # Apply border preview if enabled
         export_conf = self.state.config.export
-        if export_conf.export_border_size > 0:
+        should_preview = (
+            export_conf.export_border_size > 0
+            or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
+        )
+
+        if should_preview:
             pil_img = Image.fromarray(float_to_uint8(buffer))
             try:
                 pil_img, content_rect = PrintService.apply_preview_layout_to_pil(
@@ -356,7 +163,14 @@ class MainWindow(QMainWindow):
         """Updates toggle button states to match active_tool."""
         mode = self.state.active_tool
         self.canvas.set_tool_mode(mode)
-        self.geometry_sidebar.sync_ui()
-        self.exposure_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
-        self.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
-        self.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
+
+        # We access buttons through the controls panel
+        self.controls_panel.exposure_sidebar.pick_wb_btn.setChecked(
+            mode == ToolMode.WB_PICK
+        )
+        self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(
+            mode == ToolMode.CROP_MANUAL
+        )
+        self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(
+            mode == ToolMode.DUST_PICK
+        )

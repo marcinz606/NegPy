@@ -8,6 +8,7 @@ from src.features.exposure.normalization import (
     measure_log_negative_bounds,
     normalize_log_image,
 )
+from src.domain.models import ProcessMode
 
 
 class NormalizationProcessor:
@@ -71,7 +72,7 @@ class PhotometricProcessor:
             cmy_offsets=cmy_offsets,
         )
 
-        if context.process_mode == "B&W":
+        if context.process_mode == ProcessMode.BW:
             res = get_luminance(img_pos)
             res = np.stack([res, res, res], axis=-1)
             return res

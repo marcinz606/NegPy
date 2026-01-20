@@ -3,7 +3,7 @@ from numba import njit, prange  # type: ignore
 from typing import Dict
 from src.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from src.kernel.image.validation import ensure_image
-from src.features.toning.models import PaperSubstrate
+from src.features.toning.models import PaperSubstrate, PaperProfileName
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -75,10 +75,16 @@ def _apply_chemical_toning_jit(
 
 
 PAPER_PROFILES: Dict[str, PaperSubstrate] = {
-    "None": PaperSubstrate("None", (1.0, 1.0, 1.0), 1.0),
-    "Neutral RC": PaperSubstrate("Neutral RC", (0.99, 0.99, 0.99), 1.0),
-    "Cool Glossy": PaperSubstrate("Cool Glossy", (0.98, 0.99, 1.02), 1.1),
-    "Warm Fiber": PaperSubstrate("Warm Fiber", (1.0, 0.97, 0.92), 1.15),
+    PaperProfileName.NONE: PaperSubstrate(PaperProfileName.NONE, (1.0, 1.0, 1.0), 1.0),
+    PaperProfileName.NEUTRAL_RC: PaperSubstrate(
+        PaperProfileName.NEUTRAL_RC, (0.99, 0.99, 0.99), 1.0
+    ),
+    PaperProfileName.COOL_GLOSSY: PaperSubstrate(
+        PaperProfileName.COOL_GLOSSY, (0.98, 0.99, 1.02), 1.1
+    ),
+    PaperProfileName.WARM_FIBER: PaperSubstrate(
+        PaperProfileName.WARM_FIBER, (1.0, 0.97, 0.92), 1.15
+    ),
 }
 
 
@@ -86,7 +92,7 @@ def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer
     """
     Look-up profile -> Apply tint.
     """
-    profile = PAPER_PROFILES.get(profile_name, PAPER_PROFILES["None"])
+    profile = PAPER_PROFILES.get(profile_name, PAPER_PROFILES[PaperProfileName.NONE])
     tint = np.ascontiguousarray(np.array(profile.tint, dtype=np.float32))
 
     return ensure_image(

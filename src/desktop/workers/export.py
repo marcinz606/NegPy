@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import List
 import os
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
-from src.domain.models import WorkspaceConfig, ExportConfig
+from src.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
 from src.services.rendering.image_processor import ImageProcessor
 
 
@@ -55,7 +55,11 @@ class ExportWorker(QObject):
                     out_dir = task.export_settings.export_path
                     os.makedirs(out_dir, exist_ok=True)
 
-                    ext = "jpg" if task.export_settings.export_fmt == "JPEG" else "tiff"
+                    ext = (
+                        "jpg"
+                        if task.export_settings.export_fmt == ExportFormat.JPEG
+                        else "tiff"
+                    )
                     out_name = f"positive_{filename}.{ext}"
                     out_path = os.path.join(out_dir, out_name)
 

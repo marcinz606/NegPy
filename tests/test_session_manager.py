@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from src.domain.session import WorkspaceSession
-from src.domain.models import WorkspaceConfig, ExportConfig
+from src.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
 from src.domain.interfaces import IRepository, IAssetStore
 from src.services.rendering.engine import DarkroomEngine
 
@@ -42,7 +42,7 @@ class TestWorkspaceSession(unittest.TestCase):
 
         self.assertEqual(config.lab.color_separation, 1.0)
         self.assertEqual(config.retouch.dust_size, 3)
-        self.assertEqual(config.export.export_fmt, "JPEG")
+        self.assertEqual(config.export.export_fmt, ExportFormat.JPEG)
         self.assertEqual(config.export.export_print_size, 30.0)
         self.assertEqual(config.export.export_dpi, 300)
 

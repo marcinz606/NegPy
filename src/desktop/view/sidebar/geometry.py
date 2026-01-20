@@ -8,7 +8,7 @@ from src.desktop.view.widgets.sliders import CompactSlider
 from src.desktop.view.styles.theme import THEME
 from src.desktop.view.sidebar.base import BaseSidebar
 from src.desktop.session import ToolMode
-from src.domain.constants import SUPPORTED_ASPECT_RATIOS, VERTICAL_ASPECT_RATIOS
+from src.domain.models import AspectRatio
 
 
 class GeometrySidebar(BaseSidebar):
@@ -23,7 +23,9 @@ class GeometrySidebar(BaseSidebar):
         top_row = QHBoxLayout()
 
         self.ratio_combo = QComboBox()
-        self.ratio_combo.addItems(SUPPORTED_ASPECT_RATIOS + VERTICAL_ASPECT_RATIOS)
+        # Filter out 'Original' as it's not a crop ratio (usually 'Free' is used for no constraint)
+        ratios = [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
+        self.ratio_combo.addItems(ratios)
         self.ratio_combo.setCurrentText(conf.autocrop_ratio)
         self.ratio_combo.setStyleSheet(
             f"font-size: {THEME.font_size_base}px; padding: 4px;"

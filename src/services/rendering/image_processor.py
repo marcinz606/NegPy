@@ -7,7 +7,12 @@ from typing import Tuple, Optional, Any, Dict
 from src.kernel.system.logging import get_logger
 from src.kernel.system.config import APP_CONFIG
 from src.domain.types import ImageBuffer
-from src.domain.models import WorkspaceConfig, ExportConfig
+from src.domain.models import (
+    WorkspaceConfig,
+    ExportConfig,
+    ProcessMode,
+    ExportFormat,
+)
 from src.domain.interfaces import PipelineContext
 from src.services.rendering.engine import DarkroomEngine
 from src.kernel.image.logic import (
@@ -68,7 +73,7 @@ class ImageProcessor:
             or settings.toning.sepia_strength != 0.0
             or settings.toning.paper_profile != "None"
         )
-        is_bw = settings.process_mode == "B&W" and not is_toned
+        is_bw = settings.process_mode == ProcessMode.BW and not is_toned
 
         if is_bw:
             img_int = float_to_uint_luma(
@@ -104,11 +109,9 @@ class ImageProcessor:
         try:
             ctx_mgr, metadata = loader_factory.get_loader(file_path)
 
-            # Resolve the working space (Source space)
             source_cs = metadata.get("color_space", "Adobe RGB")
             raw_color_space = ColorSpaceRegistry.get_rawpy_space(source_cs)
 
-            # Resolve export target
             target_cs = export_settings.export_color_space
             if target_cs == "Same as Source":
                 target_cs = source_cs
@@ -144,7 +147,7 @@ class ImageProcessor:
             buffer = self._apply_scaling_and_border_f32(buffer, params, export_settings)
 
             is_greyscale = export_settings.export_color_space == "Greyscale"
-            is_tiff = export_settings.export_fmt != "JPEG"
+            is_tiff = export_settings.export_fmt != ExportFormat.JPEG
 
             if is_greyscale:
                 img_int = float_to_uint_luma(
@@ -284,7 +287,7 @@ class ImageProcessor:
         export_settings: ExportConfig,
         icc_bytes: Optional[bytes],
     ) -> None:
-        if export_settings.export_fmt == "JPEG":
+        if export_settings.export_fmt == ExportFormat.JPEG:
             pil_img.save(
                 buf,
                 format="JPEG",

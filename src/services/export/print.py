@@ -2,7 +2,7 @@ from PIL import Image
 import cv2
 import numpy as np
 from typing import Tuple
-from src.domain.models import ExportConfig
+from src.domain.models import ExportConfig, AspectRatio
 
 
 class PrintService:
@@ -49,7 +49,7 @@ class PrintService:
         """
         long_edge_px = int((print_size_cm / 2.54) * dpi)
 
-        if aspect_ratio_str == "Original":
+        if aspect_ratio_str == AspectRatio.ORIGINAL:
             if img_w >= img_h:
                 return long_edge_px, int(long_edge_px * (img_h / img_w))
             else:
@@ -83,7 +83,7 @@ class PrintService:
         dpi = export_settings.export_dpi
         border_px = int((export_settings.export_border_size / 2.54) * dpi)
 
-        if export_settings.paper_aspect_ratio == "Original":
+        if export_settings.paper_aspect_ratio == AspectRatio.ORIGINAL:
             if export_settings.use_original_res:
                 target_w, target_h = img_w, img_h
                 img_scaled = img
