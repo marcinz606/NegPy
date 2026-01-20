@@ -48,20 +48,20 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.magic", color=icon_color),
         )
 
-        self.exposure_sidebar = ExposureSidebar(self.controller)
-        self._add_sidebar_section(
-            "Exposure",
-            "exposure",
-            self.exposure_sidebar,
-            icon=qta.icon("fa5s.sun", color=icon_color),
-        )
-
         self.geometry_sidebar = GeometrySidebar(self.controller)
         self._add_sidebar_section(
             "Geometry",
             "geometry",
             self.geometry_sidebar,
             icon=qta.icon("fa5s.crop", color=icon_color),
+        )
+
+        self.exposure_sidebar = ExposureSidebar(self.controller)
+        self._add_sidebar_section(
+            "Exposure",
+            "exposure",
+            self.exposure_sidebar,
+            icon=qta.icon("fa5s.sun", color=icon_color),
         )
 
         self.lab_sidebar = LabSidebar(self.controller)
@@ -72,20 +72,20 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.flask", color=icon_color),
         )
 
-        self.toning_sidebar = ToningSidebar(self.controller)
-        self._add_sidebar_section(
-            "Toning",
-            "toning",
-            self.toning_sidebar,
-            icon=qta.icon("fa5s.tint", color=icon_color),
-        )
-
         self.retouch_sidebar = RetouchSidebar(self.controller)
         self._add_sidebar_section(
             "Retouch",
             "retouch",
             self.retouch_sidebar,
             icon=qta.icon("fa5s.brush", color=icon_color),
+        )
+
+        self.toning_sidebar = ToningSidebar(self.controller)
+        self._add_sidebar_section(
+            "Toning",
+            "toning",
+            self.toning_sidebar,
+            icon=qta.icon("fa5s.tint", color=icon_color),
         )
 
         self.metadata_sidebar = MetadataSidebar(self.controller)
@@ -134,7 +134,3 @@ class ControlsPanel(QWidget):
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""
         self.geometry_sidebar.sync_ui()
-        # We need to expose buttons if main window wants to trigger them via shortcuts
-        # or signals should handle it.
-        # Actually, shortcuts in MainWindow toggle these buttons directly currently.
-        # We might need to expose them as properties.

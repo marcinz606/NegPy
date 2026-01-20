@@ -103,11 +103,11 @@ class SessionPanel(QWidget):
         self.update_label.setVisible(True)
 
     def resizeEvent(self, event) -> None:
-        """Enforce bottom tabs max height (33%)."""
+        """Enforce bottom tabs max height"""
         super().resizeEvent(event)
         total_h = self.splitter.height()
         if total_h > 0:
-            max_tabs_h = int(total_h * 0.33)
+            max_tabs_h = int(total_h * 0.3)
             current_sizes = self.splitter.sizes()
             if len(current_sizes) > 1 and current_sizes[1] > max_tabs_h:
                 new_list_h = total_h - max_tabs_h

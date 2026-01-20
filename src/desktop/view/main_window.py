@@ -1,4 +1,5 @@
 import os
+from src.kernel.system.config import APP_CONFIG
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -120,8 +121,7 @@ class MainWindow(QMainWindow):
                     export_conf.export_border_size,
                     export_conf.export_print_size,
                     export_conf.export_border_color,
-                    1200.0,  # Reference size
-                )
+                    APP_CONFIG.preview_render_size,                )
                 buffer = np.array(pil_img).astype(np.float32) / 255.0
             except Exception as e:
                 print(f"DEBUG: Border preview error: {e}")
@@ -141,7 +141,6 @@ class MainWindow(QMainWindow):
         res_str = f"{w} x {h} px"
         cs = self.state.workspace_color_space
 
-        # Suggested bottom right: Bit Depth & Process Mode
         mode = f"16-bit | {self.state.config.process_mode}"
 
         self.canvas.update_overlay(filename, res_str, cs, mode)
