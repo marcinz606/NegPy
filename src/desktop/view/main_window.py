@@ -121,7 +121,8 @@ class MainWindow(QMainWindow):
                     export_conf.export_border_size,
                     export_conf.export_print_size,
                     export_conf.export_border_color,
-                    APP_CONFIG.preview_render_size,                )
+                    APP_CONFIG.preview_render_size,
+                )
                 buffer = np.array(pil_img).astype(np.float32) / 255.0
             except Exception as e:
                 print(f"DEBUG: Border preview error: {e}")

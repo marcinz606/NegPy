@@ -40,16 +40,18 @@ class CollapsibleSection(QWidget):
                 font-weight: bold;
                 font-size: {THEME.font_size_header}px;
                 padding: 10px;
-                background-color: #2a2a2a;
+                background-color: {THEME.bg_header};
                 border: none;
-                border-bottom: 1px solid #333;
-                color: #ddd;
+                border-bottom: 1px solid {THEME.border_color};
+                color: {THEME.text_primary};
             }}
             QPushButton:hover {{
                 background-color: #333;
             }}
             QPushButton:checked {{
-                border-bottom: 1px solid #444;
+                background-color: #000000;
+                color: {THEME.text_primary};
+                border-bottom: 1px solid {THEME.accent_primary};
             }}
         """
         )

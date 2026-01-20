@@ -11,6 +11,7 @@ from src.desktop.controller import AppController
 from src.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
 from src.desktop.view.sidebar.files import FileBrowser
 from src.desktop.view.sidebar.export import ExportSidebar
+from src.desktop.view.styles.theme import THEME
 from src.kernel.system.version import check_for_updates
 
 
@@ -64,6 +65,29 @@ class SessionPanel(QWidget):
 
         # Bottom Tabs
         self.tabs = QTabWidget()
+        self.tabs.tabBar().setExpanding(True)
+        self.tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {THEME.border_color};
+                background-color: {THEME.bg_panel};
+            }}
+            QTabBar::tab {{
+                background-color: {THEME.bg_header};
+                color: {THEME.text_secondary};
+                padding: 8px 12px;
+                border: 1px solid {THEME.border_color};
+                min-width: 80px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {THEME.accent_primary};
+                color: white;
+                font-weight: bold;
+                border-bottom-color: {THEME.accent_primary};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: #333;
+            }}
+        """)
 
         # Analysis Tab
         self.analysis_group = QGroupBox()
