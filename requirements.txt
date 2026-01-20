@@ -10,7 +10,6 @@ Pillow==12.0.0
 scipy==1.16.3
 matplotlib==3.10.8
 Jinja2==3.1.6
-tbb==2022.3.0
 
 # Desktop UI framework
 PyQt6==6.10.2
