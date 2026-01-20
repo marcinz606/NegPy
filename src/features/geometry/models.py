@@ -12,4 +12,3 @@ class GeometryConfig:
     autocrop_offset: int = 2
     autocrop_ratio: str = "3:2"
     manual_crop_rect: Optional[Tuple[float, float, float, float]] = None
-    keep_full_frame: bool = False

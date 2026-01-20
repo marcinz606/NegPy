@@ -42,6 +42,23 @@ class LogNegativeBounds:
         self.ceils = ceils
 
 
+def get_analysis_crop(img: ImageBuffer, buffer_ratio: float) -> ImageBuffer:
+    """
+    Returns a center crop of the image for analysis purposes.
+    The buffer_ratio (0.0 to 0.5) defines how much of the border to exclude.
+    """
+    if buffer_ratio <= 0:
+        return img
+
+    h, w = img.shape[:2]
+    safe_buffer = min(max(buffer_ratio, 0.0), 0.3)
+
+    cut_h = int(h * safe_buffer)
+    cut_w = int(w * safe_buffer)
+
+    return img[cut_h : h - cut_h, cut_w : w - cut_w]
+
+
 def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
     """
     Detects floor/ceiling (0.5% - 99.5%).

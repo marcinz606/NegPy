@@ -75,9 +75,6 @@ class CropProcessor:
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        if self.config.keep_full_frame:
-            return image
-
         if context.active_roi:
             y1, y2, x1, x2 = context.active_roi
             return image[y1:y2, x1:x2]

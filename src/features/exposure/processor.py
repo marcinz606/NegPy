@@ -7,6 +7,7 @@ from src.kernel.image.logic import get_luminance
 from src.features.exposure.normalization import (
     measure_log_negative_bounds,
     normalize_log_image,
+    get_analysis_crop,
 )
 from src.domain.models import ProcessMode
 
@@ -16,11 +17,20 @@ class NormalizationProcessor:
     Converts linear RAW to normalized log-density.
     """
 
+    def __init__(self, config: ExposureConfig):
+        self.config = config
+
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
         img_log = np.log10(np.clip(image, epsilon, 1.0))
 
-        if "log_bounds" in context.metrics:
+        # Check if bounds are cached and valid for current buffer config
+        cached_buffer = context.metrics.get("log_bounds_buffer_val")
+        if (
+            "log_bounds" in context.metrics
+            and cached_buffer is not None
+            and abs(cached_buffer - self.config.analysis_buffer) < 1e-5
+        ):
             bounds = context.metrics["log_bounds"]
         else:
             analysis_img = img_log
@@ -28,8 +38,14 @@ class NormalizationProcessor:
                 y1, y2, x1, x2 = context.active_roi
                 analysis_img = img_log[y1:y2, x1:x2]
 
+            if self.config.analysis_buffer > 0:
+                analysis_img = get_analysis_crop(
+                    analysis_img, self.config.analysis_buffer
+                )
+
             bounds = measure_log_negative_bounds(analysis_img)
             context.metrics["log_bounds"] = bounds
+            context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
 
         return normalize_log_image(img_log, bounds)
 

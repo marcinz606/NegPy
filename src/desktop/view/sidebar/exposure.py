@@ -36,6 +36,11 @@ class ExposureSidebar(BaseSidebar):
         )
         self.layout.addWidget(self.mode_combo)
 
+        self.analysis_buffer_slider = SignalSlider(
+            "Analysis Buffer", 0.0, 0.25, conf.analysis_buffer
+        )
+        self.layout.addWidget(self.analysis_buffer_slider)
+
         wb_header = QLabel("White Balance")
         wb_header.setStyleSheet(
             f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
@@ -140,6 +145,11 @@ class ExposureSidebar(BaseSidebar):
         self.grade_slider.valueChanged.connect(
             lambda v: self.update_config_section("exposure", persist=True, grade=v)
         )
+        self.analysis_buffer_slider.valueChanged.connect(
+            lambda v: self.update_config_section(
+                "exposure", persist=True, analysis_buffer=v
+            )
+        )
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
         self.camera_wb_btn.toggled.connect(self._on_camera_wb_toggled)
@@ -200,6 +210,7 @@ class ExposureSidebar(BaseSidebar):
 
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
+            self.analysis_buffer_slider.setValue(conf.analysis_buffer)
 
             self.toe_slider.setValue(conf.toe)
             self.toe_w_slider.setValue(conf.toe_width)
@@ -222,6 +233,7 @@ class ExposureSidebar(BaseSidebar):
             self.camera_wb_btn,
             self.density_slider,
             self.grade_slider,
+            self.analysis_buffer_slider,
             self.toe_slider,
             self.toe_w_slider,
             self.toe_h_slider,

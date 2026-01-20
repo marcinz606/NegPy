@@ -117,6 +117,9 @@ class ActionToolbar(QWidget):
         self.btn_reset = QPushButton(" Reset")
         self.btn_reset.setIcon(qta.icon("fa5s.history", color=icon_color))
 
+        self.btn_save = QPushButton(" Save Edits")
+        self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
+
         self.btn_export = QPushButton(" Export Image")
         self.btn_export.setObjectName("export_btn")
         self.btn_export.setIcon(qta.icon("fa5s.check-circle", color="white"))
@@ -124,6 +127,7 @@ class ActionToolbar(QWidget):
 
         row2.addWidget(self.btn_copy)
         row2.addWidget(self.btn_paste)
+        row2.addWidget(self.btn_save)
         row2.addWidget(self.btn_export)
         row2.addWidget(self.btn_reset)
         row2.addStretch()
@@ -141,6 +145,7 @@ class ActionToolbar(QWidget):
 
         self.btn_copy.clicked.connect(self.session.copy_settings)
         self.btn_paste.clicked.connect(self.session.paste_settings)
+        self.btn_save.clicked.connect(self.controller.save_current_edits)
         self.btn_reset.clicked.connect(self.session.reset_settings)
         self.btn_export.clicked.connect(self.controller.request_export)
 

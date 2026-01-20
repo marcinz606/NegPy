@@ -17,7 +17,7 @@ class ExposureConfig:
     """
 
     density: float = 1.0
-    grade: float = 2.5
+    grade: float = 2.0
     use_camera_wb: bool = False
     wb_cyan: float = 0.0
     wb_magenta: float = 0.0
@@ -28,3 +28,4 @@ class ExposureConfig:
     shoulder: float = 0.0
     shoulder_width: float = 3.0
     shoulder_hardness: float = 1.0
+    analysis_buffer: float = 0.07

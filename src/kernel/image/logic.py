@@ -1,5 +1,6 @@
 import hashlib
 import os
+from typing import Any
 import numpy as np
 from numba import njit, prange  # type: ignore
 from src.domain.types import LUMA_R, LUMA_G, LUMA_B
@@ -250,3 +251,24 @@ def calculate_file_hash(file_path: str) -> str:
 
         logger.error(f"Hash error for {file_path}: {e}")
         return f"err_{uuid.uuid4()}"
+
+
+def prepare_thumbnail(img: Any, size: int) -> Any:
+    """
+    Resizes and pads an image to a square of given size.
+    Returns a PIL.Image.
+    """
+    from PIL import Image
+
+    # Copy to avoid mutating original
+    img_copy = img.copy()
+    img_copy.thumbnail((size, size), Image.Resampling.LANCZOS)
+
+    # Create dark square background
+    square_img = Image.new("RGB", (size, size), (14, 17, 23))
+    # Center the thumbnail
+    offset_x = (size - img_copy.width) // 2
+    offset_y = (size - img_copy.height) // 2
+    square_img.paste(img_copy, (offset_x, offset_y))
+
+    return square_img

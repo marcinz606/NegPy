@@ -11,6 +11,7 @@ from src.desktop.controller import AppController
 from src.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
 from src.desktop.view.sidebar.files import FileBrowser
 from src.desktop.view.sidebar.export import ExportSidebar
+from src.desktop.view.sidebar.metadata import MetadataSidebar
 from src.desktop.view.styles.theme import THEME
 from src.kernel.system.version import check_for_updates
 
@@ -74,12 +75,13 @@ class SessionPanel(QWidget):
             QTabBar::tab {{
                 background-color: {THEME.bg_header};
                 color: {THEME.text_secondary};
+                font-size: {THEME.font_size_header}px;
                 padding: 8px 12px;
                 border: 1px solid {THEME.border_color};
                 min-width: 80px;
             }}
             QTabBar::tab:selected {{
-                background-color: {THEME.accent_primary};
+                background-color: #000000;
                 color: white;
                 font-weight: bold;
                 border-bottom-color: {THEME.accent_primary};
@@ -105,6 +107,10 @@ class SessionPanel(QWidget):
         self.export_sidebar = ExportSidebar(self.controller)
         self.tabs.addTab(self.export_sidebar, "Export")
 
+        # Metadata Tab
+        self.metadata_sidebar = MetadataSidebar(self.controller)
+        self.tabs.addTab(self.metadata_sidebar, "Metadata")
+
         self.splitter.addWidget(self.tabs)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
@@ -114,6 +120,7 @@ class SessionPanel(QWidget):
     def _connect_signals(self) -> None:
         self.controller.image_updated.connect(self._update_analysis)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
+        self.controller.config_updated.connect(self.metadata_sidebar.sync_ui)
 
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics

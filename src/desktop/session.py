@@ -101,7 +101,13 @@ class DesktopSessionManager(QObject):
         if sticky_mode:
             config = replace(config, process_mode=sticky_mode)
 
-        # 2. Aspect Ratio
+        # 2. Analysis Buffer
+        sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
+        if sticky_buffer is not None:
+            new_exp = replace(config.exposure, analysis_buffer=float(sticky_buffer))
+            config = replace(config, exposure=new_exp)
+
+        # 3. Aspect Ratio
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
         if sticky_ratio:
             new_geo = replace(config.geometry, autocrop_ratio=sticky_ratio)
@@ -126,6 +132,9 @@ class DesktopSessionManager(QObject):
         from dataclasses import asdict
 
         self.repo.save_global_setting("last_process_mode", config.process_mode)
+        self.repo.save_global_setting(
+            "last_analysis_buffer", config.exposure.analysis_buffer
+        )
         self.repo.save_global_setting(
             "last_aspect_ratio", config.geometry.autocrop_ratio
         )

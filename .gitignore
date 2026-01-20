@@ -24,3 +24,4 @@ venv/
 __pycache__
 VERSION
 TODO.md
+GPU.md

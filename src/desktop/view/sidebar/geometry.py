@@ -19,9 +19,7 @@ class GeometrySidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.geometry
 
-        # First row: Ratio + Keep Borders
-        top_row = QHBoxLayout()
-
+        # First row: Ratio (Borders removed)
         self.ratio_combo = QComboBox()
         # Filter out 'Original' as it's not a crop ratio (usually 'Free' is used for no constraint)
         ratios = [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
@@ -30,18 +28,7 @@ class GeometrySidebar(BaseSidebar):
         self.ratio_combo.setStyleSheet(
             f"font-size: {THEME.font_size_base}px; padding: 4px;"
         )
-
-        self.keep_borders_btn = QPushButton(" Borders")
-        self.keep_borders_btn.setCheckable(True)
-        self.keep_borders_btn.setChecked(conf.keep_full_frame)
-        self.keep_borders_btn.setIcon(
-            qta.icon("fa5s.expand-arrows-alt", color=THEME.text_primary)
-        )
-        self._update_keep_borders_style(conf.keep_full_frame)
-
-        top_row.addWidget(self.ratio_combo)
-        top_row.addWidget(self.keep_borders_btn)
-        self.layout.addLayout(top_row)
+        self.layout.addWidget(self.ratio_combo)
 
         # Buttons side by side
         btn_row = QHBoxLayout()
@@ -71,7 +58,6 @@ class GeometrySidebar(BaseSidebar):
         self.ratio_combo.currentTextChanged.connect(
             lambda t: self.update_config_section("geometry", autocrop_ratio=t)
         )
-        self.keep_borders_btn.toggled.connect(self._on_keep_borders_changed)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.reset_crop_btn.clicked.connect(self.controller.reset_crop)
 
@@ -81,18 +67,6 @@ class GeometrySidebar(BaseSidebar):
         self.fine_rot_slider.valueChanged.connect(
             lambda v: self.update_config_section("geometry", fine_rotation=v)
         )
-
-    def _on_keep_borders_changed(self, checked: bool) -> None:
-        self._update_keep_borders_style(checked)
-        self.update_config_section("geometry", keep_full_frame=checked)
-
-    def _update_keep_borders_style(self, checked: bool) -> None:
-        if checked:
-            self.keep_borders_btn.setStyleSheet(
-                f"background-color: {THEME.accent_primary}; color: white; font-weight: bold;"
-            )
-        else:
-            self.keep_borders_btn.setStyleSheet("")
 
     def _on_manual_crop_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(
@@ -105,8 +79,6 @@ class GeometrySidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.ratio_combo.setCurrentText(conf.autocrop_ratio)
-            self.keep_borders_btn.setChecked(conf.keep_full_frame)
-            self._update_keep_borders_style(conf.keep_full_frame)
 
             self.offset_slider.setValue(float(conf.autocrop_offset))
             self.fine_rot_slider.setValue(conf.fine_rotation)
@@ -119,7 +91,6 @@ class GeometrySidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         self.ratio_combo.blockSignals(blocked)
-        self.keep_borders_btn.blockSignals(blocked)
         self.offset_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)

@@ -16,7 +16,6 @@ from src.desktop.view.sidebar.geometry import GeometrySidebar
 from src.desktop.view.sidebar.lab import LabSidebar
 from src.desktop.view.sidebar.toning import ToningSidebar
 from src.desktop.view.sidebar.retouch import RetouchSidebar
-from src.desktop.view.sidebar.metadata import MetadataSidebar
 from src.desktop.view.sidebar.icc import ICCSidebar
 
 
@@ -88,14 +87,6 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.tint", color=icon_color),
         )
 
-        self.metadata_sidebar = MetadataSidebar(self.controller)
-        self._add_sidebar_section(
-            "Metadata",
-            "metadata",
-            self.metadata_sidebar,
-            icon=qta.icon("fa5s.info-circle", color=icon_color),
-        )
-
         self.icc_sidebar = ICCSidebar(self.controller)
         self._add_sidebar_section(
             "ICC",
@@ -127,7 +118,6 @@ class ControlsPanel(QWidget):
         self.lab_sidebar.sync_ui()
         self.toning_sidebar.sync_ui()
         self.retouch_sidebar.sync_ui()
-        self.metadata_sidebar.sync_ui()
         self.icc_sidebar.sync_ui()
         self.presets_sidebar.sync_ui()
 

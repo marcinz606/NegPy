@@ -7,7 +7,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMetaObject, Q_ARG, Qt
 from PyQt6.QtGui import QIcon, QPixmap
 
 from src.desktop.session import DesktopSessionManager, AppState, ToolMode
-from src.desktop.workers.render import RenderWorker, RenderTask, ThumbnailWorker
+from src.desktop.workers.render import RenderWorker, RenderTask, ThumbnailWorker, ThumbnailUpdateTask
 from src.desktop.workers.export import ExportWorker, ExportTask
 from src.services.rendering.preview_manager import PreviewManager
 from src.infrastructure.filesystem.watcher import FolderWatchService
@@ -28,6 +28,7 @@ class AppController(QObject):
     export_finished = pyqtSignal()
     render_requested = pyqtSignal(RenderTask)
     thumbnail_requested = pyqtSignal(list)
+    thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
 
@@ -35,6 +36,7 @@ class AppController(QObject):
         super().__init__()
         self.session = session_manager
         self.state: AppState = session_manager.state
+        self._first_render_done = False
 
         self.preview_service = PreviewManager()
         self.watcher = FolderWatchService()
@@ -73,10 +75,12 @@ class AppController(QObject):
         self.export_worker.error.connect(self._on_render_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
+        self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
 
         # File navigation
         self.session.file_selected.connect(self.load_file)
+        self.session.file_selected.connect(self._update_thumbnail_from_state)
         # Global UI sync
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self.request_render)
@@ -104,6 +108,7 @@ class AppController(QObject):
     def load_file(self, file_path: str) -> None:
         target_cs = self.state.workspace_color_space
         use_cam_wb = self.state.config.exposure.use_camera_wb
+        self._first_render_done = False
 
         try:
             raw, dims, metadata = self.preview_service.load_linear_preview(
@@ -157,6 +162,12 @@ class AppController(QObject):
         new_geo = replace(self.state.config.geometry, manual_crop_rect=None)
         self.session.update_config(replace(self.state.config, geometry=new_geo))
         self.request_render()
+
+    def save_current_edits(self) -> None:
+        """Manually persists edits to database and updates thumbnail."""
+        if self.state.current_file_hash:
+            self.session.update_config(self.state.config, persist=True)
+            self._update_thumbnail_from_state()
 
     def clear_retouch(self) -> None:
         new_ret = replace(self.state.config.retouch, manual_dust_spots=[])
@@ -258,12 +269,33 @@ class AppController(QObject):
         self.state.is_processing = False
         self.image_updated.emit()
 
+        if not self._first_render_done:
+            self._first_render_done = True
+            self._update_thumbnail_from_state()
+
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = False
         print(f"Render Error: {message}")
 
     def _on_export_finished(self) -> None:
         self.export_finished.emit()
+        self._update_thumbnail_from_state()
+
+    def _update_thumbnail_from_state(self) -> None:
+        """Triggers a background thumbnail update from current render result."""
+        if not self.state.current_file_path or not self.state.current_file_hash:
+            return
+
+        buffer = self.state.last_metrics.get("base_positive")
+        if buffer is None:
+            return
+
+        task = ThumbnailUpdateTask(
+            filename=os.path.basename(self.state.current_file_path),
+            file_hash=self.state.current_file_hash,
+            buffer=buffer.copy(),
+        )
+        self.thumbnail_update_requested.emit(task)
 
     def cleanup(self) -> None:
         self.render_thread.quit()

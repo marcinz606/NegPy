@@ -21,6 +21,17 @@ class RenderTask:
     color_space: str = "Adobe RGB"
 
 
+@dataclass(frozen=True)
+class ThumbnailUpdateTask:
+    """
+    Request to update a thumbnail from a rendered buffer.
+    """
+
+    filename: str
+    file_hash: str
+    buffer: np.ndarray
+
+
 class RenderWorker(QObject):
     """
     Executes the Darkroom Engine pipeline in a background thread.
@@ -105,3 +116,20 @@ class ThumbnailWorker(QObject):
             self.finished.emit(new_thumbs)
         except Exception as e:
             print(f"DEBUG: Thumbnail generation error: {e}")
+
+    @pyqtSlot(ThumbnailUpdateTask)
+    def update_rendered(self, task: ThumbnailUpdateTask) -> None:
+        """
+        Generates a thumbnail from a rendered buffer.
+        """
+        from src.services.assets.thumbnails import get_rendered_thumbnail
+
+        try:
+            # Copy buffer to thread
+            buf = task.buffer.copy()
+            thumb = get_rendered_thumbnail(buf, task.file_hash, self._store)
+
+            if thumb:
+                self.finished.emit({task.filename: thumb})
+        except Exception as e:
+            print(f"DEBUG: Rendered thumbnail error: {e}")

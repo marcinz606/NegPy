@@ -42,13 +42,13 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         shoulder=0.0,
         shoulder_width=3.0,
         shoulder_hardness=1.0,
+        analysis_buffer=0.07,
     ),
     geometry=GeometryConfig(
         rotation=0,
         fine_rotation=0.0,
-        autocrop_offset=4,
+        autocrop_offset=1,
         autocrop_ratio=AspectRatio.R_3_2,
-        keep_full_frame=False,
     ),
     lab=LabConfig(
         color_separation=1.0,

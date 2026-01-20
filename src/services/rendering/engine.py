@@ -95,10 +95,11 @@ class DarkroomEngine:
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
-            return NormalizationProcessor().process(img_in, ctx)
+            return NormalizationProcessor(settings.exposure).process(img_in, ctx)
 
+        base_key = (settings.geometry, settings.exposure.analysis_buffer)
         current_img, pipeline_changed = self._run_stage(
-            current_img, settings.geometry, "base", run_base, context, pipeline_changed
+            current_img, base_key, "base", run_base, context, pipeline_changed
         )
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
@@ -146,7 +147,7 @@ class DarkroomEngine:
                 fine_rot=settings.geometry.fine_rotation,
                 flip_h=settings.geometry.flip_horizontal,
                 flip_v=settings.geometry.flip_vertical,
-                autocrop=not settings.geometry.keep_full_frame,
+                autocrop=True,
                 autocrop_params={"roi": context.active_roi}
                 if context.active_roi
                 else None,
