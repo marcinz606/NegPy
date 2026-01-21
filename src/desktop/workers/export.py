@@ -8,18 +8,18 @@ from src.services.rendering.image_processor import ImageProcessor
 
 @dataclass(frozen=True)
 class ExportTask:
-    """
-    Data for a single file export in a batch.
-    """
+    """Immutable data for a high-resolution export job."""
 
     file_info: dict
     params: WorkspaceConfig
     export_settings: ExportConfig
+    gpu_enabled: bool = True
 
 
 class ExportWorker(QObject):
     """
-    Handles batch export processing in a background thread.
+    Background batch export orchestrator.
+    Maintains UI responsiveness during heavy processing.
     """
 
     progress = pyqtSignal(int, int, str)  # current, total, filename
@@ -32,24 +32,22 @@ class ExportWorker(QObject):
 
     @pyqtSlot(list)
     def run_batch(self, tasks: List[ExportTask]) -> None:
-        """
-        Processes a list of export tasks.
-        """
+        """Processes an ordered list of export tasks."""
         total = len(tasks)
         try:
             for i, task in enumerate(tasks):
-                filename = task.file_info["name"]
-                self.progress.emit(i + 1, total, filename)
+                name = task.file_info["name"]
+                self.progress.emit(i + 1, total, name)
 
-                result_bytes, _ = self._processor.process_export(
+                bits, _ = self._processor.process_export(
                     task.file_info["path"],
                     task.params,
                     task.export_settings,
                     task.file_info["hash"],
+                    prefer_gpu=task.gpu_enabled,
                 )
 
-                if result_bytes:
-                    # Save to disk
+                if bits:
                     out_dir = task.export_settings.export_path
                     os.makedirs(out_dir, exist_ok=True)
 
@@ -58,13 +56,11 @@ class ExportWorker(QObject):
                         if task.export_settings.export_fmt == ExportFormat.JPEG
                         else "tiff"
                     )
-                    out_name = f"positive_{filename}.{ext}"
-                    out_path = os.path.join(out_dir, out_name)
+                    path = os.path.join(out_dir, f"positive_{name}.{ext}")
+                    with open(path, "wb") as f:
+                        f.write(bits)
 
-                    with open(out_path, "wb") as f:
-                        f.write(result_bytes)
-
-                # Clear GPU memory/cache after each file
+                # Aggressive VRAM evacuation between files
                 self._processor.cleanup()
 
             self.finished.emit()

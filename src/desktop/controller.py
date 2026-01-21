@@ -21,11 +21,15 @@ from src.services.view.coordinate_mapping import CoordinateMapping
 from src.kernel.system.config import APP_CONFIG
 from src.desktop.converters import ImageConverter
 from src.features.exposure.logic import calculate_wb_shifts
+from src.kernel.system.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class AppController(QObject):
     """
-    Orchestrates application logic, threading, and state synchronization.
+    Main application orchestrator.
+    Manages UI state synchronization, background workers, and render flow.
     """
 
     image_updated = pyqtSignal()
@@ -52,25 +56,22 @@ class AppController(QObject):
         )
         self.asset_store.initialize()
 
-        # Render Thread
+        # Thread management
         self.render_thread = QThread()
         self.render_worker = RenderWorker()
         self.render_worker.moveToThread(self.render_thread)
         self.render_thread.start()
 
-        # Export Thread
         self.export_thread = QThread()
         self.export_worker = ExportWorker()
         self.export_worker.moveToThread(self.export_thread)
         self.export_thread.start()
 
-        # Thumbnail Thread
         self.thumb_thread = QThread()
         self.thumb_worker = ThumbnailWorker(self.asset_store)
         self.thumb_worker.moveToThread(self.thumb_thread)
         self.thumb_thread.start()
 
-        # Render Flow Control
         self._is_rendering = False
         self._pending_render_task: Any = None
 
@@ -90,10 +91,8 @@ class AppController(QObject):
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
 
-        # File navigation
         self.session.file_selected.connect(self.load_file)
         self.session.file_selected.connect(self._update_thumbnail_from_state)
-        # Global UI sync
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self.request_render)
 
@@ -107,37 +106,34 @@ class AppController(QObject):
             self.thumbnail_requested.emit(missing)
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
-        """Updates state with new thumbnail icons and refreshes UI."""
         for name, pil_img in new_thumbs.items():
             if pil_img:
                 u8_arr = np.array(pil_img.convert("RGB"))
-                qimg = ImageConverter.to_qimage(u8_arr)
-                pixmap = QPixmap.fromImage(qimg)
-                self.state.thumbnails[name] = QIcon(pixmap)
-
+                self.state.thumbnails[name] = QIcon(
+                    QPixmap.fromImage(ImageConverter.to_qimage(u8_arr))
+                )
         self.session.asset_model.refresh()
 
     def load_file(self, file_path: str) -> None:
+        """Loads a new RAW file into the linear preview workspace."""
         self.loading_started.emit()
-        target_cs = self.state.workspace_color_space
-        use_cam_wb = self.state.config.exposure.use_camera_wb
         self._first_render_done = False
 
-        # Clear GPU cache before loading new high-res raw to free VRAM
+        # Evacuate VRAM before large allocation
         self.render_worker.cleanup()
 
         try:
-            raw, dims, metadata = self.preview_service.load_linear_preview(
-                file_path, target_cs, use_camera_wb=use_cam_wb
+            raw, dims, _ = self.preview_service.load_linear_preview(
+                file_path,
+                self.state.workspace_color_space,
+                use_camera_wb=self.state.config.exposure.use_camera_wb,
             )
-
             self.state.preview_raw = raw
             self.state.original_res = dims
             self.state.current_file_path = file_path
             self.request_render()
-
         except Exception as e:
-            print(f"Loading error: {e}")
+            logger.error(f"Asset load failed: {e}")
 
     def handle_canvas_clicked(self, nx: float, ny: float) -> None:
         if self.state.active_tool == ToolMode.WB_PICK:
@@ -154,7 +150,6 @@ class AppController(QObject):
     ) -> None:
         if self.state.active_tool != ToolMode.CROP_MANUAL:
             return
-
         uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None:
             return
@@ -162,12 +157,14 @@ class AppController(QObject):
         rx1, ry1 = CoordinateMapping.map_click_to_raw(nx1, ny1, uv_grid)
         rx2, ry2 = CoordinateMapping.map_click_to_raw(nx2, ny2, uv_grid)
 
-        ur1, ur2 = min(rx1, rx2), max(rx1, rx2)
-        vr1, vr2 = min(ry1, ry2), max(ry1, ry2)
-
         new_geo = replace(
             self.state.config.geometry,
-            manual_crop_rect=(ur1, vr1, ur2, vr2),
+            manual_crop_rect=(
+                min(rx1, rx2),
+                min(ry1, ry2),
+                max(rx1, rx2),
+                max(ry1, ry2),
+            ),
         )
         self.session.update_config(replace(self.state.config, geometry=new_geo))
         self.state.active_tool = ToolMode.NONE
@@ -175,62 +172,64 @@ class AppController(QObject):
         self.request_render()
 
     def reset_crop(self) -> None:
-        new_geo = replace(self.state.config.geometry, manual_crop_rect=None)
-        self.session.update_config(replace(self.state.config, geometry=new_geo))
+        self.session.update_config(
+            replace(
+                self.state.config,
+                geometry=replace(self.state.config.geometry, manual_crop_rect=None),
+            )
+        )
         self.request_render()
 
     def save_current_edits(self) -> None:
-        """Manually persists edits to database and updates thumbnail."""
         if self.state.current_file_hash:
             self.session.update_config(self.state.config, persist=True)
             self._update_thumbnail_from_state()
 
     def clear_retouch(self) -> None:
-        new_ret = replace(self.state.config.retouch, manual_dust_spots=[])
-        self.session.update_config(replace(self.state.config, retouch=new_ret))
+        self.session.update_config(
+            replace(
+                self.state.config,
+                retouch=replace(self.state.config.retouch, manual_dust_spots=[]),
+            )
+        )
         self.request_render()
 
     def _handle_dust_pick(self, nx: float, ny: float) -> None:
         uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None:
             return
-
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
-        size = float(self.state.config.retouch.manual_dust_size)
-
-        new_spots = self.state.config.retouch.manual_dust_spots + [(rx, ry, size)]
-        new_retouch = replace(self.state.config.retouch, manual_dust_spots=new_spots)
-        self.session.update_config(replace(self.state.config, retouch=new_retouch))
+        new_spots = self.state.config.retouch.manual_dust_spots + [
+            (rx, ry, float(self.state.config.retouch.manual_dust_size))
+        ]
+        self.session.update_config(
+            replace(
+                self.state.config,
+                retouch=replace(self.state.config.retouch, manual_dust_spots=new_spots),
+            )
+        )
         self.request_render()
 
     def _handle_wb_pick(self, nx: float, ny: float) -> None:
         metrics = self.state.last_metrics
-        # Use analysis_buffer (CPU side) if available, otherwise base_positive
-        img = metrics.get("analysis_buffer")
-        if img is None:
-            img = metrics.get("base_positive")
-
+        img = metrics.get("analysis_buffer") or metrics.get("base_positive")
         if img is None or not isinstance(img, np.ndarray):
             return
 
         h, w = img.shape[:2]
-        px = int(np.clip(nx * w, 0, w - 1))
-        py = int(np.clip(ny * h, 0, h - 1))
-        sampled = img[py, px]
-
+        sampled = img[int(np.clip(ny * h, 0, h - 1)), int(np.clip(nx * w, 0, w - 1))]
         dm, dy = calculate_wb_shifts(sampled)
-
         new_exp = replace(
             self.state.config.exposure,
             wb_cyan=0.0,
             wb_magenta=float(np.clip(dm, -1, 1)),
             wb_yellow=float(np.clip(dy, -1, 1)),
         )
-
         self.session.update_config(replace(self.state.config, exposure=new_exp))
         self.request_render()
 
     def request_render(self) -> None:
+        """Dispatches a render task to the worker thread."""
         if self.state.preview_raw is None:
             return
 
@@ -238,10 +237,11 @@ class AppController(QObject):
             buffer=self.state.preview_raw,
             config=self.state.config,
             source_hash=self.state.current_file_hash or "preview",
-            preview_size=1200.0,
+            preview_size=float(APP_CONFIG.preview_render_size),
             icc_profile_path=self.state.icc_profile_path,
             icc_invert=self.state.icc_invert,
             color_space=self.state.workspace_color_space,
+            gpu_enabled=self.state.gpu_enabled,
         )
 
         if self._is_rendering:
@@ -254,32 +254,32 @@ class AppController(QObject):
     def request_export(self) -> None:
         if not self.state.current_file_path:
             return
-
-        task = ExportTask(
-            file_info={
-                "name": os.path.basename(self.state.current_file_path),
-                "path": self.state.current_file_path,
-                "hash": self.state.current_file_hash,
-            },
-            params=self.state.config,
-            export_settings=self.state.config.export,
+        self._run_export_tasks(
+            [
+                ExportTask(
+                    file_info={
+                        "name": os.path.basename(self.state.current_file_path),
+                        "path": self.state.current_file_path,
+                        "hash": self.state.current_file_hash,
+                    },
+                    params=self.state.config,
+                    export_settings=self.state.config.export,
+                    gpu_enabled=self.state.gpu_enabled,
+                )
+            ]
         )
-        self._run_export_tasks([task])
 
     def request_batch_export(self) -> None:
-        tasks = []
-        for file_info in self.state.uploaded_files:
-            f_hash = file_info["hash"]
-            saved_config = self.session.repo.load_file_settings(f_hash)
-
-            tasks.append(
-                ExportTask(
-                    file_info=file_info,
-                    params=saved_config or self.state.config,
-                    export_settings=self.state.config.export,
-                )
+        tasks = [
+            ExportTask(
+                file_info=f,
+                params=self.session.repo.load_file_settings(f["hash"])
+                or self.state.config,
+                export_settings=self.state.config.export,
+                gpu_enabled=self.state.gpu_enabled,
             )
-
+            for f in self.state.uploaded_files
+        ]
         if tasks:
             self._run_export_tasks(tasks)
 
@@ -292,18 +292,15 @@ class AppController(QObject):
         )
 
     def _on_render_finished(self, buffer: Any, metrics: Dict[str, Any]) -> None:
-        self.state.last_metrics = metrics
-        self.state.is_processing = False
+        self.state.last_metrics, self.state.is_processing = metrics, False
         self.image_updated.emit()
-
         if not self._first_render_done:
             self._first_render_done = True
             self._update_thumbnail_from_state()
 
         self._is_rendering = False
         if self._pending_render_task:
-            task = self._pending_render_task
-            self._pending_render_task = None
+            task, self._pending_render_task = self._pending_render_task, None
             self._is_rendering = True
             self.render_requested.emit(task)
 
@@ -312,39 +309,34 @@ class AppController(QObject):
         self.metrics_available.emit(metrics)
 
     def _on_render_error(self, message: str) -> None:
-        self.state.is_processing = False
-        self._is_rendering = False
+        self.state.is_processing = self._is_rendering = False
         self._pending_render_task = None
-        print(f"Render Error: {message}")
+        logger.error(f"Worker failure: {message}")
 
     def _on_export_finished(self) -> None:
         self.export_finished.emit()
         self._update_thumbnail_from_state()
 
     def _update_thumbnail_from_state(self) -> None:
-        """Triggers a background thumbnail update from current render result."""
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
-
         metrics = self.state.last_metrics
         buffer = metrics.get("base_positive")
-
-        # If using GPU, base_positive is a texture view.
-        # We use analysis_buffer which is a downsampled CPU ndarray.
         if buffer is not None and not isinstance(buffer, np.ndarray):
             buffer = metrics.get("analysis_buffer")
-
         if buffer is None or not isinstance(buffer, np.ndarray):
             return
 
-        task = ThumbnailUpdateTask(
-            filename=os.path.basename(self.state.current_file_path),
-            file_hash=self.state.current_file_hash,
-            buffer=buffer.copy(),
+        self.thumbnail_update_requested.emit(
+            ThumbnailUpdateTask(
+                filename=os.path.basename(self.state.current_file_path),
+                file_hash=self.state.current_file_hash,
+                buffer=buffer.copy(),
+            )
         )
-        self.thumbnail_update_requested.emit(task)
 
     def cleanup(self) -> None:
+        """Total system evacuation on exit."""
         self.render_thread.quit()
         self.render_thread.wait()
         self.export_thread.quit()

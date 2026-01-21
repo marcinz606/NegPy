@@ -1,38 +1,31 @@
 import os
-from typing import Dict, Any
+from typing import Any
 from src.infrastructure.gpu.device import GPUDevice
-from src.kernel.system.logging import get_logger
-
-logger = get_logger(__name__)
 
 
 class ShaderLoader:
     """
-    Utility for loading and caching WGSL shader modules.
+    On-demand WGSL shader compiler and cache.
+    Reduces pipeline initialization overhead by reusing modules.
     """
 
-    _cache: Dict[str, Any] = {}
+    _cache: dict[str, Any] = {}
 
     @classmethod
     def load(cls, path: str) -> Any:
-        """
-        Loads a WGSL shader from the filesystem and creates a shader module.
-        """
         if path in cls._cache:
             return cls._cache[path]
 
         if not os.path.exists(path):
-            raise FileNotFoundError(f"Shader not found at {path}")
+            raise FileNotFoundError(f"Shader source missing: {path}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r") as f:
             code = f.read()
 
         gpu = GPUDevice.get()
         if not gpu.device:
-            raise RuntimeError("GPU device not initialized")
+            raise RuntimeError("Hardware device required for shader compilation")
 
-        shader_module = gpu.device.create_shader_module(code=code)
-        cls._cache[path] = shader_module
-
-        logger.info(f"Loaded shader: {os.path.basename(path)}")
-        return shader_module
+        module = gpu.device.create_shader_module(code=code)
+        cls._cache[path] = module
+        return module

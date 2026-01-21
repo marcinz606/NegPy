@@ -11,7 +11,8 @@ from src.infrastructure.gpu.resources import GPUTexture
 
 class ImageCanvas(QWidget):
     """
-    Main canvas widget that orchestrates GPU rendering and UI overlays.
+    Unified viewport orchestrator.
+    Manages hardware acceleration layers and SVG/Qt UI overlays.
     """
 
     clicked = pyqtSignal(float, float)
@@ -21,28 +22,24 @@ class ImageCanvas(QWidget):
         super().__init__(parent)
         self.state = state
 
-        # We use a layout for the GPU widget, but the Overlay will be manually managed
-        # to ensure it stays on top of the native window container.
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 1. GPU Layer
+        # Acceleration layer
         self.gpu_widget = GPUCanvasWidget(self)
         gpu = GPUDevice.get()
         if gpu.is_available:
             try:
                 self.gpu_widget.initialize_gpu(gpu.device, gpu.adapter)
             except Exception as e:
-                print(f"GPU Init Error: {e}")
+                print(f"DEBUG: GPU Layer failed: {e}")
         self.root_layout.addWidget(self.gpu_widget)
 
-        # 2. Overlay Layer (Handles CPU rendering + UI)
-        # We add it to the layout but also ensure it can be raised
+        # UI Overlay layer
         self.overlay = CanvasOverlay(state, self)
         self.root_layout.addWidget(self.overlay)
 
-        # Connect signals
         self.overlay.clicked.connect(self.clicked)
         self.overlay.crop_completed.connect(self.crop_completed)
 
@@ -50,9 +47,7 @@ class ImageCanvas(QWidget):
         self.overlay.set_tool_mode(mode)
 
     def clear(self) -> None:
-        """
-        Clears the canvas content.
-        """
+        """Total viewport reset."""
         self.gpu_widget.clear()
         self.overlay.update_buffer(None, "sRGB", None)
 
@@ -62,24 +57,20 @@ class ImageCanvas(QWidget):
         color_space: str,
         content_rect: Optional[Tuple[int, int, int, int]] = None,
     ) -> None:
-        """
-        Updates the displayed image. buffer can be np.ndarray (CPU) or GPUTexture wrapper (GPU).
-        """
+        """Updates the active viewport with a CPU or GPU buffer."""
         if isinstance(buffer, np.ndarray):
-            # CPU Mode
             self.gpu_widget.hide()
             self.overlay.update_buffer(buffer, color_space, content_rect)
             self.overlay.show()
             self.overlay.raise_()
         elif isinstance(buffer, GPUTexture):
-            # GPU Mode
-            size = (buffer.width, buffer.height)
-            # Sync overlay sizing with GPU result size
-            self.overlay.update_buffer(None, color_space, content_rect, gpu_size=size)
+            self.overlay.update_buffer(
+                None, color_space, content_rect, gpu_size=(buffer.width, buffer.height)
+            )
             self.gpu_widget.update_texture(buffer)
             self.gpu_widget.show()
             self.overlay.show()
-            self.overlay.raise_()  # Force overlay to top of native window
+            self.overlay.raise_()
         else:
             self.gpu_widget.hide()
             self.overlay.update_buffer(None, color_space, content_rect)
@@ -91,6 +82,5 @@ class ImageCanvas(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # Ensure overlay covers the whole area
         self.overlay.setGeometry(self.rect())
         self.gpu_widget.setGeometry(self.rect())

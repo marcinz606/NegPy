@@ -76,18 +76,36 @@ class FileBrowser(QWidget):
         self.ver_label.setStyleSheet("font-size: 18px; color: #888; margin-top: -5px;")
         header_container.addWidget(self.ver_label)
 
-        # GPU Acceleration Indicator
+        # Hardware Acceleration Toggle
         from src.infrastructure.gpu.device import GPUDevice
+        from PyQt6.QtWidgets import QRadioButton, QButtonGroup
 
-        gpu_active = GPUDevice.get().is_available
-        gpu_text = "GPU: Active" if gpu_active else "GPU: Off (CPU Mode)"
-        gpu_color = "#4caf50" if gpu_active else "#f44336"
-        self.gpu_label = QLabel(gpu_text)
-        self.gpu_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.gpu_label.setStyleSheet(
-            f"font-size: 10px; color: {gpu_color}; font-weight: bold; margin-top: 5px; margin-left: 10px;"
-        )
-        header_container.addWidget(self.gpu_label)
+        gpu_available = GPUDevice.get().is_available
+
+        gpu_container = QHBoxLayout()
+        gpu_container.setContentsMargins(10, 5, 10, 0)
+        gpu_container.setSpacing(10)
+
+        self.gpu_group = QButtonGroup(self)
+        self.gpu_radio = QRadioButton("GPU")
+        self.cpu_radio = QRadioButton("CPU")
+
+        for rb in (self.gpu_radio, self.cpu_radio):
+            rb.setStyleSheet(
+                f"color: {THEME.text_secondary}; font-size: 10px; font-weight: bold;"
+            )
+            self.gpu_group.addButton(rb)
+            gpu_container.addWidget(rb)
+
+        if gpu_available:
+            self.gpu_radio.setChecked(self.session.state.gpu_enabled)
+            self.cpu_radio.setChecked(not self.session.state.gpu_enabled)
+        else:
+            self.gpu_radio.setEnabled(False)
+            self.cpu_radio.setChecked(True)
+            self.gpu_radio.setToolTip("GPU not available on this hardware")
+
+        header_container.addLayout(gpu_container)
 
         layout.addLayout(header_container)
 
@@ -144,6 +162,12 @@ class FileBrowser(QWidget):
         self.unload_btn.clicked.connect(self.session.clear_files)
         self.list_view.clicked.connect(self._on_item_clicked)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
+        self.gpu_radio.toggled.connect(self._on_gpu_toggled)
+
+    def _on_gpu_toggled(self, checked: bool) -> None:
+        if checked != self.session.state.gpu_enabled:
+            self.session.state.gpu_enabled = checked
+            self.controller.request_render()
 
     def _on_hot_folder_toggled(self, checked: bool) -> None:
         self._update_hot_folder_style(checked)

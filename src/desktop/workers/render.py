@@ -8,9 +8,7 @@ from src.services.rendering.image_processor import ImageProcessor
 
 @dataclass(frozen=True)
 class RenderTask:
-    """
-    Request parameters for a single render pass.
-    """
+    """Immutable rendering request payload."""
 
     buffer: np.ndarray
     config: WorkspaceConfig
@@ -19,13 +17,12 @@ class RenderTask:
     icc_profile_path: Optional[str] = None
     icc_invert: bool = False
     color_space: str = "Adobe RGB"
+    gpu_enabled: bool = True
 
 
 @dataclass(frozen=True)
 class ThumbnailUpdateTask:
-    """
-    Request to update a thumbnail from a rendered buffer.
-    """
+    """Request to update persistent thumbnail cache."""
 
     filename: str
     file_hash: str
@@ -34,12 +31,12 @@ class ThumbnailUpdateTask:
 
 class RenderWorker(QObject):
     """
-    Executes the Darkroom Engine pipeline in a background thread.
-    Supports asynchronous metrics delivery to keep UI responsive.
+    Background rendering worker.
+    Decouples engine execution from the UI thread to maintain 60FPS interaction.
     """
 
-    finished = pyqtSignal(object, dict)  # buffer (ndarray or GPUTexture), metrics
-    metrics_updated = pyqtSignal(dict)  # Only late-arriving metrics (histogram, etc.)
+    finished = pyqtSignal(object, dict)  # (ndarray|GPUTexture, metrics)
+    metrics_updated = pyqtSignal(dict)  # Late-arriving metrics (histogram, etc.)
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
@@ -47,34 +44,29 @@ class RenderWorker(QObject):
         self._processor = ImageProcessor()
 
     def cleanup(self) -> None:
-        """
-        Releases processor resources.
-        """
+        """Evacuates transient GPU resources."""
         self._processor.cleanup()
 
     def destroy_all(self) -> None:
-        """
-        Completely releases all GPU resources.
-        """
+        """Full teardown of processing resources."""
         self._processor.destroy_all()
 
     @pyqtSlot(RenderTask)
     def process(self, task: RenderTask) -> None:
-        """
-        Runs the engine and emits the resulting buffer and metrics.
-        """
+        """Executes the rendering pipeline for a single frame."""
         try:
-            # We copy the buffer to avoid mutation issues across threads
-            buffer_copy = task.buffer.copy()
+            # Atomic copy to prevent cross-thread mutation
+            img_src = task.buffer.copy()
 
             result, metrics = self._processor.run_pipeline(
-                buffer_copy,
+                img_src,
                 task.config,
                 task.source_hash,
                 render_size_ref=task.preview_size,
+                prefer_gpu=task.gpu_enabled,
             )
 
-            # Apply Soft Proofing / ICC if requested (only for CPU results)
+            # Post-processing management
             if task.icc_profile_path and isinstance(result, np.ndarray):
                 pil_img = self._processor.buffer_to_pil(result, task.config)
                 pil_proof, _ = self._processor._apply_color_management(
@@ -83,27 +75,17 @@ class RenderWorker(QObject):
                     task.icc_profile_path,
                     task.icc_invert,
                 )
-                # Convert back to float32 buffer for display
                 arr = np.array(pil_proof)
-                if arr.dtype == np.uint8:
-                    result = arr.astype(np.float32) / 255.0
-                elif arr.dtype == np.uint16:
-                    result = arr.astype(np.float32) / 65535.0
-
-                # Update metrics to reflect the proofed image if needed
+                result = arr.astype(np.float32) / (
+                    65535.0 if arr.dtype == np.uint16 else 255.0
+                )
                 metrics["base_positive"] = result
             elif not isinstance(result, np.ndarray):
-                # Ensure base_positive in metrics points to the texture view for display
                 metrics["base_positive"] = result
 
-            # 1. Emit image immediately for instant UI update
+            # Immediate emission for low-latency preview
             self.finished.emit(result, metrics)
-
-            # 2. If using GPU, metrics might still be transferring in background
-            # The GPUEngine already handles async readback with polling inside
-            # its methods, but those methods were called inside run_pipeline.
-            # To be truly async, we should separate them.
-            # For now, we emit them as a secondary update.
+            # Signal late metrics availability
             self.metrics_updated.emit(metrics)
 
         except Exception as e:
@@ -111,11 +93,9 @@ class RenderWorker(QObject):
 
 
 class ThumbnailWorker(QObject):
-    """
-    Generates asset thumbnails asynchronously.
-    """
+    """Asynchronous thumbnail generation worker."""
 
-    finished = pyqtSignal(dict)  # filename -> thumb_path
+    finished = pyqtSignal(dict)
 
     def __init__(self, asset_store) -> None:
         super().__init__()
@@ -123,38 +103,29 @@ class ThumbnailWorker(QObject):
 
     @pyqtSlot(list)
     def generate(self, files: list) -> None:
-        """
-        Runs the batch thumbnail generator.
-        """
+        """Generates thumbnails for a list of files."""
         import asyncio
         from src.services.assets import thumbnails as thumb_service
 
-        # We run the existing async thumbnail logic inside a new loop
-        # since this worker lives in its own thread.
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-
             new_thumbs = loop.run_until_complete(
                 thumb_service.generate_batch_thumbnails(files, self._store)
             )
             self.finished.emit(new_thumbs)
         except Exception as e:
-            print(f"DEBUG: Thumbnail generation error: {e}")
+            print(f"DEBUG: Thumb failure: {e}")
 
     @pyqtSlot(ThumbnailUpdateTask)
     def update_rendered(self, task: ThumbnailUpdateTask) -> None:
-        """
-        Generates a thumbnail from a rendered buffer.
-        """
+        """Updates thumbnail from a rendered positive buffer."""
         from src.services.assets.thumbnails import get_rendered_thumbnail
 
         try:
-            # Copy buffer to thread
             buf = task.buffer.copy()
             thumb = get_rendered_thumbnail(buf, task.file_hash, self._store)
-
             if thumb:
                 self.finished.emit({task.filename: thumb})
         except Exception as e:
-            print(f"DEBUG: Rendered thumbnail error: {e}")
+            print(f"DEBUG: Thumb update failure: {e}")

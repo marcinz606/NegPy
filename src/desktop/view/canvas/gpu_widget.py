@@ -10,8 +10,8 @@ logger = get_logger(__name__)
 
 class GPUCanvasWidget(QWidget):
     """
-    Qt Widget that wraps RenderCanvas for GPU rendering with aspect ratio control.
-    Uses a manual bilinear sampler for Rgba32Float compatibility and non-sRGB surface.
+    Hardware-accelerated viewport using WebGPU.
+    Implements manual bilinear sampling for float32 HDR surfaces.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -19,11 +19,9 @@ class GPUCanvasWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
 
-        # Create RenderCanvas
         self.canvas = RenderCanvas(parent=self)
         self.layout().addWidget(self.canvas)
 
-        # GPU State
         self.device: Optional[Any] = None
         self.context: Optional[Any] = None
         self.render_pipeline: Optional[Any] = None
@@ -32,41 +30,33 @@ class GPUCanvasWidget(QWidget):
         self.image_size: Tuple[int, int] = (1, 1)
 
     def initialize_gpu(self, device: Any, adapter: Any) -> None:
+        """Configures WebGPU context and display pipeline."""
         self.device = device
         self.context = self.canvas.get_context("wgpu")
 
-        preferred_format = self.context.get_preferred_format(adapter)
-        # Use non-sRGB format to match CPU's direct-to-screen gamma application
-        format = preferred_format.replace("-srgb", "")
-        self.context.configure(device=self.device, format=format)
+        # Select compatible format (prefer non-sRGB for direct gamma control)
+        fmt = self.context.get_preferred_format(adapter).replace("-srgb", "")
+        self.context.configure(device=self.device, format=fmt)
 
-        # Create Uniform Buffer for Quad transform (16 bytes: vec4 rect)
         self.uniform_buffer = self.device.create_buffer(
             size=16, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
         )
-
-        self._create_render_pipeline(format)
+        self._create_render_pipeline(fmt)
 
     def update_texture(self, tex_wrapper: Any) -> None:
-        """
-        Updates the texture to be displayed. Expects a GPUTexture wrapper.
-        """
+        """Assigns a new hardware texture for display."""
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
         self.canvas.request_draw(self._draw_frame)
 
     def clear(self) -> None:
-        """
-        Clears the current texture and requests a redraw to show the background.
-        """
+        """Forces an empty frame redraw."""
         self.current_texture_view = None
         self.canvas.request_draw(self._draw_frame)
 
     def _create_render_pipeline(self, format: str) -> None:
         shader_source = """
-        struct RenderUniforms {
-            rect: vec4<f32>, // x, y, w, h in NDC
-        };
+        struct RenderUniforms { rect: vec4<f32> };
         @group(0) @binding(1) var<uniform> params: RenderUniforms;
 
         struct VertexOutput {
@@ -84,7 +74,6 @@ class GPUCanvasWidget(QWidget):
                 vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0),
                 vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0)
             );
-
             let ndc_pos = positions[in_vertex_index];
             var out: VertexOutput;
             out.pos = vec4<f32>(
@@ -156,16 +145,15 @@ class GPUCanvasWidget(QWidget):
         )
 
     def _draw_frame(self) -> None:
+        """Atomic frame assembly and submission."""
         if not self.render_pipeline:
             return
 
-        current_texture = self.context.get_current_texture()
-        command_encoder = self.device.create_command_encoder()
-
-        render_pass = command_encoder.begin_render_pass(
+        enc = self.device.create_command_encoder()
+        pass_enc = enc.begin_render_pass(
             color_attachments=[
                 {
-                    "view": current_texture.create_view(),
+                    "view": self.context.get_current_texture().create_view(),
                     "load_op": wgpu.LoadOp.clear,
                     "store_op": wgpu.StoreOp.store,
                     "clear_value": (0.06, 0.06, 0.06, 1),
@@ -176,17 +164,21 @@ class GPUCanvasWidget(QWidget):
         if self.current_texture_view:
             ww, wh = max(1, self.width()), max(1, self.height())
             iw, ih = self.image_size
-            ratio = min(ww / iw, wh / ih)
-            nw, nh = iw * ratio, ih * ratio
+            r = min(ww / iw, wh / ih)
+            nw, nh = iw * r, ih * r
             nx, ny = (ww - nw) / 2, (wh - nh) / 2
-            ndc_x, ndc_y, ndc_w, ndc_h = (
-                (nx / ww) * 2 - 1,
-                1 - (ny / wh) * 2,
-                (nw / ww) * 2,
-                (nh / wh) * 2,
-            )
+
+            # Pack NDC transform
             self.device.queue.write_buffer(
-                self.uniform_buffer, 0, struct.pack("ffff", ndc_x, ndc_y, ndc_w, ndc_h)
+                self.uniform_buffer,
+                0,
+                struct.pack(
+                    "ffff",
+                    (nx / ww) * 2 - 1,
+                    1 - (ny / wh) * 2,
+                    (nw / ww) * 2,
+                    (nh / wh) * 2,
+                ),
             )
 
             bind_group = self.device.create_bind_group(
@@ -204,9 +196,9 @@ class GPUCanvasWidget(QWidget):
                 ],
             )
 
-            render_pass.set_pipeline(self.render_pipeline)
-            render_pass.set_bind_group(0, bind_group)
-            render_pass.draw(4, 1, 0, 0)
+            pass_enc.set_pipeline(self.render_pipeline)
+            pass_enc.set_bind_group(0, bind_group)
+            pass_enc.draw(4, 1, 0, 0)
 
-        render_pass.end()
-        self.device.queue.submit([command_encoder.finish()])
+        pass_enc.end()
+        self.device.queue.submit([enc.finish()])

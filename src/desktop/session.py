@@ -41,6 +41,9 @@ class AppState:
     icc_invert: bool = False
     apply_icc_to_export: bool = False
 
+    # Hardware Acceleration
+    gpu_enabled: bool = True
+
 
 class AssetListModel(QAbstractListModel):
     """

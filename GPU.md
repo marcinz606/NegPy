@@ -51,3 +51,4 @@ Migrate image processing and rendering to GPU to achieve real-time performance o
 4. [x] **Rotation-Aware Tiling**: Fixed broadcasting errors for vertical image exports.
 5. [x] **Race-Condition Free Cleanup**: Transitioned to GC-managed texture lifecycles to prevent "texture destroyed" validation errors.
 6. [x] **GPU Status UI**: Added real-time acceleration indicator to the session panel.
+7. [x] **Runtime Mode Toggle**: Implemented explicit GPU/CPU switch in the UI, allowing users to choose their preferred backend.

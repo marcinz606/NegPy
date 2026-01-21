@@ -1,27 +1,23 @@
 import numpy as np
+import wgpu  # type: ignore
 from src.infrastructure.gpu.device import GPUDevice
 
 
 class GPUTexture:
     """
-    Wrapper for WebGPU textures.
+    Hardware-backed texture wrapper.
+    Defaults to rgba32float for high-dynamic-range processing.
     """
 
     def __init__(
         self, width: int, height: int, format: str = "rgba32float", usage: int = 0
     ) -> None:
-        self.width = width
-        self.height = height
-        self.format = format
-
+        self.width, self.height, self.format = width, height, format
         gpu = GPUDevice.get()
         if not gpu.device:
-            raise RuntimeError("GPU device not available")
+            raise RuntimeError("Hardware device required")
 
-        # Combine default usages if not provided
         if usage == 0:
-            import wgpu  # type: ignore
-
             usage = (
                 wgpu.TextureUsage.TEXTURE_BINDING
                 | wgpu.TextureUsage.STORAGE_BINDING
@@ -30,29 +26,20 @@ class GPUTexture:
             )
 
         self.texture = gpu.device.create_texture(
-            size=(width, height, 1),
-            format=format,
-            usage=usage,
+            size=(width, height, 1), format=format, usage=usage
         )
         self.view = self.texture.create_view()
 
     def upload(self, data: np.ndarray) -> None:
-        """
-        Uploads a numpy array to the texture.
-        """
+        """Transfers ndarray to VRAM."""
         gpu = GPUDevice.get()
         if not gpu.device:
             return
 
-        # Ensure data is contiguous and correct type
         if data.dtype != np.float32:
             data = data.astype(np.float32)
-
-        # WebGPU expects 4 components for rgba32float
         if data.shape[2] == 3:
-            # Add alpha channel
-            h, w = data.shape[:2]
-            rgba = np.ones((h, w, 4), dtype=np.float32)
+            rgba = np.ones((data.shape[0], data.shape[1], 4), dtype=np.float32)
             rgba[:, :, :3] = data
             data = rgba
 
@@ -64,9 +51,7 @@ class GPUTexture:
         )
 
     def destroy(self) -> None:
-        """
-        Explicitly destroys the underlying wgpu texture and view.
-        """
+        """Forces hardware resource release."""
         try:
             self.view = None
             if self.texture:
@@ -77,30 +62,21 @@ class GPUTexture:
 
 
 class GPUBuffer:
-    """
-    Wrapper for WebGPU buffers (Uniform/Storage).
-    """
+    """Uniform or storage buffer wrapper."""
 
     def __init__(self, size: int, usage: int) -> None:
         gpu = GPUDevice.get()
         if not gpu.device:
-            raise RuntimeError("GPU device not available")
-
+            raise RuntimeError("Hardware device required")
         self.buffer = gpu.device.create_buffer(size=size, usage=usage)
 
     def upload(self, data: np.ndarray) -> None:
-        """
-        Uploads data to the buffer.
-        """
         gpu = GPUDevice.get()
         if not gpu.device:
             return
         gpu.device.queue.write_buffer(self.buffer, 0, data)
 
     def destroy(self) -> None:
-        """
-        Explicitly destroys the underlying wgpu buffer.
-        """
         try:
             if self.buffer:
                 self.buffer.destroy()
