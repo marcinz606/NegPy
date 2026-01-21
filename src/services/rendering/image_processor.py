@@ -35,7 +35,6 @@ logger = get_logger(__name__)
 class ImageProcessor:
     """
     Pipeline runner for exports & previews. Supports CPU and GPU backends.
-    Preserves 16-bit precision for TIFF exports.
     """
 
     def __init__(self) -> None:
@@ -62,7 +61,7 @@ class ImageProcessor:
         prefer_gpu: bool = True,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
-        Executes the engine, returns buffer (ndarray or TextureView) + metrics.
+        Executes the engine, returns buffer (ndarray or GPUTexture) + metrics.
         """
         h_orig, w_cols = img.shape[:2]
         scale_factor = max(h_orig, w_cols) / float(render_size_ref)
@@ -79,7 +78,10 @@ class ImageProcessor:
         if prefer_gpu and self.engine_gpu:
             try:
                 processed, gpu_metrics = self.engine_gpu.process_to_texture(
-                    img, settings, scale_factor=scale_factor
+                    img,
+                    settings,
+                    scale_factor=scale_factor,
+                    render_size_ref=render_size_ref,
                 )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics
@@ -95,13 +97,13 @@ class ImageProcessor:
     ) -> Image.Image:
         """
         Buffer (Any) -> PIL (uint8/16).
-        Note: 16-bit RGB is not natively supported by PIL.Image.fromarray for all ops.
         """
         if not isinstance(buffer, np.ndarray):
             raise ValueError(
                 "buffer_to_pil received GPU texture. Readback must be handled by processor."
             )
 
+        # CPU ndarray logic
         is_toned = (
             settings.toning.selenium_strength != 0.0
             or settings.toning.sepia_strength != 0.0
@@ -119,13 +121,10 @@ class ImageProcessor:
             img_int = float_to_uint8(buffer)
             return Image.fromarray(img_int)
         elif bit_depth == 16:
-            # Grayscale 16-bit is fine
             if buffer.ndim == 2 or (buffer.ndim == 3 and buffer.shape[2] == 1):
                 img_int = float_to_uint16(buffer)
                 return Image.fromarray(img_int)
             else:
-                # RGB 16-bit: PIL limited support.
-                # We return 8-bit PIL for preview/JPEG, but process_export will handle uint16 ndarray for TIFF.
                 return Image.fromarray(float_to_uint8(buffer))
         else:
             raise ValueError("Unsupported bit depth. Use 8 or 16.")
@@ -139,7 +138,7 @@ class ImageProcessor:
         metrics: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[bytes], str]:
         """
-        Full-res render + encoding (TIFF/JPEG). High-bit depth aware.
+        Full-res render + encoding (TIFF/JPEG).
         """
         try:
             ctx_mgr, metadata = loader_factory.get_loader(file_path)
@@ -168,7 +167,6 @@ class ImageProcessor:
             h, w = rgb.shape[:2]
             f32_buffer = uint16_to_float32(np.ascontiguousarray(rgb))
 
-            # Run Pipeline
             if self.engine_gpu:
                 buffer, gpu_metrics = self.engine_gpu.process(
                     f32_buffer, params, scale_factor=1.0
@@ -184,25 +182,21 @@ class ImageProcessor:
                     metrics=metrics,
                     prefer_gpu=False,
                 )
-
-            buffer = self._apply_scaling_and_border_f32(buffer, params, export_settings)
+                # Apply layout for CPU path
+                buffer = self._apply_scaling_and_border_f32(
+                    buffer, params, export_settings
+                )
 
             is_greyscale = export_settings.export_color_space == "Greyscale"
             is_tiff = export_settings.export_fmt != ExportFormat.JPEG
 
             if is_tiff:
-                # 16-bit TIFF Export Path (Bypasses 8-bit PIL limitations for RGB)
                 if is_greyscale:
                     img_out = float_to_uint_luma(
                         np.ascontiguousarray(buffer), bit_depth=16
                     )
                 else:
                     img_out = float_to_uint16(buffer)
-
-                # Apply color management if needed (Warning: ImageCms might downgrade to 8-bit if using PIL)
-                # For now, if we want strict 16-bit, we embed the profile but don't transform pixels via PIL
-                # unless we have a 16-bit aware transform.
-                # TODO: Implement 16-bit ICC transform or Matrix-based transform.
 
                 target_icc_bytes = self._get_target_icc_bytes(
                     color_space,
@@ -219,9 +213,7 @@ class ImageProcessor:
                     compression="lzw",
                 )
                 return output_buf.getvalue(), "tiff"
-
             else:
-                # JPEG Export Path (8-bit)
                 if is_greyscale:
                     img_int = float_to_uint_luma(
                         np.ascontiguousarray(buffer), bit_depth=8
@@ -253,6 +245,9 @@ class ImageProcessor:
         params: WorkspaceConfig,
         export_settings: ExportConfig,
     ) -> np.ndarray:
+        """
+        Legacy CPU layout application for testing and fallback.
+        """
         result, _ = PrintService.apply_layout(img, export_settings)
         return result
 

@@ -55,6 +55,13 @@ class GPUCanvasWidget(QWidget):
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
         self.canvas.request_draw(self._draw_frame)
 
+    def clear(self) -> None:
+        """
+        Clears the current texture and requests a redraw to show the background.
+        """
+        self.current_texture_view = None
+        self.canvas.request_draw(self._draw_frame)
+
     def _create_render_pipeline(self, format: str) -> None:
         shader_source = """
         struct RenderUniforms {
@@ -149,39 +156,11 @@ class GPUCanvasWidget(QWidget):
         )
 
     def _draw_frame(self) -> None:
-        if not self.current_texture_view or not self.render_pipeline:
+        if not self.render_pipeline:
             return
-        ww, wh = max(1, self.width()), max(1, self.height())
-        iw, ih = self.image_size
-        ratio = min(ww / iw, wh / ih)
-        nw, nh = iw * ratio, ih * ratio
-        nx, ny = (ww - nw) / 2, (wh - nh) / 2
-        ndc_x, ndc_y, ndc_w, ndc_h = (
-            (nx / ww) * 2 - 1,
-            1 - (ny / wh) * 2,
-            (nw / ww) * 2,
-            (nh / wh) * 2,
-        )
-        self.device.queue.write_buffer(
-            self.uniform_buffer, 0, struct.pack("ffff", ndc_x, ndc_y, ndc_w, ndc_h)
-        )
+
         current_texture = self.context.get_current_texture()
         command_encoder = self.device.create_command_encoder()
-
-        bind_group = self.device.create_bind_group(
-            layout=self.bind_group_layout,
-            entries=[
-                {"binding": 0, "resource": self.current_texture_view},
-                {
-                    "binding": 1,
-                    "resource": {
-                        "buffer": self.uniform_buffer,
-                        "offset": 0,
-                        "size": 16,
-                    },
-                },
-            ],
-        )
 
         render_pass = command_encoder.begin_render_pass(
             color_attachments=[
@@ -194,9 +173,40 @@ class GPUCanvasWidget(QWidget):
             ]
         )
 
-        render_pass.set_pipeline(self.render_pipeline)
-        render_pass.set_bind_group(0, bind_group)
-        render_pass.draw(4, 1, 0, 0)
-        render_pass.end()
+        if self.current_texture_view:
+            ww, wh = max(1, self.width()), max(1, self.height())
+            iw, ih = self.image_size
+            ratio = min(ww / iw, wh / ih)
+            nw, nh = iw * ratio, ih * ratio
+            nx, ny = (ww - nw) / 2, (wh - nh) / 2
+            ndc_x, ndc_y, ndc_w, ndc_h = (
+                (nx / ww) * 2 - 1,
+                1 - (ny / wh) * 2,
+                (nw / ww) * 2,
+                (nh / wh) * 2,
+            )
+            self.device.queue.write_buffer(
+                self.uniform_buffer, 0, struct.pack("ffff", ndc_x, ndc_y, ndc_w, ndc_h)
+            )
 
+            bind_group = self.device.create_bind_group(
+                layout=self.bind_group_layout,
+                entries=[
+                    {"binding": 0, "resource": self.current_texture_view},
+                    {
+                        "binding": 1,
+                        "resource": {
+                            "buffer": self.uniform_buffer,
+                            "offset": 0,
+                            "size": 16,
+                        },
+                    },
+                ],
+            )
+
+            render_pass.set_pipeline(self.render_pipeline)
+            render_pass.set_bind_group(0, bind_group)
+            render_pass.draw(4, 1, 0, 0)
+
+        render_pass.end()
         self.device.queue.submit([command_encoder.finish()])

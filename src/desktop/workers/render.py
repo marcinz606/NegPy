@@ -35,9 +35,11 @@ class ThumbnailUpdateTask:
 class RenderWorker(QObject):
     """
     Executes the Darkroom Engine pipeline in a background thread.
+    Supports asynchronous metrics delivery to keep UI responsive.
     """
 
-    finished = pyqtSignal(object, dict)  # buffer (ndarray or TextureView), metrics
+    finished = pyqtSignal(object, dict)  # buffer (ndarray or GPUTexture), metrics
+    metrics_updated = pyqtSignal(dict)  # Only late-arriving metrics (histogram, etc.)
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
@@ -88,7 +90,16 @@ class RenderWorker(QObject):
                 # Ensure base_positive in metrics points to the texture view for display
                 metrics["base_positive"] = result
 
+            # 1. Emit image immediately for instant UI update
             self.finished.emit(result, metrics)
+
+            # 2. If using GPU, metrics might still be transferring in background
+            # The GPUEngine already handles async readback with polling inside
+            # its methods, but those methods were called inside run_pipeline.
+            # To be truly async, we should separate them.
+            # For now, we emit them as a secondary update.
+            self.metrics_updated.emit(metrics)
+
         except Exception as e:
             self.error.emit(str(e))
 

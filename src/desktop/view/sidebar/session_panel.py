@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QTabWidget,
 )
+from typing import Dict, Any
 from PyQt6.QtCore import pyqtSignal, Qt, QThread
 from src.desktop.controller import AppController
 from src.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
@@ -119,8 +120,15 @@ class SessionPanel(QWidget):
 
     def _connect_signals(self) -> None:
         self.controller.image_updated.connect(self._update_analysis)
+        self.controller.metrics_available.connect(self._on_metrics_available)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
         self.controller.config_updated.connect(self.metadata_sidebar.sync_ui)
+
+    def _on_metrics_available(self, metrics: Dict[str, Any]) -> None:
+        # Update only histogram from late metrics
+        hist_data = metrics.get("histogram_raw")
+        if hist_data is not None:
+            self.hist_widget.update_data(hist_data)
 
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics

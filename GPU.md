@@ -15,40 +15,38 @@ Migrate image processing and rendering to GPU to achieve real-time performance o
 - [x] `normalization.wgsl`: Log-Normalization with custom `log10`.
 - [x] `exposure.wgsl`: Photometric H&D curve simulation.
 - [x] `transform.wgsl`: Rotation/Flip with manual bilinear interpolation.
-- [x] `retouch.wgsl`: Advanced 16-point circular inpainting with perceptual grain synthesis.
+- [x] `retouch.wgsl`: Advanced 16-point circular inpainting with local grain synthesis.
 - [x] `lab.wgsl`: Perceptual Luma-only USM sharpening and Spectral Crosstalk.
 - [x] `clahe_hist.wgsl`, `clahe_cdf.wgsl`, `clahe_apply.wgsl`: Perceptual 3-pass Adaptive Histogram Equalization.
 - [x] `toning.wgsl`: Saturation, Chemical Toning, Paper Tint, B&W mode, Final Gamma, and ROI-based Cropping.
 - [x] `autocrop.wgsl`: High-performance border detection via row/column luminance reduction.
 - [x] `metrics.wgsl`: 4-channel histogram calculation using atomic operations.
+- [x] `layout.wgsl`: Canvas expansion, background fill, and letterboxing.
 
 ### Phase 3: Engine & Pipeline (Completed)
-- [x] `GPUEngine` orchestrating a complex **8-stage** compute pipeline.
+- [x] `GPUEngine` orchestrating a complex **10-stage** compute pipeline.
 - [x] Hybrid Calibration: CPU-based density analysis passed to GPU.
 - [x] Zero-copy preview path (returns `GPUTexture` wrapper).
 - [x] **48-bit TIFF Export**: Preserves 16-bit per channel precision by bypassing PIL for RGB TIFF saving.
 - [x] **Texture Pooling**: Intermediate textures are cached and reused to minimize VRAM churn.
+- [x] **Unified Uniform Block**: Single persistent UBO with 256-byte aligned offsets for peak efficiency.
+- [x] **Resource Lifecycle**: Explicit `cleanup()` triggers to free VRAM on file load and app close.
 
 ### Phase 4: UI & Controller Integration (Completed)
 - [x] `ImageCanvas` refactored to `QStackedLayout` with Z-order management.
 - [x] `GPUCanvasWidget` with NDC-based letterboxing and centering.
 - [x] `CanvasOverlay` synchronized with GPU dimensions for accurate tool interaction.
+- [x] **Async Metrics Delivery**: Transitioned to a non-blocking `map_async` pattern. Preview updates are instant, with histogram data arriving asynchronously.
 - [x] **Feature Parity**: All interactive tools (Crop, WB Picker, Histogram) fully functional on GPU.
 
-### Next Milestone: Stability & Performance
+## 2. Next Milestone: Advanced Polish
 
-### Reliability & Polish (High Priority)
-- [x] **Adaptive Export Tiling**: Implemented high-resolution tiling loop (2048px tiles) with 32px halo handling to prevent TDR and VRAM exhaustion.
-- [ ] **Uniform Buffer Pooling**: Optimize uniform buffer updates to use `queue.write_buffer` on long-lived buffers instead of frequent allocations.
+### Reliability & Portability (Medium Priority)
+- [ ] **Adaptive Tiling Workgroups**: Implement dynamic workgroup count calculation based on `device.limits` for maximum portability on mobile/older hardware.
+- [ ] **Shared Histogram Context**: Further optimize tiling by submitting global CDFs as a read-only storage buffer once per session.
 
-### Optimization (Medium Priority)
-- [x] **Resource Lifecycle**: Implemented `GPUEngine.cleanup()` to explicitly destroy cached textures and free VRAM. Integrated with `AppController` to trigger on file load and app close.
-- [x] **Full GPU Histogram**: Implemented `metrics.wgsl` to calculate 4-channel histograms directly on the GPU using atomic operations.
-- [x] **Full GPU AutoCrop**: Implemented native reduction pass.
-- [ ] **Uniform Buffer Pooling**: Optimize uniform buffer updates to use `queue.write_buffer` on long-lived buffers instead of frequent allocations.
+## 3. Implementation Log (Milestone 11 - Asynchronous UX)
 
-## 3. Implementation Log (Milestone 5 - Reliability)
-
-1. [x] **Advanced Inpainting**: Upgraded healing logic to 16-point sampling with perceptual grain synthesis for invisible retouching.
-2. [x] **Pure GPU Metrics**: Eliminated the final full-image readback by moving AutoCrop and Histogram entirely to GPU reduction shaders.
-3. [x] **Perceptual Balance**: Fine-tuned sharpening and CLAHE to operate in gamma-encoded space, matching human vision.
+1. [x] **True Async UI Feedback**: Decoupled rendering from readback. `RenderWorker` now emits images immediately, with metrics following via a background `metrics_updated` signal.
+2. [x] **Eliminated Micro-stutters**: The UI remains 100% responsive during rapid parameter changes as the main render thread no longer waits for GPU-to-CPU data transfers.
+3. [x] **Robust Uniform Management**: Finalized the consolidated UBO logic, ensuring hardware-compliant 256-byte alignment across all stages.

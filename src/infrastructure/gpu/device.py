@@ -39,9 +39,17 @@ class GPUDevice:
             )
             if self.adapter:
                 self.device = self.adapter.request_device_sync()
+                self.limits = self.device.limits
                 logger.info(f"GPU Initialized: {self.adapter.summary}")
+                logger.info(
+                    f"GPU Limits: Max Texture 2D Size = {self.limits.get('max_texture_dimension_2d', 'Unknown')}"
+                )
+                logger.info(
+                    f"GPU Limits: Uniform Alignment = {self.limits.get('min_uniform_buffer_offset_alignment', 256)}"
+                )
             else:
                 logger.warning("No compatible GPU adapter found")
+                self.limits = {}
 
         except Exception as e:
             logger.error(f"Failed to initialize WebGPU: {e}")
@@ -54,3 +62,13 @@ class GPUDevice:
         Indicates if a valid GPU device is active.
         """
         return self.device is not None
+
+    def poll(self) -> None:
+        """
+        Polls the GPU device to progress async tasks.
+        """
+        if self.device:
+            if hasattr(self.device, "poll"):
+                self.device.poll()
+            elif hasattr(self.device, "_poll"):
+                self.device._poll()

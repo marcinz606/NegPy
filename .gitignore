@@ -16,6 +16,7 @@ appimagetool-x86_64.AppImage
 
 # user settings 
 user/
+export/
 
 # Virtual Environment
 venv/

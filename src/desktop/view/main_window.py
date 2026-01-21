@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         """Wire controller and view."""
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.image_updated.connect(self._refresh_image_info)
+        self.controller.loading_started.connect(self.canvas.clear)
         self.canvas.clicked.connect(self.controller.handle_canvas_clicked)
         self.canvas.crop_completed.connect(self.controller.handle_crop_completed)
 
@@ -103,29 +104,31 @@ class MainWindow(QMainWindow):
             return
 
         buffer = metrics["base_positive"]
-        content_rect = None
+        # Use GPU-calculated content_rect if available, else fallback
+        content_rect = metrics.get("content_rect")
 
-        # Apply border preview if enabled
-        export_conf = self.state.config.export
-        should_preview = (
-            export_conf.export_border_size > 0
-            or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
-        )
+        # Apply border preview if enabled (Only for CPU buffers, GPU already has it applied in texture)
+        if isinstance(buffer, np.ndarray):
+            export_conf = self.state.config.export
+            should_preview = (
+                export_conf.export_border_size > 0
+                or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
+            )
 
-        if should_preview:
-            pil_img = Image.fromarray(float_to_uint8(buffer))
-            try:
-                pil_img, content_rect = PrintService.apply_preview_layout_to_pil(
-                    pil_img,
-                    export_conf.paper_aspect_ratio,
-                    export_conf.export_border_size,
-                    export_conf.export_print_size,
-                    export_conf.export_border_color,
-                    APP_CONFIG.preview_render_size,
-                )
-                buffer = np.array(pil_img).astype(np.float32) / 255.0
-            except Exception as e:
-                print(f"DEBUG: Border preview error: {e}")
+            if should_preview:
+                pil_img = Image.fromarray(float_to_uint8(buffer))
+                try:
+                    pil_img, content_rect = PrintService.apply_preview_layout_to_pil(
+                        pil_img,
+                        export_conf.paper_aspect_ratio,
+                        export_conf.export_border_size,
+                        export_conf.export_print_size,
+                        export_conf.export_border_color,
+                        APP_CONFIG.preview_render_size,
+                    )
+                    buffer = np.array(pil_img).astype(np.float32) / 255.0
+                except Exception as e:
+                    print(f"DEBUG: Border preview error: {e}")
 
         self.canvas.update_buffer(
             buffer, self.state.workspace_color_space, content_rect=content_rect

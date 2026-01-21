@@ -8,7 +8,7 @@ from typing import Any, Optional, Dict, Tuple, cast
 from src.infrastructure.gpu.device import GPUDevice
 from src.infrastructure.gpu.resources import GPUTexture, GPUBuffer
 from src.infrastructure.gpu.shader_loader import ShaderLoader
-from src.domain.models import WorkspaceConfig, ProcessMode
+from src.domain.models import WorkspaceConfig, ProcessMode, AspectRatio
 from src.kernel.system.logging import get_logger
 from src.features.geometry.logic import (
     get_manual_rect_coords,
@@ -20,6 +20,7 @@ from src.features.exposure.normalization import (
     get_analysis_crop,
 )
 from src.services.view.coordinate_mapping import CoordinateMapping
+from src.services.export.print import PrintService
 
 logger = get_logger(__name__)
 
@@ -27,8 +28,7 @@ logger = get_logger(__name__)
 class GPUEngine:
     """
     GPU-accelerated image processing engine using WebGPU.
-    Pipeline: Geometry -> Normalization -> Exposure -> CLAHE -> Retouch -> Lab -> Toning.
-    Supports Adaptive Tiling for ultra-high resolution exports.
+    Orchestrates a 10-stage pipeline with consolidated uniforms and optimized readback.
     """
 
     def __init__(self) -> None:
@@ -65,12 +65,26 @@ class GPUEngine:
             "metrics": os.path.join(
                 "src", "features", "lab", "shaders", "metrics.wgsl"
             ),
+            "layout": os.path.join(
+                "src", "features", "toning", "shaders", "layout.wgsl"
+            ),
         }
         self._pipelines: Dict[str, Any] = {}
         self._buffers: Dict[str, GPUBuffer] = {}
         self._sampler: Optional[Any] = None
-        # Cache key: (width, height, usage, label)
         self._tex_cache: Dict[Tuple[int, int, int, str], GPUTexture] = {}
+
+        self._uniform_names = [
+            "geometry",
+            "normalization",
+            "exposure",
+            "clahe_u",
+            "retouch_u",
+            "lab",
+            "toning",
+            "layout",
+        ]
+        self._alignment = 256
 
     def _get_intermediate_texture(
         self, w: int, h: int, usage: int, label: str
@@ -85,19 +99,20 @@ class GPUEngine:
             return
         device = self.gpu.device
         self._sampler = device.create_sampler(min_filter="linear", mag_filter="linear")
+        self._alignment = self.gpu.limits.get(
+            "min_uniform_buffer_offset_alignment", 256
+        )
 
         for name in self._shaders.keys():
             self._pipelines[name] = self._create_pipeline(self._shaders[name])
 
-        self._buffers["geometry"] = GPUBuffer(
-            32, wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
+        # Unified Uniform Buffer (UBO)
+        self._buffers["unified_u"] = GPUBuffer(
+            self._alignment * len(self._uniform_names),
+            wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST,
         )
-        self._buffers["normalization"] = GPUBuffer(
-            32, wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
-        )
-        self._buffers["exposure"] = GPUBuffer(
-            80, wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
-        )
+
+        # Persistent Storage Buffers
         self._buffers["crop_rows"] = GPUBuffer(
             32768,
             wgpu.BufferUsage.STORAGE
@@ -114,22 +129,13 @@ class GPUEngine:
             65536, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST
         )
         self._buffers["clahe_c"] = GPUBuffer(
-            65536, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST
-        )
-        self._buffers["clahe_u"] = GPUBuffer(
-            16, wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
-        )
-        self._buffers["retouch_u"] = GPUBuffer(
-            16, wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
+            65536,
+            wgpu.BufferUsage.STORAGE
+            | wgpu.BufferUsage.COPY_SRC
+            | wgpu.BufferUsage.COPY_DST,
         )
         self._buffers["retouch_s"] = GPUBuffer(
             8192, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST
-        )
-        self._buffers["lab"] = GPUBuffer(
-            64, wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
-        )
-        self._buffers["toning"] = GPUBuffer(
-            48, wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
         )
         self._buffers["metrics"] = GPUBuffer(
             4096,
@@ -138,7 +144,7 @@ class GPUEngine:
             | wgpu.BufferUsage.COPY_DST,
         )
 
-        logger.info("GPU Pipelines Initialized")
+        logger.info("GPU Engine: Resources Initialized")
 
     def _create_pipeline(self, shader_path: str) -> Any:
         shader_module = ShaderLoader.load(shader_path)
@@ -147,6 +153,25 @@ class GPUEngine:
             layout="auto", compute={"module": shader_module, "entry_point": "main"}
         )
 
+    def _get_uniform_binding(self, name: str) -> Dict[str, Any]:
+        idx = self._uniform_names.index(name)
+        # Layout sizes must match WGSL struct layout precisely
+        sizes = {
+            "geometry": 32,
+            "normalization": 32,
+            "exposure": 80,
+            "clahe_u": 32,
+            "retouch_u": 32,
+            "lab": 64,
+            "toning": 48,
+            "layout": 48,
+        }
+        return {
+            "buffer": self._buffers["unified_u"].buffer,
+            "offset": idx * self._alignment,
+            "size": sizes[name],
+        }
+
     def process_to_texture(
         self,
         img: np.ndarray,
@@ -154,10 +179,12 @@ class GPUEngine:
         scale_factor: float = 1.0,
         tiling_mode: bool = False,
         bounds_override: Optional[Any] = None,
+        global_offset: Tuple[int, int] = (0, 0),
+        full_dims: Optional[Tuple[int, int]] = None,
+        clahe_cdf_override: Optional[np.ndarray] = None,
+        apply_layout: bool = True,
+        render_size_ref: Optional[float] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
-        """
-        Runs the pipeline. If tiling_mode is True, bypasses geometry/cropping steps.
-        """
         if not self.gpu.is_available:
             raise RuntimeError("GPU not available")
         self._init_resources()
@@ -173,17 +200,17 @@ class GPUEngine:
         )
         source_tex.upload(img)
 
-        if tiling_mode:
-            # In tiling mode, input is already rotated/flipped and we don't crop internally.
+        # 1. Determine ROI and Output dimensions
+        if tiling_mode and full_dims:
             w_rot, h_rot = w, h
-            roi = (0, h, 0, w)
-            y1, y2, x1, x2 = roi
+            x1, y1 = 0, 0
             crop_w, crop_h = w, h
+            actual_full_dims = full_dims
+            roi = (0, h, 0, w)
         else:
             rot = settings.geometry.rotation % 4
             w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
-            orig_shape = (h, w)
-
+            actual_full_dims, orig_shape = (w_rot, h_rot), (h, w)
             if settings.geometry.manual_crop_rect:
 
                 class ShapeMock:
@@ -224,36 +251,38 @@ class GPUEngine:
                     int(roi_tmp[2] * sx),
                     int(roi_tmp[3] * sx),
                 )
-
             y1, y2, x1, x2 = roi
             crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
-        # Normalization
-        if bounds_override:
-            bounds = bounds_override
-        else:
-            epsilon = 1e-6
-            img_log = np.log10(np.clip(img, epsilon, 1.0))
-            analysis_img = (
-                get_analysis_crop(img_log, settings.exposure.analysis_buffer)
+        bounds = (
+            bounds_override
+            if bounds_override
+            else measure_log_negative_bounds(
+                get_analysis_crop(
+                    np.log10(np.clip(img, 1e-6, 1.0)), settings.exposure.analysis_buffer
+                )
                 if settings.exposure.analysis_buffer > 0
-                else img_log
+                else np.log10(np.clip(img, 1e-6, 1.0))
             )
-            bounds = measure_log_negative_bounds(analysis_img)
+        )
 
-        # Update Pipeline Uniforms
-        if tiling_mode:
-            # Identity geometry for tiling
-            self._buffers["geometry"].upload(np.zeros(32, dtype=np.uint8))
-        else:
-            self._update_geometry_uniforms(settings.geometry)
-
-        self._update_normalization_uniforms(bounds)
-        self._update_exposure_uniforms(settings.exposure)
-        self._update_clahe_uniforms(settings.lab)
-        self._update_retouch_resources(settings.retouch, (h, w), settings.geometry)
-        self._update_lab_uniforms(settings.lab)
-        self._update_toning_uniforms(settings, crop_offset=(x1, y1))
+        # Update Pipeline Resources
+        self._upload_unified_uniforms(
+            settings,
+            bounds,
+            global_offset,
+            actual_full_dims,
+            (x1, y1),
+            crop_w,
+            crop_h,
+            tiling_mode,
+            render_size_ref,
+        )
+        self._update_retouch_storage(
+            settings.retouch, (h, w), settings.geometry, global_offset, actual_full_dims
+        )
+        if clahe_cdf_override is not None:
+            self._buffers["clahe_c"].upload(clahe_cdf_override)
 
         # Textures
         tex_geom = self._get_intermediate_texture(
@@ -292,20 +321,24 @@ class GPUEngine:
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "lab",
         )
-        tex_final = self._get_intermediate_texture(
+        tex_toning = self._get_intermediate_texture(
             crop_w,
             crop_h,
             wgpu.TextureUsage.STORAGE_BINDING
             | wgpu.TextureUsage.TEXTURE_BINDING
             | wgpu.TextureUsage.COPY_SRC,
-            "final",
+            "toning",
         )
 
         enc = device.create_command_encoder()
         self._dispatch_pass(
             enc,
             "geometry",
-            [(0, source_tex.view), (1, tex_geom.view), (2, self._buffers["geometry"])],
+            [
+                (0, source_tex.view),
+                (1, tex_geom.view),
+                (2, self._get_uniform_binding("geometry")),
+            ],
             w_rot,
             h_rot,
         )
@@ -315,7 +348,7 @@ class GPUEngine:
             [
                 (0, tex_geom.view),
                 (1, tex_norm.view),
-                (2, self._buffers["normalization"]),
+                (2, self._get_uniform_binding("normalization")),
             ],
             w_rot,
             h_rot,
@@ -323,30 +356,35 @@ class GPUEngine:
         self._dispatch_pass(
             enc,
             "exposure",
-            [(0, tex_norm.view), (1, tex_expo.view), (2, self._buffers["exposure"])],
+            [
+                (0, tex_norm.view),
+                (1, tex_expo.view),
+                (2, self._get_uniform_binding("exposure")),
+            ],
             w_rot,
             h_rot,
         )
 
         if settings.lab.clahe_strength > 0:
-            self._dispatch_pass(
-                enc,
-                "clahe_hist",
-                [(0, tex_expo.view), (1, self._buffers["clahe_h"])],
-                8,
-                8,
-            )
-            self._dispatch_pass(
-                enc,
-                "clahe_cdf",
-                [
-                    (0, self._buffers["clahe_h"]),
-                    (1, self._buffers["clahe_c"]),
-                    (2, self._buffers["clahe_u"]),
-                ],
-                8,
-                8,
-            )
+            if clahe_cdf_override is None:
+                self._dispatch_pass(
+                    enc,
+                    "clahe_hist",
+                    [(0, tex_expo.view), (1, self._buffers["clahe_h"])],
+                    8,
+                    8,
+                )
+                self._dispatch_pass(
+                    enc,
+                    "clahe_cdf",
+                    [
+                        (0, self._buffers["clahe_h"]),
+                        (1, self._buffers["clahe_c"]),
+                        (2, self._get_uniform_binding("clahe_u")),
+                    ],
+                    8,
+                    8,
+                )
             self._dispatch_pass(
                 enc,
                 "clahe_apply",
@@ -354,7 +392,7 @@ class GPUEngine:
                     (0, tex_expo.view),
                     (1, tex_clahe.view),
                     (2, self._buffers["clahe_c"]),
-                    (3, self._buffers["clahe_u"]),
+                    (3, self._get_uniform_binding("clahe_u")),
                 ],
                 w_rot,
                 h_rot,
@@ -369,7 +407,7 @@ class GPUEngine:
             [
                 (0, prev_tex.view),
                 (1, tex_ret.view),
-                (2, self._buffers["retouch_u"]),
+                (2, self._get_uniform_binding("retouch_u")),
                 (3, self._buffers["retouch_s"]),
             ],
             w_rot,
@@ -378,17 +416,52 @@ class GPUEngine:
         self._dispatch_pass(
             enc,
             "lab",
-            [(0, tex_ret.view), (1, tex_lab.view), (2, self._buffers["lab"])],
+            [
+                (0, tex_ret.view),
+                (1, tex_lab.view),
+                (2, self._get_uniform_binding("lab")),
+            ],
             w_rot,
             h_rot,
         )
         self._dispatch_pass(
             enc,
             "toning",
-            [(0, tex_lab.view), (1, tex_final.view), (2, self._buffers["toning"])],
+            [
+                (0, tex_lab.view),
+                (1, tex_toning.view),
+                (2, self._get_uniform_binding("toning")),
+            ],
             crop_w,
             crop_h,
         )
+
+        if not tiling_mode and apply_layout:
+            paper_w, paper_h, content_w, content_h, off_x, off_y = (
+                self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
+            )
+            tex_final = self._get_intermediate_texture(
+                paper_w,
+                paper_h,
+                wgpu.TextureUsage.STORAGE_BINDING
+                | wgpu.TextureUsage.TEXTURE_BINDING
+                | wgpu.TextureUsage.COPY_SRC,
+                "final",
+            )
+            self._dispatch_pass(
+                enc,
+                "layout",
+                [
+                    (0, tex_toning.view),
+                    (1, tex_final.view),
+                    (2, self._get_uniform_binding("layout")),
+                ],
+                paper_w,
+                paper_h,
+            )
+            content_rect = (off_x, off_y, content_w, content_h)
+        else:
+            tex_final, content_rect = tex_toning, (0, 0, crop_w, crop_h)
 
         if not tiling_mode:
             device.queue.write_buffer(
@@ -398,18 +471,21 @@ class GPUEngine:
                 enc,
                 "metrics",
                 [(0, tex_final.view), (1, self._buffers["metrics"])],
-                crop_w,
-                crop_h,
+                tex_final.width,
+                tex_final.height,
             )
 
         device.queue.submit([enc.finish()])
-
-        metrics: Dict[str, Any] = {"active_roi": roi, "base_positive": tex_final}
+        metrics: Dict[str, Any] = {
+            "active_roi": roi,
+            "base_positive": tex_final,
+            "content_rect": content_rect,
+        }
         if not tiling_mode:
             metrics["analysis_buffer"] = self._readback_downsampled(tex_final)
             metrics["histogram_raw"] = self._readback_metrics()
             try:
-                uv_grid = CoordinateMapping.create_uv_grid(
+                metrics["uv_grid"] = CoordinateMapping.create_uv_grid(
                     rh_orig=h,
                     rw_orig=w,
                     rotation=settings.geometry.rotation,
@@ -419,31 +495,232 @@ class GPUEngine:
                     autocrop=True,
                     autocrop_params={"roi": roi} if roi else None,
                 )
-                metrics["uv_grid"] = uv_grid
             except Exception as e:
                 logger.error(f"GPU Engine metrics error: {e}")
-
         return tex_final, metrics
 
-    def _read_buffer_u32(self, buf: GPUBuffer, count: int) -> np.ndarray:
+    def _upload_unified_uniforms(
+        self,
+        settings: WorkspaceConfig,
+        bounds: Any,
+        offset: Tuple[int, int],
+        full_dims: Tuple[int, int],
+        crop_offset: Tuple[int, int],
+        crop_w: int,
+        crop_h: int,
+        tiling_mode: bool,
+        render_size_ref: Optional[float],
+    ) -> None:
+        g_data = (
+            struct.pack(
+                "ifii",
+                int(settings.geometry.rotation),
+                float(settings.geometry.fine_rotation),
+                (1 if settings.geometry.flip_horizontal else 0),
+                (1 if settings.geometry.flip_vertical else 0),
+            )
+            + b"\x00" * 16
+        )
+        if tiling_mode:
+            g_data = b"\x00" * 32
+        f, c = bounds.floors, bounds.ceils
+        n_data = struct.pack("ffffffff", f[0], f[1], f[2], 0.0, c[0], c[1], c[2], 0.0)
+        from src.features.exposure.models import EXPOSURE_CONSTANTS
+
+        exp = settings.exposure
+        shift = 0.1 + (exp.density * EXPOSURE_CONSTANTS["density_multiplier"])
+        slope, pivot = (
+            1.0 + (exp.grade * EXPOSURE_CONSTANTS["grade_multiplier"]),
+            1.0 - shift,
+        )
+        cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
+        e_data = (
+            struct.pack("ffff", pivot, pivot, pivot, 0.0)
+            + struct.pack("ffff", slope, slope, slope, 0.0)
+            + struct.pack(
+                "ffff",
+                exp.wb_cyan * cmy_m,
+                exp.wb_magenta * cmy_m,
+                exp.wb_yellow * cmy_m,
+                0.0,
+            )
+            + struct.pack(
+                "ffffffff",
+                exp.toe,
+                exp.toe_width,
+                exp.toe_hardness,
+                exp.shoulder,
+                exp.shoulder_width,
+                exp.shoulder_hardness,
+                4.0,
+                2.2,
+            )
+        )
+        cls = float(settings.lab.clahe_strength)
+        c_data = (
+            struct.pack(
+                "ffiiii",
+                cls,
+                max(1.0, cls * 2.5),
+                offset[0],
+                offset[1],
+                full_dims[0],
+                full_dims[1],
+            )
+            + b"\x00" * 8
+        )
+        ret = settings.retouch
+        r_u_data = struct.pack(
+            "ffIIiiII",
+            float(ret.dust_threshold),
+            float(ret.dust_size),
+            len(ret.manual_dust_spots),
+            (1 if ret.dust_remove else 0),
+            offset[0],
+            offset[1],
+            full_dims[0],
+            full_dims[1],
+        )
+        lab = settings.lab
+        m_raw = (
+            lab.crosstalk_matrix
+            if lab.crosstalk_matrix
+            else [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        )
+        cal = np.array(m_raw).reshape(3, 3)
+        applied = np.eye(3) * (1.0 - lab.color_separation) + cal * lab.color_separation
+        applied /= np.maximum(np.sum(applied, axis=1, keepdims=True), 1e-6)
+        m = applied.flatten()
+        l_data = (
+            struct.pack("ffff", m[0], m[1], m[2], 0.0)
+            + struct.pack("ffff", m[3], m[4], m[5], 0.0)
+            + struct.pack("ffff", m[6], m[7], m[8], 0.0)
+            + struct.pack("ffff", 1.0, float(lab.sharpen), 0.0, 0.0)
+        )
+        from src.features.toning.logic import PAPER_PROFILES, PaperProfileName
+
+        prof = settings.toning.paper_profile
+        p_obj = PAPER_PROFILES.get(prof, PAPER_PROFILES[PaperProfileName.NONE])
+        tint, dmax, is_bw = (
+            p_obj.tint,
+            p_obj.dmax_boost,
+            (1 if settings.process_mode == ProcessMode.BW else 0),
+        )
+        t_data = (
+            struct.pack(
+                "ffff",
+                float(lab.saturation),
+                float(settings.toning.selenium_strength),
+                float(settings.toning.sepia_strength),
+                2.2,
+            )
+            + struct.pack("ffff", tint[0], tint[1], tint[2], dmax)
+            + struct.pack("iiIf", crop_offset[0], crop_offset[1], is_bw, 0.0)
+        )
+
+        paper_w, paper_h, content_w, content_h, ox, oy = self._calculate_layout_dims(
+            settings, crop_w, crop_h, render_size_ref
+        )
+        color_hex = settings.export.export_border_color.lstrip("#")
+        bg = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+        scale = float(content_w) / max(1.0, float(crop_w))
+        y_data = (
+            struct.pack("ffffii", bg[0], bg[1], bg[2], 1.0, ox, oy)
+            + struct.pack("iiii", content_w, content_h, crop_w, crop_h)
+            + struct.pack("f", scale)
+            + b"\x00" * 4
+        )
+
+        full_buffer = bytearray()
+        for d in [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, y_data]:
+            full_buffer += d + b"\x00" * (self._alignment - len(d))
+        if not self.gpu.device:
+            raise RuntimeError("GPU device lost")
+        self.gpu.device.queue.write_buffer(
+            self._buffers["unified_u"].buffer, 0, full_buffer
+        )
+
+    def _update_retouch_storage(
+        self,
+        conf: Any,
+        orig_shape: Tuple[int, int],
+        geom: Any,
+        offset: Tuple[int, int],
+        full_dims: Tuple[int, int],
+    ) -> None:
+        spot_data = bytearray()
+        for x, y, size in conf.manual_dust_spots[:512]:
+            mx, my = map_coords_to_geometry(
+                x,
+                y,
+                orig_shape,
+                geom.rotation,
+                geom.fine_rotation,
+                geom.flip_horizontal,
+                geom.flip_vertical,
+            )
+            spot_data += struct.pack("ffff", mx, my, size / max(orig_shape), 0.0)
+        if spot_data:
+            self._buffers["retouch_s"].upload(np.frombuffer(spot_data, dtype=np.uint8))
+
+    def _calculate_layout_dims(
+        self, settings: WorkspaceConfig, cw: int, ch: int, size_ref: Optional[float]
+    ) -> Tuple[int, int, int, int, int, int]:
+        dpi = settings.export.export_dpi
+        if size_ref:
+            dpi = int((size_ref * 2.54) / max(0.1, settings.export.export_print_size))
+
+        border_px = int((settings.export.export_border_size / 2.54) * dpi)
+
+        if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
+            # Scale image to requested size @ DPI
+            target_long_edge = int((settings.export.export_print_size / 2.54) * dpi)
+            if cw >= ch:
+                content_w, content_h = (
+                    target_long_edge,
+                    int(ch * (target_long_edge / cw)),
+                )
+            else:
+                content_h, content_w = (
+                    target_long_edge,
+                    int(cw * (target_long_edge / ch)),
+                )
+
+            paper_w, paper_h = content_w + 2 * border_px, content_h + 2 * border_px
+            off_x, off_y = border_px, border_px
+        else:
+            paper_w, paper_h = PrintService.calculate_paper_px(
+                settings.export.export_print_size,
+                dpi,
+                settings.export.paper_aspect_ratio,
+                cw,
+                ch,
+            )
+            # Center the scaled image within the paper while respecting borders
+            inner_w, inner_h = paper_w - 2 * border_px, paper_h - 2 * border_px
+            scale = min(inner_w / cw, inner_h / ch)
+            content_w, content_h = int(cw * scale), int(ch * scale)
+            off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
+
+        return paper_w, paper_h, content_w, content_h, off_x, off_y
+
+    def _readback_metrics(self) -> np.ndarray:
         device = self.gpu.device
         if not device:
-            return np.zeros(count, dtype=np.uint32)
-        nbytes = count * 4
+            return np.zeros((4, 256), dtype=np.uint32)
         read_buf = device.create_buffer(
-            size=nbytes, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
+            size=4096, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
         )
         encoder = device.create_command_encoder()
-        encoder.copy_buffer_to_buffer(buf.buffer, 0, read_buf, 0, nbytes)
+        encoder.copy_buffer_to_buffer(
+            self._buffers["metrics"].buffer, 0, read_buf, 0, 4096
+        )
         device.queue.submit([encoder.finish()])
         read_buf.map_sync(wgpu.MapMode.READ)
         data = np.frombuffer(read_buf.read_mapped(), dtype=np.uint32).copy()
         read_buf.unmap()
         read_buf.destroy()
-        return data
-
-    def _readback_metrics(self) -> np.ndarray:
-        return self._read_buffer_u32(self._buffers["metrics"], 1024).reshape((4, 256))
+        return cast(np.ndarray, data.reshape((4, 256)))
 
     def _readback_downsampled(self, tex: GPUTexture) -> np.ndarray:
         device = self.gpu.device
@@ -477,7 +754,9 @@ class GPUEngine:
         pipeline = self._pipelines[pipeline_name]
         entries = []
         for idx, res in bindings:
-            if isinstance(res, GPUBuffer):
+            if isinstance(res, dict) and "buffer" in res:
+                entries.append({"binding": idx, "resource": res})
+            elif isinstance(res, GPUBuffer):
                 entries.append(
                     {
                         "binding": idx,
@@ -509,7 +788,10 @@ class GPUEngine:
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         self._init_resources()
         h, w = img.shape[:2]
-        if w * h > 12000000:
+        max_tex = self.gpu.limits.get("max_texture_dimension_2d", 8192)
+        rot = settings.geometry.rotation % 4
+        w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
+        if w_rot > max_tex or h_rot > max_tex or (w * h > 12000000):
             return self._process_tiled(img, settings, scale_factor)
         tex_final, metrics = self.process_to_texture(
             img, settings, scale_factor=scale_factor
@@ -520,23 +802,37 @@ class GPUEngine:
         self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         h, w = img.shape[:2]
-        # Calculate full-res ROI and Bounds once
         epsilon = 1e-6
-        img_log = np.log10(np.clip(img, epsilon, 1.0))
-        analysis_img = (
-            get_analysis_crop(img_log, settings.exposure.analysis_buffer)
+        global_bounds = measure_log_negative_bounds(
+            get_analysis_crop(
+                np.log10(np.clip(img, epsilon, 1.0)), settings.exposure.analysis_buffer
+            )
             if settings.exposure.analysis_buffer > 0
-            else img_log
+            else np.log10(np.clip(img, 1e-6, 1.0))
         )
-        global_bounds = measure_log_negative_bounds(analysis_img)
-
         preview_scale = 1200 / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
         _, metrics_ref = self.process_to_texture(
             img_small, settings, scale_factor=scale_factor
         )
-        roi = metrics_ref["active_roi"]
 
+        device = self.gpu.device
+        assert device is not None
+        nbytes = 64 * 256 * 4
+        read_buf = device.create_buffer(
+            size=nbytes, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
+        )
+        encoder = device.create_command_encoder()
+        encoder.copy_buffer_to_buffer(
+            self._buffers["clahe_c"].buffer, 0, read_buf, 0, nbytes
+        )
+        device.queue.submit([encoder.finish()])
+        read_buf.map_sync(wgpu.MapMode.READ)
+        global_cdfs = np.frombuffer(read_buf.read_mapped(), dtype=np.float32).copy()
+        read_buf.unmap()
+        read_buf.destroy()
+
+        roi = metrics_ref["active_roi"]
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         sy, sx = h_rot / img_small.shape[0], w_rot / img_small.shape[1]
@@ -547,7 +843,10 @@ class GPUEngine:
             int(roi[3] * sx),
         )
         y1, y2, x1, x2 = full_roi
-        final_w, final_h = x2 - x1, y2 - y1
+        crop_w, crop_h = x2 - x1, y2 - y1
+        paper_w, paper_h, content_w, content_h, off_x, off_y = (
+            self._calculate_layout_dims(settings, crop_w, crop_h, None)
+        )
 
         img_rot = img
         if settings.geometry.rotation != 0:
@@ -557,182 +856,60 @@ class GPUEngine:
         if settings.geometry.flip_vertical:
             img_rot = np.flipud(img_rot)
 
-        result = np.zeros((final_h, final_w, 3), dtype=np.float32)
-        tile_size, halo = 2048, 32
+        # Intermediate buffer at source resolution (unscaled)
+        # Tiling works 1:1 in source space to avoid broadcast errors and interpolation seams.
+        full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
-        for ty in range(0, final_h, tile_size):
-            for tx in range(0, final_w, tile_size):
-                tw, th = min(tile_size, final_w - tx), min(tile_size, final_h - ty)
+        tile_size, halo = 2048, 32
+        for ty in range(0, crop_h, tile_size):
+            for tx in range(0, crop_w, tile_size):
+                tw, th = min(tile_size, crop_w - tx), min(tile_size, crop_h - ty)
                 ix1, iy1 = max(0, x1 + tx - halo), max(0, y1 + ty - halo)
                 ix2, iy2 = (
                     min(w_rot, x1 + tx + tw + halo),
                     min(h_rot, y1 + ty + th + halo),
                 )
-                tile_src = img_rot[iy1:iy2, ix1:ix2]
-
-                # Pass tiling_mode=True to bypass geometry and use identity crop
                 tile_res, _ = self.process_to_texture(
-                    tile_src,
+                    img_rot[iy1:iy2, ix1:ix2],
                     settings,
                     scale_factor=scale_factor,
                     tiling_mode=True,
                     bounds_override=global_bounds,
+                    global_offset=(ix1, iy1),
+                    full_dims=(w_rot, h_rot),
+                    clahe_cdf_override=global_cdfs,
+                    apply_layout=False,
                 )
-                tile_np = self._readback_downsampled(tile_res)
-
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
-                result[ty : ty + th, tx : tx + tw] = tile_np[oy : oy + th, ox : ox + tw]
+
+                # Read back and stitch 1:1 into source-res buffer
+                tile_data = self._readback_downsampled(tile_res)
+                full_source_res[ty : ty + th, tx : tx + tw] = tile_data[
+                    oy : oy + th, ox : ox + tw
+                ]
+
+        # Now scale the completed source-res image to target dimensions
+        if content_w != crop_w or content_h != crop_h:
+            scaled_content = cv2.resize(
+                full_source_res, (content_w, content_h), interpolation=cv2.INTER_LINEAR
+            )
+        else:
+            scaled_content = full_source_res
+
+        # Prepare final output with requested DPI and borders
+        result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
+        color_hex = settings.export.export_border_color.lstrip("#")
+        result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+        # Place scaled content into the paper canvas
+        result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
+
         return result, metrics_ref
 
-    def _update_geometry_uniforms(self, conf: Any) -> None:
-        rot, fine, fh, fv = (
-            int(conf.rotation),
-            float(conf.fine_rotation),
-            (1 if conf.flip_horizontal else 0),
-            (1 if conf.flip_vertical else 0),
-        )
-        self._buffers["geometry"].upload(
-            np.frombuffer(
-                struct.pack("ifii", rot, fine, fh, fv) + b"\x00" * 16, dtype=np.uint8
-            )
-        )
-
-    def _update_normalization_uniforms(self, bounds: Any) -> None:
-        f, c = bounds.floors, bounds.ceils
-        self._buffers["normalization"].upload(
-            np.array([f[0], f[1], f[2], 0.0, c[0], c[1], c[2], 0.0], dtype=np.float32)
-        )
-
-    def _update_exposure_uniforms(self, exp: Any) -> None:
-        from src.features.exposure.models import EXPOSURE_CONSTANTS
-
-        m_ref, shift = (
-            1.0,
-            0.1 + (exp.density * EXPOSURE_CONSTANTS["density_multiplier"]),
-        )
-        slope, pivot = (
-            1.0 + (exp.grade * EXPOSURE_CONSTANTS["grade_multiplier"]),
-            m_ref - shift,
-        )
-        p, s = (
-            np.array([pivot] * 3 + [0], dtype=np.float32),
-            np.array([slope] * 3 + [0], dtype=np.float32),
-        )
-        cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
-        cmy = np.array(
-            [exp.wb_cyan * cmy_m, exp.wb_magenta * cmy_m, exp.wb_yellow * cmy_m, 0.0],
-            dtype=np.float32,
-        )
-        sc = np.array(
-            [
-                exp.toe,
-                exp.toe_width,
-                exp.toe_hardness,
-                exp.shoulder,
-                exp.shoulder_width,
-                exp.shoulder_hardness,
-                4.0,
-                2.2,
-            ],
-            dtype=np.float32,
-        )
-        self._buffers["exposure"].upload(np.concatenate([p, s, cmy, sc]))
-
-    def _update_clahe_uniforms(self, conf: Any) -> None:
-        self._buffers["clahe_u"].upload(
-            np.array(
-                [
-                    float(conf.clahe_strength),
-                    max(1.0, float(conf.clahe_strength) * 2.5),
-                    0.0,
-                    0.0,
-                ],
-                dtype=np.float32,
-            )
-        )
-
-    def _update_retouch_resources(
-        self, conf: Any, orig_shape: Tuple[int, int], geom: Any
-    ) -> None:
-        u_data = struct.pack(
-            "ffII",
-            float(conf.dust_threshold),
-            float(conf.dust_size),
-            len(conf.manual_dust_spots),
-            (1 if conf.dust_remove else 0),
-        )
-        self._buffers["retouch_u"].upload(np.frombuffer(u_data, dtype=np.uint8))
-        spot_data = bytearray()
-        for x, y, size in conf.manual_dust_spots[:512]:
-            mx, my = map_coords_to_geometry(
-                x,
-                y,
-                orig_shape,
-                geom.rotation,
-                geom.fine_rotation,
-                geom.flip_horizontal,
-                geom.flip_vertical,
-            )
-            spot_data += struct.pack("ffff", mx, my, size / max(orig_shape), 0.0)
-        if spot_data:
-            self._buffers["retouch_s"].upload(np.frombuffer(spot_data, dtype=np.uint8))
-
-    def _update_lab_uniforms(self, conf: Any) -> None:
-        strength, sharpen = float(conf.color_separation), float(conf.sharpen)
-        matrix = (
-            conf.crosstalk_matrix
-            if conf.crosstalk_matrix
-            else [1, 0, 0, 0, 1, 0, 0, 0, 1]
-        )
-        cal_matrix = np.array(matrix).reshape(3, 3)
-        applied_matrix = np.eye(3) * (1.0 - strength) + cal_matrix * strength
-        applied_matrix /= np.maximum(
-            np.sum(applied_matrix, axis=1, keepdims=True), 1e-6
-        )
-        m = applied_matrix.flatten()
-        buf = np.zeros(16, dtype=np.float32)
-        buf[0:3], buf[4:7], buf[8:11], buf[12], buf[13] = (
-            m[0:3],
-            m[3:6],
-            m[6:9],
-            1.0,
-            sharpen,
-        )
-        self._buffers["lab"].upload(buf)
-
-    def _update_toning_uniforms(
-        self, settings: WorkspaceConfig, crop_offset: Tuple[int, int] = (0, 0)
-    ) -> None:
-        lab, toning = settings.lab, settings.toning
-        sat, sel, sep = (
-            float(lab.saturation),
-            float(toning.selenium_strength),
-            float(toning.sepia_strength),
-        )
-        from src.features.toning.logic import PAPER_PROFILES, PaperProfileName
-
-        profile = PAPER_PROFILES.get(
-            toning.paper_profile, PAPER_PROFILES[PaperProfileName.NONE]
-        )
-        is_bw = 1 if settings.process_mode == ProcessMode.BW else 0
-        tint, dmax = profile.tint, profile.dmax_boost
-        data = (
-            struct.pack("ffff", sat, sel, sep, 2.2)
-            + struct.pack("ffff", tint[0], tint[1], tint[2], dmax)
-            + struct.pack("iiIf", crop_offset[0], crop_offset[1], is_bw, 0.0)
-        )
-        self._buffers["toning"].upload(np.frombuffer(data, dtype=np.uint8))
-
     def cleanup(self) -> None:
-        """
-        Clears cached textures and resources to free VRAM.
-        """
         for tex in self._tex_cache.values():
             try:
-                # WebGPU resources should be explicitly destroyed if possible,
-                # or at least cleared from references for GC.
-                if hasattr(tex, "texture"):
-                    tex.texture.destroy()
+                tex.texture.destroy()
             except Exception:
                 pass
         self._tex_cache.clear()

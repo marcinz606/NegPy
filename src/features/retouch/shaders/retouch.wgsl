@@ -3,10 +3,12 @@ struct RetouchUniforms {
     dust_size: f32,
     num_manual_spots: u32,
     enabled_auto: u32,
+    global_offset: vec2<i32>, // Offset of this tile in the full image
+    full_dims: vec2<i32>,     // Dimensions of the full rotated image
 };
 
 struct ManualSpot {
-    pos: vec2<f32>,    // Normalized (0..1)
+    pos: vec2<f32>,    // Normalized (0..1) in full image space
     radius: f32,       // Normalized radius
     pad: f32,
 };
@@ -16,7 +18,6 @@ struct ManualSpot {
 @group(0) @binding(2) var<uniform> params: RetouchUniforms;
 @group(0) @binding(3) var<storage, read> manual_spots: array<ManualSpot>;
 
-// Simple PCG-based noise for grain synthesis
 fn hash(p: vec2<f32>) -> f32 {
     var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
     p3 += dot(p3, p3.yzx + 33.33);
@@ -55,7 +56,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (gid.x >= dims.x || gid.y >= dims.y) { return; }
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
-    let uv = vec2<f32>(f32(coords.x) + 0.5, f32(coords.y) + 0.5) / vec2<f32>(f32(dims.x), f32(dims.y));
+    
+    // Calculate GLOBAL UV for coordinate-dependent effects (Retouching)
+    let global_coords = vec2<f32>(f32(coords.x + params.global_offset.x) + 0.5, 
+                                  f32(coords.y + params.global_offset.y) + 0.5);
+    let global_uv = global_coords / vec2<f32>(f32(params.full_dims.x), f32(params.full_dims.y));
+    
     let original = textureLoad(input_tex, coords, 0).rgb;
     var res = original;
 
@@ -72,29 +78,29 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // 2. Manual Healing with Grain Synthesis
     for (var i = 0u; i < params.num_manual_spots; i++) {
         let spot = manual_spots[i];
-        let d = distance(uv, spot.pos);
+        let d = distance(global_uv, spot.pos); // Use Global UV
         
         if (d < spot.radius) {
-            // Advanced Multi-point Healing (16 directions)
             var heal = vec3<f32>(0.0);
             let search_radius = spot.radius * 1.1;
             let pi = 3.14159265;
             
             for(var step = 0.0; step < 16.0; step += 1.0) {
                 let angle = step * (pi / 8.0);
-                let offset = vec2<f32>(cos(angle), sin(angle)) * search_radius;
-                let sample_uv = spot.pos + offset;
-                let sample_coords = vec2<i32>(sample_uv * vec2<f32>(f32(dims.x), f32(dims.y)));
-                heal += textureLoad(input_tex, clamp(sample_coords, vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb;
+                let offset_uv = vec2<f32>(cos(angle), sin(angle)) * search_radius;
+                let sample_uv = spot.pos + offset_uv;
+                
+                // Map sample Global UV back to current TILE coordinates
+                let sample_global_coords = sample_uv * vec2<f32>(f32(params.full_dims.x), f32(params.full_dims.y));
+                let sample_tile_coords = vec2<i32>(sample_global_coords) - params.global_offset;
+                
+                heal += textureLoad(input_tex, clamp(sample_tile_coords, vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb;
             }
             res = heal / 16.0;
 
-            // Grain Synthesis (match surrounding film grain feel)
             let luma_grain = dot(res, vec3<f32>(0.2126, 0.7152, 0.0722));
-            // Modulation matches CPU logic: 5.0 * lum * (1.0 - lum)
             let luma_mod = 5.0 * luma_grain * (1.0 - luma_grain);
-            // We use a small noise scale to match scan granularity
-            let grain = get_noise(uv * 1000.0) * 0.015 * luma_mod; 
+            let grain = get_noise(global_uv * 1000.0) * 0.015 * luma_mod; 
             res = res + vec3<f32>(grain);
 
             let feather = smoothstep(spot.radius, spot.radius * 0.75, d);

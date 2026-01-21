@@ -49,6 +49,13 @@ class ImageCanvas(QWidget):
     def set_tool_mode(self, mode: ToolMode) -> None:
         self.overlay.set_tool_mode(mode)
 
+    def clear(self) -> None:
+        """
+        Clears the canvas content.
+        """
+        self.gpu_widget.clear()
+        self.overlay.update_buffer(None, "sRGB", None)
+
     def update_buffer(
         self,
         buffer: Any,

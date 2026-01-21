@@ -29,6 +29,8 @@ class AppController(QObject):
     """
 
     image_updated = pyqtSignal()
+    metrics_available = pyqtSignal(dict)
+    loading_started = pyqtSignal()
     export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal()
     render_requested = pyqtSignal(RenderTask)
@@ -77,6 +79,7 @@ class AppController(QObject):
     def _connect_signals(self) -> None:
         self.render_requested.connect(self.render_worker.process)
         self.render_worker.finished.connect(self._on_render_finished)
+        self.render_worker.metrics_updated.connect(self._on_metrics_updated)
         self.render_worker.error.connect(self._on_render_error)
 
         self.export_worker.progress.connect(self.export_progress.emit)
@@ -115,6 +118,7 @@ class AppController(QObject):
         self.session.asset_model.refresh()
 
     def load_file(self, file_path: str) -> None:
+        self.loading_started.emit()
         target_cs = self.state.workspace_color_space
         use_cam_wb = self.state.config.exposure.use_camera_wb
         self._first_render_done = False
@@ -302,6 +306,10 @@ class AppController(QObject):
             self._pending_render_task = None
             self._is_rendering = True
             self.render_requested.emit(task)
+
+    def _on_metrics_updated(self, metrics: Dict[str, Any]) -> None:
+        self.state.last_metrics.update(metrics)
+        self.metrics_available.emit(metrics)
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = False
