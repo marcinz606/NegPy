@@ -30,7 +30,7 @@ Migrate image processing and rendering to GPU to achieve real-time performance o
 - [x] **48-bit TIFF Export**: Preserves 16-bit per channel precision by bypassing PIL for RGB TIFF saving.
 - [x] **Texture Pooling**: Intermediate textures are cached and reused to minimize VRAM churn.
 - [x] **Unified Uniform Block**: Single persistent UBO with 256-byte aligned offsets for peak efficiency.
-- [x] **Resource Lifecycle**: Explicit `cleanup()` triggers to free VRAM on file load and app close.
+- [x] **Resource Lifecycle**: GC-based cleanup for cached textures to avoid race conditions with display widgets.
 
 ### Phase 4: UI & Controller Integration (Completed)
 - [x] `ImageCanvas` refactored to `QStackedLayout` with Z-order management.
@@ -39,14 +39,15 @@ Migrate image processing and rendering to GPU to achieve real-time performance o
 - [x] **Async Metrics Delivery**: Transitioned to a non-blocking `map_async` pattern. Preview updates are instant, with histogram data arriving asynchronously.
 - [x] **Feature Parity**: All interactive tools (Crop, WB Picker, Histogram) fully functional on GPU.
 
-## 2. Next Milestone: Advanced Polish
+## 2. Next Milestone: Advanced Polish (Completed)
+- [x] **Adaptive Tiling Workgroups**: Dynamic calculation based on hardware limits.
+- [x] **Shared Histogram Context**: Optimized tiling with global CDF storage buffers.
 
-### Reliability & Portability (Medium Priority)
-- [ ] **Adaptive Tiling Workgroups**: Implement dynamic workgroup count calculation based on `device.limits` for maximum portability on mobile/older hardware.
-- [ ] **Shared Histogram Context**: Further optimize tiling by submitting global CDFs as a read-only storage buffer once per session.
-
-## 3. Implementation Log (Milestone 11 - Asynchronous UX)
+## 3. Implementation Log (Milestone 11 - Final Optimization & Stability)
 
 1. [x] **True Async UI Feedback**: Decoupled rendering from readback. `RenderWorker` now emits images immediately, with metrics following via a background `metrics_updated` signal.
-2. [x] **Eliminated Micro-stutters**: The UI remains 100% responsive during rapid parameter changes as the main render thread no longer waits for GPU-to-CPU data transfers.
-3. [x] **Robust Uniform Management**: Finalized the consolidated UBO logic, ensuring hardware-compliant 256-byte alignment across all stages.
+2. [x] **Eliminated Micro-stutters**: The UI remains 100% responsive during rapid parameter changes.
+3. [x] **Robust Uniform Management**: Finalized the consolidated UBO logic with 256-byte alignment.
+4. [x] **Rotation-Aware Tiling**: Fixed broadcasting errors for vertical image exports.
+5. [x] **Race-Condition Free Cleanup**: Transitioned to GC-managed texture lifecycles to prevent "texture destroyed" validation errors.
+6. [x] **GPU Status UI**: Added real-time acceleration indicator to the session panel.

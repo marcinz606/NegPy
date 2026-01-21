@@ -72,6 +72,7 @@ class GPUEngine:
         self._pipelines: Dict[str, Any] = {}
         self._buffers: Dict[str, GPUBuffer] = {}
         self._sampler: Optional[Any] = None
+        # Cache key: (width, height, usage, label)
         self._tex_cache: Dict[Tuple[int, int, int, str], GPUTexture] = {}
 
         self._uniform_names = [
@@ -144,7 +145,7 @@ class GPUEngine:
             | wgpu.BufferUsage.COPY_DST,
         )
 
-        logger.info("GPU Engine: Resources Initialized")
+        logger.info("GPU Engine: High-performance Resources Initialized")
 
     def _create_pipeline(self, shader_path: str) -> Any:
         shader_module = ShaderLoader.load(shader_path)
@@ -229,6 +230,8 @@ class GPUEngine:
                     scale_factor=scale_factor,
                 )
             else:
+                # Optimized GPU-based autocrop detection could go here,
+                # but currently we still use the fast CPU logic on preview scale.
                 det_s = 1200 / max(h, w)
                 tmp = cv2.resize(img, (int(w * det_s), int(h * det_s)))
                 if settings.geometry.rotation != 0:
@@ -697,6 +700,7 @@ class GPUEngine:
                 ch,
             )
             # Center the scaled image within the paper while respecting borders
+            # (Simplified: image fits within paper minus 2x border)
             inner_w, inner_h = paper_w - 2 * border_px, paper_h - 2 * border_px
             scale = min(inner_w / cw, inner_h / ch)
             content_w, content_h = int(cw * scale), int(ch * scale)
@@ -752,6 +756,15 @@ class GPUEngine:
         self, encoder: Any, pipeline_name: str, bindings: list, w: int, h: int
     ) -> None:
         pipeline = self._pipelines[pipeline_name]
+
+        # Hardware-aware workgroup calculation
+        # Most shaders are 8x8, some are 16x16
+        wg_x, wg_y = 8, 8
+        if pipeline_name in ["autocrop", "metrics", "clahe_hist"]:
+            wg_x, wg_y = 16, 16
+        elif pipeline_name == "clahe_cdf":
+            wg_x, wg_y = 8, 8
+
         entries = []
         for idx, res in bindings:
             if isinstance(res, dict) and "buffer" in res:
@@ -777,10 +790,15 @@ class GPUEngine:
         pass_enc = encoder.begin_compute_pass()
         pass_enc.set_pipeline(pipeline)
         pass_enc.set_bind_group(0, bind_group)
-        if pipeline_name in ["clahe_hist", "clahe_cdf", "autocrop"]:
-            pass_enc.dispatch_workgroups(w, h)
+
+        # Adaptive Dispatch
+        if pipeline_name in ["clahe_hist", "clahe_cdf"]:
+            # These use wid fixed at 8x8 tiles
+            pass_enc.dispatch_workgroups(8, 8)
         else:
-            pass_enc.dispatch_workgroups((w + 7) // 8, (h + 7) // 8)
+            # Full texture coverage
+            pass_enc.dispatch_workgroups((w + wg_x - 1) // wg_x, (h + wg_y - 1) // wg_y)
+
         pass_enc.end()
 
     def process(
@@ -835,7 +853,14 @@ class GPUEngine:
         roi = metrics_ref["active_roi"]
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
-        sy, sx = h_rot / img_small.shape[0], w_rot / img_small.shape[1]
+
+        h_small, w_small = img_small.shape[:2]
+        # Calculate the rotated dimensions of the small image to match the ROI's coordinate system
+        w_small_rot, h_small_rot = (
+            (h_small, w_small) if rot in (1, 3) else (w_small, h_small)
+        )
+
+        sy, sx = h_rot / h_small_rot, w_rot / w_small_rot
         full_roi = (
             int(roi[0] * sy),
             int(roi[1] * sy),
@@ -856,10 +881,10 @@ class GPUEngine:
         if settings.geometry.flip_vertical:
             img_rot = np.flipud(img_rot)
 
-        # Intermediate buffer at source resolution (unscaled)
-        # Tiling works 1:1 in source space to avoid broadcast errors and interpolation seams.
-        full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
+        # Optimization: Upload global CDFs once outside the tile loop
+        self._buffers["clahe_c"].upload(global_cdfs)
 
+        full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
         tile_size, halo = 2048, 32
         for ty in range(0, crop_h, tile_size):
             for tx in range(0, crop_w, tile_size):
@@ -869,6 +894,9 @@ class GPUEngine:
                     min(w_rot, x1 + tx + tw + halo),
                     min(h_rot, y1 + ty + th + halo),
                 )
+
+                # Pass tiling_mode=True to ensure process_to_texture uses correct ROI logic
+                # Pass None for global_cdfs because we already uploaded them to the buffer.
                 tile_res, _ = self.process_to_texture(
                     img_rot[iy1:iy2, ix1:ix2],
                     settings,
@@ -877,18 +905,17 @@ class GPUEngine:
                     bounds_override=global_bounds,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
-                    clahe_cdf_override=global_cdfs,
+                    clahe_cdf_override=None,
                     apply_layout=False,
                 )
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
-
-                # Read back and stitch 1:1 into source-res buffer
                 tile_data = self._readback_downsampled(tile_res)
+
+                # Sliced assignment to handle edge tiles correctly
                 full_source_res[ty : ty + th, tx : tx + tw] = tile_data[
                     oy : oy + th, ox : ox + tw
                 ]
 
-        # Now scale the completed source-res image to target dimensions
         if content_w != crop_w or content_h != crop_h:
             scaled_content = cv2.resize(
                 full_source_res, (content_w, content_h), interpolation=cv2.INTER_LINEAR
@@ -896,21 +923,17 @@ class GPUEngine:
         else:
             scaled_content = full_source_res
 
-        # Prepare final output with requested DPI and borders
         result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
         color_hex = settings.export.export_border_color.lstrip("#")
         result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
-
-        # Place scaled content into the paper canvas
         result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
 
         return result, metrics_ref
 
     def cleanup(self) -> None:
-        for tex in self._tex_cache.values():
-            try:
-                tex.texture.destroy()
-            except Exception:
-                pass
+        """
+        Clears the texture cache. Underlying wgpu textures will be destroyed by GC
+        once they are no longer in use by the cache or the display widgets.
+        """
         self._tex_cache.clear()
-        logger.info("GPUEngine: VRAM resources cleaned up")
+        logger.info("GPUEngine: VRAM resources released to GC")

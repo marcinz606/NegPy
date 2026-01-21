@@ -76,6 +76,19 @@ class FileBrowser(QWidget):
         self.ver_label.setStyleSheet("font-size: 18px; color: #888; margin-top: -5px;")
         header_container.addWidget(self.ver_label)
 
+        # GPU Acceleration Indicator
+        from src.infrastructure.gpu.device import GPUDevice
+
+        gpu_active = GPUDevice.get().is_available
+        gpu_text = "GPU: Active" if gpu_active else "GPU: Off (CPU Mode)"
+        gpu_color = "#4caf50" if gpu_active else "#f44336"
+        self.gpu_label = QLabel(gpu_text)
+        self.gpu_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.gpu_label.setStyleSheet(
+            f"font-size: 10px; color: {gpu_color}; font-weight: bold; margin-top: 5px; margin-left: 10px;"
+        )
+        header_container.addWidget(self.gpu_label)
+
         layout.addLayout(header_container)
 
         action_group = QGroupBox("")

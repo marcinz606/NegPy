@@ -326,9 +326,15 @@ class AppController(QObject):
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
 
-        buffer = self.state.last_metrics.get("base_positive")
+        metrics = self.state.last_metrics
+        buffer = metrics.get("base_positive")
+
+        # If using GPU, base_positive is a texture view.
+        # We use analysis_buffer which is a downsampled CPU ndarray.
+        if buffer is not None and not isinstance(buffer, np.ndarray):
+            buffer = metrics.get("analysis_buffer")
+
         if buffer is None or not isinstance(buffer, np.ndarray):
-            # Skip if no buffer or if buffer is GPU texture (not ndarray)
             return
 
         task = ThumbnailUpdateTask(
