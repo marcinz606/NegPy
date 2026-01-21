@@ -44,6 +44,12 @@ class RenderWorker(QObject):
         super().__init__()
         self._processor = ImageProcessor()
 
+    def cleanup(self) -> None:
+        """
+        Releases processor resources.
+        """
+        self._processor.cleanup()
+
     @pyqtSlot(RenderTask)
     def process(self, task: RenderTask) -> None:
         """

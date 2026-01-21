@@ -119,6 +119,9 @@ class AppController(QObject):
         use_cam_wb = self.state.config.exposure.use_camera_wb
         self._first_render_done = False
 
+        # Clear GPU cache before loading new high-res raw to free VRAM
+        self.render_worker.cleanup()
+
         try:
             raw, dims, metadata = self.preview_service.load_linear_preview(
                 file_path, target_cs, use_camera_wb=use_cam_wb
@@ -334,3 +337,4 @@ class AppController(QObject):
         self.export_thread.wait()
         self.thumb_thread.quit()
         self.thumb_thread.wait()
+        self.render_worker.cleanup()

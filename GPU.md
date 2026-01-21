@@ -42,8 +42,10 @@ Migrate image processing and rendering to GPU to achieve real-time performance o
 - [ ] **Uniform Buffer Pooling**: Optimize uniform buffer updates to use `queue.write_buffer` on long-lived buffers instead of frequent allocations.
 
 ### Optimization (Medium Priority)
-- [ ] **Resource Lifecycle**: Implement explicit reference counting or a cleanup pass for the texture pool to free memory when a session is closed.
-- [ ] **Command Buffer Batching**: Consolidate pipeline executions into fewer command buffer submissions.
+- [x] **Resource Lifecycle**: Implemented `GPUEngine.cleanup()` to explicitly destroy cached textures and free VRAM. Integrated with `AppController` to trigger on file load and app close.
+- [x] **Full GPU Histogram**: Implemented `metrics.wgsl` to calculate 4-channel histograms directly on the GPU using atomic operations.
+- [x] **Full GPU AutoCrop**: Implemented native reduction pass.
+- [ ] **Uniform Buffer Pooling**: Optimize uniform buffer updates to use `queue.write_buffer` on long-lived buffers instead of frequent allocations.
 
 ## 3. Implementation Log (Milestone 5 - Reliability)
 

@@ -722,3 +722,18 @@ class GPUEngine:
             + struct.pack("iiIf", crop_offset[0], crop_offset[1], is_bw, 0.0)
         )
         self._buffers["toning"].upload(np.frombuffer(data, dtype=np.uint8))
+
+    def cleanup(self) -> None:
+        """
+        Clears cached textures and resources to free VRAM.
+        """
+        for tex in self._tex_cache.values():
+            try:
+                # WebGPU resources should be explicitly destroyed if possible,
+                # or at least cleared from references for GC.
+                if hasattr(tex, "texture"):
+                    tex.texture.destroy()
+            except Exception:
+                pass
+        self._tex_cache.clear()
+        logger.info("GPUEngine: VRAM resources cleaned up")

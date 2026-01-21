@@ -343,3 +343,10 @@ class ImageProcessor:
                 dpi=(export_settings.export_dpi, export_settings.export_dpi),
                 icc_profile=icc_bytes,
             )
+
+    def cleanup(self) -> None:
+        """
+        Releases engine resources.
+        """
+        if self.engine_gpu:
+            self.engine_gpu.cleanup()
