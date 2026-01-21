@@ -212,18 +212,27 @@ class AppController(QObject):
 
     def _handle_wb_pick(self, nx: float, ny: float) -> None:
         metrics = self.state.last_metrics
-        img = metrics.get("analysis_buffer") or metrics.get("base_positive")
+        img = metrics.get("analysis_buffer")
+        if img is None:
+            img = metrics.get("base_positive")
+
         if img is None or not isinstance(img, np.ndarray):
             return
 
         h, w = img.shape[:2]
         sampled = img[int(np.clip(ny * h, 0, h - 1)), int(np.clip(nx * w, 0, w - 1))]
-        dm, dy = calculate_wb_shifts(sampled)
+        delta_m, delta_y = calculate_wb_shifts(sampled)
+
+        # Apply damping to account for high-contrast curve slopes
+        damping = 0.4
+        exp = self.state.config.exposure
+        new_m = np.clip(exp.wb_magenta + delta_m * damping, -1.0, 1.0)
+        new_y = np.clip(exp.wb_yellow + delta_y * damping, -1.0, 1.0)
+
         new_exp = replace(
             self.state.config.exposure,
-            wb_cyan=0.0,
-            wb_magenta=float(np.clip(dm, -1, 1)),
-            wb_yellow=float(np.clip(dy, -1, 1)),
+            wb_magenta=float(new_m),
+            wb_yellow=float(new_y),
         )
         self.session.update_config(replace(self.state.config, exposure=new_exp))
         self.request_render()
