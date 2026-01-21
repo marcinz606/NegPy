@@ -345,3 +345,10 @@ class ImageProcessor:
         """
         if self.engine_gpu:
             self.engine_gpu.cleanup()
+
+    def destroy_all(self) -> None:
+        """
+        Completely releases all GPU resources.
+        """
+        if self.engine_gpu:
+            self.engine_gpu.destroy_all()

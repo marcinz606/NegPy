@@ -50,8 +50,6 @@ class ExportWorker(QObject):
 
                 if result_bytes:
                     # Save to disk
-                    # Logic for filename generation from pattern
-                    # For simplicity, we'll use a basic join for now or port Pattern logic
                     out_dir = task.export_settings.export_path
                     os.makedirs(out_dir, exist_ok=True)
 
@@ -65,6 +63,9 @@ class ExportWorker(QObject):
 
                     with open(out_path, "wb") as f:
                         f.write(result_bytes)
+
+                # Clear GPU memory/cache after each file
+                self._processor.cleanup()
 
             self.finished.emit()
         except Exception as e:

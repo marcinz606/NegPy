@@ -63,6 +63,18 @@ class GPUTexture:
             (data.shape[1], data.shape[0], 1),
         )
 
+    def destroy(self) -> None:
+        """
+        Explicitly destroys the underlying wgpu texture and view.
+        """
+        try:
+            self.view = None
+            if self.texture:
+                self.texture.destroy()
+                self.texture = None
+        except Exception:
+            pass
+
 
 class GPUBuffer:
     """
@@ -84,3 +96,14 @@ class GPUBuffer:
         if not gpu.device:
             return
         gpu.device.queue.write_buffer(self.buffer, 0, data)
+
+    def destroy(self) -> None:
+        """
+        Explicitly destroys the underlying wgpu buffer.
+        """
+        try:
+            if self.buffer:
+                self.buffer.destroy()
+                self.buffer = None
+        except Exception:
+            pass

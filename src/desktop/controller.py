@@ -351,4 +351,4 @@ class AppController(QObject):
         self.export_thread.wait()
         self.thumb_thread.quit()
         self.thumb_thread.wait()
-        self.render_worker.cleanup()
+        self.render_worker.destroy_all()

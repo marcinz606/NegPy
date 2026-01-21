@@ -3,6 +3,7 @@ import struct
 import numpy as np
 import wgpu  # type: ignore
 import cv2
+import gc
 from typing import Any, Optional, Dict, Tuple, cast
 
 from src.infrastructure.gpu.device import GPUDevice
@@ -932,8 +933,23 @@ class GPUEngine:
 
     def cleanup(self) -> None:
         """
-        Clears the texture cache. Underlying wgpu textures will be destroyed by GC
-        once they are no longer in use by the cache or the display widgets.
+        Explicitly destroys all cached intermediate textures to free VRAM.
         """
+        for tex in self._tex_cache.values():
+            tex.destroy()
         self._tex_cache.clear()
-        logger.info("GPUEngine: VRAM resources released to GC")
+        gc.collect()
+        logger.info("GPUEngine: VRAM resources explicitly destroyed")
+
+    def destroy_all(self) -> None:
+        """
+        Destroys EVERYTHING including persistent buffers and pipelines.
+        Used for full reset or app shutdown.
+        """
+        self.cleanup()
+        for buf in self._buffers.values():
+            buf.destroy()
+        self._buffers.clear()
+        self._pipelines.clear()
+        self._sampler = None
+        logger.info("GPUEngine: All GPU resources evacuated")

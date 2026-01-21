@@ -52,6 +52,12 @@ class RenderWorker(QObject):
         """
         self._processor.cleanup()
 
+    def destroy_all(self) -> None:
+        """
+        Completely releases all GPU resources.
+        """
+        self._processor.destroy_all()
+
     @pyqtSlot(RenderTask)
     def process(self, task: RenderTask) -> None:
         """
