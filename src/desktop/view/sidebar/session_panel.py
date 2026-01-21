@@ -124,9 +124,20 @@ class SessionPanel(QWidget):
 
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics
-        if "base_positive" in metrics:
-            self.hist_widget.update_data(metrics["base_positive"])
 
+        # 1. Update Histogram
+        # Priority: Raw GPU Histogram > CPU Analysis Buffer > Base Positive
+        hist_data = metrics.get("histogram_raw")
+        if hist_data is not None:
+            self.hist_widget.update_data(hist_data)
+        else:
+            buffer = metrics.get("analysis_buffer")
+            if buffer is None:
+                buffer = metrics.get("base_positive")
+            if buffer is not None:
+                self.hist_widget.update_data(buffer)
+
+        # 2. Update Curve
         self.curve_widget.update_curve(self.controller.session.state.config.exposure)
 
     def _on_update_found(self, version: str) -> None:

@@ -21,7 +21,7 @@ class LabSidebar(BaseSidebar):
         self.layout.addWidget(label_color)
 
         color_row = QHBoxLayout()
-        self.sep_slider = CompactSlider("Separation", 0.5, 2.0, conf.color_separation)
+        self.sep_slider = CompactSlider("Separation", 1.0, 3.0, conf.color_separation)
         self.sat_slider = CompactSlider("Saturation", 0.0, 2.0, conf.saturation)
         color_row.addWidget(self.sep_slider)
         color_row.addWidget(self.sat_slider)

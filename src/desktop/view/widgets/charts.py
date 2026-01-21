@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Any
 from PyQt6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, QPointF, QMargins
@@ -55,11 +56,34 @@ class HistogramWidget(QChartView):
             s.attachAxis(self.axis_x)
             s.attachAxis(self.axis_y)
 
-    def update_data(self, buffer: np.ndarray) -> None:
+    def update_data(self, buffer: Any) -> None:
         """
         Calculates histograms and updates chart series.
+        Supports both NumPy buffers and raw histogram counts.
         """
         if buffer is None:
+            return
+
+        # Case 1: Raw Histogram Data (from GPU Engine)
+        if isinstance(buffer, np.ndarray) and buffer.shape == (4, 256):
+
+            def get_points_raw(counts: np.ndarray) -> list:
+                max_val = float(np.max(counts))
+                if max_val <= 0:
+                    return []
+                return [
+                    QPointF(i, float(val) / max_val) for i, val in enumerate(counts)
+                ]
+
+            self.series_r.replace(get_points_raw(buffer[0]))
+            self.series_g.replace(get_points_raw(buffer[1]))
+            self.series_b.replace(get_points_raw(buffer[2]))
+            self.series_l.replace(get_points_raw(buffer[3]))
+            self.axis_x.setRange(0, 255)
+            return
+
+        # Case 2: NumPy Buffer (CPU Fallback)
+        if not isinstance(buffer, np.ndarray):
             return
 
         # Downsample for speed if huge
@@ -82,6 +106,7 @@ class HistogramWidget(QChartView):
         self.series_g.replace(get_points(buffer[..., 1]))
         self.series_b.replace(get_points(buffer[..., 2]))
         self.series_l.replace(get_points(lum))
+        self.axis_x.setRange(0, 255)
 
 
 class PhotometricCurveWidget(QChartView):

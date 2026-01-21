@@ -7,7 +7,12 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMetaObject, Q_ARG, Qt
 from PyQt6.QtGui import QIcon, QPixmap
 
 from src.desktop.session import DesktopSessionManager, AppState, ToolMode
-from src.desktop.workers.render import RenderWorker, RenderTask, ThumbnailWorker, ThumbnailUpdateTask
+from src.desktop.workers.render import (
+    RenderWorker,
+    RenderTask,
+    ThumbnailWorker,
+    ThumbnailUpdateTask,
+)
 from src.desktop.workers.export import ExportWorker, ExportTask
 from src.services.rendering.preview_manager import PreviewManager
 from src.infrastructure.filesystem.watcher import FolderWatchService
@@ -192,8 +197,13 @@ class AppController(QObject):
         self.request_render()
 
     def _handle_wb_pick(self, nx: float, ny: float) -> None:
-        img = self.state.last_metrics.get("base_positive")
+        metrics = self.state.last_metrics
+        # Use analysis_buffer (CPU side) if available, otherwise base_positive
+        img = metrics.get("analysis_buffer")
         if img is None:
+            img = metrics.get("base_positive")
+
+        if img is None or not isinstance(img, np.ndarray):
             return
 
         h, w = img.shape[:2]
@@ -274,7 +284,7 @@ class AppController(QObject):
             Q_ARG(list, tasks),
         )
 
-    def _on_render_finished(self, buffer: np.ndarray, metrics: Dict[str, Any]) -> None:
+    def _on_render_finished(self, buffer: Any, metrics: Dict[str, Any]) -> None:
         self.state.last_metrics = metrics
         self.state.is_processing = False
         self.image_updated.emit()
@@ -306,7 +316,8 @@ class AppController(QObject):
             return
 
         buffer = self.state.last_metrics.get("base_positive")
-        if buffer is None:
+        if buffer is None or not isinstance(buffer, np.ndarray):
+            # Skip if no buffer or if buffer is GPU texture (not ndarray)
             return
 
         task = ThumbnailUpdateTask(

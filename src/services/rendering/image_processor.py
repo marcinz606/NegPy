@@ -15,6 +15,8 @@ from src.domain.models import (
 )
 from src.domain.interfaces import PipelineContext
 from src.services.rendering.engine import DarkroomEngine
+from src.services.rendering.gpu_engine import GPUEngine
+from src.infrastructure.gpu.device import GPUDevice
 from src.kernel.image.logic import (
     float_to_uint8,
     float_to_uint16,
@@ -32,11 +34,23 @@ logger = get_logger(__name__)
 
 class ImageProcessor:
     """
-    Pipeline runner for exports & previews.
+    Pipeline runner for exports & previews. Supports CPU and GPU backends.
+    Preserves 16-bit precision for TIFF exports.
     """
 
     def __init__(self) -> None:
-        self.engine = DarkroomEngine()
+        self.engine_cpu = DarkroomEngine()
+        self.engine_gpu: Optional[GPUEngine] = None
+
+        if APP_CONFIG.use_gpu:
+            gpu = GPUDevice.get()
+            if gpu.is_available:
+                self.engine_gpu = GPUEngine()
+                logger.info("ImageProcessor: GPU backend initialized")
+            else:
+                logger.warning(
+                    "ImageProcessor: GPU requested but not available, using CPU"
+                )
 
     def run_pipeline(
         self,
@@ -45,29 +59,49 @@ class ImageProcessor:
         source_hash: str,
         render_size_ref: float,
         metrics: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[ImageBuffer, Dict[str, Any]]:
+        prefer_gpu: bool = True,
+    ) -> Tuple[Any, Dict[str, Any]]:
         """
-        Executes the engine, returns buffer + metrics.
+        Executes the engine, returns buffer (ndarray or TextureView) + metrics.
         """
         h_orig, w_cols = img.shape[:2]
+        scale_factor = max(h_orig, w_cols) / float(render_size_ref)
 
         context = PipelineContext(
-            scale_factor=max(h_orig, w_cols) / float(render_size_ref),
+            scale_factor=scale_factor,
             original_size=(h_orig, w_cols),
             process_mode=settings.process_mode,
         )
         if metrics:
             context.metrics.update(metrics)
 
-        processed = self.engine.process(img, settings, source_hash, context)
+        # GPU Path
+        if prefer_gpu and self.engine_gpu:
+            try:
+                processed, gpu_metrics = self.engine_gpu.process_to_texture(
+                    img, settings, scale_factor=scale_factor
+                )
+                context.metrics.update(gpu_metrics)
+                return processed, context.metrics
+            except Exception as e:
+                logger.error(f"GPU Processing failed, falling back to CPU: {e}")
+
+        # CPU Fallback
+        processed = self.engine_cpu.process(img, settings, source_hash, context)
         return processed, context.metrics
 
     def buffer_to_pil(
-        self, buffer: ImageBuffer, settings: WorkspaceConfig, bit_depth: int = 8
+        self, buffer: Any, settings: WorkspaceConfig, bit_depth: int = 8
     ) -> Image.Image:
         """
-        Float32 -> PIL (uint8/16).
+        Buffer (Any) -> PIL (uint8/16).
+        Note: 16-bit RGB is not natively supported by PIL.Image.fromarray for all ops.
         """
+        if not isinstance(buffer, np.ndarray):
+            raise ValueError(
+                "buffer_to_pil received GPU texture. Readback must be handled by processor."
+            )
+
         is_toned = (
             settings.toning.selenium_strength != 0.0
             or settings.toning.sepia_strength != 0.0
@@ -83,17 +117,18 @@ class ImageProcessor:
 
         if bit_depth == 8:
             img_int = float_to_uint8(buffer)
-            pil_img = Image.fromarray(img_int)
+            return Image.fromarray(img_int)
         elif bit_depth == 16:
-            img_int = float_to_uint16(buffer)
+            # Grayscale 16-bit is fine
             if buffer.ndim == 2 or (buffer.ndim == 3 and buffer.shape[2] == 1):
-                pil_img = Image.fromarray(img_int)
+                img_int = float_to_uint16(buffer)
+                return Image.fromarray(img_int)
             else:
-                pil_img = Image.fromarray(float_to_uint8(buffer))
+                # RGB 16-bit: PIL limited support.
+                # We return 8-bit PIL for preview/JPEG, but process_export will handle uint16 ndarray for TIFF.
+                return Image.fromarray(float_to_uint8(buffer))
         else:
             raise ValueError("Unsupported bit depth. Use 8 or 16.")
-
-        return pil_img
 
     def process_export(
         self,
@@ -104,18 +139,15 @@ class ImageProcessor:
         metrics: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[bytes], str]:
         """
-        Full-res render + encoding (TIFF/JPEG).
+        Full-res render + encoding (TIFF/JPEG). High-bit depth aware.
         """
         try:
             ctx_mgr, metadata = loader_factory.get_loader(file_path)
-
             source_cs = metadata.get("color_space", "Adobe RGB")
             raw_color_space = ColorSpaceRegistry.get_rawpy_space(source_cs)
-
             target_cs = export_settings.export_color_space
             if target_cs == "Same as Source":
                 target_cs = source_cs
-
             color_space = str(target_cs)
 
             with ctx_mgr as raw:
@@ -136,39 +168,49 @@ class ImageProcessor:
             h, w = rgb.shape[:2]
             f32_buffer = uint16_to_float32(np.ascontiguousarray(rgb))
 
-            buffer, _ = self.run_pipeline(
-                f32_buffer,
-                params,
-                source_hash,
-                render_size_ref=float(APP_CONFIG.preview_render_size),
-                metrics=metrics,
-            )
+            # Run Pipeline
+            if self.engine_gpu:
+                buffer, gpu_metrics = self.engine_gpu.process(
+                    f32_buffer, params, scale_factor=1.0
+                )
+                if metrics:
+                    metrics.update(gpu_metrics)
+            else:
+                buffer, _ = self.run_pipeline(
+                    f32_buffer,
+                    params,
+                    source_hash,
+                    render_size_ref=float(h),
+                    metrics=metrics,
+                    prefer_gpu=False,
+                )
 
             buffer = self._apply_scaling_and_border_f32(buffer, params, export_settings)
 
             is_greyscale = export_settings.export_color_space == "Greyscale"
             is_tiff = export_settings.export_fmt != ExportFormat.JPEG
 
-            if is_greyscale:
-                img_int = float_to_uint_luma(
-                    np.ascontiguousarray(buffer), bit_depth=16 if is_tiff else 8
-                )
-                pil_img = Image.fromarray(img_int)
-            else:
-                pil_img = self.buffer_to_pil(
-                    buffer, params, bit_depth=16 if is_tiff else 8
-                )
-
-            pil_img, target_icc_bytes = self._apply_color_management(
-                pil_img,
-                color_space,
-                export_settings.icc_profile_path,
-                export_settings.icc_invert,
-            )
-
-            output_buf = io.BytesIO()
             if is_tiff:
-                img_out = np.array(pil_img)
+                # 16-bit TIFF Export Path (Bypasses 8-bit PIL limitations for RGB)
+                if is_greyscale:
+                    img_out = float_to_uint_luma(
+                        np.ascontiguousarray(buffer), bit_depth=16
+                    )
+                else:
+                    img_out = float_to_uint16(buffer)
+
+                # Apply color management if needed (Warning: ImageCms might downgrade to 8-bit if using PIL)
+                # For now, if we want strict 16-bit, we embed the profile but don't transform pixels via PIL
+                # unless we have a 16-bit aware transform.
+                # TODO: Implement 16-bit ICC transform or Matrix-based transform.
+
+                target_icc_bytes = self._get_target_icc_bytes(
+                    color_space,
+                    export_settings.icc_profile_path,
+                    export_settings.icc_invert,
+                )
+
+                output_buf = io.BytesIO()
                 tifffile.imwrite(
                     output_buf,
                     img_out,
@@ -177,7 +219,25 @@ class ImageProcessor:
                     compression="lzw",
                 )
                 return output_buf.getvalue(), "tiff"
+
             else:
+                # JPEG Export Path (8-bit)
+                if is_greyscale:
+                    img_int = float_to_uint_luma(
+                        np.ascontiguousarray(buffer), bit_depth=8
+                    )
+                    pil_img = Image.fromarray(img_int)
+                else:
+                    pil_img = self.buffer_to_pil(buffer, params, bit_depth=8)
+
+                pil_img, target_icc_bytes = self._apply_color_management(
+                    pil_img,
+                    color_space,
+                    export_settings.icc_profile_path,
+                    export_settings.icc_invert,
+                )
+
+                output_buf = io.BytesIO()
                 self._save_to_pil_buffer(
                     pil_img, output_buf, export_settings, target_icc_bytes
                 )
@@ -202,8 +262,6 @@ class ImageProcessor:
         if not inverse and icc_path and os.path.exists(icc_path):
             with open(icc_path, "rb") as f:
                 return f.read()
-
-        # Fallback to standard registry profile
         path = ColorSpaceRegistry.get_icc_path(color_space)
         if path and os.path.exists(path):
             with open(path, "rb") as f:
@@ -218,8 +276,6 @@ class ImageProcessor:
         inverse: bool = False,
     ) -> Tuple[Image.Image, Optional[bytes]]:
         target_icc_bytes = None
-
-        # Determine source profile (buffer state)
         profile_working: Any
         path_src = ColorSpaceRegistry.get_icc_path(color_space)
         if path_src and os.path.exists(path_src):
@@ -237,12 +293,8 @@ class ImageProcessor:
                     profile_selected = ImageCms.getOpenProfile(path_dst)
 
             if profile_selected:
-                if inverse:
-                    profile_src = profile_selected
-                    profile_dst = profile_working
-                else:
-                    profile_src = profile_working
-                    profile_dst = profile_selected
+                profile_src = profile_selected if inverse else profile_working
+                profile_dst = profile_working if inverse else profile_selected
 
                 if pil_img.mode not in ("RGB", "L"):
                     pil_img = pil_img.convert("RGB" if pil_img.mode != "I;16" else "L")
@@ -258,22 +310,10 @@ class ImageProcessor:
                 if result_pil is not None:
                     pil_img = result_pil
 
-                # Extract bytes for embedding
                 if not inverse:
-                    if icc_path and os.path.exists(icc_path):
-                        with open(icc_path, "rb") as f:
-                            target_icc_bytes = f.read()
-                    else:
-                        path_emb = ColorSpaceRegistry.get_icc_path(color_space)
-                        if path_emb and os.path.exists(path_emb):
-                            with open(path_emb, "rb") as f:
-                                target_icc_bytes = f.read()
+                    target_icc_bytes = self._get_target_icc_bytes(color_space, icc_path)
             else:
-                # No target profile, just extract standard bytes if available
-                path_emb = ColorSpaceRegistry.get_icc_path(color_space)
-                if path_emb and os.path.exists(path_emb):
-                    with open(path_emb, "rb") as f:
-                        target_icc_bytes = f.read()
+                target_icc_bytes = self._get_target_icc_bytes(color_space, None)
 
         except Exception as e:
             logger.error(f"ICC Error: {e}")

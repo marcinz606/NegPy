@@ -35,3 +35,4 @@ class AppConfig:
     user_icc_dir: str
     default_export_dir: str
     adobe_rgb_profile: str
+    use_gpu: bool = True

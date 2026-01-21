@@ -102,7 +102,7 @@ def package_linux():
 def package_windows():
     """Package the built application into an NSIS installer."""
     print("Packaging for Windows (NSIS)...")
-    
+
     cmd = "makensis"
     # Try to find makensis in common locations if not in PATH
     if not shutil.which(cmd):
@@ -165,7 +165,9 @@ def build():
     if os.path.exists("dist"):
         print(f"Contents of dist: {os.listdir('dist')}")
         if os.path.exists(f"dist/{APP_NAME}"):
-            print(f"Contents of dist/{APP_NAME}: {os.listdir(f'dist/{APP_NAME}')[:10]}... (truncated)")
+            print(
+                f"Contents of dist/{APP_NAME}: {os.listdir(f'dist/{APP_NAME}')[:10]}... (truncated)"
+            )
     else:
         print("ERROR: dist directory not found!")
 
