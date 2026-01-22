@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QLabel,
     QTabWidget,
+    QScrollArea,
 )
 from typing import Dict, Any
 from PyQt6.QtCore import pyqtSignal, Qt, QThread
@@ -92,22 +93,29 @@ class SessionPanel(QWidget):
             }}
         """)
 
+        def wrap_scroll(widget: QWidget) -> QScrollArea:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setWidget(widget)
+            scroll.setStyleSheet("QScrollArea { border: none; }")
+            return scroll
+
         self.analysis_group = QGroupBox()
         analysis_layout = QVBoxLayout(self.analysis_group)
-        analysis_layout.setContentsMargins(0, 5, 0, 0)
+        analysis_layout.setContentsMargins(5, 5, 5, 5)
 
         self.hist_widget = HistogramWidget()
         self.curve_widget = PhotometricCurveWidget()
 
         analysis_layout.addWidget(self.hist_widget)
         analysis_layout.addWidget(self.curve_widget)
-        self.tabs.addTab(self.analysis_group, "Analysis")
+        self.tabs.addTab(wrap_scroll(self.analysis_group), "Analysis")
 
         self.export_sidebar = ExportSidebar(self.controller)
-        self.tabs.addTab(self.export_sidebar, "Export")
+        self.tabs.addTab(wrap_scroll(self.export_sidebar), "Export")
 
         self.metadata_sidebar = MetadataSidebar(self.controller)
-        self.tabs.addTab(self.metadata_sidebar, "Metadata")
+        self.tabs.addTab(wrap_scroll(self.metadata_sidebar), "Metadata")
 
         self.splitter.addWidget(self.tabs)
         self.splitter.setStretchFactor(0, 3)
@@ -148,14 +156,3 @@ class SessionPanel(QWidget):
     def _on_update_found(self, version: str) -> None:
         self.update_label.setText(f"Update Available: v{version}")
         self.update_label.setVisible(True)
-
-    def resizeEvent(self, event) -> None:
-        """Enforce bottom tabs max height"""
-        super().resizeEvent(event)
-        total_h = self.splitter.height()
-        if total_h > 0:
-            max_tabs_h = int(total_h * 0.3)
-            current_sizes = self.splitter.sizes()
-            if len(current_sizes) > 1 and current_sizes[1] > max_tabs_h:
-                new_list_h = total_h - max_tabs_h
-                self.splitter.setSizes([new_list_h, max_tabs_h])

@@ -22,7 +22,7 @@ class HistogramWidget(QChartView):
         self._chart.legend().hide()
 
         self.setChart(self._chart)
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(40)
 
         # Series setup
         self.series_r = QLineSeries()
@@ -141,7 +141,7 @@ class PhotometricCurveWidget(QChartView):
         self.series.attachAxis(self.axis_y)
 
         self.setChart(self._chart)
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(40)
 
     def update_curve(self, params) -> None:
         from src.features.exposure.logic import LogisticSigmoid

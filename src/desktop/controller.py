@@ -1,4 +1,5 @@
 import os
+import time
 from dataclasses import replace
 from typing import List, Dict, Any
 
@@ -36,7 +37,7 @@ class AppController(QObject):
     metrics_available = pyqtSignal(dict)
     loading_started = pyqtSignal()
     export_progress = pyqtSignal(int, int, str)
-    export_finished = pyqtSignal()
+    export_finished = pyqtSignal(float)
     render_requested = pyqtSignal(RenderTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -48,6 +49,7 @@ class AppController(QObject):
         self.session = session_manager
         self.state: AppState = session_manager.state
         self._first_render_done = False
+        self._export_start_time = 0.0
 
         self.preview_service = PreviewManager()
         self.watcher = FolderWatchService()
@@ -263,6 +265,14 @@ class AppController(QObject):
     def request_export(self) -> None:
         if not self.state.current_file_path:
             return
+
+        export_conf = replace(
+            self.state.config.export,
+            apply_icc=self.state.apply_icc_to_export,
+            icc_profile_path=self.state.icc_profile_path,
+            icc_invert=self.state.icc_invert,
+        )
+
         self._run_export_tasks(
             [
                 ExportTask(
@@ -272,19 +282,27 @@ class AppController(QObject):
                         "hash": self.state.current_file_hash,
                     },
                     params=self.state.config,
-                    export_settings=self.state.config.export,
+                    export_settings=export_conf,
                     gpu_enabled=self.state.gpu_enabled,
                 )
             ]
         )
 
     def request_batch_export(self) -> None:
+        # Synchronize ICC state to export config
+        export_conf = replace(
+            self.state.config.export,
+            apply_icc=self.state.apply_icc_to_export,
+            icc_profile_path=self.state.icc_profile_path,
+            icc_invert=self.state.icc_invert,
+        )
+
         tasks = [
             ExportTask(
                 file_info=f,
                 params=self.session.repo.load_file_settings(f["hash"])
                 or self.state.config,
-                export_settings=self.state.config.export,
+                export_settings=export_conf,
                 gpu_enabled=self.state.gpu_enabled,
             )
             for f in self.state.uploaded_files
@@ -293,6 +311,7 @@ class AppController(QObject):
             self._run_export_tasks(tasks)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
+        self._export_start_time = time.time()
         QMetaObject.invokeMethod(
             self.export_worker,
             "run_batch",
@@ -323,7 +342,8 @@ class AppController(QObject):
         logger.error(f"Worker failure: {message}")
 
     def _on_export_finished(self) -> None:
-        self.export_finished.emit()
+        elapsed = time.time() - self._export_start_time
+        self.export_finished.emit(elapsed)
         self._update_thumbnail_from_state()
 
     def _update_thumbnail_from_state(self) -> None:

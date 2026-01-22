@@ -58,6 +58,16 @@ params = [
     "--add-data=VERSION:.",
 ]
 
+# Add platform-specific icon
+if is_windows:
+    if os.path.exists("media/icons/icon.ico"):
+        params.append("--icon=media/icons/icon.ico")
+elif is_macos:
+    if os.path.exists("media/icons/icon.icns"):
+        params.append("--icon=media/icons/icon.icns")
+    elif os.path.exists("media/icons/icon.png"):
+        params.append("--icon=media/icons/icon.png")
+
 
 def package_linux():
     """Package the built application into an AppImage."""
@@ -124,16 +134,27 @@ def package_windows():
 
 
 def package_macos():
-    """Package the built application into a DMG."""
+    """Package the built application into a DMG with Applications symlink."""
     print("Packaging for macOS (DMG)...")
     app_path = os.path.join("dist", f"{APP_NAME}.app")
     dmg_path = os.path.join("dist", f"{APP_NAME}.dmg")
+    temp_dmg_dir = os.path.join("dist", "dmg_temp")
 
     if os.path.exists(dmg_path):
         os.remove(dmg_path)
+    if os.path.exists(temp_dmg_dir):
+        shutil.rmtree(temp_dmg_dir)
+
+    os.makedirs(temp_dmg_dir)
 
     try:
-        # Use hdiutil to create DMG from the .app bundle
+        # 1. Copy .app to temp dir
+        shutil.copytree(app_path, os.path.join(temp_dmg_dir, f"{APP_NAME}.app"))
+
+        # 2. Create symlink to /Applications
+        os.symlink("/Applications", os.path.join(temp_dmg_dir, "Applications"))
+
+        # 3. Create DMG from temp dir
         subprocess.run(
             [
                 "hdiutil",
@@ -141,7 +162,7 @@ def package_macos():
                 "-volname",
                 APP_NAME,
                 "-srcfolder",
-                app_path,
+                temp_dmg_dir,
                 "-ov",
                 "-format",
                 "UDZO",
@@ -153,6 +174,9 @@ def package_macos():
     except Exception as e:
         print(f"Error creating macOS DMG: {e}")
         raise
+    finally:
+        if os.path.exists(temp_dmg_dir):
+            shutil.rmtree(temp_dmg_dir)
 
 
 def build():

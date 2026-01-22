@@ -27,7 +27,7 @@ class TopStatusBar(QWidget):
         self.progress.setStyleSheet(
             """
             QProgressBar { background-color: #222; border: 1px solid #333; border-radius: 6px; }
-            QProgressBar::chunk { background-color: #2e7d32; border-radius: 5px; }
+            QProgressBar::chunk { background-color: {THEME.accent_primary}; border-radius: 5px; }
         """
         )
 

@@ -161,9 +161,9 @@ class MainWindow(QMainWindow):
         self.top_status.progress.setValue(current)
         self.top_status.showMessage(f"Exporting {filename} ({current}/{total})...")
 
-    def _on_export_finished(self) -> None:
+    def _on_export_finished(self, elapsed: float) -> None:
         self.top_status.progress.setVisible(False)
-        self.top_status.showMessage("Export Complete", 5000)
+        self.top_status.showMessage(f"Export Complete in {elapsed:.2f}s", 5000)
 
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""

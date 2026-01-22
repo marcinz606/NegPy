@@ -78,6 +78,9 @@ class BaseSlider(QWidget):
         self.slider.blockSignals(False)
         self.spin.blockSignals(False)
 
+    def value(self) -> float:
+        return self.spin.value()
+
     def mouseDoubleClickEvent(self, event) -> None:
         """Resets to default value."""
         self.setValue(self._default)

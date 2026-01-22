@@ -178,16 +178,29 @@ class ImageProcessor:
             is_tiff = export_settings.export_fmt != ExportFormat.JPEG
 
             if is_tiff:
-                img_out = (
-                    float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
+                img_out_f32 = buffer
+                img_int = (
+                    float_to_uint_luma(np.ascontiguousarray(img_out_f32), bit_depth=16)
                     if is_greyscale
-                    else float_to_uint16(buffer)
+                    else float_to_uint16(img_out_f32)
                 )
-                icc_bytes = self._get_target_icc_bytes(
-                    color_space,
-                    export_settings.icc_profile_path,
-                    export_settings.icc_invert,
-                )
+
+                if export_settings.apply_icc:
+                    pil_img, icc_bytes = self._apply_color_management(
+                        Image.fromarray(img_int),
+                        color_space,
+                        export_settings.icc_profile_path,
+                        export_settings.icc_invert,
+                    )
+                    img_out = np.array(pil_img)
+                else:
+                    img_out = img_int
+                    icc_bytes = self._get_target_icc_bytes(
+                        color_space,
+                        export_settings.icc_profile_path,
+                        export_settings.icc_invert,
+                    )
+
                 output_buf = io.BytesIO()
                 tifffile.imwrite(
                     output_buf,
@@ -203,11 +216,20 @@ class ImageProcessor:
                     if is_greyscale
                     else float_to_uint8(buffer)
                 )
+                icc_path_to_use = (
+                    export_settings.icc_profile_path
+                    if export_settings.apply_icc
+                    else None
+                )
+                icc_invert_to_use = (
+                    export_settings.icc_invert if export_settings.apply_icc else False
+                )
+
                 pil_img, icc_bytes = self._apply_color_management(
                     Image.fromarray(img_int),
                     color_space,
-                    export_settings.icc_profile_path,
-                    export_settings.icc_invert,
+                    icc_path_to_use,
+                    icc_invert_to_use,
                 )
                 output_buf = io.BytesIO()
                 self._save_to_pil_buffer(

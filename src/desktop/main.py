@@ -2,6 +2,7 @@ import sys
 import os
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt
 from src.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from src.kernel.system.paths import get_resource_path
 from src.infrastructure.storage.repository import StorageRepository
@@ -30,6 +31,12 @@ def main() -> None:
     os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 
     _bootstrap_environment()
+
+    # Handle high DPI scaling
+    if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
+        QApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
 
     app = QApplication(sys.argv)
     app.setApplicationName("NegPy")

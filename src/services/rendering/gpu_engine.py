@@ -12,6 +12,7 @@ from src.infrastructure.gpu.shader_loader import ShaderLoader
 from src.domain.models import WorkspaceConfig, ProcessMode, AspectRatio
 from src.kernel.system.logging import get_logger
 from src.kernel.system.config import APP_CONFIG
+from src.kernel.system.paths import get_resource_path
 from src.features.geometry.logic import (
     get_manual_rect_coords,
     get_autocrop_coords,
@@ -44,39 +45,43 @@ class GPUEngine:
     def __init__(self) -> None:
         self.gpu = GPUDevice.get()
         self._shaders = {
-            "geometry": os.path.join(
-                "src", "features", "geometry", "shaders", "transform.wgsl"
+            "geometry": get_resource_path(
+                os.path.join("src", "features", "geometry", "shaders", "transform.wgsl")
             ),
-            "normalization": os.path.join(
-                "src", "features", "exposure", "shaders", "normalization.wgsl"
+            "normalization": get_resource_path(
+                os.path.join(
+                    "src", "features", "exposure", "shaders", "normalization.wgsl"
+                )
             ),
-            "exposure": os.path.join(
-                "src", "features", "exposure", "shaders", "exposure.wgsl"
+            "exposure": get_resource_path(
+                os.path.join("src", "features", "exposure", "shaders", "exposure.wgsl")
             ),
-            "autocrop": os.path.join(
-                "src", "features", "geometry", "shaders", "autocrop.wgsl"
+            "autocrop": get_resource_path(
+                os.path.join("src", "features", "geometry", "shaders", "autocrop.wgsl")
             ),
-            "clahe_hist": os.path.join(
-                "src", "features", "lab", "shaders", "clahe_hist.wgsl"
+            "clahe_hist": get_resource_path(
+                os.path.join("src", "features", "lab", "shaders", "clahe_hist.wgsl")
             ),
-            "clahe_cdf": os.path.join(
-                "src", "features", "lab", "shaders", "clahe_cdf.wgsl"
+            "clahe_cdf": get_resource_path(
+                os.path.join("src", "features", "lab", "shaders", "clahe_cdf.wgsl")
             ),
-            "clahe_apply": os.path.join(
-                "src", "features", "lab", "shaders", "clahe_apply.wgsl"
+            "clahe_apply": get_resource_path(
+                os.path.join("src", "features", "lab", "shaders", "clahe_apply.wgsl")
             ),
-            "retouch": os.path.join(
-                "src", "features", "retouch", "shaders", "retouch.wgsl"
+            "retouch": get_resource_path(
+                os.path.join("src", "features", "retouch", "shaders", "retouch.wgsl")
             ),
-            "lab": os.path.join("src", "features", "lab", "shaders", "lab.wgsl"),
-            "toning": os.path.join(
-                "src", "features", "toning", "shaders", "toning.wgsl"
+            "lab": get_resource_path(
+                os.path.join("src", "features", "lab", "shaders", "lab.wgsl")
             ),
-            "metrics": os.path.join(
-                "src", "features", "lab", "shaders", "metrics.wgsl"
+            "toning": get_resource_path(
+                os.path.join("src", "features", "toning", "shaders", "toning.wgsl")
             ),
-            "layout": os.path.join(
-                "src", "features", "toning", "shaders", "layout.wgsl"
+            "metrics": get_resource_path(
+                os.path.join("src", "features", "lab", "shaders", "metrics.wgsl")
+            ),
+            "layout": get_resource_path(
+                os.path.join("src", "features", "toning", "shaders", "layout.wgsl")
             ),
         }
         self._pipelines: Dict[str, Any] = {}
@@ -764,7 +769,10 @@ class GPUEngine:
         self, encoder: Any, pipeline_name: str, bindings: list, w: int, h: int
     ) -> None:
         """Configures and dispatches a compute pass."""
-        pipeline = self._pipelines[pipeline_name]
+        pipeline = self._pipelines.get(pipeline_name)
+        if pipeline is None:
+            raise RuntimeError(f"Pipeline not initialized: {pipeline_name}")
+
         wg_x, wg_y = (
             (16, 16)
             if pipeline_name in ["autocrop", "metrics", "clahe_hist"]
@@ -772,9 +780,23 @@ class GPUEngine:
         )
         entries = []
         for idx, res in bindings:
+            if res is None:
+                raise ValueError(
+                    f"Binding {idx} in pipeline '{pipeline_name}' is None. "
+                    "This usually means a hardware resource was not properly initialized or has been destroyed."
+                )
+
             if isinstance(res, dict) and "buffer" in res:
+                if res["buffer"] is None:
+                    raise ValueError(
+                        f"Buffer in binding {idx} ({pipeline_name}) is None"
+                    )
                 entries.append({"binding": idx, "resource": res})
             elif isinstance(res, GPUBuffer):
+                if res.buffer is None:
+                    raise ValueError(
+                        f"GPUBuffer in binding {idx} ({pipeline_name}) is None"
+                    )
                 entries.append(
                     {
                         "binding": idx,
@@ -790,9 +812,15 @@ class GPUEngine:
 
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
-        bind_group = self.gpu.device.create_bind_group(
-            layout=pipeline.get_bind_group_layout(0), entries=entries
-        )
+
+        try:
+            bind_group = self.gpu.device.create_bind_group(
+                layout=pipeline.get_bind_group_layout(0), entries=entries
+            )
+        except Exception as e:
+            logger.error(f"Failed to create bind group for {pipeline_name}: {e}")
+            raise
+
         pass_enc = encoder.begin_compute_pass()
         pass_enc.set_pipeline(pipeline)
         pass_enc.set_bind_group(0, bind_group)

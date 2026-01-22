@@ -1,19 +1,20 @@
 # Change Log
 
-## 0.9.4
+## 1.0.0-rc
 
-- **Native UI**: Migrated from Streamlit/Electron to a native PyQt6 desktop application for better performance and system integration.
-- **Hardware Acceleration**: Introduced WebGPU support for real-time, high-fidelity image processing (compatible with Vulkan, Metal, and DX12).
-- **Improved Dust Removal**: Ported the automatic dust detection and healing algorithm to GPU with several enhancements:
-    - Directional line protection to prevent accidental removal of wires/powerlines.
-    - Context-aware variance analysis (9x9 window) to protect fine texture.
-    - Bright-only gating to target dust specifically without affecting dark details.
-- **Color Management**: Enabled ICC profile proofing in GPU mode via optimized VRAM-to-CPU readback.
-- **UI Refinement**: 
-    - New sidebar layout with a centralized header for app version and hardware settings.
-    - Unified UI theme and improved control groupings.
-    - Snap-to-integer sliders for discrete parameters like crop offset and brush sizes.
-- **Stability**: Added comprehensive unit tests for the GPU infrastructure and rendering engine.
+- Brand new, native desktop UI (pyqt6) instead of electron packaged streamlit app
+    - much better performance
+    - much more responsive
+    - much more stable
+    - instant preview when moving sliders
+    - double click on slider label to reset to defaults
+    - native manual crop tool
+    - native file picker
+    - keyboard shortucts
+    - 
+- GPU acceleration!
+- Exported file metadata editor
+- Bugfixes: improved handling of some raw files that previously resulted in heavy colorcasts and compresssion artifacts.
 
 ## 0.9.3
 

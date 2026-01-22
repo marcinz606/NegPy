@@ -1,5 +1,3 @@
-/* Darkroom-Py Theme: Aligned with Streamlit aesthetic */
-
 QMainWindow {
     background-color: #2e2e2e;
 }
