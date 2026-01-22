@@ -51,6 +51,11 @@ params = [
     "--hidden-import=qtawesome",
     # Metadata
     "--copy-metadata=imageio",
+    "--copy-metadata=rawpy",
+    # Collect all for complex binary packages
+    "--collect-all=wgpu",
+    "--collect-all=rawpy",
+    "--collect-all=imageio",
     # Data files
     "--add-data=src:src",
     "--add-data=icc:icc",
@@ -148,8 +153,10 @@ def package_macos():
     os.makedirs(temp_dmg_dir)
 
     try:
-        # 1. Copy .app to temp dir
-        shutil.copytree(app_path, os.path.join(temp_dmg_dir, f"{APP_NAME}.app"))
+        # 1. Copy .app to temp dir (preserve symlinks for macOS bundles)
+        shutil.copytree(
+            app_path, os.path.join(temp_dmg_dir, f"{APP_NAME}.app"), symlinks=True
+        )
 
         # 2. Create symlink to /Applications
         os.symlink("/Applications", os.path.join(temp_dmg_dir, "Applications"))

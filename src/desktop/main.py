@@ -28,46 +28,57 @@ def main() -> None:
     """
     Desktop entry point.
     """
-    os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
+    # Emergency logging for bundled apps
+    if getattr(sys, "frozen", False):
+        log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
+        with open(log_path, "a") as f:
+            f.write("\n--- Booting NegPy ---\n")
 
-    _bootstrap_environment()
+    try:
+        os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 
-    # Handle high DPI scaling
-    if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
-        QApplication.setHighDpiScaleFactorRoundingPolicy(
-            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-        )
+        _bootstrap_environment()
 
-    app = QApplication(sys.argv)
-    app.setApplicationName("NegPy")
-    app.setStyle("Fusion")
+        # Handle high DPI scaling
+        if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
+            QApplication.setHighDpiScaleFactorRoundingPolicy(
+                Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+            )
 
-    # Window Icon
-    icon_path = get_resource_path("media/icons/icon.png")
-    if os.path.exists(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
+        app = QApplication(sys.argv)
+        app.setApplicationName("NegPy")
+        app.setStyle("Fusion")
 
-    # Apply Theme
-    qss_path = get_resource_path("src/desktop/view/styles/modern_dark.qss")
-    if os.path.exists(qss_path):
-        with open(qss_path, "r") as f:
-            app.setStyleSheet(f.read())
+        icon_path = get_resource_path("media/icons/icon.png")
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
 
-    # Initialize Core Services
-    repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
-    repo.initialize()
+        qss_path = get_resource_path("src/desktop/view/styles/modern_dark.qss")
+        if os.path.exists(qss_path):
+            with open(qss_path, "r") as f:
+                app.setStyleSheet(f.read())
 
-    session_manager = DesktopSessionManager(repo)
-    controller = AppController(session_manager)
+        repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
+        repo.initialize()
 
-    # Setup UI
-    window = MainWindow(controller)
-    window.show()
+        session_manager = DesktopSessionManager(repo)
+        controller = AppController(session_manager)
 
-    # Handle graceful exit
-    exit_code = app.exec()
-    controller.cleanup()
-    sys.exit(exit_code)
+        window = MainWindow(controller)
+        window.show()
+
+        exit_code = app.exec()
+        controller.cleanup()
+        sys.exit(exit_code)
+    except Exception as e:
+        if getattr(sys, "frozen", False):
+            import traceback
+
+            log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
+            with open(log_path, "a") as f:
+                f.write(f"CRASH: {str(e)}\n")
+                f.write(traceback.format_exc())
+        raise e
 
 
 if __name__ == "__main__":
