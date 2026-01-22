@@ -50,6 +50,39 @@ class GPUTexture:
             (data.shape[1], data.shape[0], 1),
         )
 
+    def readback(self) -> np.ndarray:
+        """Downloads pixels from VRAM to CPU ndarray (float32)."""
+        gpu = GPUDevice.get()
+        if not gpu.device or not self.texture:
+            return np.zeros((self.height, self.width, 4), dtype=np.float32)
+
+        bytes_per_row = (self.width * 16 + 255) & ~255
+        size = bytes_per_row * self.height
+        staging = gpu.device.create_buffer(
+            size=size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
+        )
+
+        enc = gpu.device.create_command_encoder()
+        enc.copy_texture_to_buffer(
+            {"texture": self.texture},
+            {"buffer": staging, "bytes_per_row": bytes_per_row},
+            (self.width, self.height, 1),
+        )
+        gpu.device.queue.submit([enc.finish()])
+
+        staging.map_sync(mode=wgpu.MapMode.READ)
+        view = staging.read_mapped()
+
+        arr = np.frombuffer(view, dtype=np.float32).reshape(
+            (self.height, bytes_per_row // 4)
+        )
+        pixels = arr[:, : self.width * 4].reshape((self.height, self.width, 4))
+
+        result = pixels.copy()
+        staging.destroy()
+
+        return result
+
     def destroy(self) -> None:
         """Forces hardware resource release."""
         try:

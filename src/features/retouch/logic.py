@@ -24,14 +24,15 @@ def _compute_dust_masks_jit(
 
     for y in prange(h):
         for x in range(w):
-            max_diff = 0.0
+            max_pos_diff = 0.0
             for ch in range(3):
-                d = abs(img[y, x, ch] - img_median[y, x, ch])
-                if d > max_diff:
-                    max_diff = d
+                # Only interested in pixels BRIGHTER than surroundings (dust/scratches)
+                d = img[y, x, ch] - img_median[y, x, ch]
+                if d > max_pos_diff:
+                    max_pos_diff = d
 
             thresh = dust_threshold * sens_factor[y, x] + detail_boost[y, x]
-            if max_diff > thresh and std[y, x] <= 0.2:
+            if max_pos_diff > thresh and std[y, x] <= 0.2:
                 raw_mask[y, x] = 1.0
             else:
                 raw_mask[y, x] = 0.0

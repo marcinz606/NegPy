@@ -144,13 +144,13 @@ class ExportSidebar(BaseSidebar):
         self.batch_export_btn.setIcon(qta.icon("fa5s.images", color="white"))
         self.batch_export_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {THEME.accent_green};
+                background-color: {THEME.accent_primary};
                 color: white;
                 font-weight: bold;
                 border-radius: 4px;
             }}
             QPushButton:hover {{
-                background-color: #388e3c;
+                background-color: {THEME.accent_secondary};
             }}
         """)
         self.layout.addWidget(self.batch_export_btn)

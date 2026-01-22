@@ -46,6 +46,14 @@ class TestGPUInfrastructure(unittest.TestCase):
         data = np.random.rand(100, 100, 3).astype(np.float32)
         tex.upload(data)
 
+        # Test readback
+        read_data = tex.readback()
+        self.assertEqual(read_data.shape, (100, 100, 4))
+        # Verify first 3 channels match uploaded data (with small precision tolerance)
+        np.testing.assert_allclose(read_data[:, :, :3], data, atol=1e-5)
+        # Verify alpha channel is 1.0 (as uploaded in upload method)
+        np.testing.assert_allclose(read_data[:, :, 3], 1.0, atol=1e-5)
+
         # Test explicit destroy
         tex.destroy()
         self.assertIsNone(tex.texture)

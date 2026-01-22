@@ -10,6 +10,7 @@ from typing import Dict, Any
 from PyQt6.QtCore import pyqtSignal, Qt, QThread
 from src.desktop.controller import AppController
 from src.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
+from src.desktop.view.sidebar.header import SidebarHeader
 from src.desktop.view.sidebar.files import FileBrowser
 from src.desktop.view.sidebar.export import ExportSidebar
 from src.desktop.view.sidebar.metadata import MetadataSidebar
@@ -45,27 +46,26 @@ class SessionPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Update Notification
         self.update_label = QLabel("")
         self.update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.update_label.setStyleSheet(
-            "font-size: 11px; color: #2e7d32; font-weight: bold; padding: 5px;"
+            "font-size: 12px; color: #2e7d32; font-weight: bold; padding: 5px;"
         )
         self.update_label.setVisible(False)
         layout.addWidget(self.update_label)
+
+        self.header = SidebarHeader(self.controller)
+        layout.addWidget(self.header)
 
         self.update_worker = UpdateCheckWorker()
         self.update_worker.finished.connect(self._on_update_found)
         self.update_worker.start()
 
-        # Splitter for Files and Tabs (Analysis/Export)
         self.splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # File Browser
         self.file_browser = FileBrowser(self.controller)
         self.splitter.addWidget(self.file_browser)
 
-        # Bottom Tabs
         self.tabs = QTabWidget()
         self.tabs.tabBar().setExpanding(True)
         self.tabs.setStyleSheet(f"""
@@ -88,11 +88,10 @@ class SessionPanel(QWidget):
                 border-bottom-color: {THEME.accent_primary};
             }}
             QTabBar::tab:hover:!selected {{
-                background-color: #333;
+                background-color: {THEME.accent_secondary};
             }}
         """)
 
-        # Analysis Tab
         self.analysis_group = QGroupBox()
         analysis_layout = QVBoxLayout(self.analysis_group)
         analysis_layout.setContentsMargins(0, 5, 0, 0)
@@ -104,11 +103,9 @@ class SessionPanel(QWidget):
         analysis_layout.addWidget(self.curve_widget)
         self.tabs.addTab(self.analysis_group, "Analysis")
 
-        # Export Tab
         self.export_sidebar = ExportSidebar(self.controller)
         self.tabs.addTab(self.export_sidebar, "Export")
 
-        # Metadata Tab
         self.metadata_sidebar = MetadataSidebar(self.controller)
         self.tabs.addTab(self.metadata_sidebar, "Metadata")
 

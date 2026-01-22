@@ -162,7 +162,6 @@ class ImageProcessor:
                 if metrics:
                     metrics.update(gpu_metrics)
             else:
-                # CPU fallback path
                 buffer, _ = self.run_pipeline(
                     f32_buffer,
                     params,

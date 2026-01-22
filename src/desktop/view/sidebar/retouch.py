@@ -33,7 +33,7 @@ class RetouchSidebar(BaseSidebar):
             "Threshold", 0.01, 1.0, conf.dust_threshold
         )
         self.auto_size_slider = CompactSlider(
-            "Auto Size", 1.0, 10.0, float(conf.dust_size)
+            "Auto Size", 1.0, 10.0, float(conf.dust_size), step=1.0, precision=1
         )
         auto_row.addWidget(self.threshold_slider)
         auto_row.addWidget(self.auto_size_slider)
@@ -54,7 +54,7 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addWidget(self.pick_dust_btn)
 
         self.manual_size_slider = SignalSlider(
-            "Brush Size", 2.0, 10.0, float(conf.manual_dust_size), step=1.0
+            "Brush Size", 2.0, 10.0, float(conf.manual_dust_size), step=1.0, precision=1
         )
         self.layout.addWidget(self.manual_size_slider)
 

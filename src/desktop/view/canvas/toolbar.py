@@ -48,12 +48,12 @@ class ActionToolbar(QWidget):
                 border: 1px solid #555;
             }}
             QPushButton#export_btn {{
-                background-color: {THEME.accent_green};
+                background-color: {THEME.accent_primary};
                 font-weight: bold;
                 padding: 10px 30px;
             }}
             QPushButton#export_btn:hover {{
-                background-color: #388e3c;
+                background-color: {THEME.accent_secondary};
             }}
         """)
 

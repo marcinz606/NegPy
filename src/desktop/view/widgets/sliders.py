@@ -96,10 +96,13 @@ class SignalSlider(BaseSlider):
         max_val: float,
         default_val: float,
         step: float = 0.01,
+        precision: int = 100,
         color: str = None,
         parent=None,
     ):
-        super().__init__(min_val, max_val, default_val, parent=parent)
+        super().__init__(
+            min_val, max_val, default_val, precision=precision, parent=parent
+        )
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -111,6 +114,9 @@ class SignalSlider(BaseSlider):
         )
 
         self.spin.setSingleStep(step)
+        if step >= 1.0:
+            self.spin.setDecimals(0)
+
         self.spin.setFixedWidth(70)
         self.spin.setStyleSheet(f"font-size: {THEME.font_size_base}px;")
 
@@ -130,10 +136,14 @@ class CompactSlider(BaseSlider):
         min_val: float,
         max_val: float,
         default_val: float,
+        step: float = 0.01,
+        precision: int = 100,
         color: str = None,
         parent=None,
     ):
-        super().__init__(min_val, max_val, default_val, parent=parent)
+        super().__init__(
+            min_val, max_val, default_val, precision=precision, parent=parent
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
@@ -145,7 +155,12 @@ class CompactSlider(BaseSlider):
             f"font-size: {THEME.font_size_base}px; color: {color if color else THEME.text_secondary};"
         )
 
-        self.spin.setSingleStep(0.01)
+        self.spin.setSingleStep(step)
+        if step >= 1.0:
+            self.spin.setDecimals(0)
+            self.slider.setTickInterval(int(step))
+            self.slider.setSingleStep(int(step))
+
         self.spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.spin.setFixedWidth(50)
         self.spin.setAlignment(Qt.AlignmentFlag.AlignRight)

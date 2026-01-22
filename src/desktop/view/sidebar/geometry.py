@@ -47,7 +47,12 @@ class GeometrySidebar(BaseSidebar):
         # Sliders (2 columns)
         slider_row = QHBoxLayout()
         self.offset_slider = CompactSlider(
-            "Crop Offset", -20.0, 100.0, float(conf.autocrop_offset)
+            "Crop Offset",
+            -20.0,
+            100.0,
+            float(conf.autocrop_offset),
+            step=1.0,
+            precision=1,
         )
         self.fine_rot_slider = CompactSlider("Fine Rot", -5.0, 5.0, conf.fine_rotation)
         slider_row.addWidget(self.offset_slider)

@@ -58,7 +58,6 @@ class RenderWorker(QObject):
     def process(self, task: RenderTask) -> None:
         """Executes the rendering pipeline for a single frame."""
         try:
-            # Atomic copy to prevent cross-thread mutation
             img_src = task.buffer.copy()
 
             result, metrics = self._processor.run_pipeline(
@@ -69,7 +68,11 @@ class RenderWorker(QObject):
                 prefer_gpu=task.gpu_enabled,
             )
 
-            # Post-processing management
+            from src.infrastructure.gpu.resources import GPUTexture
+
+            if task.icc_profile_path and isinstance(result, GPUTexture):
+                result = result.readback()
+
             if task.icc_profile_path and isinstance(result, np.ndarray):
                 pil_img = self._processor.buffer_to_pil(result, task.config)
                 pil_proof, _ = self._processor._apply_color_management(
@@ -86,9 +89,7 @@ class RenderWorker(QObject):
             elif not isinstance(result, np.ndarray):
                 metrics["base_positive"] = result
 
-            # Immediate emission for low-latency preview
             self.finished.emit(result, metrics)
-            # Signal late metrics availability
             self.metrics_updated.emit(metrics)
 
         except Exception as e:

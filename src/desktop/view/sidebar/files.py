@@ -7,17 +7,13 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QGroupBox,
-    QLabel,
 )
-from PyQt6.QtCore import pyqtSignal, QSize, Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import pyqtSignal, QSize, QTimer
 
 import qtawesome as qta
 from src.desktop.controller import AppController
 from src.desktop.view.styles.theme import THEME
 from src.infrastructure.filesystem.watcher import FolderWatchService
-from src.kernel.system.paths import get_resource_path
-from src.kernel.system.version import get_app_version
 from src.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from src.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
@@ -45,63 +41,6 @@ class FileBrowser(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
-
-        header_container = QVBoxLayout()
-        header = QHBoxLayout()
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        icon_label = QLabel()
-        icon_pix = QPixmap(get_resource_path("media/icons/icon.png"))
-        if not icon_pix.isNull():
-            icon_label.setPixmap(
-                icon_pix.scaled(
-                    32,
-                    32,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-
-        name_label = QLabel("NegPy")
-        name_label.setStyleSheet(
-            "font-size: 32px; font-weight: bold; color: #eee; margin-left: 5px;"
-        )
-
-        header.addWidget(icon_label)
-        header.addWidget(name_label)
-        header_container.addLayout(header)
-
-        self.ver_label = QLabel(f"v{get_app_version()}")
-        self.ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ver_label.setStyleSheet("font-size: 18px; color: #888; margin-top: -5px;")
-        header_container.addWidget(self.ver_label)
-
-        # Hardware Acceleration Toggle
-        from src.infrastructure.gpu.device import GPUDevice
-        from PyQt6.QtWidgets import QCheckBox
-
-        gpu_available = GPUDevice.get().is_available
-
-        gpu_container = QHBoxLayout()
-        gpu_container.setContentsMargins(10, 5, 10, 0)
-        gpu_container.setSpacing(10)
-
-        self.gpu_checkbox = QCheckBox("GPU Acceleration")
-        self.gpu_checkbox.setStyleSheet(
-            f"color: {THEME.text_secondary}; font-size: 10px; font-weight: bold;"
-        )
-
-        if gpu_available:
-            self.gpu_checkbox.setChecked(self.session.state.gpu_enabled)
-        else:
-            self.gpu_checkbox.setEnabled(False)
-            self.gpu_checkbox.setChecked(False)
-            self.gpu_checkbox.setToolTip("GPU not available on this hardware")
-
-        gpu_container.addWidget(self.gpu_checkbox)
-        header_container.addLayout(gpu_container)
-
-        layout.addLayout(header_container)
 
         action_group = QGroupBox("")
         action_layout = QVBoxLayout(action_group)
@@ -156,12 +95,6 @@ class FileBrowser(QWidget):
         self.unload_btn.clicked.connect(self.session.clear_files)
         self.list_view.clicked.connect(self._on_item_clicked)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
-        self.gpu_checkbox.toggled.connect(self._on_gpu_toggled)
-
-    def _on_gpu_toggled(self, checked: bool) -> None:
-        if checked != self.session.state.gpu_enabled:
-            self.session.state.gpu_enabled = checked
-            self.controller.request_render()
 
     def _on_hot_folder_toggled(self, checked: bool) -> None:
         self._update_hot_folder_style(checked)
