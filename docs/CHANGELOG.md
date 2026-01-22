@@ -11,7 +11,6 @@
     - native manual crop tool
     - native file picker
     - keyboard shortucts
-    - 
 - GPU acceleration!
 - Exported file metadata editor
 - Bugfixes: improved handling of some raw files that previously resulted in heavy colorcasts and compresssion artifacts.

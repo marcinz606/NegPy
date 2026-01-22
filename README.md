@@ -8,7 +8,7 @@ It is built with **Python**, **PyQt6**, and **WebGPU**, running natively on Linu
 
 ---
 
-![alt text](docs/media/090_scr.png)
+![alt text](docs/media/094_scr.png)
 ---
 
 ## ✨ Features
