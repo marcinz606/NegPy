@@ -117,6 +117,9 @@ class ActionToolbar(QWidget):
         self.btn_reset = QPushButton(" Reset")
         self.btn_reset.setIcon(qta.icon("fa5s.history", color=icon_color))
 
+        self.btn_unload = QPushButton(" Unload")
+        self.btn_unload.setIcon(qta.icon("fa5s.times-circle", color=icon_color))
+
         self.btn_save = QPushButton(" Save Edits")
         self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
 
@@ -130,6 +133,7 @@ class ActionToolbar(QWidget):
         row2.addWidget(self.btn_save)
         row2.addWidget(self.btn_export)
         row2.addWidget(self.btn_reset)
+        row2.addWidget(self.btn_unload)
         row2.addStretch()
 
         main_layout.addLayout(row2)
@@ -147,6 +151,7 @@ class ActionToolbar(QWidget):
         self.btn_paste.clicked.connect(self.session.paste_settings)
         self.btn_save.clicked.connect(self.controller.save_current_edits)
         self.btn_reset.clicked.connect(self.session.reset_settings)
+        self.btn_unload.clicked.connect(self.session.remove_current_file)
         self.btn_export.clicked.connect(self.controller.request_export)
 
         # State sync for button enabled/disabled
@@ -180,4 +185,5 @@ class ActionToolbar(QWidget):
         self.btn_next.setEnabled(
             state.selected_file_idx < len(state.uploaded_files) - 1
         )
+        self.btn_unload.setEnabled(state.selected_file_idx >= 0)
         self.btn_paste.setEnabled(state.clipboard is not None)

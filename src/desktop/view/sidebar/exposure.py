@@ -88,7 +88,7 @@ class ExposureSidebar(BaseSidebar):
         )
         self.layout.addWidget(basics_header)
 
-        self.density_slider = SignalSlider("Density", -1.0, 3.0, conf.density)
+        self.density_slider = SignalSlider("Density", -0.0, 2.0, conf.density)
         self.grade_slider = SignalSlider("Grade", 0.0, 5.0, conf.grade)
 
         self.layout.addWidget(self.density_slider)

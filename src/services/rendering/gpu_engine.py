@@ -100,6 +100,48 @@ class GPUEngine:
             "layout",
         ]
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
+        self._current_source_hash: Optional[str] = None
+        self._last_settings: Optional[WorkspaceConfig] = None
+        self._last_scale_factor: float = 1.0
+
+    def _detect_invalidated_stage(
+        self, settings: WorkspaceConfig, scale_factor: float
+    ) -> int:
+        """
+        Determines the earliest pipeline stage that needs re-running.
+        Returns stage index:
+        0: Geometry (Source/Transform)
+        1: Exposure (Normalization/Grading)
+        2: CLAHE (Adaptive Hist)
+        3: Retouch (Healing)
+        4: Lab (Color/Sharpen)
+        5: Toning (Paper/Split)
+        6: Layout (Final compositing)
+        """
+        if (
+            self._last_settings is None
+            or self._last_scale_factor != scale_factor
+            or self._last_settings.process_mode != settings.process_mode
+        ):
+            return 0
+
+        last = self._last_settings
+        if last.geometry != settings.geometry:
+            return 0
+        if last.exposure != settings.exposure:
+            return 1
+        if last.lab.clahe_strength != settings.lab.clahe_strength:
+            return 2
+        if last.retouch != settings.retouch:
+            return 3
+        if last.lab != settings.lab:
+            return 4
+        if last.toning != settings.toning:
+            return 5
+        if last.export != settings.export:
+            return 6
+
+        return 7  # Nothing changed
 
     def _get_intermediate_texture(
         self, w: int, h: int, usage: int, label: str
@@ -208,7 +250,16 @@ class GPUEngine:
             wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
             "source",
         )
-        source_tex.upload(img)
+
+        # Only upload if the source content has changed
+        if source_hash is None or source_hash != self._current_source_hash:
+            source_tex.upload(img)
+            self._current_source_hash = source_hash
+            start_stage = 0
+        elif tiling_mode:
+            start_stage = 0
+        else:
+            start_stage = self._detect_invalidated_stage(settings, scale_factor)
 
         # ROI calculation
         if tiling_mode and full_dims:
@@ -340,42 +391,46 @@ class GPUEngine:
         )
 
         enc = device.create_command_encoder()
-        self._dispatch_pass(
-            enc,
-            "geometry",
-            [
-                (0, source_tex.view),
-                (1, tex_geom.view),
-                (2, self._get_uniform_binding("geometry")),
-            ],
-            w_rot,
-            h_rot,
-        )
-        self._dispatch_pass(
-            enc,
-            "normalization",
-            [
-                (0, tex_geom.view),
-                (1, tex_norm.view),
-                (2, self._get_uniform_binding("normalization")),
-            ],
-            w_rot,
-            h_rot,
-        )
-        self._dispatch_pass(
-            enc,
-            "exposure",
-            [
-                (0, tex_norm.view),
-                (1, tex_expo.view),
-                (2, self._get_uniform_binding("exposure")),
-            ],
-            w_rot,
-            h_rot,
-        )
+
+        if start_stage <= 0:
+            self._dispatch_pass(
+                enc,
+                "geometry",
+                [
+                    (0, source_tex.view),
+                    (1, tex_geom.view),
+                    (2, self._get_uniform_binding("geometry")),
+                ],
+                w_rot,
+                h_rot,
+            )
+
+        if start_stage <= 1:
+            self._dispatch_pass(
+                enc,
+                "normalization",
+                [
+                    (0, tex_geom.view),
+                    (1, tex_norm.view),
+                    (2, self._get_uniform_binding("normalization")),
+                ],
+                w_rot,
+                h_rot,
+            )
+            self._dispatch_pass(
+                enc,
+                "exposure",
+                [
+                    (0, tex_norm.view),
+                    (1, tex_expo.view),
+                    (2, self._get_uniform_binding("exposure")),
+                ],
+                w_rot,
+                h_rot,
+            )
 
         if settings.lab.clahe_strength > 0:
-            if clahe_cdf_override is None:
+            if clahe_cdf_override is None and start_stage <= 2:
                 self._dispatch_pass(
                     enc,
                     "clahe_hist",
@@ -394,56 +449,62 @@ class GPUEngine:
                     8,
                     8,
                 )
-            self._dispatch_pass(
-                enc,
-                "clahe_apply",
-                [
-                    (0, tex_expo.view),
-                    (1, tex_clahe.view),
-                    (2, self._buffers["clahe_c"]),
-                    (3, self._get_uniform_binding("clahe_u")),
-                ],
-                w_rot,
-                h_rot,
-            )
+            if start_stage <= 2:
+                self._dispatch_pass(
+                    enc,
+                    "clahe_apply",
+                    [
+                        (0, tex_expo.view),
+                        (1, tex_clahe.view),
+                        (2, self._buffers["clahe_c"]),
+                        (3, self._get_uniform_binding("clahe_u")),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
             prev_tex = tex_clahe
         else:
             prev_tex = tex_expo
 
-        self._dispatch_pass(
-            enc,
-            "retouch",
-            [
-                (0, prev_tex.view),
-                (1, tex_ret.view),
-                (2, self._get_uniform_binding("retouch_u")),
-                (3, self._buffers["retouch_s"]),
-            ],
-            w_rot,
-            h_rot,
-        )
-        self._dispatch_pass(
-            enc,
-            "lab",
-            [
-                (0, tex_ret.view),
-                (1, tex_lab.view),
-                (2, self._get_uniform_binding("lab")),
-            ],
-            w_rot,
-            h_rot,
-        )
-        self._dispatch_pass(
-            enc,
-            "toning",
-            [
-                (0, tex_lab.view),
-                (1, tex_toning.view),
-                (2, self._get_uniform_binding("toning")),
-            ],
-            crop_w,
-            crop_h,
-        )
+        if start_stage <= 3:
+            self._dispatch_pass(
+                enc,
+                "retouch",
+                [
+                    (0, prev_tex.view),
+                    (1, tex_ret.view),
+                    (2, self._get_uniform_binding("retouch_u")),
+                    (3, self._buffers["retouch_s"]),
+                ],
+                w_rot,
+                h_rot,
+            )
+
+        if start_stage <= 4:
+            self._dispatch_pass(
+                enc,
+                "lab",
+                [
+                    (0, tex_ret.view),
+                    (1, tex_lab.view),
+                    (2, self._get_uniform_binding("lab")),
+                ],
+                w_rot,
+                h_rot,
+            )
+
+        if start_stage <= 5:
+            self._dispatch_pass(
+                enc,
+                "toning",
+                [
+                    (0, tex_lab.view),
+                    (1, tex_toning.view),
+                    (2, self._get_uniform_binding("toning")),
+                ],
+                crop_w,
+                crop_h,
+            )
 
         if not tiling_mode and apply_layout:
             paper_w, paper_h, content_w, content_h, off_x, off_y = (
@@ -457,17 +518,18 @@ class GPUEngine:
                 | wgpu.TextureUsage.COPY_SRC,
                 "final",
             )
-            self._dispatch_pass(
-                enc,
-                "layout",
-                [
-                    (0, tex_toning.view),
-                    (1, tex_final.view),
-                    (2, self._get_uniform_binding("layout")),
-                ],
-                paper_w,
-                paper_h,
-            )
+            if start_stage <= 6:
+                self._dispatch_pass(
+                    enc,
+                    "layout",
+                    [
+                        (0, tex_toning.view),
+                        (1, tex_final.view),
+                        (2, self._get_uniform_binding("layout")),
+                    ],
+                    paper_w,
+                    paper_h,
+                )
             content_rect = (off_x, off_y, content_w, content_h)
         else:
             tex_final, content_rect = tex_toning, (0, 0, crop_w, crop_h)
@@ -506,6 +568,9 @@ class GPUEngine:
                 )
             except Exception as e:
                 logger.error(f"GPU Engine metrics error: {e}")
+
+        self._last_settings = settings
+        self._last_scale_factor = scale_factor
         return tex_final, metrics
 
     def _upload_unified_uniforms(

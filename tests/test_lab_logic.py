@@ -3,10 +3,33 @@ import numpy as np
 from src.features.lab.logic import (
     apply_output_sharpening,
     apply_saturation,
+    apply_spectral_crosstalk,
+    apply_clahe,
 )
 
 
 class TestLabLogic(unittest.TestCase):
+    def test_spectral_crosstalk(self) -> None:
+        """Matrix should mix channels."""
+        img = np.array([[[1.0, 0.5, 0.0]]], dtype=np.float32)
+        # Identity matrix
+        matrix = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        res = apply_spectral_crosstalk(img, 1.0, matrix)
+        assert np.allclose(res, img)
+
+        # Swap R and G
+        matrix_swap = [0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        res_swap = apply_spectral_crosstalk(img, 1.0, matrix_swap)
+        assert np.allclose(res_swap[0, 0], [0.5, 1.0, 0.0])
+
+    def test_clahe(self) -> None:
+        """CLAHE should modify image."""
+        img = np.random.rand(100, 100, 3).astype(np.float32)
+        res = apply_clahe(img, 1.0)
+        assert res.shape == img.shape
+        # Should be different
+        assert not np.allclose(res, img)
+
     def test_output_sharpening(self) -> None:
         """Sharpening should increase local variance."""
         # Create a simple square

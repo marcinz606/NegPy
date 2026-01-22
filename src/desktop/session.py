@@ -333,3 +333,28 @@ class DesktopSessionManager(QObject):
 
         self.asset_model.refresh()
         self.state_changed.emit()
+
+    def remove_current_file(self) -> None:
+        """
+        Removes the currently selected file from the session.
+        """
+        idx = self.state.selected_file_idx
+        if 0 <= idx < len(self.state.uploaded_files):
+            # Remove file and thumbnail
+            file_info = self.state.uploaded_files.pop(idx)
+            self.state.thumbnails.pop(file_info["name"], None)
+
+            # Reset selection or pick next/prev
+            if not self.state.uploaded_files:
+                self.state.selected_file_idx = -1
+                self.state.current_file_path = None
+                self.state.current_file_hash = None
+                self.state.preview_raw = None
+                self.state.config = WorkspaceConfig()
+            else:
+                # Clamp index to new bounds
+                new_idx = min(idx, len(self.state.uploaded_files) - 1)
+                self.select_file(new_idx)
+
+            self.asset_model.refresh()
+            self.state_changed.emit()

@@ -22,6 +22,7 @@ from src.services.view.coordinate_mapping import CoordinateMapping
 from src.kernel.system.config import APP_CONFIG
 from src.desktop.converters import ImageConverter
 from src.features.exposure.logic import calculate_wb_shifts
+from src.infrastructure.gpu.resources import GPUTexture
 from src.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -94,7 +95,6 @@ class AppController(QObject):
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
 
         self.session.file_selected.connect(self.load_file)
-        self.session.file_selected.connect(self._update_thumbnail_from_state)
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self.request_render)
 
@@ -185,7 +185,7 @@ class AppController(QObject):
     def save_current_edits(self) -> None:
         if self.state.current_file_hash:
             self.session.update_config(self.state.config, persist=True)
-            self._update_thumbnail_from_state()
+            self._update_thumbnail_from_state(force_readback=True)
 
     def clear_retouch(self) -> None:
         self.session.update_config(
@@ -218,12 +218,18 @@ class AppController(QObject):
         if img is None:
             img = metrics.get("base_positive")
 
+        if isinstance(img, GPUTexture):
+            # On-demand readback for picking (avoids frame-by-frame transfer)
+            img = img.readback()
+
         if img is None or not isinstance(img, np.ndarray):
             return
 
         h, w = img.shape[:2]
         sampled = img[int(np.clip(ny * h, 0, h - 1)), int(np.clip(nx * w, 0, w - 1))]
-        delta_m, delta_y = calculate_wb_shifts(sampled)
+
+        # Ensure we only use RGB channels (ignore Alpha if present)
+        delta_m, delta_y = calculate_wb_shifts(sampled[:3])
 
         # Apply damping to account for high-contrast curve slopes
         damping = 0.4
@@ -325,7 +331,8 @@ class AppController(QObject):
         self.image_updated.emit()
         if not self._first_render_done:
             self._first_render_done = True
-            self._update_thumbnail_from_state()
+            # Force readback on initial load to ensure we have a thumbnail
+            self._update_thumbnail_from_state(force_readback=True)
 
         self._is_rendering = False
         if self._pending_render_task:
@@ -345,13 +352,26 @@ class AppController(QObject):
     def _on_export_finished(self) -> None:
         elapsed = time.time() - self._export_start_time
         self.export_finished.emit(elapsed)
-        self._update_thumbnail_from_state()
+        self._update_thumbnail_from_state(force_readback=True)
 
-    def _update_thumbnail_from_state(self) -> None:
+    def _update_thumbnail_from_state(self, force_readback: bool = False) -> None:
+        # Handle signal arguments (e.g. file path string) getting passed as force_readback
+        if not isinstance(force_readback, bool):
+            force_readback = False
+
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
         metrics = self.state.last_metrics
         buffer = metrics.get("base_positive")
+
+        # Optimization: Skip thumbnail generation during interactive GPU rendering
+        # to avoid stalling the pipeline with readbacks, unless explicitly forced
+        # (e.g. on Save/Export or initial load).
+        if isinstance(buffer, GPUTexture):
+            if not force_readback:
+                return
+            buffer = buffer.readback()
+
         if buffer is not None and not isinstance(buffer, np.ndarray):
             buffer = metrics.get("analysis_buffer")
         if buffer is None or not isinstance(buffer, np.ndarray):

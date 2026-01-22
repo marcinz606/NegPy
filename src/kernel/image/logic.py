@@ -118,7 +118,7 @@ def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
         res = np.empty((h, w), dtype=dtype)
         for y in prange(h):
             for x in range(w):
-                v = img[y, x] * scale
+                v = img[y, x] * scale + 0.5
                 if v < 0:
                     v = 0
                 elif v > scale:
@@ -135,7 +135,7 @@ def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
                     + LUMA_G * img[y, x, 1]
                     + LUMA_B * img[y, x, 2]
                 )
-                v = lum * scale
+                v = lum * scale + 0.5
                 if v < 0:
                     v = 0
                 elif v > scale:
@@ -157,7 +157,7 @@ def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
         res = np.empty((h, w), dtype=dtype)
         for y in prange(h):
             for x in range(w):
-                v = img[y, x] * scale
+                v = img[y, x] * scale + 0.5
                 if v < 0:
                     v = 0
                 elif v > scale:
@@ -174,7 +174,7 @@ def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
                     + LUMA_G * img[y, x, 1]
                     + LUMA_B * img[y, x, 2]
                 )
-                v = lum * scale
+                v = lum * scale + 0.5
                 if v < 0:
                     v = 0
                 elif v > scale:

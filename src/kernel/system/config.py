@@ -65,7 +65,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     retouch=RetouchConfig(
         dust_remove=False,
         dust_threshold=0.75,
-        dust_size=3,
+        dust_size=4,
     ),
     export=ExportConfig(
         export_fmt=ExportFormat.JPEG,
