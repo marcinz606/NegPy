@@ -4,10 +4,10 @@ Thank you for your interest in contributing to **NegPy**!
 
 ## 🛠️ Development Setup
 
-NegPy requires **Python 3.13+** and **Node.js** (for desktop builds).
+NegPy requires **Python 3.13+**.
 
 ### 1. Python Environment
-We use a virtual environment named `.venv` (dot is important due to Makefile).
+We use a virtual environment named `.venv` (used by the Makefile).
 
 ```bash
 python -m venv .venv
@@ -15,31 +15,24 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Desktop Environment (Electron)
-If you are working on the desktop wrapper:
+### 2. Running Locally
+You can run the desktop application directly from source:
 
 ```bash
-npm install
-```
-
-### 3. Docker (Optional)
-For quicker testing (frontend accessible via `http://localhost:8501`):
-
-```bash
-make run-app
+make run
 ```
 
 ## 🏗️ Project Structure
 
-The codebase is organized into layers:
+The codebase follows a modular architecture:
 
-- `src/domain/`: Core data models and interfaces.
-- `src/features/`: Implementation of specific image processing logic (Inversion, Lab, etc.).
-- `src/infrastructure/`: Low-level system implementations (I/O, Loaders).
-- `src/kernel/`: Core system services (Logging, Config, Numba caching).
-- `src/services/`: Higher-level orchestration logic (Rendering engine, Export service).
-- `src/ui/`: Streamlit components and layouts.
-- `desktop/`: Electron main process and PyInstaller build scripts.
+- `src/domain/`: Core data models, types, and interfaces.
+- `src/features/`: Image processing logic implementations (Exposure, Geometry, Lab, etc.).
+- `src/infrastructure/`: Low-level system implementations (GPU resources, file loaders).
+- `src/kernel/`: Core system services (Logging, Config, caching).
+- `src/services/`: High-level orchestration (Rendering engine, Export service).
+- `src/desktop/`: PyQt6 UI implementation (View, Controller, Workers).
+- `tests/`: Unit and integration tests.
 
 ## 📐 Coding Standards
 

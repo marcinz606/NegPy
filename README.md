@@ -2,9 +2,9 @@
   <img src="media/icons/icon.svg" width="96" height="96" alt="NegPy Logo"><h1>NegPy</h1>
 </div>
 
-**NegPy** is a tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond simple inversion tool. It simulates how film & photographic paper works but also throws in some lab-scanner conveniences because who wouldn't want a Fuji Frontier at home?
+**NegPy** is a native desktop tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond a simple inversion tool. It simulates how film and photographic paper work but also throws in some lab-scanner conveniences.
 
-Also it runs on Linux, macOS and Windows.
+It is built with **Python**, **PyQt6**, and **WebGPU**, running natively on Linux, macOS, and Windows.
 
 ---
 
@@ -13,13 +13,14 @@ Also it runs on Linux, macOS and Windows.
 
 ## ✨ Features
 
-*   **No Camera Profiles**: It doesn't use camera profiles or ask you colorpick the border. It uses math to neutralize the orange mask based on channel sensitometry.
+*   **GPU Acceleration**: Real-time high-bit-depth processing using WebGPU (Vulkan/Metal/DX12).
+*   **No Camera Profiles**: It doesn't use camera profiles or ask you to color-pick the border. It uses math to neutralize the orange mask based on channel sensitometry.
 *   **Film Physics**: It models the **H&D Characteristic Curve** of photographic material using a Logistic Sigmoid function instead of doing simple linear inversion.
-*   **File Support**: Supports standard RAWs/TIFFs, but also the weird raw files from Kodak Pakon scanners.
-*   **Non-destructive**: Your original files are never touched. Edits are just "recipe" for final print.
-*   **Database**: All edits are stored in a local SQLite database, keyed by file hash. You can rename your files and your edits won't disappear.
-*   **Caching**: Thumbnails are cached so browsing large folders feels snappy.
-*   **Print Ready**: The export module is designed for printing (because you should be printing your photos), with easy border controls and soft-proofing.
+*   **Dust Removal**: Automatic and manual healing tools with grain synthesis to keep scans clean without looking plastic.
+*   **File Support**: Supports standard RAWs/TIFFs, and specialized formats like Kodak Pakon scanner raw files.
+*   **Non-destructive**: original files are never touched; edits are stored as recipes.
+*   **Database**: All edits live in a local SQLite database, keyed by file hash. You can move or rename files without losing your work.
+*   **Print Ready**: Export module designed for printing, featuring border controls and ICC soft-proofing.
 
 ---
 
