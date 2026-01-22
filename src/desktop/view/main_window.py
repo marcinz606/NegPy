@@ -23,6 +23,9 @@ from src.desktop.session import ToolMode
 from src.services.export.print import PrintService
 from src.kernel.image.logic import float_to_uint8
 from src.domain.models import AspectRatio
+from src.kernel.system.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -100,7 +103,7 @@ class MainWindow(QMainWindow):
         """Refreshes canvas when a new render pass completes."""
         metrics = self.state.last_metrics
         if "base_positive" not in metrics:
-            print("DEBUG: 'base_positive' NOT FOUND in metrics!")
+            logger.warning("Render completed but 'base_positive' not found in metrics")
             return
 
         buffer = metrics["base_positive"]
@@ -128,7 +131,7 @@ class MainWindow(QMainWindow):
                     )
                     buffer = np.array(pil_img).astype(np.float32) / 255.0
                 except Exception as e:
-                    print(f"DEBUG: Border preview error: {e}")
+                    logger.error(f"Border preview failure: {e}")
 
         self.canvas.update_buffer(
             buffer, self.state.workspace_color_space, content_rect=content_rect

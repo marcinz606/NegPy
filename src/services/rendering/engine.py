@@ -89,8 +89,8 @@ class DarkroomEngine:
         current_img = img
 
         if settings.geometry.manual_crop_rect:
-            print(
-                f"DEBUG: Engine process with manual_crop_rect: {settings.geometry.manual_crop_rect}"
+            logger.debug(
+                f"Engine process with manual_crop_rect: {settings.geometry.manual_crop_rect}"
             )
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:

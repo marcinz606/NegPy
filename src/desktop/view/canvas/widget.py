@@ -7,6 +7,9 @@ from src.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from src.desktop.view.canvas.overlay import CanvasOverlay
 from src.infrastructure.gpu.device import GPUDevice
 from src.infrastructure.gpu.resources import GPUTexture
+from src.kernel.system.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ImageCanvas(QWidget):
@@ -33,7 +36,7 @@ class ImageCanvas(QWidget):
             try:
                 self.gpu_widget.initialize_gpu(gpu.device, gpu.adapter)
             except Exception as e:
-                print(f"DEBUG: GPU Layer failed: {e}")
+                logger.error(f"Hardware viewport acceleration failed: {e}")
         self.root_layout.addWidget(self.gpu_widget)
 
         # UI Overlay layer

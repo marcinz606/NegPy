@@ -4,6 +4,9 @@ import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from src.domain.models import WorkspaceConfig
 from src.services.rendering.image_processor import ImageProcessor
+from src.kernel.system.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -115,7 +118,7 @@ class ThumbnailWorker(QObject):
             )
             self.finished.emit(new_thumbs)
         except Exception as e:
-            print(f"DEBUG: Thumb failure: {e}")
+            logger.error(f"Thumbnail generation failure: {e}")
 
     @pyqtSlot(ThumbnailUpdateTask)
     def update_rendered(self, task: ThumbnailUpdateTask) -> None:
@@ -128,4 +131,4 @@ class ThumbnailWorker(QObject):
             if thumb:
                 self.finished.emit({task.filename: thumb})
         except Exception as e:
-            print(f"DEBUG: Thumb update failure: {e}")
+            logger.error(f"Thumbnail update failure: {e}")
