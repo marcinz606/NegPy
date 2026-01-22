@@ -879,7 +879,6 @@ class GPUEngine:
         if settings.geometry.flip_vertical:
             img_rot = np.flipud(img_rot)
 
-        self._buffers["clahe_c"].upload(global_cdfs)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
         for ty in range(0, crop_h, TILE_SIZE):
@@ -898,7 +897,7 @@ class GPUEngine:
                     bounds_override=global_bounds,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
-                    clahe_cdf_override=None,
+                    clahe_cdf_override=global_cdfs,
                     apply_layout=False,
                 )
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
