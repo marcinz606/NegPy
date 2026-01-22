@@ -67,10 +67,14 @@ class GeometrySidebar(BaseSidebar):
         self.reset_crop_btn.clicked.connect(self.controller.reset_crop)
 
         self.offset_slider.valueChanged.connect(
-            lambda v: self.update_config_section("geometry", autocrop_offset=int(v))
+            lambda v: self.update_config_section(
+                "geometry", readback_metrics=False, autocrop_offset=int(v)
+            )
         )
         self.fine_rot_slider.valueChanged.connect(
-            lambda v: self.update_config_section("geometry", fine_rotation=v)
+            lambda v: self.update_config_section(
+                "geometry", readback_metrics=False, fine_rotation=v
+            )
         )
 
     def _on_manual_crop_toggled(self, checked: bool) -> None:

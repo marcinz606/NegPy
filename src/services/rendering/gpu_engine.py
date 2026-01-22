@@ -189,6 +189,8 @@ class GPUEngine:
         clahe_cdf_override: Optional[np.ndarray] = None,
         apply_layout: bool = True,
         render_size_ref: Optional[float] = None,
+        source_hash: Optional[str] = None,
+        readback_metrics: bool = True,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
@@ -470,7 +472,7 @@ class GPUEngine:
         else:
             tex_final, content_rect = tex_toning, (0, 0, crop_w, crop_h)
 
-        if not tiling_mode:
+        if not tiling_mode and readback_metrics:
             device.queue.write_buffer(
                 self._buffers["metrics"].buffer, 0, np.zeros(1024, dtype=np.uint32)
             )
@@ -489,8 +491,7 @@ class GPUEngine:
             "content_rect": content_rect,
         }
 
-        if not tiling_mode:
-            metrics["analysis_buffer"] = self._readback_downsampled(tex_final)
+        if not tiling_mode and readback_metrics:
             metrics["histogram_raw"] = self._readback_metrics()
             try:
                 metrics["uv_grid"] = CoordinateMapping.create_uv_grid(
@@ -602,15 +603,21 @@ class GPUEngine:
             if lab.crosstalk_matrix
             else [1, 0, 0, 0, 1, 0, 0, 0, 1]
         )
+
+        # Match CPU logic: Strength is amount above 1.0
+        sep_strength = max(0.0, lab.color_separation - 1.0)
+
         cal = np.array(m_raw).reshape(3, 3)
-        applied = np.eye(3) * (1.0 - lab.color_separation) + cal * lab.color_separation
+        applied = np.eye(3) * (1.0 - sep_strength) + cal * sep_strength
+
+        # Row-normalization
         applied /= np.maximum(np.sum(applied, axis=1, keepdims=True), 1e-6)
         m = applied.flatten()
         l_data = (
             struct.pack("ffff", m[0], m[1], m[2], 0.0)
             + struct.pack("ffff", m[3], m[4], m[5], 0.0)
             + struct.pack("ffff", m[6], m[7], m[8], 0.0)
-            + struct.pack("ffff", 1.0, float(lab.sharpen), 0.0, 0.0)
+            + struct.pack("ffff", sep_strength, float(lab.sharpen), 0.0, 0.0)
         )
 
         from src.features.toning.logic import PAPER_PROFILES, PaperProfileName

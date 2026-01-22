@@ -21,6 +21,7 @@ class RenderTask:
     icc_invert: bool = False
     color_space: str = "Adobe RGB"
     gpu_enabled: bool = True
+    readback_metrics: bool = True
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ class RenderWorker(QObject):
                 task.source_hash,
                 render_size_ref=task.preview_size,
                 prefer_gpu=task.gpu_enabled,
+                readback_metrics=task.readback_metrics,
             )
 
             from src.infrastructure.gpu.resources import GPUTexture

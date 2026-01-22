@@ -45,16 +45,24 @@ class LabSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.sep_slider.valueChanged.connect(
-            lambda v: self.update_config_section("lab", color_separation=v)
+            lambda v: self.update_config_section(
+                "lab", readback_metrics=False, color_separation=v
+            )
         )
         self.sat_slider.valueChanged.connect(
-            lambda v: self.update_config_section("lab", saturation=v)
+            lambda v: self.update_config_section(
+                "lab", readback_metrics=False, saturation=v
+            )
         )
         self.clahe_slider.valueChanged.connect(
-            lambda v: self.update_config_section("lab", clahe_strength=v)
+            lambda v: self.update_config_section(
+                "lab", readback_metrics=False, clahe_strength=v
+            )
         )
         self.sharp_slider.valueChanged.connect(
-            lambda v: self.update_config_section("lab", sharpen=v)
+            lambda v: self.update_config_section(
+                "lab", readback_metrics=False, sharpen=v
+            )
         )
 
     def sync_ui(self) -> None:

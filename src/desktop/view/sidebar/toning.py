@@ -33,10 +33,14 @@ class ToningSidebar(BaseSidebar):
             lambda v: self.update_config_section("toning", paper_profile=v)
         )
         self.selenium_slider.valueChanged.connect(
-            lambda v: self.update_config_section("toning", selenium_strength=v)
+            lambda v: self.update_config_section(
+                "toning", readback_metrics=False, selenium_strength=v
+            )
         )
         self.sepia_slider.valueChanged.connect(
-            lambda v: self.update_config_section("toning", sepia_strength=v)
+            lambda v: self.update_config_section(
+                "toning", readback_metrics=False, sepia_strength=v
+            )
         )
 
     def sync_ui(self) -> None:

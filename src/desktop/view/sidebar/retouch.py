@@ -69,10 +69,14 @@ class RetouchSidebar(BaseSidebar):
             lambda c: self.update_config_section("retouch", dust_remove=c)
         )
         self.threshold_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", dust_threshold=v)
+            lambda v: self.update_config_section(
+                "retouch", readback_metrics=False, dust_threshold=v
+            )
         )
         self.auto_size_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", dust_size=int(v))
+            lambda v: self.update_config_section(
+                "retouch", readback_metrics=False, dust_size=int(v)
+            )
         )
         self.pick_dust_btn.toggled.connect(self._on_pick_toggled)
         self.manual_size_slider.valueChanged.connect(

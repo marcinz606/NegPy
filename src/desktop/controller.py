@@ -239,7 +239,7 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, exposure=new_exp))
         self.request_render()
 
-    def request_render(self) -> None:
+    def request_render(self, readback_metrics: bool = True) -> None:
         """Dispatches a render task to the worker thread."""
         if self.state.preview_raw is None:
             return
@@ -253,6 +253,7 @@ class AppController(QObject):
             icc_invert=self.state.icc_invert,
             color_space=self.state.workspace_color_space,
             gpu_enabled=self.state.gpu_enabled,
+            readback_metrics=readback_metrics,
         )
 
         if self._is_rendering:

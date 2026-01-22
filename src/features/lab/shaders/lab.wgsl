@@ -37,18 +37,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     var color = textureLoad(input_tex, coords, 0).rgb;
 
-    // 1. Spectral Crosstalk (Matrix multiplication)
-    // Row-normalization and interpolation now handled on Python side
+    // 1. Spectral Crosstalk (Matrix multiplication in Density Space)
     if (params.strength > 0.0) {
+        // Convert to Density (-log10)
+        // WGSL log is ln, so we divide by ln(10) ~ 2.302585
+        let epsilon = 1e-6;
+        let dens = -log(max(color, vec3<f32>(epsilon))) / 2.302585;
+
         let m0 = params.crosstalk_row0.xyz;
         let m1 = params.crosstalk_row1.xyz;
         let m2 = params.crosstalk_row2.xyz;
         
-        let mixed_r = dot(color, m0);
-        let mixed_g = dot(color, m1);
-        let mixed_b = dot(color, m2);
+        let mixed_r = dot(dens, m0);
+        let mixed_g = dot(dens, m1);
+        let mixed_b = dot(dens, m2);
         
-        color = vec3<f32>(mixed_r, mixed_g, mixed_b);
+        // Convert back from Density (10^-d)
+        let mixed_dens = vec3<f32>(mixed_r, mixed_g, mixed_b);
+        color = pow(vec3<f32>(10.0), -mixed_dens);
     }
 
     // 2. Sharpening (Perceptual Luma USM)

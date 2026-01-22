@@ -130,24 +130,34 @@ class ExposureSidebar(BaseSidebar):
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
 
         self.cyan_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, wb_cyan=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, wb_cyan=v
+            )
         )
         self.magenta_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, wb_magenta=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, wb_magenta=v
+            )
         )
         self.yellow_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, wb_yellow=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, wb_yellow=v
+            )
         )
 
         self.density_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, density=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, density=v
+            )
         )
         self.grade_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, grade=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, grade=v
+            )
         )
         self.analysis_buffer_slider.valueChanged.connect(
             lambda v: self.update_config_section(
-                "exposure", persist=True, analysis_buffer=v
+                "exposure", persist=True, readback_metrics=False, analysis_buffer=v
             )
         )
 
@@ -156,28 +166,34 @@ class ExposureSidebar(BaseSidebar):
 
         # Curve signals
         self.toe_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, toe=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, toe=v
+            )
         )
         self.toe_w_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, toe_width=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, toe_width=v
+            )
         )
         self.toe_h_slider.valueChanged.connect(
             lambda v: self.update_config_section(
-                "exposure", persist=True, toe_hardness=v
+                "exposure", persist=True, readback_metrics=False, toe_hardness=v
             )
         )
 
         self.sh_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", persist=True, shoulder=v)
+            lambda v: self.update_config_section(
+                "exposure", persist=True, readback_metrics=False, shoulder=v
+            )
         )
         self.sh_w_slider.valueChanged.connect(
             lambda v: self.update_config_section(
-                "exposure", persist=True, shoulder_width=v
+                "exposure", persist=True, readback_metrics=False, shoulder_width=v
             )
         )
         self.sh_h_slider.valueChanged.connect(
             lambda v: self.update_config_section(
-                "exposure", persist=True, shoulder_hardness=v
+                "exposure", persist=True, readback_metrics=False, shoulder_hardness=v
             )
         )
 

@@ -87,24 +87,46 @@ class GPUCanvasWidget(QWidget):
 
         @group(0) @binding(0) var tex: texture_2d<f32>;
 
-        fn textureSampleBilinear(uv: vec2<f32>) -> vec4<f32> {
+        fn cubic(v: f32) -> f32 {
+            let a = 0.5; // Catmull-Rom
+            let x = abs(v);
+            if (x < 1.0) {
+                return 1.5 * x * x * x - 2.5 * x * x + 1.0;
+            } else if (x < 2.0) {
+                return -0.5 * x * x * x + 2.5 * x * x - 4.0 * x + 2.0;
+            }
+            return 0.0;
+        }
+
+        fn textureSampleBicubic(uv: vec2<f32>) -> vec4<f32> {
             let dims = textureDimensions(tex);
             let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
+
+            // Transform to pixel coordinates
             let pixel = uv * fdims - 0.5;
-            let c00 = floor(pixel);
-            let t = pixel - c00;
-            let i00 = vec2<i32>(c00);
-            let idims = vec2<i32>(i32(dims.x), i32(dims.y));
-            let v00 = textureLoad(tex, clamp(i00 + vec2<i32>(0, 0), vec2<i32>(0), idims - 1), 0);
-            let v10 = textureLoad(tex, clamp(i00 + vec2<i32>(1, 0), vec2<i32>(0), idims - 1), 0);
-            let v01 = textureLoad(tex, clamp(i00 + vec2<i32>(0, 1), vec2<i32>(0), idims - 1), 0);
-            let v11 = textureLoad(tex, clamp(i00 + vec2<i32>(1, 1), vec2<i32>(0), idims - 1), 0);
-            return mix(mix(v00, v10, t.x), mix(v01, v11, t.x), t.y);
+            let ipos = floor(pixel);
+            let fpos = fract(pixel);
+
+            var col = vec4<f32>(0.0);
+
+            for (var y = -1; y <= 2; y++) {
+                for (var x = -1; x <= 2; x++) {
+                    let offset = vec2<f32>(f32(x), f32(y));
+                    let coord = vec2<i32>(ipos + offset);
+
+                    // Clamp to texture boundaries
+                    let c = clamp(coord, vec2<i32>(0), vec2<i32>(dims) - 1);
+
+                    let weight = cubic(f32(x) - fpos.x) * cubic(f32(y) - fpos.y);
+                    col += textureLoad(tex, c, 0) * weight;
+                }
+            }
+            return col;
         }
 
         @fragment
         fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-            return textureSampleBilinear(in.uv);
+            return textureSampleBicubic(in.uv);
         }
         """
         shader = self.device.create_shader_module(code=shader_source)

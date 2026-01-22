@@ -58,6 +58,7 @@ class ImageProcessor:
         render_size_ref: float,
         metrics: Optional[Dict[str, Any]] = None,
         prefer_gpu: bool = True,
+        readback_metrics: bool = True,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
@@ -80,6 +81,7 @@ class ImageProcessor:
                     settings,
                     scale_factor=scale_factor,
                     render_size_ref=render_size_ref,
+                    readback_metrics=readback_metrics,
                 )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics

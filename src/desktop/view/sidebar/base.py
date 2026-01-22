@@ -42,6 +42,7 @@ class BaseSidebar(QWidget):
         section_name: str,
         render: bool = True,
         persist: bool = False,
+        readback_metrics: bool = True,
         **changes: Any,
     ) -> None:
         """
@@ -51,6 +52,7 @@ class BaseSidebar(QWidget):
             section_name: Name of the config field (e.g. 'exposure', 'geometry').
             render: Whether to request a new render after update.
             persist: Whether to save this change to disk (sidecar).
+            readback_metrics: Whether to read back metrics (histogram, etc.) after render.
             changes: Key-value pairs to update in that section.
         """
         current_section = getattr(self.state.config, section_name)
@@ -62,10 +64,14 @@ class BaseSidebar(QWidget):
         self.controller.session.update_config(new_config, persist=persist)
 
         if render:
-            self.controller.request_render()
+            self.controller.request_render(readback_metrics=readback_metrics)
 
     def update_config_root(
-        self, render: bool = True, persist: bool = False, **changes: Any
+        self,
+        render: bool = True,
+        persist: bool = False,
+        readback_metrics: bool = True,
+        **changes: Any,
     ) -> None:
         """
         Updates fields on the root config object directly.
@@ -74,4 +80,4 @@ class BaseSidebar(QWidget):
         self.controller.session.update_config(new_config, persist=persist)
 
         if render:
-            self.controller.request_render()
+            self.controller.request_render(readback_metrics=readback_metrics)
