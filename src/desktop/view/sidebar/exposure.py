@@ -94,7 +94,7 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.density_slider)
         self.layout.addWidget(self.grade_slider)
 
-        toe_label = QLabel("Toe (Shadows) Control")
+        toe_label = QLabel("Toe (Shadows)")
         toe_label.setStyleSheet(
             f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
         )
@@ -109,7 +109,7 @@ class ExposureSidebar(BaseSidebar):
         toe_row.addWidget(self.toe_h_slider)
         self.layout.addLayout(toe_row)
 
-        shld_label = QLabel("Shoulder (Highlights) Control")
+        shld_label = QLabel("Shoulder (Highlights)")
         shld_label.setStyleSheet(
             f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
         )

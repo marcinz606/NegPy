@@ -196,6 +196,19 @@ class AppController(QObject):
         )
         self.request_render()
 
+    def undo_last_retouch(self) -> None:
+        """Removes the most recently added dust spot."""
+        spots = list(self.state.config.retouch.manual_dust_spots)
+        if spots:
+            spots.pop()
+            self.session.update_config(
+                replace(
+                    self.state.config,
+                    retouch=replace(self.state.config.retouch, manual_dust_spots=spots),
+                )
+            )
+            self.request_render()
+
     def _handle_dust_pick(self, nx: float, ny: float) -> None:
         uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None:

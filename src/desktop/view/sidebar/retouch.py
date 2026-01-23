@@ -58,9 +58,16 @@ class RetouchSidebar(BaseSidebar):
         )
         self.layout.addWidget(self.manual_size_slider)
 
+        actions_row = QHBoxLayout()
+        self.undo_btn = QPushButton(" Undo Last")
+        self.undo_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
+
         self.clear_btn = QPushButton(" Clear All")
         self.clear_btn.setIcon(qta.icon("fa5s.trash-alt", color=THEME.text_primary))
-        self.layout.addWidget(self.clear_btn)
+
+        actions_row.addWidget(self.undo_btn)
+        actions_row.addWidget(self.clear_btn)
+        self.layout.addLayout(actions_row)
 
         self.layout.addStretch()
 
@@ -84,6 +91,7 @@ class RetouchSidebar(BaseSidebar):
                 "retouch", render=False, persist=True, manual_dust_size=int(v)
             )
         )
+        self.undo_btn.clicked.connect(self.controller.undo_last_retouch)
         self.clear_btn.clicked.connect(self.controller.clear_retouch)
 
     def _on_pick_toggled(self, checked: bool) -> None:
@@ -100,6 +108,10 @@ class RetouchSidebar(BaseSidebar):
             self.auto_size_slider.setValue(float(conf.dust_size))
             self.manual_size_slider.setValue(float(conf.manual_dust_size))
             self.pick_dust_btn.setChecked(self.state.active_tool == ToolMode.DUST_PICK)
+
+            has_spots = len(conf.manual_dust_spots) > 0
+            self.undo_btn.setEnabled(has_spots)
+            self.clear_btn.setEnabled(has_spots)
         finally:
             self.block_signals(False)
 
