@@ -51,6 +51,7 @@ params = [
     "--hidden-import=imageio",
     "--hidden-import=imageio.v3",
     "--hidden-import=tifffile",
+    "--hidden-import=imagecodecs",
     "--hidden-import=tkinter",
     "--hidden-import=_tkinter",
     "--hidden-import=PyQt6",
@@ -62,6 +63,7 @@ params = [
     "--collect-all=wgpu",
     "--collect-all=rawpy",
     "--collect-all=imageio",
+    "--collect-all=imagecodecs",
     # Data files
     "--add-data=src:src",
     "--add-data=icc:icc",
