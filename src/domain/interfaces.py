@@ -34,7 +34,7 @@ class IImageSource(Protocol):
 
 class IRepository(Protocol):
     """
-    Persists settings and metadata.
+    Persists application and image settings.
     """
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None: ...

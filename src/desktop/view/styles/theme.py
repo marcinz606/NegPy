@@ -37,7 +37,6 @@ class ThemeConfig:
             "lab": True,
             "toning": False,
             "retouch": True,
-            "metadata": False,
             "icc": False,
             "export": True,
         }

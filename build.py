@@ -7,6 +7,12 @@ import subprocess
 # Define the application name
 APP_NAME = "NegPy"
 
+# Read version
+VERSION = "dev"
+if os.path.exists("VERSION"):
+    with open("VERSION", "r") as f:
+        VERSION = f.read().strip()
+
 # Define the entry point
 ENTRY_POINT = "desktop.py"
 
@@ -65,8 +71,9 @@ params = [
 
 # Add platform-specific icon
 if is_windows:
-    if os.path.exists("media/icons/icon.ico"):
-        params.append("--icon=media/icons/icon.ico")
+    icon_path = os.path.abspath("media/icons/icon.ico")
+    if os.path.exists(icon_path):
+        params.append(f"--icon={icon_path}")
 elif is_macos:
     if os.path.exists("media/icons/icon.icns"):
         params.append("--icon=media/icons/icon.icns")
@@ -105,10 +112,9 @@ def package_linux():
         if not os.path.exists(tool):
             tool = "appimagetool"
 
-        subprocess.run(
-            [tool, appdir, os.path.join("dist", f"{APP_NAME}.AppImage")], check=True
-        )
-        print(f"AppImage created: dist/{APP_NAME}.AppImage")
+        output_filename = os.path.join("dist", f"{APP_NAME}-{VERSION}-x86_64.AppImage")
+        subprocess.run([tool, appdir, output_filename], check=True)
+        print(f"AppImage created: {output_filename}")
     except Exception as e:
         print(f"Error creating AppImage: {e}")
         raise
@@ -116,7 +122,7 @@ def package_linux():
 
 def package_windows():
     """Package the built application into an NSIS installer."""
-    print("Packaging for Windows (NSIS)...")
+    print(f"Packaging for Windows (NSIS) version {VERSION}...")
 
     cmd = "makensis"
     # Try to find makensis in common locations if not in PATH
@@ -131,8 +137,12 @@ def package_windows():
                 break
 
     try:
-        subprocess.run([cmd, "installer.nsi"], check=True)
-        print("Windows Installer created: dist/NegPy_Setup.exe")
+        setup_name = f"{APP_NAME}-{VERSION}-Win64-Setup.exe"
+        subprocess.run(
+            [cmd, f"/DVERSION={VERSION}", f"/DOUTFILE={setup_name}", "installer.nsi"],
+            check=True,
+        )
+        print(f"Windows Installer created: dist/{setup_name}")
     except Exception as e:
         print(f"Error creating Windows Installer: {e}")
         raise
@@ -140,9 +150,10 @@ def package_windows():
 
 def package_macos():
     """Package the built application into a DMG with Applications symlink."""
-    print("Packaging for macOS (DMG)...")
+    print(f"Packaging for macOS (DMG) version {VERSION}...")
     app_path = os.path.join("dist", f"{APP_NAME}.app")
-    dmg_path = os.path.join("dist", f"{APP_NAME}.dmg")
+    dmg_name = f"{APP_NAME}-{VERSION}-macOS.dmg"
+    dmg_path = os.path.join("dist", dmg_name)
     temp_dmg_dir = os.path.join("dist", "dmg_temp")
 
     if os.path.exists(dmg_path):
@@ -167,7 +178,7 @@ def package_macos():
                 "hdiutil",
                 "create",
                 "-volname",
-                APP_NAME,
+                f"{APP_NAME} {VERSION}",
                 "-srcfolder",
                 temp_dmg_dir,
                 "-ov",

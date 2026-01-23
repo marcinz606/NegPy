@@ -126,7 +126,7 @@ jobs:
           prerelease: false
           files: |
             all-binaries/**/*.AppImage
-            all-binaries/**/*_Setup.exe
+            all-binaries/**/*-Setup.exe
             all-binaries/**/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

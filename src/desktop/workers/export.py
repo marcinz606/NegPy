@@ -36,7 +36,8 @@ class ExportWorker(QObject):
         total = len(tasks)
         try:
             for i, task in enumerate(tasks):
-                name = task.file_info["name"]
+                full_name = task.file_info["name"]
+                name = os.path.splitext(full_name)[0]
                 self.progress.emit(i + 1, total, name)
 
                 bits, _ = self._processor.process_export(

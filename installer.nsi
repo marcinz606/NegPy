@@ -1,14 +1,22 @@
 !define APPNAME "NegPy"
 !define COMPANYNAME "NegPy"
 !define DESCRIPTION "Professional Film Negative Processing"
-!define VERSIONMAJOR 1
-!define VERSIONMINOR 0
-!define VERSIONBUILD 0
+
+!ifndef VERSION
+    !define VERSION "1.0.0"
+!endif
+
+!ifndef OUTFILE
+    !define OUTFILE "NegPy_Setup.exe"
+!endif
 
 !include "MUI2.nsh"
 
+!define MUI_ICON "media\icons\icon.ico"
+!define MUI_UNICON "media\icons\icon.ico"
+
 Name "${APPNAME}"
-OutFile "dist\NegPy_Setup.exe"
+OutFile "dist\${OUTFILE}"
 InstallDir "$PROGRAMFILES64\${APPNAME}"
 RequestExecutionLevel admin
 
@@ -30,13 +38,21 @@ Section "Install"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
+    # Registry info for Add/Remove Programs
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayName" "${APPNAME}"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayIcon" "$\"$INSTDIR\NegPy.exe$\""
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "Publisher" "${COMPANYNAME}"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayVersion" "${VERSION}"
+
     # Shortcuts
-    CreateShortcut "$SMPROGRAMS\${APPNAME}.lnk" "$INSTDIR\NegPy.exe" "" "$INSTDIR\media\icons\icon.ico"
-    CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\NegPy.exe" "" "$INSTDIR\media\icons\icon.ico"
+    CreateShortcut "$SMPROGRAMS\${APPNAME}.lnk" "$INSTDIR\NegPy.exe" "" "$INSTDIR\NegPy.exe" 0
+    CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\NegPy.exe" "" "$INSTDIR\NegPy.exe" 0
 SectionEnd
 
 Section "Uninstall"
     Delete "$SMPROGRAMS\${APPNAME}.lnk"
     Delete "$DESKTOP\${APPNAME}.lnk"
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
     RMDir /r "$INSTDIR"
 SectionEnd
