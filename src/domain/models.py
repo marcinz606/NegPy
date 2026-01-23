@@ -6,7 +6,6 @@ from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
 from src.features.retouch.models import RetouchConfig
 from src.features.toning.models import ToningConfig
-from src.features.metadata.models import FilmMetadataConfig
 
 
 class AspectRatio(StrEnum):
@@ -87,7 +86,6 @@ class WorkspaceConfig:
     lab: LabConfig = field(default_factory=LabConfig)
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
-    metadata: FilmMetadataConfig = field(default_factory=FilmMetadataConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -100,7 +98,6 @@ class WorkspaceConfig:
         res.update(asdict(self.lab))
         res.update(asdict(self.retouch))
         res.update(asdict(self.toning))
-        res.update(asdict(self.metadata))
         res.update(asdict(self.export))
         return res
 
@@ -121,6 +118,5 @@ class WorkspaceConfig:
             lab=LabConfig(**filter_keys(LabConfig, data)),
             retouch=RetouchConfig(**filter_keys(RetouchConfig, data)),
             toning=ToningConfig(**filter_keys(ToningConfig, data)),
-            metadata=FilmMetadataConfig(**filter_keys(FilmMetadataConfig, data)),
             export=ExportConfig(**filter_keys(ExportConfig, data)),
         )

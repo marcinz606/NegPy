@@ -11,7 +11,7 @@ class ThemeConfig:
     # Fonts
     font_family: str = "Inter, Segoe UI, Roboto, sans-serif"
     font_size_base: int = 12
-    font_size_small: int = 12  # Standardized with base for consistency
+    font_size_small: int = 12
     font_size_header: int = 14
     font_size_title: int = 20
 
@@ -25,11 +25,9 @@ class ThemeConfig:
     accent_primary: str = "#b10000"  # Red
     accent_secondary: str = "#d10000"
 
-    # Component Sizes
     slider_height_compact: int = 20
     header_padding: int = 10
 
-    # Sidebar Defaults (True = Expanded, False = Collapsed)
     sidebar_expanded_defaults: Dict[str, bool] = field(
         default_factory=lambda: {
             "analysis": True,

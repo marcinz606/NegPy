@@ -14,7 +14,7 @@ class InfoLabel(QLabel):
                 background-color: rgba(15, 15, 15, 180);
                 padding: 4px 8px;
                 border-radius: 4px;
-                font-size: 14px;
+                font-size: 12px;
                 font-family: '{THEME.font_family}';
             }}
         """)

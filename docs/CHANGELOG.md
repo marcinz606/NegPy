@@ -1,18 +1,17 @@
 # Change Log
 
-## 1.0.0-rc
+## 1.0.0
 
 - Brand new, native desktop UI (pyqt6) instead of electron packaged streamlit app
-    - much better performance
-    - much more responsive
-    - much more stable
+    - better performance
+    - more responsive
+    - more stable
     - instant preview when moving sliders
     - double click on slider label to reset to defaults
     - native manual crop tool
     - native file picker
-    - keyboard shortucts
 - GPU acceleration!
-- Exported file metadata editor
+- keyboard shortucts
 - Bugfixes: improved handling of some raw files that previously resulted in heavy colorcasts and compresssion artifacts.
 
 ## 0.9.3

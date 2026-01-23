@@ -14,7 +14,6 @@ from src.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWid
 from src.desktop.view.sidebar.header import SidebarHeader
 from src.desktop.view.sidebar.files import FileBrowser
 from src.desktop.view.sidebar.export import ExportSidebar
-from src.desktop.view.sidebar.metadata import MetadataSidebar
 from src.desktop.view.styles.theme import THEME
 from src.kernel.system.version import check_for_updates
 
@@ -114,9 +113,6 @@ class SessionPanel(QWidget):
         self.export_sidebar = ExportSidebar(self.controller)
         self.tabs.addTab(wrap_scroll(self.export_sidebar), "Export")
 
-        self.metadata_sidebar = MetadataSidebar(self.controller)
-        self.tabs.addTab(wrap_scroll(self.metadata_sidebar), "Metadata")
-
         self.splitter.addWidget(self.tabs)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
@@ -127,7 +123,6 @@ class SessionPanel(QWidget):
         self.controller.image_updated.connect(self._update_analysis)
         self.controller.metrics_available.connect(self._on_metrics_available)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
-        self.controller.config_updated.connect(self.metadata_sidebar.sync_ui)
 
     def _on_metrics_available(self, metrics: Dict[str, Any]) -> None:
         # Update only histogram from late metrics

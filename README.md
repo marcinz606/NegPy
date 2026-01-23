@@ -4,7 +4,7 @@
 
 **NegPy** is a native desktop tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond a simple inversion tool. It simulates how film and photographic paper work but also throws in some lab-scanner conveniences.
 
-It is built with **Python**, **PyQt6**, and **WebGPU**, running natively on Linux, macOS, and Windows.
+It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 ---
 

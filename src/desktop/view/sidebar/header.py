@@ -48,7 +48,7 @@ class SidebarHeader(QWidget):
 
         name_label = QLabel("NegPy")
         name_label.setStyleSheet(
-            "font-size: 32px; font-weight: bold; color: #eee; margin-left: 5px;"
+            "font-size: 24px; font-weight: bold; color: #eee; margin-left: 5px;"
         )
 
         header.addWidget(icon_label)
@@ -57,7 +57,7 @@ class SidebarHeader(QWidget):
 
         self.ver_label = QLabel(f"v{get_app_version()}")
         self.ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ver_label.setStyleSheet("font-size: 18px; color: #888; margin-top: -5px;")
+        self.ver_label.setStyleSheet("font-size: 14px; color: #888; margin-top: -5px;")
         layout.addWidget(self.ver_label)
 
         gpu_available = GPUDevice.get().is_available

@@ -9,6 +9,7 @@ from src.infrastructure.storage.repository import StorageRepository
 from src.desktop.session import DesktopSessionManager
 from src.desktop.controller import AppController
 from src.desktop.view.main_window import MainWindow
+import ctypes
 
 
 def _bootstrap_environment() -> None:
@@ -28,7 +29,6 @@ def main() -> None:
     """
     Desktop entry point.
     """
-    # Emergency logging for bundled apps
     if getattr(sys, "frozen", False):
         log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
         with open(log_path, "a") as f:
@@ -39,11 +39,18 @@ def main() -> None:
 
         _bootstrap_environment()
 
-        # Handle high DPI scaling
+        # hdpi scaling
         if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
             QApplication.setHighDpiScaleFactorRoundingPolicy(
                 Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
             )
+
+        # prevents windows from messing up ui when resizing window/panels
+        if sys.platform == "win32":
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            except Exception:
+                ctypes.windll.user32.SetProcessDPIAware()
 
         app = QApplication(sys.argv)
         app.setApplicationName("NegPy")
