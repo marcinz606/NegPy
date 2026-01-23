@@ -13,7 +13,7 @@ class ThemeConfig:
     font_size_base: int = 12
     font_size_small: int = 12
     font_size_header: int = 14
-    font_size_title: int = 20
+    font_size_title: int = 18
 
     # Colors
     bg_dark: str = "#0f0f0f"
@@ -25,7 +25,7 @@ class ThemeConfig:
     accent_primary: str = "#b10000"  # Red
     accent_secondary: str = "#d10000"
 
-    slider_height_compact: int = 20
+    slider_height_compact: int = 18
     header_padding: int = 10
 
     sidebar_expanded_defaults: Dict[str, bool] = field(

@@ -57,7 +57,7 @@ class SidebarHeader(QWidget):
 
         self.ver_label = QLabel(f"v{get_app_version()}")
         self.ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ver_label.setStyleSheet("font-size: 14px; color: #888; margin-top: -5px;")
+        self.ver_label.setStyleSheet("font-size: 14px; color: #888")
         layout.addWidget(self.ver_label)
 
         gpu_available = GPUDevice.get().is_available
