@@ -6,6 +6,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF, QSize
 from src.desktop.converters import ImageConverter
 from src.desktop.session import ToolMode, AppState
 from src.desktop.view.widgets.overlays import ImageInfoOverlay
+from src.desktop.view.styles.theme import THEME
+from src.kernel.system.config import APP_CONFIG
 
 
 class CanvasOverlay(QWidget):
@@ -69,7 +71,6 @@ class CanvasOverlay(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        # Determine logical size for layout
         size = None
         if self._qimage:
             size = self._qimage.size()
@@ -77,7 +78,6 @@ class CanvasOverlay(QWidget):
             size = QSize(self._current_size[0], self._current_size[1])
 
         if size:
-            # 1. Calculate Layout based on Logical Size (Handles Letterboxing)
             widget_size = self.size()
             ratio = min(
                 widget_size.width() / size.width(),
@@ -88,11 +88,9 @@ class CanvasOverlay(QWidget):
             y = (widget_size.height() - new_h) // 2
             self._display_rect = QRectF(x, y, new_w, new_h)
 
-            # 2. Draw Base Image (Only if in CPU mode)
             if self._qimage:
                 painter.drawImage(self._display_rect, self._qimage)
 
-        # 3. Draw Widget-Space UI (Crop / Guides)
         self._draw_widget_ui(painter)
 
     def _draw_widget_ui(self, painter: QPainter) -> None:
@@ -118,19 +116,36 @@ class CanvasOverlay(QWidget):
             painter.setPen(QPen(Qt.GlobalColor.white, 1, Qt.PenStyle.DashLine))
             painter.drawRect(rect)
 
-        # Crosshair
-        if self._tool_mode != ToolMode.NONE and self._display_rect.contains(
-            self._mouse_pos
-        ):
-            painter.setPen(QPen(QColor(255, 255, 255, 80), 1, Qt.PenStyle.DotLine))
-            painter.drawLine(
-                QPointF(self._display_rect.x(), self._mouse_pos.y()),
-                QPointF(self._display_rect.right(), self._mouse_pos.y()),
-            )
-            painter.drawLine(
-                QPointF(self._mouse_pos.x(), self._display_rect.y()),
-                QPointF(self._mouse_pos.x(), self._display_rect.bottom()),
-            )
+        if self._tool_mode != ToolMode.NONE and self._display_rect.contains(self._mouse_pos):
+            if self._tool_mode == ToolMode.DUST_PICK:
+                self._draw_brush(painter)
+            else:
+                painter.setPen(QPen(QColor(255, 255, 255, 80), 1, Qt.PenStyle.DotLine))
+                painter.drawLine(
+                    QPointF(self._display_rect.x(), self._mouse_pos.y()),
+                    QPointF(self._display_rect.right(), self._mouse_pos.y()),
+                )
+                painter.drawLine(
+                    QPointF(self._mouse_pos.x(), self._display_rect.y()),
+                    QPointF(self._mouse_pos.x(), self._display_rect.bottom()),
+                )
+
+    def _draw_brush(self, painter: QPainter) -> None:
+        """Draws the healing brush circle."""
+        conf = self.state.config.retouch
+
+        max_screen_dim = max(self._display_rect.width(), self._display_rect.height())
+        radius = (conf.manual_dust_size / APP_CONFIG.preview_render_size) * max_screen_dim
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(Qt.GlobalColor.white, 1.0, Qt.PenStyle.SolidLine))
+        painter.drawEllipse(self._mouse_pos, radius, radius)
+
+        accent = QColor(THEME.accent_primary)
+        accent.setAlpha(33)
+        painter.setBrush(accent)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(self._mouse_pos, radius, radius)
 
     def _map_to_image_coords(self, pos: QPointF) -> Optional[Tuple[float, float]]:
         if self._display_rect.isEmpty() or not self._display_rect.contains(pos):
@@ -138,7 +153,6 @@ class CanvasOverlay(QWidget):
         nb_x = (pos.x() - self._display_rect.x()) / self._display_rect.width()
         nb_y = (pos.y() - self._display_rect.y()) / self._display_rect.height()
 
-        # If we have content_rect (from preview layout), adjust
         if self._content_rect and self._current_size:
             bw, bh = self._current_size
             cx, cy, cw, ch = self._content_rect

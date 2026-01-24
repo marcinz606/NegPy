@@ -157,40 +157,56 @@ class ExportSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.fmt_combo.currentTextChanged.connect(
-            lambda v: self.update_config_section("export", export_fmt=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, export_fmt=v
+            )
         )
         self.cs_combo.currentTextChanged.connect(
-            lambda v: self.update_config_section("export", export_color_space=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, export_color_space=v
+            )
         )
         self.ratio_combo.currentTextChanged.connect(
-            lambda v: self.update_config_section("export", paper_aspect_ratio=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, paper_aspect_ratio=v
+            )
         )
         self.orig_res_btn.toggled.connect(self._on_orig_res_toggled)
 
         self.size_input.valueChanged.connect(
-            lambda v: self.update_config_section("export", export_print_size=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, export_print_size=v
+            )
         )
         self.dpi_input.valueChanged.connect(
-            lambda v: self.update_config_section("export", export_dpi=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, export_dpi=v
+            )
         )
         self.border_input.valueChanged.connect(
-            lambda v: self.update_config_section("export", export_border_size=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, export_border_size=v
+            )
         )
 
         self.color_btn.clicked.connect(self._on_color_clicked)
         self.browse_btn.clicked.connect(self._on_browse_clicked)
         self.pattern_input.textChanged.connect(
-            lambda v: self.update_config_section("export", filename_pattern=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, filename_pattern=v
+            )
         )
         self.path_input.textChanged.connect(
-            lambda v: self.update_config_section("export", export_path=v)
+            lambda v: self.update_config_section(
+                "export", persist=True, render=False, export_path=v
+            )
         )
         self.batch_export_btn.clicked.connect(self.controller.request_batch_export)
 
     def _on_orig_res_toggled(self, checked: bool) -> None:
         self._update_orig_res_style(checked)
         self.size_container.setVisible(not checked)
-        self.update_config_section("export", use_original_res=checked)
+        self.update_config_section("export", persist=True, render=False, use_original_res=checked)
 
     def _update_orig_res_style(self, checked: bool) -> None:
         if checked:
@@ -206,7 +222,7 @@ class ExportSidebar(BaseSidebar):
         )
         if color.isValid():
             hex_color = color.name()
-            self.update_config_section("export", export_border_color=hex_color)
+            self.update_config_section("export", persist=True, render=False, export_border_color=hex_color)
             self._update_color_btn(hex_color)
 
     def _on_browse_clicked(self) -> None:

@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
+        self.controller.config_updated.connect(self.canvas.overlay.update)
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""

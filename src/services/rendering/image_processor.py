@@ -156,19 +156,19 @@ class ImageProcessor:
                 rgb = ensure_rgb(rgb)
 
             f32_buffer = uint16_to_float32(np.ascontiguousarray(rgb))
+            h_raw, w_raw = f32_buffer.shape[:2]
+            export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 
             if prefer_gpu and self.engine_gpu:
                 buffer, gpu_metrics = self.engine_gpu.process(
-                    f32_buffer, params, scale_factor=1.0
+                    f32_buffer, params, scale_factor=export_scale
                 )
-                if metrics:
-                    metrics.update(gpu_metrics)
             else:
                 buffer, _ = self.run_pipeline(
                     f32_buffer,
                     params,
                     source_hash,
-                    render_size_ref=float(rgb.shape[0]),
+                    render_size_ref=float(APP_CONFIG.preview_render_size),
                     metrics=metrics,
                     prefer_gpu=False,
                 )

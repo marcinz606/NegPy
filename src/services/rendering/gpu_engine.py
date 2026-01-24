@@ -339,7 +339,12 @@ class GPUEngine:
             render_size_ref,
         )
         self._update_retouch_storage(
-            settings.retouch, (h, w), settings.geometry, global_offset, actual_full_dims
+            settings.retouch,
+            (h, w),
+            settings.geometry,
+            global_offset,
+            actual_full_dims,
+            scale_factor,
         )
         if clahe_cdf_override is not None:
             self._buffers["clahe_c"].upload(clahe_cdf_override)
@@ -736,6 +741,7 @@ class GPUEngine:
         geom: Any,
         offset: Tuple[int, int],
         full_dims: Tuple[int, int],
+        scale_factor: float,
     ) -> None:
         """Uploads manual retouch spots to GPU storage buffer."""
         spot_data = bytearray()
@@ -749,7 +755,9 @@ class GPUEngine:
                 geom.flip_horizontal,
                 geom.flip_vertical,
             )
-            spot_data += struct.pack("ffff", mx, my, size / max(orig_shape), 0.0)
+            # Correctly scale radius using scale_factor
+            scaled_radius = (size * scale_factor) / max(orig_shape)
+            spot_data += struct.pack("ffff", mx, my, scaled_radius, 0.0)
         if spot_data:
             self._buffers["retouch_s"].upload(np.frombuffer(spot_data, dtype=np.uint8))
 

@@ -32,7 +32,8 @@ def _compute_dust_masks_jit(
                     max_pos_diff = d
 
             thresh = dust_threshold * sens_factor[y, x] + detail_boost[y, x]
-            if max_pos_diff > thresh and std[y, x] <= 0.2:
+            luma = 0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            if max_pos_diff > thresh and std[y, x] <= 0.2 and luma > 0.35:
                 raw_mask[y, x] = 1.0
             else:
                 raw_mask[y, x] = 0.0
@@ -61,14 +62,21 @@ def _apply_inpainting_grain_jit(
                 + LUMA_B * img_inpainted[y, x, 2]
             ) / 255.0
 
-            mod = 5.0 * lum * (1.0 - lum)
+            mod = 3.0 * lum * (1.0 - lum)
             m = mask_final[y, x, 0]
+
+            # Luminance keying for manual patches: only heal if original is brighter than inpainted
+            orig_luma = (LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2])
+            heal_luma = (LUMA_R * img_inpainted[y, x, 0] + LUMA_G * img_inpainted[y, x, 1] + LUMA_B * img_inpainted[y, x, 2]) / 255.0
+            luma_key = 1.0 if (orig_luma - heal_luma) > -0.02 else 0.0
+
+            final_m = m * luma_key
 
             for ch in range(3):
                 # Inpaint + Noise
-                val = img_inpainted[y, x, ch] + noise[y, x, ch] * mod * m
+                val = img_inpainted[y, x, ch] + noise[y, x, ch] * 0.4 * mod * final_m
                 # Blend with original
-                res[y, x, ch] = img[y, x, ch] * (1.0 - m) + (val / 255.0) * m
+                res[y, x, ch] = img[y, x, ch] * (1.0 - final_m) + (val / 255.0) * final_m
 
     return res
 

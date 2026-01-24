@@ -100,7 +100,7 @@ class DesktopSessionManager(QObject):
         If only_global is True, only non-look settings (Export) are applied.
         """
         from dataclasses import replace
-        from src.domain.models import ExportConfig, LabConfig, ToningConfig
+        from src.domain.models import ExportConfig, LabConfig, ToningConfig, RetouchConfig
 
         # --- Global Infrastructure Settings (Always Applied) ---
         sticky_export = self.repo.get_global_setting("last_export_config")
@@ -192,6 +192,18 @@ class DesktopSessionManager(QObject):
             filtered = {k: v for k, v in sticky_toning.items() if k in valid_keys}
             config = replace(config, toning=ToningConfig(**filtered))
 
+        # 6. Retouch Settings
+        sticky_retouch = self.repo.get_global_setting("last_retouch_config")
+        if sticky_retouch:
+            valid_keys = RetouchConfig.__dataclass_fields__.keys()
+            # Never carry over manual spots to other files
+            filtered = {
+                k: v
+                for k, v in sticky_retouch.items()
+                if k in valid_keys and k != "manual_dust_spots"
+            }
+            config = replace(config, retouch=replace(config.retouch, **filtered))
+
         return config
 
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
@@ -231,6 +243,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_export_config", asdict(config.export))
         self.repo.save_global_setting("last_lab_config", asdict(config.lab))
         self.repo.save_global_setting("last_toning_config", asdict(config.toning))
+        self.repo.save_global_setting("last_retouch_config", asdict(config.retouch))
 
     def select_file(self, index: int) -> None:
         """

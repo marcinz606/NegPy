@@ -3,8 +3,9 @@ from src.features.retouch.logic import apply_dust_removal
 
 
 def test_manual_dust_removal_effect():
-    img = np.ones((100, 100, 3), dtype=np.float32)
-    img[48:53, 48:53] = 0.0
+    # Use grey background and white dust (inverted film scan scenario)
+    img = np.full((100, 100, 3), 0.5, dtype=np.float32)
+    img[48:53, 48:53] = 1.0
 
     orig_mean = np.mean(img)
 
@@ -20,10 +21,11 @@ def test_manual_dust_removal_effect():
     )
 
     res_mean = np.mean(res)
-    assert res_mean > orig_mean
+    # The healing should make the white spot darker (closer to 0.5 background)
+    assert res_mean < orig_mean
 
     spot_area = res[48:53, 48:53]
-    assert np.mean(spot_area) > 0.5
+    assert np.mean(spot_area) < 0.9
 
 
 def test_manual_dust_removal_no_spots():

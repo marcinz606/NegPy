@@ -33,7 +33,24 @@ class PakonLoader(IImageLoader):
         with open(file_path, "rb") as f:
             data = np.fromfile(f, dtype="<u2", count=expected_pixels)
 
-        data = data.reshape((3, h, w)).transpose((1, 2, 0))
+        # Heuristic: Detect Planar vs Interleaved layout
+        # In planar, adjacent pixels are from the same channel (similar values).
+        # In interleaved, adjacent pixels are R-G-B (high variance if not neutral).
+        sample_size = min(len(data), 6000)
+        sample = data[:sample_size].astype(np.float32)
+
+        adj_diff = np.mean(np.abs(sample[1:] - sample[:-1]))
+        step3_diff = np.mean(np.abs(sample[3:] - sample[:-3]))
+
+        # If interleaved, step3_diff will be significantly smaller than adj_diff
+        # because adjacent pixels compare different color channels.
+        if adj_diff > step3_diff * 1.5:
+            # Interleaved BGR layout (common for interleaved scanner RAWs)
+            data = data.reshape((h, w, 3))[..., ::-1]
+        else:
+            # Standard Planar RGB layout
+            data = data.reshape((3, h, w)).transpose((1, 2, 0))
+
         metadata = {"orientation": 0}
         return NonStandardFileWrapper(
             uint16_to_float32(np.ascontiguousarray(data))

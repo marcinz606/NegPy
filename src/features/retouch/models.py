@@ -8,4 +8,4 @@ class RetouchConfig:
     dust_threshold: float = 0.75
     dust_size: int = 2
     manual_dust_spots: List[Tuple[float, float, float]] = field(default_factory=list)
-    manual_dust_size: int = 4
+    manual_dust_size: int = 6
