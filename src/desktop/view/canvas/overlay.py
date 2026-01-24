@@ -116,7 +116,9 @@ class CanvasOverlay(QWidget):
             painter.setPen(QPen(Qt.GlobalColor.white, 1, Qt.PenStyle.DashLine))
             painter.drawRect(rect)
 
-        if self._tool_mode != ToolMode.NONE and self._display_rect.contains(self._mouse_pos):
+        if self._tool_mode != ToolMode.NONE and self._display_rect.contains(
+            self._mouse_pos
+        ):
             if self._tool_mode == ToolMode.DUST_PICK:
                 self._draw_brush(painter)
             else:
@@ -135,7 +137,9 @@ class CanvasOverlay(QWidget):
         conf = self.state.config.retouch
 
         max_screen_dim = max(self._display_rect.width(), self._display_rect.height())
-        radius = (conf.manual_dust_size / APP_CONFIG.preview_render_size) * max_screen_dim
+        radius = (
+            conf.manual_dust_size / APP_CONFIG.preview_render_size
+        ) * max_screen_dim
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(Qt.GlobalColor.white, 1.0, Qt.PenStyle.SolidLine))

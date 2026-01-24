@@ -91,7 +91,7 @@ def enforce_roi_aspect_ratio(
 
 
 def get_manual_rect_coords(
-    img: ImageBuffer,
+    img_or_shape: ImageBuffer | Tuple[int, int],
     manual_rect: Tuple[float, float, float, float],
     orig_shape: Tuple[int, int],
     rotation_k: int = 0,
@@ -104,7 +104,11 @@ def get_manual_rect_coords(
     """
     Maps normalized manual crop rect (RAW coords) to pixel ROI in TRANSFORMED image space.
     """
-    h_curr, w_curr = img.shape[:2]
+    if isinstance(img_or_shape, tuple):
+        h_curr, w_curr = img_or_shape
+    else:
+        h_curr, w_curr = img_or_shape.shape[:2]
+
     x1_n, y1_n, x2_n, y2_n = manual_rect
 
     corners = [(x1_n, y1_n), (x2_n, y1_n), (x2_n, y2_n), (x1_n, y2_n)]

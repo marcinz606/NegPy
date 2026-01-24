@@ -66,17 +66,29 @@ def _apply_inpainting_grain_jit(
             m = mask_final[y, x, 0]
 
             # Luminance keying for manual patches: only heal if original is brighter than inpainted
-            orig_luma = (LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2])
-            heal_luma = (LUMA_R * img_inpainted[y, x, 0] + LUMA_G * img_inpainted[y, x, 1] + LUMA_B * img_inpainted[y, x, 2]) / 255.0
-            luma_key = 1.0 if (orig_luma - heal_luma) > -0.02 else 0.0
+            orig_luma = (
+                LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
+            )
+            heal_luma = (
+                LUMA_R * img_inpainted[y, x, 0]
+                + LUMA_G * img_inpainted[y, x, 1]
+                + LUMA_B * img_inpainted[y, x, 2]
+            ) / 255.0
+
+            diff = orig_luma - heal_luma
+            luma_key = (diff - 0.04) / 0.08
+            if luma_key < 0.0:
+                luma_key = 0.0
+            elif luma_key > 1.0:
+                luma_key = 1.0
 
             final_m = m * luma_key
 
             for ch in range(3):
-                # Inpaint + Noise
                 val = img_inpainted[y, x, ch] + noise[y, x, ch] * 0.4 * mod * final_m
-                # Blend with original
-                res[y, x, ch] = img[y, x, ch] * (1.0 - final_m) + (val / 255.0) * final_m
+                res[y, x, ch] = (
+                    img[y, x, ch] * (1.0 - final_m) + (val / 255.0) * final_m
+                )
 
     return res
 

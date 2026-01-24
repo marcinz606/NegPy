@@ -9,8 +9,6 @@ class RawpyLoader(IImageLoader):
     """
 
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
-        from typing import cast
-
         raw = rawpy.imread(file_path)
 
         # Map rawpy.sizes.flip to 0-3 CCW rotation scale
@@ -24,4 +22,4 @@ class RawpyLoader(IImageLoader):
             "color_space": "Adobe RGB",
         }
 
-        return cast(ContextManager[Any], raw), metadata
+        return raw, metadata

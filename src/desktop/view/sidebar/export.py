@@ -206,7 +206,9 @@ class ExportSidebar(BaseSidebar):
     def _on_orig_res_toggled(self, checked: bool) -> None:
         self._update_orig_res_style(checked)
         self.size_container.setVisible(not checked)
-        self.update_config_section("export", persist=True, render=False, use_original_res=checked)
+        self.update_config_section(
+            "export", persist=True, render=False, use_original_res=checked
+        )
 
     def _update_orig_res_style(self, checked: bool) -> None:
         if checked:
@@ -222,7 +224,9 @@ class ExportSidebar(BaseSidebar):
         )
         if color.isValid():
             hex_color = color.name()
-            self.update_config_section("export", persist=True, render=False, export_border_color=hex_color)
+            self.update_config_section(
+                "export", persist=True, render=False, export_border_color=hex_color
+            )
             self._update_color_btn(hex_color)
 
     def _on_browse_clicked(self) -> None:

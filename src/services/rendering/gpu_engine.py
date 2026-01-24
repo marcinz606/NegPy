@@ -4,7 +4,7 @@ import numpy as np
 import wgpu  # type: ignore
 import cv2
 import gc
-from typing import Any, Optional, Dict, Tuple, cast
+from typing import Any, Optional, Dict, Tuple
 
 from src.infrastructure.gpu.device import GPUDevice
 from src.infrastructure.gpu.resources import GPUTexture, GPUBuffer
@@ -273,13 +273,8 @@ class GPUEngine:
             w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
             actual_full_dims, orig_shape = (w_rot, h_rot), (h, w)
             if settings.geometry.manual_crop_rect:
-
-                class ShapeMock:
-                    def __init__(self, s: Any) -> None:
-                        self.shape = s
-
                 roi = get_manual_rect_coords(
-                    cast(np.ndarray, ShapeMock((h_rot, w_rot, 3))),
+                    (h_rot, w_rot),
                     settings.geometry.manual_crop_rect,
                     orig_shape=orig_shape,
                     rotation_k=settings.geometry.rotation,
@@ -816,7 +811,7 @@ class GPUEngine:
         data = np.frombuffer(read_buf.read_mapped(), dtype=np.uint32).copy()
         read_buf.unmap()
         read_buf.destroy()
-        return cast(np.ndarray, data.reshape((4, HISTOGRAM_BINS)))
+        return data.reshape((4, HISTOGRAM_BINS))
 
     def _readback_downsampled(self, tex: GPUTexture) -> np.ndarray:
         """Reads back texture as float32 RGB array, handling hardware alignment."""

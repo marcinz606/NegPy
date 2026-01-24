@@ -50,14 +50,11 @@ def apply_spectral_crosstalk(
     cal_matrix = np.array(matrix).reshape(3, 3)
     identity = np.eye(3)
 
-    # Interpolate between identity and calibration matrix
     applied_matrix = identity * (1.0 - strength) + cal_matrix * strength
 
-    # Row-normalization: ensures that neutral grey density is preserved
     row_sums = np.sum(applied_matrix, axis=1, keepdims=True)
     applied_matrix = applied_matrix / np.maximum(row_sums, 1e-6)
 
-    # Use JIT for matrix multiplication
     res = _apply_spectral_crosstalk_jit(
         np.ascontiguousarray(img_dens.astype(np.float32)),
         np.ascontiguousarray(applied_matrix.astype(np.float32)),
@@ -75,11 +72,9 @@ def apply_clahe(
     if strength <= 0:
         return img
 
-    # RGB to LAB space
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     l_chan, a, b = cv2.split(lab)
 
-    # CLAHE on uint16 for precision
     l_u16 = (l_chan * (65535.0 / 100.0)).astype(np.uint16)
 
     clip_limit = strength * 2.5
@@ -89,7 +84,6 @@ def apply_clahe(
 
     l_enhanced = l_enhanced_u16.astype(np.float32) * (100.0 / 65535.0)
 
-    # Blend original and enhanced to keep exposure
     l_final = l_chan * (1.0 - strength) + l_enhanced * strength
 
     lab_enhanced = cv2.merge([l_final, a, b])

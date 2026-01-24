@@ -9,11 +9,6 @@ logger = get_logger(__name__)
 
 
 class GPUCanvasWidget(QWidget):
-    """
-    Hardware-accelerated viewport using WebGPU.
-    Implements manual bilinear sampling for float32 HDR surfaces.
-    """
-
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setLayout(QVBoxLayout())
@@ -28,31 +23,35 @@ class GPUCanvasWidget(QWidget):
         self.current_texture_view: Optional[Any] = None
         self.uniform_buffer: Optional[Any] = None
         self.image_size: Tuple[int, int] = (1, 1)
+        self.format: str = ""
 
     def initialize_gpu(self, device: Any, adapter: Any) -> None:
-        """Configures WebGPU context and display pipeline."""
         self.device = device
         self.context = self.canvas.get_context("wgpu")
 
-        # Select compatible format (prefer non-sRGB for direct gamma control)
-        fmt = self.context.get_preferred_format(adapter).replace("-srgb", "")
-        self.context.configure(device=self.device, format=fmt)
+        self.format = self.context.get_preferred_format(adapter).replace("-srgb", "")
 
+        self.context.configure(device=self.device, format=self.format)
         self.uniform_buffer = self.device.create_buffer(
             size=16, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
         )
-        self._create_render_pipeline(fmt)
+        self._create_render_pipeline(self.format)
 
     def update_texture(self, tex_wrapper: Any) -> None:
-        """Assigns a new hardware texture for display."""
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
         self.canvas.request_draw(self._draw_frame)
 
     def clear(self) -> None:
-        """Forces an empty frame redraw."""
         self.current_texture_view = None
         self.canvas.request_draw(self._draw_frame)
+
+        def resizeEvent(self, event) -> None:
+            super().resizeEvent(event)
+            if self.device and self.context:
+                self.context.configure(device=self.device, format=self.format)
+                if self.current_texture_view:
+                    self.canvas.request_draw(self._draw_frame)
 
     def _create_render_pipeline(self, format: str) -> None:
         shader_source = """
@@ -88,7 +87,7 @@ class GPUCanvasWidget(QWidget):
         @group(0) @binding(0) var tex: texture_2d<f32>;
 
         fn cubic(v: f32) -> f32 {
-            let a = 0.5; // Catmull-Rom
+            let a = 0.5;
             let x = abs(v);
             if (x < 1.0) {
                 return 1.5 * x * x * x - 2.5 * x * x + 1.0;
@@ -102,7 +101,6 @@ class GPUCanvasWidget(QWidget):
             let dims = textureDimensions(tex);
             let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
 
-            // Transform to pixel coordinates
             let pixel = uv * fdims - 0.5;
             let ipos = floor(pixel);
             let fpos = fract(pixel);
@@ -114,7 +112,6 @@ class GPUCanvasWidget(QWidget):
                     let offset = vec2<f32>(f32(x), f32(y));
                     let coord = vec2<i32>(ipos + offset);
 
-                    // Clamp to texture boundaries
                     let c = clamp(coord, vec2<i32>(0), vec2<i32>(dims) - 1);
 
                     let weight = cubic(f32(x) - fpos.x) * cubic(f32(y) - fpos.y);
@@ -167,15 +164,15 @@ class GPUCanvasWidget(QWidget):
         )
 
     def _draw_frame(self) -> None:
-        """Atomic frame assembly and submission."""
         if not self.render_pipeline:
             return
 
+        current_tex = self.context.get_current_texture()
         enc = self.device.create_command_encoder()
         pass_enc = enc.begin_render_pass(
             color_attachments=[
                 {
-                    "view": self.context.get_current_texture().create_view(),
+                    "view": current_tex.create_view(),
                     "load_op": wgpu.LoadOp.clear,
                     "store_op": wgpu.StoreOp.store,
                     "clear_value": (0.06, 0.06, 0.06, 1),
@@ -184,22 +181,22 @@ class GPUCanvasWidget(QWidget):
         )
 
         if self.current_texture_view:
-            ww, wh = max(1, self.width()), max(1, self.height())
-            iw, ih = self.image_size
+            ww, wh = float(current_tex.width), float(current_tex.height)
+            iw, ih = float(self.image_size[0]), float(self.image_size[1])
+
             r = min(ww / iw, wh / ih)
             nw, nh = iw * r, ih * r
-            nx, ny = (ww - nw) / 2, (wh - nh) / 2
+            nx, ny = (ww - nw) / 2.0, (wh - nh) / 2.0
 
-            # Pack NDC transform
             self.device.queue.write_buffer(
                 self.uniform_buffer,
                 0,
                 struct.pack(
                     "ffff",
-                    (nx / ww) * 2 - 1,
-                    1 - (ny / wh) * 2,
-                    (nw / ww) * 2,
-                    (nh / wh) * 2,
+                    (nx / ww) * 2.0 - 1.0,
+                    1.0 - (ny / wh) * 2.0,
+                    (nw / ww) * 2.0,
+                    (nh / wh) * 2.0,
                 ),
             )
 

@@ -100,7 +100,12 @@ class DesktopSessionManager(QObject):
         If only_global is True, only non-look settings (Export) are applied.
         """
         from dataclasses import replace
-        from src.domain.models import ExportConfig, LabConfig, ToningConfig, RetouchConfig
+        from src.domain.models import (
+            ExportConfig,
+            LabConfig,
+            ToningConfig,
+            RetouchConfig,
+        )
 
         # --- Global Infrastructure Settings (Always Applied) ---
         sticky_export = self.repo.get_global_setting("last_export_config")
@@ -221,7 +226,9 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_wb_cyan", config.exposure.wb_cyan)
         self.repo.save_global_setting("last_wb_magenta", config.exposure.wb_magenta)
         self.repo.save_global_setting("last_wb_yellow", config.exposure.wb_yellow)
-        self.repo.save_global_setting("last_use_camera_wb", config.exposure.use_camera_wb)
+        self.repo.save_global_setting(
+            "last_use_camera_wb", config.exposure.use_camera_wb
+        )
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)
         self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)
