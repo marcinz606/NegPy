@@ -2,7 +2,7 @@
   <img src="media/icons/icon.svg" width="96" height="96" alt="NegPy Logo"><h1>NegPy</h1>
 </div>
 
-**NegPy** is a native desktop tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond a simple inversion tool. It simulates how film and photographic paper work but also throws in some lab-scanner conveniences.
+**NegPy** is a tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond a simple inversion tool. It simulates how film and photographic paper work but also throws in some lab-scanner conveniences.
 
 It is built with **Python**, running natively on Linux, macOS, and Windows.
 
@@ -15,7 +15,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 *   **No Camera Profiles**: It doesn't use camera profiles or ask you to color-pick the border. It uses math to neutralize the orange mask based on channel sensitometry.
 *   **Film Physics**: It models the **H&D Characteristic Curve** of photographic material using a Logistic Sigmoid function instead of doing simple linear inversion.
-*   **GPU Acceleration**: Real-time high-bit-depth processing using WebGPU (Vulkan/Metal/DX12).
+*   **GPU Acceleration**: Real-time high-bit-depth processing using WebGPU.
 *   **Dust Removal**: Automatic and manual healing tools with grain synthesis to keep scans clean without looking plastic.
 *   **File Support**: Supports standard RAWs/TIFFs, and specialized formats like Kodak Pakon scanner raw files.
 *   **Non-destructive**: original files are never touched; edits are stored as recipes.
@@ -50,7 +50,7 @@ Since this is a free hobby project, I don't pay Apple or Microsoft ransom for th
 3.  Launch it.
 
 **🪟 Windows**:
-1. Run the installer
+1. Run the installer (ignore the warnings)
 2. Start the app and click through the warnings.
 
 ---
