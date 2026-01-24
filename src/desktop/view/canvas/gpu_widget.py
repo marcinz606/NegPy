@@ -1,5 +1,6 @@
 import struct
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtCore import QTimer
 from rendercanvas.pyqt6 import RenderCanvas
 import wgpu  # type: ignore
 from typing import Optional, Any, Tuple
@@ -25,6 +26,12 @@ class GPUCanvasWidget(QWidget):
         self.image_size: Tuple[int, int] = (1, 1)
         self.format: str = ""
 
+        # Debounce resize to prevent context thrashing
+        self.resize_timer = QTimer()
+        self.resize_timer.setSingleShot(True)
+        self.resize_timer.setInterval(100)
+        self.resize_timer.timeout.connect(self._perform_resize)
+
     def initialize_gpu(self, device: Any, adapter: Any) -> None:
         self.device = device
         self.context = self.canvas.get_context("wgpu")
@@ -46,12 +53,18 @@ class GPUCanvasWidget(QWidget):
         self.current_texture_view = None
         self.canvas.request_draw(self._draw_frame)
 
-        def resizeEvent(self, event) -> None:
-            super().resizeEvent(event)
-            if self.device and self.context:
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.resize_timer.start()
+
+    def _perform_resize(self) -> None:
+        if self.device and self.context:
+            try:
                 self.context.configure(device=self.device, format=self.format)
                 if self.current_texture_view:
                     self.canvas.request_draw(self._draw_frame)
+            except Exception as e:
+                logger.error(f"Failed to reconfigure WebGPU context on resize: {e}")
 
     def _create_render_pipeline(self, format: str) -> None:
         shader_source = """

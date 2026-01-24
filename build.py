@@ -71,6 +71,19 @@ params = [
     "--add-data=VERSION:.",
 ]
 
+# Exclude system-specific graphics libraries on Linux to avoid ABI/version conflicts
+if is_linux:
+    params.extend(
+        [
+            "--exclude-binary=libvulkan.so.1",
+            "--exclude-binary=libGL.so.1",
+            "--exclude-binary=libGLX.so.0",
+            "--exclude-binary=libEGL.so.1",
+            "--exclude-binary=libgbm.so.1",
+            "--exclude-binary=libdrm.so.2",
+        ]
+    )
+
 # Add platform-specific icon
 if is_windows:
     icon_path = os.path.abspath("media/icons/icon.ico")
