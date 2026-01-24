@@ -3,6 +3,7 @@ import os
 import shutil
 import platform
 import subprocess
+import glob
 
 # Define the application name
 APP_NAME = "NegPy"
@@ -30,7 +31,7 @@ params = [
     "--windowed",  # GUI app, no console
     "--clean",
     "--noconfirm",
-    # Hidden imports (based on previous build_backend.py and new dependencies)
+    # Hidden imports
     "--hidden-import=rawpy",
     "--hidden-import=cv2",
     "--hidden-import=numpy",
@@ -71,19 +72,6 @@ params = [
     "--add-data=VERSION:.",
 ]
 
-# Exclude system-specific graphics libraries on Linux to avoid ABI/version conflicts
-if is_linux:
-    params.extend(
-        [
-            "--exclude-binary=libvulkan.so.1",
-            "--exclude-binary=libGL.so.1",
-            "--exclude-binary=libGLX.so.0",
-            "--exclude-binary=libEGL.so.1",
-            "--exclude-binary=libgbm.so.1",
-            "--exclude-binary=libdrm.so.2",
-        ]
-    )
-
 # Add platform-specific icon
 if is_windows:
     icon_path = os.path.abspath("media/icons/icon.ico")
@@ -108,20 +96,44 @@ def package_linux():
     # 1. Create AppDir structure
     shutil.copytree(dist_dir, appdir)
 
-    # 2. Add Desktop file and Icon
-    shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
-    shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
+    # 2. De-bundle system graphics libraries
+    # This ensures the AppImage uses host drivers for Vulkan/OpenGL
+    libs_to_remove = [
+        "libvulkan.so*",
+        "libGL.so*",
+        "libGLX.so*",
+        "libEGL.so*",
+        "libgbm.so*",
+        "libdrm.so*",
+        "libxcb-dri*",
+        "libnvidia*",
+    ]
+    print("De-bundling system libraries from AppDir...")
+    for pattern in libs_to_remove:
+        for libpath in glob.glob(os.path.join(appdir, pattern)):
+            try:
+                if os.path.isfile(libpath) or os.path.islink(libpath):
+                    os.remove(libpath)
+                    print(f"  Removed: {os.path.basename(libpath)}")
+            except Exception as e:
+                print(f"  Failed to remove {libpath}: {e}")
 
-    # 3. Create Symlink for AppRun if it doesn't exist
+    # 3. Add Desktop file and Icon
+    shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop") )
+    shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png") )
+
+    # 4. Create Symlink for AppRun if it doesn't exist
     apprun_path = os.path.join(appdir, "AppRun")
     if not os.path.exists(apprun_path):
         with open(apprun_path, "w") as f:
             f.write("#!/bin/sh\n")
-            f.write('HERE="$(dirname "$(readlink -f "${0}")")"\n')
+            f.write('HERE="$(dirname "$(readlink -f \"${0}\")")"\n')
+            # Set LD_LIBRARY_PATH to prioritize AppDir but allow fallback to system
+            f.write('export LD_LIBRARY_PATH="$HERE:$LD_LIBRARY_PATH"\n')
             f.write(f'exec "${{HERE}}/{APP_NAME}" "$@"\n')
         os.chmod(apprun_path, 0o755)
 
-    # 4. Run appimagetool
+    # 5. Run appimagetool
     try:
         tool = "./appimagetool-x86_64.AppImage"
         if not os.path.exists(tool):
@@ -185,7 +197,7 @@ def package_macos():
         )
 
         # 2. Create symlink to /Applications
-        os.symlink("/Applications", os.path.join(temp_dmg_dir, "Applications"))
+        os.symlink("/Applications", os.path.join(temp_dmg_dir, "Applications") )
 
         # 3. Create DMG from temp dir
         subprocess.run(
