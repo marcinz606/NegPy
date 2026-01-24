@@ -8,9 +8,8 @@ from src.kernel.image.logic import get_luminance
 
 
 @njit(parallel=True, cache=True, fastmath=True)
-def _compute_dust_masks_jit(
+def _apply_auto_retouch_jit(
     img: np.ndarray,
-    img_ref: np.ndarray,
     mean: np.ndarray,
     std: np.ndarray,
     w_std: np.ndarray,
@@ -21,75 +20,98 @@ def _compute_dust_masks_jit(
     h, w, c = img.shape
     hit_mask = np.zeros((h, w), dtype=np.float32)
 
+    # 1. Detection Pass
     for y in prange(h):
         for x in range(w):
-            max_pos_diff = 0.0
-            for ch in range(3):
-                d = img[y, x, ch] - img_ref[y, x, ch]
-                if d > max_pos_diff:
-                    max_pos_diff = d
-
             l_curr = (
-                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+                LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
             )
+            l_mean = mean[y, x]
+            local_s = max(0.005, std[y, x])
 
-            # Match GPU: thresh = (threshold * 0.4) + (local_s * 1.0) + wide_penalty
+            # Wide-area penalty for textures (rocks, foliage)
             w_s = max(0.0, w_std[y, x] - 0.02)
             wide_penalty = (w_s * w_s * w_s) * 800.0
-
-            local_s = max(0.005, std[y, x])
-            z_score = (l_curr - mean[y, x]) / local_s
             thresh = (dust_threshold * 0.4) + (local_s * 1.0) + wide_penalty
 
-            if max_pos_diff > thresh and l_curr > 0.15 and z_score > 3.0:
-                # Strong Signal Bypass: catch hairs/plateaus that aren't single-pixel peaks
-                # but are definitively brighter than the background.
-                is_strong = max_pos_diff > (thresh * 2.5) or max_pos_diff > 0.25
+            # Multi-stage validation: Contrast, Luminance, and Z-Score
+            if (
+                (l_curr - l_mean) > thresh
+                and l_curr > 0.15
+                and (l_curr - l_mean) / local_s > 3.0
+            ):
+                is_strong = (l_curr - l_mean) > (thresh * 2.5) or (
+                    l_curr - l_mean
+                ) > 0.25
 
-                if y > 0 and y < h - 1 and x > 0 and x < w - 1:
-                    # Strict 3x3 local maximum check
+                if 0 < y < h - 1 and 0 < x < w - 1:
                     is_max = True
                     for dy in range(-1, 2):
                         for dx in range(-1, 2):
                             if dy == 0 and dx == 0:
                                 continue
-                            neighbor_l = (
-                                0.2126 * img[y + dy, x + dx, 0]
-                                + 0.7152 * img[y + dy, x + dx, 1]
-                                + 0.0722 * img[y + dy, x + dx, 2]
+                            nl = (
+                                LUMA_R * img[y + dy, x + dx, 0]
+                                + LUMA_G * img[y + dy, x + dx, 1]
+                                + LUMA_B * img[y + dy, x + dx, 2]
                             )
-                            if neighbor_l >= l_curr:
+                            if nl >= l_curr:
                                 is_max = False
                                 break
                         if not is_max:
                             break
-
                     if is_max or is_strong:
                         hit_mask[y, x] = 1.0
                 else:
                     hit_mask[y, x] = 1.0
 
-    # 2. Expansion radius scales with dust_size to cover larger footprints
-    exp_rad = int(max(1.0, dust_size * 0.25 * scale_factor))
-    if exp_rad > 6:
-        exp_rad = 6
-    res_mask = np.zeros((h, w), dtype=np.float32)
-    for y in prange(exp_rad, h - exp_rad):
-        for x in range(exp_rad, w - exp_rad):
-            # Check neighbors for a detection hit
-            has_hit = False
+    # 2. Healing Pass: Stochastic Perimeter Sampling (SPS) with Soft Blending
+    res = img.copy()
+    exp_rad = int(max(1.0, dust_size * 0.4 * scale_factor))
+    if exp_rad > 16:
+        exp_rad = 16
+    p_rad = exp_rad + int(3 * scale_factor)
+
+    for y in prange(h):
+        for x in range(w):
+            min_d2 = 1e6
             for dy in range(-exp_rad, exp_rad + 1):
                 for dx in range(-exp_rad, exp_rad + 1):
-                    if hit_mask[y + dy, x + dx] > 0.5:
-                        has_hit = True
-                        break
-                if has_hit:
-                    break
+                    ry, rx = y + dy, x + dx
+                    if 0 <= ry < h and 0 <= rx < w and hit_mask[ry, rx] > 0.5:
+                        d2 = float(dy * dy + dx * dx)
+                        if d2 < min_d2:
+                            min_d2 = d2
 
-            if has_hit:
-                res_mask[y, x] = 1.0
+            if min_d2 < float(exp_rad * exp_rad + 1):
+                dist = np.sqrt(min_d2)
+                feather = 1.0 - (dist / float(exp_rad + 1.0))
+                if feather < 0.0:
+                    feather = 0.0
+                feather = feather * feather * (3.0 - 2.0 * feather)
 
-    return res_mask
+                if feather > 0.001:
+                    bg_r, bg_g, bg_b, samples = 0.0, 0.0, 0.0, 0
+                    for dy, dx in [(-p_rad, 0), (p_rad, 0), (0, -p_rad), (0, p_rad)]:
+                        sy, sx = y + dy, x + dx
+                        if 0 <= sy < h and 0 <= sx < w:
+                            bg_r += img[sy, sx, 0]
+                            bg_g += img[sy, sx, 1]
+                            bg_b += img[sy, sx, 2]
+                            samples += 1
+
+                    if samples > 0:
+                        res[y, x, 0] = (
+                            img[y, x, 0] * (1.0 - feather) + (bg_r / samples) * feather
+                        )
+                        res[y, x, 1] = (
+                            img[y, x, 1] * (1.0 - feather) + (bg_g / samples) * feather
+                        )
+                        res[y, x, 2] = (
+                            img[y, x, 2] * (1.0 - feather) + (bg_b / samples) * feather
+                        )
+
+    return res
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -109,7 +131,6 @@ def _apply_inpainting_grain_jit(
                 + LUMA_G * img_inpainted[y, x, 1]
                 + LUMA_B * img_inpainted[y, x, 2]
             ) / 255.0
-
             mod = 3.0 * lum * (1.0 - lum)
             m = mask_final[y, x, 0]
 
@@ -122,11 +143,10 @@ def _apply_inpainting_grain_jit(
                 + LUMA_B * img_inpainted[y, x, 2]
             ) / 255.0
 
-            diff = orig_luma - heal_luma
-            luma_key = (diff - 0.04) / 0.08
+            luma_key = (orig_luma - heal_luma - 0.04) / 0.08
             if luma_key < 0.0:
                 luma_key = 0.0
-            elif luma_key > 1.0:
+            if luma_key > 1.0:
                 luma_key = 1.0
 
             final_m = m * luma_key
@@ -152,39 +172,22 @@ def apply_dust_removal(
         return img
 
     if dust_remove:
-        base_size = max(1.0, float(dust_size))
-        scale = max(1.0, float(scale_factor))
-
+        base_size, scale = max(1.0, float(dust_size)), max(1.0, float(scale_factor))
         v_win = int(max(3, base_size * 3.0 * scale)) * 2 + 1
         w_win = int(max(7, base_size * 4.0 * scale)) * 2 + 1
 
-        img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
-        if scale > 1.5:
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            img_ref_u8 = cv2.erode(img_uint8, kernel)
-            img_ref = img_ref_u8.astype(np.float32) / 255.0
-
-            r_off = int(base_size * 3.0 * scale)
-            for dy, dx in [(-r_off, -r_off), (r_off, r_off)]:
-                shifted = np.roll(img, (dy, dx), axis=(0, 1))
-                img_ref = np.minimum(img_ref, shifted)
-        else:
-            d_rad = int(base_size * 3.0 * scale) | 1
-            img_ref_u8 = cv2.medianBlur(img_uint8, d_rad)
-            img_ref = img_ref_u8.astype(np.float32) / 255.0
-
         gray = get_luminance(img)
         mean_gray = cv2.blur(gray, (v_win, v_win))
-        sq_mean_gray = cv2.blur(gray**2, (v_win, v_win))
-        std_gray = np.sqrt(np.clip(sq_mean_gray - mean_gray**2, 0, None))
-
+        std_gray = np.sqrt(
+            np.clip(cv2.blur(gray**2, (v_win, v_win)) - mean_gray**2, 0, None)
+        )
         w_mean_gray = cv2.blur(gray, (w_win, w_win))
-        w_sq_mean_gray = cv2.blur(gray**2, (w_win, w_win))
-        w_std_gray = np.sqrt(np.clip(w_sq_mean_gray - w_mean_gray**2, 0, None))
+        w_std_gray = np.sqrt(
+            np.clip(cv2.blur(gray**2, (w_win, w_win)) - w_mean_gray**2, 0, None)
+        )
 
-        mask = _compute_dust_masks_jit(
+        img = _apply_auto_retouch_jit(
             np.ascontiguousarray(img.astype(np.float32)),
-            np.ascontiguousarray(img_ref.astype(np.float32)),
             np.ascontiguousarray(mean_gray.astype(np.float32)),
             np.ascontiguousarray(std_gray.astype(np.float32)),
             np.ascontiguousarray(w_std_gray.astype(np.float32)),
@@ -193,25 +196,15 @@ def apply_dust_removal(
             float(scale_factor),
         )
 
-        if np.any(mask > 0):
-            feather = int(base_size * 2.0 * scale) | 1
-            mask_soft = cv2.GaussianBlur(mask, (feather, feather), 0)
-            img = img * (1.0 - mask_soft[:, :, None]) + img_ref * mask_soft[:, :, None]
-
     if manual_spots:
         h_img, w_img = img.shape[:2]
-
         manual_mask_u8 = np.zeros((h_img, w_img), dtype=np.uint8)
         for spot in manual_spots:
             nx, ny, s_size = spot
-            radius = int(s_size * scale_factor)
-
-            if radius < 1:
-                radius = 1
-
-            px = int(nx * w_img)
-            py = int(ny * h_img)
-            cv2.circle(manual_mask_u8, (px, py), radius, 255, -1)
+            radius = int(max(1, s_size * scale_factor))
+            cv2.circle(
+                manual_mask_u8, (int(nx * w_img), int(ny * h_img)), radius, 255, -1
+            )
 
         img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
         inpaint_rad = int(3 * scale_factor) | 1
@@ -220,12 +213,10 @@ def apply_dust_removal(
         )
 
         noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
-
         mask_base = manual_mask_u8.astype(np.float32) / 255.0
-        mask_3d = mask_base[:, :, None]
-
-        feather_size = inpaint_rad | 1
-        mask_blur = cv2.GaussianBlur(mask_3d, (feather_size, feather_size), 0)
+        mask_blur = cv2.GaussianBlur(
+            mask_base[:, :, None], (inpaint_rad | 1, inpaint_rad | 1), 0
+        )
         mask_final = (
             mask_blur[:, :, None] if mask_blur.ndim == 2 else mask_blur
         ).astype(np.float32)

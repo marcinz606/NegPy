@@ -56,11 +56,12 @@ The defaults should be somewhat neutral, but you can (and should) use the slider
 This stage removes physical artifacts like dust, hairs, and scratches from the negative. We use two complementary approaches:
 
 *   **Automatic Dust Removal**:
-    We detect sharp, high-luminance spikes relative to the local neighborhood.
+    A resolution-invariant impulse detector and patching engine.
     
-    1.  **Dust-Blind Heuristics**: We use a $3\times3$ minimum filter to calculate the "clean" background luminance, ignoring bright dust halos in the downsampled preview.
-    2.  **Detection**: A pixel is flagged as dust if its intensity significantly exceeds the local median and matches specific flatness/variance criteria.
-    3.  **Healing**: Flagged pixels are replaced with a local median value blended with matched grain.
+    1.  **Statistical Gating**: Uses dual-radius analysis. A local window ($3\times$ scaled) identifies luminance spikes, while a wide window ($4\times$ scaled) provides texture context. A cubic variance penalty ($w\_std^3$) aggressively raises detection thresholds in high-frequency regions (foliage, rocks) to minimize false positives.
+    2.  **Peak Integrity**: Validates candidates via a strict 3x3 Local Maximum check and a $Z > 3.0$ sigma outlier gate. A strong-signal bypass ensures saturation-limited artifacts (hairs/scratches) are captured even if they form plateaus.
+    3.  **Annular Sampling (SPS)**: Background data is reconstructed via Stochastic Perimeter Sampling. Samples are fetched from a ring strictly exterior to the artifact footprint, ensuring zero contamination from the dust luminance itself.
+    4.  **Soft Patching**: Healed regions are integrated using distance-weighted alpha blending with cubic falloff and procedural grain injection to match local noise characteristics.
 
 *   **Manual Healing (Stochastic Boundary Sampling - SBS)**:
     When you use the Heal tool, we fill the brush area using information from its own perimeter.

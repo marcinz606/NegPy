@@ -64,8 +64,8 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     ),
     retouch=RetouchConfig(
         dust_remove=False,
-        dust_threshold=0.66,
-        dust_size=5,
+        dust_threshold=0.75,
+        dust_size=6,
         manual_dust_size=6,
     ),
     export=ExportConfig(

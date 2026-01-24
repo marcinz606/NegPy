@@ -127,6 +127,26 @@ class SignalSlider(BaseSlider):
         layout.addWidget(self.slider)
         layout.addWidget(self.spin)
 
+        if color:
+            self.slider.setStyleSheet(
+                f"""
+                QSlider::handle:horizontal {{
+                    background-color: {color};
+                    border: 1px solid #555;
+                    width: 10px;
+                    height: 10px;
+                    margin: -3px 0;
+                    border-radius: 5px;
+                }}
+                QSlider::groove:horizontal {{
+                    border: 1px solid #333;
+                    height: 4px;
+                    background: #222;
+                    border-radius: 2px;
+                }}
+            """
+            )
+
 
 class CompactSlider(BaseSlider):
     """

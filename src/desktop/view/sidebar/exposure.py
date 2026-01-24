@@ -47,20 +47,18 @@ class ExposureSidebar(BaseSidebar):
         )
         self.layout.addWidget(wb_header)
 
-        cmy_row = QHBoxLayout()
-        self.cyan_slider = CompactSlider(
+        self.cyan_slider = SignalSlider(
             "Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1"
         )
-        self.magenta_slider = CompactSlider(
+        self.magenta_slider = SignalSlider(
             "Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1"
         )
-        self.yellow_slider = CompactSlider(
+        self.yellow_slider = SignalSlider(
             "Yellow", -1.0, 1.0, conf.wb_yellow, color="#b1b100"
         )
-        cmy_row.addWidget(self.cyan_slider)
-        cmy_row.addWidget(self.magenta_slider)
-        cmy_row.addWidget(self.yellow_slider)
-        self.layout.addLayout(cmy_row)
+        self.layout.addWidget(self.cyan_slider)
+        self.layout.addWidget(self.magenta_slider)
+        self.layout.addWidget(self.yellow_slider)
 
         wb_btn_row = QHBoxLayout()
         self.pick_wb_btn = QPushButton(" Pick WB")

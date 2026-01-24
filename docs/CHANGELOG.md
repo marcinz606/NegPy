@@ -11,6 +11,7 @@
     - native manual crop tool.
     - native file picker.
     - thumbnail re-rendering on inversion.
+- Implemented `Analysis Buffer` to ensure that analysis is not thrown off by film border or lightsource outside of it.
 - Added `Camera WB` button to use vendor-specific white balance corrections (helps green/nuclear color casts on some files)
 - GPU acceleration!
 - [keyboard](docs/KEYBOARD.md) shortucts
