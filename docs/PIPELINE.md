@@ -53,16 +53,29 @@ The defaults should be somewhat neutral, but you can (and should) use the slider
 ## 4. Retouching
 **Code**: `src.features.retouch`
 
-*   **Dust & Scratches**: We look for sharp spikes in local texture. If a pixel is way different from its neighbors (based on standard deviation), it's probably dust. We then replace it with median of it's neighbors.
+This stage removes physical artifacts like dust, hairs, and scratches from the negative. We use two complementary approaches:
 
-    $$|I - \text{median}(I)| > T \cdot f(\sigma)$$
-    *   $I$: Pixel intensity.
-    *   $T$: Sensitivity threshold.
-    *   $f(\sigma)$: Local noise estimate.
-*   **Grain Injection**: When you heal a spot, simple blurring looks fake ("plastic"). So we inject synthetic grain back into the healed area, scaled by the brightness (since grain is most visible in midtones).
-*   **Dodge & Burn**: Standard darkroom tools. We multiply the pixel intensity to simulate giving it more or less light.
-  
-    $$I_{out} = I_{in} \cdot 2^{(\text{strength} \cdot \text{mask})}$$
+*   **Automatic Dust Removal**:
+    We detect sharp, high-luminance spikes relative to the local neighborhood.
+    
+    1.  **Dust-Blind Heuristics**: We use a $3\times3$ minimum filter to calculate the "clean" background luminance, ignoring bright dust halos in the downsampled preview.
+    2.  **Detection**: A pixel is flagged as dust if its intensity significantly exceeds the local median and matches specific flatness/variance criteria.
+    3.  **Healing**: Flagged pixels are replaced with a local median value blended with matched grain.
+
+*   **Manual Healing (Stochastic Boundary Sampling - SBS)**:
+    When you use the Heal tool, we fill the brush area using information from its own perimeter.
+    
+    1.  **Perimeter Characterization**: The tool identifies the cleanest background luminance at the edge of the brush circle. This sets a "Perimeter-Safe" floor to prevent dark artifacts in bright areas like skies.
+    2.  **Stochastic Sampling**: For every pixel inside the brush, we sample the immediate boundary with small angular jitter:
+        $$I_{patch} = \frac{1}{3} \sum_{j=1}^{3} \text{min3x3}(P_{\theta + \Delta \theta_j})$$
+        *   $P_{\theta + \Delta \theta_j}$: Perimeter point at pixel's angle $\theta$ with random jitter $\Delta \theta$.
+        *   This reconstructs the natural grain and texture of the surrounding area without using "synthetic" noise.
+    3.  **Luminance Keying**: To preserve original details and grain within the brush, we only apply the patch to pixels that are significantly brighter than the reconstructed background:
+        $$m_{luma} = \text{smoothstep}(0.04, 0.12, I_{curr} - I_{patch})$$
+    4.  **Cumulative Patching**: Patches can be overlaid and stacked. The tool intelligently heals long hairs or scratches by basing each new patch on the current accumulated state.
+
+*   **Resolution Independence**:
+    Retouching coordinates and sizes are scaled relative to the full-resolution RAW data, ensuring that edits made on the preview translate perfectly to the high-resolution export.
 
 ---
 
