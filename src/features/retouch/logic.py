@@ -10,34 +10,86 @@ from src.kernel.image.logic import get_luminance
 @njit(parallel=True, cache=True, fastmath=True)
 def _compute_dust_masks_jit(
     img: np.ndarray,
-    img_median: np.ndarray,
+    img_ref: np.ndarray,
+    mean: np.ndarray,
     std: np.ndarray,
-    sens_factor: np.ndarray,
-    detail_boost: np.ndarray,
+    w_std: np.ndarray,
     dust_threshold: float,
+    dust_size: float,
+    scale_factor: float,
 ) -> np.ndarray:
-    """
-    Fuses the dust detection logic.
-    """
     h, w, c = img.shape
-    raw_mask = np.empty((h, w), dtype=np.float32)
+    hit_mask = np.zeros((h, w), dtype=np.float32)
 
     for y in prange(h):
         for x in range(w):
             max_pos_diff = 0.0
             for ch in range(3):
-                # Only interested in pixels BRIGHTER than surroundings (dust/scratches)
-                d = img[y, x, ch] - img_median[y, x, ch]
+                d = img[y, x, ch] - img_ref[y, x, ch]
                 if d > max_pos_diff:
                     max_pos_diff = d
 
-            thresh = dust_threshold * sens_factor[y, x] + detail_boost[y, x]
-            luma = 0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
-            if max_pos_diff > thresh and std[y, x] <= 0.2 and luma > 0.35:
-                raw_mask[y, x] = 1.0
-            else:
-                raw_mask[y, x] = 0.0
-    return raw_mask
+            l_curr = (
+                0.2126 * img[y, x, 0] + 0.7152 * img[y, x, 1] + 0.0722 * img[y, x, 2]
+            )
+
+            # Match GPU: thresh = (threshold * 0.4) + (local_s * 1.0) + wide_penalty
+            w_s = max(0.0, w_std[y, x] - 0.02)
+            wide_penalty = (w_s * w_s * w_s) * 800.0
+
+            local_s = max(0.005, std[y, x])
+            z_score = (l_curr - mean[y, x]) / local_s
+            thresh = (dust_threshold * 0.4) + (local_s * 1.0) + wide_penalty
+
+            if max_pos_diff > thresh and l_curr > 0.15 and z_score > 3.0:
+                # Strong Signal Bypass: catch hairs/plateaus that aren't single-pixel peaks
+                # but are definitively brighter than the background.
+                is_strong = max_pos_diff > (thresh * 2.5) or max_pos_diff > 0.25
+
+                if y > 0 and y < h - 1 and x > 0 and x < w - 1:
+                    # Strict 3x3 local maximum check
+                    is_max = True
+                    for dy in range(-1, 2):
+                        for dx in range(-1, 2):
+                            if dy == 0 and dx == 0:
+                                continue
+                            neighbor_l = (
+                                0.2126 * img[y + dy, x + dx, 0]
+                                + 0.7152 * img[y + dy, x + dx, 1]
+                                + 0.0722 * img[y + dy, x + dx, 2]
+                            )
+                            if neighbor_l >= l_curr:
+                                is_max = False
+                                break
+                        if not is_max:
+                            break
+
+                    if is_max or is_strong:
+                        hit_mask[y, x] = 1.0
+                else:
+                    hit_mask[y, x] = 1.0
+
+    # 2. Expansion radius scales with dust_size to cover larger footprints
+    exp_rad = int(max(1.0, dust_size * 0.25 * scale_factor))
+    if exp_rad > 6:
+        exp_rad = 6
+    res_mask = np.zeros((h, w), dtype=np.float32)
+    for y in prange(exp_rad, h - exp_rad):
+        for x in range(exp_rad, w - exp_rad):
+            # Check neighbors for a detection hit
+            has_hit = False
+            for dy in range(-exp_rad, exp_rad + 1):
+                for dx in range(-exp_rad, exp_rad + 1):
+                    if hit_mask[y + dy, x + dx] > 0.5:
+                        has_hit = True
+                        break
+                if has_hit:
+                    break
+
+            if has_hit:
+                res_mask[y, x] = 1.0
+
+    return res_mask
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -47,15 +99,11 @@ def _apply_inpainting_grain_jit(
     mask_final: np.ndarray,
     noise: np.ndarray,
 ) -> np.ndarray:
-    """
-    Fuses inpainting blending and grain matching.
-    """
     h, w, c = img_inpainted.shape
     res = np.empty_like(img_inpainted)
 
     for y in prange(h):
         for x in range(w):
-            # Fused Luminance for noise modulation
             lum = (
                 LUMA_R * img_inpainted[y, x, 0]
                 + LUMA_G * img_inpainted[y, x, 1]
@@ -65,7 +113,6 @@ def _apply_inpainting_grain_jit(
             mod = 3.0 * lum * (1.0 - lum)
             m = mask_final[y, x, 0]
 
-            # Luminance keying for manual patches: only heal if original is brighter than inpainted
             orig_luma = (
                 LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
             )
@@ -101,49 +148,55 @@ def apply_dust_removal(
     manual_spots: List[Tuple[float, float, float]],
     scale_factor: float,
 ) -> ImageBuffer:
-    """
-    Automatic (median) and manual (Telea + grain) healing.
-    """
     if not (dust_remove or manual_spots):
         return img
 
     if dust_remove:
-        d_size = int(dust_size * 2.0 * scale_factor) | 1
+        base_size = max(1.0, float(dust_size))
+        scale = max(1.0, float(scale_factor))
+
+        v_win = int(max(3, base_size * 3.0 * scale)) * 2 + 1
+        w_win = int(max(7, base_size * 4.0 * scale)) * 2 + 1
+
         img_uint8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
-        img_median_u8: np.ndarray = cv2.medianBlur(img_uint8, d_size)
-        img_median = img_median_u8.astype(np.float32) / 255.0
+        if scale > 1.5:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            img_ref_u8 = cv2.erode(img_uint8, kernel)
+            img_ref = img_ref_u8.astype(np.float32) / 255.0
+
+            r_off = int(base_size * 3.0 * scale)
+            for dy, dx in [(-r_off, -r_off), (r_off, r_off)]:
+                shifted = np.roll(img, (dy, dx), axis=(0, 1))
+                img_ref = np.minimum(img_ref, shifted)
+        else:
+            d_rad = int(base_size * 3.0 * scale) | 1
+            img_ref_u8 = cv2.medianBlur(img_uint8, d_rad)
+            img_ref = img_ref_u8.astype(np.float32) / 255.0
 
         gray = get_luminance(img)
-        blur_win = int(15 * scale_factor) | 1
-        mean = cv2.blur(gray, (blur_win, blur_win))
-        sq_mean = cv2.blur(gray**2, (blur_win, blur_win))
-        std = np.sqrt(np.clip(sq_mean - mean**2, 0, None))
+        mean_gray = cv2.blur(gray, (v_win, v_win))
+        sq_mean_gray = cv2.blur(gray**2, (v_win, v_win))
+        std_gray = np.sqrt(np.clip(sq_mean_gray - mean_gray**2, 0, None))
 
-        flatness = np.clip(1.0 - (std / 0.08), 0, 1)
-        flatness_weight = np.sqrt(flatness)
-        brightness = np.clip(gray, 0, 1)
-        highlight_sens = np.clip((brightness - 0.4) * 1.5, 0, 1)
+        w_mean_gray = cv2.blur(gray, (w_win, w_win))
+        w_sq_mean_gray = cv2.blur(gray**2, (w_win, w_win))
+        w_std_gray = np.sqrt(np.clip(w_sq_mean_gray - w_mean_gray**2, 0, None))
 
-        detail_boost = (1.0 - flatness) * 0.05
-        sens_factor = (1.0 - 0.98 * flatness_weight) * (1.0 - 0.5 * highlight_sens)
-
-        raw_mask = _compute_dust_masks_jit(
+        mask = _compute_dust_masks_jit(
             np.ascontiguousarray(img.astype(np.float32)),
-            np.ascontiguousarray(img_median.astype(np.float32)),
-            np.ascontiguousarray(std.astype(np.float32)),
-            np.ascontiguousarray(sens_factor.astype(np.float32)),
-            np.ascontiguousarray(detail_boost.astype(np.float32)),
+            np.ascontiguousarray(img_ref.astype(np.float32)),
+            np.ascontiguousarray(mean_gray.astype(np.float32)),
+            np.ascontiguousarray(std_gray.astype(np.float32)),
+            np.ascontiguousarray(w_std_gray.astype(np.float32)),
             float(dust_threshold),
+            float(dust_size),
+            float(scale_factor),
         )
 
-        if np.any(raw_mask > 0):
-            m_kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            mask = cv2.morphologyEx(raw_mask, cv2.MORPH_CLOSE, m_kernel_close)
-            m_kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            mask = cv2.dilate(mask, m_kernel_dilate, iterations=2)
-            feather = d_size | 1
-            mask = cv2.GaussianBlur(mask, (feather, feather), 0)
-            img = img * (1.0 - mask[:, :, None]) + img_median * mask[:, :, None]
+        if np.any(mask > 0):
+            feather = int(base_size * 2.0 * scale) | 1
+            mask_soft = cv2.GaussianBlur(mask, (feather, feather), 0)
+            img = img * (1.0 - mask_soft[:, :, None]) + img_ref * mask_soft[:, :, None]
 
     if manual_spots:
         h_img, w_img = img.shape[:2]

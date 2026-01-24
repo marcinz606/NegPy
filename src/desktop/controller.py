@@ -44,6 +44,8 @@ class AppController(QObject):
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
+    status_message_requested = pyqtSignal(str, int)
+    status_progress_requested = pyqtSignal(int, int)
 
     def __init__(self, session_manager: DesktopSessionManager):
         super().__init__()
@@ -80,6 +82,9 @@ class AppController(QObject):
 
         self._connect_signals()
 
+    def set_status(self, message: str, timeout: int = 0) -> None:
+        self.status_message_requested.emit(message, timeout)
+
     def _connect_signals(self) -> None:
         self.render_requested.connect(self.render_worker.process)
         self.render_worker.finished.connect(self._on_render_finished)
@@ -95,6 +100,9 @@ class AppController(QObject):
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
 
         self.session.file_selected.connect(self.load_file)
+        self.session.settings_saved.connect(
+            lambda: self._update_thumbnail_from_state(force_readback=True)
+        )
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self.request_render)
 
@@ -108,6 +116,7 @@ class AppController(QObject):
             self.thumbnail_requested.emit(missing)
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
+        self.set_status("GALLERIES UPDATED", 3000)
         for name, pil_img in new_thumbs.items():
             if pil_img:
                 u8_arr = np.array(pil_img.convert("RGB"))
@@ -118,6 +127,7 @@ class AppController(QObject):
 
     def load_file(self, file_path: str) -> None:
         """Loads a new RAW file into the linear preview workspace."""
+        self.set_status(f"Loading {os.path.basename(file_path)}...")
         self.loading_started.emit()
         self._first_render_done = False
 
@@ -263,6 +273,7 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
+        self.set_status("Rendering...")
         task = RenderTask(
             buffer=self.state.preview_raw,
             config=self.state.config,
@@ -339,19 +350,19 @@ class AppController(QObject):
             Q_ARG(list, tasks),
         )
 
-    def _on_render_finished(self, buffer: Any, metrics: Dict[str, Any]) -> None:
-        self.state.last_metrics, self.state.is_processing = metrics, False
-        self.image_updated.emit()
-        if not self._first_render_done:
-            self._first_render_done = True
-            # Force readback on initial load to ensure we have a thumbnail
-            self._update_thumbnail_from_state(force_readback=True)
-
+    def _on_render_finished(self, result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
-        if self._pending_render_task:
-            task, self._pending_render_task = self._pending_render_task, None
-            self._is_rendering = True
-            self.render_requested.emit(task)
+
+        # Only update thumbnail on the very first render of a file
+        should_update_thumb = not self._first_render_done
+        self._first_render_done = True
+
+        self.state.last_metrics.update(metrics)
+        self.set_status("READY", 1000)
+        self.image_updated.emit()
+
+        if should_update_thumb:
+            self._update_thumbnail_from_state(force_readback=True)
 
     def _on_metrics_updated(self, metrics: Dict[str, Any]) -> None:
         self.state.last_metrics.update(metrics)
@@ -377,12 +388,8 @@ class AppController(QObject):
         metrics = self.state.last_metrics
         buffer = metrics.get("base_positive")
 
-        # Optimization: Skip thumbnail generation during interactive GPU rendering
-        # to avoid stalling the pipeline with readbacks, unless explicitly forced
-        # (e.g. on Save/Export or initial load).
+        # GPU textures need to be read back to CPU memory for thumbnail processing.
         if isinstance(buffer, GPUTexture):
-            if not force_readback:
-                return
             buffer = buffer.readback()
 
         if buffer is not None and not isinstance(buffer, np.ndarray):

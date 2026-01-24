@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QScrollArea,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PIL import Image
 import numpy as np
 
@@ -100,6 +100,36 @@ class MainWindow(QMainWindow):
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
 
+        self.controller.status_message_requested.connect(self.top_status.showMessage)
+        self.controller.status_progress_requested.connect(self.top_status.set_progress)
+
+        self.dash_timer = QTimer(self)
+        self.dash_timer.timeout.connect(self._refresh_dashboard)
+        self.dash_timer.start(2000)
+        self._refresh_dashboard()
+
+    def _refresh_dashboard(self) -> None:
+        if self.state.gpu_enabled:
+            backend = self.controller.render_worker.processor.backend_name
+            self.top_status.set_gpu_info(backend, active=True)
+        else:
+            self.top_status.set_gpu_info("CPU", active=False)
+
+        # Estimate cache size from local_asset_store
+        try:
+            cache_path = self.controller.asset_store.cache_dir
+            if os.path.exists(cache_path):
+                total_size = 0
+                for dirpath, dirnames, filenames in os.walk(cache_path):
+                    for f in filenames:
+                        fp = os.path.join(dirpath, f)
+                        if os.path.isfile(fp):
+                            total_size += os.path.getsize(fp)
+
+                self.top_status.set_cache_info(total_size / (1024 * 1024))
+        except Exception:
+            pass
+
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
         metrics = self.state.last_metrics
@@ -108,10 +138,8 @@ class MainWindow(QMainWindow):
             return
 
         buffer = metrics["base_positive"]
-        # Use GPU-calculated content_rect if available, else fallback
         content_rect = metrics.get("content_rect")
 
-        # Apply border preview if enabled (Only for CPU buffers, GPU already has it applied in texture)
         if isinstance(buffer, np.ndarray):
             export_conf = self.state.config.export
             should_preview = (

@@ -41,7 +41,7 @@ class TestWorkspaceSession(unittest.TestCase):
         config = self.session.create_default_config()
 
         self.assertEqual(config.lab.color_separation, 1.0)
-        self.assertEqual(config.retouch.dust_size, 4)
+        self.assertEqual(config.retouch.dust_size, 5)
         self.assertEqual(config.export.export_fmt, ExportFormat.JPEG)
         self.assertEqual(config.export.export_print_size, 30.0)
         self.assertEqual(config.export.export_dpi, 300)

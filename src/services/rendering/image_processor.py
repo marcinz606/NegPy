@@ -50,6 +50,12 @@ class ImageProcessor:
             else:
                 logger.warning("ImageProcessor: GPU unavailable, using CPU fallback")
 
+    @property
+    def backend_name(self) -> str:
+        if self.engine_gpu:
+            return self.engine_gpu.gpu.backend_name or "WEBGPU"
+        return "CPU"
+
     def run_pipeline(
         self,
         img: ImageBuffer,

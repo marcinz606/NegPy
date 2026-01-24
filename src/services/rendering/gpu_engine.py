@@ -208,7 +208,7 @@ class GPUEngine:
             "normalization": 32,
             "exposure": 80,
             "clahe_u": 32,
-            "retouch_u": 32,
+            "retouch_u": 40,
             "lab": 64,
             "toning": 48,
             "layout": 48,
@@ -310,17 +310,21 @@ class GPUEngine:
             y1, y2, x1, x2 = roi
             crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
-        bounds = (
-            bounds_override
-            if bounds_override
-            else measure_log_negative_bounds(
-                get_analysis_crop(
-                    np.log10(np.clip(img, 1e-6, 1.0)), settings.exposure.analysis_buffer
+        if bounds_override:
+            bounds = bounds_override
+        else:
+            # Match CPU: use ROI for analysis if not in tiling mode
+            analysis_source = np.log10(np.clip(img, 1e-6, 1.0))
+            if not tiling_mode:
+                # Apply ROI (crop) to analysis source
+                ry1, ry2, rx1, rx2 = roi
+                analysis_source = analysis_source[ry1:ry2, rx1:rx2]
+
+            if settings.exposure.analysis_buffer > 0:
+                analysis_source = get_analysis_crop(
+                    analysis_source, settings.exposure.analysis_buffer
                 )
-                if settings.exposure.analysis_buffer > 0
-                else np.log10(np.clip(img, 1e-6, 1.0))
-            )
-        )
+            bounds = measure_log_negative_bounds(analysis_source)
 
         self._upload_unified_uniforms(
             settings,
@@ -332,6 +336,7 @@ class GPUEngine:
             crop_h,
             tiling_mode,
             render_size_ref,
+            scale_factor,
         )
         self._update_retouch_storage(
             settings.retouch,
@@ -584,6 +589,7 @@ class GPUEngine:
         crop_h: int,
         tiling_mode: bool,
         render_size_ref: Optional[float],
+        scale_factor: float,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         g_data = (
@@ -651,7 +657,7 @@ class GPUEngine:
 
         ret = settings.retouch
         r_u_data = struct.pack(
-            "ffIIiiII",
+            "ffIIiiIIf",
             float(ret.dust_threshold),
             float(ret.dust_size),
             len(ret.manual_dust_spots),
@@ -660,6 +666,7 @@ class GPUEngine:
             offset[1],
             full_dims[0],
             full_dims[1],
+            float(scale_factor),
         )
 
         lab = settings.lab

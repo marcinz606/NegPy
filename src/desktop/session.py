@@ -84,6 +84,7 @@ class DesktopSessionManager(QObject):
     """
 
     state_changed = pyqtSignal()
+    settings_saved = pyqtSignal()
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
 
     def __init__(self, repo: StorageRepository):
@@ -262,6 +263,7 @@ class DesktopSessionManager(QObject):
                 self.repo.save_file_settings(
                     self.state.current_file_hash, self.state.config
                 )
+                self.settings_saved.emit()
 
             file_info = self.state.uploaded_files[index]
             self.state.selected_file_idx = index
@@ -304,6 +306,7 @@ class DesktopSessionManager(QObject):
 
         if persist and self.state.current_file_hash:
             self.repo.save_file_settings(self.state.current_file_hash, config)
+            self.settings_saved.emit()
         self.state_changed.emit()
 
     def reset_settings(self) -> None:

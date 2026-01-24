@@ -20,7 +20,7 @@ BASE_USER_DIR = get_default_user_dir()
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
     max_workers=max(1, (os.cpu_count() or 1)),
-    preview_render_size=1200,
+    preview_render_size=2000,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),
@@ -64,8 +64,8 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     ),
     retouch=RetouchConfig(
         dust_remove=False,
-        dust_threshold=0.75,
-        dust_size=4,
+        dust_threshold=0.66,
+        dust_size=5,
         manual_dust_size=6,
     ),
     export=ExportConfig(

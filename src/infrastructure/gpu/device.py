@@ -47,6 +47,15 @@ class GPUDevice:
     def is_available(self) -> bool:
         return self.device is not None
 
+    @property
+    def backend_name(self) -> Optional[str]:
+        if not self.adapter:
+            return None
+        summary = str(self.adapter.summary)
+        if "(" in summary:
+            return str(summary.split("(")[-1].replace(")", "").strip())
+        return str(summary.split()[-1])
+
     def poll(self) -> None:
         """Forces hardware queue processing for async operations."""
         if self.device:

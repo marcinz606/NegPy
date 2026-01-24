@@ -19,10 +19,13 @@ class ThemeConfig:
     bg_dark: str = "#0f0f0f"
     bg_panel: str = "#1a1a1a"
     bg_header: str = "#2a2a2a"
+    bg_status_bar: str = "#0a0a0a"
+    border_primary: str = "#222222"
     border_color: str = "#333333"
     text_primary: str = "#eeeeee"
     text_secondary: str = "#aaaaaa"
-    accent_primary: str = "#b10000"  # Red
+    text_muted: str = "#555555"
+    accent_primary: str = "#b10000"
     accent_secondary: str = "#d10000"
 
     slider_height_compact: int = 18

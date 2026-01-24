@@ -36,8 +36,8 @@ class CanvasOverlay(QWidget):
         self._mouse_pos: QPointF = QPointF()
 
         self.setMouseTracking(True)
-        # We need to accept mouse events but be transparent for background if no image
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
@@ -68,6 +68,7 @@ class CanvasOverlay(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
+
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
@@ -94,7 +95,6 @@ class CanvasOverlay(QWidget):
         self._draw_widget_ui(painter)
 
     def _draw_widget_ui(self, painter: QPainter) -> None:
-        # Active Crop
         if self._crop_p1 and self._crop_p2:
             rect = (
                 QRectF(self._crop_p1, self._crop_p2)
@@ -133,7 +133,6 @@ class CanvasOverlay(QWidget):
                 )
 
     def _draw_brush(self, painter: QPainter) -> None:
-        """Draws the healing brush circle."""
         conf = self.state.config.retouch
 
         max_screen_dim = max(self._display_rect.width(), self._display_rect.height())
@@ -146,7 +145,7 @@ class CanvasOverlay(QWidget):
         painter.drawEllipse(self._mouse_pos, radius, radius)
 
         accent = QColor(THEME.accent_primary)
-        accent.setAlpha(33)
+        accent.setAlpha(60)
         painter.setBrush(accent)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(self._mouse_pos, radius, radius)

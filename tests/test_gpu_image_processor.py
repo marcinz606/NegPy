@@ -17,12 +17,17 @@ class TestImageProcessorGPU(unittest.TestCase):
 
     def test_run_pipeline_gpu(self):
         """Verify high-level pipeline execution on GPU."""
+        from src.kernel.system.config import APP_CONFIG
+
         img = np.random.rand(100, 100, 3).astype(np.float32)
         settings = WorkspaceConfig()
 
         # Test preview path
         result, metrics = self.processor.run_pipeline(
-            img, settings, source_hash="test", render_size_ref=1200.0
+            img,
+            settings,
+            source_hash="test",
+            render_size_ref=float(APP_CONFIG.preview_render_size),
         )
 
         from src.infrastructure.gpu.resources import GPUTexture

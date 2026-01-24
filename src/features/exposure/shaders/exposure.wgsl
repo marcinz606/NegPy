@@ -55,12 +55,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var k_mod = 1.0 - damp_toe - damp_shoulder;
         k_mod = clamp(k_mod, 0.1, 2.0);
 
-        let density = params.d_max * fast_sigmoid(params.slopes[ch] * diff * k_mod);
-        let transmittance = pow(10.0, -density);
-        
-        // Output LINEAR transmittance (Gamma applied in final stage)
-        res[ch] = transmittance;
-    }
+                        let density = params.d_max * fast_sigmoid(params.slopes[ch] * diff * k_mod);
 
-    textureStore(output_tex, coords, vec4<f32>(clamp(res, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
-}
+                        let transmittance = pow(10.0, -density);
+
+                        
+
+                        // Output LINEAR transmittance (Gamma applied in final stage)
+
+                        res[ch] = transmittance;
+
+                    }
+
+                
+
+                    textureStore(output_tex, coords, vec4<f32>(clamp(res, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
+
+                }
+
+                
+
+        

@@ -47,6 +47,10 @@ class RenderWorker(QObject):
         super().__init__()
         self._processor = ImageProcessor()
 
+    @property
+    def processor(self) -> ImageProcessor:
+        return self._processor
+
     def cleanup(self) -> None:
         """Evacuates transient GPU resources."""
         self._processor.cleanup()
@@ -87,9 +91,9 @@ class RenderWorker(QObject):
                 result = arr.astype(np.float32) / (
                     65535.0 if arr.dtype == np.uint16 else 255.0
                 )
-                metrics["base_positive"] = result
-            elif not isinstance(result, np.ndarray):
-                metrics["base_positive"] = result
+
+            # Ensure ground truth is stored in metrics for view consumption
+            metrics["base_positive"] = result
 
             self.finished.emit(result, metrics)
             self.metrics_updated.emit(metrics)

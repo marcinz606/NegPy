@@ -5,6 +5,7 @@ struct RetouchUniforms {
     enabled_auto: u32,
     global_offset: vec2<i32>,
     full_dims: vec2<i32>,
+    scale_factor: f32,
 };
 
 struct ManualSpot {
@@ -78,10 +79,44 @@ fn median5x5(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
     return vec3<f32>(r[12], g[12], b[12]);
 }
 
+fn median7x7(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
+    var luma = array<f32, 49>();
+    var colors = array<vec3<f32>, 49>();
+    var idx = 0;
+    for (var j = -3; j <= 3; j++) {
+        for (var i = -3; i <= 3; i++) {
+            let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), dims - 1), 0).rgb;
+            colors[idx] = s;
+            luma[idx] = dot(s, vec3<f32>(0.2126, 0.7152, 0.0722));
+            idx++;
+        }
+    }
+    for (var i = 0; i <= 24; i++) {
+        var min_idx = i;
+        for (var j = i + 1; j < 49; j++) {
+            if (luma[j] < luma[min_idx]) { min_idx = j; }
+        }
+        let tl = luma[i]; luma[i] = luma[min_idx]; luma[min_idx] = tl;
+        let tc = colors[i]; colors[i] = colors[min_idx]; colors[min_idx] = tc;
+    }
+    return colors[24];
+}
+
 fn min3x3(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
     var m = vec3<f32>(1.0, 1.0, 1.0);
     for (var j = -1; j <= 1; j++) {
         for (var i = -1; i <= 1; i++) {
+            let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), dims - 1), 0).rgb;
+            m = min(m, s);
+        }
+    }
+    return m;
+}
+
+fn min5x5(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
+    var m = vec3<f32>(1.0, 1.0, 1.0);
+    for (var j = -2; j <= 2; j++) {
+        for (var i = -2; i <= 2; i++) {
             let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), dims - 1), 0).rgb;
             m = min(m, s);
         }
@@ -103,53 +138,119 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var res = original;
 
     if (params.enabled_auto == 1u) {
+        let base_s = max(1.0, params.dust_size);
+        let scale = max(1.0, params.scale_factor);
+        
+        // 1. Resolution-Scaled Statistics Windows (Increased multipliers for large specks)
+        let v_rad = i32(max(3.0, base_s * 3.0 * scale)); 
         var luma_sum = 0.0;
         var luma_sq_sum = 0.0;
-        let v_rad = 7; 
-        let v_count = 225.0;
         
-        for (var j = -v_rad; j <= v_rad; j++) {
-            for (var i = -v_rad; i <= v_rad; i++) {
+        let step_v = max(1, v_rad / 4);
+        var samples_v = 0.0;
+        for (var j = -v_rad; j <= v_rad; j += step_v) {
+            for (var i = -v_rad; i <= v_rad; i += step_v) {
                 let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb;
                 let l = dot(s, vec3<f32>(0.2126, 0.7152, 0.0722));
                 luma_sum += l;
                 luma_sq_sum += l * l;
+                samples_v += 1.0;
             }
         }
-        let mean = luma_sum / v_count;
-        let luma_std = sqrt(max(0.0, (luma_sq_sum / v_count) - (mean * mean)));
-        
-        let flatness = clamp(1.0 - (luma_std / 0.08), 0.0, 1.0);
-        let flatness_weight = sqrt(flatness);
-        let brightness = clamp(mean, 0.0, 1.0);
-        let highlight_sens = clamp((brightness - 0.4) * 1.5, 0.0, 1.0);
+        let mean = luma_sum / samples_v;
+        let luma_std = sqrt(max(0.0, (luma_sq_sum / samples_v) - (mean * mean)));
 
-        let detail_boost = (1.0 - flatness) * 0.05;
-        let sens_factor = (1.0 - 0.98 * flatness_weight) * (1.0 - 0.5 * highlight_sens);
+        let w_rad = i32(max(7.0, base_s * 4.0 * scale)); 
+        var w_luma_sum = 0.0;
+        var w_luma_sq_sum = 0.0;
+        let step_w = max(1, w_rad / 6);
+        var samples_w = 0.0;
+        for (var j = -w_rad; j <= w_rad; j += step_w) {
+            for (var i = -w_rad; i <= w_rad; i += step_w) {
+                let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb;
+                let l = dot(s, vec3<f32>(0.2126, 0.7152, 0.0722));
+                w_luma_sum += l;
+                w_luma_sq_sum += l * l;
+                samples_w += 1.0;
+            }
+        }
+        let w_mean = w_luma_sum / samples_w;
+        let w_std = sqrt(max(0.0, (w_luma_sq_sum / samples_w) - (w_mean * w_mean)));
         
-        let final_thresh = params.dust_threshold * sens_factor + detail_boost;
-
-        let luma = dot(original, vec3<f32>(0.2126, 0.7152, 0.0722));
-        if (luma_std <= 0.2 && luma > 0.4) {
-            var median = vec3<f32>(0.0);
-            if (params.dust_size > 2.0) {
-                median = median5x5(coords, vec2<i32>(dims));
+        // 2. Multi-Scale Reference Selection
+        var ref_val = vec3<f32>(0.0);
+        if (scale > 1.5) {
+            ref_val = min5x5(coords, vec2<i32>(dims));
+            let r_off = i32(base_s * 3.0 * scale);
+            ref_val = min(ref_val, textureLoad(input_tex, clamp(coords + vec2<i32>(-r_off, -r_off), vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb);
+            ref_val = min(ref_val, textureLoad(input_tex, clamp(coords + vec2<i32>(r_off, r_off), vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb);
+        } else {
+            if (params.dust_size >= 2.5) {
+                ref_val = median7x7(coords, vec2<i32>(dims));
+            } else if (params.dust_size >= 1.5) {
+                ref_val = median5x5(coords, vec2<i32>(dims));
             } else {
-                median = median3x3(coords, vec2<i32>(dims));
+                let d_rad = i32(base_s * 3.0);
+                ref_val = textureLoad(input_tex, clamp(coords + vec2<i32>(-d_rad, 0), vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb;
+                ref_val = min(ref_val, textureLoad(input_tex, clamp(coords + vec2<i32>(d_rad, 0), vec2<i32>(0), vec2<i32>(dims) - 1), 0).rgb);
+                ref_val = min(ref_val, median3x3(coords, vec2<i32>(dims)));
             }
+        }
 
-            let diff = original - median;
-            let max_pos_diff = max(diff.r, max(diff.g, diff.b));
+        // 3. Simple, Aggressive Detection
+        let diff = original - ref_val;
+        let max_pos_diff = max(diff.r, max(diff.g, diff.b));
+        let luma = dot(original, vec3<f32>(0.2126, 0.7152, 0.0722));
+        
+        let local_s = max(0.005, luma_std);
+        let z_score = (luma - mean) / local_s;
+        
+        let w_s = max(0.0, w_std - 0.02);
+        let wide_penalty = (w_s * w_s * w_s) * 800.0;
+        
+        let thresh = (params.dust_threshold * 0.4) + (local_s * 1.0) + wide_penalty;
 
-            if (max_pos_diff > final_thresh) {
-                let strength = smoothstep(final_thresh, final_thresh * 1.2, max_pos_diff);
+        // 4. Hit Detection with Strict Peak and Strong-Signal Bypass
+        var strength = 0.0;
+        let idims = vec2<i32>(dims);
+        // Expansion radius scales with dust_size to handle large artifacts
+        let exp_rad = i32(clamp(params.dust_size * 0.25 * params.scale_factor, 1.0, 6.0));
+        
+        for (var yoff = -exp_rad; yoff <= exp_rad; yoff++) {
+            for (var xoff = -exp_rad; xoff <= exp_rad; xoff++) {
+                let nc = clamp(coords + vec2<i32>(xoff, yoff), vec2<i32>(0), idims - 1);
+                let ns = textureLoad(input_tex, nc, 0).rgb;
+                let nl = dot(ns, vec3<f32>(0.2126, 0.7152, 0.0722));
                 
-                let luma_mod = 4.0 * mean * (1.0 - mean);
-                let grain = get_noise(global_uv * 1000.0) * 0.003 * luma_mod;
-                let healed = median + vec3<f32>(grain);
+                let n_diff = ns - ref_val; 
+                let n_max_diff = max(n_diff.r, max(n_diff.g, n_diff.b));
                 
-                res = mix(original, healed, strength);
+                // Only treat as a hit if it's a statistically significant peak
+                if (n_max_diff > thresh && nl > 0.15 && z_score > 3.0) {
+                    let is_strong = n_max_diff > (thresh * 2.5) || n_max_diff > 0.25;
+                    
+                    var is_max = true;
+                    for (var my = -1; my <= 1; my++) {
+                        for (var mx = -1; mx <= 1; mx++) {
+                            if (mx == 0 && my == 0) { continue; }
+                            let sc = clamp(nc + vec2<i32>(mx, my), vec2<i32>(0), idims - 1);
+                            let sl = dot(textureLoad(input_tex, sc, 0).rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+                            if (sl >= nl) { is_max = false; break; }
+                        }
+                        if (!is_max) { break; }
+                    }
+                    
+                    if (is_max || is_strong) {
+                        strength = 1.0;
+                    }
+                }
             }
+        }
+
+        if (strength > 0.0) {
+            let luma_mod = 4.0 * mean * (1.0 - mean);
+            let grain = get_noise(global_uv * 1000.0) * 0.003 * luma_mod;
+            res = mix(original, ref_val + vec3<f32>(grain), strength);
         }
     }
 
