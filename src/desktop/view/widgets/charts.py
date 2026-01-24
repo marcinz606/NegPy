@@ -1,112 +1,133 @@
 import numpy as np
 from typing import Any
+from PyQt6.QtWidgets import QWidget, QSizePolicy
 from PyQt6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PyQt6.QtGui import QPainter, QColor, QPen
+from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath
 from PyQt6.QtCore import Qt, QPointF, QMargins
 from src.kernel.image.logic import get_luminance
 
 
-class HistogramWidget(QChartView):
+class HistogramWidget(QWidget):
     """
-    Native high-performance histogram using PyQt6-Charts.
+    Native high-performance histogram using QPainter.
+    Offers additive blending-like visuals and reliable updates.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        self._chart = QChart()
-        self._chart.setBackgroundVisible(False)
-        self._chart.setMargins(QMargins(0, 0, 0, 0))
-        self._chart.layout().setContentsMargins(0, 0, 0, 0)
-        self._chart.legend().hide()
-
-        self.setChart(self._chart)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(40)
-
-        # Series setup
-        self.series_r = QLineSeries()
-        self.series_g = QLineSeries()
-        self.series_b = QLineSeries()
-        self.series_l = QLineSeries()
-
-        self.series_r.setPen(QPen(QColor("#b10000"), 1.2))  # Primary Red
-        self.series_g.setPen(QPen(QColor("#00b1b1"), 1.2))  # Cyan
-        self.series_b.setPen(QPen(QColor("#b100b1"), 1.2))  # Magenta
-        self.series_l.setPen(QPen(QColor("#c3c3c3"), 1.5))  # Text Grey for Luma
-
-        self._chart.addSeries(self.series_r)
-        self._chart.addSeries(self.series_g)
-        self._chart.addSeries(self.series_b)
-        self._chart.addSeries(self.series_l)
-
-        # Axes
-        self.axis_x = QValueAxis()
-        self.axis_x.setRange(0, 255)
-        self.axis_x.setVisible(False)
-
-        self.axis_y = QValueAxis()
-        self.axis_y.setRange(0, 1)  # Normalized
-        self.axis_y.setVisible(False)
-
-        self._chart.addAxis(self.axis_x, Qt.AlignmentFlag.AlignBottom)
-        self._chart.addAxis(self.axis_y, Qt.AlignmentFlag.AlignLeft)
-
-        for s in [self.series_r, self.series_g, self.series_b, self.series_l]:
-            s.attachAxis(self.axis_x)
-            s.attachAxis(self.axis_y)
+        self._data_r = []
+        self._data_g = []
+        self._data_b = []
+        self._data_l = []
 
     def update_data(self, buffer: Any) -> None:
         """
-        Calculates histograms and updates chart series.
-        Supports both NumPy buffers and raw histogram counts.
+        Calculates histograms and triggers repaint.
         """
         if buffer is None:
+            self._data_r = []
+            self._data_g = []
+            self._data_b = []
+            self._data_l = []
+            self.update()
             return
 
-        # Case 1: Raw Histogram Data (from GPU Engine)
         if isinstance(buffer, np.ndarray) and buffer.shape == (4, 256):
-
-            def get_points_raw(counts: np.ndarray) -> list:
-                max_val = float(np.max(counts))
-                if max_val <= 0:
-                    return []
-                return [
-                    QPointF(i, float(val) / max_val) for i, val in enumerate(counts)
-                ]
-
-            self.series_r.replace(get_points_raw(buffer[0]))
-            self.series_g.replace(get_points_raw(buffer[1]))
-            self.series_b.replace(get_points_raw(buffer[2]))
-            self.series_l.replace(get_points_raw(buffer[3]))
-            self.axis_x.setRange(0, 255)
+            self._data_r = self._normalize(buffer[0])
+            self._data_g = self._normalize(buffer[1])
+            self._data_b = self._normalize(buffer[2])
+            self._data_l = self._normalize(buffer[3])
+            self.update()
             return
 
-        # Case 2: NumPy Buffer (CPU Fallback)
         if not isinstance(buffer, np.ndarray):
             return
 
-        # Downsample for speed if huge
         if buffer.shape[0] > 500:
             buffer = buffer[::4, ::4]
 
         lum = get_luminance(buffer)
 
-        def get_points(data):
-            hist, _ = np.histogram(data, bins=64, range=(0, 1))
-            if hist.max() > 0:
-                hist = hist / hist.max()  # Normalize
+        self._data_r = self._calc_hist(buffer[..., 0])
+        self._data_g = self._calc_hist(buffer[..., 1])
+        self._data_b = self._calc_hist(buffer[..., 2])
+        self._data_l = self._calc_hist(lum)
+        self.update()
 
-            points = []
-            for i, val in enumerate(hist):
-                points.append(QPointF(i * (255 / 63), val))
-            return points
+    def _normalize(self, counts: np.ndarray) -> list:
+        max_val = float(np.max(counts))
+        if max_val <= 0:
+            return []
+        return (counts.astype(float) / max_val).tolist()
 
-        self.series_r.replace(get_points(buffer[..., 0]))
-        self.series_g.replace(get_points(buffer[..., 1]))
-        self.series_b.replace(get_points(buffer[..., 2]))
-        self.series_l.replace(get_points(lum))
-        self.axis_x.setRange(0, 255)
+    def _calc_hist(self, data: np.ndarray) -> list:
+        hist, _ = np.histogram(data, bins=256, range=(0, 1))
+        max_val = hist.max()
+        if max_val <= 0:
+            return []
+        return (hist.astype(float) / max_val).tolist()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w = self.width()
+        h = self.height()
+
+        self._draw_channel(painter, self._data_l, "#eeeeee", 30, 150, w, h)
+        self._draw_channel(painter, self._data_r, "#d32f2f", 80, 200, w, h)
+        self._draw_channel(painter, self._data_g, "#388e3c", 80, 200, w, h)
+        self._draw_channel(painter, self._data_b, "#1976d2", 80, 200, w, h)
+
+    def _draw_channel(
+        self,
+        painter: QPainter,
+        data: list,
+        color_hex: str,
+        alpha_fill: int,
+        alpha_line: int,
+        w: int,
+        h: int,
+    ):
+        if not data:
+            return
+
+        if len(data) < 2:
+            return
+
+        path = QPainterPath()
+        path.moveTo(0, h)
+
+        step = w / (len(data) - 1)
+
+        for i, val in enumerate(data):
+            x = i * step
+            y = h - (val * h)
+            path.lineTo(x, y)
+
+        path.lineTo(w, h)
+        path.closeSubpath()
+
+        c_fill = QColor(color_hex)
+        c_fill.setAlpha(alpha_fill)
+        painter.setBrush(QBrush(c_fill))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPath(path)
+
+        path_line = QPainterPath()
+        path_line.moveTo(0, h - (data[0] * h))
+        for i, val in enumerate(data):
+            x = i * step
+            y = h - (val * h)
+            path_line.lineTo(x, y)
+
+        c_line = QColor(color_hex)
+        c_line.setAlpha(alpha_line)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(c_line, 1.5))
+        painter.drawPath(path_line)
 
 
 class PhotometricCurveWidget(QChartView):
@@ -123,8 +144,18 @@ class PhotometricCurveWidget(QChartView):
         self._chart.setMargins(QMargins(0, 0, 0, 0))
         self._chart.legend().hide()
 
+        # diagonal
+        self.series_ref = QLineSeries()
+        pen_ref = QPen(QColor("#666666"), 1)
+        pen_ref.setStyle(Qt.PenStyle.DashLine)
+        self.series_ref.setPen(pen_ref)
+        self.series_ref.append(0.0, 0.0)
+        self.series_ref.append(1.0, 1.0)
+        self._chart.addSeries(self.series_ref)
+
+        # curve
         self.series = QLineSeries()
-        self.series.setPen(QPen(QColor("#e0e0e0"), 2))
+        self.series.setPen(QPen(QColor("#e0e0e0"), 2.5))
         self._chart.addSeries(self.series)
 
         self.axis_x = QValueAxis()
@@ -137,8 +168,11 @@ class PhotometricCurveWidget(QChartView):
 
         self._chart.addAxis(self.axis_x, Qt.AlignmentFlag.AlignBottom)
         self._chart.addAxis(self.axis_y, Qt.AlignmentFlag.AlignLeft)
+
         self.series.attachAxis(self.axis_x)
         self.series.attachAxis(self.axis_y)
+        self.series_ref.attachAxis(self.axis_x)
+        self.series_ref.attachAxis(self.axis_y)
 
         self.setChart(self._chart)
         self.setMinimumHeight(40)

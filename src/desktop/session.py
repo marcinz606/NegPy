@@ -127,6 +127,7 @@ class DesktopSessionManager(QObject):
         sticky_cyan = self.repo.get_global_setting("last_wb_cyan")
         sticky_magenta = self.repo.get_global_setting("last_wb_magenta")
         sticky_yellow = self.repo.get_global_setting("last_wb_yellow")
+        sticky_camera_wb = self.repo.get_global_setting("last_use_camera_wb")
 
         sticky_toe = self.repo.get_global_setting("last_toe")
         sticky_toe_w = self.repo.get_global_setting("last_toe_width")
@@ -148,6 +149,8 @@ class DesktopSessionManager(QObject):
             new_exp = replace(new_exp, wb_magenta=float(sticky_magenta))
         if sticky_yellow is not None:
             new_exp = replace(new_exp, wb_yellow=float(sticky_yellow))
+        if sticky_camera_wb is not None:
+            new_exp = replace(new_exp, use_camera_wb=bool(sticky_camera_wb))
 
         if sticky_toe is not None:
             new_exp = replace(new_exp, toe=float(sticky_toe))
@@ -206,6 +209,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_wb_cyan", config.exposure.wb_cyan)
         self.repo.save_global_setting("last_wb_magenta", config.exposure.wb_magenta)
         self.repo.save_global_setting("last_wb_yellow", config.exposure.wb_yellow)
+        self.repo.save_global_setting("last_use_camera_wb", config.exposure.use_camera_wb)
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)
         self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)

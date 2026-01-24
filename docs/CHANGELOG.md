@@ -11,6 +11,7 @@
     - native manual crop tool.
     - native file picker.
     - thumbnail re-rendering on inversion.
+- Added `Camera WB` button to use vendor-specific white balance corrections (helps green/nuclear color casts on some files)
 - GPU acceleration!
 - [keyboard](docs/KEYBOARD.md) shortucts
 - Bugfixes: improved handling of some raw files that previously resulted in heavy colorcasts and compresssion artifacts.

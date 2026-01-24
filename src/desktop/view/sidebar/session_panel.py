@@ -106,8 +106,8 @@ class SessionPanel(QWidget):
         self.hist_widget = HistogramWidget()
         self.curve_widget = PhotometricCurveWidget()
 
-        analysis_layout.addWidget(self.hist_widget)
-        analysis_layout.addWidget(self.curve_widget)
+        analysis_layout.addWidget(self.hist_widget, 1)
+        analysis_layout.addWidget(self.curve_widget, 1)
         self.tabs.addTab(wrap_scroll(self.analysis_group), "Analysis")
 
         self.export_sidebar = ExportSidebar(self.controller)
@@ -125,7 +125,6 @@ class SessionPanel(QWidget):
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
 
     def _on_metrics_available(self, metrics: Dict[str, Any]) -> None:
-        # Update only histogram from late metrics
         hist_data = metrics.get("histogram_raw")
         if hist_data is not None:
             self.hist_widget.update_data(hist_data)
@@ -133,8 +132,6 @@ class SessionPanel(QWidget):
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics
 
-        # 1. Update Histogram
-        # Priority: Raw GPU Histogram > CPU Analysis Buffer > Base Positive
         hist_data = metrics.get("histogram_raw")
         if hist_data is not None:
             self.hist_widget.update_data(hist_data)
@@ -145,7 +142,6 @@ class SessionPanel(QWidget):
             if buffer is not None:
                 self.hist_widget.update_data(buffer)
 
-        # 2. Update Curve
         self.curve_widget.update_curve(self.controller.session.state.config.exposure)
 
     def _on_update_found(self, version: str) -> None:
