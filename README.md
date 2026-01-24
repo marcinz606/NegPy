@@ -13,12 +13,13 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 ## ✨ Features
 
-*   **GPU Acceleration**: Real-time high-bit-depth processing using WebGPU (Vulkan/Metal/DX12).
 *   **No Camera Profiles**: It doesn't use camera profiles or ask you to color-pick the border. It uses math to neutralize the orange mask based on channel sensitometry.
 *   **Film Physics**: It models the **H&D Characteristic Curve** of photographic material using a Logistic Sigmoid function instead of doing simple linear inversion.
+*   **GPU Acceleration**: Real-time high-bit-depth processing using WebGPU (Vulkan/Metal/DX12).
 *   **Dust Removal**: Automatic and manual healing tools with grain synthesis to keep scans clean without looking plastic.
 *   **File Support**: Supports standard RAWs/TIFFs, and specialized formats like Kodak Pakon scanner raw files.
 *   **Non-destructive**: original files are never touched; edits are stored as recipes.
+*   **Keyboard Shortcuts**: [see here](docs/KEYBOARD.md)
 *   **Database**: All edits live in a local SQLite database, keyed by file hash. You can move or rename files without losing your work.
 *   **Print Ready**: Export module designed for printing, featuring border controls and ICC soft-proofing.
 
