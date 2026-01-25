@@ -31,7 +31,6 @@ def get_default_user_dir() -> str:
 
     docs_dir: Optional[Path] = None
 
-    # 1. Windows: Use Shell API to get the "Personal" (Documents) folder
     if sys.platform == "win32":
         try:
             import ctypes
@@ -45,12 +44,13 @@ def get_default_user_dir() -> str:
         except Exception:
             pass
 
-    # 2. Linux: Check XDG environment and utility
     elif sys.platform == "linux":
         xdg_docs = os.getenv("XDG_DOCUMENTS_DIR")
         if xdg_docs:
             docs_dir = Path(xdg_docs)
-        else:
+
+        # fallback to xdg-user-dir
+        if not docs_dir:
             try:
                 out = subprocess.check_output(
                     ["xdg-user-dir", "DOCUMENTS"], stderr=subprocess.DEVNULL
@@ -61,12 +61,29 @@ def get_default_user_dir() -> str:
             except (subprocess.CalledProcessError, FileNotFoundError):
                 pass
 
-    # 3. macOS: Standard location is ~/Documents, managed by System
+        # fallback to user-dirs.dirs
+        if not docs_dir:
+            config_home = os.getenv("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+            user_dirs_file = os.path.join(config_home, "user-dirs.dirs")
+            if os.path.exists(user_dirs_file):
+                try:
+                    with open(user_dirs_file, "r") as f:
+                        for line in f:
+                            if line.startswith("XDG_DOCUMENTS_DIR="):
+                                # Line format: XDG_DOCUMENTS_DIR="$HOME/doc"
+                                path = line.split("=", 1)[1].strip().strip('"')
+                                path = path.replace("$HOME", os.path.expanduser("~"))
+                                if os.path.isabs(path):
+                                    docs_dir = Path(path)
+                                    break
+                except Exception:
+                    pass
+
     elif sys.platform == "darwin":
         docs_dir = Path.home() / "Documents"
 
-    # 4. Global Fallback
-    if not docs_dir or not docs_dir.exists():
+    # fallback
+    if not docs_dir:
         try:
             docs_dir = Path.home() / "Documents"
         except RuntimeError:
