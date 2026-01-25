@@ -171,7 +171,9 @@ def package_windows():
 
     cmd = "makensis"
     # Try to find makensis in common locations if not in PATH
-    if not shutil.which(cmd):
+    found_cmd = shutil.which(cmd) or shutil.which("makensis.exe")
+    
+    if not found_cmd:
         common_paths = [
             r"C:\Program Files (x86)\NSIS\makensis.exe",
             r"C:\Program Files\NSIS\makensis.exe",
@@ -180,12 +182,16 @@ def package_windows():
             if os.path.exists(p):
                 cmd = p
                 break
+    else:
+        cmd = found_cmd
 
     try:
         setup_name = f"{APP_NAME}-{VERSION}-Win64-Setup.exe"
+        # On Windows, using shell=True helps resolving commands in PATH
         subprocess.run(
             [cmd, f"/DVERSION={VERSION}", f"/DOUTFILE={setup_name}", "installer.nsi"],
             check=True,
+            shell=is_windows
         )
         print(f"Windows Installer created: dist/{setup_name}")
     except Exception as e:
