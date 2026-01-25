@@ -1,7 +1,7 @@
 import struct
 import sys
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from rendercanvas.pyqt6 import RenderCanvas
 import wgpu  # type: ignore
 from typing import Optional, Any, Tuple
@@ -15,6 +15,9 @@ class GPUCanvasWidget(QWidget):
         super().__init__(parent)
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
+
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
 
         self.canvas = RenderCanvas(parent=self)
         self.layout().addWidget(self.canvas)

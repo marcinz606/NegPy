@@ -25,14 +25,9 @@ class ImageCanvas(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
-
-        # fix for windows ghosting
-        if sys.platform == "win32":
-            self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
-            self.setAutoFillBackground(True)
-            self.setStyleSheet("background-color: #101010;")
-        else:
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self.setAutoFillBackground(True)
+        self.setStyleSheet("background-color: #080808;")
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)

@@ -69,8 +69,9 @@ class CanvasOverlay(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
 
-        # macOS trail fix: aggressive clear the dirty region with transparency
-        if sys.platform == "darwin":
+        # Fix for trail/ghosting artifacts (Darwin and Windows)
+        # Aggressively clear the dirty region with transparency before drawing
+        if sys.platform in ["darwin", "win32"]:
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
             painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
             painter.setCompositionMode(
