@@ -208,7 +208,7 @@ class ExposureSidebar(BaseSidebar):
             self.controller.load_file(self.state.current_file_path)
 
     def _on_mode_changed(self, mode: str) -> None:
-        self.update_config_root(process_mode=mode)
+        self.update_config_root(process_mode=mode, persist=True)
 
     def sync_ui(self) -> None:
         conf = self.state.config.exposure
