@@ -58,13 +58,8 @@ class TopStatusBar(QWidget):
         self.gpu_label = QLabel("CPU")
         self.gpu_label.setStyleSheet(f"color: {THEME.text_muted};")
 
-        self.cache_label = QLabel("0 MB")
-        self.cache_label.setStyleSheet(f"color: {THEME.text_muted};")
-
         self.system_info.addWidget(self._create_separator())
         self.system_info.addWidget(self.gpu_label)
-        self.system_info.addWidget(self._create_separator())
-        self.system_info.addWidget(self.cache_label)
 
         layout.addLayout(self.system_info)
 
@@ -88,9 +83,6 @@ class TopStatusBar(QWidget):
         self.gpu_label.setText(backend.upper())
         color = THEME.accent_primary if active else THEME.text_muted
         self.gpu_label.setStyleSheet(f"color: {color}; font-weight: bold;")
-
-    def set_cache_info(self, size_mb: float):
-        self.cache_label.setText(f"{size_mb:.0f} MB")
 
     def set_progress(self, current: int, total: int):
         if total <= 0:

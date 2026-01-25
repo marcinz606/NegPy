@@ -118,16 +118,18 @@ def package_linux():
             except Exception as e:
                 print(f"  Failed to remove {libpath}: {e}")
 
-    # 3. Add Desktop file and Icon
-    shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop") )
-    shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png") )
+            # 3. Add Desktop file and Icon
 
-    # 4. Create Symlink for AppRun if it doesn't exist
+            shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
+
+            shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
+
+            # 4. Create Symlink for AppRun if it doesn't exist
     apprun_path = os.path.join(appdir, "AppRun")
     if not os.path.exists(apprun_path):
         with open(apprun_path, "w") as f:
             f.write("#!/bin/sh\n")
-            f.write('HERE="$(dirname "$(readlink -f \"${0}\")")"\n')
+            f.write('HERE="$(dirname "$(readlink -f "${0}")")"\n')
             # Set LD_LIBRARY_PATH to prioritize AppDir but allow fallback to system
             f.write('export LD_LIBRARY_PATH="$HERE:$LD_LIBRARY_PATH"\n')
             f.write(f'exec "${{HERE}}/{APP_NAME}" "$@"\n')
@@ -197,7 +199,7 @@ def package_macos():
         )
 
         # 2. Create symlink to /Applications
-        os.symlink("/Applications", os.path.join(temp_dmg_dir, "Applications") )
+        os.symlink("/Applications", os.path.join(temp_dmg_dir, "Applications"))
 
         # 3. Create DMG from temp dir
         subprocess.run(

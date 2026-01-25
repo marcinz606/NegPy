@@ -45,6 +45,7 @@ class PreviewManager:
                 output_bps=16,
                 output_color=raw_color_space,
                 demosaic_algorithm=algo,
+                user_flip=0,
             )
             rgb = ensure_rgb(rgb)
 

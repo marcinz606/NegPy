@@ -115,21 +115,6 @@ class MainWindow(QMainWindow):
         else:
             self.top_status.set_gpu_info("CPU", active=False)
 
-        # Estimate cache size from local_asset_store
-        try:
-            cache_path = self.controller.asset_store.cache_dir
-            if os.path.exists(cache_path):
-                total_size = 0
-                for dirpath, dirnames, filenames in os.walk(cache_path):
-                    for f in filenames:
-                        fp = os.path.join(dirpath, f)
-                        if os.path.isfile(fp):
-                            total_size += os.path.getsize(fp)
-
-                self.top_status.set_cache_info(total_size / (1024 * 1024))
-        except Exception:
-            pass
-
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
         metrics = self.state.last_metrics
