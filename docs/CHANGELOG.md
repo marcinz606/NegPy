@@ -14,7 +14,7 @@
 - Implemented `Analysis Buffer` to ensure that analysis is not thrown off by film border or lightsource outside of it.
 - Added `Camera WB` button to use vendor-specific white balance corrections (helps green/nuclear color casts on some files)
 - GPU acceleration (Vulkan/Metal)
-- [keyboard](docs/KEYBOARD.md) shortucts
+- [keyboard](docs/KEYBOARD.md) shortcuts
 - Bugfixes: improved handling of some raw files that previously resulted in heavy colorcasts and compresssion artifacts.
 
 ## 0.9.3
