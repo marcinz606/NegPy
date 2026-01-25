@@ -85,5 +85,4 @@ class SidebarHeader(QWidget):
 
     def _on_gpu_toggled(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:
-            self.session.state.gpu_enabled = checked
-            self.controller.request_render()
+            self.session.set_gpu_enabled(checked)

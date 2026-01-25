@@ -93,6 +93,18 @@ class DesktopSessionManager(QObject):
         self.state = AppState()
         self.asset_model = AssetListModel(self.state)
 
+        # Load global hardware settings
+        saved_gpu = self.repo.get_global_setting("gpu_enabled")
+        if saved_gpu is not None:
+            self.state.gpu_enabled = bool(saved_gpu)
+
+    def set_gpu_enabled(self, enabled: bool) -> None:
+        """Updates and persists the hardware acceleration preference."""
+        if self.state.gpu_enabled != enabled:
+            self.state.gpu_enabled = enabled
+            self.repo.save_global_setting("gpu_enabled", enabled)
+            self.state_changed.emit()
+
     def _apply_sticky_settings(
         self, config: WorkspaceConfig, only_global: bool = False
     ) -> WorkspaceConfig:

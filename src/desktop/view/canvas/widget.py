@@ -1,4 +1,5 @@
 from typing import Optional, Tuple, Any
+import sys
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QStackedLayout
 from PyQt6.QtCore import pyqtSignal, Qt
@@ -24,7 +25,14 @@ class ImageCanvas(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        # fix for windows ghosting
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+            self.setAutoFillBackground(True)
+            self.setStyleSheet("background-color: #101010;")
+        else:
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
@@ -86,3 +94,8 @@ class ImageCanvas(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        # fix for windows ghosting
+        if sys.platform == "win32":
+            rect = self.rect()
+            self.gpu_widget.setGeometry(rect)
+            self.overlay.setGeometry(rect)
