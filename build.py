@@ -92,21 +92,37 @@ def package_linux():
 
     # 2. De-bundle system graphics and UI libraries
     # This ensures the AppImage uses host drivers and platform plugins.
-    # We use specific versioned names to avoid hitting mangled wheel libraries.
+    # We use .so* to match versioned system libs while avoiding mangled wheel libs.
     libs_to_remove = [
-        "libvulkan.so.1",
-        "libGL.so.1",
-        "libGLX.so.0",
-        "libEGL.so.1",
-        "libgbm.so.1",
-        "libdrm.so.2",
-        "libstdc++.so.6",
-        "libz.so.1",
-        "libgcc_s.so.1",
-        "libfontconfig.so.1",
-        "libfreetype.so.6",
-        "libdbus-1.so.3",
-        "libxcb.so.1",
+        "libvulkan.so*",
+        "libGL.so*",
+        "libGLX.so*",
+        "libEGL.so*",
+        "libGLESv2.so*",
+        "libgbm.so*",
+        "libdrm.so*",
+        "libxcb.so*",
+        "libxcb-dri*",
+        "libxcb-glx*",
+        "libxcb-present*",
+        "libxcb-sync*",
+        "libxcb-xfixes*",
+        "libxcb-render*",
+        "libxcb-shape*",
+        "libxcb-shm*",
+        "libxcb-randr*",
+        "libX11.so*",
+        "libX11-xcb.so*",
+        "libXext.so*",
+        "libXfixes.so*",
+        "libXrender.so*",
+        "libxshmfence.so*",
+        "libstdc++.so*",
+        "libz.so*",
+        "libgcc_s.so*",
+        "libdbus-1.so*",
+        "libfontconfig.so*",
+        "libfreetype.so*",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:
@@ -115,8 +131,16 @@ def package_linux():
         for libpath in glob.glob(search_pattern, recursive=True):
             try:
                 if os.path.isfile(libpath) or os.path.islink(libpath):
+                    # Safety check: Don't remove libraries with mangled names (containing '-')
+                    # unless they are known extensions (like libxcb-dri3)
+                    basename = os.path.basename(libpath)
+                    if "-" in basename and not any(
+                        p in basename
+                        for p in ["xcb-", "X11-", "dbus-", "stdc++", "gcc_s"]
+                    ):
+                        continue
+
                     os.remove(libpath)
-                    # Print relative path for cleaner logs
                     print(f"  Removed: {os.path.relpath(libpath, appdir)}")
             except Exception as e:
                 print(f"  Failed to remove {libpath}: {e}")
@@ -130,8 +154,13 @@ def package_linux():
     with open(apprun_path, "w") as f:
         f.write("#!/bin/sh\n")
         f.write('HERE="$(dirname "$(readlink -f "${0}")")"\n')
+        # Point to the bundled libraries
+        f.write('export LD_LIBRARY_PATH="$HERE/_internal:$HERE:$LD_LIBRARY_PATH"\n')
+        # Force a real display backend to prevent 'offscreen' fallback
         f.write('export QT_QPA_PLATFORM="xcb;wayland"\n')
+        # Disable X11 shared memory extension to prevent crashes with newer X servers
         f.write("export QT_X11_NO_MITSHM=1\n")
+        # Hint WGPU to use Vulkan
         f.write('export WGPU_BACKEND_TYPE="Vulkan"\n')
         f.write(f'exec "${{HERE}}/{APP_NAME}" "$@"\n')
     os.chmod(apprun_path, 0o755)
