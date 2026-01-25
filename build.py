@@ -46,6 +46,7 @@ params = [
     "--hidden-import=jinja2",
     "--hidden-import=PyQt6",
     "--hidden-import=qtawesome",
+    # Exclude unused modules
     # Metadata
     "--copy-metadata=imageio",
     "--copy-metadata=rawpy",
@@ -92,7 +93,6 @@ def package_linux():
 
     # 2. De-bundle system graphics and UI libraries
     # This ensures the AppImage uses host drivers and platform plugins.
-    # We use .so* to match versioned system libs while avoiding mangled wheel libs.
     libs_to_remove = [
         "libvulkan.so*",
         "libGL.so*",
@@ -101,42 +101,41 @@ def package_linux():
         "libGLESv2.so*",
         "libgbm.so*",
         "libdrm.so*",
-        "libxcb.so*",
-        "libxcb-dri*",
-        "libxcb-glx*",
-        "libxcb-present*",
-        "libxcb-sync*",
-        "libxcb-xfixes*",
-        "libxcb-render*",
-        "libxcb-shape*",
-        "libxcb-shm*",
-        "libxcb-randr*",
-        "libX11.so*",
-        "libX11-xcb.so*",
+        "libxcb*",
+        "libX11*",
         "libXext.so*",
         "libXfixes.so*",
         "libXrender.so*",
         "libxshmfence.so*",
+        "libwayland*",
+        "libxkbcommon*",
         "libstdc++.so*",
         "libz.so*",
         "libgcc_s.so*",
         "libdbus-1.so*",
         "libfontconfig.so*",
         "libfreetype.so*",
+        "libexpat.so*",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:
-        # Search recursively (**) to find libs inside _internal or other subfolders
         search_pattern = os.path.join(appdir, "**", pattern)
         for libpath in glob.glob(search_pattern, recursive=True):
             try:
                 if os.path.isfile(libpath) or os.path.islink(libpath):
-                    # Safety check: Don't remove libraries with mangled names (containing '-')
-                    # unless they are known extensions (like libxcb-dri3)
                     basename = os.path.basename(libpath)
+                    # Safety check: Don't remove libraries with mangled names (containing '-')
+                    # unless they are known system libraries or extensions.
+                    # This protects Python wheels like Pillow/OpenCV.
+                    system_prefixes = [
+                        "dbus-",
+                        "stdc++",
+                        "gcc_s",
+                        "wayland-",
+                        "xkbcommon-",
+                    ]
                     if "-" in basename and not any(
-                        p in basename
-                        for p in ["xcb-", "X11-", "dbus-", "stdc++", "gcc_s"]
+                        p in basename for p in system_prefixes
                     ):
                         continue
 
@@ -157,7 +156,7 @@ def package_linux():
         # Point to the bundled libraries
         f.write('export LD_LIBRARY_PATH="$HERE/_internal:$HERE:$LD_LIBRARY_PATH"\n')
         # Force a real display backend to prevent 'offscreen' fallback
-        f.write('export QT_QPA_PLATFORM="xcb;wayland"\n')
+        f.write('export QT_QPA_PLATFORM="xcb,wayland"\n')
         # Disable X11 shared memory extension to prevent crashes with newer X servers
         f.write("export QT_X11_NO_MITSHM=1\n")
         # Hint WGPU to use Vulkan

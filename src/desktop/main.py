@@ -49,9 +49,6 @@ def main() -> None:
                 os.environ["QT_X11_NO_MITSHM"] = "1"
             if "WGPU_BACKEND_TYPE" not in os.environ:
                 os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
-        elif sys.platform == "win32":
-            if "WGPU_BACKEND_TYPE" not in os.environ:
-                os.environ["WGPU_BACKEND_TYPE"] = "D3D12"
 
         _bootstrap_environment()
 
