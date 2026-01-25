@@ -1,4 +1,3 @@
-import sys
 import numpy as np
 from PyQt6.QtGui import QImage
 from src.kernel.image.logic import float_to_uint8
@@ -23,20 +22,6 @@ class ImageConverter:
 
         # 2. Handle dimensions
         h, w = u8_buffer.shape[:2]
-
-        # Windows-specific alignment fix:
-        # Windows GDI/DirectX expects 4-byte aligned scanlines. RGB888 (3-byte)
-        # will look skewed/split if width is not a multiple of 4.
-        # We convert to RGB32 (4-byte) to ensure perfect alignment.
-        if sys.platform == "win32":
-            # Create a 4-channel BGRA/RGBA buffer (Qt Format_RGB32)
-            # RGB32 is actually 0xffRRGGBB in memory
-            bgra = np.empty((h, w, 4), dtype=np.uint8)
-            bgra[..., 0:3] = u8_buffer[..., 0:3]
-            bgra[..., 3] = 255
-            # We don't need to flip R/B for RGB32 if we use the right format
-            qimg = QImage(bgra.data, w, h, w * 4, QImage.Format.Format_RGB32)
-            return qimg.copy()
 
         # Ensure data is contiguous for QImage
         if not u8_buffer.flags["C_CONTIGUOUS"]:

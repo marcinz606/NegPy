@@ -5,13 +5,11 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
 from src.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from src.kernel.system.paths import get_resource_path
-from src.kernel.system.version import get_app_version
 from src.infrastructure.storage.repository import StorageRepository
 from src.desktop.session import DesktopSessionManager
 from src.desktop.controller import AppController
 from src.desktop.view.main_window import MainWindow
 from src.kernel.system.logging import setup_logging, get_logger
-import ctypes
 
 logger = get_logger(__name__)
 
@@ -60,19 +58,6 @@ def main() -> None:
         app = QApplication(sys.argv)
         app.setApplicationName("NegPy")
         app.setStyle("Fusion")
-
-        # Windows-specific DPI awareness and taskbar icon
-        if sys.platform == "win32":
-            try:
-                ctypes.windll.shcore.SetProcessDpiAwareness(2)
-            except Exception:
-                ctypes.windll.user32.SetProcessDPIAware()
-
-            try:
-                myappid = f"marcinz606.{app.applicationName()}.{get_app_version()}"
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-            except Exception:
-                pass
 
         icon_path = get_resource_path("media/icons/icon.png")
         if os.path.exists(icon_path):

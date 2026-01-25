@@ -1,5 +1,4 @@
 from typing import Optional, Tuple, Any
-import sys
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QStackedLayout
 from PyQt6.QtCore import pyqtSignal, Qt
@@ -87,8 +86,3 @@ class ImageCanvas(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # fix for windows ghosting
-        if sys.platform == "win32":
-            rect = self.rect()
-            self.gpu_widget.setGeometry(rect)
-            self.overlay.setGeometry(rect)

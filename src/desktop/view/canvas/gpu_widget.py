@@ -1,5 +1,4 @@
 import struct
-import sys
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from PyQt6.QtCore import QTimer
 from rendercanvas.pyqt6 import RenderCanvas
@@ -38,17 +37,7 @@ class GPUCanvasWidget(QWidget):
         self.context = self.canvas.get_context("wgpu")
 
         self.format = self.context.get_preferred_format(adapter).replace("-srgb", "")
-
-        # Initial configuration
-        config = {"device": self.device, "format": self.format}
-
-        # Windows D3D12 benefits from explicit DPI-aware sizing
-        if sys.platform == "win32":
-            dpr = self.devicePixelRatio()
-            config["width"] = max(1, int(self.width() * dpr))
-            config["height"] = max(1, int(self.height() * dpr))
-
-        self.context.configure(**config)
+        self.context.configure(device=self.device, format=self.format)
 
         self.uniform_buffer = self.device.create_buffer(
             size=16, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
@@ -58,13 +47,7 @@ class GPUCanvasWidget(QWidget):
     def update_texture(self, tex_wrapper: Any) -> None:
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
-        if sys.platform == "win32":
-            self._perform_resize()
         self.canvas.request_draw(self._draw_frame)
-
-        if sys.platform == "win32":
-            self.canvas.update()
-            self.canvas.repaint()
 
     def clear(self) -> None:
         self.current_texture_view = None
@@ -77,14 +60,7 @@ class GPUCanvasWidget(QWidget):
     def _perform_resize(self) -> None:
         if self.device and self.context:
             try:
-                config = {"device": self.device, "format": self.format}
-
-                if sys.platform == "win32":
-                    dpr = self.devicePixelRatio()
-                    config["width"] = max(1, int(self.width() * dpr))
-                    config["height"] = max(1, int(self.height() * dpr))
-
-                self.context.configure(**config)
+                self.context.configure(device=self.device, format=self.format)
 
                 if self.current_texture_view:
                     self.canvas.request_draw(self._draw_frame)
