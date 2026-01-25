@@ -59,18 +59,20 @@ class GPUCanvasWidget(QWidget):
         self._create_render_pipeline(self.format)
 
     def update_texture(self, tex_wrapper: Any) -> None:
-        old_size = self.image_size
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
 
-        # If image dimensions changed significantly, ensure surface is configured
-        if old_size != self.image_size and sys.platform == "win32":
+        # Windows: Force a reconfiguration on every update to ensure the
+        # swapchain is fresh and synced with the current file state.
+        if sys.platform == "win32":
             self._perform_resize()
 
         self.canvas.request_draw(self._draw_frame)
+
         # Windows-specific: Force Qt to process the update immediately
         if sys.platform == "win32":
             self.canvas.update()
+            self.canvas.repaint()
 
     def clear(self) -> None:
         self.current_texture_view = None
