@@ -1,5 +1,4 @@
 from typing import Optional, Tuple, Any
-import sys
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QStackedLayout
 from PyQt6.QtCore import pyqtSignal, Qt
@@ -66,16 +65,19 @@ class ImageCanvas(QWidget):
     ) -> None:
         """Updates the active viewport with a CPU or GPU buffer."""
         if isinstance(buffer, np.ndarray):
+            # CPU Mode: Hide GPU widget to prevent DWM double-buffering artifacts
             self.gpu_widget.hide()
             self.overlay.update_buffer(buffer, color_space, content_rect)
             self.overlay.show()
             self.overlay.raise_()
         elif isinstance(buffer, GPUTexture):
+            # GPU Mode
             self.overlay.update_buffer(
                 None, color_space, content_rect, gpu_size=(buffer.width, buffer.height)
             )
             self.gpu_widget.update_texture(buffer)
             self.gpu_widget.show()
+            # Overlay remains visible for tools but its background is cleared
             self.overlay.show()
             self.overlay.raise_()
         else:
@@ -89,8 +91,3 @@ class ImageCanvas(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # fix for windows ghosting
-        if sys.platform == "win32":
-            rect = self.rect()
-            self.gpu_widget.setGeometry(rect)
-            self.overlay.setGeometry(rect)

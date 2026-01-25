@@ -64,7 +64,9 @@ class CanvasOverlay(QWidget):
         else:
             self._qimage = None
             self._current_size = gpu_size
-        self.update()
+
+        if sys.platform == "win32":
+            self.update()
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
