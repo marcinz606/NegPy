@@ -54,7 +54,7 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addWidget(self.pick_dust_btn)
 
         self.manual_size_slider = SignalSlider(
-            "Brush Size", 2.0, 10.0, float(conf.manual_dust_size), step=1.0, precision=1
+            "Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1
         )
         self.layout.addWidget(self.manual_size_slider)
 

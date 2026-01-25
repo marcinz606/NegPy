@@ -9,7 +9,6 @@ class TopStatusBar(QWidget):
         self.setFixedHeight(32)
         self.setObjectName("StatusDashboard")
 
-        self.setAutoFillBackground(True)
         self.setStyleSheet(f"""
             QWidget#StatusDashboard {{
                 background-color: {THEME.bg_status_bar if hasattr(THEME, "bg_status_bar") else "#111"};

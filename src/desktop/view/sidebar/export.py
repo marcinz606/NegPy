@@ -237,17 +237,6 @@ class ExportSidebar(BaseSidebar):
         else:
             self.orig_res_btn.setStyleSheet("")
 
-    def _on_color_clicked(self) -> None:
-        color = QColorDialog.getColor(
-            QColor(self.state.config.export.export_border_color)
-        )
-        if color.isValid():
-            hex_color = color.name()
-            self.update_config_section(
-                "export", persist=True, render=False, export_border_color=hex_color
-            )
-            self._update_color_btn(hex_color)
-
     def _on_browse_clicked(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
 

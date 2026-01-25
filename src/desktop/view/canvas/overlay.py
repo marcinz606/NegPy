@@ -37,7 +37,6 @@ class CanvasOverlay(QWidget):
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
@@ -68,6 +67,7 @@ class CanvasOverlay(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
+        painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

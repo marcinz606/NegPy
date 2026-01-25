@@ -48,8 +48,8 @@ class GeometrySidebar(BaseSidebar):
         slider_row = QHBoxLayout()
         self.offset_slider = CompactSlider(
             "Crop Offset",
-            -20.0,
-            100.0,
+            -5.0,
+            20.0,
             float(conf.autocrop_offset),
             step=1.0,
             precision=1,

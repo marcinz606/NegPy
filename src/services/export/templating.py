@@ -22,29 +22,33 @@ def render_export_filename(
     - date: Current date in YYYYMMDD format
     """
     original_name = os.path.splitext(os.path.basename(original_path))[0]
-    
+
     context = {
         "original_name": original_name,
         "colorspace": export_settings.export_color_space,
         "format": export_settings.export_fmt,
         "paper_ratio": export_settings.paper_aspect_ratio,
-        "size": f"{export_settings.export_print_size:.0f}cm" if not export_settings.use_original_res else "",
-        "dpi": f"{export_settings.export_dpi}dpi" if not export_settings.use_original_res else "",
+        "size": f"{export_settings.export_print_size:.0f}cm"
+        if not export_settings.use_original_res
+        else "",
+        "dpi": f"{export_settings.export_dpi}dpi"
+        if not export_settings.use_original_res
+        else "",
         "border": "border" if export_settings.export_border_size > 0 else "",
         "date": datetime.now().strftime("%Y%m%d"),
     }
-    
+
     try:
         template = Template(export_settings.filename_pattern)
         rendered = template.render(**context)
-        
+
         # Clean up: replace multiple underscores/spaces/dashes with single ones
-        rendered = re.sub(r'[ _-]+', '_', rendered).strip('_')
-        
+        rendered = re.sub(r"[ _-]+", "_", rendered).strip("_")
+
         # Ensure we don't have empty filename
         if not rendered:
             return f"positive_{original_name}"
-            
+
         return rendered
     except Exception:
         # Fallback to default pattern if template rendering fails

@@ -1,7 +1,7 @@
 from typing import Optional, Tuple, Any
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QStackedLayout
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, Qt
 from src.desktop.session import ToolMode, AppState
 from src.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from src.desktop.view.canvas.overlay import CanvasOverlay
@@ -24,6 +24,7 @@ class ImageCanvas(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
