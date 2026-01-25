@@ -21,6 +21,7 @@ class CanvasOverlay(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
+        self.setObjectName("CanvasOverlay")
         self._qimage: Optional[QImage] = None
         self._current_size: Optional[Tuple[int, int]] = None
         self._display_rect: QRectF = QRectF()
@@ -37,6 +38,11 @@ class CanvasOverlay(QWidget):
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Specifically for macOS to prevent trails
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
+
+        # Override global QSS background
+        self.setStyleSheet("QWidget#CanvasOverlay { background: transparent; }")
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
@@ -67,10 +73,8 @@ class CanvasOverlay(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         size = None
         if self._qimage:

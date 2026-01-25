@@ -91,25 +91,43 @@ def _apply_auto_retouch_jit(
                 feather = feather * feather * (3.0 - 2.0 * feather)
 
                 if feather > 0.001:
-                    bg_r, bg_g, bg_b, samples = 0.0, 0.0, 0.0, 0
-                    for dy, dx in [(-p_rad, 0), (p_rad, 0), (0, -p_rad), (0, p_rad)]:
-                        sy, sx = y + dy, x + dx
-                        if 0 <= sy < h and 0 <= sx < w:
-                            bg_r += img[sy, sx, 0]
-                            bg_g += img[sy, sx, 1]
-                            bg_b += img[sy, sx, 2]
-                            samples += 1
+                    s_r = np.zeros(8)
+                    s_g = np.zeros(8)
+                    s_b = np.zeros(8)
+                    s_l = np.zeros(8)
 
-                    if samples > 0:
-                        res[y, x, 0] = (
-                            img[y, x, 0] * (1.0 - feather) + (bg_r / samples) * feather
-                        )
-                        res[y, x, 1] = (
-                            img[y, x, 1] * (1.0 - feather) + (bg_g / samples) * feather
-                        )
-                        res[y, x, 2] = (
-                            img[y, x, 2] * (1.0 - feather) + (bg_b / samples) * feather
-                        )
+                    # 8-point perimeter sampling
+                    dy_off = np.array(
+                        [-p_rad, p_rad, 0, 0, -p_rad, -p_rad, p_rad, p_rad]
+                    )
+                    dx_off = np.array(
+                        [0, 0, -p_rad, p_rad, -p_rad, p_rad, -p_rad, p_rad]
+                    )
+
+                    for i in range(8):
+                        sy, sx = y + dy_off[i], x + dx_off[i]
+                        sy, sx = max(0, min(h - 1, sy)), max(0, min(w - 1, sx))
+                        r, g, b = img[sy, sx, 0], img[sy, sx, 1], img[sy, sx, 2]
+                        s_r[i], s_g[i], s_b[i] = r, g, b
+                        s_l[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+                    # Selection sort for outlier rejection
+                    for i in range(8):
+                        for j in range(i + 1, 8):
+                            if s_l[i] > s_l[j]:
+                                s_l[i], s_l[j] = s_l[j], s_l[i]
+                                s_r[i], s_r[j] = s_r[j], s_r[i]
+                                s_g[i], s_g[j] = s_g[j], s_g[i]
+                                s_b[i], s_b[j] = s_b[j], s_b[i]
+
+                    # Average middle 50% (discard 2 brightest, 2 darkest)
+                    bg_r = (s_r[2] + s_r[3] + s_r[4] + s_r[5]) / 4.0
+                    bg_g = (s_g[2] + s_g[3] + s_g[4] + s_g[5]) / 4.0
+                    bg_b = (s_b[2] + s_b[3] + s_b[4] + s_b[5]) / 4.0
+
+                    res[y, x, 0] = img[y, x, 0] * (1.0 - feather) + bg_r * feather
+                    res[y, x, 1] = img[y, x, 1] * (1.0 - feather) + bg_g * feather
+                    res[y, x, 2] = img[y, x, 2] * (1.0 - feather) + bg_b * feather
 
     return res
 

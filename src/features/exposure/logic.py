@@ -1,11 +1,11 @@
 import numpy as np
 from numba import njit, prange  # type: ignore
-from typing import Tuple
+from typing import Tuple, Any
 from src.domain.types import ImageBuffer
 from src.kernel.image.validation import ensure_image
 
 
-def _expit(x):
+def _expit(x: Any) -> Any:
     """Numpy implementation of the logistic sigmoid function (scipy.special.expit fallback)."""
     return 1.0 / (1.0 + np.exp(-x))
 

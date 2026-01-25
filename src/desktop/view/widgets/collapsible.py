@@ -24,8 +24,7 @@ class CollapsibleSection(QWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        prefix = "▼" if expanded else "▶"
-        self.toggle_button = QPushButton(f" {prefix} {title}")
+        self.toggle_button = QPushButton(title)
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(expanded)
 
@@ -75,5 +74,4 @@ class CollapsibleSection(QWidget):
 
     def _on_toggle(self, checked: bool) -> None:
         self.content_area.setVisible(checked)
-        prefix = "▼" if checked else "▶"
-        self.toggle_button.setText(f" {prefix} {self._title_text}")
+        self.toggle_button.setText(self._title_text)

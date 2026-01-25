@@ -189,12 +189,35 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             feather = clamp(feather, 0.0, 1.0);
             feather = feather * feather * (3.0 - 2.0 * feather);
 
-            var bg = vec3<f32>(0.0);
-            bg += textureLoad(input_tex, clamp(coords + vec2<i32>(-p_rad, 0), vec2<i32>(0), idims - 1), 0).rgb;
-            bg += textureLoad(input_tex, clamp(coords + vec2<i32>(p_rad, 0), vec2<i32>(0), idims - 1), 0).rgb;
-            bg += textureLoad(input_tex, clamp(coords + vec2<i32>(0, -p_rad), vec2<i32>(0), idims - 1), 0).rgb;
-            bg += textureLoad(input_tex, clamp(coords + vec2<i32>(0, p_rad), vec2<i32>(0), idims - 1), 0).rgb;
-            let healed_val = bg / 4.0;
+            // 8-point trimmed sampling
+            var s_r = array<f32, 8>(); var s_g = array<f32, 8>(); var s_b = array<f32, 8>(); var s_l = array<f32, 8>();
+            let dxs = array<i32, 8>(-p_rad, p_rad, 0, 0, -p_rad, -p_rad, p_rad, p_rad);
+            let dys = array<i32, 8>(0, 0, -p_rad, p_rad, -p_rad, p_rad, -p_rad, p_rad);
+
+            for (var i = 0; i < 8; i++) {
+                let pix = textureLoad(input_tex, clamp(coords + vec2<i32>(dxs[i], dys[i]), vec2<i32>(0), idims - 1), 0).rgb;
+                s_r[i] = pix.r; s_g[i] = pix.g; s_b[i] = pix.b;
+                s_l[i] = dot(pix, vec3<f32>(0.2126, 0.7152, 0.0722));
+            }
+
+            // Inline sort for outlier rejection
+            for (var i = 0; i < 7; i++) {
+                for (var j = i + 1; j < 8; j++) {
+                    if (s_l[i] > s_l[j]) {
+                        let tl = s_l[i]; s_l[i] = s_l[j]; s_l[j] = tl;
+                        let tr = s_r[i]; s_r[i] = s_r[j]; s_r[j] = tr;
+                        let tg = s_g[i]; s_g[i] = s_g[j]; s_g[j] = tg;
+                        let tb = s_b[i]; s_b[i] = s_b[j]; s_b[j] = tb;
+                    }
+                }
+            }
+
+            // Average middle 50%
+            let healed_val = vec3<f32>(
+                (s_r[2] + s_r[3] + s_r[4] + s_r[5]) / 4.0,
+                (s_g[2] + s_g[3] + s_g[4] + s_g[5]) / 4.0,
+                (s_b[2] + s_b[3] + s_b[4] + s_b[5]) / 4.0
+            );
 
             let grain = get_noise(global_uv * 1000.0) * 0.003 * (4.0 * mean * (1.0 - mean));
             res = mix(original, healed_val + vec3<f32>(grain), feather);
