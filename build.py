@@ -57,6 +57,9 @@ params = [
     "--hidden-import=_tkinter",
     "--hidden-import=PyQt6",
     "--hidden-import=qtawesome",
+    # Exclude unused modules
+    "--exclude-module=wgpu.utils.imgui",
+    "--exclude-module=imgui_bundle",
     # Metadata
     "--copy-metadata=imageio",
     "--copy-metadata=rawpy",
