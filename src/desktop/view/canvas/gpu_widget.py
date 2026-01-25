@@ -58,7 +58,13 @@ class GPUCanvasWidget(QWidget):
     def update_texture(self, tex_wrapper: Any) -> None:
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
+        if sys.platform == "win32":
+            self._perform_resize()
         self.canvas.request_draw(self._draw_frame)
+
+        if sys.platform == "win32":
+            self.canvas.update()
+            self.canvas.repaint()
 
     def clear(self) -> None:
         self.current_texture_view = None
