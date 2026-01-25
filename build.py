@@ -118,13 +118,11 @@ def package_linux():
             except Exception as e:
                 print(f"  Failed to remove {libpath}: {e}")
 
-            # 3. Add Desktop file and Icon
+    # 3. Add Desktop file and Icon
+    shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
+    shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
 
-            shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
-
-            shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
-
-            # 4. Create Symlink for AppRun if it doesn't exist
+    # 4. Create Symlink for AppRun if it doesn't exist
     apprun_path = os.path.join(appdir, "AppRun")
     if not os.path.exists(apprun_path):
         with open(apprun_path, "w") as f:
@@ -142,7 +140,25 @@ def package_linux():
             tool = "appimagetool"
 
         output_filename = os.path.join("dist", f"{APP_NAME}-{VERSION}-x86_64.AppImage")
-        subprocess.run([tool, appdir, output_filename], check=True)
+        
+        # Ensure ARCH is set for appimagetool, often required in CI
+        env = os.environ.copy()
+        env["ARCH"] = "x86_64"
+
+        result = subprocess.run(
+            [tool, appdir, output_filename], 
+            check=False,  # We handle check manually to print output
+            capture_output=True,
+            text=True,
+            env=env
+        )
+        
+        if result.returncode != 0:
+            print(f"AppImageTool failed with exit code {result.returncode}")
+            print("STDOUT:", result.stdout)
+            print("STDERR:", result.stderr)
+            raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout, stderr=result.stderr)
+            
         print(f"AppImage created: {output_filename}")
     except Exception as e:
         print(f"Error creating AppImage: {e}")

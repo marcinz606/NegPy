@@ -4,5 +4,5 @@ Exec=NegPy
 Icon=icon
 Type=Application
 Categories=Graphics;Photography;
-Comment=Professional Film Negative Processing
+Comment=Film Negative Editor
 Terminal=false
