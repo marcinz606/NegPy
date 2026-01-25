@@ -1,4 +1,5 @@
 import struct
+import sys
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from PyQt6.QtCore import QTimer
 from rendercanvas.pyqt6 import RenderCanvas
@@ -29,7 +30,7 @@ class GPUCanvasWidget(QWidget):
         # Debounce resize to prevent context thrashing
         self.resize_timer = QTimer()
         self.resize_timer.setSingleShot(True)
-        self.resize_timer.setInterval(200)
+        self.resize_timer.setInterval(50)
         self.resize_timer.timeout.connect(self._perform_resize)
 
     def initialize_gpu(self, device: Any, adapter: Any) -> None:
@@ -38,7 +39,17 @@ class GPUCanvasWidget(QWidget):
 
         self.format = self.context.get_preferred_format(adapter).replace("-srgb", "")
 
-        self.context.configure(device=self.device, format=self.format)
+        # Initial configuration
+        config = {"device": self.device, "format": self.format}
+
+        # Windows D3D12 benefits from explicit DPI-aware sizing
+        if sys.platform == "win32":
+            dpr = self.devicePixelRatio()
+            config["width"] = max(1, int(self.width() * dpr))
+            config["height"] = max(1, int(self.height() * dpr))
+
+        self.context.configure(**config)
+
         self.uniform_buffer = self.device.create_buffer(
             size=16, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST
         )
@@ -60,7 +71,15 @@ class GPUCanvasWidget(QWidget):
     def _perform_resize(self) -> None:
         if self.device and self.context:
             try:
-                self.context.configure(device=self.device, format=self.format)
+                config = {"device": self.device, "format": self.format}
+
+                if sys.platform == "win32":
+                    dpr = self.devicePixelRatio()
+                    config["width"] = max(1, int(self.width() * dpr))
+                    config["height"] = max(1, int(self.height() * dpr))
+
+                self.context.configure(**config)
+
                 if self.current_texture_view:
                     self.canvas.request_draw(self._draw_frame)
             except Exception as e:
@@ -177,10 +196,18 @@ class GPUCanvasWidget(QWidget):
         )
 
     def _draw_frame(self) -> None:
-        if not self.render_pipeline:
+        if not self.render_pipeline or not self.context:
             return
 
-        current_tex = self.context.get_current_texture()
+        try:
+            current_tex = self.context.get_current_texture()
+        except Exception:
+            # Swapchain might be invalid during rapid resizing
+            return
+
+        if current_tex is None:
+            return
+
         enc = self.device.create_command_encoder()
         pass_enc = enc.begin_render_pass(
             color_attachments=[
