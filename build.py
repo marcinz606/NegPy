@@ -102,6 +102,9 @@ def package_linux():
         "libdrm.so*",
         "libxcb-dri*",
         "libnvidia*",
+        "libstdc++.so.6",
+        "libz.so.1",
+        "libgcc_s.so.1",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:

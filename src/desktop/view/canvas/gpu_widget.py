@@ -29,7 +29,7 @@ class GPUCanvasWidget(QWidget):
         # Debounce resize to prevent context thrashing
         self.resize_timer = QTimer()
         self.resize_timer.setSingleShot(True)
-        self.resize_timer.setInterval(100)
+        self.resize_timer.setInterval(200)
         self.resize_timer.timeout.connect(self._perform_resize)
 
     def initialize_gpu(self, device: Any, adapter: Any) -> None:
