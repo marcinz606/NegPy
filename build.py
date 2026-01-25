@@ -46,7 +46,6 @@ params = [
     "--hidden-import=jinja2",
     "--hidden-import=PyQt6",
     "--hidden-import=qtawesome",
-    # Exclude unused modules
     # Metadata
     "--copy-metadata=imageio",
     "--copy-metadata=rawpy",
@@ -91,8 +90,8 @@ def package_linux():
     # 1. Create AppDir structure
     shutil.copytree(dist_dir, appdir)
 
-    # 2. De-bundle system graphics libraries
-    # This ensures the AppImage uses host drivers for Vulkan/OpenGL
+    # 2. De-bundle system graphics and UI libraries
+    # This ensures the AppImage uses host drivers and platform plugins
     libs_to_remove = [
         "libvulkan.so*",
         "libGL.so*",
@@ -100,7 +99,13 @@ def package_linux():
         "libEGL.so*",
         "libgbm.so*",
         "libdrm.so*",
-        "libxcb-dri*",
+        "libxcb*",
+        "libX11*",
+        "libxkbcommon*",
+        "libdbus-1.so*",
+        "libfontconfig.so*",
+        "libfreetype.so*",
+        "libwayland*",
         "libnvidia*",
         "libstdc++.so.6",
         "libz.so.1",
@@ -123,16 +128,16 @@ def package_linux():
     shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
     shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
 
-    # 4. Create Symlink for AppRun if it doesn't exist
+    # 4. Create AppRun script
     apprun_path = os.path.join(appdir, "AppRun")
-    if not os.path.exists(apprun_path):
-        with open(apprun_path, "w") as f:
-            f.write("#!/bin/sh\n")
-            f.write('HERE="$(dirname "$(readlink -f "${0}")")"\n')
-            # Set LD_LIBRARY_PATH to prioritize AppDir but allow fallback to system
-            f.write('export LD_LIBRARY_PATH="$HERE:$LD_LIBRARY_PATH"\n')
-            f.write(f'exec "${{HERE}}/{APP_NAME}" "$@"\n')
-        os.chmod(apprun_path, 0o755)
+    with open(apprun_path, "w") as f:
+        f.write("#!/bin/sh\n")
+        f.write('HERE="$(dirname "$(readlink -f "${0}")")"\n')
+        f.write('export QT_QPA_PLATFORM="xcb;wayland"\n')
+        f.write("export QT_X11_NO_MITSHM=1\n")
+        f.write('export WGPU_BACKEND_TYPE="Vulkan"\n')
+        f.write(f'exec "${{HERE}}/{APP_NAME}" "$@"\n')
+    os.chmod(apprun_path, 0o755)
 
     # 5. Run appimagetool
     try:

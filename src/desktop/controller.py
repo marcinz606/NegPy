@@ -100,9 +100,6 @@ class AppController(QObject):
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
 
         self.session.file_selected.connect(self.load_file)
-        self.session.settings_saved.connect(
-            lambda: self._update_thumbnail_from_state(force_readback=True)
-        )
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self.request_render)
 

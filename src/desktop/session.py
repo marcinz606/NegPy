@@ -263,6 +263,8 @@ class DesktopSessionManager(QObject):
                 self.repo.save_file_settings(
                     self.state.current_file_hash, self.state.config
                 )
+                # No settings_saved emit here to avoid global refresh,
+                # but we want the controller to update the icon
                 self.settings_saved.emit()
 
             file_info = self.state.uploaded_files[index]
@@ -295,7 +297,7 @@ class DesktopSessionManager(QObject):
         if self.state.selected_file_idx > 0:
             self.select_file(self.state.selected_file_idx - 1)
 
-    def update_config(self, config: WorkspaceConfig, persist: bool = True) -> None:
+    def update_config(self, config: WorkspaceConfig, persist: bool = False) -> None:
         """
         Updates global config and optionally saves to disk.
         """

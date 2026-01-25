@@ -43,6 +43,13 @@ def main() -> None:
     try:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 
+        # linux-specific stability fixes
+        if sys.platform == "linux":
+            if "QT_X11_NO_MITSHM" not in os.environ:
+                os.environ["QT_X11_NO_MITSHM"] = "1"
+            if "WGPU_BACKEND_TYPE" not in os.environ:
+                os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
+
         _bootstrap_environment()
 
         if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
@@ -61,7 +68,6 @@ def main() -> None:
             except Exception:
                 ctypes.windll.user32.SetProcessDPIAware()
 
-            # Explicitly set AppUserModelID to ensure taskbar icon works
             try:
                 myappid = f"marcinz606.{app.applicationName()}.{get_app_version()}"
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
