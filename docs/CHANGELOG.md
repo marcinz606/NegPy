@@ -1,6 +1,6 @@
 # Change Log
 
-## 1.0.0
+## 0.9.4
 
 - Brand new, native desktop UI (pyqt6) instead of electron packaged streamlit app
     - better performance.
