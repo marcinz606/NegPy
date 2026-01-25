@@ -91,25 +91,22 @@ def package_linux():
     shutil.copytree(dist_dir, appdir)
 
     # 2. De-bundle system graphics and UI libraries
-    # This ensures the AppImage uses host drivers and platform plugins
+    # This ensures the AppImage uses host drivers and platform plugins.
+    # We use specific versioned names to avoid hitting mangled wheel libraries.
     libs_to_remove = [
-        "libvulkan.so*",
-        "libGL.so*",
-        "libGLX.so*",
-        "libEGL.so*",
-        "libgbm.so*",
-        "libdrm.so*",
-        "libxcb*",
-        "libX11*",
-        "libxkbcommon*",
-        "libdbus-1.so*",
-        "libfontconfig.so*",
-        "libfreetype.so*",
-        "libwayland*",
-        "libnvidia*",
+        "libvulkan.so.1",
+        "libGL.so.1",
+        "libGLX.so.0",
+        "libEGL.so.1",
+        "libgbm.so.1",
+        "libdrm.so.2",
         "libstdc++.so.6",
         "libz.so.1",
         "libgcc_s.so.1",
+        "libfontconfig.so.1",
+        "libfreetype.so.6",
+        "libdbus-1.so.3",
+        "libxcb.so.1",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:
