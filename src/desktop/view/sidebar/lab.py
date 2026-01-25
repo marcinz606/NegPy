@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel
 from src.desktop.view.widgets.sliders import CompactSlider
 from src.desktop.view.sidebar.base import BaseSidebar
 from src.desktop.view.styles.theme import THEME
+from src.domain.models import ProcessMode
 
 
 class LabSidebar(BaseSidebar):
@@ -14,11 +15,11 @@ class LabSidebar(BaseSidebar):
         conf = self.state.config.lab
 
         # Color Calibration
-        label_color = QLabel("Color Calibration")
-        label_color.setStyleSheet(
+        self.label_color = QLabel("Color Calibration")
+        self.label_color.setStyleSheet(
             f"font-size: {THEME.font_size_header}px; font-weight: bold;"
         )
-        self.layout.addWidget(label_color)
+        self.layout.addWidget(self.label_color)
 
         color_row = QHBoxLayout()
         self.sep_slider = CompactSlider("Separation", 1.0, 2.0, conf.color_separation)
@@ -73,6 +74,12 @@ class LabSidebar(BaseSidebar):
             self.sat_slider.setValue(conf.saturation)
             self.clahe_slider.setValue(conf.clahe_strength)
             self.sharp_slider.setValue(conf.sharpen)
+
+            # Dynamic Visibility (Hide color controls in B&W)
+            is_color = self.state.config.process_mode == ProcessMode.C41
+            self.label_color.setVisible(is_color)
+            self.sep_slider.setVisible(is_color)
+            self.sat_slider.setVisible(is_color)
         finally:
             self.block_signals(False)
 

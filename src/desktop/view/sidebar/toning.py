@@ -20,9 +20,9 @@ class ToningSidebar(BaseSidebar):
 
         # Toning Sliders
         self.selenium_slider = SignalSlider(
-            "Selenium", 0.0, 1.0, conf.selenium_strength
+            "Selenium", 0.0, 2.0, conf.selenium_strength
         )
-        self.sepia_slider = SignalSlider("Sepia", 0.0, 1.0, conf.sepia_strength)
+        self.sepia_slider = SignalSlider("Sepia", 0.0, 2.0, conf.sepia_strength)
 
         self.layout.addWidget(self.paper_combo)
         self.layout.addWidget(self.selenium_slider)
@@ -51,7 +51,6 @@ class ToningSidebar(BaseSidebar):
             self.selenium_slider.setValue(conf.selenium_strength)
             self.sepia_slider.setValue(conf.sepia_strength)
 
-            # Dynamic Visibility (Only B&W)
             is_bw = self.state.config.process_mode == ProcessMode.BW
             self.selenium_slider.setVisible(is_bw)
             self.sepia_slider.setVisible(is_bw)
