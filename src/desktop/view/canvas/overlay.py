@@ -1,4 +1,5 @@
 import numpy as np
+import sys
 from typing import Optional, Tuple
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPainter, QImage, QMouseEvent, QColor, QPen
@@ -67,6 +68,14 @@ class CanvasOverlay(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
+
+        # macOS trail fix: aggressive clear the dirty region with transparency
+        if sys.platform == "darwin":
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceOver
+            )
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

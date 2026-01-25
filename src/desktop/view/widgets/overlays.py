@@ -26,6 +26,7 @@ class ImageInfoOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._init_ui()
 
     def _init_ui(self) -> None:

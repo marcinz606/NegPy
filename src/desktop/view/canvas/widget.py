@@ -86,5 +86,3 @@ class ImageCanvas(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self.overlay.setGeometry(self.rect())
-        self.gpu_widget.setGeometry(self.rect())
