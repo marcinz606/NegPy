@@ -56,7 +56,6 @@ params = [
     "--collect-all=imageio",
     "--collect-all=imagecodecs",
     # Data files
-    "--add-data=src:src",
     "--add-data=icc:icc",
     "--add-data=media:media",
     "--add-data=VERSION:.",
