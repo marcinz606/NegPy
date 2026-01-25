@@ -56,6 +56,12 @@ params = [
     "--collect-all=imageio",
     "--collect-all=imagecodecs",
     # Data files
+    "--add-data=src/features/exposure/shaders:src/features/exposure/shaders",
+    "--add-data=src/features/geometry/shaders:src/features/geometry/shaders",
+    "--add-data=src/features/toning/shaders:src/features/toning/shaders",
+    "--add-data=src/features/retouch/shaders:src/features/retouch/shaders",
+    "--add-data=src/features/lab/shaders:src/features/lab/shaders",
+    "--add-data=src/desktop/view/styles:src/desktop/view/styles",
     "--add-data=icc:icc",
     "--add-data=media:media",
     "--add-data=VERSION:.",

@@ -62,7 +62,7 @@ class ExportConfig:
     export_fmt: str = ExportFormat.JPEG
     export_color_space: str = ColorSpace.ADOBE_RGB.value
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
-    export_print_size: float = 27.0
+    export_print_size: float = 30.0
     export_dpi: int = 300
     export_add_border: bool = False
     export_border_size: float = 0.0
