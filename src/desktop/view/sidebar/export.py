@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QTimer
 import qtawesome as qta
 from src.desktop.view.styles.theme import THEME
 from src.desktop.view.sidebar.base import BaseSidebar
@@ -25,6 +26,12 @@ class ExportSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.layout.setSpacing(10)
         conf = self.state.config.export
+
+        # Debounce timer for all export settings
+        self.update_timer = QTimer()
+        self.update_timer.setSingleShot(True)
+        self.update_timer.setInterval(1000)
+        self.update_timer.timeout.connect(self._persist_all_export_settings)
 
         label_fmt = QLabel("Format & Color")
         label_fmt.setStyleSheet(
@@ -128,6 +135,17 @@ class ExportSidebar(BaseSidebar):
 
         self.pattern_input = QLineEdit(conf.filename_pattern)
         self.pattern_input.setPlaceholderText("Filename Pattern...")
+        self.pattern_input.setToolTip(
+            "Jinja2 Template. Available variables:\n"
+            "- {{ original_name }}\n"
+            "- {{ colorspace }}\n"
+            "- {{ format }} (JPEG/TIFF)\n"
+            "- {{ paper_ratio }}\n"
+            "- {{ size }} (e.g. 20cm)\n"
+            "- {{ dpi }}\n"
+            "- {{ border }} ('border' or empty)\n"
+            "- {{ date }} (YYYYMMDD)"
+        )
         self.layout.addWidget(self.pattern_input)
 
         path_layout = QHBoxLayout()
@@ -156,59 +174,60 @@ class ExportSidebar(BaseSidebar):
         self.layout.addWidget(self.batch_export_btn)
 
     def _connect_signals(self) -> None:
-        self.fmt_combo.currentTextChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, export_fmt=v
-            )
-        )
-        self.cs_combo.currentTextChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, export_color_space=v
-            )
-        )
-        self.ratio_combo.currentTextChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, paper_aspect_ratio=v
-            )
-        )
+        # All changes trigger the same debounce timer
+        self.fmt_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
+        self.cs_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
+        self.ratio_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
         self.orig_res_btn.toggled.connect(self._on_orig_res_toggled)
 
-        self.size_input.valueChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, export_print_size=v
-            )
-        )
-        self.dpi_input.valueChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, export_dpi=v
-            )
-        )
-        self.border_input.valueChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, export_border_size=v
-            )
-        )
+        self.size_input.valueChanged.connect(lambda _: self.update_timer.start())
+        self.dpi_input.valueChanged.connect(lambda _: self.update_timer.start())
+        self.border_input.valueChanged.connect(lambda _: self.update_timer.start())
 
         self.color_btn.clicked.connect(self._on_color_clicked)
         self.browse_btn.clicked.connect(self._on_browse_clicked)
-        self.pattern_input.textChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, filename_pattern=v
-            )
-        )
-        self.path_input.textChanged.connect(
-            lambda v: self.update_config_section(
-                "export", persist=True, render=False, export_path=v
-            )
-        )
+        self.pattern_input.textChanged.connect(lambda _: self.update_timer.start())
+        self.path_input.textChanged.connect(lambda _: self.update_timer.start())
         self.batch_export_btn.clicked.connect(self.controller.request_batch_export)
+
+    def _persist_all_export_settings(self) -> None:
+        """Collects all UI values and performs a single debounced config update."""
+        self.update_config_section(
+            "export",
+            persist=True,
+            render=False,
+            export_fmt=self.fmt_combo.currentText(),
+            export_color_space=self.cs_combo.currentText(),
+            paper_aspect_ratio=self.ratio_combo.currentText(),
+            use_original_res=self.orig_res_btn.isChecked(),
+            export_print_size=self.size_input.value(),
+            export_dpi=self.dpi_input.value(),
+            export_border_size=self.border_input.value(),
+            filename_pattern=self.pattern_input.text(),
+            export_path=self.path_input.text(),
+        )
 
     def _on_orig_res_toggled(self, checked: bool) -> None:
         self._update_orig_res_style(checked)
         self.size_container.setVisible(not checked)
-        self.update_config_section(
-            "export", persist=True, render=False, use_original_res=checked
+        self.update_timer.start()
+
+    def _on_color_clicked(self) -> None:
+        color = QColorDialog.getColor(
+            QColor(self.state.config.export.export_border_color)
         )
+        if color.isValid():
+            hex_color = color.name()
+            self._update_color_btn(hex_color)
+            # We don't save hex_color here directly anymore, we let the timer do it
+            # But the timer needs to know the hex color?
+            # Actually, update_config_section uses values from UI widgets.
+            # Does color_btn store the value? No, it just shows it.
+            # I should update the config immediately for color or store it.
+            # Let's keep color immediate to avoid state sync issues.
+            self.update_config_section(
+                "export", persist=True, render=False, export_border_color=hex_color
+            )
 
     def _update_orig_res_style(self, checked: bool) -> None:
         if checked:

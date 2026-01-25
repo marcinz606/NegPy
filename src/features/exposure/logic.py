@@ -1,9 +1,13 @@
 import numpy as np
 from numba import njit, prange  # type: ignore
-from scipy.special import expit
 from typing import Tuple
 from src.domain.types import ImageBuffer
 from src.kernel.image.validation import ensure_image
+
+
+def _expit(x):
+    """Numpy implementation of the logistic sigmoid function (scipy.special.expit fallback)."""
+    return 1.0 / (1.0 + np.exp(-x))
 
 
 @njit(inline="always")
@@ -112,11 +116,11 @@ class LogisticSigmoid:
         diff = x - self.x0
         epsilon = 1e-6
 
-        w_s = expit(self.shoulder_width * (diff / max(self.x0, epsilon)))
+        w_s = _expit(self.shoulder_width * (diff / max(self.x0, epsilon)))
         prot_s = (4.0 * ((w_s - 0.5) ** 2)) ** self.shoulder_hardness
         damp_shoulder = self.shoulder * (1.0 - w_s) * prot_s
 
-        w_t = expit(self.toe_width * (diff / max(1.0 - self.x0, epsilon)))
+        w_t = _expit(self.toe_width * (diff / max(1.0 - self.x0, epsilon)))
         prot_t = (4.0 * ((w_t - 0.5) ** 2)) ** self.toe_hardness
         damp_toe = self.toe * w_t * prot_t
 
@@ -124,7 +128,7 @@ class LogisticSigmoid:
         k_mod = np.clip(k_mod, 0.1, 2.0)
 
         val = self.k * diff
-        res = self.L * expit(val * k_mod)
+        res = self.L * _expit(val * k_mod)
         return ensure_image(res)
 
 

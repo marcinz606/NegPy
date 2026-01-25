@@ -98,11 +98,12 @@ class ExposureSidebar(BaseSidebar):
         )
         self.layout.addWidget(toe_label)
 
-        toe_row = QHBoxLayout()
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
+        self.layout.addWidget(self.toe_slider)
+
+        toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
         self.toe_h_slider = CompactSlider("Hardness", 0.1, 5.0, conf.toe_hardness)
-        toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         toe_row.addWidget(self.toe_h_slider)
         self.layout.addLayout(toe_row)
@@ -113,11 +114,12 @@ class ExposureSidebar(BaseSidebar):
         )
         self.layout.addWidget(shld_label)
 
-        sh_row = QHBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
+        self.layout.addWidget(self.sh_slider)
+
+        sh_row = QHBoxLayout()
         self.sh_w_slider = CompactSlider("Width", 0.1, 5.0, conf.shoulder_width)
         self.sh_h_slider = CompactSlider("Hardness", 0.1, 5.0, conf.shoulder_hardness)
-        sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
         sh_row.addWidget(self.sh_h_slider)
         self.layout.addLayout(sh_row)

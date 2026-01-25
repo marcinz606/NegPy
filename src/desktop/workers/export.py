@@ -4,6 +4,7 @@ import os
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from src.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
 from src.services.rendering.image_processor import ImageProcessor
+from src.services.export.templating import render_export_filename
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,12 @@ class ExportWorker(QObject):
                         if task.export_settings.export_fmt == ExportFormat.JPEG
                         else "tiff"
                     )
-                    path = os.path.join(out_dir, f"positive_{name}.{ext}")
+
+                    filename = render_export_filename(
+                        task.file_info["path"], task.export_settings
+                    )
+                    path = os.path.join(out_dir, f"{filename}.{ext}")
+
                     with open(path, "wb") as f:
                         f.write(bits)
 

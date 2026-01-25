@@ -33,7 +33,7 @@ class RetouchSidebar(BaseSidebar):
             "Threshold", 0.01, 1.0, conf.dust_threshold
         )
         self.auto_size_slider = CompactSlider(
-            "Auto Size", 4.0, 16.0, float(conf.dust_size), step=1.0, precision=1
+            "Auto Size", 3.0, 12.0, float(conf.dust_size), step=1.0, precision=1
         )
         auto_row.addWidget(self.threshold_slider)
         auto_row.addWidget(self.auto_size_slider)

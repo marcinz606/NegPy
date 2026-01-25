@@ -45,7 +45,7 @@ class BaseSlider(QWidget):
         # Debounce timer
         self.timer = QTimer()
         self.timer.setSingleShot(True)
-        self.timer.setInterval(50)
+        self.timer.setInterval(250)
 
         self._connect_base_signals()
 

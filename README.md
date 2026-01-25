@@ -21,7 +21,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 *   **Non-destructive**: original files are never touched; edits are stored as recipes.
 *   **Keyboard Shortcuts**: [see here](docs/KEYBOARD.md)
 *   **Database**: All edits live in a local SQLite database, keyed by file hash. You can move or rename files without losing your work.
-*   **Print Ready**: Export module designed for printing, featuring border controls and ICC soft-proofing.
+*   **Print Ready**: Export module designed for printing, featuring border controls, ICC soft-proofing, and [dynamic filename templating](docs/TEMPLATING.md).
 
 ---
 

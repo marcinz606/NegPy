@@ -38,28 +38,15 @@ params = [
     "--hidden-import=numba",
     "--hidden-import=PIL",
     "--hidden-import=PIL.Image",
-    "--hidden-import=PIL.ImageEnhance",
-    "--hidden-import=PIL.ImageFilter",
     "--hidden-import=PIL.ImageCms",
-    "--hidden-import=PIL.ImageDraw",
-    "--hidden-import=PIL.ImageOps",
-    "--hidden-import=scipy",
-    "--hidden-import=scipy.ndimage",
-    "--hidden-import=scipy.stats",
-    "--hidden-import=scipy.special",
-    "--hidden-import=matplotlib",
-    "--hidden-import=matplotlib.pyplot",
     "--hidden-import=imageio",
     "--hidden-import=imageio.v3",
     "--hidden-import=tifffile",
     "--hidden-import=imagecodecs",
-    "--hidden-import=tkinter",
-    "--hidden-import=_tkinter",
+    "--hidden-import=jinja2",
     "--hidden-import=PyQt6",
     "--hidden-import=qtawesome",
     # Exclude unused modules
-    "--exclude-module=wgpu.utils.imgui",
-    "--exclude-module=imgui_bundle",
     # Metadata
     "--copy-metadata=imageio",
     "--copy-metadata=rawpy",
@@ -143,25 +130,30 @@ def package_linux():
             tool = "appimagetool"
 
         output_filename = os.path.join("dist", f"{APP_NAME}-{VERSION}-x86_64.AppImage")
-        
+
         # Ensure ARCH is set for appimagetool, often required in CI
         env = os.environ.copy()
         env["ARCH"] = "x86_64"
 
         result = subprocess.run(
-            [tool, appdir, output_filename], 
+            [tool, appdir, output_filename],
             check=False,  # We handle check manually to print output
             capture_output=True,
             text=True,
-            env=env
+            env=env,
         )
-        
+
         if result.returncode != 0:
             print(f"AppImageTool failed with exit code {result.returncode}")
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
-            raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout, stderr=result.stderr)
-            
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                result.args,
+                output=result.stdout,
+                stderr=result.stderr,
+            )
+
         print(f"AppImage created: {output_filename}")
     except Exception as e:
         print(f"Error creating AppImage: {e}")
