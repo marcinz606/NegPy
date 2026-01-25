@@ -772,31 +772,56 @@ class GPUEngine:
             dpi = int((size_ref * 2.54) / max(0.1, settings.export.export_print_size))
         border_px = int((settings.export.export_border_size / 2.54) * dpi)
 
+        use_orig = settings.export.use_original_res
+
         if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
-            target_long_edge = int((settings.export.export_print_size / 2.54) * dpi)
-            if cw >= ch:
-                content_w, content_h = (
-                    target_long_edge,
-                    int(ch * (target_long_edge / cw)),
-                )
+            if use_orig:
+                content_w, content_h = cw, ch
             else:
-                content_h, content_w = (
-                    target_long_edge,
-                    int(cw * (target_long_edge / ch)),
-                )
+                target_long_edge = int((settings.export.export_print_size / 2.54) * dpi)
+                if cw >= ch:
+                    content_w, content_h = (
+                        target_long_edge,
+                        int(ch * (target_long_edge / cw)),
+                    )
+                else:
+                    content_h, content_w = (
+                        target_long_edge,
+                        int(cw * (target_long_edge / ch)),
+                    )
             paper_w, paper_h = content_w + 2 * border_px, content_h + 2 * border_px
             off_x, off_y = border_px, border_px
         else:
-            paper_w, paper_h = PrintService.calculate_paper_px(
-                settings.export.export_print_size,
-                dpi,
-                settings.export.paper_aspect_ratio,
-                cw,
-                ch,
-            )
-            inner_w, inner_h = paper_w - 2 * border_px, paper_h - 2 * border_px
-            scale = min(inner_w / cw, inner_h / ch)
-            content_w, content_h = int(cw * scale), int(ch * scale)
+            if use_orig:
+                content_w, content_h = cw, ch
+                # Calculate paper based on ratio but ensuring it fits the content
+                try:
+                    w_r, h_r = map(float, settings.export.paper_aspect_ratio.split(":"))
+                    paper_ratio = w_r / h_r
+                except Exception:
+                    paper_ratio = cw / ch
+
+                min_paper_w = content_w + 2 * border_px
+                min_paper_h = content_h + 2 * border_px
+
+                if (min_paper_w / min_paper_h) > paper_ratio:
+                    paper_w = min_paper_w
+                    paper_h = int(paper_w / paper_ratio)
+                else:
+                    paper_h = min_paper_h
+                    paper_w = int(paper_h * paper_ratio)
+            else:
+                paper_w, paper_h = PrintService.calculate_paper_px(
+                    settings.export.export_print_size,
+                    dpi,
+                    settings.export.paper_aspect_ratio,
+                    cw,
+                    ch,
+                )
+                inner_w, inner_h = paper_w - 2 * border_px, paper_h - 2 * border_px
+                scale = min(inner_w / cw, inner_h / ch)
+                content_w, content_h = int(cw * scale), int(ch * scale)
+
             off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
         return paper_w, paper_h, content_w, content_h, off_x, off_y
 
