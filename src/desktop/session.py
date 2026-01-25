@@ -301,12 +301,13 @@ class DesktopSessionManager(QObject):
         """
         self.state.config = config
 
-        # Update sticky settings whenever config changes
-        self._persist_sticky_settings(config)
+        if persist:
+            # Only perform disk I/O if explicitly requested (e.g. manual save, file change)
+            self._persist_sticky_settings(config)
+            if self.state.current_file_hash:
+                self.repo.save_file_settings(self.state.current_file_hash, config)
+                self.settings_saved.emit()
 
-        if persist and self.state.current_file_hash:
-            self.repo.save_file_settings(self.state.current_file_hash, config)
-            self.settings_saved.emit()
         self.state_changed.emit()
 
     def reset_settings(self) -> None:

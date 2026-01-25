@@ -108,11 +108,14 @@ def package_linux():
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:
-        for libpath in glob.glob(os.path.join(appdir, pattern)):
+        # Search recursively (**) to find libs inside _internal or other subfolders
+        search_pattern = os.path.join(appdir, "**", pattern)
+        for libpath in glob.glob(search_pattern, recursive=True):
             try:
                 if os.path.isfile(libpath) or os.path.islink(libpath):
                     os.remove(libpath)
-                    print(f"  Removed: {os.path.basename(libpath)}")
+                    # Print relative path for cleaner logs
+                    print(f"  Removed: {os.path.relpath(libpath, appdir)}")
             except Exception as e:
                 print(f"  Failed to remove {libpath}: {e}")
 
