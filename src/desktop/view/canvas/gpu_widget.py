@@ -1,7 +1,7 @@
 import sys
 import struct
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from rendercanvas.pyqt6 import RenderCanvas
 import wgpu  # type: ignore
 from typing import Optional, Any, Tuple
