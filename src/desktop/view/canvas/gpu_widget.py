@@ -1,3 +1,4 @@
+import sys
 import struct
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from PyQt6.QtCore import QTimer
@@ -13,6 +14,8 @@ class GPUCanvasWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setLayout(QVBoxLayout())
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
         self.layout().setContentsMargins(0, 0, 0, 0)
 
         self.canvas = RenderCanvas(parent=self)

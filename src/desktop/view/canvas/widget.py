@@ -1,3 +1,4 @@
+import sys
 from typing import Optional, Tuple, Any
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QStackedLayout
@@ -25,6 +26,8 @@ class ImageCanvas(QWidget):
         super().__init__(parent)
         self.state = state
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)

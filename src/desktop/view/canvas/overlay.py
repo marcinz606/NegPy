@@ -21,6 +21,8 @@ class CanvasOverlay(QWidget):
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
         self.state = state
         self._qimage: Optional[QImage] = None
         self._current_size: Optional[Tuple[int, int]] = None

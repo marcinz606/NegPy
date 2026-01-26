@@ -1,3 +1,4 @@
+import sys
 from PyQt6.QtWidgets import QWidget, QLabel, QGridLayout
 from PyQt6.QtCore import Qt
 from src.desktop.view.styles.theme import THEME
@@ -27,6 +28,8 @@ class ImageInfoOverlay(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
         self._init_ui()
 
     def _init_ui(self) -> None:
