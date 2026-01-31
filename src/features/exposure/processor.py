@@ -2,6 +2,7 @@ import numpy as np
 from src.domain.interfaces import PipelineContext
 from src.domain.types import ImageBuffer
 from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
+from src.features.process.models import ProcessConfig, ProcessMode
 from src.features.exposure.logic import apply_characteristic_curve
 from src.kernel.image.logic import get_luminance
 from src.features.exposure.normalization import (
@@ -9,7 +10,6 @@ from src.features.exposure.normalization import (
     analyze_log_exposure_bounds,
     LogNegativeBounds,
 )
-from src.domain.models import ProcessMode
 
 
 class NormalizationProcessor:
@@ -17,7 +17,7 @@ class NormalizationProcessor:
     Converts linear RAW to normalized log-density.
     """
 
-    def __init__(self, config: ExposureConfig):
+    def __init__(self, config: ProcessConfig):
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
@@ -51,7 +51,9 @@ class NormalizationProcessor:
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
 
-        return normalize_log_image(img_log, bounds)
+        res = normalize_log_image(img_log, bounds)
+        context.metrics["normalized_log"] = res
+        return res
 
 
 class PhotometricProcessor:

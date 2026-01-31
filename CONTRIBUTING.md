@@ -66,6 +66,6 @@ The `Makefile` is the central source of truth for developer commands:
 To build the standalone application for your current OS:
 
 ```bash
-make dist
+make build
 ```
-This will trigger the Python backend build via PyInstaller and then package the Electron app.
+This will trigger the Python backend build via PyInstaller.

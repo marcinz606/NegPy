@@ -5,6 +5,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from src.domain.models import WorkspaceConfig
 from src.services.rendering.image_processor import ImageProcessor
 from src.features.exposure.normalization import analyze_log_exposure_bounds
+from src.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from src.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -247,7 +248,11 @@ class NormalizationWorker(QObject):
 
                 params = self._repo.load_file_settings(f_info["hash"])
                 use_camera_wb = params.exposure.use_camera_wb if params else False
-                analysis_buffer = params.exposure.analysis_buffer if params else 0.07
+                analysis_buffer = (
+                    params.process.analysis_buffer
+                    if params
+                    else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
+                )
 
                 raw, _, _ = self._preview_service.load_linear_preview(
                     f_info["path"],

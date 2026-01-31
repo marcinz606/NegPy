@@ -1,13 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
-
-EXPOSURE_CONSTANTS: Dict[str, Any] = {
-    "cmy_max_density": 0.2,
-    "density_multiplier": 0.2,
-    "grade_multiplier": 2.0,
-    "target_paper_range": 2.2,
-    "anchor_midpoint": 0.0,
-}
+from typing import Dict, Any
 
 
 @dataclass(frozen=True)
@@ -28,11 +20,12 @@ class ExposureConfig:
     shoulder: float = 0.0
     shoulder_width: float = 3.0
     shoulder_hardness: float = 1.0
-    analysis_buffer: float = 0.07
 
-    use_roll_average: bool = False
-    locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    locked_ceils: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    local_ceils: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    roll_name: Optional[str] = None
+
+EXPOSURE_CONSTANTS: Dict[str, Any] = {
+    "cmy_max_density": 0.2,
+    "density_multiplier": 0.2,
+    "grade_multiplier": 2.0,
+    "target_paper_range": 2.2,
+    "anchor_midpoint": 0.0,
+}

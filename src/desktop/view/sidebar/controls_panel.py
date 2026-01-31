@@ -11,6 +11,7 @@ from src.desktop.view.styles.theme import THEME
 
 # Sidebar Components
 from src.desktop.view.sidebar.presets import PresetsSidebar
+from src.desktop.view.sidebar.process import ProcessSidebar
 from src.desktop.view.sidebar.exposure import ExposureSidebar
 from src.desktop.view.sidebar.geometry import GeometrySidebar
 from src.desktop.view.sidebar.lab import LabSidebar
@@ -53,6 +54,14 @@ class ControlsPanel(QWidget):
             "geometry",
             self.geometry_sidebar,
             icon=qta.icon("fa5s.crop", color=icon_color),
+        )
+
+        self.process_sidebar = ProcessSidebar(self.controller)
+        self._add_sidebar_section(
+            "Process",
+            "process",
+            self.process_sidebar,
+            icon=qta.icon("fa5s.cogs", color=icon_color),
         )
 
         self.exposure_sidebar = ExposureSidebar(self.controller)
@@ -100,7 +109,15 @@ class ControlsPanel(QWidget):
     ) -> None:
         """Helper to create and add a collapsible section."""
         is_expanded = THEME.sidebar_expanded_defaults.get(key, False)
-        if key in ["exposure", "geometry", "lab", "retouch", "export", "analysis"]:
+        if key in [
+            "process",
+            "exposure",
+            "geometry",
+            "lab",
+            "retouch",
+            "export",
+            "analysis",
+        ]:
             is_expanded = THEME.sidebar_expanded_defaults.get(key, True)
 
         section = CollapsibleSection(title, expanded=is_expanded, icon=icon)
@@ -113,6 +130,7 @@ class ControlsPanel(QWidget):
 
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
+        self.process_sidebar.sync_ui()
         self.exposure_sidebar.sync_ui()
         self.geometry_sidebar.sync_ui()
         self.lab_sidebar.sync_ui()

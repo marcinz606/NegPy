@@ -133,13 +133,33 @@ class DesktopSessionManager(QObject):
 
         # --- Look & Style Settings (Applied to new files) ---
 
-        # 1. Process Mode
+        # 1. Process Section
         sticky_mode = self.repo.get_global_setting("last_process_mode")
-        if sticky_mode:
-            config = replace(config, process_mode=sticky_mode)
-
-        # 2. Analysis Buffer, Density, Grade, CMY, Toe, Shoulder
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
+        sticky_roll_average = self.repo.get_global_setting("last_use_roll_average")
+        sticky_floors = self.repo.get_global_setting("last_locked_floors")
+        sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
+        sticky_roll_name = self.repo.get_global_setting("last_roll_name")
+
+        new_process = config.process
+        if sticky_mode:
+            new_process = replace(new_process, process_mode=sticky_mode)
+        if sticky_buffer is not None:
+            new_process = replace(new_process, analysis_buffer=float(sticky_buffer))
+        if sticky_roll_average is not None:
+            new_process = replace(
+                new_process, use_roll_average=bool(sticky_roll_average)
+            )
+        if sticky_floors:
+            new_process = replace(new_process, locked_floors=tuple(sticky_floors))
+        if sticky_ceils:
+            new_process = replace(new_process, locked_ceils=tuple(sticky_ceils))
+        if sticky_roll_name:
+            new_process = replace(new_process, roll_name=str(sticky_roll_name))
+
+        config = replace(config, process=new_process)
+
+        # 2. Exposure Section
         sticky_density = self.repo.get_global_setting("last_density")
         sticky_grade = self.repo.get_global_setting("last_grade")
         sticky_cyan = self.repo.get_global_setting("last_wb_cyan")
@@ -154,14 +174,7 @@ class DesktopSessionManager(QObject):
         sticky_shoulder_w = self.repo.get_global_setting("last_shoulder_width")
         sticky_shoulder_h = self.repo.get_global_setting("last_shoulder_hardness")
 
-        sticky_roll_average = self.repo.get_global_setting("last_use_roll_average")
-        sticky_floors = self.repo.get_global_setting("last_locked_floors")
-        sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
-        sticky_roll_name = self.repo.get_global_setting("last_roll_name")
-
         new_exp = config.exposure
-        if sticky_buffer is not None:
-            new_exp = replace(new_exp, analysis_buffer=float(sticky_buffer))
         if sticky_density is not None:
             new_exp = replace(new_exp, density=float(sticky_density))
         if sticky_grade is not None:
@@ -188,17 +201,9 @@ class DesktopSessionManager(QObject):
         if sticky_shoulder_h is not None:
             new_exp = replace(new_exp, shoulder_hardness=float(sticky_shoulder_h))
 
-        if sticky_roll_average is not None:
-            new_exp = replace(new_exp, use_roll_average=bool(sticky_roll_average))
-        if sticky_floors:
-            new_exp = replace(new_exp, locked_floors=tuple(sticky_floors))
-        if sticky_ceils:
-            new_exp = replace(new_exp, locked_ceils=tuple(sticky_ceils))
-        if sticky_roll_name:
-            new_exp = replace(new_exp, roll_name=str(sticky_roll_name))
-
         config = replace(config, exposure=new_exp)
-        # 3. Aspect Ratio & Offset
+
+        # 3. Geometry & Offset
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
         sticky_offset = self.repo.get_global_setting("last_autocrop_offset")
 
@@ -240,14 +245,23 @@ class DesktopSessionManager(QObject):
 
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
         """
-        Saves current Mode, Ratio, and Export settings to global storage.
+        Saves current settings to global storage.
         """
         from dataclasses import asdict
 
-        self.repo.save_global_setting("last_process_mode", config.process_mode)
+        self.repo.save_global_setting("last_process_mode", config.process.process_mode)
         self.repo.save_global_setting(
-            "last_analysis_buffer", config.exposure.analysis_buffer
+            "last_analysis_buffer", config.process.analysis_buffer
         )
+        self.repo.save_global_setting(
+            "last_use_roll_average", config.process.use_roll_average
+        )
+        self.repo.save_global_setting(
+            "last_locked_floors", config.process.locked_floors
+        )
+        self.repo.save_global_setting("last_locked_ceils", config.process.locked_ceils)
+        self.repo.save_global_setting("last_roll_name", config.process.roll_name)
+
         self.repo.save_global_setting("last_density", config.exposure.density)
         self.repo.save_global_setting("last_grade", config.exposure.grade)
         self.repo.save_global_setting("last_wb_cyan", config.exposure.wb_cyan)
@@ -267,14 +281,6 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting(
             "last_shoulder_hardness", config.exposure.shoulder_hardness
         )
-        self.repo.save_global_setting(
-            "last_use_roll_average", config.exposure.use_roll_average
-        )
-        self.repo.save_global_setting(
-            "last_locked_floors", config.exposure.locked_floors
-        )
-        self.repo.save_global_setting("last_locked_ceils", config.exposure.locked_ceils)
-        self.repo.save_global_setting("last_roll_name", config.exposure.roll_name)
 
         self.repo.save_global_setting(
             "last_aspect_ratio", config.geometry.autocrop_ratio
@@ -297,8 +303,6 @@ class DesktopSessionManager(QObject):
                 self.repo.save_file_settings(
                     self.state.current_file_hash, self.state.config
                 )
-                # No settings_saved emit here to avoid global refresh,
-                # but we want the controller to update the icon
                 self.settings_saved.emit()
 
             file_info = self.state.uploaded_files[index]
@@ -310,12 +314,10 @@ class DesktopSessionManager(QObject):
             saved_config = self.repo.load_file_settings(file_info["hash"])
 
             if saved_config:
-                # If we have saved config, use it but sync global export settings
                 self.state.config = self._apply_sticky_settings(
                     saved_config, only_global=True
                 )
             else:
-                # If no saved config, use defaults and apply ALL sticky look settings
                 self.state.config = self._apply_sticky_settings(
                     WorkspaceConfig(), only_global=False
                 )
@@ -371,7 +373,6 @@ class DesktopSessionManager(QObject):
     ) -> None:
         """
         Adds new files to the session.
-        If validated_info is provided, hashing is skipped.
         """
         import os
         from src.kernel.image.logic import calculate_file_hash
@@ -388,7 +389,6 @@ class DesktopSessionManager(QObject):
                     if f_hash.startswith("err_"):
                         continue
 
-                    # Avoid duplicates
                     if any(f["hash"] == f_hash for f in self.state.uploaded_files):
                         continue
 
@@ -423,11 +423,9 @@ class DesktopSessionManager(QObject):
         """
         idx = self.state.selected_file_idx
         if 0 <= idx < len(self.state.uploaded_files):
-            # Remove file and thumbnail
             file_info = self.state.uploaded_files.pop(idx)
             self.state.thumbnails.pop(file_info["name"], None)
 
-            # Reset selection or pick next/prev
             if not self.state.uploaded_files:
                 self.state.selected_file_idx = -1
                 self.state.current_file_path = None
@@ -435,7 +433,6 @@ class DesktopSessionManager(QObject):
                 self.state.preview_raw = None
                 self.state.config = WorkspaceConfig()
             else:
-                # Clamp index to new bounds
                 new_idx = min(idx, len(self.state.uploaded_files) - 1)
                 self.select_file(new_idx)
 

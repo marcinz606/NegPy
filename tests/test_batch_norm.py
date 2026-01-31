@@ -21,13 +21,13 @@ class TestBatchNormalization(unittest.TestCase):
         locked_floors = (-0.5, -0.5, -0.5)
         locked_ceils = (-0.1, -0.1, -0.1)
 
-        exp_conf = replace(
-            self.config.exposure,
+        new_process = replace(
+            self.config.process,
             use_roll_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
         )
-        processor = NormalizationProcessor(exp_conf)
+        processor = NormalizationProcessor(new_process)
 
         img_val = 10**-0.3
         img = np.full((10, 10, 3), img_val, dtype=np.float32)
@@ -41,24 +41,18 @@ class TestBatchNormalization(unittest.TestCase):
         """
         user_shifts = (0.05, 0.05)
 
-        exp_conf = replace(
+        new_exposure = replace(
             self.config.exposure,
-            use_roll_average=True,
             wb_magenta=user_shifts[0],
             wb_yellow=user_shifts[1],
         )
-        processor = PhotometricProcessor(exp_conf)
+
+        processor = PhotometricProcessor(new_exposure)
 
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
         res_batch = processor.process(img, self.context)
 
-        exp_conf_manual = replace(
-            self.config.exposure,
-            use_roll_average=False,
-            wb_magenta=user_shifts[0],
-            wb_yellow=user_shifts[1],
-        )
-        processor_manual = PhotometricProcessor(exp_conf_manual)
+        processor_manual = PhotometricProcessor(new_exposure)
         res_manual = processor_manual.process(img, self.context)
 
         np.testing.assert_array_almost_equal(res_batch, res_manual)

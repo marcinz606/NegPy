@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, Optional
 from enum import Enum, StrEnum
+from src.features.process.models import ProcessConfig
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
@@ -23,11 +24,6 @@ class AspectRatio(StrEnum):
     R_4_5 = "4:5"
     R_7_6 = "7:6"
     R_24_65 = "24:65"
-
-
-class ProcessMode(StrEnum):
-    C41 = "C41"
-    BW = "B&W"
 
 
 class ExportFormat(StrEnum):
@@ -80,7 +76,7 @@ class WorkspaceConfig:
     Complete state for a single image edit.
     """
 
-    process_mode: str = ProcessMode.C41
+    process: ProcessConfig = field(default_factory=ProcessConfig)
     exposure: ExposureConfig = field(default_factory=ExposureConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     lab: LabConfig = field(default_factory=LabConfig)
@@ -92,7 +88,8 @@ class WorkspaceConfig:
         """
         Flattens for serialization.
         """
-        res = {"process_mode": self.process_mode}
+        res = {}
+        res.update(asdict(self.process))
         res.update(asdict(self.exposure))
         res.update(asdict(self.geometry))
         res.update(asdict(self.lab))
@@ -112,7 +109,7 @@ class WorkspaceConfig:
             return {k: v for k, v in d.items() if k in valid_keys and v is not None}
 
         return cls(
-            process_mode=str(data.get("process_mode", ProcessMode.C41)),
+            process=ProcessConfig(**filter_keys(ProcessConfig, data)),
             exposure=ExposureConfig(**filter_keys(ExposureConfig, data)),
             geometry=GeometryConfig(**filter_keys(GeometryConfig, data)),
             lab=LabConfig(**filter_keys(LabConfig, data)),

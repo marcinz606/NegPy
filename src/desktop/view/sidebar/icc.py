@@ -4,7 +4,6 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QRadioButton,
     QHBoxLayout,
-    QLabel,
     QGroupBox,
 )
 from src.desktop.view.sidebar.base import BaseSidebar
@@ -48,10 +47,11 @@ class ICCSidebar(BaseSidebar):
         self.apply_export_check = QCheckBox("Apply to Export")
         self.apply_export_check.setChecked(self.state.apply_icc_to_export)
 
-        self.layout.addWidget(QLabel("Profile:"))
         self.layout.addWidget(self.profile_combo)
         self.layout.addWidget(self.mode_group)
         self.layout.addWidget(self.apply_export_check)
+
+        self.layout.addStretch()
 
     def _connect_signals(self) -> None:
         self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)

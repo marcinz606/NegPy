@@ -40,6 +40,8 @@ class PresetsSidebar(BaseSidebar):
         row_save.addWidget(self.save_btn)
         self.layout.addLayout(row_save)
 
+        self.layout.addStretch()
+
     def _connect_signals(self) -> None:
         self.load_btn.clicked.connect(self._on_load_clicked)
         self.save_btn.clicked.connect(self._on_save_clicked)

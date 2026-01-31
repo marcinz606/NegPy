@@ -1,4 +1,12 @@
 # Change Log
+## 0.9.6
+
+- UI Improvements:
+    - Moved process/analysis to separate section.
+    - Added options to "save rolls" 
+    - Added simple switch between roll average and individual analysis.
+- Bugfixes:
+    - Fixed regression in Pick WB tool behaviour introduced in 0.9.5
 
 ## 0.9.5
 

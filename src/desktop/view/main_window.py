@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         res_str = f"{w} x {h} px"
         cs = self.state.workspace_color_space
 
-        mode = f"16-bit | {self.state.config.process_mode}"
+        mode = f"16-bit | {self.state.config.process.process_mode}"
 
         self.canvas.update_overlay(filename, res_str, cs, mode)
 

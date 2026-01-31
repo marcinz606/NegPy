@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QPushButton, QLabel, QHBoxLayout
+from PyQt6.QtWidgets import QPushButton, QHBoxLayout
 import qtawesome as qta
 from src.desktop.view.widgets.sliders import CompactSlider, SignalSlider
 from src.desktop.view.sidebar.base import BaseSidebar
@@ -14,13 +14,6 @@ class RetouchSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.layout.setSpacing(10)
         conf = self.state.config.retouch
-
-        # Automatic Section
-        auto_label = QLabel("Automatic Dust Removal")
-        auto_label.setStyleSheet(
-            f"font-size: {THEME.font_size_header}px; font-weight: bold;"
-        )
-        self.layout.addWidget(auto_label)
 
         self.auto_dust_btn = QPushButton(" Enable Auto Removal")
         self.auto_dust_btn.setCheckable(True)
@@ -38,13 +31,6 @@ class RetouchSidebar(BaseSidebar):
         auto_row.addWidget(self.threshold_slider)
         auto_row.addWidget(self.auto_size_slider)
         self.layout.addLayout(auto_row)
-
-        # Manual Section
-        manual_label = QLabel("Manual Healing")
-        manual_label.setStyleSheet(
-            f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
-        )
-        self.layout.addWidget(manual_label)
 
         self.pick_dust_btn = QPushButton(" Heal Dust Tool")
         self.pick_dust_btn.setCheckable(True)

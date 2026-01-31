@@ -4,11 +4,11 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QColorDialog,
-    QLabel,
     QDoubleSpinBox,
     QSpinBox,
     QWidget,
     QVBoxLayout,
+    QLabel,
 )
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QTimer
@@ -33,12 +33,6 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.setInterval(1000)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
-        label_fmt = QLabel("Format & Color")
-        label_fmt.setStyleSheet(
-            f"font-size: {THEME.font_size_header}px; font-weight: bold;"
-        )
-        self.layout.addWidget(label_fmt)
-
         fmt_row = QHBoxLayout()
         self.fmt_combo = QComboBox()
         self.fmt_combo.addItems([f.value for f in ExportFormat])
@@ -50,12 +44,6 @@ class ExportSidebar(BaseSidebar):
         fmt_row.addWidget(self.fmt_combo)
         fmt_row.addWidget(self.cs_combo)
         self.layout.addLayout(fmt_row)
-
-        label_size = QLabel("Sizing & Ratio")
-        label_size.setStyleSheet(
-            f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
-        )
-        self.layout.addWidget(label_size)
 
         self.ratio_combo = QComboBox()
         # "Original" is first, then the rest
@@ -100,12 +88,6 @@ class ExportSidebar(BaseSidebar):
         self.layout.addWidget(self.size_container)
         self.size_container.setVisible(not conf.use_original_res)
 
-        label_border = QLabel("Border")
-        label_border.setStyleSheet(
-            f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
-        )
-        self.layout.addWidget(label_border)
-
         border_row = QHBoxLayout()
         vbox_border = QVBoxLayout()
         vbox_border.addWidget(QLabel("Width (cm)"))
@@ -125,13 +107,6 @@ class ExportSidebar(BaseSidebar):
         border_row.addLayout(vbox_border)
         border_row.addLayout(vbox_color)
         self.layout.addLayout(border_row)
-
-        # Output Path & Batch
-        label_out = QLabel("Output")
-        label_out.setStyleSheet(
-            f"font-size: {THEME.font_size_header}px; font-weight: bold; margin-top: 5px;"
-        )
-        self.layout.addWidget(label_out)
 
         self.pattern_input = QLineEdit(conf.filename_pattern)
         self.pattern_input.setPlaceholderText("Filename Pattern...")
@@ -184,6 +159,8 @@ class ExportSidebar(BaseSidebar):
         batch_row.addWidget(self.batch_export_btn)
         batch_row.addWidget(self.apply_all_btn)
         self.layout.addLayout(batch_row)
+
+        self.layout.addStretch()
 
     def _connect_signals(self) -> None:
         # All changes trigger the same debounce timer
@@ -258,12 +235,7 @@ class ExportSidebar(BaseSidebar):
         if color.isValid():
             hex_color = color.name()
             self._update_color_btn(hex_color)
-            # We don't save hex_color here directly anymore, we let the timer do it
-            # But the timer needs to know the hex color?
-            # Actually, update_config_section uses values from UI widgets.
-            # Does color_btn store the value? No, it just shows it.
-            # I should update the config immediately for color or store it.
-            # Let's keep color immediate to avoid state sync issues.
+            # Let the timer do it
             self.update_config_section(
                 "export", persist=True, render=False, export_border_color=hex_color
             )

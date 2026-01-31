@@ -9,7 +9,8 @@ from typing import Any, Optional, Dict, Tuple
 from src.infrastructure.gpu.device import GPUDevice
 from src.infrastructure.gpu.resources import GPUTexture, GPUBuffer
 from src.infrastructure.gpu.shader_loader import ShaderLoader
-from src.domain.models import WorkspaceConfig, ProcessMode, AspectRatio
+from src.features.process.models import ProcessMode
+from src.domain.models import WorkspaceConfig, AspectRatio
 from src.kernel.system.logging import get_logger
 from src.kernel.system.config import APP_CONFIG
 from src.kernel.system.paths import get_resource_path
@@ -123,14 +124,14 @@ class GPUEngine:
         if (
             self._last_settings is None
             or self._last_scale_factor != scale_factor
-            or self._last_settings.process_mode != settings.process_mode
+            or self._last_settings.process.process_mode != settings.process.process_mode
         ):
             return 0
 
         last = self._last_settings
         if last.geometry != settings.geometry:
             return 0
-        if last.exposure != settings.exposure:
+        if last.process != settings.process or last.exposure != settings.exposure:
             return 1
         if last.lab.clahe_strength != settings.lab.clahe_strength:
             return 2
@@ -314,19 +315,19 @@ class GPUEngine:
 
         if bounds_override:
             bounds = bounds_override
-        elif settings.exposure.use_roll_average and settings.exposure.locked_floors != (
+        elif settings.process.use_roll_average and settings.process.locked_floors != (
             0.0,
             0.0,
             0.0,
         ):
             bounds = LogNegativeBounds(
-                floors=settings.exposure.locked_floors,
-                ceils=settings.exposure.locked_ceils,
+                floors=settings.process.locked_floors,
+                ceils=settings.process.locked_ceils,
             )
-        elif settings.exposure.local_floors != (0.0, 0.0, 0.0):
+        elif settings.process.local_floors != (0.0, 0.0, 0.0):
             bounds = LogNegativeBounds(
-                floors=settings.exposure.local_floors,
-                ceils=settings.exposure.local_ceils,
+                floors=settings.process.local_floors,
+                ceils=settings.process.local_ceils,
             )
         else:
             # Match CPU: use ROI for analysis if not in tiling mode
@@ -344,7 +345,7 @@ class GPUEngine:
             bounds = analyze_log_exposure_bounds(
                 analysis_source,
                 roi if not tiling_mode else None,
-                settings.exposure.analysis_buffer,
+                settings.process.analysis_buffer,
             )
 
         self._upload_unified_uniforms(
@@ -380,7 +381,9 @@ class GPUEngine:
         tex_norm = self._get_intermediate_texture(
             w_rot,
             h_rot,
-            wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
+            wgpu.TextureUsage.STORAGE_BINDING
+            | wgpu.TextureUsage.TEXTURE_BINDING
+            | wgpu.TextureUsage.COPY_SRC,
             "norm",
         )
         tex_expo = self._get_intermediate_texture(
@@ -576,6 +579,7 @@ class GPUEngine:
         metrics: Dict[str, Any] = {
             "active_roi": roi,
             "base_positive": tex_final,
+            "normalized_log": tex_norm,
             "content_rect": content_rect,
         }
 
@@ -720,7 +724,7 @@ class GPUEngine:
         tint, dmax, is_bw = (
             p_obj.tint,
             p_obj.dmax_boost,
-            (1 if settings.process_mode == ProcessMode.BW else 0),
+            (1 if settings.process.process_mode == ProcessMode.BW else 0),
         )
         t_data = (
             struct.pack(
@@ -979,26 +983,26 @@ class GPUEngine:
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
-        if settings.exposure.use_roll_average and settings.exposure.locked_floors != (
+        if settings.process.use_roll_average and settings.process.locked_floors != (
             0.0,
             0.0,
             0.0,
         ):
             global_bounds = LogNegativeBounds(
-                floors=settings.exposure.locked_floors,
-                ceils=settings.exposure.locked_ceils,
+                floors=settings.process.locked_floors,
+                ceils=settings.process.locked_ceils,
             )
-        elif settings.exposure.local_floors != (0.0, 0.0, 0.0):
+        elif settings.process.local_floors != (0.0, 0.0, 0.0):
             global_bounds = LogNegativeBounds(
-                floors=settings.exposure.local_floors,
-                ceils=settings.exposure.local_ceils,
+                floors=settings.process.local_floors,
+                ceils=settings.process.local_ceils,
             )
         else:
             global_bounds = measure_log_negative_bounds(
                 get_analysis_crop(
-                    np.log10(np.clip(img, 1e-6, 1.0)), settings.exposure.analysis_buffer
+                    np.log10(np.clip(img, 1e-6, 1.0)), settings.process.analysis_buffer
                 )
-                if settings.exposure.analysis_buffer > 0
+                if settings.process.analysis_buffer > 0
                 else np.log10(np.clip(img, 1e-6, 1.0))
             )
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)

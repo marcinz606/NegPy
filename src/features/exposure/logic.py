@@ -204,3 +204,17 @@ def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
     shift_y = density_to_cmy(d_y)
 
     return float(shift_m), float(shift_y)
+
+
+def calculate_wb_shifts_from_log(sampled_log_rgb: np.ndarray) -> Tuple[float, float]:
+    """
+    Calculates Magenta and Yellow shifts from data already in Log space.
+    """
+    r, g, b = sampled_log_rgb[:3]
+    d_m = g - r
+    d_y = g - b
+
+    shift_m = density_to_cmy(d_m)
+    shift_y = density_to_cmy(d_y)
+
+    return float(shift_m), float(shift_y)

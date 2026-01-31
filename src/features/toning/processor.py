@@ -4,10 +4,9 @@ from src.domain.types import ImageBuffer
 from src.features.toning.models import ToningConfig
 from src.features.toning.logic import simulate_paper_substrate, apply_chemical_toning
 from src.kernel.image.logic import get_luminance
-from src.domain.models import ProcessMode
+from src.features.process.models import ProcessMode
 
 
-# We need to port this helper locally or into logic as well
 def apply_chromaticity_preserving_black_point(
     img: ImageBuffer, percentile: float
 ) -> ImageBuffer:

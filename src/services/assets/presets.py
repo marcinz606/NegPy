@@ -32,6 +32,13 @@ class Presets:
             "autocrop_assist_point",
             "autocrop_assist_luma",
             "manual_dust_size",
+            "locked_floors",
+            "locked_ceils",
+            "use_roll_average",
+            "roll_name",
+            "analysis_buffer",
+            "flip_horizontal",
+            "flip_vertical",
         }
 
         settings_dict = settings.to_dict()

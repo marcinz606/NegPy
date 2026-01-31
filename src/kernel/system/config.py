@@ -5,10 +5,10 @@ from src.domain.models import (
     WorkspaceConfig,
     ExportConfig,
     ColorSpace,
-    ProcessMode,
     ExportFormat,
     AspectRatio,
 )
+from src.features.process.models import ProcessConfig, ProcessMode
 from src.features.exposure.models import ExposureConfig
 from src.features.geometry.models import GeometryConfig
 from src.features.lab.models import LabConfig
@@ -33,7 +33,10 @@ APP_CONFIG = AppConfig(
 
 
 DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
-    process_mode=ProcessMode.C41,
+    process=ProcessConfig(
+        process_mode=ProcessMode.C41,
+        analysis_buffer=0.07,
+    ),
     exposure=ExposureConfig(
         density=1.0,
         grade=2.0,
@@ -43,7 +46,6 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         shoulder=0.0,
         shoulder_width=3.0,
         shoulder_hardness=1.0,
-        analysis_buffer=0.07,
     ),
     geometry=GeometryConfig(
         rotation=0,

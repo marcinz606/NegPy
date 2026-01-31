@@ -25,7 +25,10 @@ from src.infrastructure.storage.local_asset_store import LocalAssetStore
 from src.services.view.coordinate_mapping import CoordinateMapping
 from src.kernel.system.config import APP_CONFIG
 from src.desktop.converters import ImageConverter
-from src.features.exposure.logic import calculate_wb_shifts
+from src.features.exposure.logic import (
+    calculate_wb_shifts,
+    calculate_wb_shifts_from_log,
+)
 from src.infrastructure.gpu.resources import GPUTexture
 from src.kernel.system.logging import get_logger
 
@@ -67,6 +70,7 @@ class AppController(QObject):
         )
         self.asset_store.initialize()
 
+        # Thread management
         self.render_thread = QThread()
         self.render_worker = RenderWorker()
         self.render_worker.moveToThread(self.render_thread)
@@ -295,10 +299,16 @@ class AppController(QObject):
         self.request_render()
 
     def _handle_wb_pick(self, nx: float, ny: float) -> None:
+        """
+        Samples color from viewport coordinates and updates WB shifts to neutralize.
+        """
         metrics = self.state.last_metrics
-        img = metrics.get("analysis_buffer")
+        img = metrics.get("normalized_log")
+        is_log = True
+
         if img is None:
             img = metrics.get("base_positive")
+            is_log = False
 
         if isinstance(img, GPUTexture):
             img = img.readback()
@@ -309,29 +319,20 @@ class AppController(QObject):
         h, w = img.shape[:2]
         sampled = img[int(np.clip(ny * h, 0, h - 1)), int(np.clip(nx * w, 0, w - 1))]
 
-        delta_m, delta_y = calculate_wb_shifts(sampled[:3])
-
-        damping = 0.4
         exp = self.state.config.exposure
-        new_m = np.clip(exp.wb_magenta + delta_m * damping, -1.0, 1.0)
-        new_y = np.clip(exp.wb_yellow + delta_y * damping, -1.0, 1.0)
+        if is_log:
+            new_m, new_y = calculate_wb_shifts_from_log(sampled[:3])
+        else:
+            delta_m, delta_y = calculate_wb_shifts(sampled[:3])
+            damping = 0.4
+            new_m = exp.wb_magenta + delta_m * damping
+            new_y = exp.wb_yellow + delta_y * damping
 
         new_exp = replace(
-            self.state.config.exposure,
-            wb_magenta=float(new_m),
-            wb_yellow=float(new_y),
-        )
-        self.session.update_config(replace(self.state.config, exposure=new_exp))
-        self.request_render()
-
-    def reanalyze_current_file(self) -> None:
-        """
-        Clears cached local floors and forces a fresh analysis render.
-        """
-        new_exp = replace(
-            self.state.config.exposure,
-            local_floors=(0.0, 0.0, 0.0),
-            local_ceils=(1.0, 1.0, 1.0),
+            exp,
+            wb_cyan=0.0,
+            wb_magenta=float(np.clip(new_m, -1.0, 1.0)),
+            wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
         )
         self.session.update_config(replace(self.state.config, exposure=new_exp))
         self.request_render()
@@ -367,26 +368,26 @@ class AppController(QObject):
             p = self.session.repo.load_file_settings(f_info["hash"]) or replace(
                 self.state.config
             )
-            new_exp = replace(
-                p.exposure,
+            new_process = replace(
+                p.process,
                 use_roll_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
                 roll_name=None,
             )
-            new_p = replace(p, exposure=new_exp)
+            new_p = replace(p, process=new_process)
             self.session.repo.save_file_settings(f_info["hash"], new_p)
 
         # Update current state
-        new_exp = replace(
-            self.state.config.exposure,
+        new_process = replace(
+            self.state.config.process,
             use_roll_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
             roll_name=None,
         )
         self.session.update_config(
-            replace(self.state.config, exposure=new_exp), persist=True
+            replace(self.state.config, process=new_process), persist=True
         )
 
         self.set_status("Batch Normalization Complete", 3000)
@@ -397,12 +398,12 @@ class AppController(QObject):
         """
         Persists current batch normalization values as a named roll.
         """
-        exp = self.state.config.exposure
+        proc = self.state.config.process
         self.session.repo.save_normalization_roll(
-            name, exp.locked_floors, exp.locked_ceils
+            name, proc.locked_floors, proc.locked_ceils
         )
         self.session.update_config(
-            replace(self.state.config, exposure=replace(exp, roll_name=name)),
+            replace(self.state.config, process=replace(proc, roll_name=name)),
             persist=True,
             render=False,
         )
@@ -419,28 +420,40 @@ class AppController(QObject):
                 p = self.session.repo.load_file_settings(f_info["hash"]) or replace(
                     self.state.config
                 )
-                new_exp = replace(
-                    p.exposure,
+                new_process = replace(
+                    p.process,
                     use_roll_average=True,
                     locked_floors=locked_floors,
                     locked_ceils=locked_ceils,
                     roll_name=name,
                 )
-                new_p = replace(p, exposure=new_exp)
+                new_p = replace(p, process=new_process)
                 self.session.repo.save_file_settings(f_info["hash"], new_p)
 
-            new_exp = replace(
-                self.state.config.exposure,
+            new_process = replace(
+                self.state.config.process,
                 use_roll_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
                 roll_name=name,
             )
             self.session.update_config(
-                replace(self.state.config, exposure=new_exp), persist=True
+                replace(self.state.config, process=new_process), persist=True
             )
             self.set_status(f"Applied Roll '{name}'", 2000)
             self.request_render()
+
+    def reanalyze_current_file(self) -> None:
+        """
+        Clears cached local floors and forces a fresh analysis render.
+        """
+        new_process = replace(
+            self.state.config.process,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(1.0, 1.0, 1.0),
+        )
+        self.session.update_config(replace(self.state.config, process=new_process))
+        self.request_render()
 
     def request_render(self, readback_metrics: bool = True) -> None:
         """
@@ -565,15 +578,15 @@ class AppController(QObject):
         self.metrics_available.emit(metrics)
 
         # If render produced fresh log bounds, persist them locally
-        if "log_bounds" in metrics and not self.state.config.exposure.use_roll_average:
+        if "log_bounds" in metrics and not self.state.config.process.use_roll_average:
             bounds = metrics["log_bounds"]
-            new_exp = replace(
-                self.state.config.exposure,
+            new_process = replace(
+                self.state.config.process,
                 local_floors=bounds.floors,
                 local_ceils=bounds.ceils,
             )
             self.session.update_config(
-                replace(self.state.config, exposure=new_exp),
+                replace(self.state.config, process=new_process),
                 persist=True,
                 render=False,
             )

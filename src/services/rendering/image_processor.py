@@ -10,9 +10,9 @@ from src.domain.types import ImageBuffer
 from src.domain.models import (
     WorkspaceConfig,
     ExportConfig,
-    ProcessMode,
     ExportFormat,
 )
+from src.features.process.models import ProcessMode
 from src.domain.interfaces import PipelineContext
 from src.services.rendering.engine import DarkroomEngine
 from src.services.rendering.gpu_engine import GPUEngine
@@ -75,7 +75,7 @@ class ImageProcessor:
         context = PipelineContext(
             scale_factor=scale_factor,
             original_size=(h_orig, w_cols),
-            process_mode=settings.process_mode,
+            process_mode=settings.process.process_mode,
         )
         if metrics:
             context.metrics.update(metrics)
@@ -111,7 +111,7 @@ class ImageProcessor:
             or settings.toning.sepia_strength != 0.0
             or settings.toning.paper_profile != "None"
         )
-        is_bw = settings.process_mode == ProcessMode.BW and not is_toned
+        is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 
         if is_bw:
             img_int = float_to_uint_luma(

@@ -70,7 +70,7 @@ class DarkroomEngine:
                 scale_factor=max(h_orig, w_cols)
                 / float(self.config.preview_render_size),
                 original_size=(h_orig, w_cols),
-                process_mode=settings.process_mode,
+                process_mode=settings.process.process_mode,
             )
 
         pipeline_changed = False
@@ -79,8 +79,8 @@ class DarkroomEngine:
             self.cache.source_hash = source_hash
             pipeline_changed = True
 
-        if self.cache.process_mode != settings.process_mode:
-            self.cache.process_mode = settings.process_mode
+        if self.cache.process_mode != settings.process.process_mode:
+            self.cache.process_mode = settings.process.process_mode
             self.cache.exposure = None
             self.cache.retouch = None
             self.cache.lab = None
@@ -95,9 +95,14 @@ class DarkroomEngine:
 
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
-            return NormalizationProcessor(settings.exposure).process(img_in, ctx)
+            return NormalizationProcessor(settings.process).process(img_in, ctx)
 
-        base_key = (settings.geometry, settings.exposure.analysis_buffer)
+        base_key = (
+            settings.geometry,
+            settings.process.analysis_buffer,
+            settings.process.use_roll_average,
+            settings.process.local_floors == (0.0, 0.0, 0.0),
+        )
         current_img, pipeline_changed = self._run_stage(
             current_img, base_key, "base", run_base, context, pipeline_changed
         )
