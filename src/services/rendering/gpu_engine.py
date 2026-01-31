@@ -315,6 +315,16 @@ class GPUEngine:
         else:
             # Match CPU: use ROI for analysis if not in tiling mode
             analysis_source = np.log10(np.clip(img, 1e-6, 1.0))
+
+            if settings.geometry.rotation != 0:
+                analysis_source = np.rot90(
+                    analysis_source, k=settings.geometry.rotation
+                )
+            if settings.geometry.flip_horizontal:
+                analysis_source = np.fliplr(analysis_source)
+            if settings.geometry.flip_vertical:
+                analysis_source = np.flipud(analysis_source)
+
             if not tiling_mode:
                 # Apply ROI (crop) to analysis source
                 ry1, ry2, rx1, rx2 = roi
