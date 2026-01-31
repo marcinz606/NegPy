@@ -2,8 +2,12 @@ import os
 from typing import Any, ContextManager, Tuple
 from src.infrastructure.loaders.pakon_loader import PakonLoader
 from src.infrastructure.loaders.tiff_loader import TiffLoader
+from src.infrastructure.loaders.jpeg_loader import JpegLoader
 from src.infrastructure.loaders.rawpy_loader import RawpyLoader
-from src.infrastructure.loaders.constants import SUPPORTED_TIFF_EXTENSIONS
+from src.infrastructure.loaders.constants import (
+    SUPPORTED_TIFF_EXTENSIONS,
+    SUPPORTED_JPEG_EXTENSIONS,
+)
 
 
 class LoaderFactory:
@@ -14,6 +18,7 @@ class LoaderFactory:
     def __init__(self) -> None:
         self._pakon = PakonLoader()
         self._tiff = TiffLoader()
+        self._jpeg = JpegLoader()
         self._rawpy = RawpyLoader()
 
     def get_loader(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
@@ -24,6 +29,9 @@ class LoaderFactory:
 
         if ext in SUPPORTED_TIFF_EXTENSIONS:
             return self._tiff.load(file_path)
+
+        if ext in SUPPORTED_JPEG_EXTENSIONS:
+            return self._jpeg.load(file_path)
 
         return self._rawpy.load(file_path)
 
