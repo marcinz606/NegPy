@@ -360,22 +360,39 @@ class DesktopSessionManager(QObject):
 
             self.update_config(copy.deepcopy(self.state.clipboard))
 
-    def add_files(self, file_paths: List[str]) -> None:
+    def add_files(
+        self, file_paths: List[str], validated_info: Optional[List[Dict]] = None
+    ) -> None:
         """
-        Adds new files to the session, calculating hashes and updating the model.
+        Adds new files to the session.
+        If validated_info is provided, hashing is skipped.
         """
         import os
         from src.kernel.image.logic import calculate_file_hash
 
-        for path in file_paths:
-            f_hash = calculate_file_hash(path)
-            # Avoid duplicates
-            if any(f["hash"] == f_hash for f in self.state.uploaded_files):
-                continue
+        if validated_info:
+            for info in validated_info:
+                if any(f["hash"] == info["hash"] for f in self.state.uploaded_files):
+                    continue
+                self.state.uploaded_files.append(info)
+        else:
+            for path in file_paths:
+                try:
+                    f_hash = calculate_file_hash(path)
+                    if f_hash.startswith("err_"):
+                        continue
 
-            self.state.uploaded_files.append(
-                {"name": os.path.basename(path), "path": path, "hash": f_hash}
-            )
+                    # Avoid duplicates
+                    if any(f["hash"] == f_hash for f in self.state.uploaded_files):
+                        continue
+
+                    self.state.uploaded_files.append(
+                        {"name": os.path.basename(path), "path": path, "hash": f_hash}
+                    )
+                except Exception as e:
+                    from src.kernel.system.logging import get_logger
+
+                    get_logger(__name__).error(f"Failed to add {path}: {e}")
 
         self.asset_model.refresh()
         self.state_changed.emit()

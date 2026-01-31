@@ -42,6 +42,14 @@ class NormalizationTask:
     workspace_color_space: str
 
 
+@dataclass(frozen=True)
+class AssetDiscoveryTask:
+    """Request to find and hash image files in paths."""
+
+    paths: list[str]
+    supported_extensions: tuple[str, ...]
+
+
 class RenderWorker(QObject):
     """
     Background rendering worker.
@@ -112,8 +120,11 @@ class RenderWorker(QObject):
 
 
 class ThumbnailWorker(QObject):
-    """Asynchronous thumbnail generation worker."""
+    """
+    Asynchronous thumbnail generation worker.
+    """
 
+    progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict)
 
     def __init__(self, asset_store) -> None:
@@ -122,15 +133,24 @@ class ThumbnailWorker(QObject):
 
     @pyqtSlot(list)
     def generate(self, files: list) -> None:
-        """Generates thumbnails for a list of files."""
+        """
+        Generates thumbnails for a list of files with progress reporting.
+        """
         import asyncio
         from src.services.assets import thumbnails as thumb_service
 
         try:
+            total = len(files)
+
+            async def _progress_callback(current: int, name: str):
+                self.progress.emit(current, total, name)
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             new_thumbs = loop.run_until_complete(
-                thumb_service.generate_batch_thumbnails(files, self._store)
+                thumb_service.generate_batch_thumbnails(
+                    files, self._store, progress_callback=_progress_callback
+                )
             )
             self.finished.emit(new_thumbs)
         except Exception as e:
@@ -148,6 +168,53 @@ class ThumbnailWorker(QObject):
                 self.finished.emit({task.filename: thumb})
         except Exception as e:
             logger.error(f"Thumbnail update failure: {e}")
+
+
+class AssetDiscoveryWorker(QObject):
+    """
+    Background worker for file system crawling and hashing.
+    """
+
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    @pyqtSlot(AssetDiscoveryTask)
+    def process(self, task: AssetDiscoveryTask) -> None:
+        """
+        Scans paths for supported images and calculates hashes.
+        """
+        import os
+        from src.kernel.image.logic import calculate_file_hash
+
+        discovered_paths = []
+        for path in task.paths:
+            try:
+                if os.path.isdir(path):
+                    for f in os.listdir(path):
+                        if f.lower().endswith(task.supported_extensions):
+                            discovered_paths.append(os.path.join(path, f))
+                else:
+                    if path.lower().endswith(task.supported_extensions):
+                        discovered_paths.append(path)
+            except Exception as e:
+                logger.error(f"Discovery error for {path}: {e}")
+
+        total = len(discovered_paths)
+        valid_assets = []
+
+        for i, path in enumerate(discovered_paths):
+            name = os.path.basename(path)
+            self.progress.emit(i + 1, total, name)
+
+            try:
+                f_hash = calculate_file_hash(path)
+                if not f_hash.startswith("err_"):
+                    valid_assets.append({"name": name, "path": path, "hash": f_hash})
+            except Exception as e:
+                logger.error(f"Skipping invalid file {path}: {e}")
+
+        self.finished.emit(valid_assets)
 
 
 class NormalizationWorker(QObject):

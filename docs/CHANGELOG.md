@@ -3,12 +3,13 @@
 ## 0.9.5
 
 - Features:
-    - Added button to sync apply export settings for all files.
     - Added "Batch Normalization" button that performs bounds analysis for all loaded files and applies averaged settings to all. 
+    - Added button to sync apply export settings for all files.
     - Added support for JPEG scans/files.
 - Bugfixes:
-    - Fix fine rotation when manual crop is applied
-    - Fix wrong autoexposure when file is rotated 90 degrees
+    - Improved folder loading & thumbnail generation error handling & stability.
+    - Fix fine rotation when manual crop is applied (credit: https://github.com/rodg)
+    - Fix occasional wrong autoexposure calculation when file is rotated 90 degrees
 
 ## 0.9.4
 

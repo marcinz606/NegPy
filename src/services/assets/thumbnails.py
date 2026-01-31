@@ -11,21 +11,31 @@ logger = get_logger(__name__)
 
 
 async def generate_batch_thumbnails(
-    files: List[Dict[str, str]], asset_store: Any
+    files: List[Dict[str, str]],
+    asset_store: Any,
+    progress_callback: Optional[Any] = None,
 ) -> Dict[str, Image.Image]:
     """
-    Parallel thumbnail generation.
+    Parallel thumbnail generation with progress reporting.
     """
 
-    # Limit concurrency to half of available cores
-    limit = max(1, APP_CONFIG.max_workers // 2)
+    # Limit concurrency to a third of available cores
+    limit = max(1, APP_CONFIG.max_workers // 3)
     semaphore = asyncio.Semaphore(limit)
+    completed = 0
 
     async def _worker(f_info: Dict[str, str]) -> Tuple[str, Optional[Image.Image]]:
+        nonlocal completed
         async with semaphore:
             thumb = await asyncio.to_thread(
                 get_thumbnail_worker, f_info["path"], f_info["hash"], asset_store
             )
+            completed += 1
+            if progress_callback:
+                if asyncio.iscoroutinefunction(progress_callback):
+                    await progress_callback(completed, f_info["name"])
+                else:
+                    progress_callback(completed, f_info["name"])
             return f_info["name"], thumb
 
     tasks = [_worker(f) for f in files]

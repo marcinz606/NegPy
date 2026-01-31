@@ -15,6 +15,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 *   **No Camera Profiles**: It doesn't use camera profiles or ask you to color-pick the border. It uses math to neutralize the orange mask based on channel sensitometry.
 *   **Film Physics**: It models the **H&D Characteristic Curve** of photographic material using a Logistic Sigmoid function instead of doing simple linear inversion.
+*   **Batch Normalization**: Perform bounds analysis for all loaded files and apply averaged settings to all.
 *   **GPU Acceleration**: Real-time processing and export rendering using Vulkan/Metal.
 *   **Dust Removal**: Automatic and manual healing tools with grain synthesis to keep scans clean without looking plastic.
 *   **File Support**: Supports standard RAWs/TIFFs, and specialized formats like Kodak Pakon scanner raw files.

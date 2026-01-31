@@ -8,7 +8,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
 *   **Rotation**: We spin the image array (90° steps) and fine-tune with affine transformations. We use bilinear interpolation so it stays sharp.
 *   **Autocrop**: I try to detect where the film ends and the scanner bed begins by looking for the density jump. It's not perfect (light leaks or weird scanning holders can fool it), so there's a manual override.
 
-**Note:** Cropping happens early because the normalization step needs to know what is "image" and what is "border" to calculate the black/white points correctly.
+**Note:** Cropping happens early because the normalization step needs to know what is "image" and what is "border" to calculate the black/white points correctly. Instead of cropping you can also use the "Analysis buffer" option to exclude outer X% of the image from the analysis. This is useful when you have a border around the film.
 
 ---
 

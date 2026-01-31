@@ -15,6 +15,8 @@ from src.desktop.workers.render import (
     ThumbnailUpdateTask,
     NormalizationTask,
     NormalizationWorker,
+    AssetDiscoveryTask,
+    AssetDiscoveryWorker,
 )
 from src.desktop.workers.export import ExportWorker, ExportTask
 from src.services.rendering.preview_manager import PreviewManager
@@ -43,6 +45,7 @@ class AppController(QObject):
     export_finished = pyqtSignal(float)
     render_requested = pyqtSignal(RenderTask)
     normalization_requested = pyqtSignal(NormalizationTask)
+    asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
@@ -84,6 +87,11 @@ class AppController(QObject):
         self.norm_worker.moveToThread(self.norm_thread)
         self.norm_thread.start()
 
+        self.discovery_thread = QThread()
+        self.discovery_worker = AssetDiscoveryWorker()
+        self.discovery_worker.moveToThread(self.discovery_thread)
+        self.discovery_thread.start()
+
         self._is_rendering = False
         self._pending_render_task: Any = None
 
@@ -103,6 +111,7 @@ class AppController(QObject):
         self.export_worker.error.connect(self._on_render_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
+        self.thumb_worker.progress.connect(self._on_thumbnail_progress)
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
 
@@ -110,6 +119,11 @@ class AppController(QObject):
         self.norm_worker.progress.connect(self._on_normalization_progress)
         self.norm_worker.finished.connect(self._on_normalization_finished)
         self.norm_worker.error.connect(self._on_render_error)
+
+        self.asset_discovery_requested.connect(self.discovery_worker.process)
+        self.discovery_worker.progress.connect(self._on_discovery_progress)
+        self.discovery_worker.finished.connect(self._on_discovery_finished)
+        self.discovery_worker.error.connect(self._on_render_error)
 
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
@@ -122,10 +136,16 @@ class AppController(QObject):
             if f["name"] not in self.state.thumbnails
         ]
         if missing:
+            self.set_status("GENERATING THUMBNAILS...")
             self.thumbnail_requested.emit(missing)
+
+    def _on_thumbnail_progress(self, current: int, total: int, name: str) -> None:
+        self.set_status(f"THUMBNAIL {current}/{total}: {name}")
+        self.status_progress_requested.emit(current, total)
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
         self.set_status("GALLERIES UPDATED", 3000)
+        self.status_progress_requested.emit(0, 0)
         for name, pil_img in new_thumbs.items():
             if pil_img:
                 u8_arr = np.array(pil_img.convert("RGB"))
@@ -133,6 +153,33 @@ class AppController(QObject):
                     QPixmap.fromImage(ImageConverter.to_qimage(u8_arr))
                 )
         self.session.asset_model.refresh()
+
+    def request_asset_discovery(self, paths: List[str]) -> None:
+        """
+        Starts asynchronous discovery of supported assets.
+        """
+        from src.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
+
+        self.set_status("SCANNING FOR ASSETS...")
+        task = AssetDiscoveryTask(
+            paths=paths, supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS)
+        )
+        self.asset_discovery_requested.emit(task)
+
+    def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
+        self.set_status(f"HASHING {current}/{total}: {name}")
+        self.status_progress_requested.emit(current, total)
+
+    def _on_discovery_finished(self, valid_assets: List[Dict]) -> None:
+        """
+        Adds discovered assets to the session and starts thumbnail generation.
+        """
+        if valid_assets:
+            self.session.add_files([], validated_info=valid_assets)
+            self.generate_missing_thumbnails()
+        else:
+            self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
+            self.status_progress_requested.emit(0, 0)
 
     def load_file(self, file_path: str) -> None:
         """
@@ -498,4 +545,6 @@ class AppController(QObject):
         self.thumb_thread.wait()
         self.norm_thread.quit()
         self.norm_thread.wait()
+        self.discovery_thread.quit()
+        self.discovery_thread.wait()
         self.render_worker.destroy_all()

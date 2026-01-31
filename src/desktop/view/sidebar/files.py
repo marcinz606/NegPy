@@ -14,7 +14,6 @@ import qtawesome as qta
 from src.desktop.controller import AppController
 from src.desktop.view.styles.theme import THEME
 from src.infrastructure.filesystem.watcher import FolderWatchService
-from src.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from src.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
 
@@ -117,15 +116,13 @@ class FileBrowser(QWidget):
         if not self.session.state.uploaded_files:
             return
 
-        # Watch directory of the most recently added file
         last_file = self.session.state.uploaded_files[-1]
         folder_path = os.path.dirname(last_file["path"])
         existing = {f["path"] for f in self.session.state.uploaded_files}
 
         new_files = FolderWatchService.scan_for_new_files(folder_path, existing)
         if new_files:
-            self.session.add_files(new_files)
-            self.controller.generate_missing_thumbnails()
+            self.controller.request_asset_discovery(new_files)
 
     def _on_add_files(self) -> None:
         wildcards = get_supported_raw_wildcards()
@@ -136,21 +133,12 @@ class FileBrowser(QWidget):
             f"Supported Images ({wildcards})",
         )
         if files:
-            self.session.add_files(files)
-            self.controller.generate_missing_thumbnails()
+            self.controller.request_asset_discovery(files)
 
     def _on_add_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
-            valid_exts = tuple(SUPPORTED_RAW_EXTENSIONS)
-            paths = []
-            for f in os.listdir(folder):
-                if f.lower().endswith(valid_exts):
-                    paths.append(os.path.join(folder, f))
-
-            if paths:
-                self.session.add_files(paths)
-                self.controller.generate_missing_thumbnails()
+            self.controller.request_asset_discovery([folder])
 
     def _on_item_clicked(self, index) -> None:
         self.session.select_file(index.row())
