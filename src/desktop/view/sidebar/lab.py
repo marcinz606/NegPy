@@ -23,9 +23,7 @@ class LabSidebar(BaseSidebar):
         self.layout.addLayout(row1)
 
         row2 = QHBoxLayout()
-        self.clahe_slider = CompactSlider(
-            "CLAHE", 0.0, 1.0, conf.clahe_strength
-        )
+        self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
         self.sharpen_slider = CompactSlider("Sharpening", 0.0, 2.0, conf.sharpen)
         row2.addWidget(self.clahe_slider)
         row2.addWidget(self.sharpen_slider)
