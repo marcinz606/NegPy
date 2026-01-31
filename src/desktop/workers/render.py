@@ -266,8 +266,29 @@ class NormalizationWorker(QObject):
                 all_floors.append(bounds.floors)
                 all_ceils.append(bounds.ceils)
 
-            avg_floors = np.mean(all_floors, axis=0)
-            avg_ceils = np.mean(all_ceils, axis=0)
+            floors_arr = np.array(all_floors)
+            ceils_arr = np.array(all_ceils)
+
+            def get_robust_mean(data: np.ndarray) -> np.ndarray:
+                results = []
+                for ch in range(3):
+                    ch_data = data[:, ch]
+                    if len(ch_data) < 5:
+                        results.append(np.mean(ch_data))
+                        continue
+
+                    low, high = np.percentile(ch_data, [10, 90])
+                    mask = (ch_data >= low) & (ch_data <= high)
+                    valid = ch_data[mask]
+
+                    if valid.size > 0:
+                        results.append(np.mean(valid))
+                    else:
+                        results.append(np.mean(ch_data))
+                return np.array(results)
+
+            avg_floors = get_robust_mean(floors_arr)
+            avg_ceils = get_robust_mean(ceils_arr)
 
             self.finished.emit(
                 tuple(map(float, avg_floors)),
