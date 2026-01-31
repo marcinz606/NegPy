@@ -194,11 +194,11 @@ def density_to_cmy(density: float, log_range: float = 1.0) -> float:
 
 def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
     """
-    Calculates Magenta and Yellow shifts to neutralize sampled color.
+    Calculates Magenta and Yellow shifts to neutralize sampled color in positive space.
     """
     r, g, b = np.clip(sampled_rgb, 1e-6, 1.0)
     d_m = np.log10(g) - np.log10(r)
-    d_y = np.log10(g) - np.log10(b)
+    d_y = np.log10(b) - np.log10(r)
 
     shift_m = density_to_cmy(d_m)
     shift_y = density_to_cmy(d_y)
@@ -208,11 +208,11 @@ def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
 
 def calculate_wb_shifts_from_log(sampled_log_rgb: np.ndarray) -> Tuple[float, float]:
     """
-    Calculates Magenta and Yellow shifts from data already in Log space.
+    Calculates Magenta and Yellow shifts from data in Negative Log-Density space.
     """
     r, g, b = sampled_log_rgb[:3]
-    d_m = g - r
-    d_y = g - b
+    d_m = r - g
+    d_y = r - b
 
     shift_m = density_to_cmy(d_m)
     shift_y = density_to_cmy(d_y)
