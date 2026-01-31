@@ -8,7 +8,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 ---
 
-![alt text](docs/media/100_scr.png)
+![alt text](docs/media/095_scr.png)
 ---
 
 ## ✨ Features
