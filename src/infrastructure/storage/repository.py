@@ -28,6 +28,13 @@ class StorageRepository(IRepository):
                     settings_json TEXT
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS normalization_rolls (
+                    name TEXT PRIMARY KEY,
+                    floors_json TEXT,
+                    ceils_json TEXT
+                )
+            """)
 
         with sqlite3.connect(self.settings_db_path) as conn:
             conn.execute("""
@@ -36,6 +43,45 @@ class StorageRepository(IRepository):
                     value_json TEXT
                 )
             """)
+
+    def save_normalization_roll(self, name: str, floors: tuple, ceils: tuple) -> None:
+        """
+        Persists a named normalization baseline (roll).
+        """
+        with sqlite3.connect(self.edits_db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO normalization_rolls (name, floors_json, ceils_json) VALUES (?, ?, ?)",
+                (name, json.dumps(floors), json.dumps(ceils)),
+            )
+
+    def load_normalization_roll(self, name: str) -> Optional[tuple[tuple, tuple]]:
+        """
+        Retrieves a named normalization baseline.
+        """
+        with sqlite3.connect(self.edits_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT floors_json, ceils_json FROM normalization_rolls WHERE name = ?",
+                (name,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return tuple(json.loads(row[0])), tuple(json.loads(row[1]))
+        return None
+
+    def list_normalization_rolls(self) -> list[str]:
+        """
+        Returns names of all saved normalization rolls.
+        """
+        with sqlite3.connect(self.edits_db_path) as conn:
+            cursor = conn.execute("SELECT name FROM normalization_rolls ORDER BY name")
+            return [row[0] for row in cursor.fetchall()]
+
+    def delete_normalization_roll(self, name: str) -> None:
+        """
+        Deletes a named normalization baseline.
+        """
+        with sqlite3.connect(self.edits_db_path) as conn:
+            conn.execute("DELETE FROM normalization_rolls WHERE name = ?", (name,))
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None:
         with sqlite3.connect(self.edits_db_path) as conn:

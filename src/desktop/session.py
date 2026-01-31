@@ -154,9 +154,10 @@ class DesktopSessionManager(QObject):
         sticky_shoulder_w = self.repo.get_global_setting("last_shoulder_width")
         sticky_shoulder_h = self.repo.get_global_setting("last_shoulder_hardness")
 
-        sticky_batch_norm = self.repo.get_global_setting("last_use_batch_norm")
+        sticky_roll_average = self.repo.get_global_setting("last_use_roll_average")
         sticky_floors = self.repo.get_global_setting("last_locked_floors")
         sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
+        sticky_roll_name = self.repo.get_global_setting("last_roll_name")
 
         new_exp = config.exposure
         if sticky_buffer is not None:
@@ -187,12 +188,14 @@ class DesktopSessionManager(QObject):
         if sticky_shoulder_h is not None:
             new_exp = replace(new_exp, shoulder_hardness=float(sticky_shoulder_h))
 
-        if sticky_batch_norm is not None:
-            new_exp = replace(new_exp, use_batch_norm=bool(sticky_batch_norm))
+        if sticky_roll_average is not None:
+            new_exp = replace(new_exp, use_roll_average=bool(sticky_roll_average))
         if sticky_floors:
             new_exp = replace(new_exp, locked_floors=tuple(sticky_floors))
         if sticky_ceils:
             new_exp = replace(new_exp, locked_ceils=tuple(sticky_ceils))
+        if sticky_roll_name:
+            new_exp = replace(new_exp, roll_name=str(sticky_roll_name))
 
         config = replace(config, exposure=new_exp)
         # 3. Aspect Ratio & Offset
@@ -265,12 +268,13 @@ class DesktopSessionManager(QObject):
             "last_shoulder_hardness", config.exposure.shoulder_hardness
         )
         self.repo.save_global_setting(
-            "last_use_batch_norm", config.exposure.use_batch_norm
+            "last_use_roll_average", config.exposure.use_roll_average
         )
         self.repo.save_global_setting(
             "last_locked_floors", config.exposure.locked_floors
         )
         self.repo.save_global_setting("last_locked_ceils", config.exposure.locked_ceils)
+        self.repo.save_global_setting("last_roll_name", config.exposure.roll_name)
 
         self.repo.save_global_setting(
             "last_aspect_ratio", config.geometry.autocrop_ratio
@@ -327,20 +331,22 @@ class DesktopSessionManager(QObject):
         if self.state.selected_file_idx > 0:
             self.select_file(self.state.selected_file_idx - 1)
 
-    def update_config(self, config: WorkspaceConfig, persist: bool = False) -> None:
+    def update_config(
+        self, config: WorkspaceConfig, persist: bool = False, render: bool = True
+    ) -> None:
         """
         Updates global config and optionally saves to disk.
         """
         self.state.config = config
 
         if persist:
-            # Only perform disk I/O if explicitly requested (e.g. manual save, file change)
             self._persist_sticky_settings(config)
             if self.state.current_file_hash:
                 self.repo.save_file_settings(self.state.current_file_hash, config)
                 self.settings_saved.emit()
 
-        self.state_changed.emit()
+        if render:
+            self.state_changed.emit()
 
     def reset_settings(self) -> None:
         """

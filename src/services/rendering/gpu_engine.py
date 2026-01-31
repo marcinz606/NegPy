@@ -22,6 +22,7 @@ from src.features.exposure.normalization import (
     measure_log_negative_bounds,
     get_analysis_crop,
     analyze_log_exposure_bounds,
+    LogNegativeBounds,
 )
 from src.services.view.coordinate_mapping import CoordinateMapping
 from src.services.export.print import PrintService
@@ -313,12 +314,19 @@ class GPUEngine:
 
         if bounds_override:
             bounds = bounds_override
-        elif settings.exposure.use_batch_norm:
-            from src.features.exposure.normalization import LogNegativeBounds
-
+        elif settings.exposure.use_roll_average and settings.exposure.locked_floors != (
+            0.0,
+            0.0,
+            0.0,
+        ):
             bounds = LogNegativeBounds(
                 floors=settings.exposure.locked_floors,
                 ceils=settings.exposure.locked_ceils,
+            )
+        elif settings.exposure.local_floors != (0.0, 0.0, 0.0):
+            bounds = LogNegativeBounds(
+                floors=settings.exposure.local_floors,
+                ceils=settings.exposure.local_ceils,
             )
         else:
             # Match CPU: use ROI for analysis if not in tiling mode
@@ -971,13 +979,28 @@ class GPUEngine:
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
-        global_bounds = measure_log_negative_bounds(
-            get_analysis_crop(
-                np.log10(np.clip(img, 1e-6, 1.0)), settings.exposure.analysis_buffer
+        if settings.exposure.use_roll_average and settings.exposure.locked_floors != (
+            0.0,
+            0.0,
+            0.0,
+        ):
+            global_bounds = LogNegativeBounds(
+                floors=settings.exposure.locked_floors,
+                ceils=settings.exposure.locked_ceils,
             )
-            if settings.exposure.analysis_buffer > 0
-            else np.log10(np.clip(img, 1e-6, 1.0))
-        )
+        elif settings.exposure.local_floors != (0.0, 0.0, 0.0):
+            global_bounds = LogNegativeBounds(
+                floors=settings.exposure.local_floors,
+                ceils=settings.exposure.local_ceils,
+            )
+        else:
+            global_bounds = measure_log_negative_bounds(
+                get_analysis_crop(
+                    np.log10(np.clip(img, 1e-6, 1.0)), settings.exposure.analysis_buffer
+                )
+                if settings.exposure.analysis_buffer > 0
+                else np.log10(np.clip(img, 1e-6, 1.0))
+            )
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
         _, metrics_ref = self.process_to_texture(

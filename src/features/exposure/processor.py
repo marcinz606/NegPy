@@ -7,6 +7,7 @@ from src.kernel.image.logic import get_luminance
 from src.features.exposure.normalization import (
     normalize_log_image,
     analyze_log_exposure_bounds,
+    LogNegativeBounds,
 )
 from src.domain.models import ProcessMode
 
@@ -23,11 +24,17 @@ class NormalizationProcessor:
         epsilon = 1e-6
         img_log = np.log10(np.clip(image, epsilon, 1.0))
 
-        if self.config.use_batch_norm:
-            from src.features.exposure.normalization import LogNegativeBounds
-
+        if self.config.use_roll_average and self.config.locked_floors != (
+            0.0,
+            0.0,
+            0.0,
+        ):
             bounds = LogNegativeBounds(
                 floors=self.config.locked_floors, ceils=self.config.locked_ceils
+            )
+        elif self.config.local_floors != (0.0, 0.0, 0.0):
+            bounds = LogNegativeBounds(
+                floors=self.config.local_floors, ceils=self.config.local_ceils
             )
         else:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "cmy_max_density": 0.2,
@@ -30,6 +30,9 @@ class ExposureConfig:
     shoulder_hardness: float = 1.0
     analysis_buffer: float = 0.07
 
-    use_batch_norm: bool = False
+    use_roll_average: bool = False
     locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     locked_ceils: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    local_ceils: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    roll_name: Optional[str] = None

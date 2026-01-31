@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QLabel,
     QHBoxLayout,
+    QInputDialog,
 )
-from dataclasses import replace
 import qtawesome as qta
 from src.desktop.view.widgets.sliders import SignalSlider, CompactSlider
 from src.desktop.view.styles.theme import THEME
@@ -41,14 +41,47 @@ class ExposureSidebar(BaseSidebar):
         self.analysis_buffer_slider = SignalSlider(
             "Analysis Buffer", 0.0, 0.25, conf.analysis_buffer
         )
-        self.batch_norm_btn = QPushButton(" Batch Normalize")
-        self.batch_norm_btn.setCheckable(True)
-        self.batch_norm_btn.setToolTip("Toggle Batch Normalization (Locked Baseline)")
-        self._update_batch_btn_style(conf.use_batch_norm)
+        self.analyze_roll_btn = QPushButton()
+        self.analyze_roll_btn.setFixedSize(32, 32)
+        self.analyze_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
+        self.analyze_roll_btn.setToolTip("Analyze entire roll to find average baseline")
+
+        self.use_roll_avg_btn = QPushButton()
+        self.use_roll_avg_btn.setCheckable(True)
+        self.use_roll_avg_btn.setFixedSize(32, 32)
+        self.use_roll_avg_btn.setToolTip("Switch between Roll average and Local auto")
+        self._update_roll_avg_btn_style(conf.use_roll_average)
 
         buffer_row.addWidget(self.analysis_buffer_slider)
-        buffer_row.addWidget(self.batch_norm_btn)
+        buffer_row.addWidget(self.analyze_roll_btn)
+        buffer_row.addWidget(self.use_roll_avg_btn)
         self.layout.addLayout(buffer_row)
+
+        roll_row = QHBoxLayout()
+        self.roll_combo = QComboBox()
+        self.roll_combo.setPlaceholderText("Select Saved Roll...")
+        self._refresh_rolls()
+
+        self.load_roll_btn = QPushButton()
+        self.load_roll_btn.setFixedSize(32, 32)
+        self.load_roll_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
+        self.load_roll_btn.setToolTip("Apply selected Roll to session")
+
+        self.save_roll_btn = QPushButton()
+        self.save_roll_btn.setFixedSize(32, 32)
+        self.save_roll_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
+        self.save_roll_btn.setToolTip("Save current normalization as new Roll")
+
+        self.delete_roll_btn = QPushButton()
+        self.delete_roll_btn.setFixedSize(32, 32)
+        self.delete_roll_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
+        self.delete_roll_btn.setToolTip("Delete selected Roll")
+
+        roll_row.addWidget(self.roll_combo, stretch=1)
+        roll_row.addWidget(self.load_roll_btn)
+        roll_row.addWidget(self.save_roll_btn)
+        roll_row.addWidget(self.delete_roll_btn)
+        self.layout.addLayout(roll_row)
 
         wb_header = QLabel("White Balance")
         wb_header.setStyleSheet(
@@ -165,7 +198,14 @@ class ExposureSidebar(BaseSidebar):
             )
         )
         self.analysis_buffer_slider.valueChanged.connect(self._on_buffer_changed)
-        self.batch_norm_btn.toggled.connect(self._on_batch_norm_toggled)
+        self.analyze_roll_btn.clicked.connect(
+            self.controller.request_batch_normalization
+        )
+        self.use_roll_avg_btn.toggled.connect(self._on_use_roll_average_toggled)
+
+        self.load_roll_btn.clicked.connect(self._on_load_roll)
+        self.save_roll_btn.clicked.connect(self._on_save_roll)
+        self.delete_roll_btn.clicked.connect(self._on_delete_roll)
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
         self.camera_wb_btn.toggled.connect(self._on_camera_wb_toggled)
@@ -217,52 +257,96 @@ class ExposureSidebar(BaseSidebar):
 
     def _on_buffer_changed(self, val: float) -> None:
         """
-        Updates analysis buffer and re-triggers batch norm if active.
+        Updates analysis buffer and forces local re-analysis.
         """
         self.update_config_section(
-            "exposure", persist=True, readback_metrics=False, analysis_buffer=val
+            "exposure",
+            persist=True,
+            render=True,
+            analysis_buffer=val,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(0.0, 0.0, 0.0),
         )
-        if self.state.config.exposure.use_batch_norm:
-            self.controller.request_batch_normalization()
 
-    def _on_batch_norm_toggled(self, checked: bool) -> None:
+    def _on_use_roll_average_toggled(self, checked: bool) -> None:
         """
-        Toggles batch normalization mode.
+        Toggles between Roll-wide baseline and Local auto-exposure.
+        Forcing re-analysis when switching to Local.
         """
-        if checked:
-            self.controller.request_batch_normalization()
-        else:
-            for f_info in self.controller.state.uploaded_files:
-                p = self.controller.session.repo.load_file_settings(
-                    f_info["hash"]
-                ) or replace(self.state.config)
-                new_exp = replace(p.exposure, use_batch_norm=False)
-                new_p = replace(p, exposure=new_exp)
-                self.controller.session.repo.save_file_settings(f_info["hash"], new_p)
-
-            new_exp = replace(self.state.config.exposure, use_batch_norm=False)
-            self.controller.session.update_config(
-                replace(self.state.config, exposure=new_exp), persist=True
+        if not checked:
+            self.update_config_section(
+                "exposure",
+                persist=True,
+                render=True,
+                use_roll_average=False,
+                local_floors=(0.0, 0.0, 0.0),
+                local_ceils=(0.0, 0.0, 0.0),
+                roll_name=None,
             )
-            self.controller.request_render()
+        else:
+            self.update_config_section(
+                "exposure", persist=True, render=True, use_roll_average=True
+            )
 
-    def _update_batch_btn_style(self, checked: bool) -> None:
+    def _refresh_rolls(self) -> None:
+        """
+        Populates roll dropdown from database.
+        """
+        current = self.roll_combo.currentText()
+        self.roll_combo.blockSignals(True)
+        self.roll_combo.clear()
+        rolls = self.controller.session.repo.list_normalization_rolls()
+        self.roll_combo.addItems(rolls)
+        if current in rolls:
+            self.roll_combo.setCurrentText(current)
+        else:
+            self.roll_combo.setCurrentIndex(-1)
+        self.roll_combo.blockSignals(False)
+
+    def _on_load_roll(self) -> None:
+        """
+        Applies selected roll to session.
+        """
+        name = self.roll_combo.currentText()
+        if name:
+            self.controller.apply_normalization_roll(name)
+
+    def _on_save_roll(self) -> None:
+        """
+        Prompts user for name and saves current normalization.
+        """
+        name, ok = QInputDialog.getText(self, "Save Roll", "Enter name for this roll:")
+        if ok and name:
+            self.controller.save_current_normalization_as_roll(name)
+            self._refresh_rolls()
+            self.roll_combo.setCurrentText(name)
+
+    def _on_delete_roll(self) -> None:
+        """
+        Removes selected roll from DB.
+        """
+        name = self.roll_combo.currentText()
+        if name:
+            self.controller.session.repo.delete_normalization_roll(name)
+            self._refresh_rolls()
+
+    def _update_roll_avg_btn_style(self, checked: bool) -> None:
         """
         Updates button icon and color based on active state.
         """
         if checked:
-            self.batch_norm_btn.setIcon(qta.icon("fa5s.lock", color="white"))
-            self.batch_norm_btn.setStyleSheet(f"""
+            self.use_roll_avg_btn.setIcon(qta.icon("fa5s.lock", color="white"))
+            self.use_roll_avg_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {THEME.accent_primary};
                     border-radius: 4px;
                 }}
             """)
         else:
-            self.batch_norm_btn.setIcon(
-                qta.icon("mdi6.film", color=THEME.text_primary)
+            self.use_roll_avg_btn.setIcon(
+                qta.icon("fa5s.lock-open", color=THEME.text_primary)
             )
-            self.batch_norm_btn.setStyleSheet("")
+            self.use_roll_avg_btn.setStyleSheet("")
 
     def sync_ui(self) -> None:
         conf = self.state.config.exposure
@@ -281,8 +365,11 @@ class ExposureSidebar(BaseSidebar):
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
-            self.batch_norm_btn.setChecked(conf.use_batch_norm)
-            self._update_batch_btn_style(conf.use_batch_norm)
+            self.use_roll_avg_btn.setChecked(conf.use_roll_average)
+            self._update_roll_avg_btn_style(conf.use_roll_average)
+            self._refresh_rolls()
+            if conf.roll_name:
+                self.roll_combo.setCurrentText(conf.roll_name)
 
             self.toe_slider.setValue(conf.toe)
             self.toe_w_slider.setValue(conf.toe_width)
@@ -308,7 +395,10 @@ class ExposureSidebar(BaseSidebar):
             self.density_slider,
             self.grade_slider,
             self.analysis_buffer_slider,
-            self.batch_norm_btn,
+            self.analyze_roll_btn,
+            self.use_roll_avg_btn,
+            self.roll_combo,
+            self.load_roll_btn,
             self.toe_slider,
             self.toe_w_slider,
             self.toe_h_slider,

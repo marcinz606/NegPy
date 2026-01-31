@@ -324,6 +324,18 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, exposure=new_exp))
         self.request_render()
 
+    def reanalyze_current_file(self) -> None:
+        """
+        Clears cached local floors and forces a fresh analysis render.
+        """
+        new_exp = replace(
+            self.state.config.exposure,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(1.0, 1.0, 1.0),
+        )
+        self.session.update_config(replace(self.state.config, exposure=new_exp))
+        self.request_render()
+
     def request_batch_normalization(self) -> None:
         """
         Initiates background analysis for batch normalization.
@@ -357,9 +369,10 @@ class AppController(QObject):
             )
             new_exp = replace(
                 p.exposure,
-                use_batch_norm=True,
+                use_roll_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
+                roll_name=None,
             )
             new_p = replace(p, exposure=new_exp)
             self.session.repo.save_file_settings(f_info["hash"], new_p)
@@ -367,9 +380,10 @@ class AppController(QObject):
         # Update current state
         new_exp = replace(
             self.state.config.exposure,
-            use_batch_norm=True,
+            use_roll_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
+            roll_name=None,
         )
         self.session.update_config(
             replace(self.state.config, exposure=new_exp), persist=True
@@ -378,6 +392,55 @@ class AppController(QObject):
         self.set_status("Batch Normalization Complete", 3000)
         self.status_progress_requested.emit(0, 0)
         self.request_render()
+
+    def save_current_normalization_as_roll(self, name: str) -> None:
+        """
+        Persists current batch normalization values as a named roll.
+        """
+        exp = self.state.config.exposure
+        self.session.repo.save_normalization_roll(
+            name, exp.locked_floors, exp.locked_ceils
+        )
+        self.session.update_config(
+            replace(self.state.config, exposure=replace(exp, roll_name=name)),
+            persist=True,
+            render=False,
+        )
+        self.set_status(f"Roll '{name}' saved", 2000)
+
+    def apply_normalization_roll(self, name: str) -> None:
+        """
+        Loads and applies a named normalization roll to the entire session.
+        """
+        data = self.session.repo.load_normalization_roll(name)
+        if data:
+            locked_floors, locked_ceils = data
+            for f_info in self.state.uploaded_files:
+                p = self.session.repo.load_file_settings(f_info["hash"]) or replace(
+                    self.state.config
+                )
+                new_exp = replace(
+                    p.exposure,
+                    use_roll_average=True,
+                    locked_floors=locked_floors,
+                    locked_ceils=locked_ceils,
+                    roll_name=name,
+                )
+                new_p = replace(p, exposure=new_exp)
+                self.session.repo.save_file_settings(f_info["hash"], new_p)
+
+            new_exp = replace(
+                self.state.config.exposure,
+                use_roll_average=True,
+                locked_floors=locked_floors,
+                locked_ceils=locked_ceils,
+                roll_name=name,
+            )
+            self.session.update_config(
+                replace(self.state.config, exposure=new_exp), persist=True
+            )
+            self.set_status(f"Applied Roll '{name}'", 2000)
+            self.request_render()
 
     def request_render(self, readback_metrics: bool = True) -> None:
         """
@@ -495,8 +558,25 @@ class AppController(QObject):
             self._update_thumbnail_from_state(force_readback=True)
 
     def _on_metrics_updated(self, metrics: Dict[str, Any]) -> None:
+        """
+        Handles late-arriving metrics and persists analysis results.
+        """
         self.state.last_metrics.update(metrics)
         self.metrics_available.emit(metrics)
+
+        # If render produced fresh log bounds, persist them locally
+        if "log_bounds" in metrics and not self.state.config.exposure.use_roll_average:
+            bounds = metrics["log_bounds"]
+            new_exp = replace(
+                self.state.config.exposure,
+                local_floors=bounds.floors,
+                local_ceils=bounds.ceils,
+            )
+            self.session.update_config(
+                replace(self.state.config, exposure=new_exp),
+                persist=True,
+                render=False,
+            )
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
