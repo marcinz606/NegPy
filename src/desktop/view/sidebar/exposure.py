@@ -260,7 +260,7 @@ class ExposureSidebar(BaseSidebar):
             """)
         else:
             self.batch_norm_btn.setIcon(
-                qta.icon("fa5s.lock-open", color=THEME.text_primary)
+                qta.icon("mdi6.film", color=THEME.text_primary)
             )
             self.batch_norm_btn.setStyleSheet("")
 
