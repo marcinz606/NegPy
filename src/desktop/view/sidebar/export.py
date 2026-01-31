@@ -157,6 +157,7 @@ class ExportSidebar(BaseSidebar):
         path_layout.addWidget(self.browse_btn)
         self.layout.addLayout(path_layout)
 
+        batch_row = QHBoxLayout()
         self.batch_export_btn = QPushButton(" EXPORT ALL LOADED")
         self.batch_export_btn.setFixedHeight(40)
         self.batch_export_btn.setIcon(qta.icon("fa5s.images", color="white"))
@@ -171,7 +172,18 @@ class ExportSidebar(BaseSidebar):
                 background-color: {THEME.accent_secondary};
             }}
         """)
-        self.layout.addWidget(self.batch_export_btn)
+
+        self.apply_all_btn = QPushButton(" Apply to all")
+        self.apply_all_btn.setFixedHeight(40)
+        self.apply_all_btn.setCheckable(True)
+        self.apply_all_btn.setToolTip(
+            "Apply current export settings (Size, DPI, Border) to all files"
+        )
+        self._update_apply_all_style(False)
+
+        batch_row.addWidget(self.batch_export_btn)
+        batch_row.addWidget(self.apply_all_btn)
+        self.layout.addLayout(batch_row)
 
     def _connect_signals(self) -> None:
         # All changes trigger the same debounce timer
@@ -188,7 +200,34 @@ class ExportSidebar(BaseSidebar):
         self.browse_btn.clicked.connect(self._on_browse_clicked)
         self.pattern_input.textChanged.connect(lambda _: self.update_timer.start())
         self.path_input.textChanged.connect(lambda _: self.update_timer.start())
-        self.batch_export_btn.clicked.connect(self.controller.request_batch_export)
+
+        self.apply_all_btn.toggled.connect(self._update_apply_all_style)
+        self.batch_export_btn.clicked.connect(
+            lambda: self.controller.request_batch_export(
+                override_settings=self.apply_all_btn.isChecked()
+            )
+        )
+
+    def _update_apply_all_style(self, checked: bool) -> None:
+        """
+        Toggles button highlighting to match the Export All button when active.
+        """
+        if checked:
+            self.apply_all_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {THEME.accent_primary};
+                    color: white;
+                    font-weight: bold;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: {THEME.accent_secondary};
+                }}
+            """)
+            self.apply_all_btn.setIcon(qta.icon("fa5s.clone", color="white"))
+        else:
+            self.apply_all_btn.setStyleSheet("font-weight: bold;")
+            self.apply_all_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
 
     def _persist_all_export_settings(self) -> None:
         """Collects all UI values and performs a single debounced config update."""

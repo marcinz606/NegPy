@@ -316,25 +316,40 @@ class AppController(QObject):
             ]
         )
 
-    def request_batch_export(self) -> None:
-        # Synchronize ICC state to export config
-        export_conf = replace(
-            self.state.config.export,
-            apply_icc=self.state.apply_icc_to_export,
-            icc_profile_path=self.state.icc_profile_path,
-            icc_invert=self.state.icc_invert,
-        )
+    def request_batch_export(self, override_settings: bool = False) -> None:
+        """
+        Initiates batch export, optionally applying current export settings to all files.
+        """
+        current_export = self.state.config.export
+        icc_path = self.state.icc_profile_path
+        icc_invert = self.state.icc_invert
+        apply_icc = self.state.apply_icc_to_export
 
-        tasks = [
-            ExportTask(
-                file_info=f,
-                params=self.session.repo.load_file_settings(f["hash"])
-                or self.state.config,
-                export_settings=export_conf,
-                gpu_enabled=self.state.gpu_enabled,
+        tasks = []
+        for f in self.state.uploaded_files:
+            params = (
+                self.session.repo.load_file_settings(f["hash"]) or self.state.config
             )
-            for f in self.state.uploaded_files
-        ]
+
+            if override_settings:
+                params = replace(params, export=current_export)
+
+            final_export = replace(
+                params.export,
+                apply_icc=apply_icc,
+                icc_profile_path=icc_path,
+                icc_invert=icc_invert,
+            )
+
+            tasks.append(
+                ExportTask(
+                    file_info=f,
+                    params=params,
+                    export_settings=final_export,
+                    gpu_enabled=self.state.gpu_enabled,
+                )
+            )
+
         if tasks:
             self._run_export_tasks(tasks)
 
