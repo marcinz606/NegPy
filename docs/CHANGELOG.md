@@ -1,4 +1,12 @@
 # Change Log
+
+
+## 0.9.7
+
+- Improve batch normalization by discarding outliers before calculating of averages.
+- Bugfixes:
+    - Another small fix to Pick WB after recent changes
+
 ## 0.9.6
 
 - UI Improvements:
