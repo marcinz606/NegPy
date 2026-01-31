@@ -1,4 +1,4 @@
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 import numpy as np
 from numba import njit, prange  # type: ignore
 from src.domain.types import ImageBuffer
@@ -90,3 +90,24 @@ def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> Imag
             np.ascontiguousarray(img_log.astype(np.float32)), floors, ceils
         )
     )
+
+
+def analyze_log_exposure_bounds(
+    image: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> LogNegativeBounds:
+    """
+    Performs full analysis pass on a linear image to find density floors/ceils.
+    """
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(image, epsilon, 1.0))
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+
+    return measure_log_negative_bounds(img_log)

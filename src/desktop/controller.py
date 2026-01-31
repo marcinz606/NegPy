@@ -13,6 +13,8 @@ from src.desktop.workers.render import (
     RenderTask,
     ThumbnailWorker,
     ThumbnailUpdateTask,
+    NormalizationTask,
+    NormalizationWorker,
 )
 from src.desktop.workers.export import ExportWorker, ExportTask
 from src.services.rendering.preview_manager import PreviewManager
@@ -40,6 +42,7 @@ class AppController(QObject):
     export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal(float)
     render_requested = pyqtSignal(RenderTask)
+    normalization_requested = pyqtSignal(NormalizationTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
@@ -61,7 +64,6 @@ class AppController(QObject):
         )
         self.asset_store.initialize()
 
-        # Thread management
         self.render_thread = QThread()
         self.render_worker = RenderWorker()
         self.render_worker.moveToThread(self.render_thread)
@@ -76,6 +78,11 @@ class AppController(QObject):
         self.thumb_worker = ThumbnailWorker(self.asset_store)
         self.thumb_worker.moveToThread(self.thumb_thread)
         self.thumb_thread.start()
+
+        self.norm_thread = QThread()
+        self.norm_worker = NormalizationWorker(self.preview_service, self.session.repo)
+        self.norm_worker.moveToThread(self.norm_thread)
+        self.norm_thread.start()
 
         self._is_rendering = False
         self._pending_render_task: Any = None
@@ -98,6 +105,11 @@ class AppController(QObject):
         self.thumbnail_requested.connect(self.thumb_worker.generate)
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
+
+        self.normalization_requested.connect(self.norm_worker.process)
+        self.norm_worker.progress.connect(self._on_normalization_progress)
+        self.norm_worker.finished.connect(self._on_normalization_finished)
+        self.norm_worker.error.connect(self._on_render_error)
 
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
@@ -123,12 +135,13 @@ class AppController(QObject):
         self.session.asset_model.refresh()
 
     def load_file(self, file_path: str) -> None:
-        """Loads a new RAW file into the linear preview workspace."""
+        """
+        Loads a new RAW file into the linear preview workspace.
+        """
         self.set_status(f"Loading {os.path.basename(file_path)}...")
         self.loading_started.emit()
         self._first_render_done = False
 
-        # Evacuate VRAM before large allocation
         self.render_worker.cleanup()
 
         try:
@@ -204,7 +217,9 @@ class AppController(QObject):
         self.request_render()
 
     def undo_last_retouch(self) -> None:
-        """Removes the most recently added dust spot."""
+        """
+        Removes the most recently added dust spot.
+        """
         spots = list(self.state.config.retouch.manual_dust_spots)
         if spots:
             spots.pop()
@@ -239,7 +254,6 @@ class AppController(QObject):
             img = metrics.get("base_positive")
 
         if isinstance(img, GPUTexture):
-            # On-demand readback for picking (avoids frame-by-frame transfer)
             img = img.readback()
 
         if img is None or not isinstance(img, np.ndarray):
@@ -248,10 +262,8 @@ class AppController(QObject):
         h, w = img.shape[:2]
         sampled = img[int(np.clip(ny * h, 0, h - 1)), int(np.clip(nx * w, 0, w - 1))]
 
-        # Ensure we only use RGB channels (ignore Alpha if present)
         delta_m, delta_y = calculate_wb_shifts(sampled[:3])
 
-        # Apply damping to account for high-contrast curve slopes
         damping = 0.4
         exp = self.state.config.exposure
         new_m = np.clip(exp.wb_magenta + delta_m * damping, -1.0, 1.0)
@@ -265,8 +277,65 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, exposure=new_exp))
         self.request_render()
 
+    def request_batch_normalization(self) -> None:
+        """
+        Initiates background analysis for batch normalization.
+        """
+        if not self.state.uploaded_files:
+            return
+
+        self.set_status("Starting Batch Normalization...")
+        task = NormalizationTask(
+            files=self.state.uploaded_files.copy(),
+            workspace_color_space=self.state.workspace_color_space,
+        )
+        self.normalization_requested.emit(task)
+
+    def _on_normalization_progress(self, current: int, total: int, name: str) -> None:
+        """
+        Updates UI status during batch analysis.
+        """
+        self.set_status(f"Analyzing {current}/{total}: {name}...")
+        self.status_progress_requested.emit(current, total)
+
+    def _on_normalization_finished(
+        self, locked_floors: tuple, locked_ceils: tuple
+    ) -> None:
+        """
+        Applies averaged normalization baseline to all files.
+        """
+        for f_info in self.state.uploaded_files:
+            p = self.session.repo.load_file_settings(f_info["hash"]) or replace(
+                self.state.config
+            )
+            new_exp = replace(
+                p.exposure,
+                use_batch_norm=True,
+                locked_floors=locked_floors,
+                locked_ceils=locked_ceils,
+            )
+            new_p = replace(p, exposure=new_exp)
+            self.session.repo.save_file_settings(f_info["hash"], new_p)
+
+        # Update current state
+        new_exp = replace(
+            self.state.config.exposure,
+            use_batch_norm=True,
+            locked_floors=locked_floors,
+            locked_ceils=locked_ceils,
+        )
+        self.session.update_config(
+            replace(self.state.config, exposure=new_exp), persist=True
+        )
+
+        self.set_status("Batch Normalization Complete", 3000)
+        self.status_progress_requested.emit(0, 0)
+        self.request_render()
+
     def request_render(self, readback_metrics: bool = True) -> None:
-        """Dispatches a render task to the worker thread."""
+        """
+        Dispatches a render task to the worker thread.
+        """
         if self.state.preview_raw is None:
             return
 
@@ -291,6 +360,9 @@ class AppController(QObject):
         self.render_requested.emit(task)
 
     def request_export(self) -> None:
+        """
+        Initiates high-resolution export for the current file.
+        """
         if not self.state.current_file_path:
             return
 
@@ -365,7 +437,6 @@ class AppController(QObject):
     def _on_render_finished(self, result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
 
-        # Only update thumbnail on the very first render of a file
         should_update_thumb = not self._first_render_done
         self._first_render_done = True
 
@@ -391,7 +462,6 @@ class AppController(QObject):
         self._update_thumbnail_from_state(force_readback=True)
 
     def _update_thumbnail_from_state(self, force_readback: bool = False) -> None:
-        # Handle signal arguments (e.g. file path string) getting passed as force_readback
         if not isinstance(force_readback, bool):
             force_readback = False
 
@@ -400,7 +470,6 @@ class AppController(QObject):
         metrics = self.state.last_metrics
         buffer = metrics.get("base_positive")
 
-        # GPU textures need to be read back to CPU memory for thumbnail processing.
         if isinstance(buffer, GPUTexture):
             buffer = buffer.readback()
 
@@ -418,11 +487,15 @@ class AppController(QObject):
         )
 
     def cleanup(self) -> None:
-        """Total system evacuation on exit."""
+        """
+        Total system evacuation on exit.
+        """
         self.render_thread.quit()
         self.render_thread.wait()
         self.export_thread.quit()
         self.export_thread.wait()
         self.thumb_thread.quit()
         self.thumb_thread.wait()
+        self.norm_thread.quit()
+        self.norm_thread.wait()
         self.render_worker.destroy_all()

@@ -5,9 +5,8 @@ from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
 from src.features.exposure.logic import apply_characteristic_curve
 from src.kernel.image.logic import get_luminance
 from src.features.exposure.normalization import (
-    measure_log_negative_bounds,
     normalize_log_image,
-    get_analysis_crop,
+    analyze_log_exposure_bounds,
 )
 from src.domain.models import ProcessMode
 
@@ -24,28 +23,26 @@ class NormalizationProcessor:
         epsilon = 1e-6
         img_log = np.log10(np.clip(image, epsilon, 1.0))
 
-        # Check if bounds are cached and valid for current buffer config
-        cached_buffer = context.metrics.get("log_bounds_buffer_val")
-        if (
-            "log_bounds" in context.metrics
-            and cached_buffer is not None
-            and abs(cached_buffer - self.config.analysis_buffer) < 1e-5
-        ):
-            bounds = context.metrics["log_bounds"]
+        if self.config.use_batch_norm:
+            from src.features.exposure.normalization import LogNegativeBounds
+
+            bounds = LogNegativeBounds(
+                floors=self.config.locked_floors, ceils=self.config.locked_ceils
+            )
         else:
-            analysis_img = img_log
-            if context.active_roi:
-                y1, y2, x1, x2 = context.active_roi
-                analysis_img = img_log[y1:y2, x1:x2]
-
-            if self.config.analysis_buffer > 0:
-                analysis_img = get_analysis_crop(
-                    analysis_img, self.config.analysis_buffer
+            cached_buffer = context.metrics.get("log_bounds_buffer_val")
+            if (
+                "log_bounds" in context.metrics
+                and cached_buffer is not None
+                and abs(cached_buffer - self.config.analysis_buffer) < 1e-5
+            ):
+                bounds = context.metrics["log_bounds"]
+            else:
+                bounds = analyze_log_exposure_bounds(
+                    image, context.active_roi, self.config.analysis_buffer
                 )
-
-            bounds = measure_log_negative_bounds(analysis_img)
-            context.metrics["log_bounds"] = bounds
-            context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
+                context.metrics["log_bounds"] = bounds
+                context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
 
         return normalize_log_image(img_log, bounds)
 

@@ -50,10 +50,10 @@ class TestExposureLogic(unittest.TestCase):
         sampled = np.array([0.5, 0.6, 0.4])
         dm, dy = calculate_wb_shifts(sampled)
 
-        # dM = log10(0.6)-log10(0.5) > 0
-        # dY = log10(0.4)-log10(0.5) < 0
+        # dM = log10(0.6)-log10(0.5) > 0 (Neutralize green-red diff)
+        # dY = log10(0.6)-log10(0.4) > 0 (Neutralize green-blue diff)
         self.assertGreater(dm, 0)
-        self.assertLess(dy, 0)
+        self.assertGreater(dy, 0)
 
 
 if __name__ == "__main__":

@@ -154,6 +154,10 @@ class DesktopSessionManager(QObject):
         sticky_shoulder_w = self.repo.get_global_setting("last_shoulder_width")
         sticky_shoulder_h = self.repo.get_global_setting("last_shoulder_hardness")
 
+        sticky_batch_norm = self.repo.get_global_setting("last_use_batch_norm")
+        sticky_floors = self.repo.get_global_setting("last_locked_floors")
+        sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
+
         new_exp = config.exposure
         if sticky_buffer is not None:
             new_exp = replace(new_exp, analysis_buffer=float(sticky_buffer))
@@ -182,6 +186,13 @@ class DesktopSessionManager(QObject):
             new_exp = replace(new_exp, shoulder_width=float(sticky_shoulder_w))
         if sticky_shoulder_h is not None:
             new_exp = replace(new_exp, shoulder_hardness=float(sticky_shoulder_h))
+
+        if sticky_batch_norm is not None:
+            new_exp = replace(new_exp, use_batch_norm=bool(sticky_batch_norm))
+        if sticky_floors:
+            new_exp = replace(new_exp, locked_floors=tuple(sticky_floors))
+        if sticky_ceils:
+            new_exp = replace(new_exp, locked_ceils=tuple(sticky_ceils))
 
         config = replace(config, exposure=new_exp)
         # 3. Aspect Ratio & Offset
@@ -253,6 +264,13 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting(
             "last_shoulder_hardness", config.exposure.shoulder_hardness
         )
+        self.repo.save_global_setting(
+            "last_use_batch_norm", config.exposure.use_batch_norm
+        )
+        self.repo.save_global_setting(
+            "last_locked_floors", config.exposure.locked_floors
+        )
+        self.repo.save_global_setting("last_locked_ceils", config.exposure.locked_ceils)
 
         self.repo.save_global_setting(
             "last_aspect_ratio", config.geometry.autocrop_ratio

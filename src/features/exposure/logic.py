@@ -198,7 +198,7 @@ def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
     """
     r, g, b = np.clip(sampled_rgb, 1e-6, 1.0)
     d_m = np.log10(g) - np.log10(r)
-    d_y = np.log10(b) - np.log10(r)
+    d_y = np.log10(g) - np.log10(b)
 
     shift_m = density_to_cmy(d_m)
     shift_y = density_to_cmy(d_y)

@@ -29,3 +29,7 @@ class ExposureConfig:
     shoulder_width: float = 3.0
     shoulder_hardness: float = 1.0
     analysis_buffer: float = 0.07
+
+    use_batch_norm: bool = False
+    locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    locked_ceils: tuple[float, float, float] = (1.0, 1.0, 1.0)

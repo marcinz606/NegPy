@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.9.5
+
+- Fix fine rotation when manual crop is applied
+- Fix wrong autoexposure when file is rotated 90 degrees
+- Added button to sync apply export settings for all files.
+- Added "Batch Normalization" button that performs bounds analysis for all loaded files and applies averaged settings to all. 
+
 ## 0.9.4
 
 - Brand new, native desktop UI (pyqt6) instead of electron packaged streamlit app

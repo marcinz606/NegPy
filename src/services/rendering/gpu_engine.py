@@ -21,6 +21,7 @@ from src.features.geometry.logic import (
 from src.features.exposure.normalization import (
     measure_log_negative_bounds,
     get_analysis_crop,
+    analyze_log_exposure_bounds,
 )
 from src.services.view.coordinate_mapping import CoordinateMapping
 from src.services.export.print import PrintService
@@ -312,9 +313,16 @@ class GPUEngine:
 
         if bounds_override:
             bounds = bounds_override
+        elif settings.exposure.use_batch_norm:
+            from src.features.exposure.normalization import LogNegativeBounds
+
+            bounds = LogNegativeBounds(
+                floors=settings.exposure.locked_floors,
+                ceils=settings.exposure.locked_ceils,
+            )
         else:
             # Match CPU: use ROI for analysis if not in tiling mode
-            analysis_source = np.log10(np.clip(img, 1e-6, 1.0))
+            analysis_source = img.copy()
 
             if settings.geometry.rotation != 0:
                 analysis_source = np.rot90(
@@ -325,16 +333,11 @@ class GPUEngine:
             if settings.geometry.flip_vertical:
                 analysis_source = np.flipud(analysis_source)
 
-            if not tiling_mode:
-                # Apply ROI (crop) to analysis source
-                ry1, ry2, rx1, rx2 = roi
-                analysis_source = analysis_source[ry1:ry2, rx1:rx2]
-
-            if settings.exposure.analysis_buffer > 0:
-                analysis_source = get_analysis_crop(
-                    analysis_source, settings.exposure.analysis_buffer
-                )
-            bounds = measure_log_negative_bounds(analysis_source)
+            bounds = analyze_log_exposure_bounds(
+                analysis_source,
+                roi if not tiling_mode else None,
+                settings.exposure.analysis_buffer,
+            )
 
         self._upload_unified_uniforms(
             settings,
