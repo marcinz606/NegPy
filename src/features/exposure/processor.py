@@ -24,15 +24,11 @@ class NormalizationProcessor:
         epsilon = 1e-6
         img_log = np.log10(np.clip(image, epsilon, 1.0))
 
-        if self.config.use_roll_average and self.config.locked_floors != (
-            0.0,
-            0.0,
-            0.0,
-        ):
+        if self.config.use_roll_average and self.config.is_locked_initialized:
             bounds = LogNegativeBounds(
                 floors=self.config.locked_floors, ceils=self.config.locked_ceils
             )
-        elif self.config.local_floors != (0.0, 0.0, 0.0):
+        elif self.config.is_local_initialized:
             bounds = LogNegativeBounds(
                 floors=self.config.local_floors, ceils=self.config.local_ceils
             )
