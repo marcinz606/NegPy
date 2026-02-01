@@ -450,7 +450,7 @@ class AppController(QObject):
         new_process = replace(
             self.state.config.process,
             local_floors=(0.0, 0.0, 0.0),
-            local_ceils=(1.0, 1.0, 1.0),
+            local_ceils=(0.0, 0.0, 0.0),
         )
         self.session.update_config(replace(self.state.config, process=new_process))
         self.request_render()

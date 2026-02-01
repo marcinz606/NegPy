@@ -101,7 +101,7 @@ class DarkroomEngine:
             settings.geometry,
             settings.process.analysis_buffer,
             settings.process.use_roll_average,
-            settings.process.local_floors == (0.0, 0.0, 0.0),
+            settings.process.is_local_initialized,
         )
         current_img, pipeline_changed = self._run_stage(
             current_img, base_key, "base", run_base, context, pipeline_changed

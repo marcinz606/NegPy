@@ -315,20 +315,17 @@ class GPUEngine:
 
         if bounds_override:
             bounds = bounds_override
-        elif settings.process.use_roll_average and settings.process.locked_floors != (
-            0.0,
-            0.0,
-            0.0,
-        ):
+        if settings.process.use_roll_average and settings.process.is_locked_initialized:
             bounds = LogNegativeBounds(
                 floors=settings.process.locked_floors,
                 ceils=settings.process.locked_ceils,
             )
-        elif settings.process.local_floors != (0.0, 0.0, 0.0):
+        elif settings.process.is_local_initialized:
             bounds = LogNegativeBounds(
                 floors=settings.process.local_floors,
                 ceils=settings.process.local_ceils,
             )
+
         else:
             # Match CPU: use ROI for analysis if not in tiling mode
             analysis_source = img.copy()
@@ -983,16 +980,12 @@ class GPUEngine:
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
-        if settings.process.use_roll_average and settings.process.locked_floors != (
-            0.0,
-            0.0,
-            0.0,
-        ):
+        if settings.process.use_roll_average and settings.process.is_locked_initialized:
             global_bounds = LogNegativeBounds(
                 floors=settings.process.locked_floors,
                 ceils=settings.process.locked_ceils,
             )
-        elif settings.process.local_floors != (0.0, 0.0, 0.0):
+        elif settings.process.is_local_initialized:
             global_bounds = LogNegativeBounds(
                 floors=settings.process.local_floors,
                 ceils=settings.process.local_ceils,
