@@ -55,6 +55,9 @@ Issues = "https://github.com/marcinz606/NegPy/issues"
 requires = ["setuptools~=80.10.2"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = ["negpy"]
+
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }
 
