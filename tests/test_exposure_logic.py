@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from src.features.exposure.logic import (
+from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     cmy_to_density,
     density_to_cmy,
@@ -44,7 +44,7 @@ class TestExposureLogic(unittest.TestCase):
 
     def test_calculate_wb_shifts(self):
         """Verify WB shift calculation (neutralizing tint)."""
-        from src.features.exposure.logic import calculate_wb_shifts
+        from negpy.features.exposure.logic import calculate_wb_shifts
 
         # R=0.5, G=0.6, B=0.4 (Green cast, low Blue)
         sampled = np.array([0.5, 0.6, 0.4])

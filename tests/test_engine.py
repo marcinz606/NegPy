@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
-from src.services.rendering.engine import DarkroomEngine
-from src.domain.models import WorkspaceConfig
+from negpy.services.rendering.engine import DarkroomEngine
+from negpy.domain.models import WorkspaceConfig
 
 
 class TestDarkroomEngine(unittest.TestCase):
@@ -55,7 +55,7 @@ class TestDarkroomEngine(unittest.TestCase):
 
     def test_retouch_source_capture(self):
         """Verify intermediate buffer capture for overlays."""
-        from src.domain.interfaces import PipelineContext
+        from negpy.domain.interfaces import PipelineContext
 
         engine = DarkroomEngine()
         img = np.random.rand(100, 100, 3).astype(np.float32)

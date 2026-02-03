@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from src.kernel.image.logic import (
+from negpy.kernel.image.logic import (
     ensure_rgb,
     get_luminance,
     calculate_file_hash,
@@ -10,7 +10,7 @@ from src.kernel.image.logic import (
     uint16_to_float32,
     float_to_uint_luma,
 )
-from src.kernel.image.validation import ensure_image
+from negpy.kernel.image.validation import ensure_image
 
 
 def test_float_to_uint8() -> None:
@@ -64,7 +64,7 @@ def test_float_to_uint_luma() -> None:
 
 def test_prepare_thumbnail() -> None:
     from PIL import Image
-    from src.kernel.image.logic import prepare_thumbnail
+    from negpy.kernel.image.logic import prepare_thumbnail
 
     img = Image.new("RGB", (200, 100), (255, 0, 0))
     thumb = prepare_thumbnail(img, 50)

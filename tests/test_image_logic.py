@@ -1,5 +1,5 @@
 import numpy as np
-from src.features.exposure.logic import (
+from negpy.features.exposure.logic import (
     apply_characteristic_curve,
 )
 

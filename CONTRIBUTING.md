@@ -12,7 +12,7 @@ We use a virtual environment named `.venv` (used by the Makefile).
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install .
 ```
 
 ### 2. Running Locally
@@ -26,12 +26,12 @@ make run
 
 The codebase follows a modular architecture:
 
-- `src/domain/`: Core data models, types, and interfaces.
-- `src/features/`: Image processing logic implementations (Exposure, Geometry, Lab, etc.).
-- `src/infrastructure/`: Low-level system implementations (GPU resources, file loaders).
-- `src/kernel/`: Core system services (Logging, Config, caching).
-- `src/services/`: High-level orchestration (Rendering engine, Export service).
-- `src/desktop/`: PyQt6 UI implementation (View, Controller, Workers).
+- `src/negpy/domain/`: Core data models, types, and interfaces.
+- `src/negpy/features/`: Image processing logic implementations (Exposure, Geometry, Lab, etc.).
+- `src/negpy/infrastructure/`: Low-level system implementations (GPU resources, file loaders).
+- `src/negpy/kernel/`: Core system services (Logging, Config, caching).
+- `src/negpy/services/`: High-level orchestration (Rendering engine, Export service).
+- `src/negpy/desktop/`: PyQt6 UI implementation (View, Controller, Workers).
 - `tests/`: Unit and integration tests.
 
 ## 📐 Coding Standards

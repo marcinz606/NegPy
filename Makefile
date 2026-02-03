@@ -1,20 +1,25 @@
 # Variables
 VENV = .venv
-PYTHON = $(VENV)/bin/python
+
+ifeq ($(OS),Windows_NT)
+	PYTHON = $(VENV)\Scripts\python.exe
+else
+	PYTHON = $(VENV)/bin/python
+endif
+
 PYTEST = $(PYTHON) -m pytest
 MYPY = $(PYTHON) -m mypy
-FLAKE8 = $(PYTHON) -m flake8
 RUFF = $(PYTHON) -m ruff
 
 # Default target
 .PHONY: all
 all: lint type test
 
-# Style checks (flake8)
+# Lint checks (ruff)
 .PHONY: lint
 lint:
-	@echo "Running style checks (flake8)..."
-	@$(FLAKE8) .
+	@echo "Running lint checks (ruff)..."
+	@$(RUFF) check .
 
 # Type checks (mypy)
 .PHONY: type

@@ -1,9 +1,9 @@
 import unittest
 import numpy as np
 import wgpu  # type: ignore
-from src.infrastructure.gpu.device import GPUDevice
-from src.infrastructure.gpu.resources import GPUTexture, GPUBuffer
-from src.infrastructure.gpu.shader_loader import ShaderLoader
+from negpy.infrastructure.gpu.device import GPUDevice
+from negpy.infrastructure.gpu.resources import GPUTexture, GPUBuffer
+from negpy.infrastructure.gpu.shader_loader import ShaderLoader
 
 
 class TestGPUInfrastructure(unittest.TestCase):
@@ -21,9 +21,7 @@ class TestGPUInfrastructure(unittest.TestCase):
         import os
 
         # Test with a known shader file
-        shader_path = os.path.join(
-            "src", "features", "geometry", "shaders", "transform.wgsl"
-        )
+        shader_path = os.path.join("src", "features", "geometry", "shaders", "transform.wgsl")
         if os.path.exists(shader_path):
             module = ShaderLoader.load(shader_path)
             self.assertIsNotNone(module)

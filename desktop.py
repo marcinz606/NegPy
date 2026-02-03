@@ -1,7 +1,7 @@
 import sys
 import io
 import faulthandler
-from src.desktop.main import main
+from negpy.desktop.main import main
 
 
 def init_streams():

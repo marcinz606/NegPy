@@ -1,6 +1,6 @@
 import numpy as np
-from src.services.export.print import PrintService
-from src.domain.models import ExportConfig
+from negpy.services.export.print import PrintService
+from negpy.domain.models import ExportConfig
 
 
 def test_calculate_paper_px_original():

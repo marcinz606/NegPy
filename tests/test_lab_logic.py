@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from src.features.lab.logic import (
+from negpy.features.lab.logic import (
     apply_output_sharpening,
     apply_saturation,
     apply_spectral_crosstalk,

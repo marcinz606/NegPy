@@ -1,5 +1,5 @@
 import numpy as np
-from src.features.retouch.logic import apply_dust_removal
+from negpy.features.retouch.logic import apply_dust_removal
 
 
 def test_manual_dust_removal_effect():

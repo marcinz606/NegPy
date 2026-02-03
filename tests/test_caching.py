@@ -1,6 +1,6 @@
-from src.kernel.caching.logic import calculate_config_hash, CacheEntry
-from src.kernel.caching.manager import PipelineCache
-from src.features.exposure.models import ExposureConfig
+from negpy.kernel.caching.logic import calculate_config_hash, CacheEntry
+from negpy.kernel.caching.manager import PipelineCache
+from negpy.features.exposure.models import ExposureConfig
 import numpy as np
 
 

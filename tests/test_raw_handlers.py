@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from src.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
+from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
 
 
 class TestRawHandlers(unittest.TestCase):

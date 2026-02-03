@@ -1,8 +1,8 @@
 import unittest
 import numpy as np
-from src.services.rendering.image_processor import ImageProcessor
-from src.domain.models import WorkspaceConfig
-from src.infrastructure.gpu.device import GPUDevice
+from negpy.services.rendering.image_processor import ImageProcessor
+from negpy.domain.models import WorkspaceConfig
+from negpy.infrastructure.gpu.device import GPUDevice
 
 
 class TestImageProcessorGPU(unittest.TestCase):
@@ -17,7 +17,7 @@ class TestImageProcessorGPU(unittest.TestCase):
 
     def test_run_pipeline_gpu(self):
         """Verify high-level pipeline execution on GPU."""
-        from src.kernel.system.config import APP_CONFIG
+        from negpy.kernel.system.config import APP_CONFIG
 
         img = np.random.rand(100, 100, 3).astype(np.float32)
         settings = WorkspaceConfig()
@@ -30,7 +30,7 @@ class TestImageProcessorGPU(unittest.TestCase):
             render_size_ref=float(APP_CONFIG.preview_render_size),
         )
 
-        from src.infrastructure.gpu.resources import GPUTexture
+        from negpy.infrastructure.gpu.resources import GPUTexture
 
         self.assertIsInstance(result, GPUTexture)
         self.assertIn("histogram_raw", metrics)

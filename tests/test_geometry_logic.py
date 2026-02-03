@@ -1,8 +1,8 @@
 import numpy as np
-from src.features.geometry.logic import get_manual_crop_coords
-from src.features.geometry.processor import GeometryProcessor
-from src.features.geometry.models import GeometryConfig
-from src.domain.interfaces import PipelineContext
+from negpy.features.geometry.logic import get_manual_crop_coords
+from negpy.features.geometry.processor import GeometryProcessor
+from negpy.features.geometry.models import GeometryConfig
+from negpy.domain.interfaces import PipelineContext
 
 
 def test_get_manual_crop_coords_zero_offset():
@@ -87,7 +87,7 @@ def test_crop_consistency_across_resolutions():
 
 
 def test_map_coords_to_geometry_flips():
-    from src.features.geometry.logic import map_coords_to_geometry
+    from negpy.features.geometry.logic import map_coords_to_geometry
 
     orig_shape = (1000, 2000)  # H, W
     nx, ny = 0.2, 0.3  # Top left quadrant
@@ -103,15 +103,13 @@ def test_map_coords_to_geometry_flips():
     assert abs(fny - 0.7) < 0.001
 
     # Both
-    fnx, fny = map_coords_to_geometry(
-        nx, ny, orig_shape, flip_horizontal=True, flip_vertical=True
-    )
+    fnx, fny = map_coords_to_geometry(nx, ny, orig_shape, flip_horizontal=True, flip_vertical=True)
     assert abs(fnx - 0.8) < 0.001
     assert abs(fny - 0.7) < 0.001
 
 
 def test_get_manual_rect_coords_rotation():
-    from src.features.geometry.logic import get_manual_rect_coords
+    from negpy.features.geometry.logic import get_manual_rect_coords
 
     # Raw image: 100x200 (H, W)
     # Rotated 90 deg CCW: 200x100
@@ -138,21 +136,17 @@ def test_get_manual_rect_coords_rotation():
 
 
 def test_get_manual_rect_coords_flips():
-    from src.features.geometry.logic import get_manual_rect_coords
+    from negpy.features.geometry.logic import get_manual_rect_coords
 
     img = np.zeros((100, 100, 3), dtype=np.float32)
     manual_rect = (0.0, 0.0, 0.5, 0.5)  # Top-left quadrant
 
     # Horizontal flip
-    roi = get_manual_rect_coords(
-        img, manual_rect, orig_shape=(100, 100), flip_horizontal=True
-    )
+    roi = get_manual_rect_coords(img, manual_rect, orig_shape=(100, 100), flip_horizontal=True)
     # Should become top-right quadrant: x=50..100
     assert roi == (0, 50, 50, 100)
 
     # Vertical flip
-    roi = get_manual_rect_coords(
-        img, manual_rect, orig_shape=(100, 100), flip_vertical=True
-    )
+    roi = get_manual_rect_coords(img, manual_rect, orig_shape=(100, 100), flip_vertical=True)
     # Should become bottom-left quadrant: y=50..100
     assert roi == (50, 100, 0, 50)

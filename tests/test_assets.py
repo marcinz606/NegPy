@@ -1,7 +1,7 @@
 import unittest
 import os
-from src.infrastructure.storage.local_asset_store import LocalAssetStore
-from src.kernel.system.config import APP_CONFIG
+from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
+from negpy.kernel.system.config import APP_CONFIG
 
 
 class TestAssetStore(unittest.TestCase):

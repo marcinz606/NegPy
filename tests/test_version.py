@@ -1,11 +1,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from src.kernel.system.version import check_for_updates
+from negpy.kernel.system.version import check_for_updates
 import json
 
 
 class TestVersionCheck(unittest.TestCase):
-    @patch("src.kernel.system.version.get_app_version")
+    @patch("negpy.kernel.system.version.get_app_version")
     @patch("urllib.request.urlopen")
     def test_check_for_updates_available(self, mock_urlopen, mock_get_version):
         mock_get_version.return_value = "0.9.0"
@@ -20,7 +20,7 @@ class TestVersionCheck(unittest.TestCase):
         new_ver = check_for_updates()
         self.assertEqual(new_ver, "0.9.5")
 
-    @patch("src.kernel.system.version.get_app_version")
+    @patch("negpy.kernel.system.version.get_app_version")
     @patch("urllib.request.urlopen")
     def test_check_for_updates_latest(self, mock_urlopen, mock_get_version):
         mock_get_version.return_value = "0.9.5"
@@ -34,7 +34,7 @@ class TestVersionCheck(unittest.TestCase):
         new_ver = check_for_updates()
         self.assertIsNone(new_ver)
 
-    @patch("src.kernel.system.version.get_app_version")
+    @patch("negpy.kernel.system.version.get_app_version")
     @patch("urllib.request.urlopen")
     def test_check_for_updates_error(self, mock_urlopen, mock_get_version):
         mock_get_version.return_value = "0.9.0"

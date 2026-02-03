@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from src.domain.session import WorkspaceSession
-from src.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
-from src.domain.interfaces import IRepository, IAssetStore
-from src.services.rendering.engine import DarkroomEngine
+from negpy.domain.session import WorkspaceSession
+from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
+from negpy.domain.interfaces import IRepository, IAssetStore
+from negpy.services.rendering.engine import DarkroomEngine
 
 
 class TestWorkspaceSession(unittest.TestCase):
@@ -13,11 +13,9 @@ class TestWorkspaceSession(unittest.TestCase):
         self.mock_engine = MagicMock(spec=DarkroomEngine)
         self.session_id = "test_session_123"
 
-        self.session = WorkspaceSession(
-            self.session_id, self.mock_repo, self.mock_store, self.mock_engine
-        )
+        self.session = WorkspaceSession(self.session_id, self.mock_repo, self.mock_store, self.mock_engine)
 
-    @patch("src.kernel.system.config.APP_CONFIG")
+    @patch("negpy.kernel.system.config.APP_CONFIG")
     def test_create_default_config_uses_app_config_path(self, mock_app_config):
         """
         Verify env-dependent export path injection.
@@ -31,7 +29,7 @@ class TestWorkspaceSession(unittest.TestCase):
         self.assertIsInstance(config.export, ExportConfig)
         self.assertEqual(config.export.export_path, expected_path)
 
-    @patch("src.kernel.system.config.APP_CONFIG")
+    @patch("negpy.kernel.system.config.APP_CONFIG")
     def test_create_default_config_defaults(self, mock_app_config):
         """
         Verify static defaults (e.g. Lab settings).
@@ -50,9 +48,7 @@ class TestWorkspaceSession(unittest.TestCase):
         """
         Missing DB entry -> Fresh default config.
         """
-        self.session.uploaded_files = [
-            {"name": "test.dng", "path": "/tmp/test.dng", "hash": "abc123hash"}
-        ]
+        self.session.uploaded_files = [{"name": "test.dng", "path": "/tmp/test.dng", "hash": "abc123hash"}]
         self.session.selected_file_idx = 0
         self.mock_repo.load_file_settings.return_value = None
 
@@ -67,9 +63,7 @@ class TestWorkspaceSession(unittest.TestCase):
         """
         DB entry exists -> Return saved config.
         """
-        self.session.uploaded_files = [
-            {"name": "test.dng", "path": "/tmp/test.dng", "hash": "saved_hash"}
-        ]
+        self.session.uploaded_files = [{"name": "test.dng", "path": "/tmp/test.dng", "hash": "saved_hash"}]
 
         saved_config = self.session.create_default_config()
         self.mock_repo.load_file_settings.return_value = saved_config

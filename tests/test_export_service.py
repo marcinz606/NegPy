@@ -1,6 +1,6 @@
 import numpy as np
-from src.services.rendering.image_processor import ImageProcessor
-from src.domain.models import WorkspaceConfig, ExportConfig
+from negpy.services.rendering.image_processor import ImageProcessor
+from negpy.domain.models import WorkspaceConfig, ExportConfig
 
 
 def test_apply_scaling_f32() -> None:
@@ -11,9 +11,7 @@ def test_apply_scaling_f32() -> None:
 
     # Export config for 50px result (approx)
     # 1 inch @ 50 DPI
-    export_settings = ExportConfig(
-        export_print_size=2.54, export_dpi=50, export_add_border=False
-    )
+    export_settings = ExportConfig(export_print_size=2.54, export_dpi=50, export_add_border=False)
 
     res = service._apply_scaling_and_border_f32(img, params, export_settings)
     assert res.shape == (50, 50, 3)

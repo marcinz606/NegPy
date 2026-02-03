@@ -3,7 +3,7 @@
 .mypy_cache/
 .idea/
 .python-version
-node_modules/
+
 # Electron & Packaging
 node_modules/
 dist/
@@ -25,3 +25,4 @@ venv/
 __pycache__
 VERSION
 TODO.md
+*.egg-info/

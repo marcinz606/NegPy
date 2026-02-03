@@ -1,17 +1,15 @@
 import unittest
 import numpy as np
 from dataclasses import replace
-from src.domain.models import WorkspaceConfig
-from src.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
-from src.domain.interfaces import PipelineContext
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
+from negpy.domain.interfaces import PipelineContext
 
 
 class TestBatchNormalization(unittest.TestCase):
     def setUp(self):
         self.config = WorkspaceConfig()
-        self.context = PipelineContext(
-            scale_factor=1.0, original_size=(100, 100), process_mode="C41"
-        )
+        self.context = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="C41")
 
     def test_normalization_processor_uses_locked_values(self):
         """

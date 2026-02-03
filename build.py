@@ -56,12 +56,12 @@ params = [
     "--collect-all=imageio",
     "--collect-all=imagecodecs",
     # Data files
-    "--add-data=src/features/exposure/shaders:src/features/exposure/shaders",
-    "--add-data=src/features/geometry/shaders:src/features/geometry/shaders",
-    "--add-data=src/features/toning/shaders:src/features/toning/shaders",
-    "--add-data=src/features/retouch/shaders:src/features/retouch/shaders",
-    "--add-data=src/features/lab/shaders:src/features/lab/shaders",
-    "--add-data=src/desktop/view/styles:src/desktop/view/styles",
+    "--add-data=negpy/features/exposure/shaders:src/features/exposure/shaders",
+    "--add-data=negpy/features/geometry/shaders:src/features/geometry/shaders",
+    "--add-data=negpy/features/toning/shaders:src/features/toning/shaders",
+    "--add-data=negpy/features/retouch/shaders:src/features/retouch/shaders",
+    "--add-data=negpy/features/lab/shaders:src/features/lab/shaders",
+    "--add-data=negpy/desktop/view/styles:src/desktop/view/styles",
     "--add-data=icc:icc",
     "--add-data=media:media",
     "--add-data=VERSION:.",
@@ -134,9 +134,7 @@ def package_linux():
                         "wayland-",
                         "xkbcommon-",
                     ]
-                    if "-" in basename and not any(
-                        p in basename for p in system_prefixes
-                    ):
+                    if "-" in basename and not any(p in basename for p in system_prefixes):
                         continue
 
                     os.remove(libpath)
@@ -252,9 +250,7 @@ def package_macos():
 
     try:
         # 1. Copy .app to temp dir (preserve symlinks for macOS bundles)
-        shutil.copytree(
-            app_path, os.path.join(temp_dmg_dir, f"{APP_NAME}.app"), symlinks=True
-        )
+        shutil.copytree(app_path, os.path.join(temp_dmg_dir, f"{APP_NAME}.app"), symlinks=True)
 
         # 2. Create symlink to /Applications
         os.symlink("/Applications", os.path.join(temp_dmg_dir, "Applications"))
@@ -294,9 +290,7 @@ def build():
     if os.path.exists("dist"):
         print(f"Contents of dist: {os.listdir('dist')}")
         if os.path.exists(f"dist/{APP_NAME}"):
-            print(
-                f"Contents of dist/{APP_NAME}: {os.listdir(f'dist/{APP_NAME}')[:10]}... (truncated)"
-            )
+            print(f"Contents of dist/{APP_NAME}: {os.listdir(f'dist/{APP_NAME}')[:10]}... (truncated)")
     else:
         print("ERROR: dist directory not found!")
 

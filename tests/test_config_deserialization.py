@@ -1,6 +1,6 @@
 import unittest
-from src.domain.models import WorkspaceConfig
-from src.features.process.models import ProcessMode
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.process.models import ProcessMode
 
 
 class TestConfigDeserialization(unittest.TestCase):

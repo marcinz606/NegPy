@@ -1,8 +1,8 @@
 import unittest
 import numpy as np
-from src.services.rendering.gpu_engine import GPUEngine
-from src.domain.models import WorkspaceConfig
-from src.infrastructure.gpu.device import GPUDevice
+from negpy.services.rendering.gpu_engine import GPUEngine
+from negpy.domain.models import WorkspaceConfig
+from negpy.infrastructure.gpu.device import GPUDevice
 
 
 class TestGPUEngine(unittest.TestCase):
@@ -33,7 +33,7 @@ class TestGPUEngine(unittest.TestCase):
 
     def test_gpu_process_to_texture(self):
         """Verify process_to_texture returns a GPUTexture."""
-        from src.infrastructure.gpu.resources import GPUTexture
+        from negpy.infrastructure.gpu.resources import GPUTexture
 
         img = np.random.rand(64, 64, 3).astype(np.float32)
         settings = WorkspaceConfig()

@@ -1,0 +1,86 @@
+[project]
+name = "negpy"
+description = "A tool for processing film negatives."
+readme = "README.md"
+license = "GPL-3.0"
+authors = [
+    { name = "marcinz600" },
+    { name = "NegPy Contributors" }
+]
+dynamic = ["version"]
+requires-python = ">=3.13"
+dependencies = [
+    "imagecodecs~=2026.1.14",
+    "imageio~=2.37.2",
+    "jinja2~=3.1.6",
+    "numba~=0.63.1",
+    "numpy~=2.3.5",
+    "opencv-python-headless~=4.13.0.90",
+    "pillow~=12.1.0",
+    "pyqt6~=6.10.2",
+    "pyqt6-charts~=6.10.0",
+    "qtawesome~=1.4.1",
+    "rawpy~=0.26.0",
+    "tifffile~=2026.1.28",
+    "wgpu~=0.29.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: GPU",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+    "Topic :: Scientific/Engineering :: Image Processing"
+]
+
+[dependency-groups]
+dev = [
+    "mypy~=1.19.1",
+    "pyinstaller>=6.18.0",
+    "pytest~=9.0.2",
+    "ruff~=0.14.14",
+]
+
+[project.urls]
+Homepage = "https://github.com/marcinz606/NegPy"
+Documentation = "https://github.com/marcinz606/NegPy/docs"
+Repository = "https://github.com/marcinz606/NegPy.git"
+Issues = "https://github.com/marcinz606/NegPy/issues"
+
+[build-system]
+requires = ["setuptools~=80.10.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.ruff]
+line-length = 140
+exclude = [
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".git",
+    ".github",
+    "user",
+    "docs",
+    ".streamlit",
+    ".pytest_cache",
+    "icc",
+    "processed",
+    "node_modules",
+    "dist",
+    "desktop/bin",
+    "build",
+]
+
+[tool.ruff.lint]
+extend-ignore = [
+    "E203",
+    "E402"
+]
+

@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from src.features.toning.logic import (
+from negpy.features.toning.logic import (
     simulate_paper_substrate,
     apply_chemical_toning,
     PAPER_PROFILES,
@@ -26,12 +26,7 @@ class TestToningLogic(unittest.TestCase):
     def test_apply_chemical_toning_selenium(self):
         """Selenium targets shadows (low luma)."""
         # Create a gradient from 0 to 1
-        img = (
-            np.linspace(0, 1, 100)
-            .reshape((10, 10, 1))
-            .repeat(3, axis=2)
-            .astype(np.float32)
-        )
+        img = np.linspace(0, 1, 100).reshape((10, 10, 1)).repeat(3, axis=2).astype(np.float32)
 
         res = apply_chemical_toning(img, selenium_strength=1.0, sepia_strength=0.0)
 

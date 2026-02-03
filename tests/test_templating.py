@@ -1,6 +1,6 @@
 from datetime import datetime
-from src.domain.models import ExportConfig, ExportFormat
-from src.services.export.templating import render_export_filename
+from negpy.domain.models import ExportConfig, ExportFormat
+from negpy.services.export.templating import render_export_filename
 
 
 def test_basic_templating():
@@ -41,22 +41,16 @@ def test_size_and_dpi_original_res():
 
 def test_border_logic():
     # With border
-    conf_border = ExportConfig(
-        export_border_size=1.5, filename_pattern="{{ original_name }}_{{ border }}"
-    )
+    conf_border = ExportConfig(export_border_size=1.5, filename_pattern="{{ original_name }}_{{ border }}")
     assert render_export_filename("img.jpg", conf_border) == "img_border"
 
     # Without border
-    conf_no_border = ExportConfig(
-        export_border_size=0.0, filename_pattern="{{ original_name }}_{{ border }}"
-    )
+    conf_no_border = ExportConfig(export_border_size=0.0, filename_pattern="{{ original_name }}_{{ border }}")
     assert render_export_filename("img.jpg", conf_no_border) == "img"
 
 
 def test_cleanup_logic():
-    conf = ExportConfig(
-        filename_pattern="{{ original_name }} - {{ colorspace }} --- final"
-    )
+    conf = ExportConfig(filename_pattern="{{ original_name }} - {{ colorspace }} --- final")
     # Spaces, dashes and multiple underscores should be collapsed to single underscore
     result = render_export_filename("my scan.jpg", conf)
     assert result == "my_scan_Adobe_RGB_final"
