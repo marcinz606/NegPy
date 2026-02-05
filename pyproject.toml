@@ -4,7 +4,7 @@ description = "A tool for processing film negatives."
 readme = "README.md"
 license = "GPL-3.0"
 authors = [
-    { name = "marcinz600" },
+    { name = "marcinz606" },
     { name = "NegPy Contributors" }
 ]
 dynamic = ["version"]

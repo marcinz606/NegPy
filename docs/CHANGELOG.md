@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.9.9
+
+- Fix "tiling" on exports that sometimes appeared on high-res exports when using CLAHE
+- Fix image alignment issues when using fine rotation + manual crop
 
 ## 0.9.8
 
