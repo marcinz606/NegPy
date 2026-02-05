@@ -20,8 +20,6 @@ from negpy.features.geometry.logic import (
     map_coords_to_geometry,
 )
 from negpy.features.exposure.normalization import (
-    measure_log_negative_bounds,
-    get_analysis_crop,
     analyze_log_exposure_bounds,
     LogNegativeBounds,
 )
@@ -273,7 +271,7 @@ class GPUEngine:
 
         if bounds_override:
             bounds = bounds_override
-        if settings.process.use_roll_average and settings.process.is_locked_initialized:
+        elif settings.process.use_roll_average and settings.process.is_locked_initialized:
             bounds = LogNegativeBounds(
                 floors=settings.process.locked_floors,
                 ceils=settings.process.locked_ceils,
@@ -283,11 +281,8 @@ class GPUEngine:
                 floors=settings.process.local_floors,
                 ceils=settings.process.local_ceils,
             )
-
         else:
-            # Match CPU: use ROI for analysis if not in tiling mode
             analysis_source = img.copy()
-
             if settings.geometry.rotation != 0:
                 analysis_source = np.rot90(analysis_source, k=settings.geometry.rotation)
             if settings.geometry.flip_horizontal:
@@ -301,12 +296,14 @@ class GPUEngine:
                 settings.process.analysis_buffer,
             )
 
+        pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
+
         self._upload_unified_uniforms(
             settings,
             bounds,
             global_offset,
             actual_full_dims,
-            (x1, y1),
+            (0, 0) if tiling_mode else (x1, y1),
             crop_w,
             crop_h,
             tiling_mode,
@@ -896,22 +893,17 @@ class GPUEngine:
     def _process_tiled(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
-        if settings.process.use_roll_average and settings.process.is_locked_initialized:
-            global_bounds = LogNegativeBounds(
-                floors=settings.process.locked_floors,
-                ceils=settings.process.locked_ceils,
-            )
-        elif settings.process.is_local_initialized:
-            global_bounds = LogNegativeBounds(
-                floors=settings.process.local_floors,
-                ceils=settings.process.local_ceils,
-            )
-        else:
-            global_bounds = measure_log_negative_bounds(
-                get_analysis_crop(np.log10(np.clip(img, 1e-6, 1.0)), settings.process.analysis_buffer)
-                if settings.process.analysis_buffer > 0
-                else np.log10(np.clip(img, 1e-6, 1.0))
-            )
+
+        # 1. Prepare transformed source for analysis
+        img_rot = img
+        if settings.geometry.rotation != 0:
+            img_rot = np.rot90(img_rot, k=settings.geometry.rotation)
+        if settings.geometry.flip_horizontal:
+            img_rot = np.fliplr(img_rot)
+        if settings.geometry.flip_vertical:
+            img_rot = np.flipud(img_rot)
+
+        # 2. Run preview path to get ROI and CLAHE metrics
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
         _, metrics_ref = self.process_to_texture(img_small, settings, scale_factor=scale_factor)
@@ -928,29 +920,30 @@ class GPUEngine:
         read_buf.unmap()
         read_buf.destroy()
 
+        # 3. Calculate full-res ROI
         roi, rot = metrics_ref["active_roi"], settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         h_small, w_small = img_small.shape[:2]
         w_small_rot, h_small_rot = (h_small, w_small) if rot in (1, 3) else (w_small, h_small)
         sy, sx = h_rot / h_small_rot, w_rot / w_small_rot
-        full_roi = (
-            int(roi[0] * sy),
-            int(roi[1] * sy),
-            int(roi[2] * sx),
-            int(roi[3] * sx),
-        )
-        y1, y2, x1, x2 = full_roi
+        y1, y2, x1, x2 = int(roi[0] * sy), int(roi[1] * sy), int(roi[2] * sx), int(roi[3] * sx)
         crop_w, crop_h = x2 - x1, y2 - y1
+
+        # 4. Determine Global Exposure Bounds
+        if settings.process.use_roll_average and settings.process.is_locked_initialized:
+            global_bounds = LogNegativeBounds(
+                floors=settings.process.locked_floors,
+                ceils=settings.process.locked_ceils,
+            )
+        elif settings.process.is_local_initialized:
+            global_bounds = LogNegativeBounds(
+                floors=settings.process.local_floors,
+                ceils=settings.process.local_ceils,
+            )
+        else:
+            global_bounds = analyze_log_exposure_bounds(img_rot, roi=(y1, y2, x1, x2), analysis_buffer=settings.process.analysis_buffer)
+
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
-
-        img_rot = img
-        if settings.geometry.rotation != 0:
-            img_rot = np.rot90(img_rot, k=settings.geometry.rotation)
-        if settings.geometry.flip_horizontal:
-            img_rot = np.fliplr(img_rot)
-        if settings.geometry.flip_vertical:
-            img_rot = np.flipud(img_rot)
-
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
         for ty in range(0, crop_h, TILE_SIZE):
