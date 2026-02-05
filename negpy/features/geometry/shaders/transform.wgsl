@@ -9,7 +9,6 @@ struct GeometryUniforms {
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: GeometryUniforms;
-// Sampler removed, doing manual bilinear interpolation for rgba32float compatibility
 
 fn safeLoad(tex: texture_2d<f32>, coords: vec2<i32>, dims: vec2<i32>) -> vec4<f32> {
     let x = clamp(coords.x, 0, dims.x - 1);
@@ -22,11 +21,7 @@ fn textureSampleBilinear(tex: texture_2d<f32>, uv: vec2<f32>) -> vec4<f32> {
     let dims = vec2<i32>(i32(udims.x), i32(udims.y));
     let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
     
-    // UV to pixel coordinates (center of pixel is 0.5)
-    // 0.0 -> 0.0, 1.0 -> dims
-    // We want pixel center at (x+0.5)
     let pixel = uv * fdims - 0.5;
-    
     let c00 = floor(pixel);
     let c11 = c00 + 1.0;
     
@@ -59,19 +54,27 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     let out_uv = vec2<f32>(f32(coords.x) + 0.5, f32(coords.y) + 0.5) / vec2<f32>(f32(out_dims.x), f32(out_dims.y));
 
-    // Get input dimensions for aspect ratio correction
-    let in_dims = textureDimensions(input_tex);
-    let aspect = f32(in_dims.x) / f32(in_dims.y);
-
-    // Let's transform UVs.
     // 1. Center UV
     var uv = out_uv - 0.5;
 
-    // 2. Inverse Flip
+    // 2. Inverse Fine Rotation (Must be first in sampling path)
+    let out_aspect = f32(out_dims.x) / f32(out_dims.y);
+    if (params.fine_rotation != 0.0) {
+        let rad = radians(params.fine_rotation);
+        let c = cos(rad);
+        let s = sin(rad);
+        let corrected_x = uv.x * out_aspect;
+        let rx = corrected_x * c - uv.y * s;
+        let ry = corrected_x * s + uv.y * c;
+        uv.x = rx / out_aspect;
+        uv.y = ry;
+    }
+
+    // 3. Inverse Flip
     if (params.flip_h == 1) { uv.x = -uv.x; }
     if (params.flip_v == 1) { uv.y = -uv.y; }
 
-    // 3. Inverse Rotation (90 deg steps)
+    // 4. Inverse 90-degree steps
     let k = params.rotation % 4;
     var temp_uv = uv;
     if (k == 1) {
@@ -86,23 +89,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     uv = temp_uv;
 
-    // 4. Inverse Fine Rotation
-    if (params.fine_rotation != 0.0) {
-        let rad = radians(params.fine_rotation);
-        let c = cos(rad);
-        let s = sin(rad);
-        // Convert to aspect-corrected space, rotate, then convert back
-        let corrected_x = uv.x * aspect;
-        let rx = corrected_x * c - uv.y * s;
-        let ry = corrected_x * s + uv.y * c;
-        uv.x = rx / aspect;
-        uv.y = ry;
-    }
-
-    // 5. Un-center
+    // 5. Un-center and sample
     uv = uv + 0.5;
 
-    // Sample
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         textureStore(output_tex, coords, vec4<f32>(0.0, 0.0, 0.0, 1.0));
     } else {

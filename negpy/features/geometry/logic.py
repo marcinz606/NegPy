@@ -15,7 +15,7 @@ def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
 
     h, w = img.shape[:2]
     center = (w / 2.0, h / 2.0)
-    m_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+    m_mat = cv2.getRotationMatrix2D(center, -angle, 1.0)
 
     res = cv2.warpAffine(
         img,
@@ -226,7 +226,7 @@ def map_coords_to_geometry(
 
     if fine_rotation != 0.0:
         center = (w / 2.0, h / 2.0)
-        m_mat = cv2.getRotationMatrix2D(center, fine_rotation, 1.0)
+        m_mat = cv2.getRotationMatrix2D(center, -fine_rotation, 1.0)
         pt = np.array([px, py, 1.0])
         res_pt = m_mat @ pt
         px, py = float(res_pt[0]), float(res_pt[1])

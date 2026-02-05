@@ -26,7 +26,7 @@ class CoordinateMapping:
         uv_grid = np.stack([u_raw, v_raw], axis=-1).astype(np.float32)
 
         if rotation != 0:
-            uv_grid = np.rot90(uv_grid, k=rotation).astype(np.float32)
+            uv_grid = np.rot90(uv_grid, k=-rotation).astype(np.float32)
 
         if flip_h:
             uv_grid = np.fliplr(uv_grid).astype(np.float32)
@@ -36,7 +36,7 @@ class CoordinateMapping:
 
         if fine_rot != 0.0:
             h_r, w_r = uv_grid.shape[:2]
-            m_mat = cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), fine_rot, 1.0)
+            m_mat = cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), -fine_rot, 1.0)
             uv_grid = cv2.warpAffine(uv_grid, m_mat, (w_r, h_r), flags=cv2.INTER_LINEAR).astype(np.float32)
 
         if autocrop and autocrop_params:
