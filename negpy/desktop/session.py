@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Any, List, Optional
 from PyQt6.QtCore import QObject, pyqtSignal, QAbstractListModel, QModelIndex, Qt
 from negpy.domain.models import WorkspaceConfig
@@ -28,6 +28,7 @@ class AppState:
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     thumbnails: Dict[str, Any] = field(default_factory=dict)  # filename -> QIcon/QPixmap
     selected_file_idx: int = -1
+    selected_indices: List[int] = field(default_factory=list)
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     preview_raw: Optional[Any] = None
@@ -108,7 +109,6 @@ class DesktopSessionManager(QObject):
         Overlays globally persisted settings onto the config.
         If only_global is True, only non-look settings (Export) are applied.
         """
-        from dataclasses import replace
         from negpy.domain.models import (
             ExportConfig,
             LabConfig,
@@ -116,7 +116,6 @@ class DesktopSessionManager(QObject):
             RetouchConfig,
         )
 
-        # --- Global Infrastructure Settings (Always Applied) ---
         sticky_export = self.repo.get_global_setting("last_export_config")
         if sticky_export:
             valid_keys = ExportConfig.__dataclass_fields__.keys()
@@ -127,9 +126,6 @@ class DesktopSessionManager(QObject):
         if only_global:
             return config
 
-        # --- Look & Style Settings (Applied to new files) ---
-
-        # 1. Process Section
         sticky_mode = self.repo.get_global_setting("last_process_mode")
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
         sticky_roll_average = self.repo.get_global_setting("last_use_roll_average")
@@ -153,7 +149,6 @@ class DesktopSessionManager(QObject):
 
         config = replace(config, process=new_process)
 
-        # 2. Exposure Section
         sticky_density = self.repo.get_global_setting("last_density")
         sticky_grade = self.repo.get_global_setting("last_grade")
         sticky_cyan = self.repo.get_global_setting("last_wb_cyan")
@@ -197,7 +192,6 @@ class DesktopSessionManager(QObject):
 
         config = replace(config, exposure=new_exp)
 
-        # 3. Geometry & Offset
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
         sticky_offset = self.repo.get_global_setting("last_autocrop_offset")
 
@@ -209,21 +203,18 @@ class DesktopSessionManager(QObject):
 
         config = replace(config, geometry=new_geo)
 
-        # 4. Lab Settings
         sticky_lab = self.repo.get_global_setting("last_lab_config")
         if sticky_lab:
             valid_keys = LabConfig.__dataclass_fields__.keys()
             filtered = {k: v for k, v in sticky_lab.items() if k in valid_keys}
             config = replace(config, lab=LabConfig(**filtered))
 
-        # 5. Toning Settings
         sticky_toning = self.repo.get_global_setting("last_toning_config")
         if sticky_toning:
             valid_keys = ToningConfig.__dataclass_fields__.keys()
             filtered = {k: v for k, v in sticky_toning.items() if k in valid_keys}
             config = replace(config, toning=ToningConfig(**filtered))
 
-        # 6. Retouch Settings
         sticky_retouch = self.repo.get_global_setting("last_retouch_config")
         if sticky_retouch:
             valid_keys = RetouchConfig.__dataclass_fields__.keys()
@@ -267,7 +258,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_toning_config", asdict(config.toning))
         self.repo.save_global_setting("last_retouch_config", asdict(config.retouch))
 
-    def select_file(self, index: int) -> None:
+    def select_file(self, index: int, selection_override: Optional[List[int]] = None) -> None:
         """
         Changes active file and hydrates state from repository.
         """
@@ -279,10 +270,10 @@ class DesktopSessionManager(QObject):
 
             file_info = self.state.uploaded_files[index]
             self.state.selected_file_idx = index
+            self.state.selected_indices = selection_override if selection_override is not None else [index]
             self.state.current_file_path = file_info["path"]
             self.state.current_file_hash = file_info["hash"]
 
-            # Load settings for new file
             saved_config = self.repo.load_file_settings(file_info["hash"])
 
             if saved_config:
@@ -292,6 +283,47 @@ class DesktopSessionManager(QObject):
 
             self.file_selected.emit(file_info["path"])
             self.state_changed.emit()
+
+    def update_selection(self, indices: List[int]) -> None:
+        """Updates the list of currently selected indices."""
+        self.state.selected_indices = indices
+        self.state_changed.emit()
+
+    def sync_selected_settings(self) -> None:
+        """
+        Synchronizes current settings to all other selected files,
+        excluding file-specific parameters (crop, rotation, retouch).
+        """
+        if not self.state.selected_indices or self.state.selected_file_idx == -1:
+            return
+
+        source_config = self.state.config
+
+        for idx in self.state.selected_indices:
+            if idx == self.state.selected_file_idx:
+                continue
+
+            if 0 <= idx < len(self.state.uploaded_files):
+                target_info = self.state.uploaded_files[idx]
+                target_hash = target_info["hash"]
+
+                target_config = self.repo.load_file_settings(target_hash)
+                if not target_config:
+                    target_config = WorkspaceConfig()
+
+                merged_geo = replace(
+                    source_config.geometry,
+                    manual_crop_rect=target_config.geometry.manual_crop_rect,
+                    fine_rotation=target_config.geometry.fine_rotation,
+                )
+
+                merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
+
+                new_config = replace(source_config, geometry=merged_geo, retouch=merged_retouch)
+
+                self.repo.save_file_settings(target_hash, new_config)
+
+        self.settings_saved.emit()
 
     def next_file(self) -> None:
         if self.state.selected_file_idx < len(self.state.uploaded_files) - 1:

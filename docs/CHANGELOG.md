@@ -2,6 +2,8 @@
 
 ## 0.9.9
 
+- Added button to sync edits to selected files
+    - Multiselect files in film strip using ctrl/cmd + click or drag with shift + click
 - Fix "tiling" on exports that sometimes appeared on high-res exports when using CLAHE
 - Fix image alignment issues when using fine rotation + manual crop
 
