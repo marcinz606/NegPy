@@ -61,7 +61,7 @@ def main() -> None:
         if os.path.exists(icon_path):
             app.setWindowIcon(QIcon(icon_path))
 
-        qss_path = get_resource_path("src/desktop/view/styles/modern_dark.qss")
+        qss_path = get_resource_path("negpy/desktop/view/styles/modern_dark.qss")
         if os.path.exists(qss_path):
             with open(qss_path, "r") as f:
                 app.setStyleSheet(f.read())
