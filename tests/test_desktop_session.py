@@ -1,12 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
 from dataclasses import replace
-from PyQt6.QtWidgets import QApplication
-import sys
-
-app = QApplication.instance()
-if not app:
-    app = QApplication(sys.argv)
 
 from negpy.desktop.session import DesktopSessionManager
 from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig
