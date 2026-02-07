@@ -22,7 +22,10 @@ class NormalizationProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
-        img_log = np.log10(np.clip(image, epsilon, 1.0))
+        if context.process_mode == ProcessMode.E6:
+            img_log = np.log10(np.clip(1.0 - image, epsilon, 1.0))
+        else:
+            img_log = np.log10(np.clip(image, epsilon, 1.0))
 
         if self.config.use_roll_average and self.config.is_locked_initialized:
             bounds = LogNegativeBounds(floors=self.config.locked_floors, ceils=self.config.locked_ceils)
@@ -33,7 +36,9 @@ class NormalizationProcessor:
             if "log_bounds" in context.metrics and cached_buffer is not None and abs(cached_buffer - self.config.analysis_buffer) < 1e-5:
                 bounds = context.metrics["log_bounds"]
             else:
-                bounds = analyze_log_exposure_bounds(image, context.active_roi, self.config.analysis_buffer)
+                bounds = analyze_log_exposure_bounds(
+                    image, context.active_roi, self.config.analysis_buffer, process_mode=context.process_mode
+                )
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
 

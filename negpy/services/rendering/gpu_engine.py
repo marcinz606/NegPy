@@ -165,8 +165,8 @@ class GPUEngine:
         idx = self._uniform_names.index(name)
         sizes = {
             "geometry": 32,
-            "normalization": 32,
-            "exposure": 80,
+            "normalization": 64,
+            "exposure": 112,
             "clahe_u": 32,
             "retouch_u": 40,
             "lab": 64,
@@ -297,6 +297,7 @@ class GPUEngine:
                 analysis_source,
                 roi if not tiling_mode else None,
                 settings.process.analysis_buffer,
+                process_mode=settings.process.process_mode,
             )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
@@ -574,7 +575,13 @@ class GPUEngine:
             g_data = b"\x00" * 32
 
         f, c = bounds.floors, bounds.ceils
-        n_data = struct.pack("ffffffff", f[0], f[1], f[2], 0.0, c[0], c[1], c[2], 0.0)
+        mode_val = 0
+        if settings.process.process_mode == ProcessMode.BW:
+            mode_val = 1
+        elif settings.process.process_mode == ProcessMode.E6:
+            mode_val = 2
+
+        n_data = struct.pack("ffff", f[0], f[1], f[2], 0.0) + struct.pack("ffff", c[0], c[1], c[2], 0.0) + struct.pack("I", mode_val)
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -946,7 +953,12 @@ class GPUEngine:
                 ceils=settings.process.local_ceils,
             )
         else:
-            global_bounds = analyze_log_exposure_bounds(img_rot, roi=(y1, y2, x1, x2), analysis_buffer=settings.process.analysis_buffer)
+            global_bounds = analyze_log_exposure_bounds(
+                img_rot,
+                roi=(y1, y2, x1, x2),
+                analysis_buffer=settings.process.analysis_buffer,
+                process_mode=settings.process.process_mode,
+            )
 
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)

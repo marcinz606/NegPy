@@ -6,6 +6,7 @@ from enum import StrEnum
 class ProcessMode(StrEnum):
     C41 = "C41"
     BW = "B&W"
+    E6 = "E-6"
 
 
 @dataclass(frozen=True)

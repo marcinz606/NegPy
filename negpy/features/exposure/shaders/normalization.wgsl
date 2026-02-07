@@ -1,6 +1,10 @@
 struct NormUniforms {
-    floors: vec4<f32>,
-    ceils: vec4<f32>,
+    floors: vec4<f32>, // 0-16
+    ceils: vec4<f32>,  // 16-32
+    mode: u32,         // 32-36
+    pad0: f32,         // 36-40
+    pad1: vec2<f32>,   // 40-48
+    pad2: vec4<f32>,   // 48-64 (Total 64 bytes)
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -19,8 +23,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
-    let color = textureLoad(input_tex, coords, 0).rgb;
+    var color = textureLoad(input_tex, coords, 0).rgb;
     
+    // E-6 Slide Inversion (Linear)
+    if (params.mode == 2u) {
+        color = 1.0 - color;
+    }
+
     // 1. Log10 Conversion
     let epsilon = 1e-6;
     let log_color = log10_vec(max(color, vec3<f32>(epsilon)));

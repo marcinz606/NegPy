@@ -3,6 +3,7 @@ import numpy as np
 from numba import njit, prange  # type: ignore
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
+from negpy.features.process.models import ProcessMode
 
 
 @njit(parallel=True, cache=True, fastmath=True)
@@ -88,12 +89,16 @@ def analyze_log_exposure_bounds(
     image: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
+    process_mode: str = ProcessMode.C41,
 ) -> LogNegativeBounds:
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
     """
     epsilon = 1e-6
-    img_log = np.log10(np.clip(image, epsilon, 1.0))
+    if process_mode == ProcessMode.E6:
+        img_log = np.log10(np.clip(1.0 - image, epsilon, 1.0))
+    else:
+        img_log = np.log10(np.clip(image, epsilon, 1.0))
 
     if roi:
         y1, y2, x1, x2 = roi
