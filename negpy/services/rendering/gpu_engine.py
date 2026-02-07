@@ -18,6 +18,7 @@ from negpy.features.geometry.logic import (
     get_manual_rect_coords,
     get_autocrop_coords,
     map_coords_to_geometry,
+    apply_fine_rotation,
 )
 from negpy.features.exposure.normalization import (
     analyze_log_exposure_bounds,
@@ -289,6 +290,8 @@ class GPUEngine:
                 analysis_source = np.fliplr(analysis_source)
             if settings.geometry.flip_vertical:
                 analysis_source = np.flipud(analysis_source)
+            if settings.geometry.fine_rotation != 0.0:
+                analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
 
             bounds = analyze_log_exposure_bounds(
                 analysis_source,
@@ -902,6 +905,8 @@ class GPUEngine:
             img_rot = np.fliplr(img_rot)
         if settings.geometry.flip_vertical:
             img_rot = np.flipud(img_rot)
+        if settings.geometry.fine_rotation != 0.0:
+            img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
 
         # 2. Run preview path to get ROI and CLAHE metrics
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)

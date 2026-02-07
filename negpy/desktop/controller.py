@@ -542,6 +542,12 @@ class AppController(QObject):
         if should_update_thumb:
             self._update_thumbnail_from_state(force_readback=True)
 
+        if self._pending_render_task:
+            task = self._pending_render_task
+            self._pending_render_task = None
+            self._is_rendering = True
+            self.render_requested.emit(task)
+
     def _on_metrics_updated(self, metrics: Dict[str, Any]) -> None:
         """
         Handles late-arriving metrics and persists analysis results.

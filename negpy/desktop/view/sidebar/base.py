@@ -61,7 +61,7 @@ class BaseSidebar(QWidget):
         # Replace the section in the main config object
         new_config = replace(self.state.config, **{section_name: new_section})
 
-        self.controller.session.update_config(new_config, persist=persist)
+        self.controller.session.update_config(new_config, persist=persist, render=render)
 
         if render:
             self.controller.request_render(readback_metrics=readback_metrics)
@@ -77,7 +77,7 @@ class BaseSidebar(QWidget):
         Updates fields on the root config object directly.
         """
         new_config = replace(self.state.config, **changes)
-        self.controller.session.update_config(new_config, persist=persist)
+        self.controller.session.update_config(new_config, persist=persist, render=render)
 
         if render:
             self.controller.request_render(readback_metrics=readback_metrics)
