@@ -10,19 +10,19 @@ authors = [
 dynamic = ["version"]
 requires-python = ">=3.13"
 dependencies = [
-    "imagecodecs~=2026.1.14",
-    "imageio~=2.37.2",
-    "jinja2~=3.1.6",
-    "numba~=0.63.1",
-    "numpy~=2.3.5",
-    "opencv-python-headless~=4.13.0.90",
-    "pillow~=12.1.0",
-    "pyqt6~=6.10.2",
-    "pyqt6-charts~=6.10.0",
-    "qtawesome~=1.4.1",
-    "rawpy~=0.26.0",
-    "tifffile~=2026.1.28",
-    "wgpu~=0.29.0",
+    "imagecodecs==2026.1.1",
+    "imageio==2.37.2",
+    "jinja2==3.1.6",
+    "numba==0.63.1",
+    "numpy==2.2.6",
+    "opencv-python-headless==4.12.0.88",
+    "pillow==12.0.0",
+    "pyqt6==6.10.2",
+    "pyqt6-charts==6.10.0",
+    "qtawesome==1.4.0",
+    "rawpy==0.25.1",
+    "tifffile==2025.12.20",
+    "wgpu==0.29.0",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -39,10 +39,10 @@ classifiers = [
 
 [dependency-groups]
 dev = [
-    "mypy~=1.19.1",
+    "mypy==1.19.1",
     "pyinstaller>=6.18.0",
-    "pytest~=9.0.2",
-    "ruff~=0.14.14",
+    "pytest==9.0.2",
+    "ruff==0.14.10",
 ]
 
 [project.urls]
