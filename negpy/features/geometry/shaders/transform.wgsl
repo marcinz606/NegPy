@@ -92,10 +92,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // 5. Un-center and sample
     uv = uv + 0.5;
 
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-        textureStore(output_tex, coords, vec4<f32>(0.0, 0.0, 0.0, 1.0));
-    } else {
-        let color = textureSampleBilinear(input_tex, uv);
-        textureStore(output_tex, coords, color);
-    }
+    let color = textureSampleBilinear(input_tex, uv);
+    textureStore(output_tex, coords, color);
 }

@@ -130,7 +130,11 @@ class GPUEngine:
             return
         device = self.gpu.device
         self._sampler = device.create_sampler(min_filter="linear", mag_filter="linear")
-        self._alignment = self.gpu.limits.get("min_uniform_buffer_offset_alignment", UNIFORM_ALIGNMENT_DEFAULT)
+
+        # Enforce 256-byte alignment to safely accommodate large structs (Exposure=112b)
+        # even if hardware reports a smaller minimum (e.g. 64b).
+        hw_min = self.gpu.limits.get("min_uniform_buffer_offset_alignment", 256)
+        self._alignment = max(256, hw_min)
 
         for name, path in self._shaders.items():
             self._pipelines[name] = self._create_pipeline(path)

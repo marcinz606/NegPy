@@ -22,8 +22,7 @@ def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
         m_mat,
         (w, h),
         flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=(0, 0, 0),
+        borderMode=cv2.BORDER_REPLICATE,
     )
     return ensure_image(res)
 
