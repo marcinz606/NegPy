@@ -131,8 +131,6 @@ class GPUEngine:
         device = self.gpu.device
         self._sampler = device.create_sampler(min_filter="linear", mag_filter="linear")
 
-        # Enforce 256-byte alignment to safely accommodate large structs (Exposure=112b)
-        # even if hardware reports a smaller minimum (e.g. 64b).
         hw_min = self.gpu.limits.get("min_uniform_buffer_offset_alignment", 256)
         self._alignment = max(256, hw_min)
 
@@ -654,9 +652,13 @@ class GPUEngine:
         )
 
         lab = settings.lab
-        m_raw = lab.crosstalk_matrix if lab.crosstalk_matrix else [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        m_raw = lab.crosstalk_matrix
+        if m_raw is None:
+            if settings.process.process_mode == ProcessMode.E6:
+                m_raw = lab.E6_MATRIX
+            else:
+                m_raw = lab.C41_MATRIX
 
-        # Match CPU logic: Strength is amount above 1.0
         sep_strength = max(0.0, lab.color_separation - 1.0)
 
         cal = np.array(m_raw).reshape(3, 3)
@@ -770,7 +772,6 @@ class GPUEngine:
         else:
             if use_orig:
                 content_w, content_h = cw, ch
-                # Calculate paper based on ratio but ensuring it fits the content
                 try:
                     w_r, h_r = map(float, settings.export.paper_aspect_ratio.split(":"))
                     paper_ratio = w_r / h_r
@@ -913,7 +914,6 @@ class GPUEngine:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
 
-        # 1. Prepare transformed source for analysis
         img_rot = img
         if settings.geometry.rotation != 0:
             img_rot = np.rot90(img_rot, k=settings.geometry.rotation)
@@ -924,7 +924,6 @@ class GPUEngine:
         if settings.geometry.fine_rotation != 0.0:
             img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
 
-        # 2. Run preview path to get ROI and CLAHE metrics
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
         _, metrics_ref = self.process_to_texture(img_small, settings, scale_factor=scale_factor)
@@ -941,7 +940,6 @@ class GPUEngine:
         read_buf.unmap()
         read_buf.destroy()
 
-        # 3. Calculate full-res ROI
         roi, rot = metrics_ref["active_roi"], settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         h_small, w_small = img_small.shape[:2]
@@ -950,7 +948,6 @@ class GPUEngine:
         y1, y2, x1, x2 = int(roi[0] * sy), int(roi[1] * sy), int(roi[2] * sx), int(roi[3] * sx)
         crop_w, crop_h = x2 - x1, y2 - y1
 
-        # 4. Determine Global Exposure Bounds
         if settings.process.use_roll_average and settings.process.is_locked_initialized:
             global_bounds = LogNegativeBounds(
                 floors=settings.process.locked_floors,
