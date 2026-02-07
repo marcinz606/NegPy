@@ -1,56 +1,58 @@
 # Variables
-VENV = .venv
-
-ifeq ($(OS),Windows_NT)
-	PYTHON = $(VENV)\Scripts\python.exe
-else
-	PYTHON = $(VENV)/bin/python
-endif
-
-PYTEST = $(PYTHON) -m pytest
-MYPY = $(PYTHON) -m mypy
-RUFF = $(PYTHON) -m ruff
+UV = uv run
 
 # Default target
 .PHONY: all
 all: lint type test
 
+# Install dependencies
+.PHONY: install
+install:
+	@echo "Installing dependencies with uv..."
+	@uv sync --all-groups
+
+# Sync dependencies
+.PHONY: sync
+sync:
+	@echo "Syncing dependencies with uv..."
+	@uv sync --all-groups
+
 # Lint checks (ruff)
 .PHONY: lint
 lint:
 	@echo "Running lint checks (ruff)..."
-	@$(RUFF) check .
+	@$(UV) ruff check .
 
 # Type checks (mypy)
 .PHONY: type
 type:
 	@echo "Running type checks (mypy)..."
-	@$(MYPY) .
+	@$(UV) mypy .
 
 # Unit tests (pytest)
 .PHONY: test
 test:
 	@echo "Running unit tests (pytest)..."
-	@$(PYTEST) tests/
+	@$(UV) pytest tests/
 
 # Auto-format and fix (ruff)
 .PHONY: format
 format:
 	@echo "Running ruff format and fix..."
-	@$(RUFF) format .
-	@$(RUFF) check --fix .
+	@$(UV) ruff format .
+	@$(UV) ruff check --fix .
 
 # Run the application locally
 .PHONY: run
 run:
 	@echo "Starting NegPy Desktop..."
-	@$(PYTHON) desktop.py
+	@$(UV) python desktop.py
 
 # Build the application
 .PHONY: build
 build:
 	@echo "Building NegPy..."
-	@$(PYTHON) build.py
+	@$(UV) python build.py
 
 # Clean up caches and build artifacts
 .PHONY: clean

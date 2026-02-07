@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.9.10
+
+- Initial release of "E-6" mode for positives/slides
+    - Optional "Normalize" step that tries to save expired slides
+- Fix regression from 0.9.9 that caused colorcasts on some files.
+
 ## 0.9.9
 
 - Added button to sync edits to selected files

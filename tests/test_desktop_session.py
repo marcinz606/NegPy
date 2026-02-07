@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from dataclasses import replace
 
 from negpy.desktop.session import DesktopSessionManager
-from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig
+from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, ProcessConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 
 
@@ -32,6 +32,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=1.5),
             geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0, 0, 1, 1)),
             retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
+            process=ProcessConfig(process_mode="E-6", e6_normalize=True),
         )
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
@@ -41,6 +42,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             exposure=replace(WorkspaceConfig().exposure, density=0.0),
             geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
             retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[]),
+            process=ProcessConfig(process_mode="C41", e6_normalize=False),
         )
         self.mock_repo.load_file_settings.return_value = target_config
 
@@ -53,6 +55,8 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.assertEqual(saved_config.exposure.density, 1.5)
         self.assertEqual(saved_config.geometry.rotation, 1)
+        self.assertEqual(saved_config.process.process_mode, "E-6")
+        self.assertTrue(saved_config.process.e6_normalize)
 
         # Excluded fields
         self.assertEqual(saved_config.geometry.fine_rotation, 0.0)

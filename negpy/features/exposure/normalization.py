@@ -10,6 +10,7 @@ from negpy.features.process.models import ProcessMode
 def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray) -> np.ndarray:
     """
     Log -> 0.0-1.0 (Linear stretch).
+    Supports both f < c (Negative) and f > c (Positive) mapping.
     """
     h, w, c = img_log.shape
     res = np.empty_like(img_log)
@@ -20,7 +21,16 @@ def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.
             for ch in range(3):
                 f = floors[ch]
                 c_val = ceils[ch]
-                norm = (img_log[y, x, ch] - f) / (max(c_val - f, epsilon))
+                delta = c_val - f
+
+                denom = delta
+                if abs(delta) < epsilon:
+                    if delta >= 0:
+                        denom = epsilon
+                    else:
+                        denom = -epsilon
+
+                norm = (img_log[y, x, ch] - f) / denom
                 if norm < 0.0:
                     norm = 0.0
                 elif norm > 1.0:
@@ -90,13 +100,25 @@ def analyze_log_exposure_bounds(
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
     process_mode: str = ProcessMode.C41,
+    e6_normalize: bool = True,
 ) -> LogNegativeBounds:
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
     """
+    from negpy.features.exposure.heuristics import (
+        NormalizationHeuristic,
+        NegativeHeuristic,
+        SlideHeuristic,
+    )
+
     epsilon = 1e-6
+    low_p, high_p = 0.5, 99.5
+    heuristic: NormalizationHeuristic = NegativeHeuristic()
+
     if process_mode == ProcessMode.E6:
-        img_log = np.log10(np.clip(1.0 - image, epsilon, 1.0))
+        img_log = np.log10(np.clip(image, epsilon, 1.0))
+        low_p, high_p = 0.01, 99.9
+        heuristic = SlideHeuristic(auto_stretch=e6_normalize)
     else:
         img_log = np.log10(np.clip(image, epsilon, 1.0))
 
@@ -107,4 +129,4 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    return measure_log_negative_bounds(img_log)
+    return heuristic.calculate_bounds(img_log, low_p, high_p)

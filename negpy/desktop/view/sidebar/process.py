@@ -28,6 +28,13 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider = SignalSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.layout.addWidget(self.analysis_buffer_slider)
 
+        self.normalize_e6_btn = QPushButton(" Normalize")
+        self.normalize_e6_btn.setFixedHeight(35)
+        self.normalize_e6_btn.setCheckable(True)
+        self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
+        self.normalize_e6_btn.setChecked(conf.e6_normalize)
+        self.layout.addWidget(self.normalize_e6_btn)
+
         btns_row = QHBoxLayout()
         self.analyze_roll_btn = QPushButton(" Batch Analysis")
         self.analyze_roll_btn.setFixedHeight(35)
@@ -67,6 +74,7 @@ class ProcessSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         self.analysis_buffer_slider.valueChanged.connect(self._on_buffer_changed)
+        self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.analyze_roll_btn.clicked.connect(self.controller.request_batch_normalization)
         self.use_roll_avg_btn.toggled.connect(self._on_use_roll_average_toggled)
 
@@ -76,6 +84,11 @@ class ProcessSidebar(BaseSidebar):
 
     def _on_mode_changed(self, mode: str) -> None:
         self.update_config_section("process", process_mode=mode, persist=True)
+        self.sync_ui()
+
+    def _on_normalize_e6_toggled(self, checked: bool) -> None:
+        self.update_config_section("process", e6_normalize=checked, persist=True)
+        self._update_normalize_btn_style(checked)
 
     def _on_buffer_changed(self, val: float) -> None:
         """
@@ -167,12 +180,36 @@ class ProcessSidebar(BaseSidebar):
         else:
             self.use_roll_avg_btn.setStyleSheet("")
 
+    def _update_normalize_btn_style(self, checked: bool) -> None:
+        """
+        Updates normalize button icon and color.
+        """
+        if checked:
+            self.normalize_e6_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {THEME.accent_primary};
+                    color: white;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+            """)
+            self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color="white"))
+        else:
+            self.normalize_e6_btn.setStyleSheet("")
+            self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
+
     def sync_ui(self) -> None:
         conf = self.state.config.process
         self.block_signals(True)
         try:
             self.mode_combo.setCurrentText(conf.process_mode)
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
+
+            is_e6 = conf.process_mode == ProcessMode.E6
+            self.normalize_e6_btn.setVisible(is_e6)
+            self.normalize_e6_btn.setChecked(conf.e6_normalize)
+            self._update_normalize_btn_style(conf.e6_normalize)
+
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
             self._update_roll_avg_btn_style(conf.use_roll_average)
             self._refresh_rolls()
@@ -188,6 +225,7 @@ class ProcessSidebar(BaseSidebar):
         widgets = [
             self.mode_combo,
             self.analysis_buffer_slider,
+            self.normalize_e6_btn,
             self.analyze_roll_btn,
             self.use_roll_avg_btn,
             self.roll_combo,

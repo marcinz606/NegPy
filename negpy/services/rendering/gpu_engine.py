@@ -302,6 +302,7 @@ class GPUEngine:
                 roi if not tiling_mode else None,
                 settings.process.analysis_buffer,
                 process_mode=settings.process.process_mode,
+                e6_normalize=settings.process.e6_normalize,
             )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
@@ -585,7 +586,11 @@ class GPUEngine:
         elif settings.process.process_mode == ProcessMode.E6:
             mode_val = 2
 
-        n_data = struct.pack("ffff", f[0], f[1], f[2], 0.0) + struct.pack("ffff", c[0], c[1], c[2], 0.0) + struct.pack("I", mode_val)
+        n_data = (
+            struct.pack("ffff", f[0], f[1], f[2], 0.0)
+            + struct.pack("ffff", c[0], c[1], c[2], 0.0)
+            + struct.pack("II", mode_val, (1 if settings.process.e6_normalize else 0))
+        )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -962,6 +967,7 @@ class GPUEngine:
                 roi=(y1, y2, x1, x2),
                 analysis_buffer=settings.process.analysis_buffer,
                 process_mode=settings.process.process_mode,
+                e6_normalize=settings.process.e6_normalize,
             )
 
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)

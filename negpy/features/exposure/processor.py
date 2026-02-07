@@ -22,10 +22,7 @@ class NormalizationProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
-        if context.process_mode == ProcessMode.E6:
-            img_log = np.log10(np.clip(1.0 - image, epsilon, 1.0))
-        else:
-            img_log = np.log10(np.clip(image, epsilon, 1.0))
+        img_log = np.log10(np.clip(image, epsilon, 1.0))
 
         if self.config.use_roll_average and self.config.is_locked_initialized:
             bounds = LogNegativeBounds(floors=self.config.locked_floors, ceils=self.config.locked_ceils)
@@ -37,7 +34,11 @@ class NormalizationProcessor:
                 bounds = context.metrics["log_bounds"]
             else:
                 bounds = analyze_log_exposure_bounds(
-                    image, context.active_roi, self.config.analysis_buffer, process_mode=context.process_mode
+                    image,
+                    context.active_roi,
+                    self.config.analysis_buffer,
+                    process_mode=context.process_mode,
+                    e6_normalize=self.config.e6_normalize,
                 )
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
@@ -69,6 +70,12 @@ class PhotometricProcessor:
             self.config.wb_yellow * cmy_max,
         )
 
+        mode_val = 0
+        if context.process_mode == ProcessMode.BW:
+            mode_val = 1
+        elif context.process_mode == ProcessMode.E6:
+            mode_val = 2
+
         img_pos = apply_characteristic_curve(
             image,
             params_r=(pivots[0], slope),
@@ -81,6 +88,7 @@ class PhotometricProcessor:
             shoulder_width=self.config.shoulder_width,
             shoulder_hardness=self.config.shoulder_hardness,
             cmy_offsets=cmy_offsets,
+            mode=mode_val,
         )
 
         if context.process_mode == ProcessMode.BW:

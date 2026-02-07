@@ -319,7 +319,18 @@ class DesktopSessionManager(QObject):
 
                 merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
 
-                new_config = replace(source_config, geometry=merged_geo, retouch=merged_retouch)
+                merged_process = replace(
+                    source_config.process,
+                    local_floors=target_config.process.local_floors,
+                    local_ceils=target_config.process.local_ceils,
+                )
+
+                new_config = replace(
+                    source_config,
+                    geometry=merged_geo,
+                    retouch=merged_retouch,
+                    process=merged_process,
+                )
 
                 self.repo.save_file_settings(target_hash, new_config)
 

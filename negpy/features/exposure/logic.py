@@ -38,6 +38,7 @@ def _apply_photometric_fused_kernel(
     cmy_offsets: np.ndarray,
     d_max: float = 4.0,
     gamma: float = 2.2,
+    mode: int = 0,
 ) -> np.ndarray:
     """
     Fused JIT kernel for H&D curve application.
@@ -70,7 +71,11 @@ def _apply_photometric_fused_kernel(
                 elif k_mod > 2.0:
                     k_mod = 2.0
 
-                density = d_max * _fast_sigmoid(float(slopes[ch]) * diff * k_mod)
+                slope = slopes[ch]
+                if mode == 2:
+                    slope *= 1.15
+
+                density = d_max * _fast_sigmoid(float(slope) * diff * k_mod)
 
                 transmittance = 10.0 ** (-density)
                 final_val = transmittance**inv_gamma
@@ -144,6 +149,7 @@ def apply_characteristic_curve(
     shoulder_width: float = 3.0,
     shoulder_hardness: float = 1.0,
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    mode: int = 0,
 ) -> ImageBuffer:
     """
     Applies a film/paper characteristic curve (Sigmoid) per channel in Log-Density space.
@@ -163,6 +169,7 @@ def apply_characteristic_curve(
         float(shoulder_width),
         float(shoulder_hardness),
         offsets,
+        mode=mode,
     )
 
     return ensure_image(res)
