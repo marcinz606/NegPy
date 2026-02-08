@@ -4,19 +4,20 @@ Thank you for your interest in contributing to **NegPy**!
 
 ## 🛠️ Development Setup
 
-NegPy requires **Python 3.13+**.
+NegPy requires **Python 3.13+**. We use **uv** for environment and dependency management.
 
-### 1. Python Environment
-We use a virtual environment named `.venv` (used by the Makefile).
+### 1. Prerequisites
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you haven't already.
+
+### 2. Python Environment
+The `Makefile` handles synchronization via `uv`. Run this to set up your environment:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install .
+make install
 ```
 
-### 2. Running Locally
-You can run the desktop application directly from source:
+
+### 3. Running Locally
 
 ```bash
 make run
@@ -52,13 +53,14 @@ make test
 ```
 
 ### 3. Workflow (The Makefile)
-The `Makefile` is the central source of truth for developer commands:
+The `Makefile` is the central source of truth for developer commands and executes everything via `uv run`:
+- `make install`: Set up environment and sync dependencies.
 - `make lint`: Run Ruff checks.
 - `make type`: Run Mypy type checks.
 - `make test`: Run all unit tests.
 - `make format`: Auto-format code with Ruff.
 - `make all`: Run lint, type, and test in sequence.
-- `make clean`: Removes cache from tests.
+- `make clean`: Removes cache and build artifacts.
 
 
 ## 📦 Building and Packaging

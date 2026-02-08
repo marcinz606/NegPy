@@ -15,39 +15,31 @@ Here is what actually happens to your image. We apply these steps in order, pass
 ## 2. Scan Normalization
 **Code**: `negpy.features.exposure.normalization`
 
-*   **Physical Model**: We treat the file not as a photo, but as a **radiometric measurement**. The pixel values represent how much light passed through the negative.
-*   **Log Conversion**: Film density is logarithmic ($D \propto \log E$), but scanners and camera sensors are linear. We convert the raw signal to log-space to match the physics of the film layers:
+*   **Physical Model**: We treat the input as a **radiometric measurement**. Pixel values represent linear transmittance captured by the sensor.
+*   **Log Conversion**: Film density is logarithmic ($D \propto \log E$). We convert the raw signal to log-space to align with the physics of the film layers:
     $$E_{log} = \log_{10}(I_{raw})$$
-*   **Polarity & Mapping**: 
-    *   **Negative (C-41/B&W)**: We find the floor (film base) and ceiling (densest highlight). Floors map to $0.0$ (White) and Ceilings map to $1.0$ (Black).
-    *   **Positive (E-6)**: We process the signal directly. To maintain pipeline compatibility, we map raw high-signal (Highlights) to the **Floor** (White) and raw low-signal (Shadows) to the **Ceiling** (Black). This turns the slide into a "virtual negative" for the subsequent stages.
-*   **Heuristics**:
-    *   **Negative Heuristic**: Independent channel normalization (0.5% - 99.5%). Subtracts the orange mask and balances the color.
-    *   **Slide Heuristic**: Optimized for positive dynamic range. Uses independent channel bounding for both shadows and highlights. This provides maximum dynamic range stretch and is highly effective for neutralizing base tints or heavy shadow casts in reversal film.
-*   **Stretch**: We normalize these bounds to $[0, 1]$, providing a clean, balanced signal for the grading stage.
+*   **Bounding & Polarity**:
+    The engine uses statistical percentiles to detect the usable signal range. To maintain a unified pipeline, we always map the target **White Point** to the **Floor** ($0.0$) and the **Black Point** to the **Ceiling** ($1.0$).
+    *   **Negative (C-41/B&W)**: Raw low-signal (Film Base) maps to Floor ($0.0$). Raw high-signal (Highlights) maps to Ceiling ($1.0$). Range: 0.5% to 99.5%.
+    *   **Positive (E-6)**: Raw high-signal (Highlights) maps to Floor ($0.0$). Raw low-signal (Shadows) maps to Ceiling ($1.0$). Range: 99.9% to 0.01%.
+*   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range.
 
 ---
 
 ## 3. The Print (Exposure)
 **Code**: `negpy.features.exposure`
 
-*   **Virtual Darkroom**: This step simulates shining light through the negative (or "virtual negative" for E-6) onto paper.
-*   **Color Timing**: We apply subtractive filtration (CMY) to the digital negative. This is exactly like using a dichroic head on an enlarger to remove color casts.
-*   **The H&D Curve**: Paper doesn't respond linearly. We model its response using a **Logistic Sigmoid**:
-
+*   **Virtual Darkroom**: Simulates shining light through the normalized log-signal onto paper.
+*   **Color Timing**: Applies subtractive filtration (CMY) in log-space. This mimics a dichroic head on an enlarger.
+*   **The H&D Curve**: Models paper response using a **Logistic Sigmoid**:
     $$D_{print} = \frac{D_{max}}{1 + e^{-k \cdot (x - x_0)}}$$
     *   $D_{max}$: Deepest black the paper can do.
     *   $k$: Contrast grade.
-    *   $x_0$: Exposure time.
+    *   $x_0$: Exposure time (pivot).
     *   $x$: Input logarithmic exposure.
-*   **Toe & Shoulder**: We tweak the curve at the ends.
-    *   **Toe**: Controls how fast shadows go to pure black.
-    *   **Shoulder**: Controls how highlights roll off.
-*   **Output**: Finally, we convert that print density back to light (Transmittance) for your screen:
-
-    $$I_{out} = (10^{-D_{print}})^{1/γ}$$
-    *   $I_{out}$: Final display intensity.
-    *   $γ$: Display gamma correction (2.2).
+*   **Output**: Converts print density back to light (Transmittance):
+    $$I_{out} = 10^{-D_{print}}$$
+    *   **Note**: Final display gamma (2.2) is applied in the final output stage.
 
 The defaults should be somewhat neutral, but you can (and should) use the sliders to match the curve shape (your "print") to your liking.
 
@@ -92,10 +84,9 @@ This mimics what lab scanners like Frontier or Noritsu do automatically.
   
     $$M = \text{normalize}((1 - \beta)I + \beta C)$$
     *   $I$: Identity matrix (neutral).
-    *   $C$: Calibration matrix (C-41 or E-6 optimized).
+    *   $C$: Calibration matrix.
     *   $\beta$: Separation strength.
         
-    **Note**: E-6 mode uses a specialized matrix tuned for high-fidelity primaries and neutral skin tones, delivering the punchy reversal film look.
 
 *   **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
   
