@@ -3,7 +3,7 @@
 Here is what actually happens to your image. We apply these steps in order, passing the buffer from one stage to the next.
 
 ## 1. Geometry (Straighten & Crop)
-**Code**: `src.features.geometry`
+**Code**: `negpy.features.geometry`
 
 *   **Rotation**: We spin the image array (90° steps) and fine-tune with affine transformations. We use bilinear interpolation so it stays sharp.
 *   **Autocrop**: I try to detect where the film ends and the scanner bed begins by looking for the density jump. It's not perfect (light leaks or weird scanning holders can fool it), so there's a manual override.
@@ -13,22 +13,25 @@ Here is what actually happens to your image. We apply these steps in order, pass
 ---
 
 ## 2. Scan Normalization
-**Code**: `src.features.exposure.normalization`
+**Code**: `negpy.features.exposure.normalization`
 
 *   **Physical Model**: We treat the file not as a photo, but as a **radiometric measurement**. The pixel values represent how much light passed through the negative.
-*   **Inversion**: Film density is logarithmic ($D \propto \log E$), but scanners and camera sensors are linear. So we invert it to get back to the log space:
-
-    $$E_{log} = \log_{10}(I_{scan})$$
-    *   $I_{scan}$: Raw linear input from scanner/camera using 16-bit precision.
-*   **Bounds**: We find the floor (film base + fog) and the ceiling (densest highlight) We set those at 0.5th percentile and 99.5th percentile.
-*   **Stretch**: We normalize these bounds to $[0, 1]$. This effectively subtracts the orange mask and gives us a clean signal to work with.
+*   **Log Conversion**: Film density is logarithmic ($D \propto \log E$), but scanners and camera sensors are linear. We convert the raw signal to log-space to match the physics of the film layers:
+    $$E_{log} = \log_{10}(I_{raw})$$
+*   **Polarity & Mapping**: 
+    *   **Negative (C-41/B&W)**: We find the floor (film base) and ceiling (densest highlight). Floors map to $0.0$ (White) and Ceilings map to $1.0$ (Black).
+    *   **Positive (E-6)**: We process the signal directly. To maintain pipeline compatibility, we map raw high-signal (Highlights) to the **Floor** (White) and raw low-signal (Shadows) to the **Ceiling** (Black). This turns the slide into a "virtual negative" for the subsequent stages.
+*   **Heuristics**:
+    *   **Negative Heuristic**: Independent channel normalization (0.5% - 99.5%). Subtracts the orange mask and balances the color.
+    *   **Slide Heuristic**: Links shadows (lowest raw signal) to protect deep blacks from noise, while keeping highlights independent to neutralize base tints or fading in expired film.
+*   **Stretch**: We normalize these bounds to $[0, 1]$, providing a clean, balanced signal for the grading stage.
 
 ---
 
 ## 3. The Print (Exposure)
-**Code**: `src.features.exposure`
+**Code**: `negpy.features.exposure`
 
-*   **Virtual Darkroom**: This step simulates shining light through the negative onto paper.
+*   **Virtual Darkroom**: This step simulates shining light through the negative (or "virtual negative" for E-6) onto paper.
 *   **Color Timing**: We apply subtractive filtration (CMY) to the digital negative. This is exactly like using a dichroic head on an enlarger to remove color casts.
 *   **The H&D Curve**: Paper doesn't respond linearly. We model its response using a **Logistic Sigmoid**:
 
@@ -42,16 +45,16 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Shoulder**: Controls how highlights roll off.
 *   **Output**: Finally, we convert that print density back to light (Transmittance) for your screen:
 
-    $$I_{out} = (10^{-D_{print}})^{1/\gamma}$$
+    $$I_{out} = (10^{-D_{print}})^{1/γ}$$
     *   $I_{out}$: Final display intensity.
-    *   $\gamma$: Display gamma correction (2.2).
+    *   $γ$: Display gamma correction (2.2).
 
 The defaults should be somewhat neutral, but you can (and should) use the sliders to match the curve shape (your "print") to your liking.
 
 ---
 
 ## 4. Retouching
-**Code**: `src.features.retouch`
+**Code**: `negpy.features.retouch`
 
 This stage removes physical artifacts like dust, hairs, and scratches from the negative. We use two complementary approaches:
 
@@ -68,8 +71,8 @@ This stage removes physical artifacts like dust, hairs, and scratches from the n
     
     1.  **Perimeter Characterization**: The tool identifies the cleanest background luminance at the edge of the brush circle. This sets a "Perimeter-Safe" floor to prevent dark artifacts in bright areas like skies.
     2.  **Stochastic Sampling**: For every pixel inside the brush, we sample the immediate boundary with small angular jitter:
-        $$I_{patch} = \frac{1}{3} \sum_{j=1}^{3} \text{min3x3}(P_{\theta + \Delta \theta_j})$$
-        *   $P_{\theta + \Delta \theta_j}$: Perimeter point at pixel's angle $\theta$ with random jitter $\Delta \theta$.
+        $$I_{patch} = \frac{1}{3} \sum_{j=1}^{3} \text{min3x3}(P_{θ + Δ θ_j})$$
+        *   $P_{θ + Δ θ_j}$: Perimeter point at pixel's angle $θ$ with random jitter $Δ θ$.
         *   This reconstructs the natural grain and texture of the surrounding area without using "synthetic" noise.
     3.  **Luminance Keying**: To preserve original details and grain within the brush, we only apply the patch to pixels that are significantly brighter than the reconstructed background:
         $$m_{luma} = \text{smoothstep}(0.04, 0.12, I_{curr} - I_{patch})$$
@@ -81,18 +84,18 @@ This stage removes physical artifacts like dust, hairs, and scratches from the n
 ---
 
 ## 5. Lab Scanner Mode
-**Code**: `src.features.lab`
+**Code**: `negpy.features.lab`
 
 This mimics what lab scanners like Frontier or Noritsu do automatically.
 
-*   **Color Separation**: We use a mixing matrix to push colors apart. It mixes between a neutral identity matrix and a "calibration" matrix based on how much pop you want.
+*   **Color Separation**: We use a mixing matrix to push colors apart. It mixes between a neutral identity matrix and a mode-specific "calibration" matrix based on how much pop you want.
   
     $$M = \text{normalize}((1 - \beta)I + \beta C)$$
     *   $I$: Identity matrix (neutral).
-    *   $C$: Calibration matrix (vibrant).
+    *   $C$: Calibration matrix (C-41 or E-6 optimized).
     *   $\beta$: Separation strength.
         
-    We use hardcoded calibration matrix for now that should be good for most cases but later I plan to add option to set your own presets for different filmstocks/looks.
+    **Note**: E-6 mode uses a specialized matrix tuned for high-fidelity primaries and neutral skin tones, delivering the punchy reversal film look.
 
 *   **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
   
@@ -111,14 +114,14 @@ This mimics what lab scanners like Frontier or Noritsu do automatically.
 ---
 
 ## 6. Toning & Paper Simulation
-**Code**: `src.features.toning`
+**Code**: `negpy.features.toning`
 
 *   **Paper Tint**: We multiply the image by a base color (e.g., warm cream for fiber paper) and tweak the D-max (density boost).
   
-    $$I_{tinted} = (I_{in} \cdot C_{base})^{\gamma_{boost}}$$
+    $$I_{tinted} = (I_{in} \cdot C_{base})^{γ_{boost}}$$
     *   $I_{in}$: Input image.
     *   $C_{base}$: Paper tint RGB color.
-    *   $\gamma_{boost}$: D-max density boost.
+    *   $γ_{boost}$: D-max density boost.
 
 *   **Chemical Toning**: We simulate toning by blending the original pixel with a tinted version based on luminance ($Y$) masks.
     *   **Selenium**: Targets the shadows (inverse squared luminance).

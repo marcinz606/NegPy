@@ -72,9 +72,6 @@ def _apply_photometric_fused_kernel(
                     k_mod = 2.0
 
                 slope = slopes[ch]
-                if mode == 2:
-                    slope *= 1.15
-
                 density = d_max * _fast_sigmoid(float(slope) * diff * k_mod)
 
                 transmittance = 10.0 ** (-density)

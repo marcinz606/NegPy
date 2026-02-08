@@ -61,10 +61,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         k_mod = clamp(k_mod, 0.1, 2.0);
 
         var slope = params.slopes[ch];
-        if (params.mode == 2u) {
-            slope = slope * 1.15;
-        }
-
         let density = params.d_max * fast_sigmoid(slope * diff * k_mod);
         
         // Output LINEAR transmittance. 
