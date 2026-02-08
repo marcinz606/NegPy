@@ -17,7 +17,7 @@ class ProcessConfig:
 
     process_mode: str = ProcessMode.C41
     analysis_buffer: float = 0.07
-    e6_normalize: bool = False
+    e6_normalize: bool = True
     use_roll_average: bool = False
     locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     locked_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)

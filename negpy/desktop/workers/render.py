@@ -246,6 +246,7 @@ class NormalizationWorker(QObject):
                 use_camera_wb = params.exposure.use_camera_wb if params else False
                 analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
                 process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
+                e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
 
                 raw, _, _ = self._preview_service.load_linear_preview(
                     f_info["path"],
@@ -253,7 +254,12 @@ class NormalizationWorker(QObject):
                     use_camera_wb=use_camera_wb,
                 )
 
-                bounds = analyze_log_exposure_bounds(raw, analysis_buffer=analysis_buffer, process_mode=process_mode)
+                bounds = analyze_log_exposure_bounds(
+                    raw,
+                    analysis_buffer=analysis_buffer,
+                    process_mode=process_mode,
+                    e6_normalize=e6_normalize,
+                )
                 all_floors.append(bounds.floors)
                 all_ceils.append(bounds.ceils)
 

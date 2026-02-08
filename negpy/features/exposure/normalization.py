@@ -1,4 +1,4 @@
-from typing import Tuple, List, Optional
+from typing import Tuple, Optional
 import numpy as np
 from numba import njit, prange  # type: ignore
 from negpy.domain.types import ImageBuffer
@@ -66,25 +66,6 @@ def get_analysis_crop(img: ImageBuffer, buffer_ratio: float) -> ImageBuffer:
     return img[cut_h : h - cut_h, cut_w : w - cut_w]
 
 
-def measure_log_negative_bounds(img: ImageBuffer) -> LogNegativeBounds:
-    """
-    Detects floor/ceiling (0.5% - 99.5%).
-    """
-    floors: List[float] = []
-    ceils: List[float] = []
-    for ch in range(3):
-        # 0.5th and 99.5th percentiles capture the usable density range
-        # but avoiding clipping
-        f, c = np.percentile(img[:, :, ch], [0.5, 99.5])
-        floors.append(float(f))
-        ceils.append(float(c))
-
-    return LogNegativeBounds(
-        floors=(floors[0], floors[1], floors[2]),
-        ceils=(ceils[0], ceils[1], ceils[2]),
-    )
-
-
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
     Stretches log-data to fit [0, 1].
@@ -105,22 +86,8 @@ def analyze_log_exposure_bounds(
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
     """
-    from negpy.features.exposure.heuristics import (
-        NormalizationHeuristic,
-        NegativeHeuristic,
-        SlideHeuristic,
-    )
-
     epsilon = 1e-6
-    low_p, high_p = 0.5, 99.5
-    heuristic: NormalizationHeuristic = NegativeHeuristic()
-
-    if process_mode == ProcessMode.E6:
-        img_log = np.log10(np.clip(image, epsilon, 1.0))
-        low_p, high_p = 0.01, 99.9
-        heuristic = SlideHeuristic(auto_stretch=e6_normalize)
-    else:
-        img_log = np.log10(np.clip(image, epsilon, 1.0))
+    img_log = np.log10(np.clip(image, epsilon, 1.0))
 
     if roi:
         y1, y2, x1, x2 = roi
@@ -129,4 +96,27 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    return heuristic.calculate_bounds(img_log, low_p, high_p)
+    p_low, p_high = 0.5, 99.5
+    fixed_range = 3.0
+
+    if process_mode == ProcessMode.E6:
+        p_low, p_high = 99.9, 0.01
+        fixed_range = -3.0
+
+    floors = []
+    ceils = []
+    for ch in range(3):
+        data = img_log[:, :, ch]
+        f = np.percentile(data, p_low)
+        floors.append(float(f))
+
+        if process_mode != ProcessMode.E6 or e6_normalize:
+            c = np.percentile(data, p_high)
+            ceils.append(float(c))
+        else:
+            ceils.append(float(f + fixed_range))
+
+    return LogNegativeBounds(
+        (floors[0], floors[1], floors[2]),
+        (ceils[0], ceils[1], ceils[2]),
+    )

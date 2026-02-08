@@ -33,6 +33,7 @@ class ProcessSidebar(BaseSidebar):
         self.normalize_e6_btn.setCheckable(True)
         self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
         self.normalize_e6_btn.setChecked(conf.e6_normalize)
+        self.normalize_e6_btn.setToolTip("Automatically stretch the histogram to full dynamic range")
         self.layout.addWidget(self.normalize_e6_btn)
 
         btns_row = QHBoxLayout()
@@ -197,6 +198,24 @@ class ProcessSidebar(BaseSidebar):
         else:
             self.normalize_e6_btn.setStyleSheet("")
             self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
+
+    def _update_link_shadows_btn_style(self, checked: bool) -> None:
+        """
+        Updates link shadows button icon and color.
+        """
+        if checked:
+            self.link_shadows_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {THEME.accent_primary};
+                    color: white;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+            """)
+            self.link_shadows_btn.setIcon(qta.icon("fa5s.link", color="white"))
+        else:
+            self.link_shadows_btn.setStyleSheet("")
+            self.link_shadows_btn.setIcon(qta.icon("fa5s.link", color=THEME.text_primary))
 
     def sync_ui(self) -> None:
         conf = self.state.config.process

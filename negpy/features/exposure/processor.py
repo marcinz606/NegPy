@@ -30,7 +30,16 @@ class NormalizationProcessor:
             bounds = LogNegativeBounds(floors=self.config.local_floors, ceils=self.config.local_ceils)
         else:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
-            if "log_bounds" in context.metrics and cached_buffer is not None and abs(cached_buffer - self.config.analysis_buffer) < 1e-5:
+            cached_norm = context.metrics.get("log_bounds_norm_val")
+
+            needs_reanalysis = (
+                "log_bounds" not in context.metrics
+                or cached_buffer is None
+                or abs(cached_buffer - self.config.analysis_buffer) > 1e-5
+                or cached_norm != self.config.e6_normalize
+            )
+
+            if not needs_reanalysis:
                 bounds = context.metrics["log_bounds"]
             else:
                 bounds = analyze_log_exposure_bounds(
@@ -42,6 +51,8 @@ class NormalizationProcessor:
                 )
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
+                context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
+        
 
         res = normalize_log_image(img_log, bounds)
         context.metrics["normalized_log"] = res

@@ -23,7 +23,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Positive (E-6)**: We process the signal directly. To maintain pipeline compatibility, we map raw high-signal (Highlights) to the **Floor** (White) and raw low-signal (Shadows) to the **Ceiling** (Black). This turns the slide into a "virtual negative" for the subsequent stages.
 *   **Heuristics**:
     *   **Negative Heuristic**: Independent channel normalization (0.5% - 99.5%). Subtracts the orange mask and balances the color.
-    *   **Slide Heuristic**: Links shadows (lowest raw signal) to protect deep blacks from noise, while keeping highlights independent to neutralize base tints or fading in expired film.
+    *   **Slide Heuristic**: Optimized for positive dynamic range. Uses independent channel bounding for both shadows and highlights. This provides maximum dynamic range stretch and is highly effective for neutralizing base tints or heavy shadow casts in reversal film.
 *   **Stretch**: We normalize these bounds to $[0, 1]$, providing a clean, balanced signal for the grading stage.
 
 ---
