@@ -45,6 +45,9 @@ dev = [
     "ruff==0.14.10",
 ]
 
+[project.scripts]
+negpy = "negpy.cli.batch:cli_entry"
+
 [project.urls]
 Homepage = "https://github.com/marcinz606/NegPy"
 Documentation = "https://github.com/marcinz606/NegPy/docs"
@@ -55,8 +58,9 @@ Issues = "https://github.com/marcinz606/NegPy/issues"
 requires = ["setuptools~=80.10.2"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["negpy"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["negpy*"]
 
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }
