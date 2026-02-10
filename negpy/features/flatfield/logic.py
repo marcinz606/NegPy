@@ -35,7 +35,8 @@ def apply_flatfield(image: np.ndarray, flatfield: np.ndarray) -> np.ndarray:
     if fh != h or fw != w:
         flatfield = cv2.resize(flatfield, (w, h), interpolation=cv2.INTER_LINEAR)
     result = image / flatfield
-    return np.clip(result, 0.0, 1.0).astype(np.float32)
+    clipped: np.ndarray = np.clip(result, 0.0, 1.0).astype(np.float32)
+    return clipped
 
 
 def load_flatfield(path: str) -> np.ndarray:
@@ -89,4 +90,5 @@ def load_raw_to_float32(path: str) -> np.ndarray:
         )
         rgb = ensure_rgb(rgb)
 
-    return uint16_to_float32(np.ascontiguousarray(rgb))
+    f32: np.ndarray = uint16_to_float32(np.ascontiguousarray(rgb))
+    return f32

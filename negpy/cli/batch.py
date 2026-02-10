@@ -15,6 +15,7 @@ import time
 from typing import List, Optional
 
 import numpy as np
+
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ColorSpace
 from negpy.features.flatfield.logic import load_flatfield, load_raw_to_float32, apply_flatfield
 from negpy.features.process.models import ProcessMode
@@ -474,21 +475,22 @@ def main(argv: Optional[List[str]] = None) -> int:
                     prefer_gpu=use_gpu,
                 )
                 if not isinstance(result_buffer, np.ndarray):
-                    result_buffer = result_buffer.readback()
+                    result_buffer = result_buffer.readback()[:, :, :3]
                 bits = encode_export(result_buffer, export_settings)
             else:
                 # Standard path
-                bits, fmt_or_error = processor.process_export(
+                result, fmt_or_error = processor.process_export(
                     file_path,
                     config,
                     export_settings,
                     source_hash,
                     prefer_gpu=use_gpu,
                 )
-                if bits is None:
+                if result is None:
                     print(f" FAILED ({fmt_or_error})", file=sys.stderr)
                     failed += 1
                     continue
+                bits = result
 
             ext = "jpg" if export_settings.export_fmt == ExportFormat.JPEG else "tiff"
             filename = render_export_filename(file_path, export_settings)

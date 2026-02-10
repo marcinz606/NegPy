@@ -308,6 +308,18 @@ class TestBuildConfig:
 
 
 class TestMain:
+    @pytest.fixture(autouse=True)
+    def isolate_test_environment(self, tmp_path, monkeypatch):
+        """Ensure tests don't affect global state or load the real user config."""
+        # Isolate user config
+        fake_config_dir = tmp_path / ".negpy_test_isolation"
+        fake_config_dir.mkdir()
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_FILE", str(fake_config_dir / "config.json"))
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(fake_config_dir / "presets"))
+        # Preserve APP_CONFIG.use_gpu state (--no-gpu modifies global state)
+        from negpy.kernel.system.config import APP_CONFIG
+        monkeypatch.setattr(APP_CONFIG, "use_gpu", APP_CONFIG.use_gpu)
+
     @patch("negpy.cli.batch.ImageProcessor")
     def test_no_files_returns_1(self, mock_proc_cls, tmp_path):
         """Empty directory -> exit code 1."""
@@ -467,6 +479,43 @@ class TestMain:
         mock_processor.run_pipeline.assert_called_once()
         # process_export should NOT be called when --flat-field is used
         mock_processor.process_export.assert_not_called()
+
+    @patch("negpy.cli.batch.ImageProcessor")
+    @patch("negpy.cli.batch.load_raw_to_float32")
+    @patch("negpy.cli.batch.load_flatfield")
+    @patch("negpy.cli.batch.apply_flatfield")
+    def test_flat_field_with_gpu_texture_readback(self, mock_apply, mock_load_ff, mock_load_raw, mock_proc_cls, tmp_path):
+        """When GPU returns a texture, readback() should be called on the texture itself."""
+        (tmp_path / "a.dng").write_bytes(b"fake")
+        out_dir = tmp_path / "output"
+        ff_file = tmp_path / "blank.tiff"
+        ff_file.write_bytes(b"flat")
+
+        import numpy as np
+        fake_flat = np.ones((100, 100, 3), dtype=np.float32)
+        fake_raw = np.ones((100, 100, 3), dtype=np.float32) * 0.5
+        fake_corrected = np.ones((100, 100, 3), dtype=np.float32) * 0.5
+        # Simulate RGBA output from GPU (4 channels)
+        fake_rgba_result = np.ones((50, 50, 4), dtype=np.float32) * 0.7
+
+        mock_load_ff.return_value = fake_flat
+        mock_load_raw.return_value = fake_raw
+        mock_apply.return_value = fake_corrected
+
+        # Create a mock GPUTexture that has a readback() method
+        mock_texture = MagicMock()
+        mock_texture.readback.return_value = fake_rgba_result
+
+        mock_processor = MagicMock()
+        mock_processor.run_pipeline.return_value = (mock_texture, {})
+        mock_proc_cls.return_value = mock_processor
+
+        exit_code = main(["--flat-field", str(ff_file), "--output", str(out_dir), str(tmp_path / "a.dng")])
+
+        assert exit_code == 0
+        # Verify readback() was called on the texture itself (not on engine_gpu)
+        mock_texture.readback.assert_called_once()
+        mock_processor.engine_gpu.readback.assert_not_called()
 
     @patch("negpy.cli.batch.ImageProcessor")
     def test_flat_field_missing_file_returns_1(self, mock_proc_cls, tmp_path):
