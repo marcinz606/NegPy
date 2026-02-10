@@ -54,6 +54,10 @@ CONFIG_DIR = os.path.expanduser("~/.negpy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 PRESETS_DIR = os.path.join(CONFIG_DIR, "presets")
 
+SCHEMA_BASE_URL = "https://raw.githubusercontent.com/andreyleonardo/negpy/main/schemas"
+CONFIG_SCHEMA_URL = f"{SCHEMA_BASE_URL}/config.schema.json"
+PRESET_SCHEMA_URL = f"{SCHEMA_BASE_URL}/preset.schema.json"
+
 
 def load_user_config() -> dict:
     """Loads ~/.negpy/config.json if it exists. Returns {"cli": {}, "processing": {}}."""
@@ -75,6 +79,7 @@ def generate_default_config() -> int:
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(PRESETS_DIR, exist_ok=True)
     default = {
+        "$schema": CONFIG_SCHEMA_URL,
         "cli": {
             "flat_field": None,
             "output": "./export",

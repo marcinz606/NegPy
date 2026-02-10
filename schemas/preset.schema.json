@@ -1,0 +1,269 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/andreyleonardo/negpy/main/schemas/preset.schema.json",
+    "title": "NegPy Preset",
+    "description": "Film preset for the NegPy CLI batch converter. Place in ~/.negpy/presets/ and load with --preset <name>. All properties are optional — only include what you want to override.",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "JSON Schema reference for editor validation and autocomplete."
+        },
+
+        "process_mode": {
+            "type": "string",
+            "enum": ["C41", "B&W", "E-6"],
+            "default": "C41",
+            "description": "Film type: C41 (color negative), B&W (black & white), E-6 (slide/chrome)."
+        },
+        "analysis_buffer": {
+            "type": "number",
+            "default": 0.07,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Edge buffer percentage excluded from per-frame analysis."
+        },
+        "e6_normalize": {
+            "type": "boolean",
+            "default": true,
+            "description": "Normalize E-6 slides per-channel. Helps correct color casts on slide film."
+        },
+
+        "density": {
+            "type": "number",
+            "default": 1.0,
+            "description": "Print density / brightness. Higher values produce a darker (denser) print."
+        },
+        "grade": {
+            "type": "number",
+            "default": 2.0,
+            "description": "Contrast grade, like paper hardness in the darkroom. Range: ~0.5 (very soft) to ~5.0 (very hard)."
+        },
+        "use_camera_wb": {
+            "type": "boolean",
+            "default": false,
+            "description": "Use the camera's white balance from EXIF data instead of manual WB."
+        },
+        "wb_cyan": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": -1.0,
+            "maximum": 1.0,
+            "description": "Cyan/red color balance. Negative shifts toward red, positive toward cyan."
+        },
+        "wb_magenta": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": -1.0,
+            "maximum": 1.0,
+            "description": "Magenta/green color balance. Negative shifts toward green, positive toward magenta."
+        },
+        "wb_yellow": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": -1.0,
+            "maximum": 1.0,
+            "description": "Yellow/blue color balance. Negative shifts toward blue, positive toward yellow."
+        },
+        "toe": {
+            "type": "number",
+            "default": 0.0,
+            "description": "Shadow lift amount. Raises the black point for a faded look."
+        },
+        "toe_width": {
+            "type": "number",
+            "default": 3.0,
+            "description": "Shadow transition width. Controls how far the toe effect extends into midtones."
+        },
+        "toe_hardness": {
+            "type": "number",
+            "default": 1.0,
+            "description": "Shadow transition hardness. Higher values create a sharper transition."
+        },
+        "shoulder": {
+            "type": "number",
+            "default": 0.0,
+            "description": "Highlight compression amount. Rolls off bright highlights."
+        },
+        "shoulder_width": {
+            "type": "number",
+            "default": 3.0,
+            "description": "Highlight transition width. Controls how far the shoulder extends into midtones."
+        },
+        "shoulder_hardness": {
+            "type": "number",
+            "default": 1.0,
+            "description": "Highlight transition hardness. Higher values create a sharper rolloff."
+        },
+
+        "color_separation": {
+            "type": "number",
+            "default": 1.0,
+            "description": "Color channel separation strength. Values >1.0 increase inter-channel contrast."
+        },
+        "saturation": {
+            "type": "number",
+            "default": 1.0,
+            "minimum": 0.0,
+            "description": "Saturation multiplier. 1.0 is neutral, 0.0 is fully desaturated."
+        },
+        "clahe_strength": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": 0.0,
+            "description": "Adaptive local contrast (CLAHE). 0.0 is off, higher values increase local contrast."
+        },
+        "sharpen": {
+            "type": "number",
+            "default": 0.25,
+            "minimum": 0.0,
+            "description": "Output sharpening amount. 0.0 is no sharpening."
+        },
+        "crosstalk_matrix": {
+            "type": ["array", "null"],
+            "items": { "type": "number" },
+            "minItems": 9,
+            "maxItems": 9,
+            "default": null,
+            "description": "Custom 3x3 color crosstalk correction matrix (9 floats, row-major). null uses built-in matrix for the selected process mode."
+        },
+        "C41_MATRIX": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 9,
+            "maxItems": 9,
+            "default": [1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0],
+            "description": "C41 color crosstalk correction matrix (9 floats, row-major)."
+        },
+        "E6_MATRIX": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 9,
+            "maxItems": 9,
+            "default": [1.1, -0.06, -0.04, -0.04, 1.1, -0.06, -0.04, -0.06, 1.1],
+            "description": "E-6 color crosstalk correction matrix (9 floats, row-major)."
+        },
+
+        "paper_profile": {
+            "type": "string",
+            "enum": ["None", "Neutral RC", "Cool Glossy", "Warm Fiber"],
+            "default": "None",
+            "description": "Paper simulation profile."
+        },
+        "selenium_strength": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Selenium toning strength. Adds a cool purple-brown tone primarily in shadows."
+        },
+        "sepia_strength": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Sepia toning strength. Adds warm brown tone primarily in midtones and highlights."
+        },
+
+        "dust_remove": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable automatic dust spot removal."
+        },
+        "dust_threshold": {
+            "type": "number",
+            "default": 0.66,
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Dust detection sensitivity. Lower values detect more spots (may include false positives)."
+        },
+        "dust_size": {
+            "type": "integer",
+            "default": 4,
+            "minimum": 1,
+            "description": "Maximum dust spot size in pixels. Spots larger than this are ignored."
+        },
+
+        "autocrop_offset": {
+            "type": "integer",
+            "default": 2,
+            "minimum": -5,
+            "maximum": 20,
+            "description": "Autocrop border offset in pixels. Positive crops more into the image."
+        },
+        "autocrop_ratio": {
+            "type": "string",
+            "enum": ["Free", "Original", "3:2", "4:3", "5:4", "6:7", "1:1", "65:24", "2:3", "3:4", "4:5", "16:9"],
+            "default": "3:2",
+            "description": "Autocrop aspect ratio."
+        },
+
+        "export_fmt": {
+            "type": "string",
+            "enum": ["JPEG", "TIFF"],
+            "default": "JPEG",
+            "description": "Output file format."
+        },
+        "export_color_space": {
+            "type": "string",
+            "enum": ["sRGB", "Adobe RGB", "ProPhoto RGB", "Wide Gamut RGB", "ACES", "P3 D65", "Rec 2020", "Greyscale"],
+            "default": "Adobe RGB",
+            "description": "Output color space."
+        },
+        "export_dpi": {
+            "type": "integer",
+            "default": 300,
+            "minimum": 1,
+            "description": "Export DPI resolution."
+        },
+        "export_print_size": {
+            "type": "number",
+            "default": 30.0,
+            "minimum": 0,
+            "description": "Print long-edge size in centimeters."
+        },
+        "use_original_res": {
+            "type": "boolean",
+            "default": false,
+            "description": "Export at original sensor resolution (ignores DPI and print size)."
+        },
+        "filename_pattern": {
+            "type": "string",
+            "default": "positive_{{ original_name }}",
+            "description": "Jinja2 filename template for exported files."
+        },
+        "export_add_border": {
+            "type": "boolean",
+            "default": false,
+            "description": "Add a border around the exported image."
+        },
+        "export_border_size": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": 0.0,
+            "description": "Border size (relative to image)."
+        },
+        "export_border_color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "default": "#ffffff",
+            "description": "Border color as hex string (e.g. #ffffff)."
+        },
+        "apply_icc": {
+            "type": "boolean",
+            "default": false,
+            "description": "Apply ICC profile to exported image."
+        },
+        "icc_profile_path": {
+            "type": ["string", "null"],
+            "default": null,
+            "description": "Path to ICC profile file."
+        },
+        "icc_invert": {
+            "type": "boolean",
+            "default": false,
+            "description": "Invert the ICC profile direction."
+        }
+    }
+}

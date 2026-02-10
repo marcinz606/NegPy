@@ -1,0 +1,70 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/andreyleonardo/negpy/main/schemas/config.schema.json",
+    "title": "NegPy CLI Config",
+    "description": "Configuration file for the NegPy CLI batch converter (~/.negpy/config.json).",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "JSON Schema reference for editor validation and autocomplete."
+        },
+        "cli": {
+            "type": "object",
+            "description": "Default values for CLI flags. These are applied when the corresponding flag is not specified on the command line.",
+            "additionalProperties": false,
+            "properties": {
+                "flat_field": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "Default path to a flat-field reference frame (blank scan) for vignetting correction. Applied automatically unless --flat-field is specified."
+                },
+                "output": {
+                    "type": "string",
+                    "default": "./export",
+                    "description": "Default output directory."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["c41", "bw", "e6"],
+                    "default": "c41",
+                    "description": "Default film type: c41 (color negative), bw (black & white), e6 (slide)."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["tiff", "jpeg"],
+                    "default": "tiff",
+                    "description": "Default output format."
+                },
+                "color_space": {
+                    "type": "string",
+                    "enum": ["srgb", "adobe-rgb", "prophoto", "wide-gamut", "aces", "p3", "rec2020", "greyscale"],
+                    "default": "adobe-rgb",
+                    "description": "Default output color space."
+                },
+                "no_gpu": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Disable GPU acceleration by default."
+                },
+                "crop_offset": {
+                    "type": ["integer", "null"],
+                    "minimum": -5,
+                    "maximum": 20,
+                    "default": null,
+                    "description": "Default autocrop border offset in pixels (-5 to 20)."
+                },
+                "filename_pattern": {
+                    "type": "string",
+                    "default": "positive_{{ original_name }}",
+                    "description": "Default Jinja2 filename template for exported files."
+                }
+            }
+        },
+        "processing": {
+            "$ref": "https://raw.githubusercontent.com/andreyleonardo/negpy/main/schemas/preset.schema.json",
+            "description": "Default processing parameters. Same format as preset files."
+        }
+    }
+}

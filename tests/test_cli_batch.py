@@ -15,6 +15,7 @@ from negpy.cli.batch import (
     build_parser, discover_files, build_config, main,
     load_user_config, generate_default_config, list_available_presets,
     CONFIG_DIR, CONFIG_FILE, PRESETS_DIR,
+    CONFIG_SCHEMA_URL, PRESET_SCHEMA_URL,
 )
 from negpy.domain.models import ExportFormat
 from negpy.features.process.models import ProcessMode
@@ -497,7 +498,7 @@ class TestUserConfig:
         assert result["processing"]["density"] == 1.5
 
     def test_generate_default_config_creates_file(self, tmp_path, monkeypatch):
-        """--init-config creates config.json and presets dir."""
+        """--init-config creates config.json and presets dir with $schema."""
         monkeypatch.setattr("negpy.cli.batch.CONFIG_DIR", str(tmp_path / ".negpy"))
         monkeypatch.setattr("negpy.cli.batch.CONFIG_FILE", str(tmp_path / ".negpy" / "config.json"))
         monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(tmp_path / ".negpy" / "presets"))
@@ -506,6 +507,7 @@ class TestUserConfig:
         assert (tmp_path / ".negpy" / "config.json").exists()
         assert (tmp_path / ".negpy" / "presets").is_dir()
         data = json.loads((tmp_path / ".negpy" / "config.json").read_text())
+        assert data["$schema"] == CONFIG_SCHEMA_URL
         assert "cli" in data
         assert "processing" in data
 
