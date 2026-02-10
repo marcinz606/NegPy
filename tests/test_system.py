@@ -18,3 +18,24 @@ def test_get_resource_path():
     p = get_resource_path("negpy/kernel/system/paths.py")
     assert os.path.exists(p)
     assert os.path.isabs(p)
+
+
+def test_shader_files_exist():
+    """All GPU shader files must be present alongside the package (pip install .)."""
+    shaders = [
+        "negpy/features/geometry/shaders/transform.wgsl",
+        "negpy/features/geometry/shaders/autocrop.wgsl",
+        "negpy/features/exposure/shaders/exposure.wgsl",
+        "negpy/features/exposure/shaders/normalization.wgsl",
+        "negpy/features/lab/shaders/lab.wgsl",
+        "negpy/features/lab/shaders/clahe_hist.wgsl",
+        "negpy/features/lab/shaders/clahe_cdf.wgsl",
+        "negpy/features/lab/shaders/clahe_apply.wgsl",
+        "negpy/features/lab/shaders/metrics.wgsl",
+        "negpy/features/retouch/shaders/retouch.wgsl",
+        "negpy/features/toning/shaders/toning.wgsl",
+        "negpy/features/toning/shaders/layout.wgsl",
+    ]
+    for shader in shaders:
+        p = get_resource_path(shader)
+        assert os.path.exists(p), f"Shader missing: {p}"
