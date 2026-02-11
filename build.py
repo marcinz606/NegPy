@@ -237,7 +237,7 @@ def package_macos():
     """Package the built application into a DMG with Applications symlink."""
     print(f"Packaging for macOS (DMG) version {VERSION}...")
     app_path = os.path.join("dist", f"{APP_NAME}.app")
-    dmg_name = f"{APP_NAME}-{VERSION}-macOS.dmg"
+    dmg_name = f"{APP_NAME}-{VERSION}-macOS{platform.machine()}.dmg"
     dmg_path = os.path.join("dist", dmg_name)
     temp_dmg_dir = os.path.join("dist", "dmg_temp")
 
