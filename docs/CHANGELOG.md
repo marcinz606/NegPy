@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.9.11
+
+- Fix color casts on exported files when heavy white balance correction is applied 
+
 ## 0.9.10
 
 - Initial release of "E-6" mode for positives/slides

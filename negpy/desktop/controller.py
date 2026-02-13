@@ -508,7 +508,6 @@ class AppController(QObject):
                 icc_invert=icc_invert,
             )
 
-            # Capture normalization bounds if this is the currently active file
             bounds_override = None
             if f["hash"] == self.state.current_file_hash:
                 bounds_override = self.state.last_metrics.get("log_bounds")

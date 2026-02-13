@@ -63,7 +63,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var slope = params.slopes[ch];
         let density = params.d_max * fast_sigmoid(slope * diff * k_mod);
         
-        // Match CPU behavior: apply gamma (1/2.2) to transmittance
         let transmittance = pow(10.0, -density);
         res[ch] = pow(max(transmittance, 0.0), 1.0 / params.gamma);
     }
