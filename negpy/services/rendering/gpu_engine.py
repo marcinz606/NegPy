@@ -528,6 +528,7 @@ class GPUEngine:
             "base_positive": tex_final,
             "normalized_log": tex_norm,
             "content_rect": content_rect,
+            "log_bounds": bounds,
         }
 
         if not tiling_mode and readback_metrics:
@@ -591,7 +592,7 @@ class GPUEngine:
         )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
+        
         exp = settings.exposure
         shift = 0.1 + (exp.density * EXPOSURE_CONSTANTS["density_multiplier"])
         slope, pivot = (
@@ -898,7 +899,7 @@ class GPUEngine:
             pass_enc.dispatch_workgroups((w + wg_x - 1) // wg_x, (h + wg_y - 1) // wg_y)
         pass_enc.end()
 
-    def process(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float = 1.0) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def process(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float = 1.0, bounds_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
         h, w = img.shape[:2]
@@ -906,11 +907,11 @@ class GPUEngine:
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
-            return self._process_tiled(img, settings, scale_factor)
-        tex_final, metrics = self.process_to_texture(img, settings, scale_factor=scale_factor)
+            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override)
+        tex_final, metrics = self.process_to_texture(img, settings, scale_factor=scale_factor, bounds_override=bounds_override)
         return self._readback_downsampled(tex_final), metrics
 
-    def _process_tiled(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _process_tiled(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float, bounds_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
 
@@ -948,7 +949,9 @@ class GPUEngine:
         y1, y2, x1, x2 = int(roi[0] * sy), int(roi[1] * sy), int(roi[2] * sx), int(roi[3] * sx)
         crop_w, crop_h = x2 - x1, y2 - y1
 
-        if settings.process.use_roll_average and settings.process.is_locked_initialized:
+        if bounds_override:
+            global_bounds = bounds_override
+        elif settings.process.use_roll_average and settings.process.is_locked_initialized:
             global_bounds = LogNegativeBounds(
                 floors=settings.process.locked_floors,
                 ceils=settings.process.locked_ceils,

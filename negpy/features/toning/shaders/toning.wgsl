@@ -74,10 +74,5 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = pow(color, vec3<f32>(params.tint.a));
     }
 
-    // 5. Final Gamma Correction
-    if (params.gamma > 0.0) {
-        color = pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / params.gamma));
-    }
-
     textureStore(output_tex, coords_out, vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
 }
