@@ -40,13 +40,10 @@ def main() -> None:
 
     try:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
-
-        # Platform-specific safeguards for display and GPU stability
-        if sys.platform == "linux":
-            if "QT_X11_NO_MITSHM" not in os.environ:
-                os.environ["QT_X11_NO_MITSHM"] = "1"
-            if "WGPU_BACKEND_TYPE" not in os.environ:
-                os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
+        if sys.platform in ("linux", "win32"):
+            os.environ["QSG_RHI_BACKEND"] = "vulkan"
+            os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
+            os.environ["QT_X11_NO_MITSHM"] = "1"
 
         _bootstrap_environment()
 

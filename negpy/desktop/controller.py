@@ -508,12 +508,17 @@ class AppController(QObject):
                 icc_invert=icc_invert,
             )
 
+            bounds_override = None
+            if f["hash"] == self.state.current_file_hash:
+                bounds_override = self.state.last_metrics.get("log_bounds")
+
             tasks.append(
                 ExportTask(
                     file_info=f,
                     params=params,
                     export_settings=final_export,
                     gpu_enabled=self.state.gpu_enabled,
+                    bounds_override=bounds_override,
                 )
             )
 

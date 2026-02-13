@@ -63,9 +63,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var slope = params.slopes[ch];
         let density = params.d_max * fast_sigmoid(slope * diff * k_mod);
         
-        // Output LINEAR transmittance. 
-        // Final Display Gamma is applied in the Toning stage.
-        res[ch] = pow(10.0, -density);
+        let transmittance = pow(10.0, -density);
+        res[ch] = pow(max(transmittance, 0.0), 1.0 / params.gamma);
     }
 
     textureStore(output_tex, coords, vec4<f32>(clamp(res, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));

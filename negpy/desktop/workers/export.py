@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional, Any
 import os
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
@@ -15,6 +15,7 @@ class ExportTask:
     params: WorkspaceConfig
     export_settings: ExportConfig
     gpu_enabled: bool = True
+    bounds_override: Optional[Any] = None
 
 
 class ExportWorker(QObject):
@@ -47,6 +48,7 @@ class ExportWorker(QObject):
                     task.export_settings,
                     task.file_info["hash"],
                     prefer_gpu=task.gpu_enabled,
+                    bounds_override=task.bounds_override,
                 )
 
                 if bits:

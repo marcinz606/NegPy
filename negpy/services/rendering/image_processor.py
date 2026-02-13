@@ -127,6 +127,7 @@ class ImageProcessor:
         source_hash: str,
         metrics: Optional[Dict[str, Any]] = None,
         prefer_gpu: bool = True,
+        bounds_override: Optional[Any] = None,
     ) -> Tuple[Optional[bytes], str]:
         """Performs high-resolution export with color management."""
         try:
@@ -158,14 +159,14 @@ class ImageProcessor:
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 
             if prefer_gpu and self.engine_gpu:
-                buffer, gpu_metrics = self.engine_gpu.process(f32_buffer, params, scale_factor=export_scale)
+                buffer, gpu_metrics = self.engine_gpu.process(f32_buffer, params, scale_factor=export_scale, bounds_override=bounds_override)
             else:
                 buffer, _ = self.run_pipeline(
                     f32_buffer,
                     params,
                     source_hash,
                     render_size_ref=float(APP_CONFIG.preview_render_size),
-                    metrics=metrics,
+                    metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
                     prefer_gpu=False,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, export_settings)
