@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.9.12
+
+- Added macOS Intel build
+
 ## 0.9.11
 
 - Fix color casts on exported files when heavy white balance correction is applied 
