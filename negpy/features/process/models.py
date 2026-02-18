@@ -23,6 +23,15 @@ class ProcessConfig:
     locked_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    
+    shadow_cast_threshold: float = 0.75
+    shadow_cast_strength: float = 1.0
+    locked_shadow_cast: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    local_shadow_cast: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    white_point_offset: float = 0.0
+    black_point_offset: float = 0.0
+
     roll_name: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -33,6 +42,8 @@ class ProcessConfig:
         object.__setattr__(self, "locked_ceils", tuple(self.locked_ceils))
         object.__setattr__(self, "local_floors", tuple(self.local_floors))
         object.__setattr__(self, "local_ceils", tuple(self.local_ceils))
+        object.__setattr__(self, "locked_shadow_cast", tuple(self.locked_shadow_cast))
+        object.__setattr__(self, "local_shadow_cast", tuple(self.local_shadow_cast))
 
     @property
     def is_local_initialized(self) -> bool:

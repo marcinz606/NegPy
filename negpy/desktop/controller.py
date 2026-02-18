@@ -344,7 +344,7 @@ class AppController(QObject):
         self.set_status(f"Analyzing {current}/{total}: {name}...")
         self.status_progress_requested.emit(current, total)
 
-    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple) -> None:
+    def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple, locked_cast: tuple) -> None:
         """
         Applies averaged normalization baseline to all files.
         """
@@ -355,6 +355,7 @@ class AppController(QObject):
                 use_roll_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
+                locked_shadow_cast=locked_cast,
                 roll_name=None,
             )
             new_p = replace(p, process=new_process)
@@ -366,6 +367,7 @@ class AppController(QObject):
             use_roll_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
+            locked_shadow_cast=locked_cast,
             roll_name=None,
         )
         self.session.update_config(replace(self.state.config, process=new_process), persist=True)
@@ -379,7 +381,7 @@ class AppController(QObject):
         Persists current batch normalization values as a named roll.
         """
         proc = self.state.config.process
-        self.session.repo.save_normalization_roll(name, proc.locked_floors, proc.locked_ceils)
+        self.session.repo.save_normalization_roll(name, proc.locked_floors, proc.locked_ceils, proc.locked_shadow_cast)
         self.session.update_config(
             replace(self.state.config, process=replace(proc, roll_name=name)),
             persist=True,
@@ -393,7 +395,7 @@ class AppController(QObject):
         """
         data = self.session.repo.load_normalization_roll(name)
         if data:
-            locked_floors, locked_ceils = data
+            locked_floors, locked_ceils, locked_cast = data
             for f_info in self.state.uploaded_files:
                 p = self.session.repo.load_file_settings(f_info["hash"]) or replace(self.state.config)
                 new_process = replace(
@@ -401,6 +403,7 @@ class AppController(QObject):
                     use_roll_average=True,
                     locked_floors=locked_floors,
                     locked_ceils=locked_ceils,
+                    locked_shadow_cast=locked_cast,
                     roll_name=name,
                 )
                 new_p = replace(p, process=new_process)
@@ -411,6 +414,7 @@ class AppController(QObject):
                 use_roll_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
+                locked_shadow_cast=locked_cast,
                 roll_name=name,
             )
             self.session.update_config(replace(self.state.config, process=new_process), persist=True)
@@ -425,6 +429,7 @@ class AppController(QObject):
             self.state.config.process,
             local_floors=(0.0, 0.0, 0.0),
             local_ceils=(0.0, 0.0, 0.0),
+            local_shadow_cast=(0.0, 0.0, 0.0),
         )
         self.session.update_config(replace(self.state.config, process=new_process))
         self.request_render()
@@ -560,19 +565,25 @@ class AppController(QObject):
         self.state.last_metrics.update(metrics)
         self.metrics_available.emit(metrics)
 
-        # If render produced fresh log bounds, persist them locally
-        if "log_bounds" in metrics and not self.state.config.process.use_roll_average:
-            bounds = metrics["log_bounds"]
-            new_process = replace(
-                self.state.config.process,
-                local_floors=bounds.floors,
-                local_ceils=bounds.ceils,
-            )
-            self.session.update_config(
-                replace(self.state.config, process=new_process),
-                persist=True,
-                render=False,
-            )
+        # If render produced fresh log bounds or shadow cast, persist them locally
+        if ("log_bounds" in metrics or "shadow_cast" in metrics) and not self.state.config.process.use_roll_average:
+            bounds = metrics.get("log_bounds")
+            cast = metrics.get("shadow_cast")
+            
+            changes = {}
+            if bounds:
+                changes["local_floors"] = bounds.floors
+                changes["local_ceils"] = bounds.ceils
+            if cast:
+                changes["local_shadow_cast"] = cast
+
+            if changes:
+                new_process = replace(self.state.config.process, **changes)
+                self.session.update_config(
+                    replace(self.state.config, process=new_process),
+                    persist=True,
+                    render=False,
+                )
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False

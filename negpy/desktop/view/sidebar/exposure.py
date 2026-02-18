@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QPushButton,
     QHBoxLayout,
+    QComboBox,
 )
 import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import SignalSlider, CompactSlider
@@ -17,6 +18,11 @@ class ExposureSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.layout.setSpacing(12)
         conf = self.state.config.exposure
+
+        self.region_combo = QComboBox()
+        self.region_combo.addItems(["Global", "Shadows", "Highlights"])
+        self.region_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
+        self.layout.addWidget(self.region_combo)
 
         self.cyan_slider = SignalSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1")
         self.magenta_slider = SignalSlider("Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1")
@@ -47,6 +53,9 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.density_slider)
         self.layout.addWidget(self.grade_slider)
 
+        self.shadows_slider = CompactSlider("Shadows", -1.0, 1.0, conf.shadows)
+        self.layout.addWidget(self.shadows_slider)
+
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.layout.addWidget(self.toe_slider)
 
@@ -56,6 +65,9 @@ class ExposureSidebar(BaseSidebar):
         toe_row.addWidget(self.toe_w_slider)
         toe_row.addWidget(self.toe_h_slider)
         self.layout.addLayout(toe_row)
+
+        self.highlights_slider = CompactSlider("Highlights", -1.0, 1.0, conf.highlights)
+        self.layout.addWidget(self.highlights_slider)
 
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.layout.addWidget(self.sh_slider)
@@ -70,12 +82,17 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.cyan_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, wb_cyan=v))
-        self.magenta_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, wb_magenta=v))
-        self.yellow_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, wb_yellow=v))
+        self.region_combo.currentIndexChanged.connect(self.sync_ui)
+
+        self.cyan_slider.valueChanged.connect(self._on_cyan_changed)
+        self.magenta_slider.valueChanged.connect(self._on_magenta_changed)
+        self.yellow_slider.valueChanged.connect(self._on_yellow_changed)
 
         self.density_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, density=v))
         self.grade_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, grade=v))
+
+        self.shadows_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, shadows=v))
+        self.highlights_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, highlights=v))
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
         self.camera_wb_btn.toggled.connect(self._on_camera_wb_toggled)
@@ -87,6 +104,33 @@ class ExposureSidebar(BaseSidebar):
         self.sh_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, shoulder=v))
         self.sh_w_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, shoulder_width=v))
         self.sh_h_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", readback_metrics=False, shoulder_hardness=v))
+
+    def _on_cyan_changed(self, v: float) -> None:
+        idx = self.region_combo.currentIndex()
+        if idx == 0:
+            self.update_config_section("exposure", readback_metrics=False, wb_cyan=v)
+        elif idx == 1:
+            self.update_config_section("exposure", readback_metrics=False, shadow_cyan=v)
+        elif idx == 2:
+            self.update_config_section("exposure", readback_metrics=False, highlight_cyan=v)
+
+    def _on_magenta_changed(self, v: float) -> None:
+        idx = self.region_combo.currentIndex()
+        if idx == 0:
+            self.update_config_section("exposure", readback_metrics=False, wb_magenta=v)
+        elif idx == 1:
+            self.update_config_section("exposure", readback_metrics=False, shadow_magenta=v)
+        elif idx == 2:
+            self.update_config_section("exposure", readback_metrics=False, highlight_magenta=v)
+
+    def _on_yellow_changed(self, v: float) -> None:
+        idx = self.region_combo.currentIndex()
+        if idx == 0:
+            self.update_config_section("exposure", readback_metrics=False, wb_yellow=v)
+        elif idx == 1:
+            self.update_config_section("exposure", readback_metrics=False, shadow_yellow=v)
+        elif idx == 2:
+            self.update_config_section("exposure", readback_metrics=False, highlight_yellow=v)
 
     def _on_pick_wb_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.WB_PICK if checked else ToolMode.NONE)
@@ -101,15 +145,28 @@ class ExposureSidebar(BaseSidebar):
 
         self.block_signals(True)
         try:
-            self.cyan_slider.setValue(conf.wb_cyan)
-            self.magenta_slider.setValue(conf.wb_magenta)
-            self.yellow_slider.setValue(conf.wb_yellow)
+            idx = self.region_combo.currentIndex()
+            if idx == 0:
+                self.cyan_slider.setValue(conf.wb_cyan)
+                self.magenta_slider.setValue(conf.wb_magenta)
+                self.yellow_slider.setValue(conf.wb_yellow)
+            elif idx == 1:
+                self.cyan_slider.setValue(conf.shadow_cyan)
+                self.magenta_slider.setValue(conf.shadow_magenta)
+                self.yellow_slider.setValue(conf.shadow_yellow)
+            elif idx == 2:
+                self.cyan_slider.setValue(conf.highlight_cyan)
+                self.magenta_slider.setValue(conf.highlight_magenta)
+                self.yellow_slider.setValue(conf.highlight_yellow)
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
             self.camera_wb_btn.setChecked(conf.use_camera_wb)
 
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
+
+            self.shadows_slider.setValue(conf.shadows)
+            self.highlights_slider.setValue(conf.highlights)
 
             self.toe_slider.setValue(conf.toe)
             self.toe_w_slider.setValue(conf.toe_width)
@@ -126,6 +183,7 @@ class ExposureSidebar(BaseSidebar):
         Helper to block/unblock all sliders and buttons.
         """
         widgets = [
+            self.region_combo,
             self.cyan_slider,
             self.magenta_slider,
             self.yellow_slider,
@@ -133,6 +191,8 @@ class ExposureSidebar(BaseSidebar):
             self.camera_wb_btn,
             self.density_slider,
             self.grade_slider,
+            self.shadows_slider,
+            self.highlights_slider,
             self.toe_slider,
             self.toe_w_slider,
             self.toe_h_slider,

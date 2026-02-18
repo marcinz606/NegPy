@@ -8,6 +8,8 @@ from negpy.features.lab.logic import (
     apply_clahe,
     apply_output_sharpening,
     apply_saturation,
+    apply_chroma_denoise,
+    apply_vibrance,
 )
 
 
@@ -20,6 +22,9 @@ class PhotoLabProcessor:
         Apply effects from logic.py in sequence
         """
         img = image
+
+        if self.config.chroma_denoise > 0:
+            img = apply_chroma_denoise(img, self.config.chroma_denoise, context.scale_factor)
 
         c_strength = max(0.0, self.config.color_separation - 1.0)
         if c_strength > 0:
@@ -35,6 +40,9 @@ class PhotoLabProcessor:
 
             img_dens = apply_spectral_crosstalk(img_dens, c_strength, matrix)
             img = np.power(10.0, -img_dens)
+
+        if self.config.vibrance != 0.0:
+            img = apply_vibrance(img, self.config.vibrance)
 
         if self.config.saturation != 1.0:
             img = apply_saturation(img, self.config.saturation)

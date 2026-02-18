@@ -1,10 +1,17 @@
 struct NormUniforms {
     floors: vec4<f32>,
     ceils: vec4<f32>,
+    shadow_cast: vec4<f32>,
     mode: u32,
     normalize_flag: u32,
-    pad: vec2<f32>,
-    pad2: vec4<f32>,
+    shadow_strength: f32,
+    wp_offset: f32,
+    bp_offset: f32,
+    pad0: f32,
+    pad1: f32,
+    pad2: f32,
+    pad3: vec4<f32>,
+    pad4: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -33,8 +40,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var res: vec3<f32>;
 
     for (var ch = 0; ch < 3; ch++) {
-        let f = params.floors[ch];
-        let c = params.ceils[ch];
+        let f = params.floors[ch] + params.wp_offset;
+        let c = params.ceils[ch] + params.bp_offset;
         
         let delta = c - f;
         var denom = delta;
@@ -45,6 +52,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let norm = (log_color[ch] - f) / denom;
         res[ch] = clamp(norm, 0.0, 1.0);
+    }
+
+    if (params.shadow_strength > 0.0) {
+        let density = (res.r + res.g + res.b) / 3.0;
+        let weight = pow(density, 1.5);
+        let correction = params.shadow_cast.rgb * weight * params.shadow_strength;
+        res = clamp(res + correction, vec3<f32>(0.0), vec3<f32>(1.0));
     }
 
     textureStore(output_tex, coords, vec4<f32>(res, 1.0));

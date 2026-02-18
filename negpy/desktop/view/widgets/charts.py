@@ -197,6 +197,8 @@ class PhotometricCurveWidget(QChartView):
             shoulder=params.shoulder,
             shoulder_width=params.shoulder_width,
             shoulder_hardness=params.shoulder_hardness,
+            shadows=params.shadows,
+            highlights=params.highlights,
         )
 
         plt_x = np.linspace(-0.1, 1.1, 50)

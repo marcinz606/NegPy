@@ -221,7 +221,7 @@ class NormalizationWorker(QObject):
     """
 
     progress = pyqtSignal(int, int, str)
-    finished = pyqtSignal(tuple, tuple)
+    finished = pyqtSignal(tuple, tuple, tuple)
     error = pyqtSignal(str)
 
     def __init__(self, preview_service, repo) -> None:
@@ -237,6 +237,7 @@ class NormalizationWorker(QObject):
         total = len(task.files)
         all_floors = []
         all_ceils = []
+        all_casts = []
 
         try:
             for i, f_info in enumerate(task.files):
@@ -247,6 +248,7 @@ class NormalizationWorker(QObject):
                 analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
                 process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                 e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
+                shadow_threshold = params.process.shadow_cast_threshold if params else DEFAULT_WORKSPACE_CONFIG.process.shadow_cast_threshold
 
                 raw, _, _ = self._preview_service.load_linear_preview(
                     f_info["path"],
@@ -263,8 +265,17 @@ class NormalizationWorker(QObject):
                 all_floors.append(bounds.floors)
                 all_ceils.append(bounds.ceils)
 
+                from negpy.features.exposure.normalization import normalize_log_image
+                from negpy.features.exposure.shadows import analyze_shadow_cast
+                epsilon = 1e-6
+                img_log = np.log10(np.clip(raw, epsilon, 1.0))
+                res_norm = normalize_log_image(img_log, bounds)
+                cast = analyze_shadow_cast(res_norm, shadow_threshold)
+                all_casts.append(cast)
+
             floors_arr = np.array(all_floors)
             ceils_arr = np.array(all_ceils)
+            casts_arr = np.array(all_casts)
 
             def get_robust_mean(data: np.ndarray) -> np.ndarray:
                 results = []
@@ -286,10 +297,12 @@ class NormalizationWorker(QObject):
 
             avg_floors = get_robust_mean(floors_arr)
             avg_ceils = get_robust_mean(ceils_arr)
+            avg_casts = get_robust_mean(casts_arr)
 
             self.finished.emit(
                 tuple(map(float, avg_floors)),
                 tuple(map(float, avg_ceils)),
+                tuple(map(float, avg_casts)),
             )
 
         except Exception as e:

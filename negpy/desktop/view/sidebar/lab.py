@@ -15,17 +15,24 @@ class LabSidebar(BaseSidebar):
 
         row1 = QHBoxLayout()
         self.separation_slider = CompactSlider("Separation", 1.0, 2.0, conf.color_separation)
-        self.saturation_slider = CompactSlider("Saturation", 0.0, 2.0, conf.saturation)
+        self.chroma_denoise_slider = CompactSlider("Chroma Denoise", 0.0, 5.0, conf.chroma_denoise)
         row1.addWidget(self.separation_slider)
-        row1.addWidget(self.saturation_slider)
+        row1.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row1)
 
         row2 = QHBoxLayout()
-        self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
-        self.sharpen_slider = CompactSlider("Sharpening", 0.0, 2.0, conf.sharpen)
-        row2.addWidget(self.clahe_slider)
-        row2.addWidget(self.sharpen_slider)
+        self.saturation_slider = CompactSlider("Saturation", 0.0, 2.0, conf.saturation)
+        self.vibrance_slider = CompactSlider("Vibrance", -1.0, 1.0, conf.vibrance)
+        row2.addWidget(self.saturation_slider)
+        row2.addWidget(self.vibrance_slider)
         self.layout.addLayout(row2)
+
+        row3 = QHBoxLayout()
+        self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
+        self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
+        row3.addWidget(self.clahe_slider)
+        row3.addWidget(self.sharpen_slider)
+        self.layout.addLayout(row3)
 
         self.layout.addStretch()
 
@@ -33,7 +40,9 @@ class LabSidebar(BaseSidebar):
         self.clahe_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, clahe_strength=v))
         self.sharpen_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, sharpen=v))
         self.saturation_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, saturation=v))
+        self.vibrance_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, vibrance=v))
         self.separation_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, color_separation=v))
+        self.chroma_denoise_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, chroma_denoise=v))
 
     def sync_ui(self) -> None:
         conf = self.state.config.lab
@@ -44,10 +53,14 @@ class LabSidebar(BaseSidebar):
             self.clahe_slider.setValue(conf.clahe_strength)
             self.sharpen_slider.setValue(conf.sharpen)
             self.saturation_slider.setValue(conf.saturation)
+            self.vibrance_slider.setValue(conf.vibrance)
             self.separation_slider.setValue(conf.color_separation)
+            self.chroma_denoise_slider.setValue(conf.chroma_denoise)
 
             self.separation_slider.setEnabled(not is_bw)
             self.saturation_slider.setEnabled(not is_bw)
+            self.vibrance_slider.setEnabled(not is_bw)
+            self.chroma_denoise_slider.setEnabled(not is_bw)
         finally:
             self.block_signals(False)
 
@@ -56,7 +69,9 @@ class LabSidebar(BaseSidebar):
             self.clahe_slider,
             self.sharpen_slider,
             self.saturation_slider,
+            self.vibrance_slider,
             self.separation_slider,
+            self.chroma_denoise_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)

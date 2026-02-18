@@ -140,3 +140,48 @@ def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
 
     res = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
     return ensure_image(np.clip(res, 0.0, 1.0))
+
+
+def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 1.0) -> ImageBuffer:
+    """
+    Smooths A and B channels in LAB space to reduce color noise.
+    """
+    if radius <= 0:
+        return img
+
+    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    l_chan, a, b = cv2.split(lab)
+
+    k_radius = radius * scale_factor
+    k_size = max(3, int(k_radius * 2 + 1) | 1)
+    sigma = k_radius
+
+    a_blur = cv2.GaussianBlur(a, (k_size, k_size), sigma)
+    b_blur = cv2.GaussianBlur(b, (k_size, k_size), sigma)
+
+    res_lab = cv2.merge([l_chan, a_blur, b_blur])
+    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
+
+    return ensure_image(np.clip(res_rgb, 0.0, 1.0))
+
+
+def apply_vibrance(img: ImageBuffer, strength: float) -> ImageBuffer:
+    """
+    Selectively boosts saturation of muted colors in LAB space.
+    """
+    if strength == 0.0:
+        return img
+
+    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    l_chan, a, b = cv2.split(lab)
+
+    chroma = np.sqrt(a**2 + b**2)
+    muted_mask = np.clip(1.0 - (chroma / 60.0), 0.0, 1.0)
+
+    a_new = a * (1.0 + strength * muted_mask)
+    b_new = b * (1.0 + strength * muted_mask)
+
+    res_lab = cv2.merge([l_chan, a_new, b_new])
+    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
+
+    return ensure_image(np.clip(res_rgb, 0.0, 1.0))

@@ -32,9 +32,15 @@ class StorageRepository(IRepository):
                 CREATE TABLE IF NOT EXISTS normalization_rolls (
                     name TEXT PRIMARY KEY,
                     floors_json TEXT,
-                    ceils_json TEXT
+                    ceils_json TEXT,
+                    cast_json TEXT
                 )
             """)
+            # Migration: add cast_json if not exists
+            try:
+                conn.execute("ALTER TABLE normalization_rolls ADD COLUMN cast_json TEXT")
+            except sqlite3.OperationalError:
+                pass
 
         with sqlite3.connect(self.settings_db_path) as conn:
             conn.execute("""
@@ -44,28 +50,31 @@ class StorageRepository(IRepository):
                 )
             """)
 
-    def save_normalization_roll(self, name: str, floors: tuple, ceils: tuple) -> None:
+    def save_normalization_roll(self, name: str, floors: tuple, ceils: tuple, cast: tuple = (0.0, 0.0, 0.0)) -> None:
         """
         Persists a named normalization baseline (roll).
         """
         with sqlite3.connect(self.edits_db_path) as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO normalization_rolls (name, floors_json, ceils_json) VALUES (?, ?, ?)",
-                (name, json.dumps(floors), json.dumps(ceils)),
+                "INSERT OR REPLACE INTO normalization_rolls (name, floors_json, ceils_json, cast_json) VALUES (?, ?, ?, ?)",
+                (name, json.dumps(floors), json.dumps(ceils), json.dumps(cast)),
             )
 
-    def load_normalization_roll(self, name: str) -> Optional[tuple[tuple, tuple]]:
+    def load_normalization_roll(self, name: str) -> Optional[tuple[tuple, tuple, tuple]]:
         """
         Retrieves a named normalization baseline.
         """
         with sqlite3.connect(self.edits_db_path) as conn:
             cursor = conn.execute(
-                "SELECT floors_json, ceils_json FROM normalization_rolls WHERE name = ?",
+                "SELECT floors_json, ceils_json, cast_json FROM normalization_rolls WHERE name = ?",
                 (name,),
             )
             row = cursor.fetchone()
             if row:
-                return tuple(json.loads(row[0])), tuple(json.loads(row[1]))
+                floors = tuple(json.loads(row[0]))
+                ceils = tuple(json.loads(row[1]))
+                cast = tuple(json.loads(row[2])) if row[2] else (0.0, 0.0, 0.0)
+                return floors, ceils, cast
         return None
 
     def list_normalization_rolls(self) -> list[str]:

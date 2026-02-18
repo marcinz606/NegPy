@@ -33,6 +33,20 @@ class TestBatchNormalization(unittest.TestCase):
         res = processor.process(img, self.context)
         self.assertAlmostEqual(res[0, 0, 0], 0.5, places=5)
 
+    def test_white_black_point_offsets(self):
+        img_val = 10**-0.5
+        img = np.full((10, 10, 3), img_val, dtype=np.float32)
+        
+        p_neutral = replace(self.config.process, local_floors=(-0.8, -0.8, -0.8), local_ceils=(-0.2, -0.2, -0.2))
+        res_neutral = NormalizationProcessor(p_neutral).process(img, self.context)
+        
+        self.assertAlmostEqual(float(np.mean(res_neutral)), 0.5, places=5)
+
+        p_wp = replace(p_neutral, white_point_offset=0.1)
+        res_wp = NormalizationProcessor(p_wp).process(img, self.context)
+        
+        self.assertLess(float(np.mean(res_wp)), float(np.mean(res_neutral)))
+
     def test_photometric_processor_is_independent_of_roll_average(self):
         """
         Verify that PhotometricProcessor no longer applies extra shifts in roll average mode.

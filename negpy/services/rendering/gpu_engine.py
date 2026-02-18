@@ -167,11 +167,11 @@ class GPUEngine:
         idx = self._uniform_names.index(name)
         sizes = {
             "geometry": 32,
-            "normalization": 64,
-            "exposure": 112,
+            "normalization": 112,
+            "exposure": 160,
             "clahe_u": 32,
             "retouch_u": 40,
-            "lab": 64,
+            "lab": 96,
             "toning": 48,
             "layout": 48,
         }
@@ -188,6 +188,7 @@ class GPUEngine:
         scale_factor: float = 1.0,
         tiling_mode: bool = False,
         bounds_override: Optional[Any] = None,
+        cast_override: Optional[Any] = None,
         global_offset: Tuple[int, int] = (0, 0),
         full_dims: Optional[Tuple[int, int]] = None,
         clahe_cdf_override: Optional[np.ndarray] = None,
@@ -303,11 +304,43 @@ class GPUEngine:
                 e6_normalize=settings.process.e6_normalize,
             )
 
+        cast = (0.0, 0.0, 0.0)
+        if cast_override:
+            cast = cast_override
+        elif settings.process.shadow_cast_strength > 0:
+            if settings.process.use_roll_average:
+                cast = settings.process.locked_shadow_cast
+            elif any(v != 0.0 for v in settings.process.local_shadow_cast):
+                cast = settings.process.local_shadow_cast
+            else:
+                from negpy.features.exposure.normalization import normalize_log_image
+                from negpy.features.exposure.shadows import analyze_shadow_cast
+                epsilon = 1e-6
+                
+                analysis_source = img.copy()
+                if settings.geometry.rotation != 0:
+                    analysis_source = np.rot90(analysis_source, k=settings.geometry.rotation)
+                if settings.geometry.flip_horizontal:
+                    analysis_source = np.fliplr(analysis_source)
+                if settings.geometry.flip_vertical:
+                    analysis_source = np.flipud(analysis_source)
+                if settings.geometry.fine_rotation != 0.0:
+                    analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
+
+                if not tiling_mode and roi:
+                    ry1, ry2, rx1, rx2 = roi
+                    analysis_source = analysis_source[ry1:ry2, rx1:rx2]
+
+                img_log = np.log10(np.clip(analysis_source, epsilon, 1.0))
+                res_norm = normalize_log_image(img_log, bounds)
+                cast = analyze_shadow_cast(res_norm, settings.process.shadow_cast_threshold)
+
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
 
         self._upload_unified_uniforms(
             settings,
             bounds,
+            cast,
             global_offset,
             actual_full_dims,
             (0, 0) if tiling_mode else (x1, y1),
@@ -529,6 +562,7 @@ class GPUEngine:
             "normalized_log": tex_norm,
             "content_rect": content_rect,
             "log_bounds": bounds,
+            "shadow_cast": cast,
         }
 
         if not tiling_mode and readback_metrics:
@@ -555,6 +589,7 @@ class GPUEngine:
         self,
         settings: WorkspaceConfig,
         bounds: Any,
+        cast: Any,
         offset: Tuple[int, int],
         full_dims: Tuple[int, int],
         crop_offset: Tuple[int, int],
@@ -588,7 +623,10 @@ class GPUEngine:
         n_data = (
             struct.pack("ffff", f[0], f[1], f[2], 0.0)
             + struct.pack("ffff", c[0], c[1], c[2], 0.0)
-            + struct.pack("II", mode_val, (1 if settings.process.e6_normalize else 0))
+            + struct.pack("ffff", cast[0], cast[1], cast[2], settings.process.shadow_cast_threshold)
+            + struct.pack("IIf", mode_val, (1 if settings.process.e6_normalize else 0), settings.process.shadow_cast_strength)
+            + struct.pack("ff", settings.process.white_point_offset, settings.process.black_point_offset)
+            + b"\x00" * 44
         )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -612,6 +650,20 @@ class GPUEngine:
                 0.0,
             )
             + struct.pack(
+                "ffff",
+                exp.shadow_cyan * cmy_m,
+                exp.shadow_magenta * cmy_m,
+                exp.shadow_yellow * cmy_m,
+                0.0,
+            )
+            + struct.pack(
+                "ffff",
+                exp.highlight_cyan * cmy_m,
+                exp.highlight_magenta * cmy_m,
+                exp.highlight_yellow * cmy_m,
+                0.0,
+            )
+            + struct.pack(
                 "ffffffff",
                 exp.toe,
                 exp.toe_width,
@@ -619,9 +671,11 @@ class GPUEngine:
                 exp.shoulder,
                 exp.shoulder_width,
                 exp.shoulder_hardness,
-                4.0,
-                2.2,
+                exp.shadows,
+                exp.highlights,
             )
+            + struct.pack("ffI", 4.0, 2.2, mode_val)
+            + b"\x00" * 28
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -672,7 +726,15 @@ class GPUEngine:
             struct.pack("ffff", m[0], m[1], m[2], 0.0)
             + struct.pack("ffff", m[3], m[4], m[5], 0.0)
             + struct.pack("ffff", m[6], m[7], m[8], 0.0)
-            + struct.pack("ffff", sep_strength, float(lab.sharpen), 0.0, 0.0)
+            + struct.pack(
+                "fffff",
+                sep_strength,
+                float(lab.sharpen),
+                float(lab.chroma_denoise),
+                float(lab.saturation),
+                float(lab.vibrance),
+            )
+            + b"\x00" * 28
         )
 
         from negpy.features.toning.logic import PAPER_PROFILES, PaperProfileName
@@ -899,7 +961,7 @@ class GPUEngine:
             pass_enc.dispatch_workgroups((w + wg_x - 1) // wg_x, (h + wg_y - 1) // wg_y)
         pass_enc.end()
 
-    def process(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float = 1.0, bounds_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def process(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float = 1.0, bounds_override: Optional[Any] = None, cast_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
         h, w = img.shape[:2]
@@ -907,11 +969,11 @@ class GPUEngine:
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
-            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override)
-        tex_final, metrics = self.process_to_texture(img, settings, scale_factor=scale_factor, bounds_override=bounds_override)
+            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, cast_override=cast_override)
+        tex_final, metrics = self.process_to_texture(img, settings, scale_factor=scale_factor, bounds_override=bounds_override, cast_override=cast_override)
         return self._readback_downsampled(tex_final), metrics
 
-    def _process_tiled(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float, bounds_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _process_tiled(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float, bounds_override: Optional[Any] = None, cast_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
 
@@ -932,7 +994,7 @@ class GPUEngine:
         device = self.gpu.device
         assert device is not None
         nbytes = 64 * HISTOGRAM_BINS * 4
-        read_buf = device.create_buffer(size=nbytes, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
+        read_buf = device.create_buffer(size=nbytes, usage=wgpu.BufferUsage.COPY_DST | wgpu.MapMode.READ)
         encoder = device.create_command_encoder()
         encoder.copy_buffer_to_buffer(self._buffers["clahe_c"].buffer, 0, read_buf, 0, nbytes)
         device.queue.submit([encoder.finish()])
@@ -970,6 +1032,28 @@ class GPUEngine:
                 e6_normalize=settings.process.e6_normalize,
             )
 
+        if cast_override:
+            global_cast = cast_override
+        elif settings.process.shadow_cast_strength > 0:
+            if settings.process.use_roll_average:
+                global_cast = settings.process.locked_shadow_cast
+            elif any(v != 0.0 for v in settings.process.local_shadow_cast):
+                global_cast = settings.process.local_shadow_cast
+            else:
+                from negpy.features.exposure.normalization import normalize_log_image
+                from negpy.features.exposure.shadows import analyze_shadow_cast
+                epsilon = 1e-6
+                
+                analysis_src = img_rot
+                if roi:
+                    analysis_src = img_rot[y1:y2, x1:x2]
+                
+                img_log = np.log10(np.clip(analysis_src, epsilon, 1.0))
+                res_norm = normalize_log_image(img_log, global_bounds)
+                global_cast = analyze_shadow_cast(res_norm, settings.process.shadow_cast_threshold)
+        else:
+            global_cast = (0.0, 0.0, 0.0)
+
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
@@ -987,6 +1071,7 @@ class GPUEngine:
                     scale_factor=scale_factor,
                     tiling_mode=True,
                     bounds_override=global_bounds,
+                    cast_override=global_cast,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,

@@ -22,7 +22,9 @@ Here is what actually happens to your image. We apply these steps in order, pass
     The engine uses statistical percentiles to detect the usable signal range. To maintain a unified pipeline, we always map the target **White Point** to the **Floor** ($0.0$) and the **Black Point** to the **Ceiling** ($1.0$).
     *   **Negative (C-41/B&W)**: Raw low-signal (Film Base) maps to Floor ($0.0$). Raw high-signal (Highlights) maps to Ceiling ($1.0$). Range: 0.5% to 99.5%.
     *   **Positive (E-6)**: Raw high-signal (Highlights) maps to Floor ($0.0$). Raw low-signal (Shadows) maps to Ceiling ($1.0$). Range: 99.9% to 0.01%.
+*   **White & Black Point Offsets**: Allows manual adjustment of the normalization boundaries. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running statistical analysis.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range.
+*   **Shadow Cast Removal**: An optional step that identifies "Deep Shadows" (default Density > 0.75) and calculates a correction vector to neutralize any color cast. The correction is applied globally but weighted by $D^{1.5}$, ensuring it aggressively targets the blacks while tapering off in the midtones.
 
 ---
 
@@ -30,13 +32,16 @@ Here is what actually happens to your image. We apply these steps in order, pass
 **Code**: `negpy.features.exposure`
 
 *   **Virtual Darkroom**: Simulates shining light through the normalized log-signal onto paper.
-*   **Color Timing**: Applies subtractive filtration (CMY) in log-space. This mimics a dichroic head on an enlarger.
+*   **Color Timing**: Applies subtractive filtration (CMY) in log-space. This mimics a dichroic head on an enlarger. Adjustments can be targeted to **Global**, **Shadows**, or **Highlights** regions using Gaussian-weighted tonal masks.
 *   **The H&D Curve**: Models paper response using a **Logistic Sigmoid**:
-    $$D_{print} = \frac{D_{max}}{1 + e^{-k \cdot (x - x_0)}}$$
+    $$D_{print} = \frac{D_{max}}{1 + e^{-k \cdot (x_{adj} - x_0)}}$$
     *   $D_{max}$: Deepest black the paper can do.
     *   $k$: Contrast grade.
     *   $x_0$: Exposure time (pivot).
-    *   $x$: Input logarithmic exposure.
+    *   $x_{adj}$: Adjusted input logarithmic exposure.
+*   **Shadows & Highlights**: Provides localized control over the curve's ends by applying Gaussian-weighted offsets to the input exposure $x$ before it reaches the sigmoid:
+    $$x_{adj} = x - \Delta_{shadow} \cdot \text{mask}_{shadow} - \Delta_{highlight} \cdot \text{mask}_{highlight}$$
+    *   This allows lifting shadows or recovering highlights without shifting the pivot point or affecting the global contrast grade.
 *   **Output**: Converts print density back to light (Transmittance):
     $$I_{out} = 10^{-D_{print}}$$
     *   **Note**: Final display gamma (2.2) is applied in the final output stage.
@@ -78,23 +83,25 @@ This stage removes physical artifacts like dust, hairs, and scratches from the n
 ## 5. Lab Scanner Mode
 **Code**: `negpy.features.lab`
 
-This mimics what lab scanners like Frontier or Noritsu do automatically.
+This mimics what lab scanners like Frontier or Noritsu do automatically. For maximum signal quality, the steps are applied in the following sequence:
 
-*   **Color Separation**: We use a mixing matrix to push colors apart. It mixes between a neutral identity matrix and a mode-specific "calibration" matrix based on how much pop you want.
+1.  **Chroma Denoise**: Applies a Gaussian filter to the A and B channels in LAB space. This reduces color noise and digital "chroma speckle" while leaving the L-channel (and its film grain) completely untouched.
+2.  **Color Separation**: We use a mixing matrix to push colors apart. It mixes between a neutral identity matrix and a mode-specific "calibration" matrix based on how much pop you want.
   
     $$M = \text{normalize}((1 - \beta)I + \beta C)$$
     *   $I$: Identity matrix (neutral).
     *   $C$: Calibration matrix.
     *   $\beta$: Separation strength.
-        
 
-*   **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
+3.  **Smart Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
+4.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel.
+5.  **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
   
     $$L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L)$$
     *   $L$: Luminance channel.
     *   $\alpha$: Blending strength.
 
-*   **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
+6.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
   
     $$L_{diff} = L - \text{GaussianBlur}(L, \sigma)$$
     $$L_{final} = L + L_{diff} \cdot \text{amount} \cdot 2.5 \quad \text{if } |L_{diff}| > 2.0$$

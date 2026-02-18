@@ -1,10 +1,13 @@
 import unittest
 import numpy as np
+import cv2
 from negpy.features.lab.logic import (
     apply_output_sharpening,
     apply_saturation,
     apply_spectral_crosstalk,
     apply_clahe,
+    apply_vibrance,
+    apply_chroma_denoise,
 )
 
 
@@ -65,6 +68,41 @@ class TestLabLogic(unittest.TestCase):
         self.assertAlmostEqual(sat[0, 0, 0], 1.0, delta=1e-5)
         self.assertAlmostEqual(sat[0, 0, 1], 0.0, delta=1e-5)
         self.assertAlmostEqual(sat[0, 0, 2], 0.0, delta=1e-5)
+
+    def test_vibrance(self) -> None:
+        """Vibrance should increase saturation of pale colors more than vibrant ones."""
+        # Pale color
+        img_pale = np.ones((10, 10, 3), dtype=np.float32) * 0.5
+        img_pale[:, :, 0] = 0.6
+        
+        # Vibrant color
+        img_vibrant = np.ones((10, 10, 3), dtype=np.float32) * 0.5
+        img_vibrant[:, :, 0] = 1.0
+        
+        res_pale = apply_vibrance(img_pale, 1.0)
+        res_vibrant = apply_vibrance(img_vibrant, 1.0)
+        
+        # Calculate saturation increase
+        def get_sat(rgb):
+            c = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+            return np.mean(c[:, :, 1])
+            
+        sat_gain_pale = get_sat(res_pale) - get_sat(img_pale)
+        sat_gain_vibrant = get_sat(res_vibrant) - get_sat(img_vibrant)
+        
+        self.assertGreater(sat_gain_pale, sat_gain_vibrant)
+
+    def test_chroma_denoise(self) -> None:
+        img = np.full((100, 100, 3), 0.5, dtype=np.float32)
+        lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+        lab[:, :, 1] += np.random.normal(0, 5, (100, 100))
+        img_noisy = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        
+        res = apply_chroma_denoise(img_noisy, radius=2.0)
+        res_lab = cv2.cvtColor(res, cv2.COLOR_RGB2LAB)
+        
+        np.testing.assert_array_almost_equal(lab[:, :, 0], res_lab[:, :, 0], decimal=0)
+        self.assertLess(float(np.var(res_lab[:, :, 1])), float(np.var(lab[:, :, 1])))
 
 
 if __name__ == "__main__":

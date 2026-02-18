@@ -10,6 +10,7 @@ from negpy.features.exposure.normalization import (
     analyze_log_exposure_bounds,
     LogNegativeBounds,
 )
+from negpy.features.exposure.shadows import analyze_shadow_cast, apply_shadow_cast_correction
 
 
 class NormalizationProcessor:
@@ -53,9 +54,34 @@ class NormalizationProcessor:
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
         
+        if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
+            adj_floors = (
+                bounds.floors[0] + self.config.white_point_offset,
+                bounds.floors[1] + self.config.white_point_offset,
+                bounds.floors[2] + self.config.white_point_offset,
+            )
+            adj_ceils = (
+                bounds.ceils[0] + self.config.black_point_offset,
+                bounds.ceils[1] + self.config.black_point_offset,
+                bounds.ceils[2] + self.config.black_point_offset,
+            )
+            bounds = LogNegativeBounds(floors=adj_floors, ceils=adj_ceils)
 
         res = normalize_log_image(img_log, bounds)
+
+        cast = (0.0, 0.0, 0.0)
+        if self.config.shadow_cast_strength > 0:
+            if self.config.use_roll_average:
+                cast = self.config.locked_shadow_cast
+            elif any(v != 0.0 for v in self.config.local_shadow_cast):
+                cast = self.config.local_shadow_cast
+            else:
+                cast = analyze_shadow_cast(res, self.config.shadow_cast_threshold)
+            
+            res = apply_shadow_cast_correction(res, cast, self.config.shadow_cast_strength)
+
         context.metrics["normalized_log"] = res
+        context.metrics["shadow_cast"] = cast
         return res
 
 
@@ -80,6 +106,16 @@ class PhotometricProcessor:
             self.config.wb_magenta * cmy_max,
             self.config.wb_yellow * cmy_max,
         )
+        shadow_cmy = (
+            self.config.shadow_cyan * cmy_max,
+            self.config.shadow_magenta * cmy_max,
+            self.config.shadow_yellow * cmy_max,
+        )
+        highlight_cmy = (
+            self.config.highlight_cyan * cmy_max,
+            self.config.highlight_magenta * cmy_max,
+            self.config.highlight_yellow * cmy_max,
+        )
 
         mode_val = 0
         if context.process_mode == ProcessMode.BW:
@@ -98,6 +134,10 @@ class PhotometricProcessor:
             shoulder=self.config.shoulder,
             shoulder_width=self.config.shoulder_width,
             shoulder_hardness=self.config.shoulder_hardness,
+            shadows=self.config.shadows,
+            highlights=self.config.highlights,
+            shadow_cmy=shadow_cmy,
+            highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
             mode=mode_val,
         )
