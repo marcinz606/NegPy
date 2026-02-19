@@ -27,13 +27,13 @@ jobs:
       - id: set-matrix
         run: |
           if [ "${{ github.event.inputs.platform }}" == "all" ]; then
-            echo 'matrix=["ubuntu-latest", "windows-latest", "macos-latest"]' >> $GITHUB_OUTPUT
+            echo 'matrix=["ubuntu-latest", "windows-latest", "macos-latest", "macos-15-intel"]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "windows" ]; then
             echo 'matrix=["windows-latest"]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "linux" ]; then
             echo 'matrix=["ubuntu-latest"]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "macos" ]; then
-            echo 'matrix=["macos-latest"]' >> $GITHUB_OUTPUT
+            echo 'matrix=["macos-latest", "macos-15-intel"]' >> $GITHUB_OUTPUT
           fi
 
   build:
