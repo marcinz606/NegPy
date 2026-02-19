@@ -34,8 +34,8 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(sliders_row)
 
         wp_bp_row = QHBoxLayout()
-        self.white_point_slider = CompactSlider("White Point", -1.0, 1.0, conf.white_point_offset)
-        self.black_point_slider = CompactSlider("Black Point", -1.0, 1.0, conf.black_point_offset)
+        self.white_point_slider = CompactSlider("White Point", -0.5, 0.5, conf.white_point_offset)
+        self.black_point_slider = CompactSlider("Black Point", -0.5, 0.5, conf.black_point_offset)
         wp_bp_row.addWidget(self.white_point_slider)
         wp_bp_row.addWidget(self.black_point_slider)
         self.layout.addLayout(wp_bp_row)

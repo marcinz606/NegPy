@@ -41,7 +41,7 @@ class PhotoLabProcessor:
             img_dens = apply_spectral_crosstalk(img_dens, c_strength, matrix)
             img = np.power(10.0, -img_dens)
 
-        if self.config.vibrance != 0.0:
+        if self.config.vibrance != 1.0:
             img = apply_vibrance(img, self.config.vibrance)
 
         if self.config.saturation != 1.0:

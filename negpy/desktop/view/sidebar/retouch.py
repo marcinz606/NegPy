@@ -15,11 +15,6 @@ class RetouchSidebar(BaseSidebar):
         self.layout.setSpacing(10)
         conf = self.state.config.retouch
 
-        self.auto_dust_btn = QPushButton(" Enable Auto Removal")
-        self.auto_dust_btn.setCheckable(True)
-        self.auto_dust_btn.setChecked(conf.dust_remove)
-        self.auto_dust_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
-        self.layout.addWidget(self.auto_dust_btn)
 
         auto_row = QHBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
@@ -28,10 +23,19 @@ class RetouchSidebar(BaseSidebar):
         auto_row.addWidget(self.auto_size_slider)
         self.layout.addLayout(auto_row)
 
-        self.pick_dust_btn = QPushButton(" Heal Dust Tool")
+        buttons_row = QHBoxLayout()
+        self.auto_dust_btn = QPushButton(" Auto Dust")
+        self.auto_dust_btn.setCheckable(True)
+        self.auto_dust_btn.setChecked(conf.dust_remove)
+        self.auto_dust_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
+        
+        self.pick_dust_btn = QPushButton(" Heal Tool")
         self.pick_dust_btn.setCheckable(True)
         self.pick_dust_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
-        self.layout.addWidget(self.pick_dust_btn)
+        
+        buttons_row.addWidget(self.auto_dust_btn)
+        buttons_row.addWidget(self.pick_dust_btn)
+        self.layout.addLayout(buttons_row)
 
         self.manual_size_slider = SignalSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1)
         self.layout.addWidget(self.manual_size_slider)

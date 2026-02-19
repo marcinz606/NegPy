@@ -169,7 +169,7 @@ def apply_vibrance(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Selectively boosts saturation of muted colors in LAB space.
     """
-    if strength == 0.0:
+    if strength == 1.0:
         return img
 
     lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
@@ -178,8 +178,9 @@ def apply_vibrance(img: ImageBuffer, strength: float) -> ImageBuffer:
     chroma = np.sqrt(a**2 + b**2)
     muted_mask = np.clip(1.0 - (chroma / 60.0), 0.0, 1.0)
 
-    a_new = a * (1.0 + strength * muted_mask)
-    b_new = b * (1.0 + strength * muted_mask)
+    boost = (strength - 1.0) * muted_mask
+    a_new = a * (1.0 + boost)
+    b_new = b * (1.0 + boost)
 
     res_lab = cv2.merge([l_chan, a_new, b_new])
     res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)

@@ -16,17 +16,17 @@ class ThemeConfig:
     font_size_title: int = 16
 
     # Colors
-    bg_dark: str = "#0f0f0f"
-    bg_panel: str = "#1a1a1a"
-    bg_header: str = "#2a2a2a"
+    bg_dark: str = "#0D0D0D"
+    bg_panel: str = "#0D0D0D"
+    bg_header: str = "#161616"
     bg_status_bar: str = "#0a0a0a"
-    border_primary: str = "#222222"
+    border_primary: str = "#262626"
     border_color: str = "#333333"
-    text_primary: str = "#eeeeee"
-    text_secondary: str = "#aaaaaa"
+    text_primary: str = "#D4D4D4"
+    text_secondary: str = "#A0A0A0"
     text_muted: str = "#555555"
-    accent_primary: str = "#b10000"
-    accent_secondary: str = "#d10000"
+    accent_primary: str = "#B71C1C"
+    accent_secondary: str = "#C62828"
 
     slider_height_compact: int = 18
     header_padding: int = 10

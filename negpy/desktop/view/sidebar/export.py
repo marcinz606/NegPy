@@ -130,19 +130,9 @@ class ExportSidebar(BaseSidebar):
 
         batch_row = QHBoxLayout()
         self.batch_export_btn = QPushButton(" EXPORT ALL LOADED")
+        self.batch_export_btn.setObjectName("batch_export_btn")
         self.batch_export_btn.setFixedHeight(40)
         self.batch_export_btn.setIcon(qta.icon("fa5s.images", color="white"))
-        self.batch_export_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {THEME.accent_primary};
-                color: white;
-                font-weight: bold;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {THEME.accent_secondary};
-            }}
-        """)
 
         self.apply_all_btn = QPushButton(" Apply to all")
         self.apply_all_btn.setFixedHeight(40)

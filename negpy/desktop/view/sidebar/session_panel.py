@@ -1,20 +1,23 @@
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QGroupBox,
     QSplitter,
     QLabel,
-    QTabWidget,
+    QStackedWidget,
+    QPushButton,
     QScrollArea,
 )
 from typing import Dict, Any
 from PyQt6.QtCore import pyqtSignal, Qt, QThread
+import qtawesome as qta
+from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
 from negpy.desktop.view.sidebar.header import SidebarHeader
 from negpy.desktop.view.sidebar.files import FileBrowser
 from negpy.desktop.view.sidebar.export import ExportSidebar
-from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.version import check_for_updates
 
 
@@ -64,31 +67,52 @@ class SessionPanel(QWidget):
         self.file_browser = FileBrowser(self.controller)
         self.splitter.addWidget(self.file_browser)
 
-        self.tabs = QTabWidget()
-        self.tabs.tabBar().setExpanding(True)
-        self.tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: 1px solid {THEME.border_color};
-                background-color: {THEME.bg_panel};
-            }}
-            QTabBar::tab {{
-                background-color: {THEME.bg_header};
-                color: {THEME.text_secondary};
-                font-size: {THEME.font_size_header}px;
-                padding: 8px 12px;
-                border: 1px solid {THEME.border_color};
-                min-width: 80px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: #000000;
-                color: white;
-                font-weight: bold;
-                border-bottom-color: {THEME.accent_primary};
-            }}
-            QTabBar::tab:hover:!selected {{
-                background-color: {THEME.accent_secondary};
-            }}
-        """)
+        # Custom Tab Switcher
+        self.tab_container = QWidget()
+        tab_vbox = QVBoxLayout(self.tab_container)
+        tab_vbox.setContentsMargins(0, 0, 0, 0)
+        tab_vbox.setSpacing(0)
+
+        switcher_layout = QHBoxLayout()
+        switcher_layout.setContentsMargins(0, 0, 0, 0)
+        switcher_layout.setSpacing(0)
+
+        self.btn_tab_analysis = QPushButton(" Analysis")
+        self.btn_tab_analysis.setIcon(qta.icon("fa5s.chart-bar", color=THEME.text_secondary))
+        self.btn_tab_export = QPushButton(" Export")
+        self.btn_tab_export.setIcon(qta.icon("fa5s.file-export", color=THEME.text_secondary))
+        
+        for btn in [self.btn_tab_analysis, self.btn_tab_export]:
+            btn.setCheckable(True)
+            btn.setFixedHeight(38)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    text-align: center;
+                    font-weight: bold;
+                    font-size: {THEME.font_size_header}px;
+                    background-color: #0D0D0D;
+                    border: none;
+                    border-bottom: 1px solid #262626;
+                    border-right: 1px solid #262626;
+                    color: #A0A0A0;
+                }}
+                QPushButton:hover {{
+                    background-color: #262626;
+                    color: #FFFFFF;
+                }}
+                QPushButton:checked {{
+                    background-color: #222222;
+                    color: #FFFFFF;
+                    border-bottom: none;
+                }}
+            """)
+            switcher_layout.addWidget(btn)
+
+        tab_vbox.addLayout(switcher_layout)
+
+        self.stack = QStackedWidget()
+        self.stack.setContentsMargins(0, 8, 0, 0)
+        tab_vbox.addWidget(self.stack)
 
         def wrap_scroll(widget: QWidget) -> QScrollArea:
             scroll = QScrollArea()
@@ -106,12 +130,17 @@ class SessionPanel(QWidget):
 
         analysis_layout.addWidget(self.hist_widget, 1)
         analysis_layout.addWidget(self.curve_widget, 1)
-        self.tabs.addTab(wrap_scroll(self.analysis_group), "Analysis")
-
+        
+        self.stack.addWidget(wrap_scroll(self.analysis_group))
+        
         self.export_sidebar = ExportSidebar(self.controller)
-        self.tabs.addTab(wrap_scroll(self.export_sidebar), "Export")
+        self.stack.addWidget(wrap_scroll(self.export_sidebar))
 
-        self.splitter.addWidget(self.tabs)
+        # Default state
+        self.btn_tab_analysis.setChecked(True)
+        self.stack.setCurrentIndex(0)
+
+        self.splitter.addWidget(self.tab_container)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
 
@@ -121,6 +150,18 @@ class SessionPanel(QWidget):
         self.controller.image_updated.connect(self._update_analysis)
         self.controller.metrics_available.connect(self._on_metrics_available)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
+        
+        self.btn_tab_analysis.clicked.connect(lambda: self._switch_tab(0))
+        self.btn_tab_export.clicked.connect(lambda: self._switch_tab(1))
+
+    def _switch_tab(self, index: int) -> None:
+        self.stack.setCurrentIndex(index)
+        self.btn_tab_analysis.setChecked(index == 0)
+        self.btn_tab_export.setChecked(index == 1)
+        
+        # Sync icon colors
+        self.btn_tab_analysis.setIcon(qta.icon("fa5s.chart-bar", color="white" if index == 0 else THEME.text_secondary))
+        self.btn_tab_export.setIcon(qta.icon("fa5s.file-export", color="white" if index == 1 else THEME.text_secondary))
 
     def _on_metrics_available(self, metrics: Dict[str, Any]) -> None:
         hist_data = metrics.get("histogram_raw")

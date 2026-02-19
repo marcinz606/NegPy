@@ -22,7 +22,7 @@ class LabSidebar(BaseSidebar):
 
         row2 = QHBoxLayout()
         self.saturation_slider = CompactSlider("Saturation", 0.0, 2.0, conf.saturation)
-        self.vibrance_slider = CompactSlider("Vibrance", -1.0, 1.0, conf.vibrance)
+        self.vibrance_slider = CompactSlider("Vibrance", 0.0, 2.0, conf.vibrance)
         row2.addWidget(self.saturation_slider)
         row2.addWidget(self.vibrance_slider)
         self.layout.addLayout(row2)

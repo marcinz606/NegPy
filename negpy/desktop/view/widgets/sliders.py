@@ -105,6 +105,7 @@ class SignalSlider(BaseSlider):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.label = QLabel(label)
         self.label.setMinimumWidth(80)
@@ -120,26 +121,6 @@ class SignalSlider(BaseSlider):
         layout.addWidget(self.label)
         layout.addWidget(self.slider)
         layout.addWidget(self.spin)
-
-        if color:
-            self.slider.setStyleSheet(
-                f"""
-                QSlider::handle:horizontal {{
-                    background-color: {color};
-                    border: 1px solid #555;
-                    width: 10px;
-                    height: 10px;
-                    margin: -3px 0;
-                    border-radius: 5px;
-                }}
-                QSlider::groove:horizontal {{
-                    border: 1px solid #333;
-                    height: 4px;
-                    background: #222;
-                    border-radius: 2px;
-                }}
-            """
-            )
 
 
 class CompactSlider(BaseSlider):
@@ -165,6 +146,7 @@ class CompactSlider(BaseSlider):
         layout.setSpacing(2)
 
         header = QHBoxLayout()
+        header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.label = QLabel(label)
         self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {color if color else THEME.text_secondary};")
 
@@ -182,26 +164,6 @@ class CompactSlider(BaseSlider):
         header.addWidget(self.label)
         header.addStretch()
         header.addWidget(self.spin)
-
-        if color:
-            self.slider.setStyleSheet(
-                f"""
-                QSlider::handle:horizontal {{
-                    background-color: {color};
-                    border: 1px solid #555;
-                    width: 10px;
-                    height: 10px;
-                    margin: -3px 0;
-                    border-radius: 5px;
-                }}
-                QSlider::groove:horizontal {{
-                    border: 1px solid #333;
-                    height: 4px;
-                    background: #222;
-                    border-radius: 2px;
-                }}
-            """
-            )
 
         layout.addLayout(header)
         layout.addWidget(self.slider)

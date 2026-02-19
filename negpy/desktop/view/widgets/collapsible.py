@@ -38,19 +38,20 @@ class CollapsibleSection(QWidget):
                 text-align: left;
                 font-weight: bold;
                 font-size: {THEME.font_size_header}px;
-                padding: 10px;
-                background-color: {THEME.bg_header};
+                padding: 10px 12px;
+                background-color: #161616;
                 border: none;
-                border-bottom: 1px solid {THEME.border_color};
-                color: {THEME.text_primary};
+                border-bottom: 1px solid #262626;
+                color: #A0A0A0;
             }}
             QPushButton:hover {{
-                background-color: #333;
+                background-color: #262626;
+                color: #FFFFFF;
             }}
             QPushButton:checked {{
-                background-color: #000000;
-                color: {THEME.text_primary};
-                border-bottom: 1px solid {THEME.accent_primary};
+                background-color: #222222;
+                color: #FFFFFF;
+                border-bottom: none;
             }}
         """
         )

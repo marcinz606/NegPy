@@ -10,7 +10,7 @@ class LabConfig:
 
     color_separation: float = 1.0
     saturation: float = 1.0
-    vibrance: float = 0.0
+    vibrance: float = 1.0
     clahe_strength: float = 0.0
     sharpen: float = 0.25
     chroma_denoise: float = 0.0

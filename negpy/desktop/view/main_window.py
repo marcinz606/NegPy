@@ -47,11 +47,14 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self) -> None:
         """Setup widgets and layout."""
+        # Main Window Padding
+        self.setContentsMargins(8, 8, 8, 8)
+        
         # Central Area
         self.central_widget = QWidget()
         self.central_layout = QVBoxLayout(self.central_widget)
         self.central_layout.setContentsMargins(0, 0, 0, 0)
-        self.central_layout.setSpacing(0)
+        self.central_layout.setSpacing(8)
 
         self.top_status = TopStatusBar()
         self.canvas = ImageCanvas(self.state)

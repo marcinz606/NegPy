@@ -79,8 +79,8 @@ class TestLabLogic(unittest.TestCase):
         img_vibrant = np.ones((10, 10, 3), dtype=np.float32) * 0.5
         img_vibrant[:, :, 0] = 1.0
         
-        res_pale = apply_vibrance(img_pale, 1.0)
-        res_vibrant = apply_vibrance(img_vibrant, 1.0)
+        res_pale = apply_vibrance(img_pale, 1.5)
+        res_vibrant = apply_vibrance(img_vibrant, 1.5)
         
         # Calculate saturation increase
         def get_sat(rgb):

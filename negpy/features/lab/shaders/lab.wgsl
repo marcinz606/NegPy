@@ -153,12 +153,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // 3. Vibrance
-    if (params.vibrance != 0.0) {
+    if (params.vibrance != 1.0) {
         var lab = rgb_to_lab(color);
         let chroma = length(lab.yz);
         let muted_mask = clamp(1.0 - (chroma / 60.0), 0.0, 1.0);
-        lab.y = lab.y * (1.0 + params.vibrance * muted_mask);
-        lab.z = lab.z * (1.0 + params.vibrance * muted_mask);
+        let boost = (params.vibrance - 1.0) * muted_mask;
+        lab.y = lab.y * (1.0 + boost);
+        lab.z = lab.z * (1.0 + boost);
         color = lab_to_rgb(lab);
     }
 

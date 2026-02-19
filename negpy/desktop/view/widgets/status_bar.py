@@ -37,7 +37,7 @@ class TopStatusBar(QWidget):
         self.progress.setTextVisible(False)
         self.progress.setStyleSheet(f"""
             QProgressBar {{
-                background-color: #222;
+                background-color: #121212;
                 border: none;
                 border-radius: 2px;
             }}

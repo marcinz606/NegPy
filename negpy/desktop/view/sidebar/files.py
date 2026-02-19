@@ -89,10 +89,6 @@ class FileBrowser(QWidget):
         self.list_view.setSpacing(10)
         self.list_view.setWordWrap(True)
         self.list_view.setAlternatingRowColors(False)
-        self.list_view.setStyleSheet(
-            "QListView::item { border: 1px solid #333; border-radius: 4px; padding: 5px; } "
-            "QListView::item:selected { background-color: #094771; border: 1px solid #007acc; }"
-        )
 
         layout.addWidget(self.list_view)
 

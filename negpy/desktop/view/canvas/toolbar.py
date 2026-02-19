@@ -32,31 +32,6 @@ class ActionToolbar(QWidget):
         icon_color = THEME.text_primary
         icon_size = QSize(18, 18)
 
-        # High-visibility styling
-        self.setStyleSheet(f"""
-            QToolButton, QPushButton {{
-                font-size: 14px;
-                padding: 8px 16px;
-                min-width: 60px;
-                background-color: #333;
-                border: 1px solid #444;
-                border-radius: 4px;
-                color: {THEME.text_primary};
-            }}
-            QToolButton:hover, QPushButton:hover {{
-                background-color: #444;
-                border: 1px solid #555;
-            }}
-            QPushButton#export_btn {{
-                background-color: {THEME.accent_primary};
-                font-weight: bold;
-                padding: 10px 30px;
-            }}
-            QPushButton#export_btn:hover {{
-                background-color: {THEME.accent_secondary};
-            }}
-        """)
-
         row1 = QHBoxLayout()
         row1.addStretch()
 

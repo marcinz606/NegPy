@@ -36,7 +36,7 @@ class ControlsPanel(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(1)
+        self.layout.setSpacing(8)
 
         icon_color = "#aaa"
 

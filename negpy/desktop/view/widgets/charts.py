@@ -76,10 +76,21 @@ class HistogramWidget(QWidget):
         w = self.width()
         h = self.height()
 
-        self._draw_channel(painter, self._data_l, "#eeeeee", 30, 150, w, h)
-        self._draw_channel(painter, self._data_r, "#d32f2f", 80, 200, w, h)
-        self._draw_channel(painter, self._data_g, "#388e3c", 80, 200, w, h)
-        self._draw_channel(painter, self._data_b, "#1976d2", 80, 200, w, h)
+        # Background
+        painter.fillRect(self.rect(), QColor("#1A1A1A"))
+
+        # Grid lines
+        painter.setPen(QPen(QColor("#262626"), 1))
+        for i in range(1, 4):
+            x = int(w * i / 4)
+            painter.drawLine(x, 0, x, h)
+            y = int(h * i / 4)
+            painter.drawLine(0, y, w, y)
+
+        self._draw_channel(painter, self._data_l, "#D4D4D4", 30, 150, w, h)
+        self._draw_channel(painter, self._data_r, "#D32F2F", 80, 200, w, h)
+        self._draw_channel(painter, self._data_g, "#388E3C", 80, 200, w, h)
+        self._draw_channel(painter, self._data_b, "#1976D2", 80, 200, w, h)
 
     def _draw_channel(
         self,
