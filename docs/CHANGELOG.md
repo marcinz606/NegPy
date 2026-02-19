@@ -7,7 +7,7 @@
 - Added **Vibrance Slider**: selectively enhance muted colors while protecting already vibrant tones.
 - Added **Chroma Denoise Slider**: reduce digital color noise in LAB space while preserving natural film grain in the L-channel.
 - Added **White & Black Point Offsets**: manual sliders to adjust normalization boundaries for precise highlight recovery or shadow recovery on top of auto exposure.
-- Added classic Shadows & Highlights sliders: now using dynamic Gaussian-weighted offsets for more natural curve ends localized control.
+- Added classic Shadows & Highlights slider using dynamic Gaussian-weighted offsets.
 - Reordered LAB processing pipeline for maximum signal integrity.
 - Many **UI refinements**
 - Added popup to ensure that export folder is properly set.

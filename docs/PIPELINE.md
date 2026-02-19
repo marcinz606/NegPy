@@ -93,7 +93,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $C$: Calibration matrix.
     *   $\beta$: Separation strength.
 
-3.  **Smart Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
+3.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
 4.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel.
 5.  **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
   
