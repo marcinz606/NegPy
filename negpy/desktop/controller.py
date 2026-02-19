@@ -1,7 +1,7 @@
 import os
 import time
 from dataclasses import replace
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import numpy as np
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMetaObject, Q_ARG, Qt
@@ -461,6 +461,22 @@ class AppController(QObject):
         self._is_rendering = True
         self.render_requested.emit(task)
 
+    def _ensure_valid_export_path(self) -> Optional[str]:
+        """
+        Checks if the current export path is valid. If not, prompts the user.
+        Returns the valid path or None if the user cancelled.
+        """
+        export_path = self.state.config.export.export_path
+        if export_path.strip().lower() in ["export", "/export", ""]:
+            from PyQt6.QtWidgets import QFileDialog
+            new_path = QFileDialog.getExistingDirectory(None, "Select Export Directory", os.path.expanduser("~"))
+            if new_path:
+                new_export = replace(self.state.config.export, export_path=new_path)
+                self.session.update_config(replace(self.state.config, export=new_export), persist=True)
+                return new_path
+            return None
+        return export_path
+
     def request_export(self) -> None:
         """
         Initiates high-resolution export for the current file.
@@ -468,8 +484,13 @@ class AppController(QObject):
         if not self.state.current_file_path:
             return
 
+        export_path = self._ensure_valid_export_path()
+        if not export_path:
+            return
+
         export_conf = replace(
             self.state.config.export,
+            export_path=export_path,
             apply_icc=self.state.apply_icc_to_export,
             icc_profile_path=self.state.icc_profile_path,
             icc_invert=self.state.icc_invert,
@@ -494,7 +515,11 @@ class AppController(QObject):
         """
         Initiates batch export, optionally applying current export settings to all files.
         """
-        current_export = self.state.config.export
+        export_path = self._ensure_valid_export_path()
+        if not export_path:
+            return
+
+        current_export = replace(self.state.config.export, export_path=export_path)
         icc_path = self.state.icc_profile_path
         icc_invert = self.state.icc_invert
         apply_icc = self.state.apply_icc_to_export

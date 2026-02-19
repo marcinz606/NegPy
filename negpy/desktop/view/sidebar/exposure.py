@@ -24,9 +24,9 @@ class ExposureSidebar(BaseSidebar):
         self.region_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
         self.layout.addWidget(self.region_combo)
 
-        self.cyan_slider = SignalSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1")
-        self.magenta_slider = SignalSlider("Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1")
-        self.yellow_slider = SignalSlider("Yellow", -1.0, 1.0, conf.wb_yellow, color="#b1b100")
+        self.cyan_slider = SignalSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
+        self.magenta_slider = SignalSlider("Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1", has_neutral=True)
+        self.yellow_slider = SignalSlider("Yellow", -1.0, 1.0, conf.wb_yellow, color="#b1b100", has_neutral=True)
         self.layout.addWidget(self.cyan_slider)
         self.layout.addWidget(self.magenta_slider)
         self.layout.addWidget(self.yellow_slider)
@@ -53,7 +53,7 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.density_slider)
         self.layout.addWidget(self.grade_slider)
 
-        self.shadows_slider = CompactSlider("Shadows", -1.0, 1.0, conf.shadows)
+        self.shadows_slider = CompactSlider("Shadows", -1.0, 1.0, conf.shadows, has_neutral=True)
         self.layout.addWidget(self.shadows_slider)
 
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
@@ -66,7 +66,7 @@ class ExposureSidebar(BaseSidebar):
         toe_row.addWidget(self.toe_h_slider)
         self.layout.addLayout(toe_row)
 
-        self.highlights_slider = CompactSlider("Highlights", -1.0, 1.0, conf.highlights)
+        self.highlights_slider = CompactSlider("Highlights", -1.0, 1.0, conf.highlights, has_neutral=True)
         self.layout.addWidget(self.highlights_slider)
 
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)

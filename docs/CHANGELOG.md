@@ -4,12 +4,13 @@
 
 - Added **Shadow Color Cast Removal**: aggressively target and neutralize color casts in the deepest shadows.
 - Added **Regional Color Timing**: independent CMY adjustment for Global, Shadows, and Highlights tonal regions.
-- Added **Smart Vibrance**: selectively enhance muted colors while protecting already vibrant tones (like skin).
-- Added **Chroma Denoise**: reduce digital color noise in LAB space while preserving natural film grain in the L-channel.
-- Added **White & Black Point Offsets**: manual sliders to shift normalization boundaries for precise highlight recovery or shadow crushing.
-- Improved Shadows & Highlights sliders: now using dynamic Gaussian-weighted offsets for more natural curve ends localized control.
+- Added **Vibrance Slider**: selectively enhance muted colors while protecting already vibrant tones.
+- Added **Chroma Denoise Slider**: reduce digital color noise in LAB space while preserving natural film grain in the L-channel.
+- Added **White & Black Point Offsets**: manual sliders to adjust normalization boundaries for precise highlight recovery or shadow recovery on top of auto exposure.
+- Added classic Shadows & Highlights sliders: now using dynamic Gaussian-weighted offsets for more natural curve ends localized control.
 - Reordered LAB processing pipeline for maximum signal integrity.
-- Batch Normalization now averages and applies shadow cast correction vectors across the entire roll.
+- Many **UI refinements**
+- Added popup to ensure that export folder is properly set.
 
 ## 0.9.11
 

@@ -28,7 +28,13 @@ class ImageCanvas(QWidget):
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
-        self.root_layout.setContentsMargins(0, 0, 0, 0)
+        self.root_layout.setContentsMargins(16, 16, 16, 16)
+
+        self.setStyleSheet("""
+            ImageCanvas {
+                background-color: #050505;
+            }
+        """)
 
         # Acceleration layer
         self.gpu_widget = GPUCanvasWidget(self)

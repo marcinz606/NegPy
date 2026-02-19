@@ -39,24 +39,32 @@ class CollapsibleSection(QWidget):
                 font-weight: bold;
                 font-size: {THEME.font_size_header}px;
                 padding: 10px 12px;
-                background-color: #161616;
+                padding-left: 15px;
+                background-color: #0D0D0D;
                 border: none;
-                border-bottom: 1px solid #262626;
+                border-left: 3px solid transparent;
                 color: #A0A0A0;
             }}
             QPushButton:hover {{
-                background-color: #262626;
+                background-color: #161616;
                 color: #FFFFFF;
             }}
             QPushButton:checked {{
-                background-color: #222222;
+                background-color: #121212;
                 color: #FFFFFF;
-                border-bottom: none;
+                border-left: 3px solid {THEME.accent_primary};
             }}
         """
         )
 
         self.content_area = QFrame()
+        self.content_area.setStyleSheet("""
+            QFrame {
+                background-color: #121212;
+                border-bottom-left-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+        """)
         self.content_layout = QVBoxLayout(self.content_area)
         self.content_layout.setContentsMargins(0, 5, 0, 10)
         self.content_layout.setSpacing(5)

@@ -56,7 +56,6 @@ class ExportSidebar(BaseSidebar):
         self.orig_res_btn.setCheckable(True)
         self.orig_res_btn.setChecked(conf.use_original_res)
         self.orig_res_btn.setIcon(qta.icon("fa5s.compress-arrows-alt", color=THEME.text_primary))
-        self._update_orig_res_style(conf.use_original_res)
         self.layout.addWidget(self.orig_res_btn)
 
         self.size_container = QWidget()
@@ -65,7 +64,8 @@ class ExportSidebar(BaseSidebar):
         print_row = QHBoxLayout()
 
         vbox_size = QVBoxLayout()
-        vbox_size.addWidget(QLabel("Size (cm)"))
+        size_label = QLabel('Size <span style="color: #666666; font-size: 10px;">cm</span>')
+        vbox_size.addWidget(size_label)
         self.size_input = QDoubleSpinBox()
         self.size_input.setRange(1.0, 500.0)
         self.size_input.setValue(conf.export_print_size)
@@ -86,7 +86,8 @@ class ExportSidebar(BaseSidebar):
 
         border_row = QHBoxLayout()
         vbox_border = QVBoxLayout()
-        vbox_border.addWidget(QLabel("Width (cm)"))
+        border_label = QLabel('Width <span style="color: #666666; font-size: 10px;">cm</span>')
+        vbox_border.addWidget(border_label)
         self.border_input = QDoubleSpinBox()
         self.border_input.setRange(0.0, 10.0)
         self.border_input.setSingleStep(0.1)
@@ -193,7 +194,7 @@ class ExportSidebar(BaseSidebar):
         self.update_config_section(
             "export",
             persist=True,
-            render=False,
+            render=True,
             export_fmt=self.fmt_combo.currentText(),
             export_color_space=self.cs_combo.currentText(),
             paper_aspect_ratio=self.ratio_combo.currentText(),
@@ -206,7 +207,6 @@ class ExportSidebar(BaseSidebar):
         )
 
     def _on_orig_res_toggled(self, checked: bool) -> None:
-        self._update_orig_res_style(checked)
         self.size_container.setVisible(not checked)
         self.update_timer.start()
 
@@ -216,13 +216,7 @@ class ExportSidebar(BaseSidebar):
             hex_color = color.name()
             self._update_color_btn(hex_color)
             # Let the timer do it
-            self.update_config_section("export", persist=True, render=False, export_border_color=hex_color)
-
-    def _update_orig_res_style(self, checked: bool) -> None:
-        if checked:
-            self.orig_res_btn.setStyleSheet(f"background-color: {THEME.accent_primary}; color: white; font-weight: bold;")
-        else:
-            self.orig_res_btn.setStyleSheet("")
+            self.update_config_section("export", persist=True, render=True, export_border_color=hex_color)
 
     def _on_browse_clicked(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
@@ -242,7 +236,6 @@ class ExportSidebar(BaseSidebar):
             self.cs_combo.setCurrentText(conf.export_color_space)
             self.ratio_combo.setCurrentText(conf.paper_aspect_ratio)
             self.orig_res_btn.setChecked(conf.use_original_res)
-            self._update_orig_res_style(conf.use_original_res)
             self.size_container.setVisible(not conf.use_original_res)
             self.size_input.setValue(conf.export_print_size)
             self.dpi_input.setValue(conf.export_dpi)

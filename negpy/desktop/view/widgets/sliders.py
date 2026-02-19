@@ -24,6 +24,7 @@ class BaseSlider(QWidget):
         max_val: float,
         default_val: float,
         precision: int = 100,
+        has_neutral: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -33,6 +34,8 @@ class BaseSlider(QWidget):
         self._precision = precision
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
+        if has_neutral:
+            self.slider.setObjectName("neutral_slider")
         self.slider.setRange(int(min_val * self._precision), int(max_val * self._precision))
         self.slider.setValue(int(default_val * self._precision))
 
@@ -99,9 +102,10 @@ class SignalSlider(BaseSlider):
         step: float = 0.01,
         precision: int = 100,
         color: str = None,
+        has_neutral: bool = False,
         parent=None,
     ):
-        super().__init__(min_val, max_val, default_val, precision=precision, parent=parent)
+        super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, parent=parent)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -137,9 +141,10 @@ class CompactSlider(BaseSlider):
         step: float = 0.01,
         precision: int = 100,
         color: str = None,
+        has_neutral: bool = False,
         parent=None,
     ):
-        super().__init__(min_val, max_val, default_val, precision=precision, parent=parent)
+        super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, parent=parent)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)

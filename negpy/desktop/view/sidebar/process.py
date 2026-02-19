@@ -34,8 +34,8 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(sliders_row)
 
         wp_bp_row = QHBoxLayout()
-        self.white_point_slider = CompactSlider("White Point", -0.5, 0.5, conf.white_point_offset)
-        self.black_point_slider = CompactSlider("Black Point", -0.5, 0.5, conf.black_point_offset)
+        self.white_point_slider = CompactSlider("White Point", -0.5, 0.5, conf.white_point_offset, has_neutral=True)
+        self.black_point_slider = CompactSlider("Black Point", -0.5, 0.5, conf.black_point_offset, has_neutral=True)
         wp_bp_row.addWidget(self.white_point_slider)
         wp_bp_row.addWidget(self.black_point_slider)
         self.layout.addLayout(wp_bp_row)
@@ -56,7 +56,7 @@ class ProcessSidebar(BaseSidebar):
         self.use_roll_avg_btn = QPushButton(" Use Roll Average")
         self.use_roll_avg_btn.setFixedHeight(35)
         self.use_roll_avg_btn.setCheckable(True)
-        self._update_roll_avg_btn_style(conf.use_roll_average)
+        self.use_roll_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
 
         btns_row.addWidget(self.analyze_roll_btn)
         btns_row.addWidget(self.use_roll_avg_btn)
@@ -113,7 +113,6 @@ class ProcessSidebar(BaseSidebar):
 
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
         self.update_config_section("process", e6_normalize=checked, persist=True)
-        self._update_normalize_btn_style(checked)
 
     def _on_buffer_changed(self, val: float) -> None:
         """
@@ -188,59 +187,6 @@ class ProcessSidebar(BaseSidebar):
             self.controller.session.repo.delete_normalization_roll(name)
             self._refresh_rolls()
 
-    def _update_roll_avg_btn_style(self, checked: bool) -> None:
-        """
-        Updates button icon and color based on active state.
-        """
-        self.use_roll_avg_btn.setIcon(qta.icon("mdi6.film", color="white"))
-        if checked:
-            self.use_roll_avg_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {THEME.accent_primary};
-                    color: white;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }}
-            """)
-        else:
-            self.use_roll_avg_btn.setStyleSheet("")
-
-    def _update_normalize_btn_style(self, checked: bool) -> None:
-        """
-        Updates normalize button icon and color.
-        """
-        if checked:
-            self.normalize_e6_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {THEME.accent_primary};
-                    color: white;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }}
-            """)
-            self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color="white"))
-        else:
-            self.normalize_e6_btn.setStyleSheet("")
-            self.normalize_e6_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
-
-    def _update_link_shadows_btn_style(self, checked: bool) -> None:
-        """
-        Updates link shadows button icon and color.
-        """
-        if checked:
-            self.link_shadows_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {THEME.accent_primary};
-                    color: white;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }}
-            """)
-            self.link_shadows_btn.setIcon(qta.icon("fa5s.link", color="white"))
-        else:
-            self.link_shadows_btn.setStyleSheet("")
-            self.link_shadows_btn.setIcon(qta.icon("fa5s.link", color=THEME.text_primary))
-
     def sync_ui(self) -> None:
         conf = self.state.config.process
         self.block_signals(True)
@@ -254,10 +200,8 @@ class ProcessSidebar(BaseSidebar):
             is_e6 = conf.process_mode == ProcessMode.E6
             self.normalize_e6_btn.setVisible(is_e6)
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
-            self._update_normalize_btn_style(conf.e6_normalize)
 
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
-            self._update_roll_avg_btn_style(conf.use_roll_average)
             self._refresh_rolls()
             if conf.roll_name:
                 self.roll_combo.setCurrentText(conf.roll_name)

@@ -25,6 +25,7 @@ class ThemeConfig:
     text_primary: str = "#D4D4D4"
     text_secondary: str = "#A0A0A0"
     text_muted: str = "#555555"
+    text_unit: str = "#666666"
     accent_primary: str = "#B71C1C"
     accent_secondary: str = "#C62828"
 

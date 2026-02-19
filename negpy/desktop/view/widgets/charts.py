@@ -76,11 +76,14 @@ class HistogramWidget(QWidget):
         w = self.width()
         h = self.height()
 
-        # Background
-        painter.fillRect(self.rect(), QColor("#1A1A1A"))
+        # Background and Border
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        painter.fillRect(rect, QColor("#050505"))
+        painter.setPen(QPen(QColor("#262626"), 1))
+        painter.drawRect(rect)
 
         # Grid lines
-        painter.setPen(QPen(QColor("#262626"), 1))
+        painter.setPen(QPen(QColor("#1A1A1A"), 1))
         for i in range(1, 4):
             x = int(w * i / 4)
             painter.drawLine(x, 0, x, h)
@@ -149,6 +152,7 @@ class PhotometricCurveWidget(QChartView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setStyleSheet("background-color: #050505; border: 1px solid #262626;")
 
         self._chart = QChart()
         self._chart.setBackgroundVisible(False)
@@ -157,7 +161,7 @@ class PhotometricCurveWidget(QChartView):
 
         # diagonal
         self.series_ref = QLineSeries()
-        pen_ref = QPen(QColor("#666666"), 1)
+        pen_ref = QPen(QColor("#262626"), 1)
         pen_ref.setStyle(Qt.PenStyle.DashLine)
         self.series_ref.setPen(pen_ref)
         self.series_ref.append(0.0, 0.0)
@@ -166,7 +170,7 @@ class PhotometricCurveWidget(QChartView):
 
         # curve
         self.series = QLineSeries()
-        self.series.setPen(QPen(QColor("#e0e0e0"), 2.5))
+        self.series.setPen(QPen(QColor("#FFFFFF"), 2.0))
         self._chart.addSeries(self.series)
 
         self.axis_x = QValueAxis()
