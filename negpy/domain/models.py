@@ -1,3 +1,5 @@
+import os
+
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, Optional
 from enum import Enum, StrEnum
@@ -7,6 +9,7 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
+import negpy.kernel.system.paths as paths
 
 
 class AspectRatio(StrEnum):
@@ -54,7 +57,9 @@ class ExportConfig:
     Export parameters (path, format, sizing).
     """
 
-    export_path: str = "export"
+    userDir = paths.get_default_user_dir()
+
+    export_path: str = os.path.join(userDir, "export")
     export_fmt: str = ExportFormat.JPEG
     export_color_space: str = ColorSpace.ADOBE_RGB.value
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
