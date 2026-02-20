@@ -15,7 +15,6 @@ class RetouchSidebar(BaseSidebar):
         self.layout.setSpacing(10)
         conf = self.state.config.retouch
 
-
         auto_row = QHBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
         self.auto_size_slider = CompactSlider("Auto Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1)
@@ -28,11 +27,11 @@ class RetouchSidebar(BaseSidebar):
         self.auto_dust_btn.setCheckable(True)
         self.auto_dust_btn.setChecked(conf.dust_remove)
         self.auto_dust_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
-        
+
         self.pick_dust_btn = QPushButton(" Heal Tool")
         self.pick_dust_btn.setCheckable(True)
         self.pick_dust_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
-        
+
         buttons_row.addWidget(self.auto_dust_btn)
         buttons_row.addWidget(self.pick_dust_btn)
         self.layout.addLayout(buttons_row)

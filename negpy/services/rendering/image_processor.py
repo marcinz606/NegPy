@@ -159,7 +159,9 @@ class ImageProcessor:
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 
             if prefer_gpu and self.engine_gpu:
-                buffer, gpu_metrics = self.engine_gpu.process(f32_buffer, params, scale_factor=export_scale, bounds_override=bounds_override)
+                buffer, gpu_metrics = self.engine_gpu.process(
+                    f32_buffer, params, scale_factor=export_scale, bounds_override=bounds_override
+                )
             else:
                 buffer, _ = self.run_pipeline(
                     f32_buffer,

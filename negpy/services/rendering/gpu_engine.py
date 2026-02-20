@@ -315,8 +315,9 @@ class GPUEngine:
             else:
                 from negpy.features.exposure.normalization import normalize_log_image
                 from negpy.features.exposure.shadows import analyze_shadow_cast
+
                 epsilon = 1e-6
-                
+
                 analysis_source = img.copy()
                 if settings.geometry.rotation != 0:
                     analysis_source = np.rot90(analysis_source, k=settings.geometry.rotation)
@@ -630,7 +631,7 @@ class GPUEngine:
         )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-        
+
         exp = settings.exposure
         shift = 0.1 + (exp.density * EXPOSURE_CONSTANTS["density_multiplier"])
         slope, pivot = (
@@ -961,7 +962,14 @@ class GPUEngine:
             pass_enc.dispatch_workgroups((w + wg_x - 1) // wg_x, (h + wg_y - 1) // wg_y)
         pass_enc.end()
 
-    def process(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float = 1.0, bounds_override: Optional[Any] = None, cast_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def process(
+        self,
+        img: np.ndarray,
+        settings: WorkspaceConfig,
+        scale_factor: float = 1.0,
+        bounds_override: Optional[Any] = None,
+        cast_override: Optional[Any] = None,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
         h, w = img.shape[:2]
@@ -970,10 +978,19 @@ class GPUEngine:
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
             return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, cast_override=cast_override)
-        tex_final, metrics = self.process_to_texture(img, settings, scale_factor=scale_factor, bounds_override=bounds_override, cast_override=cast_override)
+        tex_final, metrics = self.process_to_texture(
+            img, settings, scale_factor=scale_factor, bounds_override=bounds_override, cast_override=cast_override
+        )
         return self._readback_downsampled(tex_final), metrics
 
-    def _process_tiled(self, img: np.ndarray, settings: WorkspaceConfig, scale_factor: float, bounds_override: Optional[Any] = None, cast_override: Optional[Any] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _process_tiled(
+        self,
+        img: np.ndarray,
+        settings: WorkspaceConfig,
+        scale_factor: float,
+        bounds_override: Optional[Any] = None,
+        cast_override: Optional[Any] = None,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
 
@@ -1042,12 +1059,13 @@ class GPUEngine:
             else:
                 from negpy.features.exposure.normalization import normalize_log_image
                 from negpy.features.exposure.shadows import analyze_shadow_cast
+
                 epsilon = 1e-6
-                
+
                 analysis_src = img_rot
                 if roi:
                     analysis_src = img_rot[y1:y2, x1:x2]
-                
+
                 img_log = np.log10(np.clip(analysis_src, epsilon, 1.0))
                 res_norm = normalize_log_image(img_log, global_bounds)
                 global_cast = analyze_shadow_cast(res_norm, settings.process.shadow_cast_threshold)

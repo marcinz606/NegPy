@@ -2,6 +2,7 @@ import numpy as np
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
 
+
 def analyze_shadow_cast(image: ImageBuffer, threshold: float = 0.75) -> tuple[float, float, float]:
     density = np.mean(image, axis=-1)
     mask = density > threshold
@@ -14,9 +15,8 @@ def analyze_shadow_cast(image: ImageBuffer, threshold: float = 0.75) -> tuple[fl
 
     return (0.0, 0.0, 0.0)
 
-def apply_shadow_cast_correction(
-    image: ImageBuffer, correction_vector: tuple[float, float, float], strength: float = 1.0
-) -> ImageBuffer:
+
+def apply_shadow_cast_correction(image: ImageBuffer, correction_vector: tuple[float, float, float], strength: float = 1.0) -> ImageBuffer:
     if strength <= 0:
         return image
 

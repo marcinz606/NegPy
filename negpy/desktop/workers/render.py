@@ -248,7 +248,9 @@ class NormalizationWorker(QObject):
                 analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
                 process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                 e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
-                shadow_threshold = params.process.shadow_cast_threshold if params else DEFAULT_WORKSPACE_CONFIG.process.shadow_cast_threshold
+                shadow_threshold = (
+                    params.process.shadow_cast_threshold if params else DEFAULT_WORKSPACE_CONFIG.process.shadow_cast_threshold
+                )
 
                 raw, _, _ = self._preview_service.load_linear_preview(
                     f_info["path"],
@@ -267,6 +269,7 @@ class NormalizationWorker(QObject):
 
                 from negpy.features.exposure.normalization import normalize_log_image
                 from negpy.features.exposure.shadows import analyze_shadow_cast
+
                 epsilon = 1e-6
                 img_log = np.log10(np.clip(raw, epsilon, 1.0))
                 res_norm = normalize_log_image(img_log, bounds)

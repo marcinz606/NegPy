@@ -53,7 +53,7 @@ class NormalizationProcessor:
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
-        
+
         if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
             adj_floors = (
                 bounds.floors[0] + self.config.white_point_offset,
@@ -77,7 +77,7 @@ class NormalizationProcessor:
                 cast = self.config.local_shadow_cast
             else:
                 cast = analyze_shadow_cast(res, self.config.shadow_cast_threshold)
-            
+
             res = apply_shadow_cast_correction(res, cast, self.config.shadow_cast_strength)
 
         context.metrics["normalized_log"] = res

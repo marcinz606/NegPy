@@ -42,7 +42,9 @@ class LabSidebar(BaseSidebar):
         self.saturation_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, saturation=v))
         self.vibrance_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, vibrance=v))
         self.separation_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, color_separation=v))
-        self.chroma_denoise_slider.valueChanged.connect(lambda v: self.update_config_section("lab", readback_metrics=False, chroma_denoise=v))
+        self.chroma_denoise_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", readback_metrics=False, chroma_denoise=v)
+        )
 
     def sync_ui(self) -> None:
         conf = self.state.config.lab

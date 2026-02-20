@@ -62,11 +62,11 @@ def _apply_photometric_fused_kernel(
                 s_center = (1.0 - pivots[ch]) * 0.9
                 h_center = (0.0 - pivots[ch]) * 0.9
 
-                s_mask = np.exp(-( (diff - s_center)**2 ) / 0.15)
+                s_mask = np.exp(-((diff - s_center) ** 2) / 0.15)
                 shadow_density_offset = shadows * s_mask * 0.3
                 shadow_color_offset = shadow_cmy[ch] * s_mask
 
-                h_mask = np.exp(-( (diff - h_center)**2 ) / 0.15)
+                h_mask = np.exp(-((diff - h_center) ** 2) / 0.15)
                 highlight_density_offset = highlights * h_mask * 0.3
                 highlight_color_offset = highlight_cmy[ch] * h_mask
 
@@ -140,7 +140,7 @@ class LogisticSigmoid:
         self.highlight_cmy = highlight_cmy
 
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
-        # Simplified call for plotting/UI (assumes single channel logic if needed, 
+        # Simplified call for plotting/UI (assumes single channel logic if needed,
         # but here we follow the RGB structure for consistency)
         diff = x - self.x0
         epsilon = 1e-6
@@ -148,12 +148,12 @@ class LogisticSigmoid:
         s_center = (1.0 - self.x0) * 0.9
         h_center = (0.0 - self.x0) * 0.9
 
-        s_mask = np.exp(-( (diff - s_center)**2 ) / 0.15)
+        s_mask = np.exp(-((diff - s_center) ** 2) / 0.15)
         shadow_density_offset = self.shadows * s_mask * 0.3
-        
-        h_mask = np.exp(-( (diff - h_center)**2 ) / 0.15)
+
+        h_mask = np.exp(-((diff - h_center) ** 2) / 0.15)
         highlight_density_offset = self.highlights * h_mask * 0.3
-        
+
         # Note: LogisticSigmoid.__call__ is often used for the curve plot (luminance)
         # so we don't apply color offsets here as they are channel-specific.
         diff_adj = diff - shadow_density_offset - highlight_density_offset
@@ -249,13 +249,13 @@ def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
     r, g, b = np.clip(sampled_rgb, 1e-6, 1.0)
     d_m = np.log10(g) - np.log10(r)
     d_y = np.log10(b) - np.log10(r)
- 
+
     shift_m = density_to_cmy(d_m)
     shift_y = density_to_cmy(d_y)
- 
+
     return float(shift_m), float(shift_y)
- 
- 
+
+
 def calculate_wb_shifts_from_log(sampled_log_rgb: np.ndarray) -> Tuple[float, float]:
     """
     Calculates Magenta and Yellow shifts from data in Negative Log-Density space.
@@ -263,8 +263,8 @@ def calculate_wb_shifts_from_log(sampled_log_rgb: np.ndarray) -> Tuple[float, fl
     r, g, b = sampled_log_rgb[:3]
     d_m = r - g
     d_y = r - b
- 
+
     shift_m = density_to_cmy(d_m)
     shift_y = density_to_cmy(d_y)
- 
+
     return float(shift_m), float(shift_y)

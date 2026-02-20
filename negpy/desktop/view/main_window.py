@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
         """Setup widgets and layout."""
         # Main Window Padding
         self.setContentsMargins(8, 8, 8, 8)
-        
+
         # Central Area
         self.central_widget = QWidget()
         self.central_layout = QVBoxLayout(self.central_widget)

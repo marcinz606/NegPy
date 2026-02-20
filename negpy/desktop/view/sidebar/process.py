@@ -28,7 +28,7 @@ class ProcessSidebar(BaseSidebar):
         sliders_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.shadow_cast_strength_slider = CompactSlider("Cast removal", 0.0, 1.0, conf.shadow_cast_strength)
-        
+
         sliders_row.addWidget(self.analysis_buffer_slider)
         sliders_row.addWidget(self.shadow_cast_strength_slider)
         self.layout.addLayout(sliders_row)

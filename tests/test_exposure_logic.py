@@ -59,11 +59,11 @@ class TestExposureLogic(unittest.TestCase):
         """Verify that positive shadows/highlights values brighten the image."""
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
         params = (0.5, 1.0)
-        
+
         res_neutral = apply_characteristic_curve(img, params, params, params)
         res_shadows = apply_characteristic_curve(img, params, params, params, shadows=1.0)
         res_highlights = apply_characteristic_curve(img, params, params, params, highlights=1.0)
-        
+
         # Positive values should brighten (higher transmittance)
         self.assertGreater(np.mean(res_shadows), np.mean(res_neutral))
         self.assertGreater(np.mean(res_highlights), np.mean(res_neutral))
@@ -72,12 +72,12 @@ class TestExposureLogic(unittest.TestCase):
         """Verify that regional CMY affects the output."""
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
         params = (0.5, 1.0)
-        
+
         res_neutral = apply_characteristic_curve(img, params, params, params)
         # Apply Cyan to shadows (Cyan in density space decreases R)
         # R = R_dens + offset. Transmittance = 10^-R. So more cyan -> lower R transmittance.
         res_shadow_cyan = apply_characteristic_curve(img, params, params, params, shadow_cmy=(1.0, 0.0, 0.0))
-        
+
         self.assertLess(res_shadow_cyan[0, 0, 0], res_neutral[0, 0, 0])
         self.assertAlmostEqual(res_shadow_cyan[0, 0, 1], res_neutral[0, 0, 1], places=5)
 

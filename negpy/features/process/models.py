@@ -23,7 +23,7 @@ class ProcessConfig:
     locked_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    
+
     shadow_cast_threshold: float = 0.75
     shadow_cast_strength: float = 1.0
     locked_shadow_cast: tuple[float, float, float] = (0.0, 0.0, 0.0)

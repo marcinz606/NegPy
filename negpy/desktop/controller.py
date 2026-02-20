@@ -469,6 +469,7 @@ class AppController(QObject):
         export_path = self.state.config.export.export_path
         if export_path.strip().lower() in ["export", "/export", ""]:
             from PyQt6.QtWidgets import QFileDialog
+
             new_path = QFileDialog.getExistingDirectory(None, "Select Export Directory", os.path.expanduser("~"))
             if new_path:
                 new_export = replace(self.state.config.export, export_path=new_path)
@@ -594,7 +595,7 @@ class AppController(QObject):
         if ("log_bounds" in metrics or "shadow_cast" in metrics) and not self.state.config.process.use_roll_average:
             bounds = metrics.get("log_bounds")
             cast = metrics.get("shadow_cast")
-            
+
             changes = {}
             if bounds:
                 changes["local_floors"] = bounds.floors

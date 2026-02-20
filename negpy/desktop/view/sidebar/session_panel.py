@@ -81,7 +81,7 @@ class SessionPanel(QWidget):
         self.btn_tab_analysis.setIcon(qta.icon("fa5s.chart-bar", color=THEME.text_secondary))
         self.btn_tab_export = QPushButton(" Export")
         self.btn_tab_export.setIcon(qta.icon("fa5s.file-export", color=THEME.text_secondary))
-        
+
         for btn in [self.btn_tab_analysis, self.btn_tab_export]:
             btn.setCheckable(True)
             btn.setFixedHeight(38)
@@ -130,9 +130,9 @@ class SessionPanel(QWidget):
 
         analysis_layout.addWidget(self.hist_widget, 1)
         analysis_layout.addWidget(self.curve_widget, 1)
-        
+
         self.stack.addWidget(wrap_scroll(self.analysis_group))
-        
+
         self.export_sidebar = ExportSidebar(self.controller)
         self.stack.addWidget(wrap_scroll(self.export_sidebar))
 
@@ -150,7 +150,7 @@ class SessionPanel(QWidget):
         self.controller.image_updated.connect(self._update_analysis)
         self.controller.metrics_available.connect(self._on_metrics_available)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
-        
+
         self.btn_tab_analysis.clicked.connect(lambda: self._switch_tab(0))
         self.btn_tab_export.clicked.connect(lambda: self._switch_tab(1))
 
@@ -158,7 +158,7 @@ class SessionPanel(QWidget):
         self.stack.setCurrentIndex(index)
         self.btn_tab_analysis.setChecked(index == 0)
         self.btn_tab_export.setChecked(index == 1)
-        
+
         # Sync icon colors
         self.btn_tab_analysis.setIcon(qta.icon("fa5s.chart-bar", color="white" if index == 0 else THEME.text_secondary))
         self.btn_tab_export.setIcon(qta.icon("fa5s.file-export", color="white" if index == 1 else THEME.text_secondary))
