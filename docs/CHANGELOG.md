@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.9.14
+
+- Fix: export folder not being correctly set on some configs on first run.
+- Fix: Camera WB setting not forcing bounds re-analysis which lead on color cast stacking instead of color cast removal.
+- Added [USER_GUIDE.md](docs/USER_GUIDE.md)
+
+
 ## 0.9.13
 
 - Added **Shadow Color Cast Removal**: aggressively target and neutralize color casts in the deepest shadows.
