@@ -100,6 +100,38 @@ jobs:
             dist/*.exe
             dist/*.dmg
 
+  flatpak:
+    name: "Flatpak Build"
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:kde-6.6
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Version
+        shell: bash
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          echo "$VERSION" | sed 's/^v//' > VERSION
+          # Update metainfo version
+          sed -i "s/<release version=\"[^\"]*\"/<release version=\"$VERSION\"/" org.negpy.NegPy.metainfo.xml
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: NegPy-${{ github.event.inputs.version }}.flatpak
+          manifest-path: org.negpy.NegPy.yml
+          repository-name: negpy-repo
+          repository-url: https://marcinz606.github.io/NegPy/
+          branch: stable
+
+      - name: Upload Flatpak Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: negpy-flatpak-${{ github.event.inputs.version }}
+          path: NegPy-${{ github.event.inputs.version }}.flatpak
+
   publish:
     needs: [build, flatpak]
     runs-on: ubuntu-latest
@@ -115,99 +147,17 @@ jobs:
           pattern: negpy-*
           merge-multiple: true
 
-      - name: Display structure of downloaded files
-        run: ls -R all-binaries
-
-            - name: Create GitHub Release
-
-              uses: softprops/action-gh-release@v2
-
-              with:
-
-                tag_name: ${{ github.event.inputs.version }}
-
-                name: NegPy ${{ github.event.inputs.version }}
-
-                draft: false
-
-                prerelease: false
-
-                files: |
-
-                  all-binaries/**/*.AppImage
-
-                  all-binaries/**/*-Setup.exe
-
-                  all-binaries/**/*.dmg
-
-                  all-binaries/**/*.flatpak
-
-              env:
-
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      
-
-        flatpak:
-
-          name: "Flatpak Build"
-
-          runs-on: ubuntu-latest
-
-          container:
-
-            image: bilelmoussaoui/flatpak-github-actions:kde-6.6
-
-            options: --privileged
-
-          steps:
-
-            - uses: actions/checkout@v4
-
-      
-
-            - name: Set Version
-
-              shell: bash
-
-              run: |
-
-                VERSION="${{ github.event.inputs.version }}"
-
-                echo "$VERSION" | sed 's/^v//' > VERSION
-
-                # Update metainfo version
-
-                sed -i "s/<release version=\"[^\"]*\"/<release version=\"$VERSION\"/" org.negpy.NegPy.metainfo.xml
-
-      
-
-            - name: Build Flatpak
-
-              uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-
-              with:
-
-                bundle: NegPy-${{ github.event.inputs.version }}.flatpak
-
-                manifest-path: org.negpy.NegPy.yml
-
-                repository-name: negpy-repo
-
-                repository-url: https://marcinz606.github.io/NegPy/
-
-                branch: stable
-
-      
-
-            - name: Upload Flatpak Artifact
-
-              uses: actions/upload-artifact@v4
-
-              with:
-
-                name: negpy-flatpak-${{ github.event.inputs.version }}
-
-                path: NegPy-${{ github.event.inputs.version }}.flatpak
-
-      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: NegPy ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            all-binaries/**/*.AppImage
+            all-binaries/**/*-Setup.exe
+            all-binaries/**/*.dmg
+            all-binaries/**/*.flatpak
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
