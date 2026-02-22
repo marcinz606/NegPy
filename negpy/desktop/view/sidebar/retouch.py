@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QPushButton, QHBoxLayout
 import qtawesome as qta
-from negpy.desktop.view.widgets.sliders import CompactSlider, SignalSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.styles.theme import THEME
@@ -36,7 +36,7 @@ class RetouchSidebar(BaseSidebar):
         buttons_row.addWidget(self.pick_dust_btn)
         self.layout.addLayout(buttons_row)
 
-        self.manual_size_slider = SignalSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1)
+        self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1)
         self.layout.addWidget(self.manual_size_slider)
 
         actions_row = QHBoxLayout()

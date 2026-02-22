@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
 )
 import qtawesome as qta
-from negpy.desktop.view.widgets.sliders import SignalSlider, CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
@@ -24,11 +24,11 @@ class ExposureSidebar(BaseSidebar):
         self.region_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
         self.layout.addWidget(self.region_combo)
 
-        self.cyan_slider = SignalSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
+        self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
-        self.magenta_slider = SignalSlider("Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1", has_neutral=True)
+        self.magenta_slider = CompactSlider("Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1", has_neutral=True)
         self.magenta_slider.slider.setObjectName("magenta_slider")
-        self.yellow_slider = SignalSlider("Yellow", -1.0, 1.0, conf.wb_yellow, color="#b1b100", has_neutral=True)
+        self.yellow_slider = CompactSlider("Yellow", -1.0, 1.0, conf.wb_yellow, color="#b1b100", has_neutral=True)
         self.yellow_slider.slider.setObjectName("yellow_slider")
         self.layout.addWidget(self.cyan_slider)
         self.layout.addWidget(self.magenta_slider)
@@ -50,8 +50,8 @@ class ExposureSidebar(BaseSidebar):
         wb_btn_row.addWidget(self.camera_wb_btn)
         self.layout.addLayout(wb_btn_row)
 
-        self.density_slider = SignalSlider("Density", -0.0, 2.0, conf.density)
-        self.grade_slider = SignalSlider("Grade", 0.0, 5.0, conf.grade)
+        self.density_slider = CompactSlider("Density", -0.0, 2.0, conf.density)
+        self.grade_slider = CompactSlider("Grade", 0.0, 5.0, conf.grade)
 
         self.layout.addWidget(self.density_slider)
         self.layout.addWidget(self.grade_slider)

@@ -88,44 +88,6 @@ class BaseSlider(QWidget):
         self._emit_value()
 
 
-class SignalSlider(BaseSlider):
-    """
-    Standard slider with side-by-side label, slider, and spinbox.
-    """
-
-    def __init__(
-        self,
-        label: str,
-        min_val: float,
-        max_val: float,
-        default_val: float,
-        step: float = 0.01,
-        precision: int = 100,
-        color: str = None,
-        has_neutral: bool = False,
-        parent=None,
-    ):
-        super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, parent=parent)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-
-        self.label = QLabel(label)
-        self.label.setMinimumWidth(80)
-        self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {color if color else THEME.text_primary};")
-
-        self.spin.setSingleStep(step)
-        if step >= 1.0:
-            self.spin.setDecimals(0)
-
-        self.spin.setFixedWidth(70)
-        self.spin.setStyleSheet(f"font-size: {THEME.font_size_base}px;")
-
-        layout.addWidget(self.label)
-        layout.addWidget(self.slider)
-        layout.addWidget(self.spin)
-
 
 class CompactSlider(BaseSlider):
     """

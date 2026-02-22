@@ -15,7 +15,7 @@ class LabSidebar(BaseSidebar):
 
         row1 = QHBoxLayout()
         self.separation_slider = CompactSlider("Separation", 1.0, 2.0, conf.color_separation)
-        self.chroma_denoise_slider = CompactSlider("Chroma Denoise", 0.0, 5.0, conf.chroma_denoise)
+        self.chroma_denoise_slider = CompactSlider("Denoise", 0.0, 5.0, conf.chroma_denoise)
         row1.addWidget(self.separation_slider)
         row1.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row1)

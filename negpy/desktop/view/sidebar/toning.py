@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QComboBox
-from negpy.desktop.view.widgets.sliders import SignalSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.features.process.models import ProcessMode
 from negpy.features.toning.logic import PAPER_PROFILES
@@ -18,8 +18,8 @@ class ToningSidebar(BaseSidebar):
         self.paper_combo.setCurrentText(conf.paper_profile)
         self.layout.addWidget(self.paper_combo)
 
-        self.selenium_slider = SignalSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
-        self.sepia_slider = SignalSlider("Sepia", 0.0, 2.0, conf.sepia_strength, color="#664422")
+        self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
+        self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength, color="#664422")
 
         self.layout.addWidget(self.selenium_slider)
         self.layout.addWidget(self.sepia_slider)
