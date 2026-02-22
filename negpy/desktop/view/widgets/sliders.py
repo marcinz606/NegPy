@@ -88,7 +88,6 @@ class BaseSlider(QWidget):
         self._emit_value()
 
 
-
 class CompactSlider(BaseSlider):
     """
     Compact slider with label and value in a header row, slider below.

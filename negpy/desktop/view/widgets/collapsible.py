@@ -1,7 +1,7 @@
 from typing import Optional
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFrame, QHBoxLayout, QLabel
 from PyQt6.QtGui import QIcon
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import Qt
 from negpy.desktop.view.styles.theme import THEME
 import qtawesome as qta
 
