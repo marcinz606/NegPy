@@ -55,15 +55,22 @@ class NormalizationProcessor:
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
 
         if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
+            wp_offset = self.config.white_point_offset
+            bp_offset = self.config.black_point_offset
+
+            if context.process_mode == ProcessMode.E6:
+                wp_offset = -wp_offset
+                bp_offset = -bp_offset
+
             adj_floors = (
-                bounds.floors[0] + self.config.white_point_offset,
-                bounds.floors[1] + self.config.white_point_offset,
-                bounds.floors[2] + self.config.white_point_offset,
+                bounds.floors[0] + wp_offset,
+                bounds.floors[1] + wp_offset,
+                bounds.floors[2] + wp_offset,
             )
             adj_ceils = (
-                bounds.ceils[0] + self.config.black_point_offset,
-                bounds.ceils[1] + self.config.black_point_offset,
-                bounds.ceils[2] + self.config.black_point_offset,
+                bounds.ceils[0] + bp_offset,
+                bounds.ceils[1] + bp_offset,
+                bounds.ceils[2] + bp_offset,
             )
             bounds = LogNegativeBounds(floors=adj_floors, ceils=adj_ceils)
 

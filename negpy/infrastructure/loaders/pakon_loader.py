@@ -3,7 +3,7 @@ import numpy as np
 from typing import Any, List, Dict, ContextManager, Tuple
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
-from negpy.kernel.image.logic import uint16_to_float32
+from negpy.kernel.image.logic import uint16_to_float32_seq
 
 
 class PakonLoader(IImageLoader):
@@ -21,35 +21,43 @@ class PakonLoader(IImageLoader):
 
     @classmethod
     def can_handle(cls, file_path: str) -> bool:
-        file_size = os.path.getsize(file_path)
-        return any(abs(file_size - s["size"]) < 1024 for s in cls.PAKON_SPECS)
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext not in ["", ".raw", ".dat", ".bin"]:
+            return False
+
+        try:
+            file_size = os.path.getsize(file_path)
+            return any(abs(file_size - s["size"]) < 1024 for s in cls.PAKON_SPECS)
+        except OSError:
+            return False
 
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
-        file_size = os.path.getsize(file_path)
-        spec = next(s for s in self.PAKON_SPECS if abs(file_size - s["size"]) < 1024)
-        h, w = spec["res"]
-        expected_pixels = h * w * 3
+        try:
+            file_size = os.path.getsize(file_path)
+            spec = next(s for s in self.PAKON_SPECS if abs(file_size - s["size"]) < 1024)
+            h, w = spec["res"]
+            expected_pixels = h * w * 3
 
-        with open(file_path, "rb") as f:
-            data = np.fromfile(f, dtype="<u2", count=expected_pixels)
+            with open(file_path, "rb") as f:
+                data = np.fromfile(f, dtype="<u2", count=expected_pixels)
 
-        # Heuristic: Detect Planar vs Interleaved layout
-        # In planar, adjacent pixels are from the same channel (similar values).
-        # In interleaved, adjacent pixels are R-G-B (high variance if not neutral).
-        sample_size = min(len(data), 6000)
-        sample = data[:sample_size].astype(np.float32)
+            if len(data) < expected_pixels:
+                raise ValueError(f"File too small: expected {expected_pixels} pixels, got {len(data)}")
 
-        adj_diff = np.mean(np.abs(sample[1:] - sample[:-1]))
-        step3_diff = np.mean(np.abs(sample[3:] - sample[:-3]))
+            # Heuristic: Detect Planar vs Interleaved layout
+            sample_size = min(len(data), 6000)
+            sample = data[:sample_size].astype(np.float32)
 
-        # If interleaved, step3_diff will be significantly smaller than adj_diff
-        # because adjacent pixels compare different color channels.
-        if adj_diff > step3_diff * 1.5:
-            # Interleaved BGR layout (common for interleaved scanner RAWs)
-            data = data.reshape((h, w, 3))[..., ::-1]
-        else:
-            # Standard Planar RGB layout
-            data = data.reshape((3, h, w)).transpose((1, 2, 0))
+            adj_diff = np.mean(np.abs(sample[1:] - sample[:-1]))
+            step3_diff = np.mean(np.abs(sample[3:] - sample[:-3]))
 
-        metadata = {"orientation": 0}
-        return NonStandardFileWrapper(uint16_to_float32(np.ascontiguousarray(data))), metadata
+            if adj_diff > step3_diff * 1.5:
+                data = data.reshape((h, w, 3))[..., ::-1]
+            else:
+                data = data.reshape((3, h, w)).transpose((1, 2, 0))
+
+            metadata = {"orientation": 0}
+            return NonStandardFileWrapper(uint16_to_float32_seq(np.ascontiguousarray(data))), metadata
+        except Exception as e:
+            # Fallback to Rawpy or re-raise to be caught by worker
+            raise RuntimeError(f"Pakon Load Failure: {e}") from e

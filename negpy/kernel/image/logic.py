@@ -103,6 +103,36 @@ def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     return res
 
 
+@njit(parallel=False, cache=True, fastmath=True)
+def uint8_to_float32_seq(img: np.ndarray) -> np.ndarray:
+    """
+    Fast JIT conversion from uint8 to float32 [0.0, 1.0]. (Sequential)
+    """
+    h, w, c = img.shape
+    res = np.empty((h, w, c), dtype=np.float32)
+    inv_255 = 1.0 / 255.0
+    for y in range(h):
+        for x in range(w):
+            for ch in range(3):
+                res[y, x, ch] = np.float32(img[y, x, ch]) * inv_255
+    return res
+
+
+@njit(parallel=False, cache=True, fastmath=True)
+def uint16_to_float32_seq(img: np.ndarray) -> np.ndarray:
+    """
+    Fast JIT conversion from uint16 to float32 [0.0, 1.0]. (Sequential)
+    """
+    h, w, c = img.shape
+    res = np.empty((h, w, c), dtype=np.float32)
+    inv_65535 = 1.0 / 65535.0
+    for y in range(h):
+        for x in range(w):
+            for ch in range(3):
+                res[y, x, ch] = np.float32(img[y, x, ch]) * inv_65535
+    return res
+
+
 @njit(parallel=True, cache=True, fastmath=True)
 def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
     """

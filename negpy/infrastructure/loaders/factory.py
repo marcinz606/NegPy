@@ -24,14 +24,14 @@ class LoaderFactory:
     def get_loader(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
         ext = os.path.splitext(file_path)[1].lower()
 
-        if PakonLoader.can_handle(file_path):
-            return self._pakon.load(file_path)
-
         if ext in SUPPORTED_TIFF_EXTENSIONS:
             return self._tiff.load(file_path)
 
         if ext in SUPPORTED_JPEG_EXTENSIONS:
             return self._jpeg.load(file_path)
+
+        if PakonLoader.can_handle(file_path):
+            return self._pakon.load(file_path)
 
         return self._rawpy.load(file_path)
 

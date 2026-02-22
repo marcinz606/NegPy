@@ -19,9 +19,7 @@ async def generate_batch_thumbnails(
     Parallel thumbnail generation with progress reporting.
     """
 
-    # Limit concurrency to a third of available cores
-    limit = max(1, APP_CONFIG.max_workers // 3)
-    semaphore = asyncio.Semaphore(limit)
+    semaphore = asyncio.Semaphore(APP_CONFIG.max_workers)
     completed = 0
 
     async def _worker(f_info: Dict[str, str]) -> Tuple[str, Optional[Image.Image]]:
