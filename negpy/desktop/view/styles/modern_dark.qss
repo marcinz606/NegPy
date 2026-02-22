@@ -121,10 +121,10 @@ QSlider#yellow_slider::sub-page:horizontal { background: #444400; }
 QSlider::handle:horizontal {
     background: #B71C1C;
     border: none;
-    width: 16px;
-    height: 16px;
-    margin: -5px 0;
-    border-radius: 8px;
+    width: 12px;
+    height: 12px;
+    margin: -3px 0;
+    border-radius: 6px;
 }
 
 QSlider::sub-page:horizontal {
