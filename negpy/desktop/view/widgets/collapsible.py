@@ -1,8 +1,9 @@
 from typing import Optional
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFrame
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFrame, QHBoxLayout, QLabel
 from PyQt6.QtGui import QIcon
-from PyQt6.QtCore import QSize
+from PyQt6.QtCore import QSize, Qt
 from negpy.desktop.view.styles.theme import THEME
+import qtawesome as qta
 
 
 class CollapsibleSection(QWidget):
@@ -24,38 +25,55 @@ class CollapsibleSection(QWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        self.toggle_button = QPushButton(title)
+        self.toggle_button = QPushButton()
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(expanded)
-
-        if icon:
-            self.toggle_button.setIcon(icon)
-            self.toggle_button.setIconSize(QSize(16, 16))
+        self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_button.setFixedHeight(38)
 
         self.toggle_button.setStyleSheet(
             f"""
             QPushButton {{
                 text-align: left;
-                font-weight: bold;
-                font-size: {THEME.font_size_header}px;
-                padding: 10px 12px;
-                padding-left: 15px;
-                background-color: #0D0D0D;
+                background-color: #1A1A1A;
                 border: none;
-                border-left: 3px solid transparent;
-                color: #A0A0A0;
+                border-bottom: 1px solid #262626;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                color: #FFFFFF;
+                padding: 0;
             }}
             QPushButton:hover {{
-                background-color: #161616;
-                color: #FFFFFF;
+                background-color: #222222;
             }}
             QPushButton:checked {{
-                background-color: #121212;
-                color: #FFFFFF;
-                border-left: 3px solid {THEME.accent_primary};
+                background-color: #1A1A1A;
+                border-bottom: 1px solid {THEME.accent_primary};
             }}
         """
         )
+
+        # Create a layout inside the toggle button for custom icon/text/chevron placement
+        btn_layout = QHBoxLayout(self.toggle_button)
+        btn_layout.setContentsMargins(16, 12, 16, 12)
+        btn_layout.setSpacing(10)
+
+        if icon:
+            icon_label = QLabel()
+            icon_label.setPixmap(icon.pixmap(14, 14))
+            btn_layout.addWidget(icon_label)
+
+        title_label = QLabel(self._title_text)
+        title_label.setStyleSheet(f"font-weight: bold; font-size: {THEME.font_size_header}px; background: transparent;")
+        btn_layout.addWidget(title_label)
+
+        btn_layout.addStretch()
+
+        self.chevron_label = QLabel()
+        self.chevron_label.setStyleSheet("background: transparent;")
+        # Set initial chevron
+        self._update_chevron(expanded)
+        btn_layout.addWidget(self.chevron_label)
 
         self.content_area = QFrame()
         self.content_area.setStyleSheet("""
@@ -63,6 +81,8 @@ class CollapsibleSection(QWidget):
                 background-color: #121212;
                 border-bottom-left-radius: 4px;
                 border-bottom-right-radius: 4px;
+                border: 1px solid #1A1A1A;
+                border-top: none;
             }
         """)
         self.content_layout = QVBoxLayout(self.content_area)
@@ -81,6 +101,12 @@ class CollapsibleSection(QWidget):
         """
         self.content_layout.addWidget(widget)
 
+    def _update_chevron(self, expanded: bool) -> None:
+        if expanded:
+            self.chevron_label.setPixmap(qta.icon("fa5s.chevron-down", color="#A0A0A0").pixmap(12, 12))
+        else:
+            self.chevron_label.setPixmap(qta.icon("fa5s.chevron-right", color="#A0A0A0").pixmap(12, 12))
+
     def _on_toggle(self, checked: bool) -> None:
         self.content_area.setVisible(checked)
-        self.toggle_button.setText(self._title_text)
+        self._update_chevron(checked)

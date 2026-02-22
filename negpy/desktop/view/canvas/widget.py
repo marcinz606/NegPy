@@ -28,7 +28,7 @@ class ImageCanvas(QWidget):
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
-        self.root_layout.setContentsMargins(16, 16, 16, 16)
+        self.root_layout.setContentsMargins(24, 24, 24, 24)
 
         self.setStyleSheet("""
             ImageCanvas {

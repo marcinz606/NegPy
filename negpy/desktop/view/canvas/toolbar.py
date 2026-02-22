@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
-    QVBoxLayout,
     QPushButton,
     QToolButton,
+    QFrame,
 )
 from PyQt6.QtCore import QSize, Qt
 import qtawesome as qta
@@ -13,7 +13,7 @@ from negpy.desktop.view.styles.theme import THEME
 
 class ActionToolbar(QWidget):
     """
-    Two-row toolbar for file navigation, geometry actions, and session management.
+    Unified toolbar for file navigation, geometry actions, and session management.
     """
 
     def __init__(self, controller: AppController):
@@ -24,16 +24,36 @@ class ActionToolbar(QWidget):
         self._init_ui()
         self._connect_signals()
 
+    def _create_separator(self) -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Plain)
+        line.setStyleSheet(f"color: {THEME.border_color}; background-color: {THEME.border_color};")
+        line.setFixedWidth(1)
+        return line
+
     def _init_ui(self) -> None:
-        main_layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 10, 0, 10)
-        main_layout.setSpacing(12)
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        container = QFrame()
+        container.setObjectName("toolbar_container")
+        container.setStyleSheet(f"""
+            QFrame#toolbar_container {{
+                background-color: {THEME.bg_panel};
+                border: 1px solid {THEME.border_color};
+                border-radius: 6px;
+                padding: 2px;
+            }}
+        """)
+        h_layout = QHBoxLayout(container)
+        h_layout.setContentsMargins(6, 6, 6, 6)
+        h_layout.setSpacing(12)
 
         icon_color = THEME.text_primary
-        icon_size = QSize(18, 18)
-
-        row1 = QHBoxLayout()
-        row1.addStretch()
+        icon_size = QSize(16, 16)
+        btn_height = 32
 
         self.btn_prev = QToolButton()
         self.btn_prev.setIcon(qta.icon("fa5s.chevron-left", color=icon_color))
@@ -68,20 +88,8 @@ class ActionToolbar(QWidget):
             self.btn_flip_v,
         ]:
             btn.setIconSize(icon_size)
-
-        row1.addWidget(self.btn_prev)
-        row1.addWidget(self.btn_next)
-        row1.addSpacing(20)
-        row1.addWidget(self.btn_rot_l)
-        row1.addWidget(self.btn_rot_r)
-        row1.addWidget(self.btn_flip_h)
-        row1.addWidget(self.btn_flip_v)
-        row1.addStretch()
-
-        main_layout.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        row2.addStretch()
+            btn.setFixedHeight(btn_height)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.btn_copy = QPushButton(" Copy")
         self.btn_copy.setIcon(qta.icon("fa5s.copy", color=icon_color))
@@ -95,28 +103,43 @@ class ActionToolbar(QWidget):
         self.btn_unload = QPushButton(" Unload")
         self.btn_unload.setIcon(qta.icon("fa5s.times-circle", color=icon_color))
 
-        self.btn_save = QPushButton(" Save Edits")
+        self.btn_save = QPushButton(" Save")
         self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
 
-        self.btn_export = QPushButton(" Export Image")
+        self.btn_export = QPushButton(" Export")
         self.btn_export.setObjectName("export_btn")
         self.btn_export.setIcon(qta.icon("fa5s.check-circle", color="white"))
-        self.btn_export.setIconSize(QSize(20, 20))
+        self.btn_export.setIconSize(icon_size)
         self.btn_export.setToolTip("Export the current image with applied settings (E)")
 
         for btn in [self.btn_copy, self.btn_paste, self.btn_save, self.btn_export, self.btn_reset, self.btn_unload]:
-            btn.setFixedHeight(38)
+            btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        row2.addWidget(self.btn_copy)
-        row2.addWidget(self.btn_paste)
-        row2.addWidget(self.btn_save)
-        row2.addWidget(self.btn_export)
-        row2.addWidget(self.btn_reset)
-        row2.addWidget(self.btn_unload)
-        row2.addStretch()
+        # Assemble Row
+        h_layout.addWidget(self.btn_prev)
+        h_layout.addWidget(self.btn_next)
+        
+        h_layout.addWidget(self._create_separator())
+        
+        h_layout.addWidget(self.btn_rot_l)
+        h_layout.addWidget(self.btn_rot_r)
+        h_layout.addWidget(self.btn_flip_h)
+        h_layout.addWidget(self.btn_flip_v)
+        
+        h_layout.addWidget(self._create_separator())
+        
+        h_layout.addWidget(self.btn_copy)
+        h_layout.addWidget(self.btn_paste)
+        h_layout.addWidget(self.btn_reset)
+        
+        h_layout.addWidget(self._create_separator())
+        
+        h_layout.addWidget(self.btn_save)
+        h_layout.addWidget(self.btn_export)
+        h_layout.addWidget(self.btn_unload)
 
-        main_layout.addLayout(row2)
+        main_layout.addWidget(container)
 
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)

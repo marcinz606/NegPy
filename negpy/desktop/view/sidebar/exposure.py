@@ -25,8 +25,11 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.region_combo)
 
         self.cyan_slider = SignalSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
+        self.cyan_slider.slider.setObjectName("cyan_slider")
         self.magenta_slider = SignalSlider("Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1", has_neutral=True)
+        self.magenta_slider.slider.setObjectName("magenta_slider")
         self.yellow_slider = SignalSlider("Yellow", -1.0, 1.0, conf.wb_yellow, color="#b1b100", has_neutral=True)
+        self.yellow_slider.slider.setObjectName("yellow_slider")
         self.layout.addWidget(self.cyan_slider)
         self.layout.addWidget(self.magenta_slider)
         self.layout.addWidget(self.yellow_slider)
