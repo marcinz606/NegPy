@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.9.15
+
+- Stability improvements when loading files and generating thumbnails (specfically for tiff & pakon files).
+- Fix: white & black point offset sliders working in wrong direction when in E6 mode.
+- More UI refinements.
+
+
 ## 0.9.14
 
 - Fix: export folder not being correctly set on some configs on first run.
