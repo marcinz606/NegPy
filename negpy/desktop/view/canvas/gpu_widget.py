@@ -32,12 +32,34 @@ class GPUCanvasWidget(QWidget):
         self.resize_timer.setInterval(50)
         self.resize_timer.timeout.connect(self._perform_resize)
 
+    def _configure_context(self) -> None:
+        """
+        Helper to configure the WebGPU context, trying available alpha modes
+        to handle platform-specific constraints (e.g. 'opaque' vs 'premultiplied').
+        """
+        if not self.context or not self.device:
+            return
+
+        modes = ["premultiplied", "opaque"]
+        last_error = None
+
+        for mode in modes:
+            try:
+                self.context.configure(device=self.device, format=self.format, alpha_mode=mode)
+                return
+            except Exception as e:
+                last_error = e
+
+        # If we reach here, no mode worked
+        if last_error:
+            raise last_error
+
     def initialize_gpu(self, device: Any, adapter: Any) -> None:
         self.device = device
         self.context = self.canvas.get_context("wgpu")
 
         self.format = self.context.get_preferred_format(adapter).replace("-srgb", "")
-        self.context.configure(device=self.device, format=self.format)
+        self._configure_context()
 
         self.uniform_buffer = self.device.create_buffer(size=16, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
         self._create_render_pipeline(self.format)
@@ -58,7 +80,7 @@ class GPUCanvasWidget(QWidget):
     def _perform_resize(self) -> None:
         if self.device and self.context:
             try:
-                self.context.configure(device=self.device, format=self.format)
+                self._configure_context()
 
                 if self.current_texture_view:
                     self.canvas.request_draw(self._draw_frame)
