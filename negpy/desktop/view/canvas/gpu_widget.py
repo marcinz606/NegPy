@@ -50,7 +50,6 @@ class GPUCanvasWidget(QWidget):
             except Exception as e:
                 last_error = e
 
-        # If we reach here, no mode worked
         if last_error:
             raise last_error
 
