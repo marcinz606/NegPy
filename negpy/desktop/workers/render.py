@@ -4,8 +4,7 @@ import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import WorkspaceConfig
 from negpy.services.rendering.image_processor import ImageProcessor
-from negpy.features.exposure.normalization import analyze_log_exposure_bounds
-from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -232,53 +231,77 @@ class NormalizationWorker(QObject):
     @pyqtSlot(NormalizationTask)
     def process(self, task: NormalizationTask) -> None:
         """
-        Executes analysis on a batch of files.
+        Executes analysis on a batch of files using parallel workers.
         """
+        import asyncio
+        import numpy as np
+        from negpy.features.exposure.normalization import analyze_log_exposure_bounds, normalize_log_image
+        from negpy.features.exposure.shadows import analyze_shadow_cast
+
         total = len(task.files)
-        all_floors = []
-        all_ceils = []
-        all_casts = []
+        limit = max(1, APP_CONFIG.max_workers // 2)
+        semaphore = asyncio.Semaphore(limit)
+        completed = 0
+
+        async def _analyze_file(f_info: dict):
+            nonlocal completed
+            async with semaphore:
+                try:
+                    params = self._repo.load_file_settings(f_info["hash"])
+                    use_camera_wb = params.exposure.use_camera_wb if params else False
+                    analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
+                    process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
+                    e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
+                    shadow_threshold = (
+                        params.process.shadow_cast_threshold if params else DEFAULT_WORKSPACE_CONFIG.process.shadow_cast_threshold
+                    )
+
+                    # Use to_thread for blocking CPU/IO bound load and analysis
+                    raw, _, _ = await asyncio.to_thread(
+                        self._preview_service.load_linear_preview,
+                        f_info["path"],
+                        task.workspace_color_space,
+                        use_camera_wb=use_camera_wb,
+                    )
+
+                    bounds = await asyncio.to_thread(
+                        analyze_log_exposure_bounds,
+                        raw,
+                        analysis_buffer=analysis_buffer,
+                        process_mode=process_mode,
+                        e6_normalize=e6_normalize,
+                    )
+
+                    # Calculate cast from normalized log data
+                    epsilon = 1e-6
+                    img_log = np.log10(np.clip(raw, epsilon, 1.0))
+                    res_norm = normalize_log_image(img_log, bounds)
+                    cast = analyze_shadow_cast(res_norm, shadow_threshold)
+
+                    completed += 1
+                    self.progress.emit(completed, total, f_info["name"])
+                    return bounds.floors, bounds.ceils, cast
+                except Exception as e:
+                    logger.error(f"Failed to analyze {f_info['name']}: {e}")
+                    return None
+
+        async def _run_batch():
+            tasks = [_analyze_file(f) for f in task.files]
+            return await asyncio.gather(*tasks)
 
         try:
-            for i, f_info in enumerate(task.files):
-                self.progress.emit(i + 1, total, f_info["name"])
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            batch_results = loop.run_until_complete(_run_batch())
+            loop.close()
 
-                params = self._repo.load_file_settings(f_info["hash"])
-                use_camera_wb = params.exposure.use_camera_wb if params else False
-                analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
-                process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
-                e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
-                shadow_threshold = (
-                    params.process.shadow_cast_threshold if params else DEFAULT_WORKSPACE_CONFIG.process.shadow_cast_threshold
-                )
+            valid_results = [r for r in batch_results if r is not None]
+            if not valid_results:
+                raise RuntimeError("All files in batch failed analysis")
 
-                raw, _, _ = self._preview_service.load_linear_preview(
-                    f_info["path"],
-                    task.workspace_color_space,
-                    use_camera_wb=use_camera_wb,
-                )
-
-                bounds = analyze_log_exposure_bounds(
-                    raw,
-                    analysis_buffer=analysis_buffer,
-                    process_mode=process_mode,
-                    e6_normalize=e6_normalize,
-                )
-                all_floors.append(bounds.floors)
-                all_ceils.append(bounds.ceils)
-
-                from negpy.features.exposure.normalization import normalize_log_image
-                from negpy.features.exposure.shadows import analyze_shadow_cast
-
-                epsilon = 1e-6
-                img_log = np.log10(np.clip(raw, epsilon, 1.0))
-                res_norm = normalize_log_image(img_log, bounds)
-                cast = analyze_shadow_cast(res_norm, shadow_threshold)
-                all_casts.append(cast)
-
-            floors_arr = np.array(all_floors)
-            ceils_arr = np.array(all_ceils)
-            casts_arr = np.array(all_casts)
+            floors_arr = np.array([r[0] for r in valid_results])
+            ceils_arr = np.array([r[1] for r in valid_results])
+            casts_arr = np.array([r[2] for r in valid_results])
 
             def get_robust_mean(data: np.ndarray) -> np.ndarray:
                 results = []
@@ -309,5 +332,5 @@ class NormalizationWorker(QObject):
             )
 
         except Exception as e:
-            logger.error(f"Normalization analysis failure: {e}")
+            logger.error(f"Batch Normalization failure: {e}")
             self.error.emit(str(e))

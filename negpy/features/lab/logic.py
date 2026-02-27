@@ -1,19 +1,19 @@
 import numpy as np
 import cv2
-from numba import njit, prange  # type: ignore
+from numba import njit  # type: ignore
 from typing import List, Optional
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _apply_spectral_crosstalk_jit(img_dens: np.ndarray, applied_matrix: np.ndarray) -> np.ndarray:
     """
     3x3 Matrix multiplication.
     """
     h, w, c = img_dens.shape
     res = np.empty_like(img_dens)
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             r = img_dens[y, x, 0]
             g = img_dens[y, x, 1]
@@ -74,7 +74,7 @@ def apply_clahe(img: ImageBuffer, strength: float, scale_factor: float = 1.0) ->
     return ensure_image(np.clip(res, 0.0, 1.0))
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _apply_unsharp_mask_jit(l_chan: np.ndarray, l_blur: np.ndarray, amount: float, threshold: float) -> np.ndarray:
     """
     USM Kernel (Orig + (Orig - Blur) * Amount).
@@ -83,7 +83,7 @@ def _apply_unsharp_mask_jit(l_chan: np.ndarray, l_blur: np.ndarray, amount: floa
     res = np.empty((h, w), dtype=np.float32)
     amount_f = amount * 2.5
 
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             orig = l_chan[y, x]
             blur = l_blur[y, x]

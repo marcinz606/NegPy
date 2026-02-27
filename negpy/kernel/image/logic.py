@@ -2,7 +2,7 @@ import hashlib
 import os
 from typing import Any
 import numpy as np
-from numba import njit, prange  # type: ignore
+from numba import njit  # type: ignore
 from negpy.domain.types import LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.logging import get_logger
@@ -10,20 +10,20 @@ from negpy.kernel.system.logging import get_logger
 logger = get_logger(__name__)
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _get_luminance_jit(img: np.ndarray) -> np.ndarray:
     """
     Rec. 709 luminance.
     """
     h, w, _ = img.shape
     res = np.empty((h, w), dtype=np.float32)
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             res[y, x] = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     """
     Scale to uint16 (clips & handles NaNs).
@@ -32,7 +32,7 @@ def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     img_flat = img.reshape(-1)
     res_flat = res.reshape(-1)
 
-    for i in prange(len(img_flat)):
+    for i in range(len(img_flat)):
         val = img_flat[i]
         if np.isnan(val):
             v = 0.0
@@ -48,7 +48,7 @@ def _to_uint16_jit(img: np.ndarray) -> np.ndarray:
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     """
     Scale to uint8 (clips & handles NaNs).
@@ -57,7 +57,7 @@ def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     img_flat = img.reshape(-1)
     res_flat = res.reshape(-1)
 
-    for i in prange(len(img_flat)):
+    for i in range(len(img_flat)):
         val = img_flat[i]
         if np.isnan(val):
             v = 0.0
@@ -73,7 +73,7 @@ def _to_uint8_jit(img: np.ndarray) -> np.ndarray:
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def uint8_to_float32(img: np.ndarray) -> np.ndarray:
     """
     Fast JIT conversion from uint8 to float32 [0.0, 1.0].
@@ -81,14 +81,14 @@ def uint8_to_float32(img: np.ndarray) -> np.ndarray:
     h, w, c = img.shape
     res = np.empty((h, w, c), dtype=np.float32)
     inv_255 = 1.0 / 255.0
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             for ch in range(3):
                 res[y, x, ch] = np.float32(img[y, x, ch]) * inv_255
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     """
     Fast JIT conversion from uint16 to float32 [0.0, 1.0].
@@ -96,36 +96,6 @@ def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     h, w, c = img.shape
     res = np.empty((h, w, c), dtype=np.float32)
     inv_65535 = 1.0 / 65535.0
-    for y in prange(h):
-        for x in range(w):
-            for ch in range(3):
-                res[y, x, ch] = np.float32(img[y, x, ch]) * inv_65535
-    return res
-
-
-@njit(parallel=False, cache=True, fastmath=True)
-def uint8_to_float32_seq(img: np.ndarray) -> np.ndarray:
-    """
-    Fast JIT conversion from uint8 to float32 [0.0, 1.0]. (Sequential)
-    """
-    h, w, c = img.shape
-    res = np.empty((h, w, c), dtype=np.float32)
-    inv_255 = 1.0 / 255.0
-    for y in range(h):
-        for x in range(w):
-            for ch in range(3):
-                res[y, x, ch] = np.float32(img[y, x, ch]) * inv_255
-    return res
-
-
-@njit(parallel=False, cache=True, fastmath=True)
-def uint16_to_float32_seq(img: np.ndarray) -> np.ndarray:
-    """
-    Fast JIT conversion from uint16 to float32 [0.0, 1.0]. (Sequential)
-    """
-    h, w, c = img.shape
-    res = np.empty((h, w, c), dtype=np.float32)
-    inv_65535 = 1.0 / 65535.0
     for y in range(h):
         for x in range(w):
             for ch in range(3):
@@ -133,7 +103,7 @@ def uint16_to_float32_seq(img: np.ndarray) -> np.ndarray:
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
     """
     Luminance -> uint8.
@@ -144,7 +114,7 @@ def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
     if img.ndim == 2:
         h, w = img.shape
         res = np.empty((h, w), dtype=dtype)
-        for y in prange(h):
+        for y in range(h):
             for x in range(w):
                 v = img[y, x] * scale + 0.5
                 if v < 0:
@@ -156,7 +126,7 @@ def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
     else:
         h, w, c = img.shape
         res = np.empty((h, w), dtype=dtype)
-        for y in prange(h):
+        for y in range(h):
             for x in range(w):
                 lum = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
                 v = lum * scale + 0.5
@@ -168,7 +138,7 @@ def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
         return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
     """
     Luminance -> uint16.
@@ -179,7 +149,7 @@ def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
     if img.ndim == 2:
         h, w = img.shape
         res = np.empty((h, w), dtype=dtype)
-        for y in prange(h):
+        for y in range(h):
             for x in range(w):
                 v = img[y, x] * scale + 0.5
                 if v < 0:
@@ -191,7 +161,7 @@ def _float_to_uint16_luma_jit(img: np.ndarray) -> np.ndarray:
     else:
         h, w, c = img.shape
         res = np.empty((h, w), dtype=dtype)
-        for y in prange(h):
+        for y in range(h):
             for x in range(w):
                 lum = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
                 v = lum * scale + 0.5

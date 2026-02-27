@@ -1,19 +1,19 @@
 import numpy as np
-from numba import njit, prange  # type: ignore
+from numba import njit  # type: ignore
 from typing import Dict
 from negpy.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image
 from negpy.features.toning.models import PaperSubstrate, PaperProfileName
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _apply_paper_substrate_jit(img: np.ndarray, tint: np.ndarray, dmax_boost: float) -> np.ndarray:
     """
     Applies tint & density boost.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             for ch in range(3):
                 val = img[y, x, ch] * tint[ch]
@@ -27,7 +27,7 @@ def _apply_paper_substrate_jit(img: np.ndarray, tint: np.ndarray, dmax_boost: fl
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _apply_chemical_toning_jit(img: np.ndarray, sel_strength: float, sep_strength: float) -> np.ndarray:
     """
     Selenium (Shadows) & Sepia (Mids) toning.
@@ -37,21 +37,22 @@ def _apply_chemical_toning_jit(img: np.ndarray, sel_strength: float, sep_strengt
     sel_color = np.array([0.85, 0.75, 0.85], dtype=np.float32)
     sep_color = np.array([1.1, 0.99, 0.825], dtype=np.float32)
 
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             # Fused Luminance (Rec. 709)
             lum_val = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
 
             sel_m = 0.0
             if sel_strength > 0:
-                sel_m = 1.0 - lum_val
-                if sel_m < 0.0:
-                    sel_m = 0.0
-                sel_m = sel_m * sel_m * sel_strength
+                m = 1.0 - lum_val
+                if m < 0.0:
+                    m = 0.0
+                sel_m = m * m * sel_strength
 
             sep_m = 0.0
             if sep_strength > 0:
-                sep_m = np.exp(-((lum_val - 0.6) ** 2) / 0.08) * sep_strength
+                dist = lum_val - 0.6
+                sep_m = np.exp(-(dist * dist) / 0.08) * sep_strength
 
             for ch in range(3):
                 pixel = img[y, x, ch]

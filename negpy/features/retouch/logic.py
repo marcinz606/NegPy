@@ -1,13 +1,13 @@
 import numpy as np
 import cv2
-from numba import njit, prange  # type: ignore
+from numba import njit  # type: ignore
 from typing import List, Tuple
 from negpy.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.image.logic import get_luminance
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _apply_auto_retouch_jit(
     img: np.ndarray,
     mean: np.ndarray,
@@ -21,7 +21,7 @@ def _apply_auto_retouch_jit(
     hit_mask = np.zeros((h, w), dtype=np.float32)
 
     # 1. Detection Pass
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             l_curr = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
             l_mean = mean[y, x]
@@ -60,7 +60,7 @@ def _apply_auto_retouch_jit(
         exp_rad = 16
     p_rad = exp_rad + int(3 * scale_factor)
 
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             min_d2 = 1e6
             for dy in range(-exp_rad, exp_rad + 1):
@@ -116,7 +116,7 @@ def _apply_auto_retouch_jit(
     return res
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _apply_inpainting_grain_jit(
     img: np.ndarray,
     img_inpainted: np.ndarray,
@@ -126,7 +126,7 @@ def _apply_inpainting_grain_jit(
     h, w, c = img_inpainted.shape
     res = np.empty_like(img_inpainted)
 
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             lum = (LUMA_R * img_inpainted[y, x, 0] + LUMA_G * img_inpainted[y, x, 1] + LUMA_B * img_inpainted[y, x, 2]) / 255.0
             mod = 3.0 * lum * (1.0 - lum)

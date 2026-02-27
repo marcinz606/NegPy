@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit, prange  # type: ignore
+from numba import njit  # type: ignore
 from typing import Tuple, Any
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
@@ -24,7 +24,7 @@ def _fast_sigmoid(x: float) -> float:
         return float(z / (1.0 + z))
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _apply_photometric_fused_kernel(
     img: np.ndarray,
     pivots: np.ndarray,
@@ -52,7 +52,7 @@ def _apply_photometric_fused_kernel(
     res = np.empty_like(img)
     inv_gamma = 1.0 / gamma
 
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             for ch in range(3):
                 val = img[y, x, ch] + cmy_offsets[ch]

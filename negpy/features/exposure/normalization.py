@@ -1,12 +1,12 @@
 from typing import Tuple, Optional
 import numpy as np
-from numba import njit, prange  # type: ignore
+from numba import njit  # type: ignore
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
 from negpy.features.process.models import ProcessMode
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray) -> np.ndarray:
     """
     Log -> 0.0-1.0 (Linear stretch).
@@ -16,7 +16,7 @@ def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.
     res = np.empty_like(img_log)
     epsilon = 1e-6
 
-    for y in prange(h):
+    for y in range(h):
         for x in range(w):
             for ch in range(3):
                 f = floors[ch]
