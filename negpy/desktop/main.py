@@ -46,7 +46,6 @@ def main() -> None:
         if sys.platform in ("linux", "win32"):
             os.environ["QSG_RHI_BACKEND"] = "vulkan"
             os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
-            os.environ["QT_X11_NO_MITSHM"] = "1"
 
         _bootstrap_environment()
 
