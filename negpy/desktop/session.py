@@ -277,7 +277,7 @@ class DesktopSessionManager(QObject):
             self.state.selected_indices = selection_override if selection_override is not None else [index]
             self.state.current_file_path = file_info["path"]
             self.state.current_file_hash = file_info["hash"]
-            
+
             # Reset history for new file
             self.state.undo_index = 0
             self.state.max_history_index = 0
@@ -360,7 +360,7 @@ class DesktopSessionManager(QObject):
             self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, self.state.config)
             self.state.undo_index += 1
             self.state.max_history_index = self.state.undo_index
-            
+
             if self.state.undo_index > 10:
                 self.repo.prune_history(self.state.current_file_hash, max_steps=10)
 
@@ -379,7 +379,7 @@ class DesktopSessionManager(QObject):
         if self.state.undo_index > 0 and self.state.current_file_hash:
             if self.state.undo_index == self.state.max_history_index:
                 self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, self.state.config)
-            
+
             self.state.undo_index -= 1
             prev_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
             if prev_config:

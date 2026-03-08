@@ -26,7 +26,8 @@ class CoordinateMapping:
         uv_grid = np.stack([u_raw, v_raw], axis=-1).astype(np.float32)
 
         if rotation != 0:
-            uv_grid = np.rot90(uv_grid, k=-rotation).astype(np.float32)
+            # Must match GPUEngine rotation direction (CCW)
+            uv_grid = np.rot90(uv_grid, k=rotation).astype(np.float32)
 
         if flip_h:
             uv_grid = np.fliplr(uv_grid).astype(np.float32)

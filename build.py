@@ -101,14 +101,11 @@ def package_linux():
         "libGLESv2.so*",
         "libgbm.so*",
         "libdrm.so*",
-        "libxcb*",
         "libX11*",
         "libXext.so*",
         "libXfixes.so*",
         "libXrender.so*",
         "libxshmfence.so*",
-        "libwayland*",
-        "libxkbcommon*",
         "libstdc++.so*",
         "libz.so*",
         "libgcc_s.so*",
@@ -153,8 +150,8 @@ def package_linux():
         f.write('HERE="$(dirname "$(readlink -f "${0}")")"\n')
         # Point to the bundled libraries
         f.write('export LD_LIBRARY_PATH="$HERE/_internal:$HERE:$LD_LIBRARY_PATH"\n')
-        # Force a real display backend to prevent 'offscreen' fallback
-        f.write('export QT_QPA_PLATFORM="xcb,wayland"\n')
+        # Priority: Wayland then XCB. This is safer for modern distros while providing xcb fallback.
+        f.write('export QT_QPA_PLATFORM="wayland;xcb"\n')
         # Disable X11 shared memory extension to prevent crashes with newer X servers
         f.write("export QT_X11_NO_MITSHM=1\n")
         # Hint WGPU to use Vulkan

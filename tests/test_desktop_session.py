@@ -67,21 +67,21 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_undo_redo_persistence(self):
         self.session.select_file(0)
         initial_config = self.session.state.config
-        
+
         # 1. First edit
         new_config_1 = replace(initial_config, exposure=replace(initial_config.exposure, density=1.5))
         self.session.update_config(new_config_1, persist=True)
-        
+
         # Verify push to history (pushed initial state)
         self.mock_repo.save_history_step.assert_called_with("hash1", 0, initial_config)
         self.assertEqual(self.session.state.undo_index, 1)
-        
+
         # 2. Undo
         self.mock_repo.load_history_step.return_value = initial_config
         self.session.undo()
         self.assertEqual(self.session.state.config.exposure.density, initial_config.exposure.density)
         self.assertEqual(self.session.state.undo_index, 0)
-        
+
         # 3. Redo
         self.mock_repo.load_history_step.return_value = new_config_1
         self.session.redo()
@@ -94,7 +94,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         for i in range(12):
             cfg = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=float(i)))
             self.session.update_config(cfg, persist=True)
-            
+
         # Should have called prune_history
         self.mock_repo.prune_history.assert_called()
         self.assertGreater(self.session.state.undo_index, 10)

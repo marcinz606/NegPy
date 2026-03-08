@@ -120,19 +120,25 @@ class GPUCanvasWidget(QWidget):
                 vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0),
                 vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0)
             );
+            
             let ndc_pos = positions[in_vertex_index];
             
-            // Apply zoom and pan
+            // 1. Map to baseline Fit-to-Screen box (NDC)
+            let base_pos = vec2<f32>(
+                (ndc_pos.x + 1.0) * 0.5 * params.rect.z + params.rect.x,
+                (ndc_pos.y - 1.0) * 0.5 * params.rect.w + params.rect.y
+            );
+            
+            // 2. Apply Zoom and Pan to the whole scene
             let zoom = params.transform.x;
             let pan = params.transform.yz;
-            let transformed_pos = ndc_pos * zoom + (pan * 2.0);
+            
+            // Pan moves the entire viewport. 
+            // In NDC, +1 is top, -1 is bottom. In Qt, +1 is down.
+            let final_pos = base_pos * zoom + vec2<f32>(pan.x, -pan.y) * 2.0;
 
             var out: VertexOutput;
-            out.pos = vec4<f32>(
-                (transformed_pos.x + 1.0) * 0.5 * params.rect.z + params.rect.x,
-                (transformed_pos.y - 1.0) * 0.5 * params.rect.w + params.rect.y,
-                0.0, 1.0
-            );
+            out.pos = vec4<f32>(final_pos, 0.0, 1.0);
             out.uv = uvs[in_vertex_index];
             return out;
         }
@@ -243,8 +249,15 @@ class GPUCanvasWidget(QWidget):
             ww, wh = float(current_tex.width), float(current_tex.height)
             iw, ih = float(self.image_size[0]), float(self.image_size[1])
 
-            r = min(ww / iw, wh / ih)
+            # Apply same 24px margin as overlay
+            margin = 24.0
+            avail_w = max(1.0, ww - (margin * 2.0))
+            avail_h = max(1.0, wh - (margin * 2.0))
+
+            r = min(avail_w / iw, avail_h / ih)
             nw, nh = iw * r, ih * r
+            
+            # Recalculate offsets including the margin
             nx, ny = (ww - nw) / 2.0, (wh - nh) / 2.0
 
             self.device.queue.write_buffer(

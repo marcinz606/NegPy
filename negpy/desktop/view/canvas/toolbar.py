@@ -108,12 +108,22 @@ class ActionToolbar(QWidget):
         self.btn_unload.setIcon(qta.icon("fa5s.times-circle", color=icon_color))
 
         all_buttons = [
-            self.btn_prev, self.btn_next, self.btn_undo, self.btn_redo,
-            self.btn_rot_l, self.btn_rot_r, self.btn_flip_h, self.btn_flip_v,
-            self.btn_copy, self.btn_paste, self.btn_reset,
-            self.btn_save, self.btn_export, self.btn_unload
+            self.btn_prev,
+            self.btn_next,
+            self.btn_undo,
+            self.btn_redo,
+            self.btn_rot_l,
+            self.btn_rot_r,
+            self.btn_flip_h,
+            self.btn_flip_v,
+            self.btn_copy,
+            self.btn_paste,
+            self.btn_reset,
+            self.btn_save,
+            self.btn_export,
+            self.btn_unload,
         ]
-        
+
         for btn in all_buttons:
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
@@ -123,24 +133,24 @@ class ActionToolbar(QWidget):
         h_layout.addWidget(self.btn_prev)
         h_layout.addWidget(self.btn_next)
         h_layout.addWidget(self._create_separator())
-        
+
         h_layout.addWidget(self.btn_rot_l)
         h_layout.addWidget(self.btn_rot_r)
         h_layout.addWidget(self.btn_flip_h)
         h_layout.addWidget(self.btn_flip_v)
         h_layout.addWidget(self._create_separator())
-        
+
         h_layout.addWidget(self.btn_undo)
         h_layout.addWidget(self.btn_redo)
         h_layout.addWidget(self.btn_copy)
         h_layout.addWidget(self.btn_paste)
         h_layout.addWidget(self.btn_reset)
         h_layout.addWidget(self._create_separator())
-        
+
         h_layout.addWidget(self.zoom_slider)
         h_layout.addWidget(self.zoom_label)
         h_layout.addWidget(self._create_separator())
-        
+
         h_layout.addWidget(self.btn_save)
         h_layout.addWidget(self.btn_export)
         h_layout.addWidget(self.btn_unload)

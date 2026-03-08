@@ -35,7 +35,7 @@ class ImageCanvas(QWidget):
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
-        self.root_layout.setContentsMargins(24, 24, 24, 24)
+        self.root_layout.setContentsMargins(0, 0, 0, 0)
 
         self.setStyleSheet("""
             ImageCanvas {
@@ -88,10 +88,15 @@ class ImageCanvas(QWidget):
         if self.zoom_level == 1.0:
             self.pan_offset = QPointF(0, 0)
         elif self.zoom_level != old_zoom:
+            # Shift pan to keep cursor over the same image spot
             mouse_pos = event.position()
+            # Relative cursor pos from center (-0.5 to 0.5)
             rel_x = (mouse_pos.x() - self.width() / 2) / self.width()
             rel_y = (mouse_pos.y() - self.height() / 2) / self.height()
-            self.pan_offset += QPointF(rel_x, rel_y) * (old_zoom - self.zoom_level)
+            
+            # Compensation for zoom expansion:
+            # We shift pan in the opposite direction of the cursor's relative distance from center
+            self.pan_offset += QPointF(rel_x, rel_y) * (1.0 / old_zoom - 1.0 / self.zoom_level) * self.zoom_level
 
         self._sync_transform()
         event.accept()
@@ -111,7 +116,11 @@ class ImageCanvas(QWidget):
         if self._is_panning:
             delta = event.position() - self._last_mouse_pos
             self._last_mouse_pos = event.position()
+            
+            # Move pan_offset by raw pixels / widget_size
+            # This matches Overlay's: center = (w/2) + (pan_x * w)
             self.pan_offset += QPointF(delta.x() / self.width(), delta.y() / self.height())
+            
             self._sync_transform()
             event.accept()
         else:

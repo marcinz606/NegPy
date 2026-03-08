@@ -109,6 +109,7 @@ class AppController(QObject):
         self.canvas = canvas
         self.zoom_requested.connect(self.canvas.set_zoom)
         self.canvas.zoom_changed.connect(self.zoom_changed.emit)
+        self.canvas.clicked.connect(self.handle_canvas_clicked)
 
     def set_status(self, message: str, timeout: int = 0) -> None:
         self.status_message_requested.emit(message, timeout)

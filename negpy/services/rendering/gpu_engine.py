@@ -569,15 +569,17 @@ class GPUEngine:
         if not tiling_mode and readback_metrics:
             metrics["histogram_raw"] = self._readback_metrics()
             try:
+                # Use current texture dimensions instead of huge original raw dims.
+                # CoordinateMapping expects dims matching the grid it generates.
                 metrics["uv_grid"] = CoordinateMapping.create_uv_grid(
-                    rh_orig=h,
-                    rw_orig=w,
+                    rh_orig=tex_final.height,
+                    rw_orig=tex_final.width,
                     rotation=settings.geometry.rotation,
                     fine_rot=settings.geometry.fine_rotation,
                     flip_h=settings.geometry.flip_horizontal,
                     flip_v=settings.geometry.flip_vertical,
-                    autocrop=True,
-                    autocrop_params={"roi": roi} if roi else None,
+                    autocrop=False,  # Visible texture is already cropped/rotated
+                    autocrop_params=None,
                 )
             except Exception as e:
                 logger.error(f"GPU Engine metrics error: {e}")
