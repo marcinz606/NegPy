@@ -43,6 +43,11 @@ class CanvasOverlay(QWidget):
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+            self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            self.setAttribute(Qt.WidgetAttribute.WA_StaticContents, False)
+
     def set_transform(self, zoom: float, px: float, py: float) -> None:
         self.zoom_level = zoom
         self.pan_x = px

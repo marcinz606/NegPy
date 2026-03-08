@@ -1,5 +1,6 @@
 from typing import Optional, Tuple, Any
 import numpy as np
+import sys
 from PyQt6.QtWidgets import QWidget, QStackedLayout
 from PyQt6.QtCore import pyqtSignal, Qt, QPointF
 from negpy.desktop.session import ToolMode, AppState
@@ -27,6 +28,13 @@ class ImageCanvas(QWidget):
         self.state = state
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
+
+        # Windows stability: Force native window handles for the container
+        # and all layered children to ensure DWM handles composition correctly.
+        # This fixes "ghost images" and "overlapping previews" in QStackedLayout.
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+            self.setAttribute(Qt.WidgetAttribute.WA_StaticContents, False)
 
         self.zoom_level = 1.0
         self.pan_offset = QPointF(0, 0)
