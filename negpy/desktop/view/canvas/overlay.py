@@ -92,14 +92,11 @@ class CanvasOverlay(QWidget):
             self._view_rect = QRectF()
             return
 
+        # No margins - use full widget dimensions
         w, h = self.width(), self.height()
         img_w, img_h = size.width(), size.height()
 
-        margin = 24
-        avail_w = max(1, w - (margin * 2))
-        avail_h = max(1, h - (margin * 2))
-        
-        scale_fit = min(avail_w / img_w, avail_h / img_h)
+        scale_fit = min(w / img_w, h / img_h)
         total_scale = scale_fit * self.zoom_level
 
         final_w = img_w * total_scale

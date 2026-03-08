@@ -43,6 +43,7 @@ class ImageCanvas(QWidget):
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
 
+
         # Acceleration layer
         self.gpu_widget = GPUCanvasWidget(self)
         gpu = GPUDevice.get()
@@ -116,6 +117,7 @@ class ImageCanvas(QWidget):
             event.accept()
         else:
             super().mouseMoveEvent(event)
+
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._is_panning:

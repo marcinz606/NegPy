@@ -625,9 +625,9 @@ class GPUEngine:
             struct.pack("ffff", f[0], f[1], f[2], 0.0)
             + struct.pack("ffff", c[0], c[1], c[2], 0.0)
             + struct.pack("ffff", cast[0], cast[1], cast[2], settings.process.shadow_cast_threshold)
-            + struct.pack("IIf f", mode_val, (1 if settings.process.e6_normalize else 0), settings.process.shadow_cast_strength, 0.0)
-            + struct.pack("ff ff", settings.process.white_point_offset, settings.process.black_point_offset, 0.0, 0.0)
-            + b"\x00" * 48
+            + struct.pack("IIf", mode_val, (1 if settings.process.e6_normalize else 0), settings.process.shadow_cast_strength)
+            + struct.pack("ff", settings.process.white_point_offset, settings.process.black_point_offset)
+            + b"\x00" * 44
         )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
