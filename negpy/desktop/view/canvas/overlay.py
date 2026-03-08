@@ -1,13 +1,15 @@
-import numpy as np
 import sys
 from typing import Optional, Tuple
+
+import numpy as np
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtGui import QPainter, QImage, QMouseEvent, QColor, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF, QSize
+
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.session import ToolMode, AppState
-from negpy.desktop.view.widgets.overlays import ImageInfoOverlay
+from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.overlays import ImageInfoOverlay
 from negpy.kernel.system.config import APP_CONFIG
 
 
@@ -37,15 +39,13 @@ class CanvasOverlay(QWidget):
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
-        
+
         self._view_rect: QRectF = QRectF()
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         if sys.platform == "win32":
-            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
-            self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_StaticContents, False)
 
     def set_transform(self, zoom: float, px: float, py: float) -> None:
@@ -76,7 +76,7 @@ class CanvasOverlay(QWidget):
         else:
             self._qimage = None
             self._current_size = gpu_size
-        
+
         self._recalc_view_rect()
         self.update()
 
@@ -103,7 +103,7 @@ class CanvasOverlay(QWidget):
         margin = 24
         avail_w = max(1, w - (margin * 2))
         avail_h = max(1, h - (margin * 2))
-        
+
         scale_fit = min(avail_w / img_w, avail_h / img_h)
         total_scale = scale_fit * self.zoom_level
 
@@ -113,17 +113,13 @@ class CanvasOverlay(QWidget):
         center_x = (w / 2) + (self.pan_x * w)
         center_y = (h / 2) + (self.pan_y * h)
 
-        self._view_rect = QRectF(
-            center_x - (final_w / 2),
-            center_y - (final_h / 2),
-            final_w,
-            final_h
-        )
+        self._view_rect = QRectF(center_x - (final_w / 2), center_y - (final_h / 2), final_w, final_h)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
 
-        if sys.platform == "darwin":
+        # Fix for Windows/macOS: aggressive clear the background to prevent ghosting/trailers
+        if sys.platform in ("darwin", "win32"):
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
             painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
@@ -145,16 +141,16 @@ class CanvasOverlay(QWidget):
 
         if self._crop_active and self._crop_p1 and self._crop_p2:
             rect = QRectF(self._crop_p1, self._crop_p2).normalized().intersected(visible_rect)
-            
+
             painter.setBrush(QColor(0, 0, 0, 180))
             painter.setPen(Qt.PenStyle.NoPen)
             d = visible_rect
-            
+
             painter.drawRect(d.intersected(QRectF(d.x(), d.y(), d.width(), rect.y() - d.y())))
             painter.drawRect(d.intersected(QRectF(d.x(), rect.bottom(), d.width(), d.bottom() - rect.bottom())))
             painter.drawRect(d.intersected(QRectF(d.x(), rect.y(), rect.x() - d.x(), rect.height())))
             painter.drawRect(d.intersected(QRectF(rect.right(), rect.y(), d.right() - rect.right(), rect.height())))
-            
+
             pen = QPen(Qt.GlobalColor.white, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -174,7 +170,7 @@ class CanvasOverlay(QWidget):
     def _draw_brush(self, painter: QPainter) -> None:
         conf = self.state.config.retouch
         max_screen_dim = max(self._view_rect.width(), self._view_rect.height())
-        radius = (conf.manual_dust_size / APP_CONFIG.preview_render_size) * max_screen_dim
+        radius = (conf.manual_dust_size / (2.0 * APP_CONFIG.preview_render_size)) * max_screen_dim
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         pen = QPen(Qt.GlobalColor.white, 1.0, Qt.PenStyle.SolidLine)
@@ -227,7 +223,25 @@ class CanvasOverlay(QWidget):
             return
 
         if self._crop_active:
-            self._crop_p2 = event.position()
+            ratio_str = self.state.config.geometry.autocrop_ratio
+            if ratio_str == "Free":
+                self._crop_p2 = event.position()
+            else:
+                try:
+                    w_r, h_r = map(float, ratio_str.split(":"))
+                    target_ratio = w_r / h_r
+
+                    dx = event.position().x() - self._crop_p1.x()
+                    dy = event.position().y() - self._crop_p1.y()
+
+                    if abs(dx) > abs(dy) * target_ratio:
+                        dy = (abs(dx) / target_ratio) * (1 if dy >= 0 else -1)
+                    else:
+                        dx = (abs(dy) * target_ratio) * (1 if dx >= 0 else -1)
+
+                    self._crop_p2 = QPointF(self._crop_p1.x() + dx, self._crop_p1.y() + dy)
+                except Exception:
+                    self._crop_p2 = event.position()
             self.update()
         else:
             self.update()
@@ -242,7 +256,7 @@ class CanvasOverlay(QWidget):
         if self._crop_active:
             r = QRectF(self._crop_p1, self._crop_p2).normalized()
             r = r.intersected(self._view_rect)
-            
+
             if r.width() > 5 and r.height() > 5:
                 c1 = self._map_to_image_coords(r.topLeft())
                 c2 = self._map_to_image_coords(r.bottomRight())

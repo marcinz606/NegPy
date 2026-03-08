@@ -1,9 +1,11 @@
-from typing import Optional, Tuple, Any
-import numpy as np
 import sys
-from PyQt6.QtWidgets import QWidget, QStackedLayout
-from PyQt6.QtCore import pyqtSignal, Qt, QPointF
-from negpy.desktop.session import ToolMode, AppState
+from typing import Any, Optional, Tuple
+
+from PyQt6.QtCore import QPointF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtWidgets import QStackedLayout, QWidget
+
+from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -15,8 +17,7 @@ logger = get_logger(__name__)
 
 class ImageCanvas(QWidget):
     """
-    Unified viewport orchestrator.
-    Manages hardware acceleration layers and SVG/Qt UI overlays.
+    Main viewport container using QStackedLayout to layer GPU and UI overlays.
     """
 
     clicked = pyqtSignal(float, float)
@@ -26,15 +27,16 @@ class ImageCanvas(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
 
-        # Windows stability: Force native window handles for the container
-        # and all layered children to ensure DWM handles composition correctly.
-        # This fixes "ghost images" and "overlapping previews" in QStackedLayout.
+        # Windows stability: The container is a native window to help with resize sync,
+        # but we use a solid background to prevent composition ghosting.
         if sys.platform == "win32":
             self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
             self.setAttribute(Qt.WidgetAttribute.WA_StaticContents, False)
+            self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        else:
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self.zoom_level = 1.0
         self.pan_offset = QPointF(0, 0)
@@ -65,8 +67,8 @@ class ImageCanvas(QWidget):
         self.overlay = CanvasOverlay(state, self)
         self.root_layout.addWidget(self.overlay)
 
-        self.overlay.clicked.connect(self.clicked)
-        self.overlay.crop_completed.connect(self.crop_completed)
+        self.overlay.clicked.connect(self.clicked.emit)
+        self.overlay.crop_completed.connect(self.crop_completed.emit)
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self.overlay.set_tool_mode(mode)
@@ -77,6 +79,14 @@ class ImageCanvas(QWidget):
         if self.zoom_level == 1.0:
             self.pan_offset = QPointF(0, 0)
         self._sync_transform()
+
+    def paintEvent(self, event) -> None:
+        """Ensure a solid background on Windows to prevent ghosting."""
+        if sys.platform == "win32":
+            painter = QPainter(self)
+            painter.fillRect(event.rect(), QColor("#050505"))
+        else:
+            super().paintEvent(event)
 
     def clear(self) -> None:
         """Total viewport reset."""
@@ -96,15 +106,7 @@ class ImageCanvas(QWidget):
         if self.zoom_level == 1.0:
             self.pan_offset = QPointF(0, 0)
         elif self.zoom_level != old_zoom:
-            # Shift pan to keep cursor over the same image spot
-            mouse_pos = event.position()
-            # Relative cursor pos from center (-0.5 to 0.5)
-            rel_x = (mouse_pos.x() - self.width() / 2) / self.width()
-            rel_y = (mouse_pos.y() - self.height() / 2) / self.height()
-            
-            # Compensation for zoom expansion:
-            # We shift pan in the opposite direction of the cursor's relative distance from center
-            self.pan_offset += QPointF(rel_x, rel_y) * (1.0 / old_zoom - 1.0 / self.zoom_level) * self.zoom_level
+            pass
 
         self._sync_transform()
         event.accept()
@@ -124,11 +126,7 @@ class ImageCanvas(QWidget):
         if self._is_panning:
             delta = event.position() - self._last_mouse_pos
             self._last_mouse_pos = event.position()
-            
-            # Move pan_offset by raw pixels / widget_size
-            # This matches Overlay's: center = (w/2) + (pan_x * w)
             self.pan_offset += QPointF(delta.x() / self.width(), delta.y() / self.height())
-            
             self._sync_transform()
             event.accept()
         else:
@@ -155,21 +153,18 @@ class ImageCanvas(QWidget):
         color_space: str,
         content_rect: Optional[Tuple[int, int, int, int]] = None,
     ) -> None:
-        """Updates the active viewport with a CPU or GPU buffer."""
-        if isinstance(buffer, np.ndarray):
-            self.gpu_widget.hide()
-            self.overlay.update_buffer(buffer, color_space, content_rect)
-            self.overlay.show()
-            self.overlay.raise_()
-        elif isinstance(buffer, GPUTexture):
-            self.overlay.update_buffer(None, color_space, content_rect, gpu_size=(buffer.width, buffer.height))
-            self.gpu_widget.update_texture(buffer)
+        """
+        Switches between CPU and GPU rendering paths.
+        """
+        if self.state.gpu_enabled and isinstance(buffer, GPUTexture):
             self.gpu_widget.show()
-            self.overlay.show()
+            self.gpu_widget.update_texture(buffer)
+            # Pass texture size so overlay can calculate projection rect
+            self.overlay.update_buffer(None, color_space, content_rect, gpu_size=(buffer.width, buffer.height))
             self.overlay.raise_()
         else:
             self.gpu_widget.hide()
-            self.overlay.update_buffer(None, color_space, content_rect)
+            self.overlay.update_buffer(buffer, color_space, content_rect)
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
         self.overlay.update_overlay(filename, res, colorspace, extra, edits)
