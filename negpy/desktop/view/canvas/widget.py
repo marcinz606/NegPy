@@ -1,11 +1,9 @@
+from typing import Optional, Tuple, Any
 import sys
-from typing import Any, Optional, Tuple
-
-from PyQt6.QtCore import QPointF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter
-from PyQt6.QtWidgets import QStackedLayout, QWidget
-
-from negpy.desktop.session import AppState, ToolMode
+from PyQt6.QtWidgets import QWidget, QStackedLayout
+from PyQt6.QtGui import QPainter, QColor, QMouseEvent
+from PyQt6.QtCore import pyqtSignal, Qt, QPointF
+from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -29,12 +27,10 @@ class ImageCanvas(QWidget):
         self.state = state
         self.setMouseTracking(True)
 
-        # Windows stability: The container is a native window to help with resize sync,
-        # but we use a solid background to prevent composition ghosting.
         if sys.platform == "win32":
             self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
             self.setAttribute(Qt.WidgetAttribute.WA_StaticContents, False)
-            self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+            self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         else:
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -53,7 +49,6 @@ class ImageCanvas(QWidget):
             }
         """)
 
-        # Acceleration layer
         self.gpu_widget = GPUCanvasWidget(self)
         gpu = GPUDevice.get()
         if gpu.is_available:
@@ -63,7 +58,6 @@ class ImageCanvas(QWidget):
                 logger.error(f"Hardware viewport acceleration failed: {e}")
         self.root_layout.addWidget(self.gpu_widget)
 
-        # UI Overlay layer
         self.overlay = CanvasOverlay(state, self)
         self.root_layout.addWidget(self.overlay)
 
@@ -100,13 +94,10 @@ class ImageCanvas(QWidget):
         delta = event.angleDelta().y()
         zoom_factor = 1.1 if delta > 0 else 0.9
 
-        old_zoom = self.zoom_level
         self.zoom_level = max(1.0, min(self.zoom_level * zoom_factor, 4.0))
 
         if self.zoom_level == 1.0:
             self.pan_offset = QPointF(0, 0)
-        elif self.zoom_level != old_zoom:
-            pass
 
         self._sync_transform()
         event.accept()
@@ -122,7 +113,7 @@ class ImageCanvas(QWidget):
         else:
             super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event) -> None:
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._is_panning:
             delta = event.position() - self._last_mouse_pos
             self._last_mouse_pos = event.position()
@@ -132,7 +123,7 @@ class ImageCanvas(QWidget):
         else:
             super().mouseMoveEvent(event)
 
-    def mouseReleaseEvent(self, event) -> None:
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._is_panning:
             self._is_panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -159,12 +150,14 @@ class ImageCanvas(QWidget):
         if self.state.gpu_enabled and isinstance(buffer, GPUTexture):
             self.gpu_widget.show()
             self.gpu_widget.update_texture(buffer)
-            # Pass texture size so overlay can calculate projection rect
             self.overlay.update_buffer(None, color_space, content_rect, gpu_size=(buffer.width, buffer.height))
+            self.overlay.show()
             self.overlay.raise_()
         else:
             self.gpu_widget.hide()
             self.overlay.update_buffer(buffer, color_space, content_rect)
+            self.overlay.show()
+            self.overlay.raise_()
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
         self.overlay.update_overlay(filename, res, colorspace, extra, edits)
