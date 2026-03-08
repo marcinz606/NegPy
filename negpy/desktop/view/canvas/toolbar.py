@@ -194,7 +194,7 @@ class ActionToolbar(QWidget):
         new_rot = (self.session.state.config.geometry.rotation + direction) % 4
         new_geo = replace(self.session.state.config.geometry, rotation=new_rot)
         new_config = replace(self.session.state.config, geometry=new_geo)
-        self.session.update_config(new_config)
+        self.session.update_config(new_config, persist=True)
         self.controller.request_render()
 
     def flip(self, axis: str) -> None:
@@ -207,7 +207,7 @@ class ActionToolbar(QWidget):
             new_geo = replace(geo, flip_vertical=not geo.flip_vertical)
 
         new_config = replace(self.session.state.config, geometry=new_geo)
-        self.session.update_config(new_config)
+        self.session.update_config(new_config, persist=True)
         self.controller.request_render()
 
     def _update_ui_state(self) -> None:

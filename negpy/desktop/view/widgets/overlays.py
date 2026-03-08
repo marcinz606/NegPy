@@ -35,7 +35,7 @@ class ImageInfoOverlay(QWidget):
 
         self.lbl_filename = InfoLabel("No File")
         self.lbl_resolution = InfoLabel("- x - px")
-        self.lbl_colorspace = InfoLabel("Working Space")
+        self.lbl_edits = InfoLabel("Edits: 0")
         self.lbl_extra = InfoLabel("Mode")
 
         layout.addWidget(
@@ -51,7 +51,7 @@ class ImageInfoOverlay(QWidget):
             Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
         )
         layout.addWidget(
-            self.lbl_colorspace,
+            self.lbl_edits,
             1,
             0,
             Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
@@ -63,8 +63,8 @@ class ImageInfoOverlay(QWidget):
             Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight,
         )
 
-    def update_info(self, filename: str, res: str, colorspace: str, mode: str) -> None:
+    def update_info(self, filename: str, res: str, colorspace: str, mode: str, edits: int = 0) -> None:
         self.lbl_filename.setText(filename)
         self.lbl_resolution.setText(res)
-        self.lbl_colorspace.setText(colorspace)
+        self.lbl_edits.setText(f"Edits: {edits}")
         self.lbl_extra.setText(mode)

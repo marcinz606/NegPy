@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
 
         mode = f"16-bit | {self.state.config.process.process_mode}"
 
-        self.canvas.update_overlay(filename, res_str, cs, mode)
+        self.canvas.update_overlay(filename, res_str, cs, mode, edits=self.state.undo_index)
 
     def _on_canvas_clicked(self, nx: float, ny: float) -> None:
         self.top_status.showMessage(f"Clicked at: {nx:.3f}, {ny:.3f}")

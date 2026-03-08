@@ -163,8 +163,8 @@ class ImageCanvas(QWidget):
             self.gpu_widget.hide()
             self.overlay.update_buffer(None, color_space, content_rect)
 
-    def update_overlay(self, filename: str, res: str, colorspace: str, extra: str) -> None:
-        self.overlay.update_overlay(filename, res, colorspace, extra)
+    def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
+        self.overlay.update_overlay(filename, res, colorspace, extra, edits)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

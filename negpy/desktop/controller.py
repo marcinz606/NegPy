@@ -191,6 +191,7 @@ class AppController(QObject):
         """
         Loads a new RAW file into the linear preview workspace.
         """
+        self.zoom_requested.emit(1.0)
         self.set_status(f"Loading {os.path.basename(file_path)}...")
         self.loading_started.emit()
         self._first_render_done = False

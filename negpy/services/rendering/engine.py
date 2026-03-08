@@ -134,8 +134,6 @@ class DarkroomEngine:
         current_img = ToningProcessor(settings.toning).process(current_img, context)
         current_img = CropProcessor(settings.geometry).process(current_img, context)
 
-        # Performance: Generate UV grid matching the rendered resolution, not the raw resolution.
-        # This keeps the grid small and the UI responsive.
         h_rendered, w_rendered = current_img.shape[:2]
 
         try:
@@ -146,7 +144,7 @@ class DarkroomEngine:
                 fine_rot=settings.geometry.fine_rotation,
                 flip_h=settings.geometry.flip_horizontal,
                 flip_v=settings.geometry.flip_vertical,
-                autocrop=False,  # Already cropped by CropProcessor
+                autocrop=False,
                 autocrop_params=None,
             )
             context.metrics["uv_grid"] = uv_grid

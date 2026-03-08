@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional
 from PyQt6.QtCore import QObject, pyqtSignal, QAbstractListModel, QModelIndex, Qt
 from negpy.domain.models import WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.kernel.system.config import APP_CONFIG
 
 
 class ToolMode(Enum):
@@ -361,8 +362,8 @@ class DesktopSessionManager(QObject):
             self.state.undo_index += 1
             self.state.max_history_index = self.state.undo_index
 
-            if self.state.undo_index > 10:
-                self.repo.prune_history(self.state.current_file_hash, max_steps=10)
+            if self.state.undo_index > APP_CONFIG.max_history_steps:
+                self.repo.prune_history(self.state.current_file_hash, max_steps=APP_CONFIG.max_history_steps)
 
         self.state.config = config
 

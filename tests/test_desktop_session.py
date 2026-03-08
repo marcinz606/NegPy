@@ -5,6 +5,7 @@ from dataclasses import replace
 from negpy.desktop.session import DesktopSessionManager
 from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, ProcessConfig
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.kernel.system.config import APP_CONFIG
 
 
 class TestDesktopSessionSync(unittest.TestCase):
@@ -90,14 +91,15 @@ class TestDesktopSessionSync(unittest.TestCase):
 
     def test_history_pruning(self):
         self.session.select_file(0)
-        # Perform 12 edits
-        for i in range(12):
+        # Perform steps slightly over the limit
+        num_edits = APP_CONFIG.max_history_steps + 2
+        for i in range(num_edits):
             cfg = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=float(i)))
             self.session.update_config(cfg, persist=True)
 
         # Should have called prune_history
         self.mock_repo.prune_history.assert_called()
-        self.assertGreater(self.session.state.undo_index, 10)
+        self.assertGreater(self.session.state.undo_index, APP_CONFIG.max_history_steps)
 
 
 if __name__ == "__main__":

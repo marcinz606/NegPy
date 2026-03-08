@@ -14,7 +14,6 @@ from negpy.kernel.system.config import APP_CONFIG
 class CanvasOverlay(QWidget):
     """
     Transparent overlay for image interaction (crop, guides) and CPU rendering fallback.
-    Uses 'Manual Projection' for zoom/pan with strictly Main-branch compatible mapping.
     """
 
     clicked = pyqtSignal(float, float)
@@ -39,7 +38,6 @@ class CanvasOverlay(QWidget):
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
         
-        # Absolute screen rectangle where the image is drawn
         self._view_rect: QRectF = QRectF()
 
         self.setMouseTracking(True)
@@ -84,9 +82,6 @@ class CanvasOverlay(QWidget):
         self.update()
 
     def _recalc_view_rect(self) -> None:
-        """
-        Manually calculates the target rectangle for the image on screen.
-        """
         size = None
         if self._qimage:
             size = self._qimage.size()
@@ -100,20 +95,16 @@ class CanvasOverlay(QWidget):
         w, h = self.width(), self.height()
         img_w, img_h = size.width(), size.height()
 
-        # 1. Apply a fixed 24px margin to the fit area
         margin = 24
         avail_w = max(1, w - (margin * 2))
         avail_h = max(1, h - (margin * 2))
         
-        # 2. Fit to Screen (within the margined area)
         scale_fit = min(avail_w / img_w, avail_h / img_h)
         total_scale = scale_fit * self.zoom_level
 
         final_w = img_w * total_scale
         final_h = img_h * total_scale
 
-        # 3. Position (Center of widget + Pan)
-        # Pan is in normalized widget dimensions
         center_x = (w / 2) + (self.pan_x * w)
         center_y = (h / 2) + (self.pan_y * h)
 
@@ -145,32 +136,35 @@ class CanvasOverlay(QWidget):
         if self._view_rect.isEmpty():
             return
 
-        # A. Manual Crop
+        visible_rect = self._view_rect
+
         if self._crop_active and self._crop_p1 and self._crop_p2:
-            rect = QRectF(self._crop_p1, self._crop_p2).normalized().intersected(self._view_rect)
+            rect = QRectF(self._crop_p1, self._crop_p2).normalized().intersected(visible_rect)
+            
             painter.setBrush(QColor(0, 0, 0, 180))
             painter.setPen(Qt.PenStyle.NoPen)
-            d = self._view_rect
+            d = visible_rect
+            
             painter.drawRect(d.intersected(QRectF(d.x(), d.y(), d.width(), rect.y() - d.y())))
             painter.drawRect(d.intersected(QRectF(d.x(), rect.bottom(), d.width(), d.bottom() - rect.bottom())))
             painter.drawRect(d.intersected(QRectF(d.x(), rect.y(), rect.x() - d.x(), rect.height())))
             painter.drawRect(d.intersected(QRectF(rect.right(), rect.y(), d.right() - rect.right(), rect.height())))
+            
             pen = QPen(Qt.GlobalColor.white, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(pen)
             painter.drawRect(rect)
 
-        # B. Tools
-        if self._tool_mode != ToolMode.NONE and self._view_rect.contains(self._mouse_pos):
+        if self._tool_mode != ToolMode.NONE and visible_rect.contains(self._mouse_pos):
             if self._tool_mode == ToolMode.DUST_PICK:
                 self._draw_brush(painter)
             else:
                 pen = QPen(QColor(255, 255, 255, 80), 1, Qt.PenStyle.DotLine)
                 pen.setCosmetic(True)
                 painter.setPen(pen)
-                painter.drawLine(QPointF(self._view_rect.x(), self._mouse_pos.y()), QPointF(self._view_rect.right(), self._mouse_pos.y()))
-                painter.drawLine(QPointF(self._mouse_pos.x(), self._view_rect.top()), QPointF(self._mouse_pos.x(), self._view_rect.bottom()))
+                painter.drawLine(QPointF(visible_rect.x(), self._mouse_pos.y()), QPointF(visible_rect.right(), self._mouse_pos.y()))
+                painter.drawLine(QPointF(self._mouse_pos.x(), visible_rect.top()), QPointF(self._mouse_pos.x(), visible_rect.bottom()))
 
     def _draw_brush(self, painter: QPainter) -> None:
         conf = self.state.config.retouch
@@ -193,12 +187,9 @@ class CanvasOverlay(QWidget):
         if self._view_rect.isEmpty() or not self._view_rect.contains(screen_pos):
             return None
 
-        # Absolute normalized coordinates relative to visible image buffer
         nb_x = (screen_pos.x() - self._view_rect.x()) / self._view_rect.width()
         nb_y = (screen_pos.y() - self._view_rect.y()) / self._view_rect.height()
 
-        # The Controller/CoordinateMapping logic expects coordinates relative to the visible buffer.
-        # It handles rotation and original ROI itself.
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -225,7 +216,6 @@ class CanvasOverlay(QWidget):
         if self.parent()._is_panning:
             delta = event.position() - self.parent()._last_mouse_pos
             self.parent()._last_mouse_pos = event.position()
-            # Moving by pixels / unscaled widget size ensures 1:1 feel with the overlay center math
             self.parent().pan_offset += QPointF(delta.x() / self.width(), delta.y() / self.height())
             self.parent()._sync_transform()
             event.accept()
@@ -245,7 +235,9 @@ class CanvasOverlay(QWidget):
             return
 
         if self._crop_active:
-            r = QRectF(self._crop_p1, self._crop_p2).normalized().intersected(self._view_rect)
+            r = QRectF(self._crop_p1, self._crop_p2).normalized()
+            r = r.intersected(self._view_rect)
+            
             if r.width() > 5 and r.height() > 5:
                 c1 = self._map_to_image_coords(r.topLeft())
                 c2 = self._map_to_image_coords(r.bottomRight())
@@ -255,5 +247,5 @@ class CanvasOverlay(QWidget):
             self._crop_p1, self._crop_p2 = None, None
             self.update()
 
-    def update_overlay(self, filename: str, res: str, colorspace: str, extra: str) -> None:
-        self.overlay.update_info(filename, res, colorspace, extra)
+    def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
+        self.overlay.update_info(filename, res, colorspace, extra, edits)

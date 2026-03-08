@@ -8,8 +8,11 @@
     - Discrete zoom slider in the toolbar.
 - Added **Persistent Undo/Redo**:
     - Standard shortcuts (Ctrl+Z / Ctrl+Y).
-    - Stores last 10 steps per file in local SQLite database.
+    - Stores up to 100 steps per file in local SQLite database.
     - History survives app restarts and file switching.
+    - Track number of edits on image overlay (lower left corner)
+      - Also track number of heal spots in retouch toolbar section.
+- Packaged some additional requirements in Linux appimage for easier running on debian-derived distros.
 
 
 ## 0.9.16

@@ -28,6 +28,7 @@ class AppConfig:
     thumbnail_size: int
     max_workers: int
     preview_render_size: int
+    max_history_steps: int
     edits_db_path: str
     settings_db_path: str
     presets_dir: str

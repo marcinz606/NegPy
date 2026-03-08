@@ -17,6 +17,7 @@ class BaseSlider(QWidget):
     """
 
     valueChanged = pyqtSignal(float)
+    valueCommitted = pyqtSignal(float)
 
     def __init__(
         self,
@@ -54,6 +55,11 @@ class BaseSlider(QWidget):
         self.slider.valueChanged.connect(self._on_slider_changed)
         self.spin.valueChanged.connect(self._on_spin_changed)
         self.timer.timeout.connect(self._emit_value)
+        self.slider.sliderReleased.connect(self._on_committed)
+        self.spin.editingFinished.connect(self._on_committed)
+
+    def _on_committed(self) -> None:
+        self.valueCommitted.emit(self.spin.value())
 
     def _on_slider_changed(self, value: int) -> None:
         f_val = value / self._precision
@@ -86,6 +92,7 @@ class BaseSlider(QWidget):
         """Resets to default value."""
         self.setValue(self._default)
         self._emit_value()
+        self._on_committed()
 
 
 class CompactSlider(BaseSlider):
@@ -141,6 +148,7 @@ class RangeSlider(QWidget):
     """
 
     rangeChanged = pyqtSignal(float, float)
+    rangeCommitted = pyqtSignal(float, float)
 
     def __init__(self, label: str, parent=None):
         super().__init__(parent)
@@ -235,9 +243,12 @@ class RangeSlider(QWidget):
         self.timer.start()
 
     def mouseReleaseEvent(self, event) -> None:
+        if self._active_handle:
+            self.rangeCommitted.emit(self._min_val, self._max_val)
         self._active_handle = None
 
     def mouseDoubleClickEvent(self, event) -> None:
         """Reset for the entire range."""
         self.setRange(0.0, 1.0)
         self.rangeChanged.emit(0.0, 1.0)
+        self.rangeCommitted.emit(0.0, 1.0)
