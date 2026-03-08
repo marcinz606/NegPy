@@ -1,5 +1,17 @@
 # Change Log
 
+## 0.9.17
+
+- Added **Zoom & Pan** for preview:
+    - Mouse wheel to zoom (up to 400%).
+    - Middle-click or left-click (when zoomed) to pan.
+    - Discrete zoom slider in the toolbar.
+- Added **Persistent Undo/Redo**:
+    - Standard shortcuts (Ctrl+Z / Ctrl+Y).
+    - Stores last 10 steps per file in local SQLite database.
+    - History survives app restarts and file switching.
+
+
 ## 0.9.16
 
 - Stability improvements when using Numba-compiled functions.
@@ -119,4 +131,3 @@
 ## 0.9.1
 
 - Explicit support for more raw extensions for file picker.
-

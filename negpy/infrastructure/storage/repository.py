@@ -42,6 +42,15 @@ class StorageRepository(IRepository):
             except sqlite3.OperationalError:
                 pass
 
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS edit_history (
+                    file_hash TEXT,
+                    step_index INTEGER,
+                    settings_json TEXT,
+                    PRIMARY KEY (file_hash, step_index)
+                )
+            """)
+
         with sqlite3.connect(self.settings_db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS global_settings (
@@ -111,6 +120,43 @@ class StorageRepository(IRepository):
                 data = json.loads(row[0])
                 return WorkspaceConfig.from_flat_dict(data)
         return None
+
+    def save_history_step(self, file_hash: str, index: int, settings: WorkspaceConfig) -> None:
+        with sqlite3.connect(self.edits_db_path) as conn:
+            settings_json = json.dumps(settings.to_dict(), default=str)
+            conn.execute(
+                "INSERT OR REPLACE INTO edit_history (file_hash, step_index, settings_json) VALUES (?, ?, ?)",
+                (file_hash, index, settings_json),
+            )
+
+    def load_history_step(self, file_hash: str, index: int) -> Optional[WorkspaceConfig]:
+        with sqlite3.connect(self.edits_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT settings_json FROM edit_history WHERE file_hash = ? AND step_index = ?",
+                (file_hash, index),
+            )
+            row = cursor.fetchone()
+            if row:
+                data = json.loads(row[0])
+                return WorkspaceConfig.from_flat_dict(data)
+        return None
+
+    def clear_history(self, file_hash: str) -> None:
+        with sqlite3.connect(self.edits_db_path) as conn:
+            conn.execute("DELETE FROM edit_history WHERE file_hash = ?", (file_hash,))
+
+    def prune_history(self, file_hash: str, max_steps: int = 10) -> None:
+        with sqlite3.connect(self.edits_db_path) as conn:
+            # Delete steps that are older than (current_max_index - max_steps)
+            # Find current max index for this file
+            cursor = conn.execute("SELECT MAX(step_index) FROM edit_history WHERE file_hash = ?", (file_hash,))
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                max_idx = row[0]
+                conn.execute(
+                    "DELETE FROM edit_history WHERE file_hash = ? AND step_index <= ?",
+                    (file_hash, max_idx - max_steps),
+                )
 
     def save_global_setting(self, key: str, value: Any) -> None:
         with sqlite3.connect(self.settings_db_path) as conn:

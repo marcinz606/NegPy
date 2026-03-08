@@ -26,6 +26,10 @@ class GPUCanvasWidget(QWidget):
         self.image_size: Tuple[int, int] = (1, 1)
         self.format: str = ""
 
+        self.zoom: float = 1.0
+        self.pan_x: float = 0.0
+        self.pan_y: float = 0.0
+
         # Debounce resize to prevent context thrashing
         self.resize_timer = QTimer()
         self.resize_timer.setSingleShot(True)
@@ -60,8 +64,15 @@ class GPUCanvasWidget(QWidget):
         self.format = self.context.get_preferred_format(adapter).replace("-srgb", "")
         self._configure_context()
 
-        self.uniform_buffer = self.device.create_buffer(size=16, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
+        # Uniform buffer now needs 32 bytes (2 * vec4<f32>)
+        self.uniform_buffer = self.device.create_buffer(size=32, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
         self._create_render_pipeline(self.format)
+
+    def set_transform(self, zoom: float, px: float, py: float) -> None:
+        self.zoom = zoom
+        self.pan_x = px
+        self.pan_y = py
+        self.canvas.request_draw(self._draw_frame)
 
     def update_texture(self, tex_wrapper: Any) -> None:
         self.current_texture_view = tex_wrapper.view
@@ -88,7 +99,10 @@ class GPUCanvasWidget(QWidget):
 
     def _create_render_pipeline(self, format: str) -> None:
         shader_source = """
-        struct RenderUniforms { rect: vec4<f32> };
+        struct RenderUniforms { 
+            rect: vec4<f32>,
+            transform: vec4<f32> // x: zoom, y: pan_x, z: pan_y
+        };
         @group(0) @binding(1) var<uniform> params: RenderUniforms;
 
         struct VertexOutput {
@@ -107,10 +121,16 @@ class GPUCanvasWidget(QWidget):
                 vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0)
             );
             let ndc_pos = positions[in_vertex_index];
+            
+            // Apply zoom and pan
+            let zoom = params.transform.x;
+            let pan = params.transform.yz;
+            let transformed_pos = ndc_pos * zoom + (pan * 2.0);
+
             var out: VertexOutput;
             out.pos = vec4<f32>(
-                (ndc_pos.x + 1.0) * 0.5 * params.rect.z + params.rect.x,
-                (ndc_pos.y - 1.0) * 0.5 * params.rect.w + params.rect.y,
+                (transformed_pos.x + 1.0) * 0.5 * params.rect.z + params.rect.x,
+                (transformed_pos.y - 1.0) * 0.5 * params.rect.w + params.rect.y,
                 0.0, 1.0
             );
             out.uv = uvs[in_vertex_index];
@@ -175,7 +195,7 @@ class GPUCanvasWidget(QWidget):
                     "visibility": wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT,
                     "buffer": {
                         "type": wgpu.BufferBindingType.uniform,
-                        "min_binding_size": 16,
+                        "min_binding_size": 32,
                     },
                 },
             ]
@@ -231,11 +251,15 @@ class GPUCanvasWidget(QWidget):
                 self.uniform_buffer,
                 0,
                 struct.pack(
-                    "ffff",
+                    "ffffffff",
                     (nx / ww) * 2.0 - 1.0,
                     1.0 - (ny / wh) * 2.0,
                     (nw / ww) * 2.0,
                     (nh / wh) * 2.0,
+                    self.zoom,
+                    self.pan_x,
+                    self.pan_y,
+                    0.0,  # padding
                 ),
             )
 
@@ -248,7 +272,7 @@ class GPUCanvasWidget(QWidget):
                         "resource": {
                             "buffer": self.uniform_buffer,
                             "offset": 0,
-                            "size": 16,
+                            "size": 32,
                         },
                     },
                 ],

@@ -36,5 +36,14 @@ Summary of available keyboard shortcuts in NegPy.
 | Key | Action |
 |-----|--------|
 | `Ctrl + E` | Export current image |
+| `Ctrl + Z` | Undo last change |
+| `Ctrl + Y` | Redo change |
 | `Ctrl + C` | Copy settings from current image |
 | `Ctrl + V` | Paste settings to current image |
+
+## Viewport
+| Key | Action |
+|-----|--------|
+| `Mouse Wheel` | Zoom in / out (up to 400%) |
+| `Middle Click` + `Drag` | Pan zoomed image |
+| `Left Click` + `Drag` | Pan zoomed image (when no tool is active) |

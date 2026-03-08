@@ -53,6 +53,8 @@ class AppController(QObject):
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
+    zoom_requested = pyqtSignal(float)
+    zoom_changed = pyqtSignal(float)
     status_message_requested = pyqtSignal(str, int)
     status_progress_requested = pyqtSignal(int, int)
 
@@ -94,10 +96,19 @@ class AppController(QObject):
         self.discovery_worker.moveToThread(self.discovery_thread)
         self.discovery_thread.start()
 
+        self.canvas: Any = None
         self._is_rendering = False
         self._pending_render_task: Any = None
 
         self._connect_signals()
+
+    def register_canvas(self, canvas: Any) -> None:
+        """
+        Registers the canvas and connects its signals.
+        """
+        self.canvas = canvas
+        self.zoom_requested.connect(self.canvas.set_zoom)
+        self.canvas.zoom_changed.connect(self.zoom_changed.emit)
 
     def set_status(self, message: str, timeout: int = 0) -> None:
         self.status_message_requested.emit(message, timeout)

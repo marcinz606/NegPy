@@ -140,8 +140,6 @@ class LogisticSigmoid:
         self.highlight_cmy = highlight_cmy
 
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
-        # Simplified call for plotting/UI (assumes single channel logic if needed,
-        # but here we follow the RGB structure for consistency)
         diff = x - self.x0
         epsilon = 1e-6
 
@@ -154,8 +152,6 @@ class LogisticSigmoid:
         h_mask = np.exp(-((diff - h_center) ** 2) / 0.15)
         highlight_density_offset = self.highlights * h_mask * 0.3
 
-        # Note: LogisticSigmoid.__call__ is often used for the curve plot (luminance)
-        # so we don't apply color offsets here as they are channel-specific.
         diff_adj = diff - shadow_density_offset - highlight_density_offset
 
         w_s = _expit(self.shoulder_width * (diff_adj / max(self.x0, epsilon)))

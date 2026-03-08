@@ -2,7 +2,7 @@ import numpy as np
 import sys
 from typing import Optional, Tuple
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtGui import QPainter, QImage, QMouseEvent, QColor, QPen
+from PyQt6.QtGui import QPainter, QImage, QMouseEvent, QColor, QPen, QTransform
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF, QSize
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import ToolMode, AppState
@@ -36,8 +36,18 @@ class CanvasOverlay(QWidget):
         self._tool_mode: ToolMode = ToolMode.NONE
         self._mouse_pos: QPointF = QPointF()
 
+        self.zoom_level: float = 1.0
+        self.pan_x: float = 0.0
+        self.pan_y: float = 0.0
+
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def set_transform(self, zoom: float, px: float, py: float) -> None:
+        self.zoom_level = zoom
+        self.pan_x = px
+        self.pan_y = py
+        self.update()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
@@ -78,6 +88,12 @@ class CanvasOverlay(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
+        # Apply Zoom/Pan Transformation
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.scale(self.zoom_level, self.zoom_level)
+        painter.translate(self.pan_x * self.width(), self.pan_y * self.height())
+        painter.translate(-self.width() / 2, -self.height() / 2)
+
         size = None
         if self._qimage:
             size = self._qimage.size()
@@ -101,6 +117,18 @@ class CanvasOverlay(QWidget):
         self._draw_widget_ui(painter)
 
     def _draw_widget_ui(self, painter: QPainter) -> None:
+        # Get transformed mouse position for tools
+        transform = QTransform()
+        transform.translate(self.width() / 2, self.height() / 2)
+        transform.scale(self.zoom_level, self.zoom_level)
+        transform.translate(self.pan_x * self.width(), self.pan_y * self.height())
+        transform.translate(-self.width() / 2, -self.height() / 2)
+
+        inv_transform, ok = transform.inverted()
+        local_mouse = self._mouse_pos
+        if ok:
+            local_mouse = inv_transform.map(self._mouse_pos)
+
         if self._crop_p1 and self._crop_p2:
             rect = QRectF(self._crop_p1, self._crop_p2).normalized().intersected(self._display_rect)
             painter.setBrush(QColor(0, 0, 0, 180))
@@ -114,21 +142,21 @@ class CanvasOverlay(QWidget):
             painter.setPen(QPen(Qt.GlobalColor.white, 1, Qt.PenStyle.DashLine))
             painter.drawRect(rect)
 
-        if self._tool_mode != ToolMode.NONE and self._display_rect.contains(self._mouse_pos):
+        if self._tool_mode != ToolMode.NONE and self._display_rect.contains(local_mouse):
             if self._tool_mode == ToolMode.DUST_PICK:
-                self._draw_brush(painter)
+                self._draw_brush(painter, local_mouse)
             else:
                 painter.setPen(QPen(QColor(255, 255, 255, 80), 1, Qt.PenStyle.DotLine))
                 painter.drawLine(
-                    QPointF(self._display_rect.x(), self._mouse_pos.y()),
-                    QPointF(self._display_rect.right(), self._mouse_pos.y()),
+                    QPointF(self._display_rect.x(), local_mouse.y()),
+                    QPointF(self._display_rect.right(), local_mouse.y()),
                 )
                 painter.drawLine(
-                    QPointF(self._mouse_pos.x(), self._display_rect.y()),
-                    QPointF(self._mouse_pos.x(), self._display_rect.bottom()),
+                    QPointF(local_mouse.x(), self._display_rect.top()),
+                    QPointF(local_mouse.x(), self._display_rect.bottom()),
                 )
 
-    def _draw_brush(self, painter: QPainter) -> None:
+    def _draw_brush(self, painter: QPainter, pos: QPointF) -> None:
         conf = self.state.config.retouch
 
         max_screen_dim = max(self._display_rect.width(), self._display_rect.height())
@@ -136,19 +164,36 @@ class CanvasOverlay(QWidget):
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(Qt.GlobalColor.white, 1.0, Qt.PenStyle.SolidLine))
-        painter.drawEllipse(self._mouse_pos, radius, radius)
+        painter.drawEllipse(pos, radius, radius)
 
         accent = QColor(THEME.accent_primary)
         accent.setAlpha(60)
         painter.setBrush(accent)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(self._mouse_pos, radius, radius)
+        painter.drawEllipse(pos, radius, radius)
 
     def _map_to_image_coords(self, pos: QPointF) -> Optional[Tuple[float, float]]:
-        if self._display_rect.isEmpty() or not self._display_rect.contains(pos):
+        if self._display_rect.isEmpty():
             return None
-        nb_x = (pos.x() - self._display_rect.x()) / self._display_rect.width()
-        nb_y = (pos.y() - self._display_rect.y()) / self._display_rect.height()
+
+        # Apply same transform as in paintEvent but in reverse via QTransform
+        transform = QTransform()
+        transform.translate(self.width() / 2, self.height() / 2)
+        transform.scale(self.zoom_level, self.zoom_level)
+        transform.translate(self.pan_x * self.width(), self.pan_y * self.height())
+        transform.translate(-self.width() / 2, -self.height() / 2)
+
+        inv_transform, ok = transform.inverted()
+        if not ok:
+            return None
+
+        local_pos = inv_transform.map(pos)
+
+        if not self._display_rect.contains(local_pos):
+            return None
+
+        nb_x = (local_pos.x() - self._display_rect.x()) / self._display_rect.width()
+        nb_y = (local_pos.y() - self._display_rect.y()) / self._display_rect.height()
 
         if self._content_rect and self._current_size:
             bw, bh = self._current_size
@@ -167,19 +212,36 @@ class CanvasOverlay(QWidget):
             self.clicked.emit(*coords)
             if self._tool_mode == ToolMode.CROP_MANUAL:
                 self._crop_active = True
-                self._crop_p1, self._crop_p2 = event.position(), event.position()
+                # Store p1 in transformed local coordinates
+                transform = QTransform()
+                transform.translate(self.width() / 2, self.height() / 2)
+                transform.scale(self.zoom_level, self.zoom_level)
+                transform.translate(self.pan_x * self.width(), self.pan_y * self.height())
+                transform.translate(-self.width() / 2, -self.height() / 2)
+                inv_transform, ok = transform.inverted()
+                
+                self._crop_p1 = inv_transform.map(event.position()) if ok else event.position()
+                self._crop_p2 = self._crop_p1
             self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         self._mouse_pos = event.position()
         if self._crop_active:
-            pos = event.position()
+            # Map current position to transformed local space
+            transform = QTransform()
+            transform.translate(self.width() / 2, self.height() / 2)
+            transform.scale(self.zoom_level, self.zoom_level)
+            transform.translate(self.pan_x * self.width(), self.pan_y * self.height())
+            transform.translate(-self.width() / 2, -self.height() / 2)
+            inv_transform, ok = transform.inverted()
+            local_pos = inv_transform.map(event.position()) if ok else event.position()
+
             ratio_str = self.state.config.geometry.autocrop_ratio
 
             if ratio_str == "Free":
                 # Constrain p2 to display_rect
-                nx = max(self._display_rect.left(), min(self._display_rect.right(), pos.x()))
-                ny = max(self._display_rect.top(), min(self._display_rect.bottom(), pos.y()))
+                nx = max(self._display_rect.left(), min(self._display_rect.right(), local_pos.x()))
+                ny = max(self._display_rect.top(), min(self._display_rect.bottom(), local_pos.y()))
                 self._crop_p2 = QPointF(nx, ny)
             else:
                 try:
@@ -187,14 +249,12 @@ class CanvasOverlay(QWidget):
                     w_r, h_r = map(float, ratio_str.split(":"))
                     target_ratio = w_r / h_r
 
-                    dx = pos.x() - self._crop_p1.x()
-                    dy = pos.y() - self._crop_p1.y()
+                    dx = local_pos.x() - self._crop_p1.x()
+                    dy = local_pos.y() - self._crop_p1.y()
 
                     if abs(dx) > abs(dy) * target_ratio:
-                        # DX is dominant
                         dy = (abs(dx) / target_ratio) * (1 if dy >= 0 else -1)
                     else:
-                        # DY is dominant
                         dx = (abs(dy) * target_ratio) * (1 if dx >= 0 else -1)
 
                     # Ensure p2 stays within display_rect while keeping ratio
@@ -211,7 +271,7 @@ class CanvasOverlay(QWidget):
 
                     self._crop_p2 = QPointF(self._crop_p1.x() + dx, self._crop_p1.y() + dy)
                 except Exception:
-                    self._crop_p2 = pos
+                    self._crop_p2 = local_pos
             self.update()
         else:
             self.update()

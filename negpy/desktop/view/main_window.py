@@ -58,6 +58,7 @@ class MainWindow(QMainWindow):
 
         self.top_status = TopStatusBar()
         self.canvas = ImageCanvas(self.state)
+        self.controller.register_canvas(self.canvas)
         self.toolbar = ActionToolbar(self.controller)
 
         self.central_layout.addWidget(self.top_status)

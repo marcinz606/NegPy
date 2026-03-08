@@ -99,3 +99,5 @@ def setup_keyboard_shortcuts(window) -> None:
     QShortcut(QKeySequence("Ctrl+E"), window, controller.request_export)
     QShortcut(QKeySequence("Ctrl+C"), window, controller.session.copy_settings)
     QShortcut(QKeySequence("Ctrl+V"), window, controller.session.paste_settings)
+    QShortcut(QKeySequence("Ctrl+Z"), window, controller.session.undo)
+    QShortcut(QKeySequence("Ctrl+Y"), window, controller.session.redo)

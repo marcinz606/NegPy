@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QToolButton,
     QFrame,
+    QSlider,
+    QLabel,
 )
 from PyQt6.QtCore import QSize, Qt
 import qtawesome as qta
@@ -44,97 +46,101 @@ class ActionToolbar(QWidget):
                 background-color: {THEME.bg_panel};
                 border: 1px solid {THEME.border_color};
                 border-radius: 6px;
-                padding: 2px;
+                padding: 4px;
             }}
         """)
         h_layout = QHBoxLayout(container)
-        h_layout.setContentsMargins(6, 6, 6, 6)
-        h_layout.setSpacing(12)
+        h_layout.setContentsMargins(6, 4, 6, 4)
+        h_layout.setSpacing(10)
 
         icon_color = THEME.text_primary
         icon_size = QSize(16, 16)
         btn_height = 32
 
+        # 1. Navigation
         self.btn_prev = QToolButton()
         self.btn_prev.setIcon(qta.icon("fa5s.chevron-left", color=icon_color))
-        self.btn_prev.setToolTip("Previous Image (Left Arrow)")
-
         self.btn_next = QToolButton()
         self.btn_next.setIcon(qta.icon("fa5s.chevron-right", color=icon_color))
-        self.btn_next.setToolTip("Next Image (Right Arrow)")
 
+        # 2. History
+        self.btn_undo = QPushButton(" Undo")
+        self.btn_undo.setIcon(qta.icon("fa5s.arrow-left", color=icon_color))
+        self.btn_undo.setToolTip("Undo (Ctrl+Z)")
+        self.btn_redo = QPushButton(" Redo")
+        self.btn_redo.setIcon(qta.icon("fa5s.arrow-right", color=icon_color))
+        self.btn_redo.setToolTip("Redo (Ctrl+Y)")
+
+        # 3. Geometry
         self.btn_rot_l = QToolButton()
         self.btn_rot_l.setIcon(qta.icon("fa5s.undo", color=icon_color))
-        self.btn_rot_l.setToolTip("Rotate CCW ([)")
-
         self.btn_rot_r = QToolButton()
         self.btn_rot_r.setIcon(qta.icon("fa5s.redo", color=icon_color))
-        self.btn_rot_r.setToolTip("Rotate CW (])")
-
         self.btn_flip_h = QToolButton()
         self.btn_flip_h.setIcon(qta.icon("fa5s.arrows-alt-h", color=icon_color))
-        self.btn_flip_h.setToolTip("Flip Horizontal (H)")
-
         self.btn_flip_v = QToolButton()
         self.btn_flip_v.setIcon(qta.icon("fa5s.arrows-alt-v", color=icon_color))
-        self.btn_flip_v.setToolTip("Flip Vertical (V)")
 
-        for btn in [
-            self.btn_prev,
-            self.btn_next,
-            self.btn_rot_l,
-            self.btn_rot_r,
-            self.btn_flip_h,
-            self.btn_flip_v,
-        ]:
+        # 4. Clipboard
+        self.btn_copy = QPushButton(" Copy")
+        self.btn_copy.setIcon(qta.icon("fa5s.copy", color=icon_color))
+        self.btn_paste = QPushButton(" Paste")
+        self.btn_paste.setIcon(qta.icon("fa5s.paste", color=icon_color))
+        self.btn_reset = QPushButton(" Reset")
+        self.btn_reset.setIcon(qta.icon("fa5s.history", color=icon_color))
+
+        # 5. Zoom
+        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.zoom_slider.setRange(100, 400)
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.setFixedWidth(80)
+        self.zoom_label = QLabel("100%")
+        self.zoom_label.setFixedWidth(35)
+        self.zoom_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px;")
+
+        # 6. Session
+        self.btn_save = QPushButton(" Save")
+        self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
+        self.btn_export = QPushButton(" Export")
+        self.btn_export.setObjectName("export_btn")
+        self.btn_export.setIcon(qta.icon("fa5s.check-circle", color="white"))
+        self.btn_unload = QPushButton(" Unload")
+        self.btn_unload.setIcon(qta.icon("fa5s.times-circle", color=icon_color))
+
+        all_buttons = [
+            self.btn_prev, self.btn_next, self.btn_undo, self.btn_redo,
+            self.btn_rot_l, self.btn_rot_r, self.btn_flip_h, self.btn_flip_v,
+            self.btn_copy, self.btn_paste, self.btn_reset,
+            self.btn_save, self.btn_export, self.btn_unload
+        ]
+        
+        for btn in all_buttons:
             btn.setIconSize(icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.btn_copy = QPushButton(" Copy")
-        self.btn_copy.setIcon(qta.icon("fa5s.copy", color=icon_color))
-
-        self.btn_paste = QPushButton(" Paste")
-        self.btn_paste.setIcon(qta.icon("fa5s.paste", color=icon_color))
-
-        self.btn_reset = QPushButton(" Reset")
-        self.btn_reset.setIcon(qta.icon("fa5s.history", color=icon_color))
-
-        self.btn_unload = QPushButton(" Unload")
-        self.btn_unload.setIcon(qta.icon("fa5s.times-circle", color=icon_color))
-
-        self.btn_save = QPushButton(" Save")
-        self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
-
-        self.btn_export = QPushButton(" Export")
-        self.btn_export.setObjectName("export_btn")
-        self.btn_export.setIcon(qta.icon("fa5s.check-circle", color="white"))
-        self.btn_export.setIconSize(icon_size)
-        self.btn_export.setToolTip("Export the current image with applied settings (E)")
-
-        for btn in [self.btn_copy, self.btn_paste, self.btn_save, self.btn_export, self.btn_reset, self.btn_unload]:
-            btn.setFixedHeight(btn_height)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        # Assemble Row
+        # Assembly
         h_layout.addWidget(self.btn_prev)
         h_layout.addWidget(self.btn_next)
-
         h_layout.addWidget(self._create_separator())
-
+        
         h_layout.addWidget(self.btn_rot_l)
         h_layout.addWidget(self.btn_rot_r)
         h_layout.addWidget(self.btn_flip_h)
         h_layout.addWidget(self.btn_flip_v)
-
         h_layout.addWidget(self._create_separator())
-
+        
+        h_layout.addWidget(self.btn_undo)
+        h_layout.addWidget(self.btn_redo)
         h_layout.addWidget(self.btn_copy)
         h_layout.addWidget(self.btn_paste)
         h_layout.addWidget(self.btn_reset)
-
         h_layout.addWidget(self._create_separator())
-
+        
+        h_layout.addWidget(self.zoom_slider)
+        h_layout.addWidget(self.zoom_label)
+        h_layout.addWidget(self._create_separator())
+        
         h_layout.addWidget(self.btn_save)
         h_layout.addWidget(self.btn_export)
         h_layout.addWidget(self.btn_unload)
@@ -149,6 +155,8 @@ class ActionToolbar(QWidget):
         self.btn_rot_r.clicked.connect(lambda: self.rotate(-1))
         self.btn_flip_h.clicked.connect(lambda: self.flip("horizontal"))
         self.btn_flip_v.clicked.connect(lambda: self.flip("vertical"))
+        self.btn_undo.clicked.connect(self.session.undo)
+        self.btn_redo.clicked.connect(self.session.redo)
 
         self.btn_copy.clicked.connect(self.session.copy_settings)
         self.btn_paste.clicked.connect(self.session.paste_settings)
@@ -157,8 +165,18 @@ class ActionToolbar(QWidget):
         self.btn_unload.clicked.connect(self.session.remove_current_file)
         self.btn_export.clicked.connect(self.controller.request_export)
 
+        # Zoom
+        self.zoom_slider.valueChanged.connect(lambda v: self.controller.zoom_requested.emit(float(v / 100.0)))
+        self.controller.zoom_changed.connect(self._on_zoom_changed)
+
         # State sync for button enabled/disabled
         self.session.state_changed.connect(self._update_ui_state)
+
+    def _on_zoom_changed(self, zoom: float) -> None:
+        self.zoom_slider.blockSignals(True)
+        self.zoom_slider.setValue(int(zoom * 100))
+        self.zoom_slider.blockSignals(False)
+        self.zoom_label.setText(f"{int(zoom * 100)}%")
 
     def rotate(self, direction: int) -> None:
         from dataclasses import replace
@@ -188,3 +206,6 @@ class ActionToolbar(QWidget):
         self.btn_next.setEnabled(state.selected_file_idx < len(state.uploaded_files) - 1)
         self.btn_unload.setEnabled(state.selected_file_idx >= 0)
         self.btn_paste.setEnabled(state.clipboard is not None)
+
+        self.btn_undo.setEnabled(state.undo_index > 0)
+        self.btn_redo.setEnabled(state.undo_index < state.max_history_index)
