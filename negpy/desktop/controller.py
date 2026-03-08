@@ -141,7 +141,7 @@ class AppController(QObject):
 
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
-        self.session.state_changed.connect(self.request_render)
+        self.session.state_changed.connect(lambda: self.request_render())
 
     def generate_missing_thumbnails(self) -> None:
         missing = [f for f in self.state.uploaded_files if f["name"] not in self.state.thumbnails]

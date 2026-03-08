@@ -27,11 +27,19 @@ class ToningSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.paper_combo.currentTextChanged.connect(lambda v: self.update_config_section("toning", paper_profile=v))
+        self.paper_combo.currentTextChanged.connect(lambda v: self.update_config_section("toning", persist=True, paper_profile=v))
         self.selenium_slider.valueChanged.connect(
-            lambda v: self.update_config_section("toning", readback_metrics=False, selenium_strength=v)
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, selenium_strength=v)
         )
-        self.sepia_slider.valueChanged.connect(lambda v: self.update_config_section("toning", readback_metrics=False, sepia_strength=v))
+        self.selenium_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, selenium_strength=v)
+        )
+        self.sepia_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, sepia_strength=v)
+        )
+        self.sepia_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, sepia_strength=v)
+        )
 
     def sync_ui(self) -> None:
         conf = self.state.config.toning

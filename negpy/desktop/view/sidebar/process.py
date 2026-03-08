@@ -86,10 +86,19 @@ class ProcessSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        self.analysis_buffer_slider.valueChanged.connect(self._on_buffer_changed)
-        self.shadow_cast_strength_slider.valueChanged.connect(self._on_shadow_cast_strength_changed)
-        self.white_point_slider.valueChanged.connect(self._on_white_point_changed)
-        self.black_point_slider.valueChanged.connect(self._on_black_point_changed)
+        
+        self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
+        self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
+        
+        self.shadow_cast_strength_slider.valueChanged.connect(lambda v: self._on_shadow_cast_strength_changed(v, persist=False))
+        self.shadow_cast_strength_slider.valueCommitted.connect(lambda v: self._on_shadow_cast_strength_changed(v, persist=True))
+        
+        self.white_point_slider.valueChanged.connect(lambda v: self._on_white_point_changed(v, persist=False))
+        self.white_point_slider.valueCommitted.connect(lambda v: self._on_white_point_changed(v, persist=True))
+        
+        self.black_point_slider.valueChanged.connect(lambda v: self._on_black_point_changed(v, persist=False))
+        self.black_point_slider.valueCommitted.connect(lambda v: self._on_black_point_changed(v, persist=True))
+        
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.analyze_roll_btn.clicked.connect(self.controller.request_batch_normalization)
         self.use_roll_avg_btn.toggled.connect(self._on_use_roll_average_toggled)
@@ -98,14 +107,14 @@ class ProcessSidebar(BaseSidebar):
         self.save_roll_btn.clicked.connect(self._on_save_roll)
         self.delete_roll_btn.clicked.connect(self._on_delete_roll)
 
-    def _on_shadow_cast_strength_changed(self, val: float) -> None:
-        self.update_config_section("process", shadow_cast_strength=val, persist=True)
+    def _on_shadow_cast_strength_changed(self, val: float, persist: bool = True) -> None:
+        self.update_config_section("process", shadow_cast_strength=val, persist=persist)
 
-    def _on_white_point_changed(self, val: float) -> None:
-        self.update_config_section("process", white_point_offset=val, persist=True)
+    def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
+        self.update_config_section("process", white_point_offset=val, persist=persist)
 
-    def _on_black_point_changed(self, val: float) -> None:
-        self.update_config_section("process", black_point_offset=val, persist=True)
+    def _on_black_point_changed(self, val: float, persist: bool = True) -> None:
+        self.update_config_section("process", black_point_offset=val, persist=persist)
 
     def _on_mode_changed(self, mode: str) -> None:
         self.update_config_section("process", process_mode=mode, persist=True)
@@ -114,13 +123,13 @@ class ProcessSidebar(BaseSidebar):
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
         self.update_config_section("process", e6_normalize=checked, persist=True)
 
-    def _on_buffer_changed(self, val: float) -> None:
+    def _on_buffer_changed(self, val: float, persist: bool = True) -> None:
         """
         Updates analysis buffer and forces local re-analysis.
         """
         self.update_config_section(
             "process",
-            persist=True,
+            persist=persist,
             render=True,
             analysis_buffer=val,
             local_floors=(0.0, 0.0, 0.0),

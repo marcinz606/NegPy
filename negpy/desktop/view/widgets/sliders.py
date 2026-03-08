@@ -33,6 +33,7 @@ class BaseSlider(QWidget):
         self._max = max_val
         self._default = default_val
         self._precision = precision
+        self._last_committed_value = default_val
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         if has_neutral:
@@ -59,7 +60,10 @@ class BaseSlider(QWidget):
         self.spin.editingFinished.connect(self._on_committed)
 
     def _on_committed(self) -> None:
-        self.valueCommitted.emit(self.spin.value())
+        current_val = self.spin.value()
+        if current_val != self._last_committed_value:
+            self._last_committed_value = current_val
+            self.valueCommitted.emit(current_val)
 
     def _on_slider_changed(self, value: int) -> None:
         f_val = value / self._precision
@@ -82,6 +86,7 @@ class BaseSlider(QWidget):
         self.spin.blockSignals(True)
         self.slider.setValue(int(value * self._precision))
         self.spin.setValue(value)
+        self._last_committed_value = value
         self.slider.blockSignals(False)
         self.spin.blockSignals(False)
 
@@ -156,6 +161,8 @@ class RangeSlider(QWidget):
         self._label = label
         self._min_val = 0.0
         self._max_val = 1.0
+        self._last_min = 0.0
+        self._last_max = 1.0
         self._active_handle = None
 
         self._margin = 10
@@ -170,6 +177,8 @@ class RangeSlider(QWidget):
     def setRange(self, low: float, high: float) -> None:
         self._min_val = low
         self._max_val = high
+        self._last_min = low
+        self._last_max = high
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -244,7 +253,10 @@ class RangeSlider(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:
         if self._active_handle:
-            self.rangeCommitted.emit(self._min_val, self._max_val)
+            if self._min_val != self._last_min or self._max_val != self._last_max:
+                self._last_min = self._min_val
+                self._last_max = self._max_val
+                self.rangeCommitted.emit(self._min_val, self._max_val)
         self._active_handle = None
 
     def mouseDoubleClickEvent(self, event) -> None:

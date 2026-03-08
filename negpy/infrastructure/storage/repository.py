@@ -141,6 +141,14 @@ class StorageRepository(IRepository):
                 return WorkspaceConfig.from_flat_dict(data)
         return None
 
+    def get_max_history_index(self, file_hash: str) -> int:
+        with sqlite3.connect(self.edits_db_path) as conn:
+            cursor = conn.execute("SELECT MAX(step_index) FROM edit_history WHERE file_hash = ?", (file_hash,))
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+        return 0
+
     def clear_history(self, file_hash: str) -> None:
         with sqlite3.connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM edit_history WHERE file_hash = ?", (file_hash,))

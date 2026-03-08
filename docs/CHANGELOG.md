@@ -4,7 +4,7 @@
 
 - Added **Zoom & Pan** for preview:
     - Mouse wheel to zoom (up to 400%).
-    - Middle-click or left-click (when zoomed) to pan.
+    - left-click (or middle click when using tools like spot healing brush) drag to pan.
     - Discrete zoom slider in the toolbar.
 - Added **Persistent Undo/Redo**:
     - Standard shortcuts (Ctrl+Z / Ctrl+Y).
@@ -13,6 +13,7 @@
     - Track number of edits on image overlay (lower left corner)
       - Also track number of heal spots in retouch toolbar section.
 - Packaged some additional requirements in Linux appimage for easier running on debian-derived distros.
+- **Fixed(?) UI rendering issues on Windows**
 
 
 ## 0.9.16

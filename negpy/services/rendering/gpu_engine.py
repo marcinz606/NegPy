@@ -570,14 +570,14 @@ class GPUEngine:
             metrics["histogram_raw"] = self._readback_metrics()
             try:
                 metrics["uv_grid"] = CoordinateMapping.create_uv_grid(
-                    rh_orig=tex_final.height,
-                    rw_orig=tex_final.width,
+                    rh_orig=h,
+                    rw_orig=w,
                     rotation=settings.geometry.rotation,
                     fine_rot=settings.geometry.fine_rotation,
                     flip_h=settings.geometry.flip_horizontal,
                     flip_v=settings.geometry.flip_vertical,
-                    autocrop=False,
-                    autocrop_params=None,
+                    autocrop=True,
+                    autocrop_params={"roi": roi} if roi else None,
                 )
             except Exception as e:
                 logger.error(f"GPU Engine metrics error: {e}")
@@ -625,9 +625,9 @@ class GPUEngine:
             struct.pack("ffff", f[0], f[1], f[2], 0.0)
             + struct.pack("ffff", c[0], c[1], c[2], 0.0)
             + struct.pack("ffff", cast[0], cast[1], cast[2], settings.process.shadow_cast_threshold)
-            + struct.pack("IIf", mode_val, (1 if settings.process.e6_normalize else 0), settings.process.shadow_cast_strength)
-            + struct.pack("ff", settings.process.white_point_offset, settings.process.black_point_offset)
-            + b"\x00" * 44
+            + struct.pack("IIf f", mode_val, (1 if settings.process.e6_normalize else 0), settings.process.shadow_cast_strength, 0.0)
+            + struct.pack("ff ff", settings.process.white_point_offset, settings.process.black_point_offset, 0.0, 0.0)
+            + b"\x00" * 48
         )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS

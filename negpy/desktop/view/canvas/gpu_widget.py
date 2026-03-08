@@ -134,23 +134,18 @@ class GPUCanvasWidget(QWidget):
             );
 
             let ndc_pos = positions[in_vertex_index];
-
-            // 1. Map to baseline Fit-to-Screen box (NDC)
-            let base_pos = vec2<f32>(
-                (ndc_pos.x + 1.0) * 0.5 * params.rect.z + params.rect.x,
-                (ndc_pos.y - 1.0) * 0.5 * params.rect.w + params.rect.y
-            );
-
-            // 2. Apply Zoom and Pan to the whole scene
+            
+            // Apply zoom and pan directly to the base vertices
             let zoom = params.transform.x;
             let pan = params.transform.yz;
-
-            // Pan moves the entire viewport.
-            // In NDC, +1 is top, -1 is bottom. In Qt, +1 is down.
-            let final_pos = base_pos * zoom + vec2<f32>(pan.x, -pan.y) * 2.0;
+            let transformed_pos = ndc_pos * zoom + vec2<f32>(pan.x, -pan.y) * 2.0;
 
             var out: VertexOutput;
-            out.pos = vec4<f32>(final_pos, 0.0, 1.0);
+            out.pos = vec4<f32>(
+                (transformed_pos.x + 1.0) * 0.5 * params.rect.z + params.rect.x,
+                (transformed_pos.y - 1.0) * 0.5 * params.rect.w + params.rect.y,
+                0.0, 1.0
+            );
             out.uv = uvs[in_vertex_index];
             return out;
         }

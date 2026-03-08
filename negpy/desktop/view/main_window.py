@@ -17,6 +17,7 @@ from negpy.desktop.view.canvas.toolbar import ActionToolbar
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.widgets.status_bar import TopStatusBar
+from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
 from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
@@ -54,15 +55,20 @@ class MainWindow(QMainWindow):
         self.central_widget = QWidget()
         self.central_layout = QVBoxLayout(self.central_widget)
         self.central_layout.setContentsMargins(0, 0, 0, 0)
-        self.central_layout.setSpacing(8)
+        self.central_layout.setSpacing(4)
 
         self.top_status = TopStatusBar()
+        self.metadata_top = ImageMetadataPanel()
         self.canvas = ImageCanvas(self.state)
+        self.metadata_bottom = ImageMetadataPanel()
+        
         self.controller.register_canvas(self.canvas)
         self.toolbar = ActionToolbar(self.controller)
 
         self.central_layout.addWidget(self.top_status)
+        self.central_layout.addWidget(self.metadata_top)
         self.central_layout.addWidget(self.canvas, stretch=1)
+        self.central_layout.addWidget(self.metadata_bottom)
         self.central_layout.addWidget(self.toolbar)
 
         self.setCentralWidget(self.central_widget)
@@ -92,8 +98,12 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         """Wire controller and view."""
         self.controller.image_updated.connect(self._on_image_updated)
-        self.controller.image_updated.connect(self._refresh_image_info)
         self.controller.loading_started.connect(self.canvas.clear)
+        
+        # Metadata updates only on persistent history changes or file selection
+        self.controller.session.history_changed.connect(self._refresh_image_info)
+        self.controller.session.file_selected.connect(lambda _: self._refresh_image_info())
+
         self.canvas.clicked.connect(self.controller.handle_canvas_clicked)
         self.canvas.crop_completed.connect(self.controller.handle_crop_completed)
 
@@ -149,19 +159,22 @@ class MainWindow(QMainWindow):
         self.canvas.update_buffer(buffer, self.state.workspace_color_space, content_rect=content_rect)
 
     def _refresh_image_info(self) -> None:
-        """Updates the canvas metadata overlay."""
+        """Updates the persistent metadata panels."""
         if not self.state.current_file_path:
-            self.canvas.update_overlay("No File", "- x - px", "", "")
+            self.metadata_top.update_values("No File", "- x - px")
+            self.metadata_bottom.update_values("Edits: 0", "16-bit")
             return
 
         filename = os.path.basename(self.state.current_file_path)
         w, h = self.state.original_res
         res_str = f"{w} x {h} px"
-        cs = self.state.workspace_color_space
 
-        mode = f"16-bit | {self.state.config.process.process_mode}"
+        mode_str = f"16-bit | {self.state.config.process.process_mode}"
+        edits_str = f"Edits: {self.state.undo_index}"
 
-        self.canvas.update_overlay(filename, res_str, cs, mode, edits=self.state.undo_index)
+        self.metadata_top.update_values(filename, res_str)
+        self.metadata_bottom.update_values(edits_str, mode_str)
+
 
     def _on_canvas_clicked(self, nx: float, ny: float) -> None:
         self.top_status.showMessage(f"Clicked at: {nx:.3f}, {ny:.3f}")

@@ -56,14 +56,23 @@ class GeometrySidebar(BaseSidebar):
         self.layout.addLayout(slider_row)
 
     def _connect_signals(self) -> None:
-        self.ratio_combo.currentTextChanged.connect(lambda t: self.update_config_section("geometry", autocrop_ratio=t))
+        self.ratio_combo.currentTextChanged.connect(lambda t: self.update_config_section("geometry", persist=True, autocrop_ratio=t))
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.reset_crop_btn.clicked.connect(self.controller.reset_crop)
 
         self.offset_slider.valueChanged.connect(
-            lambda v: self.update_config_section("geometry", readback_metrics=False, autocrop_offset=int(v))
+            lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, autocrop_offset=int(v))
         )
-        self.fine_rot_slider.valueChanged.connect(lambda v: self.update_config_section("geometry", readback_metrics=False, fine_rotation=v))
+        self.offset_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, autocrop_offset=int(v))
+        )
+
+        self.fine_rot_slider.valueChanged.connect(
+            lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, fine_rotation=v)
+        )
+        self.fine_rot_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=v)
+        )
 
     def _on_manual_crop_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.CROP_MANUAL if checked else ToolMode.NONE)

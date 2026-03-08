@@ -58,7 +58,7 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.auto_dust_btn.toggled.connect(lambda c: self.update_config_section("retouch", dust_remove=c))
+        self.auto_dust_btn.toggled.connect(lambda c: self.update_config_section("retouch", persist=True, dust_remove=c))
         self.threshold_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, dust_threshold=v)
         )
