@@ -40,7 +40,13 @@ def main() -> None:
 
     try:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
-        if sys.platform in ("linux", "win32"):
+        
+        # Windows stability: OpenGL is often more reliable for Qt6 UI layers
+        # than the default D3D11/Vulkan which can cause "ghosting" in layouts.
+        if sys.platform == "win32":
+            os.environ["QSG_RHI_BACKEND"] = "opengl"
+            os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
+        elif sys.platform == "linux":
             os.environ["QSG_RHI_BACKEND"] = "vulkan"
             os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
             os.environ["QT_X11_NO_MITSHM"] = "1"
@@ -49,6 +55,11 @@ def main() -> None:
 
         if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
             QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+
+        # Global attributes for Windows stability
+        if sys.platform == "win32":
+            QCoreApplication = getattr(sys.modules["PyQt6.QtCore"], "QCoreApplication")
+            QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
 
         app = QApplication(sys.argv)
         app.setApplicationName("NegPy")

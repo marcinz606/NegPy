@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.9.17
+## 0.10.0
 
 - Added **Zoom & Pan** for preview:
     - Mouse wheel to zoom (up to 400%).
