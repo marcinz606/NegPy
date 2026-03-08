@@ -1,15 +1,17 @@
-import sys
 import os
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QIcon
+import sys
+
 from PyQt6.QtCore import Qt
-from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
-from negpy.kernel.system.paths import get_resource_path
-from negpy.infrastructure.storage.repository import StorageRepository
-from negpy.desktop.session import DesktopSessionManager
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication
+
 from negpy.desktop.controller import AppController
+from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.view.main_window import MainWindow
-from negpy.kernel.system.logging import setup_logging, get_logger
+from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
+from negpy.kernel.system.logging import get_logger, setup_logging
+from negpy.kernel.system.paths import get_resource_path
 
 logger = get_logger(__name__)
 
@@ -40,21 +42,13 @@ def main() -> None:
 
     try:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
-        
-        # Windows stability: OpenGL is often more reliable for Qt6 UI layers
-        # than the default D3D11/Vulkan which can cause "ghosting" in layouts.
-        if sys.platform == "win32":
-            os.environ["QSG_RHI_BACKEND"] = "opengl"
-            os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
-        elif sys.platform == "linux":
+
+        if sys.platform in ("linux", "win32"):
             os.environ["QSG_RHI_BACKEND"] = "vulkan"
             os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
             os.environ["QT_X11_NO_MITSHM"] = "1"
 
         _bootstrap_environment()
-
-        if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
-            QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
         # Global attributes for Windows stability
         if sys.platform == "win32":

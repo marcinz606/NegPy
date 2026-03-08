@@ -43,12 +43,7 @@ class ImageCanvas(QWidget):
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.setStyleSheet("""
-            ImageCanvas {
-                background-color: #050505;
-            }
-        """)
-
+        # Acceleration layer
         self.gpu_widget = GPUCanvasWidget(self)
         gpu = GPUDevice.get()
         if gpu.is_available:
@@ -58,6 +53,7 @@ class ImageCanvas(QWidget):
                 logger.error(f"Hardware viewport acceleration failed: {e}")
         self.root_layout.addWidget(self.gpu_widget)
 
+        # UI Overlay layer
         self.overlay = CanvasOverlay(state, self)
         self.root_layout.addWidget(self.overlay)
 
@@ -75,12 +71,10 @@ class ImageCanvas(QWidget):
         self._sync_transform()
 
     def paintEvent(self, event) -> None:
-        """Ensure a solid background on Windows to prevent ghosting."""
-        if sys.platform == "win32":
+        """Draw background only if GPU is not active to prevent covering it."""
+        if not self.gpu_widget.isVisible():
             painter = QPainter(self)
             painter.fillRect(event.rect(), QColor("#050505"))
-        else:
-            super().paintEvent(event)
 
     def clear(self) -> None:
         """Total viewport reset."""
@@ -153,6 +147,7 @@ class ImageCanvas(QWidget):
             self.overlay.update_buffer(None, color_space, content_rect, gpu_size=(buffer.width, buffer.height))
             self.overlay.show()
             self.overlay.raise_()
+            self.overlay.update()
         else:
             self.gpu_widget.hide()
             self.overlay.update_buffer(buffer, color_space, content_rect)

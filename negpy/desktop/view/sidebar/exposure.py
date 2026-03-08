@@ -96,38 +96,78 @@ class ExposureSidebar(BaseSidebar):
         self.magenta_slider.valueCommitted.connect(lambda v: self._on_magenta_changed(v, persist=True))
         self.yellow_slider.valueCommitted.connect(lambda v: self._on_yellow_changed(v, persist=True))
 
-        self.density_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, density=v))
-        self.density_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, density=v))
+        self.density_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, density=v)
+        )
+        self.density_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, density=v)
+        )
 
-        self.grade_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, grade=v))
-        self.grade_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, grade=v))
+        self.grade_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, grade=v)
+        )
+        self.grade_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, grade=v)
+        )
 
-        self.shadows_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shadows=v))
-        self.shadows_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shadows=v))
+        self.shadows_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shadows=v)
+        )
+        self.shadows_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shadows=v)
+        )
 
-        self.highlights_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, highlights=v))
-        self.highlights_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, highlights=v))
+        self.highlights_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, highlights=v)
+        )
+        self.highlights_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, highlights=v)
+        )
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
         self.camera_wb_btn.toggled.connect(self._on_camera_wb_toggled)
 
-        self.toe_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe=v))
-        self.toe_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe=v))
+        self.toe_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe=v)
+        )
+        self.toe_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe=v)
+        )
 
-        self.toe_w_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe_width=v))
-        self.toe_w_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe_width=v))
+        self.toe_w_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe_width=v)
+        )
+        self.toe_w_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe_width=v)
+        )
 
-        self.toe_h_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe_hardness=v))
-        self.toe_h_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe_hardness=v))
+        self.toe_h_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe_hardness=v)
+        )
+        self.toe_h_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe_hardness=v)
+        )
 
-        self.sh_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder=v))
-        self.sh_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder=v))
+        self.sh_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder=v)
+        )
+        self.sh_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder=v)
+        )
 
-        self.sh_w_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder_width=v))
-        self.sh_w_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder_width=v))
+        self.sh_w_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder_width=v)
+        )
+        self.sh_w_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder_width=v)
+        )
 
-        self.sh_h_slider.valueChanged.connect(lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder_hardness=v))
-        self.sh_h_slider.valueCommitted.connect(lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder_hardness=v))
+        self.sh_h_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder_hardness=v)
+        )
+        self.sh_h_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder_hardness=v)
+        )
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:
         idx = self.region_combo.currentIndex()

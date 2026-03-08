@@ -1,15 +1,13 @@
+import numpy as np
 import sys
 from typing import Optional, Tuple
-
-import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
-
+from PyQt6.QtGui import QPainter, QImage, QMouseEvent, QColor, QPen
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF, QSize
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.session import AppState, ToolMode
-from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.widgets.overlays import ImageInfoOverlay
+from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.config import APP_CONFIG
 
 
@@ -118,7 +116,6 @@ class CanvasOverlay(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
 
-        # Fix for Windows/macOS: aggressive clear the background to prevent ghosting/trailers
         if sys.platform in ("darwin", "win32"):
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
             painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
@@ -230,15 +227,12 @@ class CanvasOverlay(QWidget):
                 try:
                     w_r, h_r = map(float, ratio_str.split(":"))
                     target_ratio = w_r / h_r
-
                     dx = event.position().x() - self._crop_p1.x()
                     dy = event.position().y() - self._crop_p1.y()
-
                     if abs(dx) > abs(dy) * target_ratio:
                         dy = (abs(dx) / target_ratio) * (1 if dy >= 0 else -1)
                     else:
                         dx = (abs(dy) * target_ratio) * (1 if dx >= 0 else -1)
-
                     self._crop_p2 = QPointF(self._crop_p1.x() + dx, self._crop_p1.y() + dy)
                 except Exception:
                     self._crop_p2 = event.position()

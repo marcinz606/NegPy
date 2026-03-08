@@ -1,9 +1,12 @@
 import struct
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
-from PyQt6.QtCore import QTimer
-from rendercanvas.pyqt6 import RenderCanvas
+from typing import Any, Optional, Tuple
+
 import wgpu  # type: ignore
-from typing import Optional, Any, Tuple
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from rendercanvas.pyqt6 import RenderCanvas
+
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -16,7 +19,13 @@ class GPUCanvasWidget(QWidget):
         self.layout().setContentsMargins(0, 0, 0, 0)
 
         self.canvas = RenderCanvas(parent=self)
+        self.canvas.setStyleSheet("background-color: #050505;")
         self.layout().addWidget(self.canvas)
+
+        pal = self.palette()
+        pal.setColor(QPalette.ColorRole.Window, QColor("#050505"))
+        self.setPalette(pal)
+        self.setAutoFillBackground(True)
 
         self.device: Optional[Any] = None
         self.context: Optional[Any] = None
@@ -68,6 +77,9 @@ class GPUCanvasWidget(QWidget):
         self.uniform_buffer = self.device.create_buffer(size=32, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
         self._create_render_pipeline(self.format)
 
+        # Initial clear
+        self.canvas.request_draw(self._draw_frame)
+
     def set_transform(self, zoom: float, px: float, py: float) -> None:
         self.zoom = zoom
         self.pan_x = px
@@ -99,7 +111,7 @@ class GPUCanvasWidget(QWidget):
 
     def _create_render_pipeline(self, format: str) -> None:
         shader_source = """
-        struct RenderUniforms { 
+        struct RenderUniforms {
             rect: vec4<f32>,
             transform: vec4<f32> // x: zoom, y: pan_x, z: pan_y
         };
@@ -120,20 +132,20 @@ class GPUCanvasWidget(QWidget):
                 vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0),
                 vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0)
             );
-            
+
             let ndc_pos = positions[in_vertex_index];
-            
+
             // 1. Map to baseline Fit-to-Screen box (NDC)
             let base_pos = vec2<f32>(
                 (ndc_pos.x + 1.0) * 0.5 * params.rect.z + params.rect.x,
                 (ndc_pos.y - 1.0) * 0.5 * params.rect.w + params.rect.y
             );
-            
+
             // 2. Apply Zoom and Pan to the whole scene
             let zoom = params.transform.x;
             let pan = params.transform.yz;
-            
-            // Pan moves the entire viewport. 
+
+            // Pan moves the entire viewport.
             // In NDC, +1 is top, -1 is bottom. In Qt, +1 is down.
             let final_pos = base_pos * zoom + vec2<f32>(pan.x, -pan.y) * 2.0;
 
@@ -256,7 +268,7 @@ class GPUCanvasWidget(QWidget):
 
             r = min(avail_w / iw, avail_h / ih)
             nw, nh = iw * r, ih * r
-            
+
             # Recalculate offsets including the margin
             nx, ny = (ww - nw) / 2.0, (wh - nh) / 2.0
 
