@@ -12,7 +12,7 @@ class TestDesktopSessionSync(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock(spec=StorageRepository)
         self.mock_repo.load_file_settings.return_value = None
-        
+
         # Mock global settings with correct types
         def mock_get_global(key, default=None):
             if key == "last_export_config":
@@ -20,7 +20,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             if key == "process_mode":
                 return "C41"
             return default
-            
+
         self.mock_repo.get_global_setting.side_effect = mock_get_global
         self.mock_repo.get_max_history_index.return_value = 0
         self.session = DesktopSessionManager(self.mock_repo)
@@ -115,10 +115,10 @@ class TestDesktopSessionSync(unittest.TestCase):
     def test_history_restoration_on_file_switch(self):
         # 1. Mock file having 5 history steps in DB
         self.mock_repo.get_max_history_index.return_value = 5
-        
+
         # 2. Select file
         self.session.select_file(1)
-        
+
         # 3. Verify session state recovered the index
         self.assertEqual(self.session.state.undo_index, 5)
         self.assertEqual(self.session.state.max_history_index, 5)

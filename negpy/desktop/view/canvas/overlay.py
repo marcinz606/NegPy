@@ -35,7 +35,7 @@ class CanvasOverlay(QWidget):
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
-        
+
         self._view_rect: QRectF = QRectF()
 
         self.setMouseTracking(True)
@@ -72,7 +72,7 @@ class CanvasOverlay(QWidget):
         else:
             self._qimage = None
             self._current_size = gpu_size
-        
+
         self._recalc_view_rect()
         self.update()
 
@@ -105,12 +105,7 @@ class CanvasOverlay(QWidget):
         center_x = (w / 2) + (self.pan_x * w)
         center_y = (h / 2) + (self.pan_y * h)
 
-        self._view_rect = QRectF(
-            center_x - (final_w / 2),
-            center_y - (final_h / 2),
-            final_w,
-            final_h
-        )
+        self._view_rect = QRectF(center_x - (final_w / 2), center_y - (final_h / 2), final_w, final_h)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -137,16 +132,16 @@ class CanvasOverlay(QWidget):
 
         if self._crop_active and self._crop_p1 and self._crop_p2:
             rect = QRectF(self._crop_p1, self._crop_p2).normalized().intersected(visible_rect)
-            
+
             painter.setBrush(QColor(0, 0, 0, 180))
             painter.setPen(Qt.PenStyle.NoPen)
             d = visible_rect
-            
+
             painter.drawRect(d.intersected(QRectF(d.x(), d.y(), d.width(), rect.y() - d.y())))
             painter.drawRect(d.intersected(QRectF(d.x(), rect.bottom(), d.width(), d.bottom() - rect.bottom())))
             painter.drawRect(d.intersected(QRectF(d.x(), rect.y(), rect.x() - d.x(), rect.height())))
             painter.drawRect(d.intersected(QRectF(rect.right(), rect.y(), d.right() - rect.right(), rect.height())))
-            
+
             pen = QPen(Qt.GlobalColor.white, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -249,7 +244,7 @@ class CanvasOverlay(QWidget):
         if self._crop_active:
             r = QRectF(self._crop_p1, self._crop_p2).normalized()
             r = r.intersected(self._view_rect)
-            
+
             if r.width() > 5 and r.height() > 5:
                 c1 = self._map_to_image_coords(r.topLeft())
                 c2 = self._map_to_image_coords(r.bottomRight())

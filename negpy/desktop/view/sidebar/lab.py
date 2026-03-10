@@ -37,23 +37,47 @@ class LabSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.clahe_slider.valueChanged.connect(lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, clahe_strength=v))
-        self.clahe_slider.valueCommitted.connect(lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, clahe_strength=v))
+        self.clahe_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, clahe_strength=v)
+        )
+        self.clahe_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, clahe_strength=v)
+        )
 
-        self.sharpen_slider.valueChanged.connect(lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, sharpen=v))
-        self.sharpen_slider.valueCommitted.connect(lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen=v))
+        self.sharpen_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, sharpen=v)
+        )
+        self.sharpen_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen=v)
+        )
 
-        self.saturation_slider.valueChanged.connect(lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, saturation=v))
-        self.saturation_slider.valueCommitted.connect(lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, saturation=v))
+        self.saturation_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, saturation=v)
+        )
+        self.saturation_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, saturation=v)
+        )
 
-        self.vibrance_slider.valueChanged.connect(lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, vibrance=v))
-        self.vibrance_slider.valueCommitted.connect(lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, vibrance=v))
+        self.vibrance_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, vibrance=v)
+        )
+        self.vibrance_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, vibrance=v)
+        )
 
-        self.separation_slider.valueChanged.connect(lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, color_separation=v))
-        self.separation_slider.valueCommitted.connect(lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, color_separation=v))
+        self.separation_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, color_separation=v)
+        )
+        self.separation_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, color_separation=v)
+        )
 
-        self.chroma_denoise_slider.valueChanged.connect(lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, chroma_denoise=v))
-        self.chroma_denoise_slider.valueCommitted.connect(lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, chroma_denoise=v))
+        self.chroma_denoise_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, chroma_denoise=v)
+        )
+        self.chroma_denoise_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, chroma_denoise=v)
+        )
 
     def sync_ui(self) -> None:
         conf = self.state.config.lab

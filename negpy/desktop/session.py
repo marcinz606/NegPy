@@ -88,7 +88,7 @@ class DesktopSessionManager(QObject):
     """
 
     state_changed = pyqtSignal()
-    history_changed = pyqtSignal() # Emitted when undo/redo/persist happens
+    history_changed = pyqtSignal()  # Emitted when undo/redo/persist happens
     settings_saved = pyqtSignal()
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
 
@@ -365,7 +365,7 @@ class DesktopSessionManager(QObject):
 
             if self.state.undo_index > APP_CONFIG.max_history_steps:
                 self.repo.prune_history(self.state.current_file_hash, max_steps=APP_CONFIG.max_history_steps)
-            
+
             self.history_changed.emit()
 
         self.state.config = config

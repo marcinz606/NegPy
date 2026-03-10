@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         self.metadata_top = ImageMetadataPanel()
         self.canvas = ImageCanvas(self.state)
         self.metadata_bottom = ImageMetadataPanel()
-        
+
         self.controller.register_canvas(self.canvas)
         self.toolbar = ActionToolbar(self.controller)
 
@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
         """Wire controller and view."""
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.loading_started.connect(self.canvas.clear)
-        
+
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)
         self.controller.session.file_selected.connect(lambda _: self._refresh_image_info())
@@ -174,7 +174,6 @@ class MainWindow(QMainWindow):
 
         self.metadata_top.update_values(filename, res_str)
         self.metadata_bottom.update_values(edits_str, mode_str)
-
 
     def _on_canvas_clicked(self, nx: float, ny: float) -> None:
         self.top_status.showMessage(f"Clicked at: {nx:.3f}, {ny:.3f}")

@@ -264,7 +264,6 @@ class GPUCanvasWidget(QWidget):
             nx, ny = (ww - nw) / 2.0, (wh - nh) / 2.0
 
             self.device.queue.write_buffer(
-
                 self.uniform_buffer,
                 0,
                 struct.pack(
