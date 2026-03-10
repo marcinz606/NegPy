@@ -15,6 +15,8 @@
 - Packaged some additional requirements in Linux appimage for easier running on debian-derived distros.
 - **Fixed(?) UI rendering issues on Windows**
 
+NOTE: due to some backend changes in storing the edits you might get weird colors on your previously edited photos. Reset should get rid of that. Nuclear option is deleting `edits.db` and `settings.db` from NegPy folder in your Documents.
+
 
 ## 0.9.16
 

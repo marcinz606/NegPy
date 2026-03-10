@@ -1,14 +1,16 @@
-from PyQt6.QtWidgets import (
-    QWidget,
-    QHBoxLayout,
-    QPushButton,
-    QToolButton,
-    QFrame,
-    QSlider,
-    QLabel,
-)
-from PyQt6.QtCore import QSize, Qt
 import qtawesome as qta
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.theme import THEME
 
@@ -49,9 +51,15 @@ class ActionToolbar(QWidget):
                 padding: 4px;
             }}
         """)
-        h_layout = QHBoxLayout(container)
-        h_layout.setContentsMargins(6, 4, 6, 4)
-        h_layout.setSpacing(10)
+        v_layout = QVBoxLayout(container)
+        v_layout.setContentsMargins(6, 4, 6, 4)
+        v_layout.setSpacing(8)
+
+        row1_layout = QHBoxLayout()
+        row1_layout.setSpacing(10)
+
+        row2_layout = QHBoxLayout()
+        row2_layout.setSpacing(10)
 
         icon_color = THEME.text_primary
         icon_size = QSize(16, 16)
@@ -129,31 +137,27 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Assembly
-        h_layout.addWidget(self.btn_prev)
-        h_layout.addWidget(self.btn_next)
-        h_layout.addWidget(self._create_separator())
+        row1_layout.addWidget(self.btn_prev)
+        row1_layout.addWidget(self.btn_next)
+        row1_layout.addWidget(self.zoom_slider)
+        row1_layout.addWidget(self.zoom_label)
+        row1_layout.addWidget(self.btn_rot_l)
+        row1_layout.addWidget(self.btn_rot_r)
+        row1_layout.addWidget(self.btn_flip_h)
+        row1_layout.addWidget(self.btn_flip_v)
 
-        h_layout.addWidget(self.btn_rot_l)
-        h_layout.addWidget(self.btn_rot_r)
-        h_layout.addWidget(self.btn_flip_h)
-        h_layout.addWidget(self.btn_flip_v)
-        h_layout.addWidget(self._create_separator())
+        row2_layout.addWidget(self.btn_undo)
+        row2_layout.addWidget(self.btn_redo)
+        row2_layout.addWidget(self.btn_copy)
+        row2_layout.addWidget(self.btn_paste)
+        row2_layout.addWidget(self.btn_reset)
+        row2_layout.addWidget(self.btn_save)
+        row2_layout.addWidget(self.btn_export)
+        row2_layout.addWidget(self.btn_unload)
 
-        h_layout.addWidget(self.btn_undo)
-        h_layout.addWidget(self.btn_redo)
-        h_layout.addWidget(self.btn_copy)
-        h_layout.addWidget(self.btn_paste)
-        h_layout.addWidget(self.btn_reset)
-        h_layout.addWidget(self._create_separator())
-
-        h_layout.addWidget(self.zoom_slider)
-        h_layout.addWidget(self.zoom_label)
-        h_layout.addWidget(self._create_separator())
-
-        h_layout.addWidget(self.btn_save)
-        h_layout.addWidget(self.btn_export)
-        h_layout.addWidget(self.btn_unload)
+        # Add rows to the vertical layout container
+        v_layout.addLayout(row1_layout)
+        v_layout.addLayout(row2_layout)
 
         main_layout.addWidget(container)
 
