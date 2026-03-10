@@ -1,36 +1,36 @@
 import os
 import time
 from dataclasses import replace
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, QMetaObject, Q_ARG, Qt
+from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
 
-from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
+from negpy.desktop.converters import ImageConverter
+from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode
+from negpy.desktop.workers.export import ExportTask, ExportWorker
 from negpy.desktop.workers.render import (
-    RenderWorker,
-    RenderTask,
-    ThumbnailWorker,
-    ThumbnailUpdateTask,
-    NormalizationTask,
-    NormalizationWorker,
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
+    NormalizationTask,
+    NormalizationWorker,
+    RenderTask,
+    RenderWorker,
+    ThumbnailUpdateTask,
+    ThumbnailWorker,
 )
-from negpy.desktop.workers.export import ExportWorker, ExportTask
-from negpy.services.rendering.preview_manager import PreviewManager
-from negpy.infrastructure.filesystem.watcher import FolderWatchService
-from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
-from negpy.services.view.coordinate_mapping import CoordinateMapping
-from negpy.kernel.system.config import APP_CONFIG
-from negpy.desktop.converters import ImageConverter
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
 )
+from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.resources import GPUTexture
+from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
+from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
+from negpy.services.rendering.preview_manager import PreviewManager
+from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
 

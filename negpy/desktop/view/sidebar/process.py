@@ -1,13 +1,14 @@
+import qtawesome as qta
 from PyQt6.QtWidgets import (
-    QPushButton,
     QComboBox,
     QHBoxLayout,
     QInputDialog,
+    QPushButton,
 )
-import qtawesome as qta
-from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.desktop.view.styles.theme import THEME
+
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import ProcessMode
 
 
@@ -117,11 +118,27 @@ class ProcessSidebar(BaseSidebar):
         self.update_config_section("process", black_point_offset=val, persist=persist)
 
     def _on_mode_changed(self, mode: str) -> None:
-        self.update_config_section("process", process_mode=mode, persist=True)
+        self.update_config_section(
+            "process",
+            process_mode=mode,
+            render=True,
+            persist=True,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(0.0, 0.0, 0.0),
+            local_shadow_cast=(0.0, 0.0, 0.0),
+        )
         self.sync_ui()
 
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
-        self.update_config_section("process", e6_normalize=checked, persist=True)
+        self.update_config_section(
+            "process",
+            e6_normalize=checked,
+            render=True,
+            persist=True,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(0.0, 0.0, 0.0),
+            local_shadow_cast=(0.0, 0.0, 0.0),
+        )
 
     def _on_buffer_changed(self, val: float, persist: bool = True) -> None:
         """

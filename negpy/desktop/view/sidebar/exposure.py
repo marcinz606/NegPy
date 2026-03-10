@@ -200,12 +200,12 @@ class ExposureSidebar(BaseSidebar):
         self.controller.set_active_tool(ToolMode.WB_PICK if checked else ToolMode.NONE)
 
     def _on_camera_wb_toggled(self, checked: bool) -> None:
-        self.update_config_section("exposure", render=False, persist=True, use_camera_wb=checked)
+        self.update_config_section("exposure", render=True, persist=True, use_camera_wb=checked)
         if self.state.current_file_path:
             # Clear local analysis to force fresh normalization bounds for new WB
             self.update_config_section(
                 "process",
-                render=False,
+                render=True,
                 persist=True,
                 local_floors=(0.0, 0.0, 0.0),
                 local_ceils=(0.0, 0.0, 0.0),

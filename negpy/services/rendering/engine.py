@@ -77,6 +77,7 @@ class DarkroomEngine:
 
         if self.cache.process_mode != settings.process.process_mode:
             self.cache.process_mode = settings.process.process_mode
+            self.cache.base = None
             self.cache.exposure = None
             self.cache.retouch = None
             self.cache.lab = None
@@ -92,6 +93,8 @@ class DarkroomEngine:
             return NormalizationProcessor(settings.process).process(img_in, ctx)
 
         base_key = (
+            settings.process.process_mode,
+            settings.process.e6_normalize,
             settings.geometry,
             settings.process.analysis_buffer,
             settings.process.use_roll_average,

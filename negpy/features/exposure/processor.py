@@ -32,12 +32,14 @@ class NormalizationProcessor:
         else:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
             cached_norm = context.metrics.get("log_bounds_norm_val")
+            cached_mode = context.metrics.get("log_bounds_mode_val")
 
             needs_reanalysis = (
                 "log_bounds" not in context.metrics
                 or cached_buffer is None
                 or abs(cached_buffer - self.config.analysis_buffer) > 1e-5
                 or cached_norm != self.config.e6_normalize
+                or cached_mode != context.process_mode
             )
 
             if not needs_reanalysis:
@@ -53,6 +55,7 @@ class NormalizationProcessor:
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
+                context.metrics["log_bounds_mode_val"] = context.process_mode
 
         if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
             wp_offset = self.config.white_point_offset
