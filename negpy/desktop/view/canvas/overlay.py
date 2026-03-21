@@ -1,11 +1,13 @@
-import numpy as np
 import sys
 from typing import Optional, Tuple
+
+import numpy as np
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtGui import QPainter, QImage, QMouseEvent, QColor, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF, QSize
+
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.session import ToolMode, AppState
+from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -199,7 +201,10 @@ class CanvasOverlay(QWidget):
             self.clicked.emit(*coords)
             if self._tool_mode == ToolMode.CROP_MANUAL:
                 self._crop_active = True
-                self._crop_p1, self._crop_p2 = event.position(), event.position()
+                px = np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())
+                py = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
+                self._crop_p1 = QPointF(px, py)
+                self._crop_p2 = QPointF(px, py)
             self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -214,22 +219,28 @@ class CanvasOverlay(QWidget):
             return
 
         if self._crop_active:
+            mx = np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())
+            my = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
+
             ratio_str = self.state.config.geometry.autocrop_ratio
             if ratio_str == "Free":
-                self._crop_p2 = event.position()
+                self._crop_p2 = QPointF(mx, my)
             else:
                 try:
                     w_r, h_r = map(float, ratio_str.split(":"))
                     target_ratio = w_r / h_r
-                    dx = event.position().x() - self._crop_p1.x()
-                    dy = event.position().y() - self._crop_p1.y()
+
+                    dx = mx - self._crop_p1.x()
+                    dy = my - self._crop_p1.y()
+
                     if abs(dx) > abs(dy) * target_ratio:
-                        dy = (abs(dx) / target_ratio) * (1 if dy >= 0 else -1)
+                        dx = abs(dy) * target_ratio * (1 if dx >= 0 else -1)
                     else:
-                        dx = (abs(dy) * target_ratio) * (1 if dx >= 0 else -1)
+                        dy = abs(dx) / target_ratio * (1 if dy >= 0 else -1)
+
                     self._crop_p2 = QPointF(self._crop_p1.x() + dx, self._crop_p1.y() + dy)
                 except Exception:
-                    self._crop_p2 = event.position()
+                    self._crop_p2 = QPointF(mx, my)
             self.update()
         else:
             self.update()

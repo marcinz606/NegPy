@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.10.1
+
+- Optimized database writes to prevent stuttering during active slider movement.
+- Fixed manual crop tool not being restricted to image border.
+- Apply/sync export settings to all loaded files by default when using "Export All" button.
+
 ## 0.10.0
 
 - Added **Zoom & Pan** for preview:

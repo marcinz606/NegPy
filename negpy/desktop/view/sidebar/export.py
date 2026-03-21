@@ -1,21 +1,22 @@
-from PyQt6.QtWidgets import (
-    QComboBox,
-    QPushButton,
-    QHBoxLayout,
-    QLineEdit,
-    QColorDialog,
-    QDoubleSpinBox,
-    QSpinBox,
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-)
-from PyQt6.QtGui import QColor
-from PyQt6.QtCore import QTimer
 import qtawesome as qta
-from negpy.desktop.view.styles.theme import THEME
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QColorDialog,
+    QComboBox,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.domain.models import ColorSpace, AspectRatio, ExportFormat
+from negpy.desktop.view.styles.theme import THEME
+from negpy.domain.models import AspectRatio, ColorSpace, ExportFormat
 
 
 class ExportSidebar(BaseSidebar):
@@ -130,16 +131,17 @@ class ExportSidebar(BaseSidebar):
         self.layout.addLayout(path_layout)
 
         batch_row = QHBoxLayout()
-        self.batch_export_btn = QPushButton(" EXPORT ALL LOADED")
+        self.batch_export_btn = QPushButton(" Export All")
         self.batch_export_btn.setObjectName("batch_export_btn")
         self.batch_export_btn.setFixedHeight(40)
         self.batch_export_btn.setIcon(qta.icon("fa5s.images", color="white"))
 
-        self.apply_all_btn = QPushButton(" Apply to all")
+        self.apply_all_btn = QPushButton(" Sync export settings")
         self.apply_all_btn.setFixedHeight(40)
         self.apply_all_btn.setCheckable(True)
+        self.apply_all_btn.setChecked(True)
         self.apply_all_btn.setToolTip("Apply current export settings (Size, DPI, Border) to all files")
-        self._update_apply_all_style(False)
+        self._update_apply_all_style(True)
 
         batch_row.addWidget(self.batch_export_btn)
         batch_row.addWidget(self.apply_all_btn)

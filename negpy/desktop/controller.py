@@ -622,6 +622,7 @@ class AppController(QObject):
                     replace(self.state.config, process=new_process),
                     persist=True,
                     render=False,
+                    record_history=False,
                 )
 
     def _on_render_error(self, message: str) -> None:

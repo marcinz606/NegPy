@@ -354,11 +354,11 @@ class DesktopSessionManager(QObject):
         if self.state.selected_file_idx > 0:
             self.select_file(self.state.selected_file_idx - 1)
 
-    def update_config(self, config: WorkspaceConfig, persist: bool = False, render: bool = True) -> None:
+    def update_config(self, config: WorkspaceConfig, persist: bool = False, render: bool = True, record_history: bool = True) -> None:
         """
         Updates global config and optionally saves to disk.
         """
-        if persist and self.state.current_file_hash:
+        if persist and record_history and self.state.current_file_hash:
             self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, self.state.config)
             self.state.undo_index += 1
             self.state.max_history_index = self.state.undo_index
