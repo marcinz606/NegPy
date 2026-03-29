@@ -1,9 +1,11 @@
-from typing import Tuple, Optional
+from typing import Optional, Tuple
+
 import numpy as np
 from numba import njit  # type: ignore
+
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.image.validation import ensure_image
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.image.validation import ensure_image
 
 
 @njit(cache=True, fastmath=True)
@@ -96,11 +98,11 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    p_low, p_high = 0.5, 99.5
+    p_low, p_high = 0.01, 99.99
     fixed_range = 3.0
 
     if process_mode == ProcessMode.E6:
-        p_low, p_high = 99.9, 0.01
+        p_low, p_high = 99.99, 0.01
         fixed_range = -3.0
 
     floors = []
