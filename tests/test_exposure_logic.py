@@ -29,7 +29,7 @@ class TestExposureLogic(unittest.TestCase):
         res2 = apply_characteristic_curve(img, (0.6, 2.0), (0.6, 2.0), (0.6, 2.0))
 
         # Higher pivot -> lower diff -> lower density -> higher transmittance
-        self.assertGreater(np.mean(res2), np.mean(res1))
+        self.assertGreater(float(np.mean(res2)), float(np.mean(res1)))
 
     def test_cmy_conversions(self):
         """Verify unit conversion roundtrip."""
@@ -69,8 +69,8 @@ class TestExposureLogic(unittest.TestCase):
         # Wait, if shoulder > 0 it increases density (recovers highlights), so it should be DARKER.
         # If toe > 0 it decreases density (lifts shadows), so it should be BRIGHTER.
 
-        self.assertGreater(np.mean(res_toe), np.mean(res_neutral))
-        self.assertLess(np.mean(res_shoulder), np.mean(res_neutral))
+        self.assertGreater(float(np.mean(res_toe)), float(np.mean(res_neutral)))
+        self.assertLess(float(np.mean(res_shoulder)), float(np.mean(res_neutral)))
 
     def test_regional_cmy(self):
         """Verify that regional CMY affects the output."""
@@ -82,8 +82,8 @@ class TestExposureLogic(unittest.TestCase):
         # R = R_dens + offset. Transmittance = 10^-R. So more cyan -> lower R transmittance.
         res_shadow_cyan = apply_characteristic_curve(img, params, params, params, shadow_cmy=(1.0, 0.0, 0.0))
 
-        self.assertLess(res_shadow_cyan[0, 0, 0], res_neutral[0, 0, 0])
-        self.assertAlmostEqual(res_shadow_cyan[0, 0, 1], res_neutral[0, 0, 1], places=5)
+        self.assertLess(float(res_shadow_cyan[0, 0, 0]), float(res_neutral[0, 0, 0]))
+        self.assertAlmostEqual(float(res_shadow_cyan[0, 0, 1]), float(res_neutral[0, 0, 1]), places=5)
 
 
 if __name__ == "__main__":

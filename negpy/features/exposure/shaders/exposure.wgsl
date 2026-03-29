@@ -50,11 +50,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let epsilon = 1e-6;
 
         // --- Hybrid Masks ---
-        let t_val = -params.toe_width * (diff / max(params.pivots[ch], epsilon));
+        let t_val = -params.toe_width * (diff / max(params.pivots[ch], epsilon) + 0.5);
         var toe_mask = fast_sigmoid(t_val);
         toe_mask = pow(toe_mask, params.toe_hardness);
 
-        let s_val = params.shoulder_width * (diff / max(1.0 - params.pivots[ch], epsilon));
+        let s_val = params.shoulder_width * (diff / max(1.0 - params.pivots[ch], epsilon) - 0.5);
         var shoulder_mask = fast_sigmoid(s_val);
         shoulder_mask = pow(shoulder_mask, params.shoulder_hardness);
 

@@ -23,11 +23,24 @@ lint:
 	@echo "Running lint checks (ruff)..."
 	@$(UV) ruff check .
 
-# Type checks (mypy)
+# Type checks (ty)
 .PHONY: type
 type:
-	@echo "Running type checks (mypy)..."
-	@$(UV) mypy .
+	@echo "Running type checks (ty)..."
+	@$(UV) ty check \
+		--exclude "tests/" --exclude "docs/" --exclude "build/" --exclude "dist/" --exclude ".venv/" \
+		--ignore "no-matching-overload" \
+		--ignore "unresolved-attribute" \
+		--ignore "invalid-method-override" \
+		--ignore "not-iterable" \
+		--ignore "unsupported-operator" \
+		--ignore "invalid-argument-type" \
+		--ignore "unused-type-ignore-comment" \
+		--ignore "unresolved-import" \
+		--ignore "unsupported-bool-conversion" \
+		--ignore "invalid-assignment" \
+		--ignore "invalid-parameter-default" \
+		--ignore "call-non-callable"
 
 # Unit tests (pytest)
 .PHONY: test

@@ -57,16 +57,15 @@ def _apply_photometric_fused_kernel(
                 epsilon = 1e-6
 
                 # --- Hybrid Masks ---
-                # Toe Mask (Shadows): High at low diff (negative)
-                # We use pivots[ch] as the characteristic width for shadows
-                t_val = -toe_width * (diff / max(float(pivots[ch]), epsilon))
+                # Toe Mask (Shadows): Active at low diff (negative)
+                # We shift it so it crosses 0.5 further from midtones
+                t_val = -toe_width * (diff / max(float(pivots[ch]), epsilon) + 0.5)
                 toe_mask = _fast_sigmoid(t_val)
                 # Hardness narrows the influence
                 toe_mask = toe_mask ** toe_hardness
 
-                # Shoulder Mask (Highlights): High at high diff (positive)
-                # We use (1.0 - pivots[ch]) as the characteristic width for highlights
-                s_val = shoulder_width * (diff / max(1.0 - float(pivots[ch]), epsilon))
+                # Shoulder Mask (Highlights): Active at high diff (positive)
+                s_val = shoulder_width * (diff / max(1.0 - float(pivots[ch]), epsilon) - 0.5)
                 shoulder_mask = _fast_sigmoid(s_val)
                 shoulder_mask = shoulder_mask ** shoulder_hardness
 
@@ -145,10 +144,10 @@ class LogisticSigmoid:
         diff = x - self.x0
         epsilon = 1e-6
 
-        t_val = -self.toe_width * (diff / max(self.x0, epsilon))
+        t_val = -self.toe_width * (diff / max(self.x0, epsilon) + 0.5)
         toe_mask = _expit(t_val) ** self.toe_hardness
 
-        s_val = self.shoulder_width * (diff / max(1.0 - self.x0, epsilon))
+        s_val = self.shoulder_width * (diff / max(1.0 - self.x0, epsilon) - 0.5)
         shoulder_mask = _expit(s_val) ** self.shoulder_hardness
 
         toe_density_offset = self.toe * toe_mask * 0.3

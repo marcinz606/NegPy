@@ -40,10 +40,10 @@ classifiers = [
 
 [dependency-groups]
 dev = [
-    "mypy==1.19.1",
     "pyinstaller>=6.18.0",
     "pytest==9.0.2",
     "ruff==0.14.10",
+    "ty>=0.0.26",
 ]
 
 [project.urls]
@@ -80,11 +80,5 @@ exclude = [
     "dist",
     "desktop/bin",
     "build",
-]
-
-[tool.ruff.lint]
-extend-ignore = [
-    "E203",
-    "E402"
 ]
 
