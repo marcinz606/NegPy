@@ -90,7 +90,7 @@ class CanvasOverlay(QWidget):
         elif self._current_size:
             size = QSize(self._current_size[0], self._current_size[1])
 
-        if size.isNull():
+        if size is None or size.isNull():
             self._view_rect = QRectF()
             return
 
@@ -132,7 +132,7 @@ class CanvasOverlay(QWidget):
 
         visible_rect = self._view_rect
 
-        if self._crop_active and self._crop_p1 and not self._crop_p1.isNull() and self._crop_p2 and not self._crop_p2.isNull():
+        if self._crop_active and self._crop_p1 is not None and not self._crop_p1.isNull() and self._crop_p2 is not None and not self._crop_p2.isNull():
             rect = QRectF(self._crop_p1, self._crop_p2).normalized().intersected(visible_rect)
 
             painter.setBrush(QColor(0, 0, 0, 180))
