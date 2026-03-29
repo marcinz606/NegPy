@@ -10,7 +10,6 @@ from negpy.features.exposure.normalization import (
     analyze_log_exposure_bounds,
     LogNegativeBounds,
 )
-from negpy.features.exposure.shadows import analyze_shadow_cast, apply_shadow_cast_correction
 
 
 class NormalizationProcessor:
@@ -79,19 +78,8 @@ class NormalizationProcessor:
 
         res = normalize_log_image(img_log, bounds)
 
-        cast = (0.0, 0.0, 0.0)
-        if self.config.shadow_cast_strength > 0:
-            if self.config.use_roll_average:
-                cast = self.config.locked_shadow_cast
-            elif any(v != 0.0 for v in self.config.local_shadow_cast):
-                cast = self.config.local_shadow_cast
-            else:
-                cast = analyze_shadow_cast(res, self.config.shadow_cast_threshold)
-
-            res = apply_shadow_cast_correction(res, cast, self.config.shadow_cast_strength)
-
         context.metrics["normalized_log"] = res
-        context.metrics["shadow_cast"] = cast
+        context.metrics["shadow_cast"] = (0.0, 0.0, 0.0)
         return res
 
 

@@ -304,44 +304,11 @@ class GPUEngine:
                 e6_normalize=settings.process.e6_normalize,
             )
 
-        cast = (0.0, 0.0, 0.0)
-        if cast_override:
-            cast = cast_override
-        elif settings.process.shadow_cast_strength > 0:
-            if settings.process.use_roll_average:
-                cast = settings.process.locked_shadow_cast
-            elif any(v != 0.0 for v in settings.process.local_shadow_cast):
-                cast = settings.process.local_shadow_cast
-            else:
-                from negpy.features.exposure.normalization import normalize_log_image
-                from negpy.features.exposure.shadows import analyze_shadow_cast
-
-                epsilon = 1e-6
-
-                analysis_source = img.copy()
-                if settings.geometry.rotation != 0:
-                    analysis_source = np.rot90(analysis_source, k=settings.geometry.rotation)
-                if settings.geometry.flip_horizontal:
-                    analysis_source = np.fliplr(analysis_source)
-                if settings.geometry.flip_vertical:
-                    analysis_source = np.flipud(analysis_source)
-                if settings.geometry.fine_rotation != 0.0:
-                    analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
-
-                if not tiling_mode and roi:
-                    ry1, ry2, rx1, rx2 = roi
-                    analysis_source = analysis_source[ry1:ry2, rx1:rx2]
-
-                img_log = np.log10(np.clip(analysis_source, epsilon, 1.0))
-                res_norm = normalize_log_image(img_log, bounds)
-                cast = analyze_shadow_cast(res_norm, settings.process.shadow_cast_threshold)
-
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
 
         self._upload_unified_uniforms(
             settings,
             bounds,
-            cast,
             global_offset,
             actual_full_dims,
             (0, 0) if tiling_mode else (x1, y1),
@@ -563,7 +530,6 @@ class GPUEngine:
             "normalized_log": tex_norm,
             "content_rect": content_rect,
             "log_bounds": bounds,
-            "shadow_cast": cast,
         }
 
         if not tiling_mode and readback_metrics:
@@ -590,7 +556,6 @@ class GPUEngine:
         self,
         settings: WorkspaceConfig,
         bounds: Any,
-        cast: Any,
         offset: Tuple[int, int],
         full_dims: Tuple[int, int],
         crop_offset: Tuple[int, int],
@@ -624,10 +589,20 @@ class GPUEngine:
         n_data = (
             struct.pack("ffff", f[0], f[1], f[2], 0.0)
             + struct.pack("ffff", c[0], c[1], c[2], 0.0)
-            + struct.pack("ffff", cast[0], cast[1], cast[2], settings.process.shadow_cast_threshold)
-            + struct.pack("IIf", mode_val, (1 if settings.process.e6_normalize else 0), settings.process.shadow_cast_strength)
-            + struct.pack("ff", settings.process.white_point_offset, settings.process.black_point_offset)
-            + b"\x00" * 44
+            + struct.pack(
+                "IIffffffff",
+                mode_val,
+                (1 if settings.process.e6_normalize else 0),
+                settings.process.white_point_offset,
+                settings.process.black_point_offset,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+            + b"\x00" * 32
         )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -1049,29 +1024,6 @@ class GPUEngine:
                 e6_normalize=settings.process.e6_normalize,
             )
 
-        if cast_override:
-            global_cast = cast_override
-        elif settings.process.shadow_cast_strength > 0:
-            if settings.process.use_roll_average:
-                global_cast = settings.process.locked_shadow_cast
-            elif any(v != 0.0 for v in settings.process.local_shadow_cast):
-                global_cast = settings.process.local_shadow_cast
-            else:
-                from negpy.features.exposure.normalization import normalize_log_image
-                from negpy.features.exposure.shadows import analyze_shadow_cast
-
-                epsilon = 1e-6
-
-                analysis_src = img_rot
-                if roi:
-                    analysis_src = img_rot[y1:y2, x1:x2]
-
-                img_log = np.log10(np.clip(analysis_src, epsilon, 1.0))
-                res_norm = normalize_log_image(img_log, global_bounds)
-                global_cast = analyze_shadow_cast(res_norm, settings.process.shadow_cast_threshold)
-        else:
-            global_cast = (0.0, 0.0, 0.0)
-
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
@@ -1089,7 +1041,6 @@ class GPUEngine:
                     scale_factor=scale_factor,
                     tiling_mode=True,
                     bounds_override=global_bounds,
-                    cast_override=global_cast,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,

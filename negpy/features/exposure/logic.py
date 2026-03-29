@@ -60,12 +60,12 @@ def _apply_photometric_fused_kernel(
                 # Toe Mask (Shadows): Active at high diff (Positive/Dense in negative space)
                 t_val = toe_width * (diff / max(1.0 - float(pivots[ch]), epsilon) - 0.5)
                 toe_mask = _fast_sigmoid(t_val)
-                toe_mask = toe_mask ** toe_hardness
+                toe_mask = toe_mask**toe_hardness
 
                 # Shoulder Mask (Highlights): Active at low diff (Negative/Thin in negative space)
                 s_val = -shoulder_width * (diff / max(float(pivots[ch]), epsilon) + 0.5)
                 shoulder_mask = _fast_sigmoid(s_val)
-                shoulder_mask = shoulder_mask ** shoulder_hardness
+                shoulder_mask = shoulder_mask**shoulder_hardness
 
                 # --- Exposure Shift (Lift / Recovery) ---
                 # Toe (Shadows) > 0 lifts shadows (decreases density at 1.0 end)

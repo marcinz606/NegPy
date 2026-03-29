@@ -105,18 +105,37 @@ def analyze_log_exposure_bounds(
         p_low, p_high = 99.99, 0.01
         fixed_range = -3.0
 
+    # Correlated Black Point Analysis (Smart Shadow Handling)
+    # 1. Calculate mean log-density (luminance proxy in log space)
+    mean_log = np.mean(img_log, axis=-1)
+
+    # 2. Find the "Darkest" pixels based on the mean
+    dark_threshold = np.percentile(mean_log, p_low)
+    if process_mode == ProcessMode.E6:
+        dark_mask = mean_log >= dark_threshold
+    else:
+        dark_mask = mean_log <= dark_threshold
+
+    # 3. Extract floors from these specific pixels (ensures neutrality)
     floors = []
+    if np.any(dark_mask):
+        dark_pixels = img_log[dark_mask]
+        for ch in range(3):
+            floors.append(float(np.mean(dark_pixels[:, ch])))
+    else:
+        # Fallback to independent percentiles if mask is empty
+        for ch in range(3):
+            floors.append(float(np.percentile(img_log[:, :, ch], p_low)))
+
+    # Ceils remain independent for dynamic range fit
     ceils = []
     for ch in range(3):
         data = img_log[:, :, ch]
-        f = np.percentile(data, p_low)
-        floors.append(float(f))
-
         if process_mode != ProcessMode.E6 or e6_normalize:
             c = np.percentile(data, p_high)
             ceils.append(float(c))
         else:
-            ceils.append(float(f + fixed_range))
+            ceils.append(float(floors[ch] + fixed_range))
 
     return LogNegativeBounds(
         (floors[0], floors[1], floors[2]),
