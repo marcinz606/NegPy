@@ -56,9 +56,6 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.density_slider)
         self.layout.addWidget(self.grade_slider)
 
-        self.shadows_slider = CompactSlider("Shadows", -1.0, 1.0, conf.shadows, has_neutral=True)
-        self.layout.addWidget(self.shadows_slider)
-
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.layout.addWidget(self.toe_slider)
 
@@ -68,9 +65,6 @@ class ExposureSidebar(BaseSidebar):
         toe_row.addWidget(self.toe_w_slider)
         toe_row.addWidget(self.toe_h_slider)
         self.layout.addLayout(toe_row)
-
-        self.highlights_slider = CompactSlider("Highlights", -1.0, 1.0, conf.highlights, has_neutral=True)
-        self.layout.addWidget(self.highlights_slider)
 
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.layout.addWidget(self.sh_slider)
@@ -108,20 +102,6 @@ class ExposureSidebar(BaseSidebar):
         )
         self.grade_slider.valueCommitted.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, grade=v)
-        )
-
-        self.shadows_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shadows=v)
-        )
-        self.shadows_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shadows=v)
-        )
-
-        self.highlights_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, highlights=v)
-        )
-        self.highlights_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, highlights=v)
         )
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
@@ -238,9 +218,6 @@ class ExposureSidebar(BaseSidebar):
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
 
-            self.shadows_slider.setValue(conf.shadows)
-            self.highlights_slider.setValue(conf.highlights)
-
             self.toe_slider.setValue(conf.toe)
             self.toe_w_slider.setValue(conf.toe_width)
             self.toe_h_slider.setValue(conf.toe_hardness)
@@ -264,8 +241,6 @@ class ExposureSidebar(BaseSidebar):
             self.camera_wb_btn,
             self.density_slider,
             self.grade_slider,
-            self.shadows_slider,
-            self.highlights_slider,
             self.toe_slider,
             self.toe_w_slider,
             self.toe_h_slider,

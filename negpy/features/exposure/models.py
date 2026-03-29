@@ -26,8 +26,6 @@ class ExposureConfig:
     shoulder: float = 0.0
     shoulder_width: float = 3.0
     shoulder_hardness: float = 1.0
-    shadows: float = 0.0
-    highlights: float = 0.0
 
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {

@@ -672,11 +672,11 @@ class GPUEngine:
                 exp.shoulder,
                 exp.shoulder_width,
                 exp.shoulder_hardness,
-                exp.shadows,
-                exp.highlights,
+                4.0,  # d_max
+                2.2,  # gamma
             )
-            + struct.pack("ffI", 4.0, 2.2, mode_val)
-            + b"\x00" * 28
+            + struct.pack("Ifff", mode_val, 0.0, 0.0, 0.0)
+            + b"\x00" * 16
         )
 
         cls = float(settings.lab.clahe_strength)

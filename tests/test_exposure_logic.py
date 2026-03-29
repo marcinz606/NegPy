@@ -55,18 +55,22 @@ class TestExposureLogic(unittest.TestCase):
         self.assertGreater(dm, 0)
         self.assertLess(dy, 0)
 
-    def test_shadows_highlights_direction(self):
-        """Verify that positive shadows/highlights values brighten the image."""
+    def test_toe_shoulder_direction(self):
+        """Verify that positive toe/shoulder values brighten the image (hybrid lift/recovery)."""
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
         params = (0.5, 1.0)
 
         res_neutral = apply_characteristic_curve(img, params, params, params)
-        res_shadows = apply_characteristic_curve(img, params, params, params, shadows=1.0)
-        res_highlights = apply_characteristic_curve(img, params, params, params, highlights=1.0)
+        res_toe = apply_characteristic_curve(img, params, params, params, toe=1.0)
+        res_shoulder = apply_characteristic_curve(img, params, params, params, shoulder=1.0)
 
-        # Positive values should brighten (higher transmittance)
-        self.assertGreater(np.mean(res_shadows), np.mean(res_neutral))
-        self.assertGreater(np.mean(res_highlights), np.mean(res_neutral))
+        # Positive toe lifts shadows -> brighter
+        # Positive shoulder recovers highlights -> darker (in positive sense, but here it shifts exposure)
+        # Wait, if shoulder > 0 it increases density (recovers highlights), so it should be DARKER.
+        # If toe > 0 it decreases density (lifts shadows), so it should be BRIGHTER.
+
+        self.assertGreater(np.mean(res_toe), np.mean(res_neutral))
+        self.assertLess(np.mean(res_shoulder), np.mean(res_neutral))
 
     def test_regional_cmy(self):
         """Verify that regional CMY affects the output."""

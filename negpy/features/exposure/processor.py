@@ -144,8 +144,6 @@ class PhotometricProcessor:
             shoulder=self.config.shoulder,
             shoulder_width=self.config.shoulder_width,
             shoulder_hardness=self.config.shoulder_hardness,
-            shadows=self.config.shadows,
-            highlights=self.config.highlights,
             shadow_cmy=shadow_cmy,
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
