@@ -57,22 +57,20 @@ def _apply_photometric_fused_kernel(
                 epsilon = 1e-6
 
                 # --- Hybrid Masks ---
-                # Toe Mask (Shadows): Active at low diff (negative)
-                # We shift it so it crosses 0.5 further from midtones
-                t_val = -toe_width * (diff / max(float(pivots[ch]), epsilon) + 0.5)
+                # Toe Mask (Shadows): Active at high diff (Positive/Dense in negative space)
+                t_val = toe_width * (diff / max(1.0 - float(pivots[ch]), epsilon) - 0.5)
                 toe_mask = _fast_sigmoid(t_val)
-                # Hardness narrows the influence
                 toe_mask = toe_mask ** toe_hardness
 
-                # Shoulder Mask (Highlights): Active at high diff (positive)
-                s_val = shoulder_width * (diff / max(1.0 - float(pivots[ch]), epsilon) - 0.5)
+                # Shoulder Mask (Highlights): Active at low diff (Negative/Thin in negative space)
+                s_val = -shoulder_width * (diff / max(float(pivots[ch]), epsilon) + 0.5)
                 shoulder_mask = _fast_sigmoid(s_val)
                 shoulder_mask = shoulder_mask ** shoulder_hardness
 
                 # --- Exposure Shift (Lift / Recovery) ---
-                # Positive toe lifts shadows (decreases density)
+                # Toe (Shadows) > 0 lifts shadows (decreases density at 1.0 end)
                 toe_density_offset = toe * toe_mask * 0.3
-                # Positive shoulder recovers highlights (increases density)
+                # Shoulder (Highlights) > 0 recovers highlights (increases density at 0.0 end)
                 shoulder_density_offset = shoulder * shoulder_mask * 0.3
 
                 # Regional Color Offsets
@@ -144,10 +142,10 @@ class LogisticSigmoid:
         diff = x - self.x0
         epsilon = 1e-6
 
-        t_val = -self.toe_width * (diff / max(self.x0, epsilon) + 0.5)
+        t_val = self.toe_width * (diff / max(1.0 - self.x0, epsilon) - 0.5)
         toe_mask = _expit(t_val) ** self.toe_hardness
 
-        s_val = self.shoulder_width * (diff / max(1.0 - self.x0, epsilon) - 0.5)
+        s_val = -self.shoulder_width * (diff / max(self.x0, epsilon) + 0.5)
         shoulder_mask = _expit(s_val) ** self.shoulder_hardness
 
         toe_density_offset = self.toe * toe_mask * 0.3
