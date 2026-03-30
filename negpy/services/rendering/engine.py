@@ -101,7 +101,6 @@ class DarkroomEngine:
             settings.process.is_local_initialized,
             settings.process.white_point_offset,
             settings.process.black_point_offset,
-
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
 

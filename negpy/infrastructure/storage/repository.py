@@ -69,21 +69,20 @@ class StorageRepository(IRepository):
                 (name, json.dumps(floors), json.dumps(ceils), json.dumps(cast)),
             )
 
-    def load_normalization_roll(self, name: str) -> Optional[tuple[tuple, tuple, tuple]]:
+    def load_normalization_roll(self, name: str) -> Optional[tuple[tuple, tuple]]:
         """
         Retrieves a named normalization baseline.
         """
         with sqlite3.connect(self.edits_db_path) as conn:
             cursor = conn.execute(
-                "SELECT floors_json, ceils_json, cast_json FROM normalization_rolls WHERE name = ?",
+                "SELECT floors_json, ceils_json FROM normalization_rolls WHERE name = ?",
                 (name,),
             )
             row = cursor.fetchone()
             if row:
                 floors = tuple(json.loads(row[0]))
                 ceils = tuple(json.loads(row[1]))
-                cast = tuple(json.loads(row[2])) if row[2] else (0.0, 0.0, 0.0)
-                return floors, ceils, cast
+                return floors, ceils
         return None
 
     def list_normalization_rolls(self) -> list[str]:

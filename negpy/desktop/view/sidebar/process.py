@@ -86,8 +86,6 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
 
-
-
         self.white_point_slider.valueChanged.connect(lambda v: self._on_white_point_changed(v, persist=False))
         self.white_point_slider.valueCommitted.connect(lambda v: self._on_white_point_changed(v, persist=True))
 
@@ -138,8 +136,6 @@ class ProcessSidebar(BaseSidebar):
             local_floors=(0.0, 0.0, 0.0),
             local_ceils=(0.0, 0.0, 0.0),
         )
-
-
 
     def _on_use_roll_average_toggled(self, checked: bool) -> None:
         """

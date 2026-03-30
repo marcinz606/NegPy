@@ -14,7 +14,7 @@ desktop/bin/
 build.log
 appimagetool-x86_64.AppImage
 
-# user settings 
+# user settings
 user/
 debug/
 
@@ -25,4 +25,6 @@ venv/
 __pycache__
 VERSION
 TODO.md
+CLAUDE.md
+PLAN.md
 *.egg-info/

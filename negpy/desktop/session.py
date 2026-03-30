@@ -1,7 +1,9 @@
-from enum import Enum, auto
 from dataclasses import dataclass, field, replace
-from typing import Dict, Any, List, Optional
-from PyQt6.QtCore import QObject, pyqtSignal, QAbstractListModel, QModelIndex, Qt
+from enum import Enum, auto
+from typing import Any, Dict, List, Optional
+
+from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
+
 from negpy.domain.models import WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
@@ -118,8 +120,8 @@ class DesktopSessionManager(QObject):
         from negpy.domain.models import (
             ExportConfig,
             LabConfig,
-            ToningConfig,
             RetouchConfig,
+            ToningConfig,
         )
 
         sticky_export = self.repo.get_global_setting("last_export_config")
@@ -164,10 +166,8 @@ class DesktopSessionManager(QObject):
 
         sticky_toe = self.repo.get_global_setting("last_toe")
         sticky_toe_w = self.repo.get_global_setting("last_toe_width")
-        sticky_toe_h = self.repo.get_global_setting("last_toe_hardness")
         sticky_shoulder = self.repo.get_global_setting("last_shoulder")
         sticky_shoulder_w = self.repo.get_global_setting("last_shoulder_width")
-        sticky_shoulder_h = self.repo.get_global_setting("last_shoulder_hardness")
 
         new_exp = config.exposure
         if sticky_density is not None:
@@ -187,14 +187,10 @@ class DesktopSessionManager(QObject):
             new_exp = replace(new_exp, toe=float(sticky_toe))
         if sticky_toe_w is not None:
             new_exp = replace(new_exp, toe_width=float(sticky_toe_w))
-        if sticky_toe_h is not None:
-            new_exp = replace(new_exp, toe_hardness=float(sticky_toe_h))
         if sticky_shoulder is not None:
             new_exp = replace(new_exp, shoulder=float(sticky_shoulder))
         if sticky_shoulder_w is not None:
             new_exp = replace(new_exp, shoulder_width=float(sticky_shoulder_w))
-        if sticky_shoulder_h is not None:
-            new_exp = replace(new_exp, shoulder_hardness=float(sticky_shoulder_h))
 
         config = replace(config, exposure=new_exp)
 
@@ -252,10 +248,8 @@ class DesktopSessionManager(QObject):
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)
         self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)
-        self.repo.save_global_setting("last_toe_hardness", config.exposure.toe_hardness)
         self.repo.save_global_setting("last_shoulder", config.exposure.shoulder)
         self.repo.save_global_setting("last_shoulder_width", config.exposure.shoulder_width)
-        self.repo.save_global_setting("last_shoulder_hardness", config.exposure.shoulder_hardness)
 
         self.repo.save_global_setting("last_aspect_ratio", config.geometry.autocrop_ratio)
         self.repo.save_global_setting("last_autocrop_offset", config.geometry.autocrop_offset)
@@ -430,6 +424,7 @@ class DesktopSessionManager(QObject):
         Adds new files to the session.
         """
         import os
+
         from negpy.kernel.image.logic import calculate_file_hash
 
         if validated_info:

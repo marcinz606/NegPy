@@ -21,17 +21,13 @@ class ExposureConfig:
     highlight_magenta: float = 0.0
     highlight_yellow: float = 0.0
     toe: float = 0.0
-    toe_width: float = 3.0
-    toe_hardness: float = 1.0
+    toe_width: float = 2.5
     shoulder: float = 0.0
-    shoulder_width: float = 3.0
-    shoulder_hardness: float = 1.0
+    shoulder_width: float = 2.5
 
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "cmy_max_density": 0.2,
-    "density_multiplier": 0.2,
-    "grade_multiplier": 2.0,
-    "target_paper_range": 2.2,
-    "anchor_midpoint": 0.0,
+    "density_multiplier": 0.15,
+    "grade_multiplier": 1.75,
 }

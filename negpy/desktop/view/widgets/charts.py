@@ -1,9 +1,11 @@
-import numpy as np
 from typing import Any
-from PyQt6.QtWidgets import QWidget, QSizePolicy
+
+import numpy as np
 from PyQt6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath
-from PyQt6.QtCore import Qt, QPointF, QMargins
+from PyQt6.QtCore import QMargins, QPointF, Qt
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
+from PyQt6.QtWidgets import QSizePolicy, QWidget
+
 from negpy.kernel.image.logic import get_luminance
 
 
@@ -208,10 +210,8 @@ class PhotometricCurveWidget(QChartView):
             d_max=3.5,
             toe=params.toe,
             toe_width=params.toe_width,
-            toe_hardness=params.toe_hardness,
             shoulder=params.shoulder,
             shoulder_width=params.shoulder_width,
-            shoulder_hardness=params.shoulder_hardness,
         )
 
         plt_x = np.linspace(-0.1, 1.1, 50)

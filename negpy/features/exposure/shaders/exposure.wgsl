@@ -6,10 +6,8 @@ struct ExposureUniforms {
     highlight_cmy: vec4<f32>,
     toe: f32,
     toe_width: f32,
-    toe_hardness: f32,
     shoulder: f32,
     shoulder_width: f32,
-    shoulder_hardness: f32,
     d_max: f32,
     gamma: f32,
     mode: u32,
@@ -41,7 +39,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     let color = textureLoad(input_tex, coords, 0);
-    
+
     var res: vec3<f32>;
 
     for (var ch = 0; ch < 3; ch++) {
@@ -52,15 +50,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // --- Hybrid Masks ---
         let t_val = params.toe_width * (diff / max(1.0 - params.pivots[ch], epsilon) - 0.5);
         var toe_mask = fast_sigmoid(t_val);
-        toe_mask = pow(toe_mask, params.toe_hardness);
 
         let s_val = -params.shoulder_width * (diff / max(params.pivots[ch], epsilon) + 0.5);
         var shoulder_mask = fast_sigmoid(s_val);
-        shoulder_mask = pow(shoulder_mask, params.shoulder_hardness);
 
         // --- Exposure Shift ---
-        let toe_density_offset = params.toe * toe_mask * 0.3;
-        let shoulder_density_offset = params.shoulder * shoulder_mask * 0.3;
+        let toe_density_offset = params.toe * toe_mask * 0.2;
+        let shoulder_density_offset = params.shoulder * shoulder_mask * 0.2;
 
         let shadow_color_offset = params.shadow_cmy[ch] * toe_mask;
         let highlight_color_offset = params.highlight_cmy[ch] * shoulder_mask;
@@ -76,7 +72,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         var slope = params.slopes[ch];
         let density = params.d_max * fast_sigmoid(slope * diff_adj * k_mod);
-        
+
         let transmittance = pow(10.0, -density);
         res[ch] = pow(max(transmittance, 0.0), 1.0 / params.gamma);
     }

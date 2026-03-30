@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from typing import Optional
+
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+
 from negpy.domain.models import WorkspaceConfig
-from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
+from negpy.services.rendering.image_processor import ImageProcessor
 
 logger = get_logger(__name__)
 
@@ -135,6 +137,7 @@ class ThumbnailWorker(QObject):
         Generates thumbnails for a list of files with progress reporting.
         """
         import asyncio
+
         from negpy.services.assets import thumbnails as thumb_service
 
         try:
@@ -181,6 +184,7 @@ class AssetDiscoveryWorker(QObject):
         Scans paths for supported images and calculates hashes.
         """
         import os
+
         from negpy.kernel.image.logic import calculate_file_hash
 
         discovered_paths = []
@@ -234,7 +238,9 @@ class NormalizationWorker(QObject):
         Executes analysis on a batch of files using parallel workers.
         """
         import asyncio
+
         import numpy as np
+
         from negpy.features.exposure.normalization import analyze_log_exposure_bounds
 
         total = len(task.files)
@@ -300,7 +306,7 @@ class NormalizationWorker(QObject):
                         results.append(np.mean(ch_data))
                         continue
 
-                    low, high = np.percentile(ch_data, [10, 90])
+                    low, high = np.percentile(ch_data, [25, 75])
                     mask = (ch_data >= low) & (ch_data <= high)
                     valid = ch_data[mask]
 

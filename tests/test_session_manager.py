@@ -1,8 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
+
+from negpy.domain.interfaces import IAssetStore, IRepository
+from negpy.domain.models import ExportConfig, ExportFormat, WorkspaceConfig
 from negpy.domain.session import WorkspaceSession
-from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
-from negpy.domain.interfaces import IRepository, IAssetStore
 from negpy.services.rendering.engine import DarkroomEngine
 
 
@@ -38,7 +39,7 @@ class TestWorkspaceSession(unittest.TestCase):
 
         config = self.session.create_default_config()
 
-        self.assertEqual(config.lab.color_separation, 1.0)
+        self.assertEqual(config.lab.color_separation, 1.5)
         self.assertEqual(config.retouch.dust_size, 4)
         self.assertEqual(config.export.export_fmt, ExportFormat.JPEG)
         self.assertEqual(config.export.export_print_size, 30.0)

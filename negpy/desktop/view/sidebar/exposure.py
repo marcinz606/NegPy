@@ -1,13 +1,14 @@
-from PyQt6.QtWidgets import (
-    QPushButton,
-    QHBoxLayout,
-    QComboBox,
-)
 import qtawesome as qta
-from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.sidebar.base import BaseSidebar
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QPushButton,
+)
+
 from negpy.desktop.session import ToolMode
+from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sliders import CompactSlider
 
 
 class ExposureSidebar(BaseSidebar):
@@ -56,24 +57,18 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.density_slider)
         self.layout.addWidget(self.grade_slider)
 
-        self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
-        self.layout.addWidget(self.toe_slider)
-
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
-        self.toe_h_slider = CompactSlider("Hardness", 0.1, 5.0, conf.toe_hardness)
+        self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
+        toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
-        toe_row.addWidget(self.toe_h_slider)
         self.layout.addLayout(toe_row)
 
-        self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
-        self.layout.addWidget(self.sh_slider)
-
         sh_row = QHBoxLayout()
+        self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_w_slider = CompactSlider("Width", 0.1, 5.0, conf.shoulder_width)
-        self.sh_h_slider = CompactSlider("Hardness", 0.1, 5.0, conf.shoulder_hardness)
+        sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
-        sh_row.addWidget(self.sh_h_slider)
         self.layout.addLayout(sh_row)
 
         self.layout.addStretch()
@@ -121,13 +116,6 @@ class ExposureSidebar(BaseSidebar):
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe_width=v)
         )
 
-        self.toe_h_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe_hardness=v)
-        )
-        self.toe_h_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, toe_hardness=v)
-        )
-
         self.sh_slider.valueChanged.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder=v)
         )
@@ -140,13 +128,6 @@ class ExposureSidebar(BaseSidebar):
         )
         self.sh_w_slider.valueCommitted.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder_width=v)
-        )
-
-        self.sh_h_slider.valueChanged.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, shoulder_hardness=v)
-        )
-        self.sh_h_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, shoulder_hardness=v)
         )
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:
@@ -189,7 +170,6 @@ class ExposureSidebar(BaseSidebar):
                 persist=True,
                 local_floors=(0.0, 0.0, 0.0),
                 local_ceils=(0.0, 0.0, 0.0),
-                local_shadow_cast=(0.0, 0.0, 0.0),
             )
             self.controller.load_file(self.state.current_file_path)
 
@@ -220,11 +200,9 @@ class ExposureSidebar(BaseSidebar):
 
             self.toe_slider.setValue(conf.toe)
             self.toe_w_slider.setValue(conf.toe_width)
-            self.toe_h_slider.setValue(conf.toe_hardness)
 
             self.sh_slider.setValue(conf.shoulder)
             self.sh_w_slider.setValue(conf.shoulder_width)
-            self.sh_h_slider.setValue(conf.shoulder_hardness)
         finally:
             self.block_signals(False)
 
@@ -243,10 +221,8 @@ class ExposureSidebar(BaseSidebar):
             self.grade_slider,
             self.toe_slider,
             self.toe_w_slider,
-            self.toe_h_slider,
             self.sh_slider,
             self.sh_w_slider,
-            self.sh_h_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)

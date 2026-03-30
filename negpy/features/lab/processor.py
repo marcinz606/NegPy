@@ -1,16 +1,16 @@
 import numpy as np
+
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
-from negpy.features.process.models import ProcessMode
-from negpy.features.lab.models import LabConfig
 from negpy.features.lab.logic import (
-    apply_spectral_crosstalk,
+    apply_chroma_denoise,
     apply_clahe,
     apply_output_sharpening,
     apply_saturation,
-    apply_chroma_denoise,
+    apply_spectral_crosstalk,
     apply_vibrance,
 )
+from negpy.features.lab.models import LabConfig
 
 
 class PhotoLabProcessor:
@@ -33,10 +33,7 @@ class PhotoLabProcessor:
 
             matrix = self.config.crosstalk_matrix
             if matrix is None:
-                if context.process_mode == ProcessMode.E6:
-                    matrix = self.config.E6_MATRIX
-                else:
-                    matrix = self.config.C41_MATRIX
+                matrix = self.config.DEFAULT_MATRIX
 
             img_dens = apply_spectral_crosstalk(img_dens, c_strength, matrix)
             img = np.power(10.0, -img_dens)

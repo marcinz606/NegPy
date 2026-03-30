@@ -1,31 +1,32 @@
+import gc
 import os
 import struct
+from typing import Any, Dict, Optional, Tuple
+
+import cv2
 import numpy as np
 import wgpu  # type: ignore
-import cv2
-import gc
-from typing import Any, Optional, Dict, Tuple
 
-from negpy.infrastructure.gpu.device import GPUDevice
-from negpy.infrastructure.gpu.resources import GPUTexture, GPUBuffer
-from negpy.infrastructure.gpu.shader_loader import ShaderLoader
-from negpy.features.process.models import ProcessMode
-from negpy.domain.models import WorkspaceConfig, AspectRatio
-from negpy.kernel.system.logging import get_logger
-from negpy.kernel.system.config import APP_CONFIG
-from negpy.kernel.system.paths import get_resource_path
-from negpy.features.geometry.logic import (
-    get_manual_rect_coords,
-    get_autocrop_coords,
-    map_coords_to_geometry,
-    apply_fine_rotation,
-)
+from negpy.domain.models import AspectRatio, WorkspaceConfig
 from negpy.features.exposure.normalization import (
-    analyze_log_exposure_bounds,
     LogNegativeBounds,
+    analyze_log_exposure_bounds,
 )
-from negpy.services.view.coordinate_mapping import CoordinateMapping
+from negpy.features.geometry.logic import (
+    apply_fine_rotation,
+    get_autocrop_coords,
+    get_manual_rect_coords,
+    map_coords_to_geometry,
+)
+from negpy.features.process.models import ProcessMode
+from negpy.infrastructure.gpu.device import GPUDevice
+from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
+from negpy.infrastructure.gpu.shader_loader import ShaderLoader
+from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.logging import get_logger
+from negpy.kernel.system.paths import get_resource_path
 from negpy.services.export.print import PrintService
+from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
 
@@ -188,7 +189,6 @@ class GPUEngine:
         scale_factor: float = 1.0,
         tiling_mode: bool = False,
         bounds_override: Optional[Any] = None,
-        cast_override: Optional[Any] = None,
         global_offset: Tuple[int, int] = (0, 0),
         full_dims: Optional[Tuple[int, int]] = None,
         clahe_cdf_override: Optional[np.ndarray] = None,
@@ -608,7 +608,7 @@ class GPUEngine:
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         exp = settings.exposure
-        shift = 0.1 + (exp.density * EXPOSURE_CONSTANTS["density_multiplier"])
+        shift = 0.01 + (exp.density * EXPOSURE_CONSTANTS["density_multiplier"])
         slope, pivot = (
             1.0 + (exp.grade * EXPOSURE_CONSTANTS["grade_multiplier"]),
             1.0 - shift,
@@ -640,13 +640,11 @@ class GPUEngine:
                 0.0,
             )
             + struct.pack(
-                "ffffffff",
+                "ffffff",
                 exp.toe,
                 exp.toe_width,
-                exp.toe_hardness,
                 exp.shoulder,
                 exp.shoulder_width,
-                exp.shoulder_hardness,
                 4.0,  # d_max
                 2.2,  # gamma
             )
@@ -685,10 +683,7 @@ class GPUEngine:
         lab = settings.lab
         m_raw = lab.crosstalk_matrix
         if m_raw is None:
-            if settings.process.process_mode == ProcessMode.E6:
-                m_raw = lab.E6_MATRIX
-            else:
-                m_raw = lab.C41_MATRIX
+            m_raw = lab.DEFAULT_MATRIX
 
         sep_strength = max(0.0, lab.color_separation - 1.0)
 
@@ -943,7 +938,6 @@ class GPUEngine:
         settings: WorkspaceConfig,
         scale_factor: float = 1.0,
         bounds_override: Optional[Any] = None,
-        cast_override: Optional[Any] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
@@ -952,10 +946,8 @@ class GPUEngine:
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
-            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, cast_override=cast_override)
-        tex_final, metrics = self.process_to_texture(
-            img, settings, scale_factor=scale_factor, bounds_override=bounds_override, cast_override=cast_override
-        )
+            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override)
+        tex_final, metrics = self.process_to_texture(img, settings, scale_factor=scale_factor, bounds_override=bounds_override)
         return self._readback_downsampled(tex_final), metrics
 
     def _process_tiled(
@@ -964,7 +956,6 @@ class GPUEngine:
         settings: WorkspaceConfig,
         scale_factor: float,
         bounds_override: Optional[Any] = None,
-        cast_override: Optional[Any] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]

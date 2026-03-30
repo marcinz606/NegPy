@@ -1,20 +1,20 @@
 import os
-from negpy.kernel.system.paths import get_resource_path, get_default_user_dir
-from negpy.domain.types import AppConfig
+
 from negpy.domain.models import (
-    WorkspaceConfig,
-    ExportConfig,
-    ColorSpace,
-    ExportFormat,
     AspectRatio,
+    ColorSpace,
+    ExportConfig,
+    ExportFormat,
+    WorkspaceConfig,
 )
-from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.domain.types import AppConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
+from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.retouch.models import RetouchConfig
-from negpy.features.toning.models import ToningConfig, PaperProfileName
-
+from negpy.features.toning.models import PaperProfileName, ToningConfig
+from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
 
 BASE_USER_DIR = get_default_user_dir()
 APP_CONFIG = AppConfig(
@@ -36,17 +36,15 @@ APP_CONFIG = AppConfig(
 DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     process=ProcessConfig(
         process_mode=ProcessMode.C41,
-        analysis_buffer=0.07,
+        analysis_buffer=0.10,
     ),
     exposure=ExposureConfig(
         density=1.0,
-        grade=2.0,
+        grade=2.5,
         toe=0.0,
-        toe_width=3.0,
-        toe_hardness=1.0,
+        toe_width=2.5,
         shoulder=0.0,
-        shoulder_width=3.0,
-        shoulder_hardness=1.0,
+        shoulder_width=2.5,
     ),
     geometry=GeometryConfig(
         rotation=0,
@@ -55,8 +53,8 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         autocrop_ratio=AspectRatio.R_3_2,
     ),
     lab=LabConfig(
-        color_separation=1.0,
-        clahe_strength=0.0,
+        color_separation=1.5,
+        clahe_strength=0.25,
         saturation=1.0,
         sharpen=0.25,
     ),

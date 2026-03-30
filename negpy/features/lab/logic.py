@@ -1,7 +1,9 @@
-import numpy as np
-import cv2
-from numba import njit  # type: ignore
 from typing import List, Optional
+
+import cv2
+import numpy as np
+from numba import njit  # type: ignore
+
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
 
