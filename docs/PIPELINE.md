@@ -107,15 +107,21 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $2.5$: Hardcoded USM boosting factor.
     *   $2.0$: Noise threshold.
 
-7.  **Glow**: Simulates lens bloom by blurring highlights and compositing them back using screen blending:
-    $$I_{out} = 1 - (1 - I) \cdot (1 - \text{GaussianBlur}(I \cdot \text{mask}_{hl}) \cdot s_{glow})$$
-    *   $\text{mask}_{hl}$: Luminance-based highlight mask, quadratically ramped from 50% to 100%.
+7.  **Glow**: Simulates lens bloom by blurring highlights and compositing them back using screen blending.
+
+    $$I_{out} = 1 - (1 - I)(1 - B_{glow} \cdot s_{glow})$$
+    $$B_{glow} = \text{GaussianBlur}(I \cdot m_{hl})$$
+
+    *   $m_{hl}$: Luminance-based highlight mask, quadratically ramped from 50% to 100%.
     *   Applied equally to all three channels.
 
-8.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source:
-    $$I_{out} = 1 - (1 - I) \cdot (1 - \text{GaussianBlur}(I_R \cdot \text{mask}_{hl} \cdot C_{hal}) \cdot s_{hal})$$
-    *   $I_R$: Red channel intensity used as scatter source.
-    *   $C_{hal}$: Per-channel tint weights $(1.0, 0.3, 0.05)$ for red-dominant scatter.
+8.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source.
+
+    $$I_{out} = 1 - (1 - I)(1 - B_{hal} \cdot s_{hal})$$
+    $$B_{hal} = \text{GaussianBlur}(I_R \cdot m_{hl} \cdot C_{hal})$$
+
+    *   $I_R$: Red channel used as the scatter source.
+    *   $C_{hal}$: Per-channel tint weights $(1.0,\ 0.3,\ 0.05)$ for red-dominant scatter.
 
 ---
 

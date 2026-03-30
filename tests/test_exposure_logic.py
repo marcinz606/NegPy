@@ -1,5 +1,7 @@
 import unittest
+
 import numpy as np
+
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     cmy_to_density,
@@ -35,8 +37,6 @@ class TestExposureLogic(unittest.TestCase):
         """Verify unit conversion roundtrip."""
         val = 0.5
         dens = cmy_to_density(val, log_range=1.0)
-        # cmy_max_density is 0.15 (from models.py)
-        # dens = 0.5 * 0.15 / 1.0 = 0.075
         self.assertEqual(dens, 0.075)
 
         val_back = density_to_cmy(dens, log_range=1.0)
