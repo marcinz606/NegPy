@@ -98,11 +98,11 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    p_low, p_high = 0.01, 99.99
+    p_low, p_high = 0.0025, 99.9975
     fixed_range = 3.0
 
     if process_mode == ProcessMode.E6:
-        p_low, p_high = 99.99, 0.01
+        p_low, p_high = 99.9975, 0.0025
         fixed_range = -3.0
 
     # Correlated Black Point Analysis (Smart Shadow Handling)
