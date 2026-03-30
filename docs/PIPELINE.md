@@ -24,7 +24,6 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Positive (E-6)**: Raw high-signal (Highlights) maps to Floor ($0.0$). Raw low-signal (Shadows) maps to Ceiling ($1.0$). Range: 99.9% to 0.01%.
 *   **White & Black Point Offsets**: Allows manual adjustment of the normalization boundaries. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running statistical analysis.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range.
-*   **Shadow Cast Removal**: An optional step that identifies "Deep Shadows" (default Density > 0.75) and calculates a correction vector to neutralize any color cast. The correction is applied globally but weighted by $D^{1.5}$, ensuring it aggressively targets the blacks while tapering off in the midtones.
 
 ---
 
@@ -39,9 +38,8 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   $k$: Contrast grade.
     *   $x_0$: Exposure time (pivot).
     *   $x_{adj}$: Adjusted input logarithmic exposure.
-*   **Shadows & Highlights**: Provides localized control over the curve's ends by applying Gaussian-weighted offsets to the input exposure $x$ before it reaches the sigmoid:
-    $$x_{adj} = x - \Delta_{shadow} \cdot \text{mask}_{shadow} - \Delta_{highlight} \cdot \text{mask}_{highlight}$$
-    *   This allows lifting shadows or recovering highlights without shifting the pivot point or affecting the global contrast grade.
+*   **Toe & Shoulder**: Independent sigmoid-weighted masks control how density transitions into deep shadows (toe) and how it compresses in highlights (shoulder). The masks are derived from the log-exposure distance from the pivot, ensuring the effect is naturally weighted to the tonal range:
+    $$x_{adj} = x - \Delta_{toe} \cdot \text{mask}_{toe} + \Delta_{shoulder} \cdot \text{mask}_{shoulder}$$
 *   **Output**: Converts print density back to light (Transmittance):
     $$I_{out} = 10^{-D_{print}}$$
     *   **Note**: Final display gamma (2.2) is applied in the final output stage.
@@ -102,12 +100,22 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $\alpha$: Blending strength.
 
 6.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
-  
+
     $$L_{diff} = L - \text{GaussianBlur}(L, \sigma)$$
     $$L_{final} = L + L_{diff} \cdot \text{amount} \cdot 2.5 \quad \text{if } |L_{diff}| > 2.0$$
     *   $\sigma$: Blur radius (scale factor).
     *   $2.5$: Hardcoded USM boosting factor.
     *   $2.0$: Noise threshold.
+
+7.  **Glow**: Simulates lens bloom by blurring highlights and compositing them back using screen blending:
+    $$I_{out} = 1 - (1 - I) \cdot (1 - \text{GaussianBlur}(I \cdot \text{mask}_{hl}) \cdot s_{glow})$$
+    *   $\text{mask}_{hl}$: Luminance-based highlight mask, quadratically ramped from 50% to 100%.
+    *   Applied equally to all three channels.
+
+8.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source:
+    $$I_{out} = 1 - (1 - I) \cdot (1 - \text{GaussianBlur}(I_R \cdot \text{mask}_{hl} \cdot C_{hal}) \cdot s_{hal})$$
+    *   $I_R$: Red channel intensity used as scatter source.
+    *   $C_{hal}$: Per-channel tint weights $(1.0, 0.3, 0.05)$ for red-dominant scatter.
 
 ---
 

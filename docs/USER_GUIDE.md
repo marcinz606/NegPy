@@ -16,7 +16,6 @@ The foundation of your edit.
 
 *   **Process Mode**: Select between `C41 Negative`, `B&W Negative`, and `E6 (Positive)`.
 *   **Analysis Buffer**: Adjusts the safety margin for auto-exposure. Increase if your scans have a lot of space around the actual image.
-*   **(Shadow) Cast Removal**: More aggresively targets shadow regions for color cast removal.
 *   **White/Black Point Offset**: Manually shift the auto-normalization boundaries for more or less contrast.
 *   **Normalize (E6 only)**: Automatically stretches the histogram for positive film. Useful for faded/expired slides.
 *   **Batch Analysis**: Analyzes all loaded files to find a consistent "Roll Average" baseline. Calculates average density and color balance for the entire roll (after discarding outliers).
@@ -34,15 +33,11 @@ Shaping the light and color.
 *   **Camera WB**: Uses the white balance metadata from your RAW file as a starting point. REQUIRED for some cameras, turn on if your images come with heavy yellow/blue/green color cast out of the box.
 *   **Density**: Controls the overall brightness, simulating exposure time in an analog darkroom. Lower values = brighter.
 *   **Grade**: Controls the contrast, simulating different paper grades.
-*   **Shadows & Highlights**: These sliders provide localized control over the ends of the density curve by applying Gaussian-weighted offsets to the exposure *before* it reaches the H&D curve.
-    *   **Shadows**: Adjusts the darker regions (centered near the film base). Positive values brighten the shadows, effectively "lifting" them.
-    *   **Highlights**: Adjusts the brightest regions (centered near the highlights). Positive values brighten the highlights, while negative values can be used for highlight recovery.
-    *   **Note**: Because these offsets are applied before the Sigmoid curve, they allow for tonal shifts without changing the global contrast grade or shifting the pivot point.
 *   **Sigmoid Curve (Toe/Shoulder)**:
 
-    *   **Toe**: Controls how shadows transition to black.
-    *   **Shoulder**: Controls how highlights transition to white.
-    *   **Width/Hardness**: Fine-tune the shape of the roll-off for a more filmic or digital look.
+    *   **Toe**: Controls how shadows transition to black. Positive values add density to the shadow region.
+    *   **Shoulder**: Controls how highlights transition to white. Positive values compress the highlights for a gentler roll-off.
+    *   **Width**: Controls how broadly each transition region is applied.
 
 ---
 
@@ -55,6 +50,8 @@ Final polish and detail.
 *   **Vibrance**: Smart saturation that targets muted colors more than vibrant ones.
 *   **CLAHE**: (Contrast Limited Adaptive Histogram Equalization) provides local contrast enhancement without over-blowing highlights.
 *   **Sharpening**: L-channel Unsharp Masking for crisp details without introducing color halos.
+*   **Glow**: Simulates lens bloom. Bright highlights scatter light equally across all channels, softening edges and giving a dreamy quality.
+*   **Halation**: Simulates the red glow caused by light scattering back through the film base. Affects only highlights and is strongly red-dominant, as in real film halation.
 
 ---
 

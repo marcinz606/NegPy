@@ -7,6 +7,7 @@
   - Improved batch analysis (more aggressive outlier detection).
 - Streamlined controls
   - Combined shadows+toe & highlights+shoulder sliders
+- Added glow & halation effects sliders to Lab section.
 
 
 ## 0.10.1
