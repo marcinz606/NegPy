@@ -2,12 +2,13 @@ import unittest
 import numpy as np
 import cv2
 from negpy.features.lab.logic import (
+    apply_chroma_denoise,
+    apply_clahe,
+    apply_glow_and_halation,
     apply_output_sharpening,
     apply_saturation,
     apply_spectral_crosstalk,
-    apply_clahe,
     apply_vibrance,
-    apply_chroma_denoise,
 )
 
 
@@ -103,6 +104,76 @@ class TestLabLogic(unittest.TestCase):
 
         np.testing.assert_array_almost_equal(lab[:, :, 0], res_lab[:, :, 0], decimal=0)
         self.assertLess(float(np.var(res_lab[:, :, 1])), float(np.var(lab[:, :, 1])))
+
+
+class TestGlowAndHalation(unittest.TestCase):
+    def _highlight_image(self) -> np.ndarray:
+        """100x100 image with a bright white spot in the centre on a dark background."""
+        img = np.full((100, 100, 3), 0.1, dtype=np.float32)
+        img[40:60, 40:60, :] = 1.0
+        return img
+
+    def test_noop_when_both_zero(self) -> None:
+        """No change when both amounts are 0.0."""
+        img = self._highlight_image()
+        res = apply_glow_and_halation(img, glow_amount=0.0, halation_strength=0.0)
+        np.testing.assert_array_equal(res, img)
+
+    def test_output_shape_and_range(self) -> None:
+        """Output keeps the same shape and stays in [0, 1]."""
+        img = self._highlight_image()
+        for glow, hal in [(1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]:
+            res = apply_glow_and_halation(img, glow, hal)
+            self.assertEqual(res.shape, img.shape)
+            self.assertGreaterEqual(float(res.min()), 0.0)
+            self.assertLessEqual(float(res.max()), 1.0)
+
+    def test_glow_brightens_dark_area_near_highlight(self) -> None:
+        """Glow should increase brightness in the dark area neighbouring the highlight."""
+        img = self._highlight_image()
+        res = apply_glow_and_halation(img, glow_amount=1.0, halation_strength=0.0)
+        # Dark border just outside the bright spot should be brighter after glow
+        dark_before = float(img[35, 35, 0])
+        dark_after = float(res[35, 35, 0])
+        self.assertGreater(dark_after, dark_before)
+
+    def test_glow_all_channels_equally(self) -> None:
+        """Glow bloom should be approximately equal across R, G, B channels."""
+        img = self._highlight_image()
+        res = apply_glow_and_halation(img, glow_amount=1.0, halation_strength=0.0)
+        # Check a dark pixel near the highlight
+        delta = res[30, 50] - img[30, 50]
+        # All three channels should have gained roughly the same amount
+        self.assertAlmostEqual(float(delta[0]), float(delta[1]), delta=0.05)
+        self.assertAlmostEqual(float(delta[1]), float(delta[2]), delta=0.05)
+
+    def test_halation_red_dominant(self) -> None:
+        """Halation scatter should add more red than blue to dark pixels near highlights."""
+        img = self._highlight_image()
+        res = apply_glow_and_halation(img, glow_amount=0.0, halation_strength=1.0)
+        delta = res[30, 50] - img[30, 50]
+        self.assertGreater(float(delta[0]), float(delta[2]))
+
+    def test_scale_factor_affects_spread(self) -> None:
+        """A larger scale factor should spread the bloom further from the highlight."""
+        img = self._highlight_image()
+        res_small = apply_glow_and_halation(img, glow_amount=1.0, halation_strength=0.0, scale_factor=0.5)
+        res_large = apply_glow_and_halation(img, glow_amount=1.0, halation_strength=0.0, scale_factor=2.0)
+        # scale=0.5 → kernel radius ~7px; scale=2.0 → kernel radius ~30px.
+        # Pixel at row 28 is ~12px above the highlight edge (row 40), so it should
+        # receive bloom with scale=2.0 but not with scale=0.5.
+        far_small = float(res_small[28, 50, 0])
+        far_large = float(res_large[28, 50, 0])
+        self.assertGreater(far_large, far_small)
+
+    def test_combined_brighter_than_individual(self) -> None:
+        """Applying both glow and halation should be at least as bright as either alone."""
+        img = self._highlight_image()
+        res_glow = apply_glow_and_halation(img, glow_amount=0.5, halation_strength=0.0)
+        res_hal = apply_glow_and_halation(img, glow_amount=0.0, halation_strength=0.5)
+        res_both = apply_glow_and_halation(img, glow_amount=0.5, halation_strength=0.5)
+        self.assertGreaterEqual(float(res_both[30, 50, 0]), float(res_glow[30, 50, 0]))
+        self.assertGreaterEqual(float(res_both[30, 50, 0]), float(res_hal[30, 50, 0]))
 
 
 if __name__ == "__main__":

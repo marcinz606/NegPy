@@ -56,7 +56,6 @@ def _apply_photometric_fused_kernel(
                 diff = val - pivots[ch]
                 epsilon = 1e-6
 
-                # --- Hybrid Masks ---
                 # Toe Mask (Shadows): Active at high diff (Positive/Dense in negative space)
                 t_val = toe_width * (diff / max(1.0 - float(pivots[ch]), epsilon) - 0.5)
                 toe_mask = _fast_sigmoid(t_val)
@@ -65,22 +64,14 @@ def _apply_photometric_fused_kernel(
                 s_val = -shoulder_width * (diff / max(float(pivots[ch]), epsilon) + 0.5)
                 shoulder_mask = _fast_sigmoid(s_val)
 
-                # --- Exposure Shift (Lift / Recovery) ---
-                # Toe (Shadows) > 0 lifts shadows (decreases density at 1.0 end)
                 toe_density_offset = toe * toe_mask * 0.2
-                # Shoulder (Highlights) > 0 recovers highlights (increases density at 0.0 end)
                 shoulder_density_offset = shoulder * shoulder_mask * 0.2
 
-                # Regional Color Offsets
                 shadow_color_offset = shadow_cmy[ch] * toe_mask
                 highlight_color_offset = highlight_cmy[ch] * shoulder_mask
 
-                # Adjust input log-exposure
                 diff_adj = diff + shadow_color_offset + highlight_color_offset - toe_density_offset + shoulder_density_offset
 
-                # --- Contrast Modulation (Slope) ---
-                # Positive toe/shoulder dampens slope (compression)
-                # Negative toe/shoulder steepens slope (expansion)
                 damp_toe = toe * toe_mask
                 damp_shoulder = shoulder * shoulder_mask
 

@@ -698,14 +698,16 @@ class GPUEngine:
             + struct.pack("ffff", m[3], m[4], m[5], 0.0)
             + struct.pack("ffff", m[6], m[7], m[8], 0.0)
             + struct.pack(
-                "fffff",
+                "fffffff",
                 sep_strength,
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
                 float(lab.saturation),
                 float(lab.vibrance),
+                float(lab.glow_amount),
+                float(lab.halation_strength),
             )
-            + b"\x00" * 28
+            + b"\x00" * 20
         )
 
         from negpy.features.toning.logic import PAPER_PROFILES, PaperProfileName

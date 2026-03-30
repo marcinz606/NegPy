@@ -27,7 +27,7 @@ class ExposureConfig:
 
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
-    "cmy_max_density": 0.2,
+    "cmy_max_density": 0.15,
     "density_multiplier": 0.15,
     "grade_multiplier": 1.75,
 }

@@ -7,7 +7,13 @@ struct LabUniforms {
     chroma_denoise: f32,
     saturation: f32,
     vibrance: f32,
-    pad: vec3<f32>,
+    glow_amount: f32,
+    halation_strength: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+    _pad4: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -23,6 +29,78 @@ const gauss_kernel = array<f32, 25>(
 );
 
 const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
+
+// 64-tap Fibonacci spiral — uniform area coverage, smooth Gaussian approximation.
+// Points lie in the unit disk; scale by the desired pixel radius when sampling.
+const FIBONACCI_64 = array<vec2<f32>, 64>(
+    vec2<f32>(0.088388, 0.000000),
+    vec2<f32>(-0.112886, 0.103413),
+    vec2<f32>(0.017279, -0.196886),
+    vec2<f32>(0.142286, 0.185586),
+    vec2<f32>(-0.261112, -0.046187),
+    vec2<f32>(0.247348, -0.157342),
+    vec2<f32>(-0.082733, 0.307763),
+    vec2<f32>(-0.157781, -0.303797),
+    vec2<f32>(0.342321, 0.125015),
+    vec2<f32>(-0.356128, 0.147004),
+    vec2<f32>(0.171677, -0.366864),
+    vec2<f32>(0.126865, 0.404466),
+    vec2<f32>(-0.382373, -0.221593),
+    vec2<f32>(0.448567, -0.098616),
+    vec2<f32>(-0.273753, 0.389386),
+    vec2<f32>(-0.063243, -0.488045),
+    vec2<f32>(0.388252, 0.327220),
+    vec2<f32>(-0.522466, 0.021606),
+    vec2<f32>(0.381099, -0.379244),
+    vec2<f32>(-0.025497, 0.551396),
+    vec2<f32>(-0.362617, -0.434536),
+    vec2<f32>(0.574425, 0.077288),
+    vec2<f32>(-0.486709, 0.338640),
+    vec2<f32>(0.132997, -0.591185),
+    vec2<f32>(0.307615, 0.536829),
+    vec2<f32>(-0.601358, -0.191850),
+    vec2<f32>(0.584143, -0.269889),
+    vec2<f32>(-0.253065, 0.604686),
+    vec2<f32>(-0.225855, -0.627935),
+    vec2<f32>(0.600976, 0.315856),
+    vec2<f32>(-0.667533, 0.175960),
+    vec2<f32>(0.379431, -0.590102),
+    vec2<f32>(0.120699, 0.702313),
+    vec2<f32>(-0.572008, -0.442995),
+    vec2<f32>(0.731702, -0.060620),
+    vec2<f32>(-0.505760, 0.546712),
+    vec2<f32>(0.003684, -0.755181),
+    vec2<f32>(0.514305, 0.566946),
+    vec2<f32>(-0.772295, -0.071576),
+    vec2<f32>(0.625787, -0.474950),
+    vec2<f32>(-0.142381, 0.782650),
+    vec2<f32>(-0.428884, -0.681539),
+    vec2<f32>(0.785920, 0.215388),
+    vec2<f32>(-0.733486, 0.376413),
+    vec2<f32>(0.289862, -0.781852),
+    vec2<f32>(0.317911, 0.780942),
+    vec2<f32>(-0.770264, -0.365042),
+    vec2<f32>(0.823263, -0.253821),
+    vec2<f32>(-0.440157, 0.751049),
+    vec2<f32>(-0.184643, -0.859851),
+    vec2<f32>(0.724177, 0.514422),
+    vec2<f32>(-0.890157, 0.110939),
+    vec2<f32>(0.587054, -0.689695),
+    vec2<f32>(0.033320, 0.913689),
+    vec2<f32>(-0.647727, -0.657276),
+    vec2<f32>(0.930014, 0.047552),
+    vec2<f32>(-0.724323, 0.598472),
+    vec2<f32>(0.130975, -0.938767),
+    vec2<f32>(0.542205, 0.787449),
+    vec2<f32>(-0.939649, -0.216211),
+    vec2<f32>(0.845937, -0.479274),
+    vec2<f32>(-0.302492, 0.932436),
+    vec2<f32>(-0.410097, -0.899101),
+    vec2<f32>(0.916976, 0.389028)
+);
+// Sum of exp(-2*r²) over all 64 Fibonacci samples — used to normalize the
+// accumulator the same way a Gaussian convolution kernel is normalized (sum=1).
+const BLOOM_GAUSS_SUM = 27.668145;
 
 fn to_perceptual(c: vec3<f32>) -> vec3<f32> {
     return pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
@@ -187,6 +265,57 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let sharpened_luma = luma + (luma - blur_luma) * amount;
         let ratio = sharpened_luma / max(luma, 1e-6);
         color = to_linear(p_color * ratio);
+    }
+
+    // 6. Glow and Halation
+    // Radii match the CPU defaults (base_r at scale_factor=1): glow=15px, halation=25px.
+    // Accumulate highlight-weighted Gaussian samples then divide by the fixed kernel
+    // weight sum (BLOOM_GAUSS_SUM) — mirrors how a normalised Gaussian convolution
+    // kernel divides by its total weight, so intensity decays naturally with distance
+    // rather than being renormalised back up to full highlight brightness.
+    if (params.glow_amount > 0.0 || params.halation_strength > 0.0) {
+        let HIGHLIGHT_THRESHOLD = 0.5;
+        let GLOW_RADIUS = 15.0;
+        let HAL_RADIUS = 25.0;
+
+        var glow_accum = vec3<f32>(0.0);
+        var hal_accum = vec3<f32>(0.0);
+
+        for (var tap = 0; tap < 64; tap++) {
+            let offset = FIBONACCI_64[tap];
+
+            if (params.glow_amount > 0.0) {
+                let g_off = offset * GLOW_RADIUS;
+                let g_coord = clamp(coords + vec2<i32>(g_off), vec2<i32>(0), vec2<i32>(dims) - 1);
+                let g_samp = textureLoad(input_tex, g_coord, 0).rgb;
+                let g_luma = dot(g_samp, LUMA_COEFFS);
+                let g_hl = max(0.0, (g_luma - HIGHLIGHT_THRESHOLD) / (1.0 - HIGHLIGHT_THRESHOLD));
+                let g_r = length(offset);  // normalised radius in [0,1]
+                let g_w = exp(-g_r * g_r * 2.0);
+                glow_accum += g_samp * (g_hl * g_w);
+            }
+
+            if (params.halation_strength > 0.0) {
+                let h_off = offset * HAL_RADIUS;
+                let h_coord = clamp(coords + vec2<i32>(h_off), vec2<i32>(0), vec2<i32>(dims) - 1);
+                let h_samp = textureLoad(input_tex, h_coord, 0).rgb;
+                let h_luma = dot(h_samp, LUMA_COEFFS);
+                let h_hl = max(0.0, (h_luma - HIGHLIGHT_THRESHOLD) / (1.0 - HIGHLIGHT_THRESHOLD));
+                let h_r = length(offset);
+                let h_w = exp(-h_r * h_r * 2.0);
+                hal_accum += vec3<f32>(h_samp.r, h_samp.r * 0.3, h_samp.r * 0.05) * (h_hl * h_w);
+            }
+        }
+
+        if (params.glow_amount > 0.0) {
+            let glow_color = (glow_accum / BLOOM_GAUSS_SUM) * params.glow_amount;
+            color = 1.0 - (1.0 - color) * (1.0 - glow_color);
+        }
+
+        if (params.halation_strength > 0.0) {
+            let hal_color = (hal_accum / BLOOM_GAUSS_SUM) * params.halation_strength;
+            color = 1.0 - (1.0 - color) * (1.0 - hal_color);
+        }
     }
 
     textureStore(output_tex, coords, vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));

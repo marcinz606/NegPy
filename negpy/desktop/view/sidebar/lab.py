@@ -34,6 +34,13 @@ class LabSidebar(BaseSidebar):
         row3.addWidget(self.sharpen_slider)
         self.layout.addLayout(row3)
 
+        row4 = QHBoxLayout()
+        self.glow_slider = CompactSlider("Glow", 0.0, 1.0, conf.glow_amount)
+        self.halation_slider = CompactSlider("Halation", 0.0, 1.0, conf.halation_strength)
+        row4.addWidget(self.glow_slider)
+        row4.addWidget(self.halation_slider)
+        self.layout.addLayout(row4)
+
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
@@ -79,6 +86,20 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, chroma_denoise=v)
         )
 
+        self.glow_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, glow_amount=v)
+        )
+        self.glow_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, glow_amount=v)
+        )
+
+        self.halation_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, halation_strength=v)
+        )
+        self.halation_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, halation_strength=v)
+        )
+
     def sync_ui(self) -> None:
         conf = self.state.config.lab
         is_bw = self.state.config.process.process_mode == ProcessMode.BW
@@ -91,6 +112,8 @@ class LabSidebar(BaseSidebar):
             self.vibrance_slider.setValue(conf.vibrance)
             self.separation_slider.setValue(conf.color_separation)
             self.chroma_denoise_slider.setValue(conf.chroma_denoise)
+            self.glow_slider.setValue(conf.glow_amount)
+            self.halation_slider.setValue(conf.halation_strength)
 
             self.separation_slider.setEnabled(not is_bw)
             self.saturation_slider.setEnabled(not is_bw)
@@ -107,6 +130,8 @@ class LabSidebar(BaseSidebar):
             self.vibrance_slider,
             self.separation_slider,
             self.chroma_denoise_slider,
+            self.glow_slider,
+            self.halation_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)

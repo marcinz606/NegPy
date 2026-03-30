@@ -47,14 +47,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let diff = val - params.pivots[ch];
         let epsilon = 1e-6;
 
-        // --- Hybrid Masks ---
         let t_val = params.toe_width * (diff / max(1.0 - params.pivots[ch], epsilon) - 0.5);
         var toe_mask = fast_sigmoid(t_val);
 
         let s_val = -params.shoulder_width * (diff / max(params.pivots[ch], epsilon) + 0.5);
         var shoulder_mask = fast_sigmoid(s_val);
 
-        // --- Exposure Shift ---
         let toe_density_offset = params.toe * toe_mask * 0.2;
         let shoulder_density_offset = params.shoulder * shoulder_mask * 0.2;
 
@@ -63,7 +61,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let diff_adj = diff + shadow_color_offset + highlight_color_offset - toe_density_offset + shoulder_density_offset;
 
-        // --- Contrast Modulation ---
         let damp_toe = params.toe * toe_mask;
         let damp_shoulder = params.shoulder * shoulder_mask;
 

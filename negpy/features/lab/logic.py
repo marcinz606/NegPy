@@ -167,6 +167,49 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 
+def apply_glow_and_halation(
+    img: ImageBuffer,
+    glow_amount: float,
+    halation_strength: float,
+    scale_factor: float = 1.0,
+) -> ImageBuffer:
+    """
+    Glow: all-channel Gaussian bloom of highlights (lens diffusion).
+    Halation: red-dominant scatter of highlights (film base reflection).
+    """
+    if glow_amount == 0.0 and halation_strength == 0.0:
+        return img
+
+    luma = img[:, :, 0] * 0.2126 + img[:, :, 1] * 0.7152 + img[:, :, 2] * 0.0722
+    threshold = 0.5
+    highlight_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0) ** 2
+
+    result = img.copy().astype(np.float32)
+
+    if glow_amount > 0.0:
+        base_r = max(3, int(15 * scale_factor))
+        k = min((base_r * 2 + 1) | 1, 201)
+        sigma = base_r * 0.5
+        highlights = (img * highlight_mask[:, :, np.newaxis]).astype(np.float32)
+        glow_blur = cv2.GaussianBlur(highlights, (k, k), sigma)
+        scaled = glow_blur * glow_amount
+        result = 1.0 - (1.0 - result) * (1.0 - scaled)
+
+    if halation_strength > 0.0:
+        base_r = max(5, int(25 * scale_factor))
+        k = min((base_r * 2 + 1) | 1, 301)
+        sigma = base_r * 0.5
+        red_hl = np.zeros_like(img, dtype=np.float32)
+        red_hl[:, :, 0] = img[:, :, 0] * highlight_mask
+        red_hl[:, :, 1] = img[:, :, 0] * highlight_mask * 0.3
+        red_hl[:, :, 2] = img[:, :, 0] * highlight_mask * 0.05
+        hal_blur = cv2.GaussianBlur(red_hl, (k, k), sigma)
+        scaled = hal_blur * halation_strength
+        result = 1.0 - (1.0 - result) * (1.0 - scaled)
+
+    return ensure_image(np.clip(result, 0.0, 1.0))
+
+
 def apply_vibrance(img: ImageBuffer, strength: float) -> ImageBuffer:
     """
     Selectively boosts saturation of muted colors in LAB space.

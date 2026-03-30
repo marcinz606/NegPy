@@ -5,6 +5,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_clahe,
+    apply_glow_and_halation,
     apply_output_sharpening,
     apply_saturation,
     apply_spectral_crosstalk,
@@ -49,5 +50,8 @@ class PhotoLabProcessor:
 
         if self.config.sharpen > 0:
             img = apply_output_sharpening(img, self.config.sharpen, context.scale_factor)
+
+        if self.config.glow_amount > 0 or self.config.halation_strength > 0:
+            img = apply_glow_and_halation(img, self.config.glow_amount, self.config.halation_strength, context.scale_factor)
 
         return np.clip(img, 0, 1)
