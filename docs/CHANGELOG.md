@@ -3,6 +3,7 @@
 ## 0.11.0
 
 - Improved normalization/autoexposure.
+  - More dynamic range.
   - More neutral defaults.
   - Improved batch analysis (more aggressive outlier detection).
 - Streamlined controls
