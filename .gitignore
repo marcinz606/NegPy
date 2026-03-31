@@ -3,6 +3,8 @@
 .mypy_cache/
 .idea/
 .python-version
+.vscode
+
 
 # Electron & Packaging
 node_modules/
