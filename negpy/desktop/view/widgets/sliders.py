@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
 )
 from PyQt6.QtGui import QPainter, QColor, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -51,6 +51,9 @@ class BaseSlider(QWidget):
         self.timer.setInterval(100)
 
         self._connect_base_signals()
+
+        self.slider.installEventFilter(self)
+        self.spin.installEventFilter(self)
 
     def _connect_base_signals(self) -> None:
         self.slider.valueChanged.connect(self._on_slider_changed)
@@ -98,6 +101,12 @@ class BaseSlider(QWidget):
         self.setValue(self._default)
         self._emit_value()
         self._on_committed()
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonDblClick:
+            self.mouseDoubleClickEvent(event)
+            return True
+        return super().eventFilter(obj, event)
 
 
 class CompactSlider(BaseSlider):
