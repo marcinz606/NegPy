@@ -322,13 +322,18 @@ class AppController(QObject):
         roi = metrics.get("active_roi")
         if roi and is_log:
             y1, y2, x1, x2 = roi
-            sample_y = int(np.clip(y1 + ny * (y2 - y1), 0, h - 1))
-            sample_x = int(np.clip(x1 + nx * (x2 - x1), 0, w - 1))
+            center_y = int(np.clip(y1 + ny * (y2 - y1), 0, h - 1))
+            center_x = int(np.clip(x1 + nx * (x2 - x1), 0, w - 1))
         else:
-            sample_y = int(np.clip(ny * h, 0, h - 1))
-            sample_x = int(np.clip(nx * w, 0, w - 1))
+            center_y = int(np.clip(ny * h, 0, h - 1))
+            center_x = int(np.clip(nx * w, 0, w - 1))
 
-        sampled = img[sample_y, sample_x]
+        radius = 4  # 8x8 sample area
+        y0 = max(center_y - radius, 0)
+        y1_ = min(center_y + radius, h)
+        x0 = max(center_x - radius, 0)
+        x1_ = min(center_x + radius, w)
+        sampled = img[y0:y1_, x0:x1_].mean(axis=(0, 1))
 
         exp = self.state.config.exposure
         if is_log:

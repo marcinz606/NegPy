@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.12.1
+
+- Fix Linux appimage crashing on some distros.
+- Make "Pick WB" tool more predictable by averaging 8x8 area instead of sampling simple pixel
+
 ## 0.12.0
 
 - Added functionality to reset slider on double click (slider iteself, not only label).

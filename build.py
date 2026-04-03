@@ -139,11 +139,31 @@ def package_linux():
             except Exception as e:
                 print(f"  Failed to remove {libpath}: {e}")
 
-    # 3. Add Desktop file and Icon
+    # 3. Clear executable stack flag from Python shared library
+    # Python 3.13's libpython sets PT_GNU_STACK RWE which modern kernels reject.
+    print("Clearing executable stack flag from bundled Python library...")
+    for libpath in glob.glob(os.path.join(appdir, "**", "libpython*.so*"), recursive=True):
+        if os.path.isfile(libpath) and not os.path.islink(libpath):
+            cleared = False
+            for tool, args in [
+                ("patchelf", ["patchelf", "--clear-execstack", libpath]),
+                ("execstack", ["execstack", "-c", libpath]),
+            ]:
+                try:
+                    subprocess.run(args, check=True, capture_output=True, text=True)
+                    print(f"  Cleared execstack ({tool}): {os.path.relpath(libpath, appdir)}")
+                    cleared = True
+                    break
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    continue
+            if not cleared:
+                print(f"  WARNING: Could not clear execstack from {os.path.relpath(libpath, appdir)} — install patchelf or execstack")
+
+    # 4. Add Desktop file and Icon
     shutil.copy("negpy.desktop", os.path.join(appdir, "negpy.desktop"))
     shutil.copy("media/icons/icon.png", os.path.join(appdir, "icon.png"))
 
-    # 4. Create AppRun script
+    # 5. Create AppRun script
     apprun_path = os.path.join(appdir, "AppRun")
     with open(apprun_path, "w") as f:
         f.write("#!/bin/sh\n")
@@ -159,7 +179,7 @@ def package_linux():
         f.write(f'exec "${{HERE}}/{APP_NAME}" "$@"\n')
     os.chmod(apprun_path, 0o755)
 
-    # 5. Run appimagetool
+    # 6. Run appimagetool
     try:
         tool = "./appimagetool-x86_64.AppImage"
         if not os.path.exists(tool):
