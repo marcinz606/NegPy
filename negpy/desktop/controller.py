@@ -398,7 +398,7 @@ class AppController(QObject):
             wb_magenta=float(np.clip(new_m, -1.0, 1.0)),
             wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
         )
-        self.session.update_config(replace(self.state.config, exposure=new_exp))
+        self.session.update_config(replace(self.state.config, exposure=new_exp), persist=True, record_history=False)
         self.request_render()
 
     def request_batch_normalization(self) -> None:
