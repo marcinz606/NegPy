@@ -157,9 +157,12 @@ class ThumbnailWorker(QObject):
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            new_thumbs = loop.run_until_complete(
-                thumb_service.generate_batch_thumbnails(files, self._store, progress_callback=_progress_callback)
-            )
+            try:
+                new_thumbs = loop.run_until_complete(
+                    thumb_service.generate_batch_thumbnails(files, self._store, progress_callback=_progress_callback)
+                )
+            finally:
+                loop.close()
             self.finished.emit(new_thumbs)
         except Exception as e:
             logger.error(f"Thumbnail generation failure: {e}")
@@ -283,10 +286,8 @@ class NormalizationWorker(QObject):
         total = len(task.files)
         limit = max(1, APP_CONFIG.max_workers // 2)
         semaphore = asyncio.Semaphore(limit)
-        completed = 0
 
         async def _analyze_file(f_info: dict):
-            nonlocal completed
             async with semaphore:
                 try:
                     params = self._repo.load_file_settings(f_info["hash"])
@@ -313,9 +314,7 @@ class NormalizationWorker(QObject):
                         percentile_clip=drange_clip,
                     )
 
-                    completed += 1
-                    self.progress.emit(completed, total, f_info["name"])
-                    return bounds.floors, bounds.ceils
+                    return bounds.floors, bounds.ceils, f_info["name"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
                     return None
@@ -333,6 +332,9 @@ class NormalizationWorker(QObject):
             valid_results = [r for r in batch_results if r is not None]
             if not valid_results:
                 raise RuntimeError("All files in batch failed analysis")
+
+            for i, (_, _, name) in enumerate(valid_results, start=1):
+                self.progress.emit(i, total, name)
 
             floors_arr = np.array([r[0] for r in valid_results])
             ceils_arr = np.array([r[1] for r in valid_results])

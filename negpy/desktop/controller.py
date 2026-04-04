@@ -646,14 +646,12 @@ class AppController(QObject):
             Q_ARG(list, tasks),
         )
 
-    def _on_render_finished(self, result: Any, metrics: Dict[str, Any]) -> None:
+    def _on_render_finished(self, _result: Any, _metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
 
         should_update_thumb = not self._first_render_done
         self._first_render_done = True
 
-        with self.state.metrics_lock:
-            self.state.last_metrics.update(metrics)
         self.set_status("READY", 1000)
         self.image_updated.emit()
 
@@ -696,8 +694,13 @@ class AppController(QObject):
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
-        self._pending_render_task = None
         logger.error(f"Worker failure: {message}")
+
+        if self._pending_render_task:
+            task = self._pending_render_task
+            self._pending_render_task = None
+            self._is_rendering = True
+            self.render_requested.emit(task)
 
     def _on_export_finished(self) -> None:
         elapsed = time.time() - self._export_start_time
