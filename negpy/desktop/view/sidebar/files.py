@@ -154,7 +154,9 @@ class FileBrowser(QWidget):
         model = self.session.asset_model
         selection_model = self.list_view.selectionModel()
 
-        current_actual = {model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes() if model.display_to_actual(idx.row()) >= 0}
+        current_actual = {
+            model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes() if model.display_to_actual(idx.row()) >= 0
+        }
         target_actual = set(self.session.state.selected_indices)
 
         if current_actual == target_actual:

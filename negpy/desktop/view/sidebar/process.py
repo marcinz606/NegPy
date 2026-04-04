@@ -230,8 +230,7 @@ class ProcessSidebar(BaseSidebar):
 
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
 
-            for slider in (self.analysis_buffer_slider, self.drange_clip_slider,
-                           self.white_point_slider, self.black_point_slider):
+            for slider in (self.analysis_buffer_slider, self.drange_clip_slider, self.white_point_slider, self.black_point_slider):
                 slider.setEnabled(not conf.use_roll_average)
 
             self._refresh_rolls()

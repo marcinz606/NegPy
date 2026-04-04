@@ -105,7 +105,7 @@ class ActionToolbar(QWidget):
         self.zoom_label = QLabel("100%")
         self.zoom_label.setFixedWidth(35)
         self.zoom_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px;")
-        
+
         self.btn_hq = QToolButton()
         self.btn_hq.setText("HQ")
         self.btn_hq.setCheckable(True)

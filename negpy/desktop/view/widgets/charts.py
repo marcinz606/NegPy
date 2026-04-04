@@ -215,7 +215,7 @@ class PhotometricCurveWidget(QWidget):
     """
 
     # Data coordinate ranges
-    _X_MIN, _X_MAX = -0.1, 1.1   # plt_x domain
+    _X_MIN, _X_MAX = -0.1, 1.1  # plt_x domain
     _Y_MIN, _Y_MAX = -0.05, 1.05  # output domain
 
     def __init__(self, parent=None):
@@ -313,8 +313,10 @@ class PhotometricCurveWidget(QWidget):
         # Diagonal reference (dashed)
         painter.setPen(QPen(QColor("#2E2E2E"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(
-            int(self._wx(0.0, w)), int(self._wy(0.0, h)),
-            int(self._wx(1.0, w)), int(self._wy(1.0, h)),
+            int(self._wx(0.0, w)),
+            int(self._wy(0.0, h)),
+            int(self._wx(1.0, w)),
+            int(self._wy(1.0, h)),
         )
 
         # Build the main curve path (reused for fill and line)

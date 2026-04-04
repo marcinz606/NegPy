@@ -76,11 +76,13 @@ class AssetListModel(QAbstractListModel):
         if self._sort_order == "name":
             indices.sort(key=lambda i: files[i]["name"].lower(), reverse=self._sort_descending)
         else:
+
             def _mtime(i: int) -> float:
                 try:
                     return os.path.getmtime(files[i]["path"])
                 except OSError:
                     return 0.0
+
             indices.sort(key=_mtime, reverse=self._sort_descending)
         self._sorted_indices = indices
 
