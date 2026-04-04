@@ -28,7 +28,7 @@ class ProcessSidebar(BaseSidebar):
 
         buf_clip_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
-        self.drange_clip_slider = CompactSlider("D-Range Clip", 1, 100, conf.drange_clip * 10000, precision=1, step=1)
+        self.drange_clip_slider = CompactSlider("D-Range Clip", 0, 100, conf.drange_clip * 10000, precision=1, step=1)
         buf_clip_row.addWidget(self.analysis_buffer_slider)
         buf_clip_row.addWidget(self.drange_clip_slider)
         self.layout.addLayout(buf_clip_row)

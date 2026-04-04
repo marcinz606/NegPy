@@ -1,6 +1,8 @@
+import types
 from typing import Any
 from dataclasses import replace
-from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QComboBox, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
 
 
@@ -18,6 +20,19 @@ class BaseSidebar(QWidget):
         self._init_layout()
         self._init_ui()
         self._connect_signals()
+        self._install_wheel_guards()
+
+    def _install_wheel_guards(self) -> None:
+        for combo in self.findChildren(QComboBox):
+            combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+            def _wheel(c, event) -> None:
+                if c.hasFocus():
+                    QComboBox.wheelEvent(c, event)
+                else:
+                    event.ignore()
+
+            combo.wheelEvent = types.MethodType(_wheel, combo)
 
     def _init_layout(self) -> None:
         """Sets up the default QVBoxLayout."""

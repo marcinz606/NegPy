@@ -11,6 +11,22 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
 from negpy.desktop.view.styles.theme import THEME
 
 
+class _NoScrollSlider(QSlider):
+    def wheelEvent(self, event) -> None:
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
+
+class _NoScrollSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event) -> None:
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
+
 class BaseSlider(QWidget):
     """
     Base class for sliders with value synchronization, debouncing, and reset functionality.
@@ -35,13 +51,13 @@ class BaseSlider(QWidget):
         self._precision = precision
         self._last_committed_value = default_val
 
-        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider = _NoScrollSlider(Qt.Orientation.Horizontal)
         if has_neutral:
             self.slider.setObjectName("neutral_slider")
         self.slider.setRange(int(min_val * self._precision), int(max_val * self._precision))
         self.slider.setValue(int(default_val * self._precision))
 
-        self.spin = QDoubleSpinBox()
+        self.spin = _NoScrollSpinBox()
         self.spin.setRange(min_val, max_val)
         self.spin.setValue(default_val)
 
@@ -52,6 +68,8 @@ class BaseSlider(QWidget):
 
         self._connect_base_signals()
 
+        self.slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.slider.installEventFilter(self)
         self.spin.installEventFilter(self)
 

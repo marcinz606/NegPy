@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QGroupBox,
+    QButtonGroup,
+    QLabel,
 )
 from PyQt6.QtCore import pyqtSignal, QSize, QTimer, QItemSelectionModel, Qt
 
@@ -77,6 +79,47 @@ class FileBrowser(QWidget):
         hot_sync_row.addWidget(self.sync_btn)
         action_layout.addLayout(hot_sync_row)
 
+        sort_row = QHBoxLayout()
+        sort_label = QLabel("Sort:")
+        sort_label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary};")
+        self.sort_name_btn = QPushButton("Name")
+        self.sort_name_btn.setCheckable(True)
+        self.sort_name_btn.setChecked(True)
+        self.sort_date_btn = QPushButton("Date")
+        self.sort_date_btn.setCheckable(True)
+
+        self.sort_asc_btn = QPushButton("↑ Ascending")
+        self.sort_asc_btn.setCheckable(True)
+        self.sort_asc_btn.setChecked(True)
+        self.sort_desc_btn = QPushButton("↓ Descending")
+        self.sort_desc_btn.setCheckable(True)
+
+        for btn in (self.sort_name_btn, self.sort_date_btn, self.sort_asc_btn, self.sort_desc_btn):
+            btn.setFixedHeight(28)
+
+        self._sort_group = QButtonGroup(self)
+        self._sort_group.setExclusive(True)
+        self._sort_group.addButton(self.sort_name_btn, 0)
+        self._sort_group.addButton(self.sort_date_btn, 1)
+
+        self._dir_group = QButtonGroup(self)
+        self._dir_group.setExclusive(True)
+        self._dir_group.addButton(self.sort_asc_btn, 0)
+        self._dir_group.addButton(self.sort_desc_btn, 1)
+
+        sort_row.addWidget(sort_label)
+        sort_row.addWidget(self.sort_name_btn)
+        sort_row.addWidget(self.sort_date_btn)
+        sort_row.addStretch()
+        sort_row.addWidget(self.sort_asc_btn)
+        sort_row.addWidget(self.sort_desc_btn)
+        action_layout.addLayout(sort_row)
+
+        saved_sort = self.session.repo.get_global_setting("file_sort_order") or "name"
+        saved_desc = self.session.repo.get_global_setting("file_sort_descending") or False
+        self._apply_sort_order(str(saved_sort), save=False)
+        self._apply_sort_direction(bool(saved_desc), save=False)
+
         layout.addWidget(action_group)
 
         self.list_view = QListView()
@@ -101,33 +144,45 @@ class FileBrowser(QWidget):
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.sync_btn.clicked.connect(self.session.sync_selected_settings)
         self.session.state_changed.connect(self.sync_ui)
+        self.sort_name_btn.clicked.connect(lambda: self._apply_sort_order("name"))
+        self.sort_date_btn.clicked.connect(lambda: self._apply_sort_order("date"))
+        self.sort_asc_btn.clicked.connect(lambda: self._apply_sort_direction(False))
+        self.sort_desc_btn.clicked.connect(lambda: self._apply_sort_direction(True))
 
     def sync_ui(self) -> None:
         """Updates list selection to match session state."""
+        model = self.session.asset_model
         selection_model = self.list_view.selectionModel()
-        current_indices = {idx.row() for idx in selection_model.selectedIndexes()}
-        target_indices = set(self.session.state.selected_indices)
 
-        if current_indices == target_indices:
+        current_actual = {model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes()}
+        target_actual = set(self.session.state.selected_indices)
+
+        if current_actual == target_actual:
             active_idx = self.session.state.selected_file_idx
             if active_idx >= 0:
-                qt_idx = self.session.asset_model.index(active_idx, 0)
-                if self.list_view.currentIndex() != qt_idx:
-                    self.list_view.setCurrentIndex(qt_idx)
+                display_row = model.actual_to_display(active_idx)
+                if display_row >= 0:
+                    qt_idx = model.index(display_row, 0)
+                    if self.list_view.currentIndex() != qt_idx:
+                        self.list_view.setCurrentIndex(qt_idx)
             return
 
         selection_model.blockSignals(True)
         try:
             selection_model.clearSelection()
-            for idx in self.session.state.selected_indices:
-                qt_idx = self.session.asset_model.index(idx, 0)
-                selection_model.select(qt_idx, QItemSelectionModel.SelectionFlag.Select)
+            for actual_idx in self.session.state.selected_indices:
+                display_row = model.actual_to_display(actual_idx)
+                if display_row >= 0:
+                    qt_idx = model.index(display_row, 0)
+                    selection_model.select(qt_idx, QItemSelectionModel.SelectionFlag.Select)
 
             active_idx = self.session.state.selected_file_idx
             if active_idx >= 0:
-                qt_idx = self.session.asset_model.index(active_idx, 0)
-                self.list_view.setCurrentIndex(qt_idx)
-                self.list_view.scrollTo(qt_idx)
+                display_row = model.actual_to_display(active_idx)
+                if display_row >= 0:
+                    qt_idx = model.index(display_row, 0)
+                    self.list_view.setCurrentIndex(qt_idx)
+                    self.list_view.scrollTo(qt_idx)
         finally:
             selection_model.blockSignals(False)
 
@@ -136,9 +191,24 @@ class FileBrowser(QWidget):
 
     def _commit_selection(self) -> None:
         """Sends current UI selection to the session after debounce."""
-        indices = [idx.row() for idx in self.list_view.selectionModel().selectedIndexes()]
-        if set(indices) != set(self.session.state.selected_indices):
-            self.session.update_selection(indices)
+        model = self.session.asset_model
+        actual_indices = [model.display_to_actual(idx.row()) for idx in self.list_view.selectionModel().selectedIndexes()]
+        if set(actual_indices) != set(self.session.state.selected_indices):
+            self.session.update_selection(actual_indices)
+
+    def _apply_sort_order(self, order: str, save: bool = True) -> None:
+        self.sort_name_btn.setChecked(order == "name")
+        self.sort_date_btn.setChecked(order == "date")
+        self.session.asset_model.set_sort_order(order)
+        if save:
+            self.session.repo.save_global_setting("file_sort_order", order)
+
+    def _apply_sort_direction(self, descending: bool, save: bool = True) -> None:
+        self.sort_asc_btn.setChecked(not descending)
+        self.sort_desc_btn.setChecked(descending)
+        self.session.asset_model.set_sort_descending(descending)
+        if save:
+            self.session.repo.save_global_setting("file_sort_descending", descending)
 
     def _on_hot_folder_toggled(self, checked: bool) -> None:
         self._update_hot_folder_style(checked)
@@ -186,10 +256,12 @@ class FileBrowser(QWidget):
     def _on_item_clicked(self, index) -> None:
         from PyQt6.QtWidgets import QApplication
 
+        model = self.session.asset_model
         modifiers = QApplication.keyboardModifiers()
-        indices = [idx.row() for idx in self.list_view.selectionModel().selectedIndexes()]
+        actual_indices = [model.display_to_actual(idx.row()) for idx in self.list_view.selectionModel().selectedIndexes()]
+        actual_clicked = model.display_to_actual(index.row())
 
         if modifiers & Qt.KeyboardModifier.ControlModifier:
-            self.session.update_selection(indices)
+            self.session.update_selection(actual_indices)
         else:
-            self.session.select_file(index.row(), selection_override=indices)
+            self.session.select_file(actual_clicked, selection_override=actual_indices)

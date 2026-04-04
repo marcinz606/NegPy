@@ -1,7 +1,9 @@
 # Change Log
 
-## 0.12.1
+## 0.13.0
 
+- Added *D-Range Clip* slider for controlling the bounds of normalization process.
+- Added *Sort Order* settings for contact sheet UI section.
 - Fix Linux appimage crashing on some distros.
 - Make "Pick WB" tool more predictable by averaging 8x8 area instead of sampling simple pixel.
 - Performance & stability optimizations.

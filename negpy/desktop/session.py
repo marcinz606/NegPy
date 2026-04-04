@@ -1,3 +1,4 @@
+import os
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
@@ -61,15 +62,52 @@ class AssetListModel(QAbstractListModel):
     def __init__(self, state: AppState):
         super().__init__()
         self._state = state
+        self._sort_order = "name"  # "name" | "date"
+        self._sort_descending = False
+        self._sorted_indices: list[int] = []
+        self._rebuild_indices()
+
+    def _rebuild_indices(self) -> None:
+        files = self._state.uploaded_files
+        indices = list(range(len(files)))
+        if self._sort_order == "name":
+            indices.sort(key=lambda i: files[i]["name"].lower(), reverse=self._sort_descending)
+        else:
+            def _mtime(i: int) -> float:
+                try:
+                    return os.path.getmtime(files[i]["path"])
+                except OSError:
+                    return 0.0
+            indices.sort(key=_mtime, reverse=self._sort_descending)
+        self._sorted_indices = indices
+
+    def set_sort_order(self, order: str) -> None:
+        self._sort_order = order
+        self._rebuild_indices()
+        self.layoutChanged.emit()
+
+    def set_sort_descending(self, descending: bool) -> None:
+        self._sort_descending = descending
+        self._rebuild_indices()
+        self.layoutChanged.emit()
+
+    def display_to_actual(self, display_row: int) -> int:
+        return self._sorted_indices[display_row]
+
+    def actual_to_display(self, actual_idx: int) -> int:
+        try:
+            return self._sorted_indices.index(actual_idx)
+        except ValueError:
+            return -1
 
     def rowCount(self, parent=QModelIndex()) -> int:
-        return len(self._state.uploaded_files)
+        return len(self._sorted_indices)
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid() or index.row() >= len(self._state.uploaded_files):
+        if not index.isValid() or index.row() >= len(self._sorted_indices):
             return None
 
-        file_info = self._state.uploaded_files[index.row()]
+        file_info = self._state.uploaded_files[self._sorted_indices[index.row()]]
 
         if role == Qt.ItemDataRole.DisplayRole:
             return file_info["name"]
@@ -83,6 +121,7 @@ class AssetListModel(QAbstractListModel):
         return None
 
     def refresh(self) -> None:
+        self._rebuild_indices()
         self.layoutChanged.emit()
 
 
