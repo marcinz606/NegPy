@@ -161,7 +161,11 @@ class GPUEngine:
     def _create_pipeline(self, shader_path: str) -> Any:
         shader_module = ShaderLoader.load(shader_path)
         assert self.gpu.device is not None
-        return self.gpu.device.create_compute_pipeline(layout="auto", compute={"module": shader_module, "entry_point": "main"})
+        try:
+            return self.gpu.device.create_compute_pipeline(layout="auto", compute={"module": shader_module, "entry_point": "main"})
+        except Exception:
+            logger.exception(f"Failed to compile pipeline: {shader_path}")
+            raise
 
     def _get_uniform_binding(self, name: str) -> Dict[str, Any]:
         """Calculates UBO offset and size for a specific pipeline stage."""
@@ -302,6 +306,7 @@ class GPUEngine:
                 settings.process.analysis_buffer,
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,
+                percentile_clip=settings.process.drange_clip,
             )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
@@ -1015,6 +1020,7 @@ class GPUEngine:
                 analysis_buffer=settings.process.analysis_buffer,
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,
+                percentile_clip=settings.process.drange_clip,
             )
 
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)

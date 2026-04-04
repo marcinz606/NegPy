@@ -89,7 +89,6 @@ class BaseSlider(QWidget):
         self.spin.blockSignals(True)
         self.slider.setValue(int(value * self._precision))
         self.spin.setValue(value)
-        self._last_committed_value = value
         self.slider.blockSignals(False)
         self.spin.blockSignals(False)
 

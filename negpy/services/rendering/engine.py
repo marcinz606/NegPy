@@ -97,6 +97,7 @@ class DarkroomEngine:
             settings.process.e6_normalize,
             settings.geometry,
             settings.process.analysis_buffer,
+            settings.process.drange_clip,
             settings.process.use_roll_average,
             settings.process.is_local_initialized,
             settings.process.white_point_offset,
@@ -116,8 +117,6 @@ class DarkroomEngine:
             context,
             pipeline_changed,
         )
-
-        context.metrics["retouch_source"] = current_img.copy()
 
         def run_retouch(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
             return RetouchProcessor(settings.retouch).process(img_in, ctx)
@@ -153,7 +152,5 @@ class DarkroomEngine:
             context.metrics["uv_grid"] = uv_grid
         except Exception as e:
             logger.error(f"Failed to generate UV grid: {e}")
-
-        context.metrics["base_positive"] = current_img.copy()
 
         return current_img

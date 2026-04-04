@@ -3,7 +3,8 @@
 ## 0.12.1
 
 - Fix Linux appimage crashing on some distros.
-- Make "Pick WB" tool more predictable by averaging 8x8 area instead of sampling simple pixel
+- Make "Pick WB" tool more predictable by averaging 8x8 area instead of sampling simple pixel.
+- Performance & stability optimizations.
 
 ## 0.12.0
 

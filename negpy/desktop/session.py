@@ -1,3 +1,4 @@
+import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
@@ -34,6 +35,7 @@ class AppState:
     selected_indices: List[int] = field(default_factory=list)
     active_adjustment_idx: int = 0
     last_metrics: Dict[str, Any] = field(default_factory=dict)
+    metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
     preview_raw: Optional[Any] = None
     original_res: tuple[int, int] = (0, 0)
     clipboard: Optional[WorkspaceConfig] = None
@@ -136,6 +138,7 @@ class DesktopSessionManager(QObject):
 
         sticky_mode = self.repo.get_global_setting("last_process_mode")
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
+        sticky_drange_clip = self.repo.get_global_setting("last_drange_clip")
         sticky_roll_average = self.repo.get_global_setting("last_use_roll_average")
         sticky_floors = self.repo.get_global_setting("last_locked_floors")
         sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
@@ -146,6 +149,8 @@ class DesktopSessionManager(QObject):
             new_process = replace(new_process, process_mode=sticky_mode)
         if sticky_buffer is not None:
             new_process = replace(new_process, analysis_buffer=float(sticky_buffer))
+        if sticky_drange_clip is not None:
+            new_process = replace(new_process, drange_clip=float(sticky_drange_clip))
         if sticky_roll_average is not None:
             new_process = replace(new_process, use_roll_average=bool(sticky_roll_average))
         if sticky_floors:
@@ -234,6 +239,7 @@ class DesktopSessionManager(QObject):
 
         self.repo.save_global_setting("last_process_mode", config.process.process_mode)
         self.repo.save_global_setting("last_analysis_buffer", config.process.analysis_buffer)
+        self.repo.save_global_setting("last_drange_clip", config.process.drange_clip)
         self.repo.save_global_setting("last_use_roll_average", config.process.use_roll_average)
         self.repo.save_global_setting("last_locked_floors", config.process.locked_floors)
         self.repo.save_global_setting("last_locked_ceils", config.process.locked_ceils)

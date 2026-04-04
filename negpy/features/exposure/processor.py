@@ -34,10 +34,13 @@ class NormalizationProcessor:
             cached_norm = context.metrics.get("log_bounds_norm_val")
             cached_mode = context.metrics.get("log_bounds_mode_val")
 
+            cached_clip = context.metrics.get("log_bounds_clip_val")
             needs_reanalysis = (
                 "log_bounds" not in context.metrics
                 or cached_buffer is None
                 or abs(cached_buffer - self.config.analysis_buffer) > 1e-5
+                or cached_clip is None
+                or abs(cached_clip - self.config.drange_clip) > 1e-6
                 or cached_norm != self.config.e6_normalize
                 or cached_mode != context.process_mode
             )
@@ -51,9 +54,11 @@ class NormalizationProcessor:
                     self.config.analysis_buffer,
                     process_mode=context.process_mode,
                     e6_normalize=self.config.e6_normalize,
+                    percentile_clip=self.config.drange_clip,
                 )
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
+                context.metrics["log_bounds_clip_val"] = self.config.drange_clip
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
                 context.metrics["log_bounds_mode_val"] = context.process_mode
 

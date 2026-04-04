@@ -53,8 +53,8 @@ class TestDarkroomEngine(unittest.TestCase):
         assert engine.cache.source_hash == "file2"
         assert not np.array_equal(res1, res3)
 
-    def test_retouch_source_capture(self):
-        """Verify intermediate buffer capture for overlays."""
+    def test_pipeline_produces_metrics(self):
+        """Verify pipeline populates expected metrics."""
         from negpy.domain.interfaces import PipelineContext
 
         engine = DarkroomEngine()
@@ -64,8 +64,8 @@ class TestDarkroomEngine(unittest.TestCase):
 
         engine.process(img, settings, source_hash="test", context=context)
 
-        self.assertIn("retouch_source", context.metrics)
-        self.assertEqual(context.metrics["retouch_source"].shape, (100, 100, 3))
+        self.assertIn("normalized_log", context.metrics)
+        self.assertIn("log_bounds", context.metrics)
 
 
 if __name__ == "__main__":

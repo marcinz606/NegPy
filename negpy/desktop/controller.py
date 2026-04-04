@@ -4,7 +4,7 @@ from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
 
 from negpy.desktop.converters import ImageConverter
@@ -15,6 +15,8 @@ from negpy.desktop.workers.render import (
     AssetDiscoveryWorker,
     NormalizationTask,
     NormalizationWorker,
+    PreviewLoadTask,
+    PreviewLoadWorker,
     RenderTask,
     RenderWorker,
     ThumbnailUpdateTask,
@@ -47,6 +49,7 @@ class AppController(QObject):
     export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal(float)
     render_requested = pyqtSignal(RenderTask)
+    preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
@@ -96,9 +99,19 @@ class AppController(QObject):
         self.discovery_worker.moveToThread(self.discovery_thread)
         self.discovery_thread.start()
 
+        self.preview_load_thread = QThread()
+        self.preview_load_worker = PreviewLoadWorker(self.preview_service)
+        self.preview_load_worker.moveToThread(self.preview_load_thread)
+        self.preview_load_thread.start()
+
         self.canvas: Any = None
         self._is_rendering = False
         self._pending_render_task: Any = None
+
+        self._render_debounce = QTimer()
+        self._render_debounce.setSingleShot(True)
+        self._render_debounce.setInterval(80)
+        self._render_debounce.timeout.connect(self.request_render)
 
         self._connect_signals()
 
@@ -109,7 +122,6 @@ class AppController(QObject):
         self.canvas = canvas
         self.zoom_requested.connect(self.canvas.set_zoom)
         self.canvas.zoom_changed.connect(self.zoom_changed.emit)
-        self.canvas.clicked.connect(self.handle_canvas_clicked)
 
     def set_status(self, message: str, timeout: int = 0) -> None:
         self.status_message_requested.emit(message, timeout)
@@ -139,9 +151,13 @@ class AppController(QObject):
         self.discovery_worker.finished.connect(self._on_discovery_finished)
         self.discovery_worker.error.connect(self._on_render_error)
 
+        self.preview_load_requested.connect(self.preview_load_worker.process)
+        self.preview_load_worker.finished.connect(self._on_preview_loaded)
+        self.preview_load_worker.error.connect(self._on_render_error)
+
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
-        self.session.state_changed.connect(lambda: self.request_render())
+        self.session.state_changed.connect(self._render_debounce.start)
 
     def generate_missing_thumbnails(self) -> None:
         missing = [f for f in self.state.uploaded_files if f["name"] not in self.state.thumbnails]
@@ -189,7 +205,7 @@ class AppController(QObject):
 
     def load_file(self, file_path: str) -> None:
         """
-        Loads a new RAW file into the linear preview workspace.
+        Dispatches RAW decode to a background worker to keep the UI thread free.
         """
         self.zoom_requested.emit(1.0)
         self.set_status(f"Loading {os.path.basename(file_path)}...")
@@ -198,18 +214,22 @@ class AppController(QObject):
 
         self.render_worker.cleanup()
 
-        try:
-            raw, dims, _ = self.preview_service.load_linear_preview(
-                file_path,
-                self.state.workspace_color_space,
+        self.state.preview_raw = None
+        self.state.original_res = (0, 0)
+
+        self.preview_load_requested.emit(
+            PreviewLoadTask(
+                file_path=file_path,
+                workspace_color_space=self.state.workspace_color_space,
                 use_camera_wb=self.state.config.exposure.use_camera_wb,
             )
-            self.state.preview_raw = raw
-            self.state.original_res = dims
-            self.state.current_file_path = file_path
-            self.request_render()
-        except Exception as e:
-            logger.error(f"Asset load failed: {e}")
+        )
+
+    def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any) -> None:
+        self.state.preview_raw = raw
+        self.state.original_res = dims
+        self.state.current_file_path = file_path
+        self.request_render()
 
     def handle_canvas_clicked(self, nx: float, ny: float) -> None:
         if self.state.active_tool == ToolMode.WB_PICK:
@@ -224,7 +244,8 @@ class AppController(QObject):
     def handle_crop_completed(self, nx1: float, ny1: float, nx2: float, ny2: float) -> None:
         if self.state.active_tool != ToolMode.CROP_MANUAL:
             return
-        uv_grid = self.state.last_metrics.get("uv_grid")
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None:
             return
 
@@ -284,7 +305,8 @@ class AppController(QObject):
             self.request_render()
 
     def _handle_dust_pick(self, nx: float, ny: float) -> None:
-        uv_grid = self.state.last_metrics.get("uv_grid")
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None:
             return
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
@@ -301,39 +323,51 @@ class AppController(QObject):
         """
         Samples color from viewport coordinates and updates WB shifts to neutralize.
         """
-        metrics = self.state.last_metrics
+        with self.state.metrics_lock:
+            metrics = dict(self.state.last_metrics)
+
         img = metrics.get("normalized_log")
         is_log = True
-
         if img is None:
             img = metrics.get("base_positive")
             is_log = False
 
-        if isinstance(img, GPUTexture):
-            img = img.readback()
-
-        if img is None or not isinstance(img, np.ndarray):
+        if img is None:
             return
 
-        h, w = img.shape[:2]
-
-        # normalized_log is uncropped (pre-CropProcessor). Map canvas click coordinates
-        # through the active ROI so we sample the correct pixel, not the film border.
         roi = metrics.get("active_roi")
-        if roi and is_log:
-            y1, y2, x1, x2 = roi
-            center_y = int(np.clip(y1 + ny * (y2 - y1), 0, h - 1))
-            center_x = int(np.clip(x1 + nx * (x2 - x1), 0, w - 1))
-        else:
-            center_y = int(np.clip(ny * h, 0, h - 1))
-            center_x = int(np.clip(nx * w, 0, w - 1))
+        radius = 4
 
-        radius = 4  # 8x8 sample area
-        y0 = max(center_y - radius, 0)
-        y1_ = min(center_y + radius, h)
-        x0 = max(center_x - radius, 0)
-        x1_ = min(center_x + radius, w)
-        sampled = img[y0:y1_, x0:x1_].mean(axis=(0, 1))
+        if isinstance(img, GPUTexture):
+            h, w = img.height, img.width
+            if roi and is_log:
+                ry1, ry2, rx1, rx2 = roi
+                center_y = int(np.clip(ry1 + ny * (ry2 - ry1), 0, h - 1))
+                center_x = int(np.clip(rx1 + nx * (rx2 - rx1), 0, w - 1))
+            else:
+                center_y = int(np.clip(ny * h, 0, h - 1))
+                center_x = int(np.clip(nx * w, 0, w - 1))
+            x0 = max(center_x - radius, 0)
+            y0 = max(center_y - radius, 0)
+            rw = min(center_x + radius, w) - x0
+            rh = min(center_y + radius, h) - y0
+            sampled = img.readback_region(x0, y0, rw, rh).mean(axis=(0, 1))
+        elif isinstance(img, np.ndarray):
+            h, w = img.shape[:2]
+            if roi and is_log:
+                ry1, ry2, rx1, rx2 = roi
+                center_y = int(np.clip(ry1 + ny * (ry2 - ry1), 0, h - 1))
+                center_x = int(np.clip(rx1 + nx * (rx2 - rx1), 0, w - 1))
+            else:
+                center_y = int(np.clip(ny * h, 0, h - 1))
+                center_x = int(np.clip(nx * w, 0, w - 1))
+            y0 = max(center_y - radius, 0)
+            y1_ = min(center_y + radius, h)
+            x0 = max(center_x - radius, 0)
+            x1_ = min(center_x + radius, w)
+            sampled = img[y0:y1_, x0:x1_].mean(axis=(0, 1))
+        else:
+            return
 
         exp = self.state.config.exposure
         if is_log:
@@ -462,7 +496,9 @@ class AppController(QObject):
     def request_render(self, readback_metrics: bool = True) -> None:
         """
         Dispatches a render task to the worker thread.
+        Direct callers bypass the debounce; the timer is cancelled to avoid a duplicate.
         """
+        self._render_debounce.stop()
         if self.state.preview_raw is None:
             return
 
@@ -566,7 +602,8 @@ class AppController(QObject):
 
             bounds_override = None
             if f["hash"] == self.state.current_file_hash:
-                bounds_override = self.state.last_metrics.get("log_bounds")
+                with self.state.metrics_lock:
+                    bounds_override = self.state.last_metrics.get("log_bounds")
 
             tasks.append(
                 ExportTask(
@@ -596,7 +633,8 @@ class AppController(QObject):
         should_update_thumb = not self._first_render_done
         self._first_render_done = True
 
-        self.state.last_metrics.update(metrics)
+        with self.state.metrics_lock:
+            self.state.last_metrics.update(metrics)
         self.set_status("READY", 1000)
         self.image_updated.emit()
 
@@ -613,7 +651,8 @@ class AppController(QObject):
         """
         Handles late-arriving metrics and persists analysis results.
         """
-        self.state.last_metrics.update(metrics)
+        with self.state.metrics_lock:
+            self.state.last_metrics.update(metrics)
         self.metrics_available.emit(metrics)
 
         # If render produced fresh log bounds, persist them locally
@@ -622,8 +661,10 @@ class AppController(QObject):
 
             changes = {}
             if bounds:
-                changes["local_floors"] = bounds.floors
-                changes["local_ceils"] = bounds.ceils
+                current = self.state.config.process
+                if bounds.floors != current.local_floors or bounds.ceils != current.local_ceils:
+                    changes["local_floors"] = bounds.floors
+                    changes["local_ceils"] = bounds.ceils
 
             if changes:
                 new_process = replace(self.state.config.process, **changes)
@@ -645,12 +686,10 @@ class AppController(QObject):
         self._update_thumbnail_from_state(force_readback=True)
 
     def _update_thumbnail_from_state(self, force_readback: bool = False) -> None:
-        if not isinstance(force_readback, bool):
-            force_readback = False
-
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
-        metrics = self.state.last_metrics
+        with self.state.metrics_lock:
+            metrics = dict(self.state.last_metrics)
         buffer = metrics.get("base_positive")
 
         if isinstance(buffer, GPUTexture):

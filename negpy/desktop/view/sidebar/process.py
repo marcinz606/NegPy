@@ -26,12 +26,16 @@ class ProcessSidebar(BaseSidebar):
         self.mode_combo.setCurrentText(conf.process_mode)
         self.layout.addWidget(self.mode_combo)
 
+        buf_clip_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
-        self.layout.addWidget(self.analysis_buffer_slider)
+        self.drange_clip_slider = CompactSlider("D-Range Clip", 1, 100, conf.drange_clip * 10000, precision=1, step=1)
+        buf_clip_row.addWidget(self.analysis_buffer_slider)
+        buf_clip_row.addWidget(self.drange_clip_slider)
+        self.layout.addLayout(buf_clip_row)
 
         wp_bp_row = QHBoxLayout()
-        self.white_point_slider = CompactSlider("White Point", -0.5, 0.5, conf.white_point_offset, has_neutral=True)
-        self.black_point_slider = CompactSlider("Black Point", -0.5, 0.5, conf.black_point_offset, has_neutral=True)
+        self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
+        self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
         wp_bp_row.addWidget(self.white_point_slider)
         wp_bp_row.addWidget(self.black_point_slider)
         self.layout.addLayout(wp_bp_row)
@@ -86,6 +90,9 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
 
+        self.drange_clip_slider.valueChanged.connect(lambda v: self._on_drange_clip_changed(v, persist=False))
+        self.drange_clip_slider.valueCommitted.connect(lambda v: self._on_drange_clip_changed(v, persist=True))
+
         self.white_point_slider.valueChanged.connect(lambda v: self._on_white_point_changed(v, persist=False))
         self.white_point_slider.valueCommitted.connect(lambda v: self._on_white_point_changed(v, persist=True))
 
@@ -133,6 +140,16 @@ class ProcessSidebar(BaseSidebar):
             persist=persist,
             render=True,
             analysis_buffer=val,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(0.0, 0.0, 0.0),
+        )
+
+    def _on_drange_clip_changed(self, val: float, persist: bool = True) -> None:
+        self.update_config_section(
+            "process",
+            persist=persist,
+            render=True,
+            drange_clip=val / 10000,
             local_floors=(0.0, 0.0, 0.0),
             local_ceils=(0.0, 0.0, 0.0),
         )
@@ -203,6 +220,7 @@ class ProcessSidebar(BaseSidebar):
         try:
             self.mode_combo.setCurrentText(conf.process_mode)
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
+            self.drange_clip_slider.setValue(conf.drange_clip * 10000)
             self.white_point_slider.setValue(conf.white_point_offset)
             self.black_point_slider.setValue(conf.black_point_offset)
 
@@ -224,6 +242,7 @@ class ProcessSidebar(BaseSidebar):
         widgets = [
             self.mode_combo,
             self.analysis_buffer_slider,
+            self.drange_clip_slider,
             self.white_point_slider,
             self.black_point_slider,
             self.normalize_e6_btn,

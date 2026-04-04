@@ -37,6 +37,7 @@ class Presets:
             "use_roll_average",
             "roll_name",
             "analysis_buffer",
+            "drange_clip",
             "flip_horizontal",
             "flip_vertical",
         }

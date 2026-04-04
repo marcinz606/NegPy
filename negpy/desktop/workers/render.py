@@ -52,6 +52,15 @@ class AssetDiscoveryTask:
     supported_extensions: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class PreviewLoadTask:
+    """Request to decode a RAW file into a linear preview buffer."""
+
+    file_path: str
+    workspace_color_space: str
+    use_camera_wb: bool
+
+
 class RenderWorker(QObject):
     """
     Background rendering worker.
@@ -82,10 +91,8 @@ class RenderWorker(QObject):
     def process(self, task: RenderTask) -> None:
         """Executes the rendering pipeline for a single frame."""
         try:
-            img_src = task.buffer.copy()
-
             result, metrics = self._processor.run_pipeline(
-                img_src,
+                task.buffer,
                 task.config,
                 task.source_hash,
                 render_size_ref=task.preview_size,
@@ -116,6 +123,7 @@ class RenderWorker(QObject):
             self.metrics_updated.emit(metrics)
 
         except Exception as e:
+            logger.exception("Render pipeline failed")
             self.error.emit(str(e))
 
 
@@ -217,6 +225,33 @@ class AssetDiscoveryWorker(QObject):
         self.finished.emit(valid_assets)
 
 
+class PreviewLoadWorker(QObject):
+    """
+    Background worker for decoding RAW files into linear preview buffers.
+    Keeps the UI thread free during slow I/O and demosaicing.
+    """
+
+    finished = pyqtSignal(str, object, object)  # (file_path, raw ndarray, dims tuple)
+    error = pyqtSignal(str)
+
+    def __init__(self, preview_service) -> None:
+        super().__init__()
+        self._preview_service = preview_service
+
+    @pyqtSlot(PreviewLoadTask)
+    def process(self, task: PreviewLoadTask) -> None:
+        try:
+            raw, dims, _ = self._preview_service.load_linear_preview(
+                task.file_path,
+                task.workspace_color_space,
+                use_camera_wb=task.use_camera_wb,
+            )
+            self.finished.emit(task.file_path, raw, dims)
+        except Exception as e:
+            logger.exception(f"Asset load failed: {task.file_path}")
+            self.error.emit(str(e))
+
+
 class NormalizationWorker(QObject):
     """
     Asynchronous batch normalization worker.
@@ -255,6 +290,7 @@ class NormalizationWorker(QObject):
                     params = self._repo.load_file_settings(f_info["hash"])
                     use_camera_wb = params.exposure.use_camera_wb if params else False
                     analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
+                    drange_clip = params.process.drange_clip if params else DEFAULT_WORKSPACE_CONFIG.process.drange_clip
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
 
@@ -272,6 +308,7 @@ class NormalizationWorker(QObject):
                         analysis_buffer=analysis_buffer,
                         process_mode=process_mode,
                         e6_normalize=e6_normalize,
+                        percentile_clip=drange_clip,
                     )
 
                     completed += 1

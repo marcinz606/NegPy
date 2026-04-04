@@ -46,6 +46,35 @@ class GPUTexture:
             (data.shape[1], data.shape[0], 1),
         )
 
+    def readback_region(self, x: int, y: int, rw: int, rh: int) -> np.ndarray:
+        """Downloads a sub-region from VRAM. Significantly faster than a full readback."""
+        gpu = GPUDevice.get()
+        if not gpu.device or not self.texture:
+            return np.zeros((rh, rw, 4), dtype=np.float32)
+
+        rw = min(rw, max(1, self.width - x))
+        rh = min(rh, max(1, self.height - y))
+
+        bytes_per_row = (rw * 16 + 255) & ~255
+        staging = gpu.device.create_buffer(size=bytes_per_row * rh, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
+
+        enc = gpu.device.create_command_encoder()
+        enc.copy_texture_to_buffer(
+            {"texture": self.texture, "origin": (x, y, 0)},
+            {"buffer": staging, "bytes_per_row": bytes_per_row},
+            (rw, rh, 1),
+        )
+        gpu.device.queue.submit([enc.finish()])
+
+        staging.map_sync(mode=wgpu.MapMode.READ)
+        view = staging.read_mapped()
+
+        arr = np.frombuffer(view, dtype=np.float32).reshape((rh, bytes_per_row // 4))
+        result = arr[:, : rw * 4].reshape((rh, rw, 4)).copy()
+        staging.destroy()
+
+        return result
+
     def readback(self) -> np.ndarray:
         """Downloads pixels from VRAM to CPU ndarray (float32)."""
         gpu = GPUDevice.get()

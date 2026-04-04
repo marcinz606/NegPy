@@ -54,7 +54,7 @@ class LogNegativeBounds:
 def get_analysis_crop(img: ImageBuffer, buffer_ratio: float) -> ImageBuffer:
     """
     Returns a center crop of the image for analysis purposes.
-    The buffer_ratio (0.0 to 0.5) defines how much of the border to exclude.
+    The buffer_ratio (0.0 to 0.25) defines how much of the border to exclude.
     """
     if buffer_ratio <= 0:
         return img
@@ -84,9 +84,12 @@ def analyze_log_exposure_bounds(
     analysis_buffer: float = 0.0,
     process_mode: str = ProcessMode.C41,
     e6_normalize: bool = True,
+    percentile_clip: float = 0.0,
 ) -> LogNegativeBounds:
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
+    percentile_clip controls how far from the histogram extremes the bounds are sampled
+    (e.g. 0.0001 = nearly no clipping; 1.0 = clip 1% from each tail).
     """
     epsilon = 1e-6
     img_log = np.log10(np.clip(image, epsilon, 1.0))
@@ -98,11 +101,12 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    p_low, p_high = 0.001, 99.999
+    clip = max(0.0001, min(1.0, percentile_clip))
+    p_low, p_high = clip, 100.0 - clip
     fixed_range = 3.0
 
     if process_mode == ProcessMode.E6:
-        p_low, p_high = 99.999, 0.001
+        p_low, p_high = p_high, p_low
         fixed_range = -3.0
 
     mean_log = np.mean(img_log, axis=-1)
