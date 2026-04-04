@@ -59,6 +59,7 @@ class PreviewLoadTask:
     file_path: str
     workspace_color_space: str
     use_camera_wb: bool
+    full_resolution: bool = False
 
 
 class RenderWorker(QObject):
@@ -245,6 +246,7 @@ class PreviewLoadWorker(QObject):
                 task.file_path,
                 task.workspace_color_space,
                 use_camera_wb=task.use_camera_wb,
+                full_resolution=task.full_resolution,
             )
             self.finished.emit(task.file_path, raw, dims)
         except Exception as e:
