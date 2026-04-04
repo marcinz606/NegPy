@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.13.1
+
+- Fix: Pick WB not updating magenta & yellow sliders
+
 ## 0.13.0
 
 - Added *D-Range Clip* slider for controlling the bounds of normalization process.
