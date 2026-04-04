@@ -16,6 +16,7 @@ The foundation of your edit.
 
 *   **Process Mode**: Select between `C41 Negative`, `B&W Negative`, and `E6 (Positive)`.
 *   **Analysis Buffer**: Adjusts the safety margin for auto-exposure. Increase if your scans have a lot of space around the actual image.
+*   **D-Range Clip**: Narrows the statistical percentile range used to detect black and white points. Higher values clip more extreme pixels before calculating bounds, which can help with very dense or fogged negatives where outlier pixels would otherwise skew the normalization.
 *   **White/Black Point Offset**: Manually shift the auto-normalization boundaries for more or less contrast.
 *   **Normalize (E6 only)**: Automatically stretches the histogram for positive film. Useful for faded/expired slides.
 *   **Batch Analysis**: Analyzes all loaded files to find a consistent "Roll Average" baseline. Calculates average density and color balance for the entire roll (after discarding outliers).

@@ -4,18 +4,18 @@
 
 - Added *D-Range Clip* slider for controlling the bounds of normalization process.
 - Added *Sort Order* settings for contact sheet UI section (sort by name or date, ascending/descending).
-- Added *HQ* toggle for viewport preview (renders preview in full resolution). @ljunruh
+- Added *HQ* toggle for viewport preview (renders preview in full resolution).
 - Improvements to histogram & photometric curve rendering.
-- Fix Linux appimage crashing on some distros.
 - Make "Pick WB" tool more predictable by averaging 8x8 area instead of sampling simple pixel.
+- Fix Linux appimage crashing on some distros.
 - Fix: mouse wheel accidentally changing sliders and dropdowns when scrolling the sidebar.
 - Fix: settings from a previously edited file being applied to newly opened unedited files.
 - Fix: crash when using the Clear button to remove all files from the session.
-- Performance & stability improvements.
+- Overall performance & stability improvements.
 
 ## 0.12.0
 
-- Added functionality to reset slider on double click (slider iteself, not only label). @ljunruh
+- Added functionality to reset slider on double click (slider iteself, not only label).
 - Added ability to "unzoom" for easier cropping.
 
 ## 0.11.0

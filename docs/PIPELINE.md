@@ -22,7 +22,10 @@ Here is what actually happens to your image. We apply these steps in order, pass
     The engine uses statistical percentiles to detect the usable signal range. To maintain a unified pipeline, we always map the target **White Point** to the **Floor** ($0.0$) and the **Black Point** to the **Ceiling** ($1.0$).
     *   **Negative (C-41/B&W)**: Raw low-signal (Film Base) maps to Floor ($0.0$). Raw high-signal (Highlights) maps to Ceiling ($1.0$). Range: 0.5% to 99.5%.
     *   **Positive (E-6)**: Raw high-signal (Highlights) maps to Floor ($0.0$). Raw low-signal (Shadows) maps to Ceiling ($1.0$). Range: 99.9% to 0.01%.
-*   **White & Black Point Offsets**: Allows manual adjustment of the normalization boundaries. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running statistical analysis.
+    
+    The bounds are customizable via two controls:
+    *   **D-Range Clip**: Symmetrically tightens the percentile window before bounds detection. Useful for very dense or fogged negatives where a small number of outlier pixels would otherwise pull the white or black point to an extreme, resulting in washed-out or crushed output.
+    *   **White & Black Point Offsets**: Fine-tunes the detected bounds after statistical analysis. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running the analysis.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range.
 
 ---
