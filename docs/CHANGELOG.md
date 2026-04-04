@@ -3,10 +3,14 @@
 ## 0.13.0
 
 - Added *D-Range Clip* slider for controlling the bounds of normalization process.
-- Added *Sort Order* settings for contact sheet UI section.
+- Added *Sort Order* settings for contact sheet UI section (sort by name or date, ascending/descending).
+- Improvements to histogram & photometric curve rendering.
 - Fix Linux appimage crashing on some distros.
 - Make "Pick WB" tool more predictable by averaging 8x8 area instead of sampling simple pixel.
-- Performance & stability optimizations.
+- Fix: mouse wheel accidentally changing sliders and dropdowns when scrolling the sidebar.
+- Fix: settings from a previously edited file being applied to newly opened unedited files.
+- Fix: crash when using the Clear button to remove all files from the session.
+- Performance & stability improvements.
 
 ## 0.12.0
 

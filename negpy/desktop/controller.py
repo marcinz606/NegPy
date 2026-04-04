@@ -67,6 +67,7 @@ class AppController(QObject):
         self.state: AppState = session_manager.state
         self._first_render_done = False
         self._export_start_time = 0.0
+        self._discovery_running = False
 
         self.preview_service = PreviewManager()
         self.watcher = FolderWatchService()
@@ -181,9 +182,14 @@ class AppController(QObject):
     def request_asset_discovery(self, paths: List[str]) -> None:
         """
         Starts asynchronous discovery of supported assets.
+        Silently skips if a discovery task is already in progress.
         """
+        if self._discovery_running:
+            return
+
         from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 
+        self._discovery_running = True
         self.set_status("SCANNING FOR ASSETS...")
         task = AssetDiscoveryTask(paths=paths, supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS))
         self.asset_discovery_requested.emit(task)
@@ -196,6 +202,7 @@ class AppController(QObject):
         """
         Adds discovered assets to the session and starts thumbnail generation.
         """
+        self._discovery_running = False
         if valid_assets:
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()

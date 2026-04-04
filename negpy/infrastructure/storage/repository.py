@@ -152,6 +152,14 @@ class StorageRepository(IRepository):
         with sqlite3.connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM edit_history WHERE file_hash = ?", (file_hash,))
 
+    def truncate_history_above(self, file_hash: str, index: int) -> None:
+        """Deletes all history steps with step_index > index (orphaned future branch)."""
+        with sqlite3.connect(self.edits_db_path) as conn:
+            conn.execute(
+                "DELETE FROM edit_history WHERE file_hash = ? AND step_index > ?",
+                (file_hash, index),
+            )
+
     def prune_history(self, file_hash: str, max_steps: int = 10) -> None:
         with sqlite3.connect(self.edits_db_path) as conn:
             # Delete steps that are older than (current_max_index - max_steps)

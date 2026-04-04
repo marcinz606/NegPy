@@ -92,6 +92,8 @@ class AssetListModel(QAbstractListModel):
         self.layoutChanged.emit()
 
     def display_to_actual(self, display_row: int) -> int:
+        if display_row < 0 or display_row >= len(self._sorted_indices):
+            return -1
         return self._sorted_indices[display_row]
 
     def actual_to_display(self, actual_idx: int) -> int:
@@ -140,6 +142,7 @@ class DesktopSessionManager(QObject):
         self.repo = repo
         self.state = AppState()
         self.asset_model = AssetListModel(self.state)
+        self._config_dirty = False  # True only after an explicit persist=True edit
 
         # Load global hardware settings
         saved_gpu = self.repo.get_global_setting("gpu_enabled")
@@ -156,25 +159,26 @@ class DesktopSessionManager(QObject):
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """
         Overlays globally persisted settings onto the config.
-        If only_global is True, only non-look settings (Export) are applied.
+
+        Two tiers:
+        - only_global=True  (file has a sidecar): only export preferences are overlaid.
+        - only_global=False (new file, no sidecar): workflow settings are overlaid
+          (process mode, roll name, analysis buffer, geometry defaults, export).
+          Per-image look settings (exposure, lab, toning, retouch) are intentionally
+          NOT carried over so that fresh files always start from clean defaults.
         """
-        from negpy.domain.models import (
-            ExportConfig,
-            LabConfig,
-            RetouchConfig,
-            ToningConfig,
-        )
+        from negpy.domain.models import ExportConfig
 
         sticky_export = self.repo.get_global_setting("last_export_config")
         if sticky_export:
             valid_keys = ExportConfig.__dataclass_fields__.keys()
             filtered = {k: v for k, v in sticky_export.items() if k in valid_keys}
-            new_export = ExportConfig(**filtered)
-            config = replace(config, export=new_export)
+            config = replace(config, export=ExportConfig(**filtered))
 
         if only_global:
             return config
 
+        # Workflow settings — safe to carry across all files on a roll
         sticky_mode = self.repo.get_global_setting("last_process_mode")
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
         sticky_drange_clip = self.repo.get_global_setting("last_drange_clip")
@@ -198,75 +202,19 @@ class DesktopSessionManager(QObject):
             new_process = replace(new_process, locked_ceils=tuple(sticky_ceils))
         if sticky_roll_name:
             new_process = replace(new_process, roll_name=str(sticky_roll_name))
-
         config = replace(config, process=new_process)
-
-        sticky_density = self.repo.get_global_setting("last_density")
-        sticky_grade = self.repo.get_global_setting("last_grade")
-        sticky_cyan = self.repo.get_global_setting("last_wb_cyan")
-        sticky_magenta = self.repo.get_global_setting("last_wb_magenta")
-        sticky_yellow = self.repo.get_global_setting("last_wb_yellow")
-        sticky_camera_wb = self.repo.get_global_setting("last_use_camera_wb")
-
-        sticky_toe = self.repo.get_global_setting("last_toe")
-        sticky_toe_w = self.repo.get_global_setting("last_toe_width")
-        sticky_shoulder = self.repo.get_global_setting("last_shoulder")
-        sticky_shoulder_w = self.repo.get_global_setting("last_shoulder_width")
-
-        new_exp = config.exposure
-        if sticky_density is not None:
-            new_exp = replace(new_exp, density=float(sticky_density))
-        if sticky_grade is not None:
-            new_exp = replace(new_exp, grade=float(sticky_grade))
-        if sticky_cyan is not None:
-            new_exp = replace(new_exp, wb_cyan=float(sticky_cyan))
-        if sticky_magenta is not None:
-            new_exp = replace(new_exp, wb_magenta=float(sticky_magenta))
-        if sticky_yellow is not None:
-            new_exp = replace(new_exp, wb_yellow=float(sticky_yellow))
-        if sticky_camera_wb is not None:
-            new_exp = replace(new_exp, use_camera_wb=bool(sticky_camera_wb))
-
-        if sticky_toe is not None:
-            new_exp = replace(new_exp, toe=float(sticky_toe))
-        if sticky_toe_w is not None:
-            new_exp = replace(new_exp, toe_width=float(sticky_toe_w))
-        if sticky_shoulder is not None:
-            new_exp = replace(new_exp, shoulder=float(sticky_shoulder))
-        if sticky_shoulder_w is not None:
-            new_exp = replace(new_exp, shoulder_width=float(sticky_shoulder_w))
-
-        config = replace(config, exposure=new_exp)
 
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
         sticky_offset = self.repo.get_global_setting("last_autocrop_offset")
-
         new_geo = config.geometry
         if sticky_ratio:
             new_geo = replace(new_geo, autocrop_ratio=sticky_ratio)
         if sticky_offset is not None:
             new_geo = replace(new_geo, autocrop_offset=int(sticky_offset))
-
         config = replace(config, geometry=new_geo)
 
-        sticky_lab = self.repo.get_global_setting("last_lab_config")
-        if sticky_lab:
-            valid_keys = LabConfig.__dataclass_fields__.keys()
-            filtered = {k: v for k, v in sticky_lab.items() if k in valid_keys}
-            config = replace(config, lab=LabConfig(**filtered))
-
-        sticky_toning = self.repo.get_global_setting("last_toning_config")
-        if sticky_toning:
-            valid_keys = ToningConfig.__dataclass_fields__.keys()
-            filtered = {k: v for k, v in sticky_toning.items() if k in valid_keys}
-            config = replace(config, toning=ToningConfig(**filtered))
-
-        sticky_retouch = self.repo.get_global_setting("last_retouch_config")
-        if sticky_retouch:
-            valid_keys = RetouchConfig.__dataclass_fields__.keys()
-            # Never carry over manual spots to other files
-            filtered = {k: v for k, v in sticky_retouch.items() if k in valid_keys and k != "manual_dust_spots"}
-            config = replace(config, retouch=replace(config.retouch, **filtered))
+        # Exposure, lab, toning, retouch are per-image look decisions and are
+        # deliberately excluded here — fresh files start from WorkspaceConfig defaults.
 
         return config
 
@@ -308,10 +256,11 @@ class DesktopSessionManager(QObject):
         Changes active file and hydrates state from repository.
         """
         if 0 <= index < len(self.state.uploaded_files):
-            # Save current before switching
-            if self.state.current_file_hash:
+            # Save current before switching, but only if user actually made explicit edits
+            if self.state.current_file_hash and self._config_dirty:
                 self.repo.save_file_settings(self.state.current_file_hash, self.state.config)
                 self.settings_saved.emit()
+            self._config_dirty = False
 
             file_info = self.state.uploaded_files[index]
             self.state.selected_file_idx = index
@@ -398,6 +347,9 @@ class DesktopSessionManager(QObject):
         Updates global config and optionally saves to disk.
         """
         if persist and record_history and self.state.current_file_hash:
+            # If editing after an undo, drop the now-orphaned future branch
+            if self.state.undo_index < self.state.max_history_index:
+                self.repo.truncate_history_above(self.state.current_file_hash, self.state.undo_index)
             self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, self.state.config)
             self.state.undo_index += 1
             self.state.max_history_index = self.state.undo_index
@@ -410,6 +362,7 @@ class DesktopSessionManager(QObject):
         self.state.config = config
 
         if persist:
+            self._config_dirty = True
             self._persist_sticky_settings(config)
             if self.state.current_file_hash:
                 self.repo.save_file_settings(self.state.current_file_hash, config)
@@ -427,6 +380,7 @@ class DesktopSessionManager(QObject):
             prev_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
             if prev_config:
                 self.state.config = prev_config
+                self._config_dirty = True
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -436,6 +390,7 @@ class DesktopSessionManager(QObject):
             next_config = self.repo.load_history_step(self.state.current_file_hash, self.state.undo_index)
             if next_config:
                 self.state.config = next_config
+                self._config_dirty = True
                 self.state_changed.emit()
                 self.history_changed.emit()
 
@@ -449,6 +404,7 @@ class DesktopSessionManager(QObject):
             self.state.max_history_index = 0
             self.history_changed.emit()
 
+        self._config_dirty = False
         self.update_config(WorkspaceConfig())
         self.state_changed.emit()
 
@@ -459,7 +415,7 @@ class DesktopSessionManager(QObject):
         self.state_changed.emit()
 
     def paste_settings(self) -> None:
-        if self.state.clipboard:
+        if self.state.clipboard and self.state.current_file_hash:
             import copy
 
             self.update_config(copy.deepcopy(self.state.clipboard))
@@ -506,6 +462,7 @@ class DesktopSessionManager(QObject):
         self.state.current_file_path = None
         self.state.current_file_hash = None
         self.state.config = WorkspaceConfig()
+        self._config_dirty = False
 
         self.asset_model.refresh()
         self.state_changed.emit()
@@ -521,6 +478,7 @@ class DesktopSessionManager(QObject):
 
             if not self.state.uploaded_files:
                 self.state.selected_file_idx = -1
+                self.state.selected_indices = []
                 self.state.current_file_path = None
                 self.state.current_file_hash = None
                 self.state.preview_raw = None

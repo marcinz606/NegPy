@@ -154,7 +154,7 @@ class FileBrowser(QWidget):
         model = self.session.asset_model
         selection_model = self.list_view.selectionModel()
 
-        current_actual = {model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes()}
+        current_actual = {model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes() if model.display_to_actual(idx.row()) >= 0}
         target_actual = set(self.session.state.selected_indices)
 
         if current_actual == target_actual:
@@ -192,7 +192,7 @@ class FileBrowser(QWidget):
     def _commit_selection(self) -> None:
         """Sends current UI selection to the session after debounce."""
         model = self.session.asset_model
-        actual_indices = [model.display_to_actual(idx.row()) for idx in self.list_view.selectionModel().selectedIndexes()]
+        actual_indices = [a for idx in self.list_view.selectionModel().selectedIndexes() if (a := model.display_to_actual(idx.row())) >= 0]
         if set(actual_indices) != set(self.session.state.selected_indices):
             self.session.update_selection(actual_indices)
 
@@ -258,7 +258,7 @@ class FileBrowser(QWidget):
 
         model = self.session.asset_model
         modifiers = QApplication.keyboardModifiers()
-        actual_indices = [model.display_to_actual(idx.row()) for idx in self.list_view.selectionModel().selectedIndexes()]
+        actual_indices = [a for idx in self.list_view.selectionModel().selectedIndexes() if (a := model.display_to_actual(idx.row())) >= 0]
         actual_clicked = model.display_to_actual(index.row())
 
         if modifiers & Qt.KeyboardModifier.ControlModifier:
