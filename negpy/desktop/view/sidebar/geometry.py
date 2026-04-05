@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from PyQt6.QtWidgets import (
     QComboBox,
     QPushButton,
@@ -56,16 +58,14 @@ class GeometrySidebar(BaseSidebar):
         self.layout.addLayout(slider_row)
 
     def _connect_signals(self) -> None:
-        self.ratio_combo.currentTextChanged.connect(lambda t: self.update_config_section("geometry", persist=True, autocrop_ratio=t))
+        self.ratio_combo.currentTextChanged.connect(self._on_ratio_changed)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.reset_crop_btn.clicked.connect(self.controller.reset_crop)
 
         self.offset_slider.valueChanged.connect(
             lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, autocrop_offset=int(v))
         )
-        self.offset_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, autocrop_offset=int(v))
-        )
+        self.offset_slider.valueCommitted.connect(self._on_offset_committed)
 
         self.fine_rot_slider.valueChanged.connect(
             lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, fine_rotation=v)
@@ -73,6 +73,24 @@ class GeometrySidebar(BaseSidebar):
         self.fine_rot_slider.valueCommitted.connect(
             lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=v)
         )
+
+    def _on_ratio_changed(self, ratio: str) -> None:
+        new_config = replace(
+            self.state.config,
+            geometry=replace(self.state.config.geometry, autocrop_ratio=ratio),
+            process=replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0)),
+        )
+        self.controller.session.update_config(new_config, persist=True)
+        self.controller.request_render()
+
+    def _on_offset_committed(self, v: float) -> None:
+        new_config = replace(
+            self.state.config,
+            geometry=replace(self.state.config.geometry, autocrop_offset=int(v)),
+            process=replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0)),
+        )
+        self.controller.session.update_config(new_config, persist=True)
+        self.controller.request_render()
 
     def _on_manual_crop_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.CROP_MANUAL if checked else ToolMode.NONE)

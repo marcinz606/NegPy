@@ -275,16 +275,19 @@ class AppController(QObject):
                 max(ry1, ry2),
             ),
         )
-        self.session.update_config(replace(self.state.config, geometry=new_geo))
+        new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
+        self.session.update_config(replace(self.state.config, geometry=new_geo, process=new_proc))
         self.state.active_tool = ToolMode.NONE
         self.tool_sync_requested.emit()
         self.request_render()
 
     def reset_crop(self) -> None:
+        new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
         self.session.update_config(
             replace(
                 self.state.config,
                 geometry=replace(self.state.config.geometry, manual_crop_rect=None),
+                process=new_proc,
             )
         )
         self.request_render()

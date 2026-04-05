@@ -161,16 +161,16 @@ class ExposureSidebar(BaseSidebar):
         self.controller.set_active_tool(ToolMode.WB_PICK if checked else ToolMode.NONE)
 
     def _on_camera_wb_toggled(self, checked: bool) -> None:
-        self.update_config_section("exposure", render=True, persist=True, use_camera_wb=checked)
+        from dataclasses import replace
+
+        new_config = replace(
+            self.state.config,
+            exposure=replace(self.state.config.exposure, use_camera_wb=checked),
+            process=replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0)),
+        )
+        # render=False: don't analyse bounds on stale (pre-reload) raw data
+        self.controller.session.update_config(new_config, persist=True, render=False)
         if self.state.current_file_path:
-            # Clear local analysis to force fresh normalization bounds for new WB
-            self.update_config_section(
-                "process",
-                render=True,
-                persist=True,
-                local_floors=(0.0, 0.0, 0.0),
-                local_ceils=(0.0, 0.0, 0.0),
-            )
             self.controller.load_file(self.state.current_file_path)
 
     def sync_ui(self) -> None:

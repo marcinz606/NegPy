@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.13.2
+
+- Fix regression: Changing camera wb, crop ratio, crop offset, manual crop, or resetting crop now forces normalization bounds re-analysis.
+- Fix: Process mode change now correctly clears both floor and ceiling bounds (previously only ceiling was cleared).
+- Fix: Corrupted RAW files (partial data errors) no longer crash the loader — app falls back gracefully.
+- Updated dependencies: PyQt6 6.11.0, wgpu 0.31.0. (might help crashes with newer nvidia drivers)
+
 ## 0.13.1
 
 - Fix: Pick WB not updating magenta & yellow sliders

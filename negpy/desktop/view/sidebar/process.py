@@ -120,6 +120,7 @@ class ProcessSidebar(BaseSidebar):
             process_mode=mode,
             render=True,
             persist=True,
+            local_floors=(0.0, 0.0, 0.0),
             local_ceils=(0.0, 0.0, 0.0),
         )
         self.sync_ui()

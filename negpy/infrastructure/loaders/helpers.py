@@ -1,6 +1,8 @@
-import rawpy
-import numpy as np
 from typing import Any
+
+import numpy as np
+import rawpy
+
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 
 
@@ -36,10 +38,18 @@ def get_best_demosaic_algorithm(raw: Any) -> Any:
     """
     try:
         if raw.raw_type == rawpy.RawType.XTrans:
-            return rawpy.DemosaicAlgorithm.XT_1PASS
-        return rawpy.DemosaicAlgorithm.AHD
-    except AttributeError:
-        return None
+            return rawpy.DemosaicAlgorithm.XT_3PASS
+
+        elif raw.raw_type == rawpy.RawType.Bayer:
+            if hasattr(rawpy.DemosaicAlgorithm, "AMAZE") and rawpy.DemosaicAlgorithm.AMAZE.isSupported:
+                return rawpy.DemosaicAlgorithm.AMAZE
+            return rawpy.DemosaicAlgorithm.DHT
+
+        else:
+            return rawpy.DemosaicAlgorithm.LINEAR
+
+    except Exception:
+        return rawpy.DemosaicAlgorithm.LINEAR
 
 
 def get_supported_raw_wildcards() -> str:
