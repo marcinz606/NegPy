@@ -1,6 +1,6 @@
 import qtawesome as qta
 from PyQt6.QtWidgets import (
-    QComboBox,
+    QButtonGroup,
     QHBoxLayout,
     QPushButton,
 )
@@ -20,10 +20,23 @@ class ExposureSidebar(BaseSidebar):
         self.layout.setSpacing(12)
         conf = self.state.config.exposure
 
-        self.region_combo = QComboBox()
-        self.region_combo.addItems(["Global", "Shadows", "Highlights"])
-        self.region_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
-        self.layout.addWidget(self.region_combo)
+        region_row = QHBoxLayout()
+        region_row.setSpacing(4)
+        self.region_global_btn = QPushButton("Global")
+        self.region_shadow_btn = QPushButton("Shadows")
+        self.region_highlight_btn = QPushButton("Highlights")
+        btn_style = f"font-size: {THEME.font_size_base}px; padding: 8px;"
+        for btn in (self.region_global_btn, self.region_shadow_btn, self.region_highlight_btn):
+            btn.setCheckable(True)
+            btn.setStyleSheet(btn_style)
+            region_row.addWidget(btn)
+        self.region_global_btn.setChecked(True)
+        self.region_btn_group = QButtonGroup(self)
+        self.region_btn_group.setExclusive(True)
+        self.region_btn_group.addButton(self.region_global_btn, 0)
+        self.region_btn_group.addButton(self.region_shadow_btn, 1)
+        self.region_btn_group.addButton(self.region_highlight_btn, 2)
+        self.layout.addLayout(region_row)
 
         self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
@@ -51,7 +64,7 @@ class ExposureSidebar(BaseSidebar):
         wb_btn_row.addWidget(self.camera_wb_btn)
         self.layout.addLayout(wb_btn_row)
 
-        self.density_slider = CompactSlider("Density", -0.0, 2.0, conf.density)
+        self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
         self.grade_slider = CompactSlider("Grade", 0.0, 5.0, conf.grade)
 
         self.layout.addWidget(self.density_slider)
@@ -73,8 +86,11 @@ class ExposureSidebar(BaseSidebar):
 
         self.layout.addStretch()
 
+    def _region_index(self) -> int:
+        return self.region_btn_group.checkedId()
+
     def _connect_signals(self) -> None:
-        self.region_combo.currentIndexChanged.connect(self.sync_ui)
+        self.region_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
 
         self.cyan_slider.valueChanged.connect(self._on_cyan_changed)
         self.magenta_slider.valueChanged.connect(self._on_magenta_changed)
@@ -131,7 +147,7 @@ class ExposureSidebar(BaseSidebar):
         )
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:
-        idx = self.region_combo.currentIndex()
+        idx = self._region_index()
         if idx == 0:
             self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, wb_cyan=v)
         elif idx == 1:
@@ -140,7 +156,7 @@ class ExposureSidebar(BaseSidebar):
             self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, highlight_cyan=v)
 
     def _on_magenta_changed(self, v: float, persist: bool = False) -> None:
-        idx = self.region_combo.currentIndex()
+        idx = self._region_index()
         if idx == 0:
             self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, wb_magenta=v)
         elif idx == 1:
@@ -149,7 +165,7 @@ class ExposureSidebar(BaseSidebar):
             self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, highlight_magenta=v)
 
     def _on_yellow_changed(self, v: float, persist: bool = False) -> None:
-        idx = self.region_combo.currentIndex()
+        idx = self._region_index()
         if idx == 0:
             self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, wb_yellow=v)
         elif idx == 1:
@@ -173,12 +189,28 @@ class ExposureSidebar(BaseSidebar):
         if self.state.current_file_path:
             self.controller.load_file(self.state.current_file_path)
 
+    # Base hues per slider; varied by region for visual context
+    _CMY_COLORS = {
+        # region_index: (cyan_color, magenta_color, yellow_color)
+        0: ("#00b1b1", "#b100b1", "#b1b100"),  # Global — full saturation
+        1: ("#007a9c", "#7a009c", "#7a7a00"),  # Shadows — cooler/darker
+        2: ("#00d4c8", "#d400a0", "#d4c800"),  # Highlights — brighter/warmer
+    }
+
+    def _update_cmy_label_colors(self, idx: int) -> None:
+        c, m, y = self._CMY_COLORS.get(idx, self._CMY_COLORS[0])
+        fs = THEME.font_size_base
+        self.cyan_slider.label.setStyleSheet(f"font-size: {fs}px; color: {c};")
+        self.magenta_slider.label.setStyleSheet(f"font-size: {fs}px; color: {m};")
+        self.yellow_slider.label.setStyleSheet(f"font-size: {fs}px; color: {y};")
+
     def sync_ui(self) -> None:
         conf = self.state.config.exposure
 
         self.block_signals(True)
         try:
-            idx = self.region_combo.currentIndex()
+            idx = self._region_index()
+            self._update_cmy_label_colors(idx)
             if idx == 0:
                 self.cyan_slider.setValue(conf.wb_cyan)
                 self.magenta_slider.setValue(conf.wb_magenta)
@@ -211,7 +243,9 @@ class ExposureSidebar(BaseSidebar):
         Helper to block/unblock all sliders and buttons.
         """
         widgets = [
-            self.region_combo,
+            self.region_global_btn,
+            self.region_shadow_btn,
+            self.region_highlight_btn,
             self.cyan_slider,
             self.magenta_slider,
             self.yellow_slider,

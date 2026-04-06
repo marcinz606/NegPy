@@ -37,7 +37,7 @@ class TestExposureLogic(unittest.TestCase):
         """Verify unit conversion roundtrip."""
         val = 0.5
         dens = cmy_to_density(val, log_range=1.0)
-        self.assertEqual(dens, 0.075)
+        self.assertEqual(dens, 0.1)  # 0.5 * cmy_max_density(0.2) / 1.0
 
         val_back = density_to_cmy(dens, log_range=1.0)
         self.assertAlmostEqual(val, val_back)

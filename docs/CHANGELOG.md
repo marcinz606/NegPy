@@ -3,11 +3,15 @@
 ## 0.14.0
 
 - Added **Split Toning**: independent shadow and highlight color tinting with hue (0–360°) and strength controls. Works on both color and B&W scans. Applied in Lab space — luminance is preserved exactly.
-- Hue sliders feature a rainbow gradient track and a dynamic label color that tracks the current selection.
 - Improved normalization: simplified per-channel floor analysis for more consistent results across different film stocks.
 - Increased CMY white balance range for stronger correction capability.
-- Toning section moved above Retouch in the sidebar and expanded by default.
 - Toning: Selenium & Sepia sliders now hidden in color mode; Paper Profile section moved below toning controls with a clear label.
+- Exposure: Global / Shadows / Highlights region selector replaced with three toggle buttons; CMY label colors shift subtly per region for visual context.
+- Collapsible sidebar sections now show a red dot indicator when they contain non-default values.
+- Lab: color-only sliders (Separation, Saturation, Vibrance, Denoise) now hidden in B&W mode instead of greyed out.
+- Retouch: Brush Size slider only shown when the Heal Tool is active.
+- Added tooltips to technical controls: CLAHE, Color Separation, Chroma Denoise, Vibrance, Analysis Buffer, D-Range Clip.
+- **Canvas background color**: three swatch buttons in the toolbar (Black / Dark Grey / Mid Grey) to set the viewport background.
 
 ## 0.13.2
 

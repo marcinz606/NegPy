@@ -69,6 +69,11 @@ class CollapsibleSection(QWidget):
 
         btn_layout.addStretch()
 
+        self.modified_dot = QLabel("●")
+        self.modified_dot.setStyleSheet(f"color: {THEME.accent_primary}; background: transparent; font-size: 8px;")
+        self.modified_dot.setVisible(False)
+        btn_layout.addWidget(self.modified_dot)
+
         self.chevron_label = QLabel()
         self.chevron_label.setStyleSheet("background: transparent;")
         # Set initial chevron
@@ -106,6 +111,10 @@ class CollapsibleSection(QWidget):
             self.chevron_label.setPixmap(qta.icon("fa5s.chevron-down", color="#A0A0A0").pixmap(12, 12))
         else:
             self.chevron_label.setPixmap(qta.icon("fa5s.chevron-right", color="#A0A0A0").pixmap(12, 12))
+
+    def set_modified(self, modified: bool) -> None:
+        """Show or hide the accent dot indicating non-default values in this section."""
+        self.modified_dot.setVisible(modified)
 
     def _on_toggle(self, checked: bool) -> None:
         self.content_area.setVisible(checked)

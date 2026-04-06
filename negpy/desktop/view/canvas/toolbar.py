@@ -1,6 +1,7 @@
 import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -111,6 +112,37 @@ class ActionToolbar(QWidget):
         self.btn_hq.setCheckable(True)
         self.btn_hq.setToolTip("Toggle High Quality Preview")
 
+        # Canvas background color swatches
+        self._canvas_colors = [
+            ("#050505", (0.02, 0.02, 0.02), "Black"),
+            ("#1C1C1C", (0.11, 0.11, 0.11), "Dark Grey"),
+            ("#404040", (0.25, 0.25, 0.25), "Mid Grey"),
+        ]
+        self.canvas_color_btns: list[QToolButton] = []
+        self.canvas_color_group = QButtonGroup(self)
+        self.canvas_color_group.setExclusive(True)
+        for i, (hex_col, _, label) in enumerate(self._canvas_colors):
+            btn = QToolButton()
+            btn.setCheckable(True)
+            btn.setToolTip(f"Canvas: {label}")
+            btn.setFixedSize(20, 20)
+            btn.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {hex_col};
+                    border: 1px solid #444;
+                    border-radius: 3px;
+                }}
+                QToolButton:checked {{
+                    border: 2px solid {THEME.accent_primary};
+                }}
+                QToolButton:hover {{
+                    border: 1px solid #888;
+                }}
+            """)
+            self.canvas_color_group.addButton(btn, i)
+            self.canvas_color_btns.append(btn)
+        self.canvas_color_btns[0].setChecked(True)
+
         # 6. Session
         self.btn_save = QPushButton(" Save")
         self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
@@ -148,6 +180,8 @@ class ActionToolbar(QWidget):
         row1_layout.addWidget(self.zoom_slider)
         row1_layout.addWidget(self.zoom_label)
         row1_layout.addWidget(self.btn_hq)
+        for btn in self.canvas_color_btns:
+            row1_layout.addWidget(btn)
         row1_layout.addWidget(self.btn_rot_l)
         row1_layout.addWidget(self.btn_rot_r)
         row1_layout.addWidget(self.btn_flip_h)
@@ -186,6 +220,9 @@ class ActionToolbar(QWidget):
         self.btn_unload.clicked.connect(self.session.remove_current_file)
         self.btn_export.clicked.connect(self.controller.request_export)
 
+        # Canvas color
+        self.canvas_color_group.idToggled.connect(self._on_canvas_color_changed)
+
         # Zoom
         self.zoom_slider.valueChanged.connect(lambda v: self.controller.zoom_requested.emit(float(v / 100.0)))
         self.btn_hq.clicked.connect(self.controller.toggle_hq_preview)
@@ -193,6 +230,11 @@ class ActionToolbar(QWidget):
 
         # State sync for button enabled/disabled
         self.session.state_changed.connect(self._update_ui_state)
+
+    def _on_canvas_color_changed(self, idx: int, checked: bool) -> None:
+        if checked and self.controller.canvas:
+            _, (r, g, b), _ = self._canvas_colors[idx]
+            self.controller.canvas.set_background_color(r, g, b)
 
     def _on_zoom_changed(self, zoom: float) -> None:
         self.zoom_slider.blockSignals(True)

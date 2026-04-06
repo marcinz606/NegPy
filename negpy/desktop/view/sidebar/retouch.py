@@ -84,6 +84,7 @@ class RetouchSidebar(BaseSidebar):
             self.auto_size_slider.setValue(float(conf.dust_size))
             self.manual_size_slider.setValue(float(conf.manual_dust_size))
             self.pick_dust_btn.setChecked(self.state.active_tool == ToolMode.DUST_PICK)
+            self.manual_size_slider.setVisible(self.state.active_tool == ToolMode.DUST_PICK)
 
             num_spots = len(conf.manual_dust_spots)
             self.heals_count_lbl.setText(f"Heals: {num_spots}")

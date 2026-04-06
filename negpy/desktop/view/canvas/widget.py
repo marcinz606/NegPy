@@ -38,6 +38,7 @@ class ImageCanvas(QWidget):
         self.pan_offset = QPointF(0, 0)
         self._last_mouse_pos = QPointF(0, 0)
         self._is_panning = False
+        self._bg_color = QColor("#050505")
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
@@ -70,11 +71,18 @@ class ImageCanvas(QWidget):
             self.pan_offset = QPointF(0, 0)
         self._sync_transform()
 
+    def set_background_color(self, r: float, g: float, b: float) -> None:
+        """Update canvas background color (0–1 linear values)."""
+        hex_color = "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
+        self._bg_color = QColor(hex_color)
+        self.gpu_widget.set_background_color(r, g, b)
+        self.update()
+
     def paintEvent(self, event) -> None:
         """Draw background only if GPU is not active to prevent covering it."""
         if not self.gpu_widget.isVisible():
             painter = QPainter(self)
-            painter.fillRect(event.rect(), QColor("#050505"))
+            painter.fillRect(event.rect(), self._bg_color)
 
     def clear(self) -> None:
         """Total viewport reset."""

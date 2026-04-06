@@ -38,6 +38,7 @@ class GPUCanvasWidget(QWidget):
         self.zoom: float = 1.0
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
+        self._bg: Tuple[float, float, float] = (0.02, 0.02, 0.02)
 
         # Debounce resize to prevent context thrashing
         self.resize_timer = QTimer()
@@ -89,6 +90,15 @@ class GPUCanvasWidget(QWidget):
     def update_texture(self, tex_wrapper: Any) -> None:
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
+        self.canvas.request_draw(self._draw_frame)
+
+    def set_background_color(self, r: float, g: float, b: float) -> None:
+        self._bg = (r, g, b)
+        hex_color = "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
+        self.canvas.setStyleSheet(f"background-color: {hex_color};")
+        pal = self.palette()
+        pal.setColor(QPalette.ColorRole.Window, QColor(hex_color))
+        self.setPalette(pal)
         self.canvas.request_draw(self._draw_frame)
 
     def clear(self) -> None:
@@ -249,7 +259,7 @@ class GPUCanvasWidget(QWidget):
                     "view": current_tex.create_view(),
                     "load_op": wgpu.LoadOp.clear,
                     "store_op": wgpu.StoreOp.store,
-                    "clear_value": (0.06, 0.06, 0.06, 1),
+                    "clear_value": (*self._bg, 1),
                 }
             ]
         )

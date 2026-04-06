@@ -24,14 +24,14 @@ class ToningSidebar(BaseSidebar):
 
         row_sh = QHBoxLayout()
         self.shadow_hue_slider = HueSlider("S-Hue", conf.shadow_tint_hue)
-        self.shadow_str_slider = CompactSlider("Strength", 0.0, 1.0, conf.shadow_tint_strength)
+        self.shadow_str_slider = CompactSlider("S-Str", 0.0, 1.0, conf.shadow_tint_strength)
         row_sh.addWidget(self.shadow_hue_slider)
         row_sh.addWidget(self.shadow_str_slider)
         self.layout.addLayout(row_sh)
 
         row_hl = QHBoxLayout()
         self.highlight_hue_slider = HueSlider("H-Hue", conf.highlight_tint_hue)
-        self.highlight_str_slider = CompactSlider("Strength", 0.0, 1.0, conf.highlight_tint_strength)
+        self.highlight_str_slider = CompactSlider("H-Str", 0.0, 1.0, conf.highlight_tint_strength)
         row_hl.addWidget(self.highlight_hue_slider)
         row_hl.addWidget(self.highlight_str_slider)
         self.layout.addLayout(row_hl)
