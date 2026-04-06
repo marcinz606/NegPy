@@ -177,7 +177,7 @@ class GPUEngine:
             "clahe_u": 32,
             "retouch_u": 40,
             "lab": 96,
-            "toning": 48,
+            "toning": 64,
             "layout": 48,
         }
         return {
@@ -736,6 +736,13 @@ class GPUEngine:
             )
             + struct.pack("ffff", tint[0], tint[1], tint[2], dmax)
             + struct.pack("iiIf", crop_offset[0], crop_offset[1], is_bw, 0.0)
+            + struct.pack(
+                "ffff",
+                float(settings.toning.shadow_tint_hue),
+                float(settings.toning.shadow_tint_strength),
+                float(settings.toning.highlight_tint_hue),
+                float(settings.toning.highlight_tint_strength),
+            )
         )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)

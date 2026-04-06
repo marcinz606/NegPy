@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.14.0
+
+- Added **Split Toning**: independent shadow and highlight color tinting with hue (0–360°) and strength controls. Works on both color and B&W scans. Applied in Lab space — luminance is preserved exactly.
+- Hue sliders feature a rainbow gradient track and a dynamic label color that tracks the current selection.
+- Improved normalization: simplified per-channel floor analysis for more consistent results across different film stocks.
+- Increased CMY white balance range for stronger correction capability.
+- Toning section moved above Retouch in the sidebar and expanded by default.
+- Toning: Selenium & Sepia sliders now hidden in color mode; Paper Profile section moved below toning controls with a clear label.
+
 ## 0.13.2
 
 - Fix regression: Changing camera wb, crop ratio, crop offset, manual crop, or resetting crop now forces normalization bounds re-analysis.

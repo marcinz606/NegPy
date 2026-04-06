@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import QComboBox
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
+
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider
 from negpy.features.process.models import ProcessMode
 from negpy.features.toning.logic import PAPER_PROFILES
 
@@ -11,18 +12,37 @@ class ToningSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
+        from negpy.desktop.view.styles.theme import THEME
+
         self.layout.setSpacing(12)
         conf = self.state.config.toning
+
+        self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
+        self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength, color="#664422")
+        self.layout.addWidget(self.selenium_slider)
+        self.layout.addWidget(self.sepia_slider)
+
+        row_sh = QHBoxLayout()
+        self.shadow_hue_slider = HueSlider("S-Hue", conf.shadow_tint_hue)
+        self.shadow_str_slider = CompactSlider("Strength", 0.0, 1.0, conf.shadow_tint_strength)
+        row_sh.addWidget(self.shadow_hue_slider)
+        row_sh.addWidget(self.shadow_str_slider)
+        self.layout.addLayout(row_sh)
+
+        row_hl = QHBoxLayout()
+        self.highlight_hue_slider = HueSlider("H-Hue", conf.highlight_tint_hue)
+        self.highlight_str_slider = CompactSlider("Strength", 0.0, 1.0, conf.highlight_tint_strength)
+        row_hl.addWidget(self.highlight_hue_slider)
+        row_hl.addWidget(self.highlight_str_slider)
+        self.layout.addLayout(row_hl)
+
+        paper_label = QLabel("Paper Profile")
+        paper_label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary};")
+        self.layout.addWidget(paper_label)
         self.paper_combo = QComboBox()
         self.paper_combo.addItems(list(PAPER_PROFILES.keys()))
         self.paper_combo.setCurrentText(conf.paper_profile)
         self.layout.addWidget(self.paper_combo)
-
-        self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
-        self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength, color="#664422")
-
-        self.layout.addWidget(self.selenium_slider)
-        self.layout.addWidget(self.sepia_slider)
 
         self.layout.addStretch()
 
@@ -40,6 +60,30 @@ class ToningSidebar(BaseSidebar):
         self.sepia_slider.valueCommitted.connect(
             lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, sepia_strength=v)
         )
+        self.shadow_hue_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, shadow_tint_hue=v)
+        )
+        self.shadow_hue_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, shadow_tint_hue=v)
+        )
+        self.shadow_str_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, shadow_tint_strength=v)
+        )
+        self.shadow_str_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, shadow_tint_strength=v)
+        )
+        self.highlight_hue_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, highlight_tint_hue=v)
+        )
+        self.highlight_hue_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, highlight_tint_hue=v)
+        )
+        self.highlight_str_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, highlight_tint_strength=v)
+        )
+        self.highlight_str_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, highlight_tint_strength=v)
+        )
 
     def sync_ui(self) -> None:
         conf = self.state.config.toning
@@ -50,9 +94,13 @@ class ToningSidebar(BaseSidebar):
             self.paper_combo.setCurrentText(conf.paper_profile)
             self.selenium_slider.setValue(conf.selenium_strength)
             self.sepia_slider.setValue(conf.sepia_strength)
+            self.shadow_hue_slider.setValue(conf.shadow_tint_hue)
+            self.shadow_str_slider.setValue(conf.shadow_tint_strength)
+            self.highlight_hue_slider.setValue(conf.highlight_tint_hue)
+            self.highlight_str_slider.setValue(conf.highlight_tint_strength)
 
-            self.selenium_slider.setEnabled(is_bw)
-            self.sepia_slider.setEnabled(is_bw)
+            self.selenium_slider.setVisible(is_bw)
+            self.sepia_slider.setVisible(is_bw)
         finally:
             self.block_signals(False)
 
@@ -61,6 +109,10 @@ class ToningSidebar(BaseSidebar):
             self.paper_combo,
             self.selenium_slider,
             self.sepia_slider,
+            self.shadow_hue_slider,
+            self.shadow_str_slider,
+            self.highlight_hue_slider,
+            self.highlight_str_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)

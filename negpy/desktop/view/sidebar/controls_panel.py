@@ -80,20 +80,20 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.flask", color=icon_color),
         )
 
-        self.retouch_sidebar = RetouchSidebar(self.controller)
-        self._add_sidebar_section(
-            "Retouch",
-            "retouch",
-            self.retouch_sidebar,
-            icon=qta.icon("fa5s.brush", color=icon_color),
-        )
-
         self.toning_sidebar = ToningSidebar(self.controller)
         self._add_sidebar_section(
             "Toning",
             "toning",
             self.toning_sidebar,
             icon=qta.icon("fa5s.tint", color=icon_color),
+        )
+
+        self.retouch_sidebar = RetouchSidebar(self.controller)
+        self._add_sidebar_section(
+            "Retouch",
+            "retouch",
+            self.retouch_sidebar,
+            icon=qta.icon("fa5s.brush", color=icon_color),
         )
 
         self.icc_sidebar = ICCSidebar(self.controller)

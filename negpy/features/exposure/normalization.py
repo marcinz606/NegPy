@@ -109,22 +109,9 @@ def analyze_log_exposure_bounds(
         p_low, p_high = p_high, p_low
         fixed_range = -3.0
 
-    mean_log = np.mean(img_log, axis=-1)
-
-    dark_threshold = np.percentile(mean_log, p_low)
-    if process_mode == ProcessMode.E6:
-        dark_mask = mean_log >= dark_threshold
-    else:
-        dark_mask = mean_log <= dark_threshold
-
     floors = []
-    if np.any(dark_mask):
-        dark_pixels = img_log[dark_mask]
-        for ch in range(3):
-            floors.append(float(np.mean(dark_pixels[:, ch])))
-    else:
-        for ch in range(3):
-            floors.append(float(np.percentile(img_log[:, :, ch], p_low)))
+    for ch in range(3):
+        floors.append(float(np.percentile(img_log[:, :, ch], p_low)))
 
     ceils = []
     for ch in range(3):

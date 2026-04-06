@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 from numba import njit  # type: ignore
 from typing import Dict
@@ -91,6 +92,38 @@ def simulate_paper_substrate(img: ImageBuffer, profile_name: str) -> ImageBuffer
             float(profile.dmax_boost),
         )
     )
+
+
+def apply_split_toning(
+    img: ImageBuffer,
+    shadow_hue: float = 0.0,
+    shadow_strength: float = 0.0,
+    highlight_hue: float = 0.0,
+    highlight_strength: float = 0.0,
+) -> ImageBuffer:
+    """
+    Additive Lab-space split toning. Shadow and highlight regions are tinted toward
+    the chosen hue angle (0-360°) at the specified strength (0-1). Luminance is preserved.
+    """
+    if shadow_strength == 0.0 and highlight_strength == 0.0:
+        return img
+
+    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    L = lab[:, :, 0]  # 0–100 in OpenCV float Lab
+
+    if shadow_strength > 0.0:
+        s_mask = np.clip(1.0 - L / 50.0, 0.0, 1.0)
+        rad = np.radians(shadow_hue)
+        lab[:, :, 1] += np.cos(rad) * 30.0 * shadow_strength * s_mask
+        lab[:, :, 2] += np.sin(rad) * 30.0 * shadow_strength * s_mask
+
+    if highlight_strength > 0.0:
+        h_mask = np.clip((L - 50.0) / 50.0, 0.0, 1.0)
+        rad = np.radians(highlight_hue)
+        lab[:, :, 1] += np.cos(rad) * 30.0 * highlight_strength * h_mask
+        lab[:, :, 2] += np.sin(rad) * 30.0 * highlight_strength * h_mask
+
+    return ensure_image(np.clip(cv2.cvtColor(lab, cv2.COLOR_LAB2RGB), 0.0, 1.0))
 
 
 def apply_chemical_toning(

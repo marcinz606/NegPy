@@ -173,6 +173,49 @@ class CompactSlider(BaseSlider):
         layout.addWidget(self.slider)
 
 
+class HueSlider(CompactSlider):
+    """
+    CompactSlider variant for 0–360° hue selection.
+    The groove shows a full rainbow gradient; the label color tracks the current hue.
+    """
+
+    def __init__(self, label: str, default_val: float = 0.0, parent=None):
+        super().__init__(label, 0.0, 360.0, default_val, step=1.0, precision=1, parent=parent)
+        self.slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0.000 hsl(0,80%,50%),
+                    stop:0.167 hsl(60,80%,50%),
+                    stop:0.333 hsl(120,80%,50%),
+                    stop:0.500 hsl(180,80%,50%),
+                    stop:0.667 hsl(240,80%,50%),
+                    stop:0.833 hsl(300,80%,50%),
+                    stop:1.000 hsl(360,80%,50%));
+                height: 6px; border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: white;
+                width: 12px; height: 12px;
+                margin: -3px 0;
+                border-radius: 6px;
+                border: 2px solid rgba(0,0,0,0.5);
+            }
+        """)
+        self._update_label_color(default_val)
+
+    def _update_label_color(self, hue_deg: float) -> None:
+        color = QColor.fromHsv(int(hue_deg) % 360, 200, 210)
+        self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {color.name()};")
+
+    def _on_slider_changed(self, value: int) -> None:
+        super()._on_slider_changed(value)
+        self._update_label_color(value / self._precision)
+
+    def setValue(self, value: float) -> None:
+        super().setValue(value)
+        self._update_label_color(value)
+
+
 class RangeSlider(QWidget):
     """
     Dual-handle slider for selecting a range (0.0 to 1.0).

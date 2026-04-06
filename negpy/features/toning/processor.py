@@ -2,7 +2,7 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.toning.models import ToningConfig
-from negpy.features.toning.logic import simulate_paper_substrate, apply_chemical_toning
+from negpy.features.toning.logic import simulate_paper_substrate, apply_chemical_toning, apply_split_toning
 from negpy.kernel.image.logic import get_luminance
 from negpy.features.process.models import ProcessMode
 
@@ -30,5 +30,13 @@ class ToningProcessor:
             )
 
             img = apply_chromaticity_preserving_black_point(img, 0.05)
+
+        img = apply_split_toning(
+            img,
+            shadow_hue=self.config.shadow_tint_hue,
+            shadow_strength=self.config.shadow_tint_strength,
+            highlight_hue=self.config.highlight_tint_hue,
+            highlight_strength=self.config.highlight_tint_strength,
+        )
 
         return img
