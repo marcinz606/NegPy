@@ -53,8 +53,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let s_val = -params.shoulder_width * (diff / max(params.pivots[ch], epsilon) + 0.5);
         var shoulder_mask = fast_sigmoid(s_val);
 
-        let toe_density_offset = params.toe * toe_mask * 0.1;
-        let shoulder_density_offset = params.shoulder * shoulder_mask * 0.1;
+        let toe_density_offset = params.toe * toe_mask * 0.2;
+        let shoulder_density_offset = params.shoulder * shoulder_mask * 0.2;
 
         let shadow_color_offset = params.shadow_cmy[ch] * toe_mask;
         let highlight_color_offset = params.highlight_cmy[ch] * shoulder_mask;

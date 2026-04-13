@@ -64,8 +64,8 @@ def _apply_photometric_fused_kernel(
                 s_val = -shoulder_width * (diff / max(float(pivots[ch]), epsilon) + 0.5)
                 shoulder_mask = _fast_sigmoid(s_val)
 
-                toe_density_offset = toe * toe_mask * 0.1
-                shoulder_density_offset = shoulder * shoulder_mask * 0.1
+                toe_density_offset = toe * toe_mask * 0.2
+                shoulder_density_offset = shoulder * shoulder_mask * 0.2
 
                 shadow_color_offset = shadow_cmy[ch] * toe_mask
                 highlight_color_offset = highlight_cmy[ch] * shoulder_mask
