@@ -66,14 +66,15 @@ class GPUTexture:
         )
         gpu.device.queue.submit([enc.finish()])
 
-        staging.map_sync(mode=wgpu.MapMode.READ)
-        view = staging.read_mapped()
-
-        arr = np.frombuffer(view, dtype=np.float32).reshape((rh, bytes_per_row // 4))
-        result = arr[:, : rw * 4].reshape((rh, rw, 4)).copy()
-        staging.destroy()
-
-        return result
+        try:
+            staging.map_sync(mode=wgpu.MapMode.READ)
+            view = staging.read_mapped()
+            arr = np.frombuffer(view, dtype=np.float32).reshape((rh, bytes_per_row // 4))
+            result = arr[:, : rw * 4].reshape((rh, rw, 4)).copy()
+            staging.unmap()
+            return result
+        finally:
+            staging.destroy()
 
     def readback(self) -> np.ndarray:
         """Downloads pixels from VRAM to CPU ndarray (float32)."""
@@ -93,16 +94,15 @@ class GPUTexture:
         )
         gpu.device.queue.submit([enc.finish()])
 
-        staging.map_sync(mode=wgpu.MapMode.READ)
-        view = staging.read_mapped()
-
-        arr = np.frombuffer(view, dtype=np.float32).reshape((self.height, bytes_per_row // 4))
-        pixels = arr[:, : self.width * 4].reshape((self.height, self.width, 4))
-
-        result = pixels.copy()
-        staging.destroy()
-
-        return result
+        try:
+            staging.map_sync(mode=wgpu.MapMode.READ)
+            view = staging.read_mapped()
+            arr = np.frombuffer(view, dtype=np.float32).reshape((self.height, bytes_per_row // 4))
+            result = arr[:, : self.width * 4].reshape((self.height, self.width, 4)).copy()
+            staging.unmap()
+            return result
+        finally:
+            staging.destroy()
 
     def destroy(self) -> None:
         """Forces hardware resource release."""

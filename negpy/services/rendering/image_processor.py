@@ -93,6 +93,7 @@ class ImageProcessor:
                 return processed, context.metrics
             except Exception as e:
                 logger.error(f"Hardware acceleration failed: {e}")
+                context.metrics["gpu_fallback"] = True
 
         processed = self.engine_cpu.process(img, settings, source_hash, context)
         return processed, context.metrics

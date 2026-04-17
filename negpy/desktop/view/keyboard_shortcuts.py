@@ -2,6 +2,12 @@ from PyQt6.QtGui import QShortcut, QKeySequence
 from PyQt6.QtCore import Qt
 
 
+def _show_shortcuts(window) -> None:
+    from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
+    dlg = ShortcutsOverlay(window)
+    dlg.exec()
+
+
 def setup_keyboard_shortcuts(window) -> None:
     """Defines global application hotkeys for the main window."""
     controller = window.controller
@@ -101,3 +107,6 @@ def setup_keyboard_shortcuts(window) -> None:
     QShortcut(QKeySequence("Ctrl+V"), window, controller.session.paste_settings)
     QShortcut(QKeySequence("Ctrl+Z"), window, controller.session.undo)
     QShortcut(QKeySequence("Ctrl+Y"), window, controller.session.redo)
+
+    # Help
+    QShortcut(QKeySequence("?"), window, lambda: _show_shortcuts(window))

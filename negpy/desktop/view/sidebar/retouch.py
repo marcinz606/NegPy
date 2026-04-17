@@ -17,7 +17,9 @@ class RetouchSidebar(BaseSidebar):
 
         auto_row = QHBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
+        self.threshold_slider.setToolTip("Minimum brightness delta to classify a pixel as dust")
         self.auto_size_slider = CompactSlider("Auto Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1)
+        self.auto_size_slider.setToolTip("Maximum radius (px) of dust spots detected automatically")
         auto_row.addWidget(self.threshold_slider)
         auto_row.addWidget(self.auto_size_slider)
         self.layout.addLayout(auto_row)
@@ -37,6 +39,7 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addLayout(buttons_row)
 
         self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1)
+        self.manual_size_slider.setToolTip("Radius of the manual heal brush")
         self.layout.addWidget(self.manual_size_slider)
 
         actions_row = QHBoxLayout()

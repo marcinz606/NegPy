@@ -68,6 +68,7 @@ class AppController(QObject):
         self._first_render_done = False
         self._export_start_time = 0.0
         self._discovery_running = False
+        self._gpu_fallback_notified = False
 
         self.preview_service = PreviewManager()
         self.watcher = FolderWatchService()
@@ -141,6 +142,7 @@ class AppController(QObject):
         self.thumb_worker.progress.connect(self._on_thumbnail_progress)
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
+        self.thumb_worker.error.connect(self._on_render_error)
 
         self.normalization_requested.connect(self.norm_worker.process)
         self.norm_worker.progress.connect(self._on_normalization_progress)
@@ -657,7 +659,13 @@ class AppController(QObject):
 
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
-        self.set_status("READY", 1000)
+
+        if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
+            self._gpu_fallback_notified = True
+            self.set_status("GPU acceleration failed — using CPU", 5000)
+        else:
+            self.set_status("READY", 1000)
+
         self.image_updated.emit()
 
         if should_update_thumb:
@@ -731,7 +739,7 @@ class AppController(QObject):
             ThumbnailUpdateTask(
                 filename=os.path.basename(self.state.current_file_path),
                 file_hash=self.state.current_file_hash,
-                buffer=buffer.copy(),
+                buffer=buffer,
             )
         )
 
@@ -749,4 +757,6 @@ class AppController(QObject):
         self.norm_thread.wait()
         self.discovery_thread.quit()
         self.discovery_thread.wait()
+        self.preview_load_thread.quit()
+        self.preview_load_thread.wait()
         self.render_worker.destroy_all()

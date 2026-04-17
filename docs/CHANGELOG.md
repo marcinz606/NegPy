@@ -10,8 +10,11 @@
 - Collapsible sidebar sections now show a red dot indicator when they contain non-default values.
 - Lab: color-only sliders (Separation, Saturation, Vibrance, Denoise) now hidden in B&W mode instead of greyed out.
 - Retouch: Brush Size slider only shown when the Heal Tool is active.
-- Added tooltips to technical controls: CLAHE, Color Separation, Chroma Denoise, Vibrance, Analysis Buffer, D-Range Clip.
+- Added tooltips to all sliders: Exposure (density, grade, toe, shoulder, white balance), Toning (selenium, sepia, split-tone hue/strength), Retouch (threshold, brush sizes), Geometry (crop offset, fine rotation).
 - **Canvas background color**: three swatch buttons in the toolbar (Black / Dark Grey / Mid Grey) to set the viewport background.
+- **Keyboard shortcut overlay**: press `?` to open a modal reference of all shortcuts.
+- GPU acceleration failure now shown as a status message instead of silently falling back to CPU.
+- Stability: fixed GPU staging buffer leak on device loss/OOM; fixed dangling thread on app quit; thumbnail failures now surface as status bar errors.
 
 ## 0.13.2
 

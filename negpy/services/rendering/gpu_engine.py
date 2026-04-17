@@ -81,6 +81,11 @@ class GPUEngine:
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_scale_factor: float = 1.0
 
+        # Persistent staging buffers — avoid create_buffer() on every readback
+        self._metrics_staging: Optional[Any] = None
+        # (prb, height, buffer) — reused when image size/rotation is unchanged
+        self._downsample_staging: Optional[Tuple[int, int, Any]] = None
+
     def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float) -> int:
         """
         Determines the earliest pipeline stage that needs re-running.
@@ -119,7 +124,12 @@ class GPUEngine:
         return 7  # Nothing changed
 
     def _get_intermediate_texture(self, w: int, h: int, usage: int, label: str) -> GPUTexture:
-        """Retrieves or creates a texture from the pool."""
+        """Retrieves or creates a texture from the pool.
+
+        Key is (w, h, usage, label). A 90°/270° rotation already swaps w and h, so
+        the key naturally changes with geometry — no extra geometry field needed.
+        Contents are fully overwritten each render, so no stale-data risk.
+        """
         key = (w, h, usage, label)
         if key not in self._tex_cache:
             self._tex_cache[key] = GPUTexture(w, h, usage=usage)
@@ -857,17 +867,20 @@ class GPUEngine:
         device = self.gpu.device
         if not device:
             return np.zeros((4, HISTOGRAM_BINS), dtype=np.uint32)
-        read_buf = device.create_buffer(
-            size=METRICS_BUFFER_SIZE,
-            usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ,
-        )
+        if self._metrics_staging is None:
+            read_buf = device.create_buffer(
+                size=METRICS_BUFFER_SIZE,
+                usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ,
+            )
+            self._metrics_staging = read_buf
+        else:
+            read_buf = self._metrics_staging
         encoder = device.create_command_encoder()
         encoder.copy_buffer_to_buffer(self._buffers["metrics"].buffer, 0, read_buf, 0, METRICS_BUFFER_SIZE)
         device.queue.submit([encoder.finish()])
         read_buf.map_sync(wgpu.MapMode.READ)
         data = np.frombuffer(read_buf.read_mapped(), dtype=np.uint32).copy()
         read_buf.unmap()
-        read_buf.destroy()
         return data.reshape((4, HISTOGRAM_BINS))
 
     def _readback_downsampled(self, tex: GPUTexture) -> np.ndarray:
@@ -876,10 +889,16 @@ class GPUEngine:
         if not device:
             return np.zeros((1, 1, 3), dtype=np.float32)
         prb = (tex.width * 16 + 255) & ~255
-        read_buf = device.create_buffer(
-            size=prb * tex.height,
-            usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ,
-        )
+        if self._downsample_staging is None or self._downsample_staging[:2] != (prb, tex.height):
+            if self._downsample_staging is not None:
+                self._downsample_staging[2].destroy()
+            read_buf = device.create_buffer(
+                size=prb * tex.height,
+                usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ,
+            )
+            self._downsample_staging = (prb, tex.height, read_buf)
+        else:
+            read_buf = self._downsample_staging[2]
         encoder = device.create_command_encoder()
         encoder.copy_texture_to_buffer(
             {"texture": tex.texture},
@@ -892,7 +911,6 @@ class GPUEngine:
         valid = raw[:, : tex.width * 16]
         result = valid.view(np.float32).reshape((tex.height, tex.width, 4))
         read_buf.unmap()
-        read_buf.destroy()
         return result[:, :, :3]
 
     def _dispatch_pass(self, encoder: Any, pipeline_name: str, bindings: list, w: int, h: int) -> None:
@@ -1079,6 +1097,12 @@ class GPUEngine:
     def destroy_all(self) -> None:
         """Full resource teardown."""
         self.cleanup()
+        if self._metrics_staging is not None:
+            self._metrics_staging.destroy()
+            self._metrics_staging = None
+        if self._downsample_staging is not None:
+            self._downsample_staging[2].destroy()
+            self._downsample_staging = None
         for buf in self._buffers.values():
             buf.destroy()
         self._buffers.clear()

@@ -18,20 +18,26 @@ class ToningSidebar(BaseSidebar):
         conf = self.state.config.toning
 
         self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
+        self.selenium_slider.setToolTip("Simulates selenium toning — adds cool blue-purple cast to shadows (B&W only)")
         self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength, color="#664422")
+        self.sepia_slider.setToolTip("Simulates sepia toning — adds warm brown cast across the tonal range (B&W only)")
         self.layout.addWidget(self.selenium_slider)
         self.layout.addWidget(self.sepia_slider)
 
         row_sh = QHBoxLayout()
         self.shadow_hue_slider = HueSlider("S-Hue", conf.shadow_tint_hue)
+        self.shadow_hue_slider.setToolTip("Hue of the shadow split-toning color")
         self.shadow_str_slider = CompactSlider("S-Str", 0.0, 1.0, conf.shadow_tint_strength)
+        self.shadow_str_slider.setToolTip("Strength of the shadow split-tone color")
         row_sh.addWidget(self.shadow_hue_slider)
         row_sh.addWidget(self.shadow_str_slider)
         self.layout.addLayout(row_sh)
 
         row_hl = QHBoxLayout()
         self.highlight_hue_slider = HueSlider("H-Hue", conf.highlight_tint_hue)
+        self.highlight_hue_slider.setToolTip("Hue of the highlight split-toning color")
         self.highlight_str_slider = CompactSlider("H-Str", 0.0, 1.0, conf.highlight_tint_strength)
+        self.highlight_str_slider.setToolTip("Strength of the highlight split-tone color")
         row_hl.addWidget(self.highlight_hue_slider)
         row_hl.addWidget(self.highlight_str_slider)
         self.layout.addLayout(row_hl)

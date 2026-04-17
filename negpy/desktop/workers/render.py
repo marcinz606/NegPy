@@ -135,6 +135,7 @@ class ThumbnailWorker(QObject):
 
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
 
     def __init__(self, asset_store) -> None:
         super().__init__()
@@ -166,6 +167,7 @@ class ThumbnailWorker(QObject):
             self.finished.emit(new_thumbs)
         except Exception as e:
             logger.error(f"Thumbnail generation failure: {e}")
+            self.error.emit(str(e))
 
     @pyqtSlot(ThumbnailUpdateTask)
     def update_rendered(self, task: ThumbnailUpdateTask) -> None:
