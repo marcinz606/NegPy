@@ -15,6 +15,7 @@
 - **Keyboard shortcut overlay**: press `?` to open a modal reference of all shortcuts.
 - GPU acceleration failure now shown as a status message instead of silently falling back to CPU.
 - Stability: fixed GPU staging buffer leak on device loss/OOM; fixed dangling thread on app quit; thumbnail failures now surface as status bar errors.
+- **Persistent UI preferences**: HQ preview toggle, canvas background color, auto dust removal default, and ICC profile settings (path, direction, apply-to-export) now survive app restarts.
 
 ## 0.13.2
 

@@ -15,6 +15,12 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.theme import THEME
 
+CANVAS_COLORS = [
+    ("#050505", (0.02, 0.02, 0.02), "Black"),
+    ("#1C1C1C", (0.11, 0.11, 0.11), "Dark Grey"),
+    ("#404040", (0.25, 0.25, 0.25), "Mid Grey"),
+]
+
 
 class ActionToolbar(QWidget):
     """
@@ -113,15 +119,10 @@ class ActionToolbar(QWidget):
         self.btn_hq.setToolTip("Toggle High Quality Preview")
 
         # Canvas background color swatches
-        self._canvas_colors = [
-            ("#050505", (0.02, 0.02, 0.02), "Black"),
-            ("#1C1C1C", (0.11, 0.11, 0.11), "Dark Grey"),
-            ("#404040", (0.25, 0.25, 0.25), "Mid Grey"),
-        ]
         self.canvas_color_btns: list[QToolButton] = []
         self.canvas_color_group = QButtonGroup(self)
         self.canvas_color_group.setExclusive(True)
-        for i, (hex_col, _, label) in enumerate(self._canvas_colors):
+        for i, (hex_col, _, label) in enumerate(CANVAS_COLORS):
             btn = QToolButton()
             btn.setCheckable(True)
             btn.setToolTip(f"Canvas: {label}")
@@ -141,7 +142,7 @@ class ActionToolbar(QWidget):
             """)
             self.canvas_color_group.addButton(btn, i)
             self.canvas_color_btns.append(btn)
-        self.canvas_color_btns[0].setChecked(True)
+        self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
 
         # 6. Session
         self.btn_save = QPushButton(" Save")
@@ -232,9 +233,11 @@ class ActionToolbar(QWidget):
         self.session.state_changed.connect(self._update_ui_state)
 
     def _on_canvas_color_changed(self, idx: int, checked: bool) -> None:
-        if checked and self.controller.canvas:
-            _, (r, g, b), _ = self._canvas_colors[idx]
-            self.controller.canvas.set_background_color(r, g, b)
+        if checked:
+            self.session.set_canvas_bg(idx)
+            if self.controller.canvas:
+                _, (r, g, b), _ = CANVAS_COLORS[idx]
+                self.controller.canvas.set_background_color(r, g, b)
 
     def _on_zoom_changed(self, zoom: float) -> None:
         self.zoom_slider.blockSignals(True)

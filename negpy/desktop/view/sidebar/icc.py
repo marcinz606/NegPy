@@ -61,14 +61,17 @@ class ICCSidebar(BaseSidebar):
     def _on_profile_changed(self, index: int) -> None:
         path = self.profiles[index]
         self.state.icc_profile_path = path if path != "None" else None
+        self.controller.session.save_icc_prefs()
         self.controller.request_render()
 
     def _on_mode_changed(self) -> None:
         self.state.icc_invert = self.radio_input.isChecked()
+        self.controller.session.save_icc_prefs()
         self.controller.request_render()
 
     def _on_apply_changed(self, checked: bool) -> None:
         self.state.apply_icc_to_export = checked
+        self.controller.session.save_icc_prefs()
         self.controller.request_render()
 
     def sync_ui(self) -> None:

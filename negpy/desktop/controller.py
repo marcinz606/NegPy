@@ -125,6 +125,11 @@ class AppController(QObject):
         self.zoom_requested.connect(self.canvas.set_zoom)
         self.canvas.zoom_changed.connect(self.zoom_changed.emit)
 
+        from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
+        idx = self.state.canvas_bg_index
+        _, (r, g, b), _ = CANVAS_COLORS[idx]
+        self.canvas.set_background_color(r, g, b)
+
     def set_status(self, message: str, timeout: int = 0) -> None:
         self.status_message_requested.emit(message, timeout)
 
@@ -243,7 +248,7 @@ class AppController(QObject):
         self.request_render()
 
     def toggle_hq_preview(self) -> None:
-        self.state.hq_preview = not self.state.hq_preview
+        self.session.set_hq_preview(not self.state.hq_preview)
         if self.state.current_file_path:
             self.load_file(self.state.current_file_path, preserve_zoom=True)
 

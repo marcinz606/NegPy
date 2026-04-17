@@ -52,6 +52,9 @@ class AppState:
     # High Quality / Full Resoluiton Preview Toggle
     hq_preview: bool = False
 
+    # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
+    canvas_bg_index: int = 0
+
     # History tracking
     undo_index: int = 0
     max_history_index: int = 0
@@ -154,12 +157,49 @@ class DesktopSessionManager(QObject):
         if saved_gpu is not None:
             self.state.gpu_enabled = bool(saved_gpu)
 
+        saved_hq = self.repo.get_global_setting("hq_preview")
+        if saved_hq is not None:
+            self.state.hq_preview = bool(saved_hq)
+
+        saved_bg = self.repo.get_global_setting("canvas_bg_index")
+        if saved_bg is not None:
+            self.state.canvas_bg_index = int(saved_bg)
+
+        saved_icc_path = self.repo.get_global_setting("icc_profile_path")
+        if saved_icc_path and os.path.exists(saved_icc_path):
+            self.state.icc_profile_path = saved_icc_path
+        saved_icc_invert = self.repo.get_global_setting("icc_invert")
+        if saved_icc_invert is not None:
+            self.state.icc_invert = bool(saved_icc_invert)
+        saved_icc_apply = self.repo.get_global_setting("icc_apply_to_export")
+        if saved_icc_apply is not None:
+            self.state.apply_icc_to_export = bool(saved_icc_apply)
+
     def set_gpu_enabled(self, enabled: bool) -> None:
         """Updates and persists the hardware acceleration preference."""
         if self.state.gpu_enabled != enabled:
             self.state.gpu_enabled = enabled
             self.repo.save_global_setting("gpu_enabled", enabled)
             self.state_changed.emit()
+
+    def set_hq_preview(self, enabled: bool) -> None:
+        """Updates and persists the HQ preview preference."""
+        if self.state.hq_preview != enabled:
+            self.state.hq_preview = enabled
+            self.repo.save_global_setting("hq_preview", enabled)
+            self.state_changed.emit()
+
+    def set_canvas_bg(self, index: int) -> None:
+        """Updates and persists the canvas background color index."""
+        if self.state.canvas_bg_index != index:
+            self.state.canvas_bg_index = index
+            self.repo.save_global_setting("canvas_bg_index", index)
+
+    def save_icc_prefs(self) -> None:
+        """Persists current ICC profile settings."""
+        self.repo.save_global_setting("icc_profile_path", self.state.icc_profile_path)
+        self.repo.save_global_setting("icc_invert", self.state.icc_invert)
+        self.repo.save_global_setting("icc_apply_to_export", self.state.apply_icc_to_export)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """
@@ -220,6 +260,10 @@ class DesktopSessionManager(QObject):
 
         # Exposure, lab, toning, retouch are per-image look decisions and are
         # deliberately excluded here — fresh files start from WorkspaceConfig defaults.
+        # Exception: dust_remove is a workflow preference, not an image-specific look.
+        sticky_dust = self.repo.get_global_setting("last_dust_remove")
+        if sticky_dust is not None:
+            config = replace(config, retouch=replace(config.retouch, dust_remove=bool(sticky_dust)))
 
         return config
 
@@ -255,6 +299,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_lab_config", asdict(config.lab))
         self.repo.save_global_setting("last_toning_config", asdict(config.toning))
         self.repo.save_global_setting("last_retouch_config", asdict(config.retouch))
+        self.repo.save_global_setting("last_dust_remove", config.retouch.dust_remove)
 
     def select_file(self, index: int, selection_override: Optional[List[int]] = None) -> None:
         """

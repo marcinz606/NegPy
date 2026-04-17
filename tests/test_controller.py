@@ -66,7 +66,7 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_not_called()
 
     def test_toggle_hq_preview_preserves_zoom(self):
-        """Test that toggling HQ mode automatically preserves zoom."""
+        """Test that toggling HQ mode persists via session and preserves zoom."""
         self.controller.state.current_file_path = "dummy.dng"
 
         mock_slot = MagicMock()
@@ -74,8 +74,8 @@ class TestAppController(unittest.TestCase):
 
         self.controller.toggle_hq_preview()
 
-        # State should be toggled
-        self.assertTrue(self.controller.state.hq_preview)
+        # Persistence delegated to session
+        self.mock_session_manager.set_hq_preview.assert_called_once_with(True)
 
         # Zoom should NOT be reset
         mock_slot.assert_not_called()
