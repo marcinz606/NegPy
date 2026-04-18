@@ -1,7 +1,7 @@
 from typing import Optional
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFrame, QHBoxLayout, QLabel
 from PyQt6.QtGui import QIcon
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from negpy.desktop.view.styles.theme import THEME
 import qtawesome as qta
 
@@ -10,6 +10,8 @@ class CollapsibleSection(QWidget):
     """
     A simple collapsible container with a header button and configurable initial state.
     """
+
+    reset_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -69,6 +71,20 @@ class CollapsibleSection(QWidget):
 
         btn_layout.addStretch()
 
+        self.reset_btn = QPushButton()
+        self.reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_muted))
+        self.reset_btn.setFixedSize(20, 20)
+        self.reset_btn.setIconSize(QSize(10, 10))
+        self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_btn.setToolTip(f"Reset {title} to defaults")
+        self.reset_btn.setVisible(False)
+        self.reset_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: none; }
+            QPushButton:hover { background: #222; border-radius: 3px; }
+        """)
+        self.reset_btn.clicked.connect(self._on_reset_clicked)
+        btn_layout.addWidget(self.reset_btn)
+
         self.modified_dot = QLabel("●")
         self.modified_dot.setStyleSheet(f"color: {THEME.accent_primary}; background: transparent; font-size: 8px;")
         self.modified_dot.setVisible(False)
@@ -115,6 +131,10 @@ class CollapsibleSection(QWidget):
     def set_modified(self, modified: bool) -> None:
         """Show or hide the accent dot indicating non-default values in this section."""
         self.modified_dot.setVisible(modified)
+        self.reset_btn.setVisible(modified)
+
+    def _on_reset_clicked(self) -> None:
+        self.reset_requested.emit()
 
     def _on_toggle(self, checked: bool) -> None:
         self.content_area.setVisible(checked)

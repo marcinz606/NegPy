@@ -60,6 +60,7 @@ class AppController(QObject):
     zoom_changed = pyqtSignal(float)
     status_message_requested = pyqtSignal(str, int)
     status_progress_requested = pyqtSignal(int, int)
+    pixel_readout = pyqtSignal(str, str)
 
     def __init__(self, session_manager: DesktopSessionManager):
         super().__init__()
@@ -115,6 +116,13 @@ class AppController(QObject):
         self._render_debounce.setInterval(80)
         self._render_debounce.timeout.connect(self.request_render)
 
+        self._cursor_readout_timer = QTimer()
+        self._cursor_readout_timer.setSingleShot(True)
+        self._cursor_readout_timer.setInterval(33)
+        self._cursor_readout_timer.timeout.connect(self._emit_pixel_readout)
+        self._pending_cursor_nx: Optional[float] = None
+        self._pending_cursor_ny: Optional[float] = None
+
         self._connect_signals()
 
     def register_canvas(self, canvas: Any) -> None:
@@ -124,11 +132,48 @@ class AppController(QObject):
         self.canvas = canvas
         self.zoom_requested.connect(self.canvas.set_zoom)
         self.canvas.zoom_changed.connect(self.zoom_changed.emit)
+        self.canvas.cursor_position_changed.connect(self.on_cursor_moved)
+        self.canvas.cursor_left_canvas.connect(self.on_cursor_left)
 
         from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
+
         idx = self.state.canvas_bg_index
         _, (r, g, b), _ = CANVAS_COLORS[idx]
         self.canvas.set_background_color(r, g, b)
+
+    def on_cursor_moved(self, nx: float, ny: float) -> None:
+        self._pending_cursor_nx = nx
+        self._pending_cursor_ny = ny
+        if not self._cursor_readout_timer.isActive():
+            self._cursor_readout_timer.start()
+
+    def on_cursor_left(self) -> None:
+        self._pending_cursor_nx = None
+        self._pending_cursor_ny = None
+        self.pixel_readout.emit("", "")
+
+    def _emit_pixel_readout(self) -> None:
+        nx, ny = self._pending_cursor_nx, self._pending_cursor_ny
+        if nx is None or ny is None or self.canvas is None:
+            return
+        rgb = self.canvas.get_pixel_rgb(nx, ny)
+        if rgb is None:
+            return
+        r, g, b = rgb
+        r255 = int(round(max(0.0, min(1.0, r)) * 255))
+        g255 = int(round(max(0.0, min(1.0, g)) * 255))
+        b255 = int(round(max(0.0, min(1.0, b)) * 255))
+        import cv2
+
+        rgb_u8 = np.array([[[r255, g255, b255]]], dtype=np.uint8)
+        lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB)[0, 0]
+        L = int(round(int(lab[0]) * 100 / 255))
+        a = int(lab[1]) - 128
+        b_val = int(lab[2]) - 128
+        self.pixel_readout.emit(
+            f"RGB {r255:>3} {g255:>3} {b255:>3}",
+            f"Lab {L:>3} {a:+4d} {b_val:+4d}",
+        )
 
     def set_status(self, message: str, timeout: int = 0) -> None:
         self.status_message_requested.emit(message, timeout)

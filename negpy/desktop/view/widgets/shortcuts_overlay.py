@@ -94,6 +94,8 @@ class ShortcutsOverlay(QDialog):
         root.addSpacing(16)
 
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(f"font-size: 12px; padding: 6px 20px; background: {THEME.accent_primary}; color: white; border: none; border-radius: 3px;")
+        close_btn.setStyleSheet(
+            f"font-size: 12px; padding: 6px 20px; background: {THEME.accent_primary}; color: white; border: none; border-radius: 3px;"
+        )
         close_btn.clicked.connect(self.accept)
         root.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)

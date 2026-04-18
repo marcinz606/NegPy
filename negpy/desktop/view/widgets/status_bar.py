@@ -54,9 +54,16 @@ class TopStatusBar(QWidget):
         self.system_info = QHBoxLayout()
         self.system_info.setSpacing(12)
 
+        self.rgb_label = QLabel("")
+        self.rgb_label.setStyleSheet(f"color: {THEME.text_muted}; font-family: monospace;")
+        self.lab_label = QLabel("")
+        self.lab_label.setStyleSheet(f"color: {THEME.text_muted}; font-family: monospace;")
+
         self.gpu_label = QLabel("CPU")
         self.gpu_label.setStyleSheet(f"color: {THEME.text_muted};")
 
+        self.system_info.addWidget(self.rgb_label)
+        self.system_info.addWidget(self.lab_label)
         self.system_info.addWidget(self._create_separator())
         self.system_info.addWidget(self.gpu_label)
 
@@ -82,6 +89,10 @@ class TopStatusBar(QWidget):
         self.gpu_label.setText(backend.upper())
         color = THEME.accent_primary if active else THEME.text_muted
         self.gpu_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    def set_pixel_readout(self, rgb_text: str, lab_text: str) -> None:
+        self.rgb_label.setText(rgb_text)
+        self.lab_label.setText(lab_text)
 
     def set_progress(self, current: int, total: int):
         if total <= 0:

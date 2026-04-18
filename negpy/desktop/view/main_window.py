@@ -114,6 +114,7 @@ class MainWindow(QMainWindow):
 
         self.controller.status_message_requested.connect(self.top_status.showMessage)
         self.controller.status_progress_requested.connect(self.top_status.set_progress)
+        self.controller.pixel_readout.connect(self.top_status.set_pixel_readout)
 
         self.dash_timer = QTimer(self)
         self.dash_timer.timeout.connect(self._refresh_dashboard)

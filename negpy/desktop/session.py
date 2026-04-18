@@ -260,6 +260,11 @@ class DesktopSessionManager(QObject):
 
         # Exposure, lab, toning, retouch are per-image look decisions and are
         # deliberately excluded here — fresh files start from WorkspaceConfig defaults.
+        # Exception: use_camera_wb and dust_remove are workflow preferences, not image-specific looks.
+        sticky_camera_wb = self.repo.get_global_setting("last_use_camera_wb")
+        if sticky_camera_wb is not None:
+            config = replace(config, exposure=replace(config.exposure, use_camera_wb=bool(sticky_camera_wb)))
+
         # Exception: dust_remove is a workflow preference, not an image-specific look.
         sticky_dust = self.repo.get_global_setting("last_dust_remove")
         if sticky_dust is not None:
@@ -457,6 +462,28 @@ class DesktopSessionManager(QObject):
         self._config_dirty = False
         self.update_config(WorkspaceConfig())
         self.state_changed.emit()
+
+    def reset_section(self, section: str) -> None:
+        """Reset a single feature section to its default config."""
+        from negpy.features.exposure.models import ExposureConfig
+        from negpy.features.lab.models import LabConfig
+        from negpy.features.toning.models import ToningConfig
+        from negpy.features.geometry.models import GeometryConfig
+        from negpy.features.process.models import ProcessConfig
+        from negpy.features.retouch.models import RetouchConfig
+
+        defaults = {
+            "exposure": ExposureConfig(),
+            "lab": LabConfig(),
+            "toning": ToningConfig(),
+            "geometry": GeometryConfig(),
+            "process": ProcessConfig(),
+            "retouch": RetouchConfig(),
+        }
+        if section not in defaults:
+            return
+        new_config = replace(self.state.config, **{section: defaults[section]})
+        self.update_config(new_config, persist=True)
 
     def copy_settings(self) -> None:
         import copy

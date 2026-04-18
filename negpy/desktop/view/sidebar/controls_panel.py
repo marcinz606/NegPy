@@ -132,6 +132,13 @@ class ControlsPanel(QWidget):
         self.controller.config_updated.connect(self._sync_all_sidebars)
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
 
+        self.exposure_section.reset_requested.connect(lambda: self.controller.session.reset_section("exposure"))
+        self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
+        self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
+        self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
+        self.process_section.reset_requested.connect(lambda: self.controller.session.reset_section("process"))
+        self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
+
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
         self.process_sidebar.sync_ui()

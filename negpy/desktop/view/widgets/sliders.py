@@ -1,3 +1,5 @@
+from typing import Optional
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -12,11 +14,28 @@ from negpy.desktop.view.styles.theme import THEME
 
 
 class _NoScrollSlider(QSlider):
+    def __init__(self, *args, default_pos: Optional[float] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._default_pos = default_pos
+
     def wheelEvent(self, event) -> None:
         if self.hasFocus():
             super().wheelEvent(event)
         else:
             event.ignore()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._default_pos is None:
+            return
+        p = QPainter(self)
+        groove_y = self.height() // 2
+        handle_w = 12  # matches QSS handle width
+        usable = self.width() - handle_w
+        x = handle_w // 2 + int(self._default_pos * usable)
+        pen = QPen(QColor(THEME.text_muted), 1)
+        p.setPen(pen)
+        p.drawLine(x, groove_y - 4, x, groove_y + 4)
 
 
 class _NoScrollSpinBox(QDoubleSpinBox):
@@ -51,7 +70,8 @@ class BaseSlider(QWidget):
         self._precision = precision
         self._last_committed_value = default_val
 
-        self.slider = _NoScrollSlider(Qt.Orientation.Horizontal)
+        default_pos = (default_val - min_val) / (max_val - min_val) if max_val > min_val else None
+        self.slider = _NoScrollSlider(Qt.Orientation.Horizontal, default_pos=default_pos)
         if has_neutral:
             self.slider.setObjectName("neutral_slider")
         self.slider.setRange(int(min_val * self._precision), int(max_val * self._precision))
@@ -141,6 +161,7 @@ class CompactSlider(BaseSlider):
         precision: int = 100,
         color: str = None,
         has_neutral: bool = False,
+        unit: str = "",
         parent=None,
     ):
         super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, parent=parent)
@@ -160,10 +181,20 @@ class CompactSlider(BaseSlider):
             self.slider.setTickInterval(int(step))
             self.slider.setSingleStep(int(step))
 
+        if unit:
+            self.spin.setSuffix(unit)
+
         self.spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        self.spin.setFixedWidth(50)
+        self.spin.setFixedWidth(60 if unit else 50)
         self.spin.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.spin.setStyleSheet(f"font-size: {THEME.font_size_base}px; background: transparent; border: none; font-weight: bold;")
+
+        # Label-scrub: drag the label horizontally to change value
+        self.label.setCursor(Qt.CursorShape.SizeHorCursor)
+        self.label.installEventFilter(self)
+        self._scrub_active = False
+        self._scrub_start_x = 0.0
+        self._scrub_start_val = 0.0
 
         header.addWidget(self.label)
         header.addStretch()
@@ -171,6 +202,33 @@ class CompactSlider(BaseSlider):
 
         layout.addLayout(header)
         layout.addWidget(self.slider)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.label:
+            et = event.type()
+            if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self._scrub_active = True
+                self._scrub_start_x = event.position().x()
+                self._scrub_start_val = self.spin.value()
+                return True
+            if et == QEvent.Type.MouseMove and self._scrub_active:
+                dx = event.position().x() - self._scrub_start_x
+                span = self._max - self._min
+                sensitivity = span / 400.0
+                mods = event.modifiers()
+                if mods & Qt.KeyboardModifier.ShiftModifier:
+                    sensitivity *= 0.1
+                elif mods & Qt.KeyboardModifier.ControlModifier:
+                    sensitivity *= 10.0
+                new_val = max(self._min, min(self._max, self._scrub_start_val + dx * sensitivity))
+                self.setValue(new_val)
+                self._emit_value()
+                return True
+            if et == QEvent.Type.MouseButtonRelease and self._scrub_active:
+                self._scrub_active = False
+                self._on_committed()
+                return True
+        return super().eventFilter(obj, event)
 
 
 class HueSlider(CompactSlider):
@@ -180,7 +238,7 @@ class HueSlider(CompactSlider):
     """
 
     def __init__(self, label: str, default_val: float = 0.0, parent=None):
-        super().__init__(label, 0.0, 360.0, default_val, step=1.0, precision=1, parent=parent)
+        super().__init__(label, 0.0, 360.0, default_val, step=1.0, precision=1, unit="°", parent=parent)
         self.slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,

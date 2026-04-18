@@ -19,6 +19,8 @@ class CanvasOverlay(QWidget):
 
     clicked = pyqtSignal(float, float)
     crop_completed = pyqtSignal(float, float, float, float)
+    cursor_moved = pyqtSignal(float, float)
+    cursor_left = pyqtSignal()
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -216,6 +218,12 @@ class CanvasOverlay(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         self._mouse_pos = event.position()
 
+        coords = self._map_to_image_coords(event.position())
+        if coords is not None:
+            self.cursor_moved.emit(*coords)
+        else:
+            self.cursor_left.emit()
+
         if self.parent()._is_panning:
             delta = event.position() - self.parent()._last_mouse_pos
             self.parent()._last_mouse_pos = event.position()
@@ -270,6 +278,10 @@ class CanvasOverlay(QWidget):
             self._crop_active = False
             self._crop_p1, self._crop_p2 = None, None
             self.update()
+
+    def leaveEvent(self, event) -> None:
+        self.cursor_left.emit()
+        super().leaveEvent(event)
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
         self.update()

@@ -4,6 +4,7 @@ from PyQt6.QtCore import Qt
 
 def _show_shortcuts(window) -> None:
     from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
+
     dlg = ShortcutsOverlay(window)
     dlg.exec()
 
