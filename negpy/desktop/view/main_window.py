@@ -1,32 +1,33 @@
 import os
-from negpy.kernel.system.config import APP_CONFIG
-from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QDockWidget,
-    QStatusBar,
-    QScrollArea,
-)
-from PyQt6.QtCore import Qt, QTimer
-from PIL import Image
-import numpy as np
 
-from negpy.desktop.view.canvas.widget import ImageCanvas
-from negpy.desktop.view.canvas.toolbar import ActionToolbar
-from negpy.desktop.view.sidebar.session_panel import SessionPanel
-from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
-from negpy.desktop.view.widgets.status_bar import TopStatusBar
-from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
-from negpy.desktop.view.widgets.toast import Toast
-from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
+import numpy as np
+from PIL import Image
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import (
+    QDockWidget,
+    QMainWindow,
+    QScrollArea,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
+)
+
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
-from negpy.services.export.print import PrintService
-from negpy.kernel.image.logic import float_to_uint8
-from negpy.domain.models import AspectRatio
-from negpy.kernel.system.logging import get_logger
+from negpy.desktop.view.canvas.toolbar import ActionToolbar
+from negpy.desktop.view.canvas.widget import ImageCanvas
+from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
+from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
+from negpy.desktop.view.widgets.status_bar import TopStatusBar
+from negpy.desktop.view.widgets.toast import Toast
+from negpy.domain.models import AspectRatio
+from negpy.kernel.image.logic import float_to_uint8
+from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.logging import get_logger
+from negpy.services.export.print import PrintService
 
 logger = get_logger(__name__)
 
@@ -42,7 +43,7 @@ class _EmptyStateOverlay(QWidget):
 
         from PyQt6.QtWidgets import QLabel
 
-        label = QLabel("Drop an image to get started")
+        label = QLabel("Load some scans to get started")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 15px;")
         layout.addWidget(label)
