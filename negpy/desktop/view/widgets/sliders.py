@@ -7,31 +7,10 @@ from PyQt6.QtWidgets import (
     QSlider,
     QLabel,
     QDoubleSpinBox,
-    QStyle,
-    QStyleOptionSlider,
 )
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
 from negpy.desktop.view.styles.theme import THEME
-
-
-class _ValueBubble(QLabel):
-    """Floating tooltip displayed above the slider thumb during drag."""
-
-    def __init__(self):
-        super().__init__()
-        self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet(f"""
-            background-color: {THEME.bg_panel};
-            color: {THEME.accent_primary};
-            border: 1px solid {THEME.border_primary};
-            border-radius: 3px;
-            padding: 3px 6px;
-            font-size: 12px;
-        """)
-        self.setVisible(False)
 
 
 class _NoScrollSlider(QSlider):
@@ -221,7 +200,6 @@ class CompactSlider(BaseSlider):
         super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, parent=parent)
 
         self._label_color = color if color else THEME.text_secondary
-        self._bubble = _ValueBubble()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
@@ -262,9 +240,6 @@ class CompactSlider(BaseSlider):
         layout.addLayout(header)
         layout.addWidget(self.slider)
 
-        # Show bubble on drag, hide on release
-        self.slider.sliderReleased.connect(self._bubble.hide)
-
     def enterEvent(self, event) -> None:
         self.spin.setMaximumWidth(self._spin_full_width)
         super().enterEvent(event)
@@ -277,8 +252,6 @@ class CompactSlider(BaseSlider):
     def _on_slider_changed(self, value: int) -> None:
         super()._on_slider_changed(value)
         self._update_edited_state()
-        if self.slider.isSliderDown():
-            self._show_bubble(value)
 
     def setValue(self, value: float) -> None:
         super().setValue(value)
@@ -288,27 +261,6 @@ class CompactSlider(BaseSlider):
         edited = abs(self.spin.value() - self._default) > 1e-6
         border = f"border-bottom: 1px solid {THEME.accent_edited};" if edited else ""
         self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {self._label_color}; {border}")
-
-    def _show_bubble(self, slider_value: int) -> None:
-        f_val = slider_value / self._precision
-        unit = self.spin.suffix()
-        self._bubble.setText(f"{f_val:.2f}{unit}")
-
-        opt = QStyleOptionSlider()
-        self.slider.initStyleOption(opt)
-        handle_rect = self.slider.style().subControlRect(
-            QStyle.ComplexControl.CC_Slider,
-            opt,
-            QStyle.SubControl.SC_SliderHandle,
-            self.slider,
-        )
-        center = handle_rect.center()
-        global_pos = self.slider.mapToGlobal(center)
-        self._bubble.adjustSize()
-        x = global_pos.x() - self._bubble.width() // 2
-        y = global_pos.y() - self._bubble.height() - 8
-        self._bubble.move(x, y)
-        self._bubble.show()
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.spin:

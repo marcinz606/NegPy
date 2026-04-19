@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 import qtawesome as qta
 
 from negpy.desktop.controller import AppController
@@ -138,7 +138,11 @@ class ControlsPanel(QWidget):
         return section
 
     def _connect_signals(self) -> None:
-        self.controller.config_updated.connect(self._sync_all_sidebars)
+        self._sync_debounce = QTimer()
+        self._sync_debounce.setSingleShot(True)
+        self._sync_debounce.setInterval(150)
+        self._sync_debounce.timeout.connect(self._sync_all_sidebars)
+        self.controller.config_updated.connect(self._sync_debounce.start)
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
 
         self.exposure_section.reset_requested.connect(lambda: self.controller.session.reset_section("exposure"))

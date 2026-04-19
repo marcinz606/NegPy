@@ -77,6 +77,30 @@ Delivering the final image.
 
 ---
 
+## 7. Startup Override (`override.toml`)
+
+If NegPy crashes on launch or has rendering glitches, you can force specific backend settings without touching code. On first run, NegPy creates `Documents/NegPy/override.toml` with defaults for your OS. Edit it and restart the app.
+
+**Key settings:**
+
+| Setting | Values | Effect |
+|---------|--------|--------|
+| `rendering.backend` | `"auto"`, `"vulkan"`, `"dx12"`, `"metal"`, `"cpu"` | GPU backend for image processing. `"cpu"` disables GPU entirely. |
+| `display.qt_rhi_backend` | `"auto"`, `"vulkan"`, `"d3d12"`, `"metal"`, `"opengl"`, `"software"` | Qt UI rendering backend. |
+| `display.qt_platform` | `"auto"`, `"xcb"`, `"wayland"` | Window system plugin (Linux only). |
+| `performance.max_texture_size` | `"auto"` or a number, e.g. `4096` | Caps GPU texture size — reduce if you see out-of-memory errors on low-VRAM cards. |
+| `performance.force_hq_preview` | `true` / `false` (or absent) | Overrides the saved HQ preview toggle. |
+| `logging.level` | `"debug"`, `"info"`, `"warning"`, `"error"` | Controls log verbosity. Use `"debug"` when reporting issues. |
+
+**Common fixes:**
+
+*   **App crashes immediately on Linux** → try `backend = "cpu"` or `qt_rhi_backend = "opengl"`.
+*   **Black/blank preview on Windows** → try `backend = "dx12"` or `qt_rhi_backend = "software"`.
+*   **Wayland rendering issues** → set `qt_platform = "xcb"` to force X11.
+*   **GPU out-of-memory during export** → set `max_texture_size = 4096`.
+
+---
+
 ## Additional Info
 *   **Hardware Acceleration**: NegPy uses your GPU for near-instant previews & responsive sliders with exceptions of *Process* section (analysis buffer, white/black point offset, normalize) which use CPU for calculations.
 *   **Roll Management**: Save your Batch Analysis as a "Roll" to apply the same look to future sessions with the same film stock.

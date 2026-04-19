@@ -860,6 +860,19 @@ class GPUEngine:
                 content_w, content_h = int(cw * scale), int(ch * scale)
 
             off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
+
+        max_tex = APP_CONFIG.max_texture_size
+        if max_tex is not None:
+            long_edge = max(paper_w, paper_h)
+            if long_edge > max_tex:
+                s = max_tex / long_edge
+                paper_w = max(1, int(paper_w * s))
+                paper_h = max(1, int(paper_h * s))
+                content_w = max(1, int(content_w * s))
+                content_h = max(1, int(content_h * s))
+                off_x = int(off_x * s)
+                off_y = int(off_y * s)
+
         return paper_w, paper_h, content_w, content_h, off_x, off_y
 
     def _readback_metrics(self) -> np.ndarray:

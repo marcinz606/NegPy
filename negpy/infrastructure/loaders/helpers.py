@@ -1,12 +1,47 @@
-from typing import Any
+import io
+from typing import Any, Optional
 
 import numpy as np
 import rawpy
+from PIL import ImageCms
 
+from negpy.domain.models import ColorSpace
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
+    """
+    Resolve a ColorSpace enum value from an embedded ICC profile's description.
+    Returns None when bytes are missing or the description doesn't match a known space.
+    """
+    if not icc_bytes:
+        return None
+    try:
+        profile = ImageCms.getOpenProfile(io.BytesIO(icc_bytes))
+        desc = (ImageCms.getProfileDescription(profile) or "").lower()
+    except Exception as e:
+        logger.warning(f"Could not parse embedded ICC profile: {e}")
+        return None
+
+    # Order matters — more specific matches first.
+    if "prophoto" in desc:
+        return ColorSpace.PROPHOTO.value
+    if "rec. 2020" in desc or "rec2020" in desc or "bt.2020" in desc:
+        return ColorSpace.REC2020.value
+    if "display p3" in desc or "p3 d65" in desc:
+        return ColorSpace.P3_D65.value
+    if "wide gamut" in desc:
+        return ColorSpace.WIDE.value
+    if "aces" in desc:
+        return ColorSpace.ACES.value
+    if "adobe rgb" in desc or "adobe compat" in desc:
+        return ColorSpace.ADOBE_RGB.value
+    if "srgb" in desc or "iec 61966" in desc or "iec61966" in desc:
+        return ColorSpace.SRGB.value
+    return None
 
 
 class NonStandardFileWrapper:

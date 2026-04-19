@@ -37,3 +37,6 @@ class AppConfig:
     default_export_dir: str
     adobe_rgb_profile: str
     use_gpu: bool = True
+    override_toml_path: str = ""
+    max_texture_size: int | None = None
+    force_hq_preview: bool | None = None

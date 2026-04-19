@@ -1,5 +1,5 @@
-from PyQt6.QtGui import QShortcut, QKeySequence
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 
 def _show_shortcuts(window) -> None:
@@ -46,6 +46,7 @@ def setup_keyboard_shortcuts(window) -> None:
     def adjust(slider, delta):
         slider.setValue(slider.value() + delta)
         slider.valueChanged.emit(slider.value())
+        # slider._on_committed()
 
     QShortcut(
         QKeySequence("Q"),

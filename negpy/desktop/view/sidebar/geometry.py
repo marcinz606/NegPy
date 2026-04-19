@@ -1,17 +1,18 @@
 from dataclasses import replace
 
+import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
-    QPushButton,
     QHBoxLayout,
+    QPushButton,
 )
-import qtawesome as qta
-from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.sidebar.base import BaseSidebar
+
 from negpy.desktop.session import ToolMode
-from negpy.domain.models import AspectRatio
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
+from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.domain.models import AspectRatio
 
 
 class GeometrySidebar(BaseSidebar):
@@ -49,7 +50,7 @@ class GeometrySidebar(BaseSidebar):
         self.offset_slider = CompactSlider(
             "Crop Offset",
             -5.0,
-            20.0,
+            100.0,
             float(conf.autocrop_offset),
             step=1.0,
             precision=1,

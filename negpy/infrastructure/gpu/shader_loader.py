@@ -1,4 +1,5 @@
 import os
+import threading
 from typing import Any
 from negpy.infrastructure.gpu.device import GPUDevice
 
@@ -10,22 +11,24 @@ class ShaderLoader:
     """
 
     _cache: dict[str, Any] = {}
+    _lock = threading.Lock()
 
     @classmethod
     def load(cls, path: str) -> Any:
-        if path in cls._cache:
-            return cls._cache[path]
+        with cls._lock:
+            if path in cls._cache:
+                return cls._cache[path]
 
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Shader source missing: {path}")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Shader source missing: {path}")
 
-        with open(path, "r") as f:
-            code = f.read()
+            with open(path, "r") as f:
+                code = f.read()
 
-        gpu = GPUDevice.get()
-        if not gpu.device:
-            raise RuntimeError("Hardware device required for shader compilation")
+            gpu = GPUDevice.get()
+            if not gpu.device:
+                raise RuntimeError("Hardware device required for shader compilation")
 
-        module = gpu.device.create_shader_module(code=code)
-        cls._cache[path] = module
-        return module
+            module = gpu.device.create_shader_module(code=code)
+            cls._cache[path] = module
+            return module

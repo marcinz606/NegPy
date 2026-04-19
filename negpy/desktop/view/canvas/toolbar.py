@@ -1,5 +1,5 @@
 import qtawesome as qta
-from PyQt6.QtCore import QEvent, QSize, Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -136,7 +136,6 @@ class ActionToolbar(QWidget):
                     border: 1px solid #888;
                 }}
             """)
-            btn.installEventFilter(self)
             self.canvas_color_group.addButton(btn, i)
             self.canvas_color_btns.append(btn)
         self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
@@ -215,21 +214,6 @@ class ActionToolbar(QWidget):
 
         v_layout.addLayout(row_layout)
         main_layout.addWidget(container)
-
-    def eventFilter(self, obj, event) -> bool:
-        if obj in self.canvas_color_btns:
-            et = event.type()
-            if et == QEvent.Type.Enter:
-                i = self.canvas_color_btns.index(obj)
-                _, (r, g, b), _ = CANVAS_COLORS[i]
-                if self.controller.canvas:
-                    self.controller.canvas.set_background_color(r, g, b)
-            elif et == QEvent.Type.Leave:
-                idx = self.session.state.canvas_bg_index
-                _, (r, g, b), _ = CANVAS_COLORS[idx]
-                if self.controller.canvas:
-                    self.controller.canvas.set_background_color(r, g, b)
-        return super().eventFilter(obj, event)
 
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)

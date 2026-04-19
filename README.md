@@ -74,6 +74,39 @@ Everything lives in your `Documents/NegPy` folder:
 *   `cache/`: Thumbnails (safe to delete).
 *   `export/`: Default export location.
 *   `icc/`: Drop your paper/printer profiles here.
+*   `override.toml`: Startup overrides — see [Troubleshooting / override.toml](#troubleshooting) below.
+
+---
+
+## 🔧 Troubleshooting
+
+If NegPy crashes on startup or has rendering issues, edit `Documents/NegPy/override.toml`. It is created automatically on first run with sensible defaults for your OS.
+
+```toml
+[rendering]
+# Options: "auto", "vulkan" (Linux/Win), "dx12" (Win), "metal" (macOS), "cpu"
+backend = "vulkan"
+
+[display]
+# Qt scene-graph backend. Options: "auto", "vulkan", "d3d12", "metal", "opengl", "software"
+qt_rhi_backend = "auto"
+
+# Window system plugin (Linux only). Options: "auto", "xcb", "wayland"
+qt_platform = "auto"
+
+[performance]
+# Cap GPU texture size in pixels — useful on low-VRAM cards. "auto" = no limit.
+max_texture_size = "auto"
+
+# Force HQ preview on/off. Uncomment to override saved preference.
+# force_hq_preview = false
+
+[logging]
+# "debug", "info", "warning", "error"
+level = "info"
+```
+
+Setting `backend = "cpu"` disables GPU acceleration entirely — useful if the GPU backend crashes on your hardware.
 
 ---
 

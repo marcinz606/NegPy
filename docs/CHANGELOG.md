@@ -1,5 +1,17 @@
 # Change Log
 
+## 0.14.1
+
+- Added **`override.toml`**: a config file in `Documents/NegPy/` (created on first run) that lets you force the GPU backend (`vulkan`, `dx12`, `metal`, `cpu`), Qt rendering backend, Qt platform plugin (Linux), GPU texture size cap, HQ preview default, and log verbosity — without touching the app. Useful when the app crashes on startup due to driver/GPU issues.
+- Fix: **D-Range Clip** slider now uses a logarithmic scale (0.00001 to 1.0) for much finer control at the beginning of the scale.
+- Fix: **Autocrop Offset** slider maximum raised to 100 (was 20), allowing larger offsets on wide-border scans.
+- Fix: Normalization allows a slightly tighter percentile clip floor, recovering more highlight/shadow detail at high D-Range Clip values.
+- Fix: 16-bit colour TIFF exports now go through a proper 16-bit ICC colour transform.
+- Fix: Changing roll-wide (locked) normalization bounds no longer produces a stale preview — the rendering cache now invalidates correctly when locked or local bounds change.
+- Performance: GPU readback no longer allocates a new staging buffer on every histogram update or colour picker sample — buffers are now reused, reducing per-frame GPU allocation overhead.
+- Performance: Sidebar controls no longer update on every slider tick during a drag — syncs are batched and applied ~150 ms after the last change, noticeably reducing UI thread load during rapid adjustments.
+- Fix: Each keyboard shortcut press (Q/A/W/S/E/D/R/F) now creates its own undo entry — previously a run of shortcut presses would collapse into a single undo step.
+
 ## 0.14.0
 
 - Added **Split Toning**: independent shadow and highlight color tinting with hue (0–360°) and strength controls. Works on both color and B&W scans. Applied in Lab space — luminance is preserved exactly.

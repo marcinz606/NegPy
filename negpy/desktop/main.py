@@ -11,6 +11,8 @@ from negpy.desktop.view.main_window import MainWindow
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
+from negpy.kernel.system.override import apply as apply_override
+from negpy.kernel.system.override import load_or_create as load_override
 from negpy.kernel.system.paths import get_resource_path
 
 logger = get_logger(__name__)
@@ -33,7 +35,8 @@ def main() -> None:
     """
     Desktop entry point.
     """
-    setup_logging()
+    override_cfg = load_override(APP_CONFIG.override_toml_path)
+    setup_logging(level=override_cfg.log_level_int)
 
     if getattr(sys, "frozen", False):
         log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
@@ -43,9 +46,7 @@ def main() -> None:
     try:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 
-        if sys.platform in ("linux", "win32"):
-            os.environ["QSG_RHI_BACKEND"] = "vulkan"
-            os.environ["WGPU_BACKEND_TYPE"] = "Vulkan"
+        apply_override(override_cfg, APP_CONFIG)
 
         _bootstrap_environment()
 

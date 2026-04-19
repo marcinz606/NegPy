@@ -101,7 +101,7 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    clip = max(0.0001, min(1.0, percentile_clip))
+    clip = max(0.00001, min(1.0, percentile_clip))
     p_low, p_high = clip, 100.0 - clip
     fixed_range = 3.0
 

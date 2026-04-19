@@ -1,0 +1,3 @@
+We want to have option for users to launch the app with forced gpu backend / or gpu disabled in cases when it crashes on startup. We       
+   want to be able to select CPU/Vulkan/DX12/Metal for pyqt6 and wgpu (obviously when cpu is selected then we will launch the app with GPU    
+   acceleration turned off. It can be controlled by override.toml in NegPy user folder in documments (same one as edits etc). File needs to be created on install/first run with default per OS settings. Then user should be able to edit it to force app launch in certain mode. Also think about what other settings for forcing from outside we could include here.

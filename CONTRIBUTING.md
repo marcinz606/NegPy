@@ -41,7 +41,7 @@ The codebase follows a modular architecture:
 
 ### 1. Style & Formatting
 - **Ruff**: Used for both linting and formatting.
-- **Type Hints**: Required for all new function definitions (`mypy` is enforced). Using `cast` to get around it is frowned upon.
+- **Type Hints**: Required for all new function definitions (`ty` is enforced). Using `cast` to get around it is frowned upon.
 - **Docstrings**: Use clear, concise docstrings for classes and public methods.
 - **Style**: Use double quotes for strings, snake_case for variables and functions, and PascalCase for classes.
 
@@ -56,7 +56,7 @@ make test
 The `Makefile` is the central source of truth for developer commands and executes everything via `uv run`:
 - `make install`: Set up environment and sync dependencies.
 - `make lint`: Run Ruff checks.
-- `make type`: Run Mypy type checks.
+- `make type`: Run `ty` type checks.
 - `make test`: Run all unit tests.
 - `make format`: Auto-format code with Ruff.
 - `make all`: Run lint, type, and test in sequence.

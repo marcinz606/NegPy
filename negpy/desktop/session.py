@@ -173,6 +173,8 @@ class DesktopSessionManager(QObject):
         saved_hq = self.repo.get_global_setting("hq_preview")
         if saved_hq is not None:
             self.state.hq_preview = bool(saved_hq)
+        if APP_CONFIG.force_hq_preview is not None:
+            self.state.hq_preview = APP_CONFIG.force_hq_preview
 
         saved_bg = self.repo.get_global_setting("canvas_bg_index")
         if saved_bg is not None:

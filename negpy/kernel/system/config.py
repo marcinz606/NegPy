@@ -30,6 +30,7 @@ APP_CONFIG = AppConfig(
     default_export_dir=os.path.join(BASE_USER_DIR, "export"),
     adobe_rgb_profile=get_resource_path("icc/AdobeCompat-v4.icc"),
     use_gpu=True,
+    override_toml_path=os.path.join(BASE_USER_DIR, "override.toml"),
 )
 
 

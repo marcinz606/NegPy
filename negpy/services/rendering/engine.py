@@ -100,6 +100,11 @@ class DarkroomEngine:
             settings.process.drange_clip,
             settings.process.use_roll_average,
             settings.process.is_local_initialized,
+            settings.process.is_locked_initialized,
+            settings.process.locked_floors,
+            settings.process.locked_ceils,
+            settings.process.local_floors,
+            settings.process.local_ceils,
             settings.process.white_point_offset,
             settings.process.black_point_offset,
         )

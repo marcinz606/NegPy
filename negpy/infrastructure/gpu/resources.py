@@ -26,6 +26,11 @@ class GPUTexture:
         self.texture = gpu.device.create_texture(size=(width, height, 1), format=format, usage=usage)
         self.view = self.texture.create_view()
 
+        # Persistent staging buffers — allocated lazily, reused across calls
+        self._readback_staging = None  # full-texture readback
+        self._region_staging = None  # sub-region readback
+        self._region_staging_size: int = 0  # allocated size of _region_staging
+
     def upload(self, data: np.ndarray) -> None:
         """Transfers ndarray to VRAM."""
         gpu = GPUDevice.get()
@@ -56,7 +61,17 @@ class GPUTexture:
         rh = min(rh, max(1, self.height - y))
 
         bytes_per_row = (rw * 16 + 255) & ~255
-        staging = gpu.device.create_buffer(size=bytes_per_row * rh, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
+        required_size = bytes_per_row * rh
+
+        if self._region_staging is None or self._region_staging_size < required_size:
+            if self._region_staging is not None:
+                try:
+                    self._region_staging.destroy()
+                except Exception:
+                    pass
+            self._region_staging = gpu.device.create_buffer(size=required_size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
+            self._region_staging_size = required_size
+        staging = self._region_staging
 
         enc = gpu.device.create_command_encoder()
         enc.copy_texture_to_buffer(
@@ -73,8 +88,10 @@ class GPUTexture:
             result = arr[:, : rw * 4].reshape((rh, rw, 4)).copy()
             staging.unmap()
             return result
-        finally:
-            staging.destroy()
+        except Exception:
+            self._region_staging = None
+            self._region_staging_size = 0
+            raise
 
     def readback(self) -> np.ndarray:
         """Downloads pixels from VRAM to CPU ndarray (float32)."""
@@ -84,7 +101,10 @@ class GPUTexture:
 
         bytes_per_row = (self.width * 16 + 255) & ~255
         size = bytes_per_row * self.height
-        staging = gpu.device.create_buffer(size=size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
+
+        if self._readback_staging is None:
+            self._readback_staging = gpu.device.create_buffer(size=size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
+        staging = self._readback_staging
 
         enc = gpu.device.create_command_encoder()
         enc.copy_texture_to_buffer(
@@ -101,8 +121,9 @@ class GPUTexture:
             result = arr[:, : self.width * 4].reshape((self.height, self.width, 4)).copy()
             staging.unmap()
             return result
-        finally:
-            staging.destroy()
+        except Exception:
+            self._readback_staging = None
+            raise
 
     def destroy(self) -> None:
         """Forces hardware resource release."""
@@ -113,6 +134,15 @@ class GPUTexture:
                 self.texture = None
         except Exception:
             pass
+        for attr in ("_readback_staging", "_region_staging"):
+            buf = getattr(self, attr, None)
+            if buf is not None:
+                try:
+                    buf.destroy()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+        self._region_staging_size = 0
 
 
 class GPUBuffer:

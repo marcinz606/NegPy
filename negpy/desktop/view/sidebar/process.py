@@ -1,3 +1,4 @@
+import math
 import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -31,7 +32,8 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider.setToolTip(
             "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
         )
-        self.drange_clip_slider = CompactSlider("D-Range Clip", 0, 100, conf.drange_clip * 10000, precision=1, step=1)
+        initial_drange_slider_val = 20 * (math.log10(max(conf.drange_clip, 1e-5)) + 5)
+        self.drange_clip_slider = CompactSlider("D-Range Clip", 0, 100, initial_drange_slider_val, precision=1, step=1)
         self.drange_clip_slider.setToolTip(
             "Clips the top/bottom of the tonal range during normalization — higher values allow more aggressive highlight/shadow recovery"
         )
@@ -152,11 +154,12 @@ class ProcessSidebar(BaseSidebar):
         )
 
     def _on_drange_clip_changed(self, val: float, persist: bool = True) -> None:
+        drange_clip = math.pow(10, 0.05 * val - 5)
         self.update_config_section(
             "process",
             persist=persist,
             render=True,
-            drange_clip=val / 10000,
+            drange_clip=drange_clip,
             local_floors=(0.0, 0.0, 0.0),
             local_ceils=(0.0, 0.0, 0.0),
         )
@@ -227,7 +230,8 @@ class ProcessSidebar(BaseSidebar):
         try:
             self.mode_combo.setCurrentText(conf.process_mode)
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
-            self.drange_clip_slider.setValue(conf.drange_clip * 10000)
+            drange_slider_val = 20 * (math.log10(max(conf.drange_clip, 1e-5)) + 5)
+            self.drange_clip_slider.setValue(drange_slider_val)
             self.white_point_slider.setValue(conf.white_point_offset)
             self.black_point_slider.setValue(conf.black_point_offset)
 

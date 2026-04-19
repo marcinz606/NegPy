@@ -28,6 +28,7 @@ from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
 from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
 
 logger = get_logger(__name__)
 
@@ -184,13 +185,21 @@ class ImageProcessor:
                 )
 
                 if export_settings.apply_icc:
-                    pil_img, icc_bytes = self._apply_color_management(
-                        Image.fromarray(img_int),
-                        color_space,
-                        export_settings.icc_profile_path,
-                        export_settings.icc_invert,
-                    )
-                    img_out = np.array(pil_img)
+                    if is_greyscale:
+                        pil_img, icc_bytes = self._apply_color_management(
+                            Image.fromarray(img_int),
+                            color_space,
+                            export_settings.icc_profile_path,
+                            export_settings.icc_invert,
+                        )
+                        img_out = np.array(pil_img)
+                    else:
+                        img_out, icc_bytes = self._apply_color_management_u16_rgb(
+                            img_int,
+                            color_space,
+                            export_settings.icc_profile_path,
+                            export_settings.icc_invert,
+                        )
                 else:
                     img_out = img_int
                     icc_bytes = self._get_target_icc_bytes(
@@ -242,6 +251,41 @@ class ImageProcessor:
             with open(path, "rb") as f:
                 return f.read()
         return None
+
+    def _apply_color_management_u16_rgb(
+        self,
+        img_u16: np.ndarray,
+        color_space: str,
+        icc_path: Optional[str],
+        inverse: bool = False,
+    ) -> Tuple[np.ndarray, Optional[bytes]]:
+        """ICC RGB transform for 16-bit arrays (PIL has no 16-bit RGB mode)."""
+        path_src = ColorSpaceRegistry.get_icc_path(color_space)
+        profile_working = ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
+        try:
+            profile_selected = None
+            if icc_path and os.path.exists(icc_path):
+                profile_selected = ImageCms.getOpenProfile(icc_path)
+            else:
+                path_dst = ColorSpaceRegistry.get_icc_path(color_space)
+                if path_dst and os.path.exists(path_dst):
+                    profile_selected = ImageCms.getOpenProfile(path_dst)
+
+            if profile_selected:
+                p_src, p_dst = (profile_selected, profile_working) if inverse else (profile_working, profile_selected)
+                result = apply_icc_u16_rgb(
+                    img_u16,
+                    p_src,
+                    p_dst,
+                    ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                    ImageCms.Flags.BLACKPOINTCOMPENSATION,
+                )
+                icc_bytes = self._get_target_icc_bytes(color_space, icc_path) if not inverse else None
+                return result, icc_bytes
+            return img_u16, self._get_target_icc_bytes(color_space, None)
+        except Exception as e:
+            logger.error(f"CMS transformation failed: {e}")
+            return img_u16, None
 
     def _apply_color_management(
         self,

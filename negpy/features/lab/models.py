@@ -13,7 +13,7 @@ class LabConfig:
     vibrance: float = 1.0
     clahe_strength: float = 0.0
     sharpen: float = 0.25
-    chroma_denoise: float = 2.5
+    chroma_denoise: float = 0.0
     glow_amount: float = 0.0
     halation_strength: float = 0.0
     crosstalk_matrix: Optional[List[float]] = None

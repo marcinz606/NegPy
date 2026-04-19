@@ -1,9 +1,11 @@
-import numpy as np
 import imageio.v3 as iio
+import numpy as np
+import tifffile
 from typing import Any, ContextManager, Tuple
 from negpy.domain.interfaces import IImageLoader
+from negpy.domain.models import ColorSpace
 from negpy.kernel.image.logic import uint8_to_float32, uint16_to_float32
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc
 
 
 class TiffLoader(IImageLoader):
@@ -25,5 +27,15 @@ class TiffLoader(IImageLoader):
         else:
             f32 = np.clip(img.astype(np.float32), 0, 1)
 
-        metadata = {"orientation": 0, "color_space": "Adobe RGB"}
+        icc_bytes: bytes | None = None
+        try:
+            with tifffile.TiffFile(file_path) as tif:
+                tag = tif.pages[0].tags.get("InterColorProfile")
+                if tag is not None and tag.value:
+                    icc_bytes = bytes(tag.value)
+        except Exception:
+            icc_bytes = None
+
+        color_space = identify_color_space_from_icc(icc_bytes) or ColorSpace.SRGB.value
+        metadata = {"orientation": 0, "color_space": color_space, "icc_profile": icc_bytes}
         return NonStandardFileWrapper(f32), metadata
