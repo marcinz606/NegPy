@@ -40,9 +40,7 @@ max_texture_size = "auto"
 level = "info"
 """
 
-_DEFAULT_TOML_MACOS = _DEFAULT_TOML_LINUX_WIN.replace(
-    'backend = "vulkan"', 'backend = "metal"'
-)
+_DEFAULT_TOML_MACOS = _DEFAULT_TOML_LINUX_WIN.replace('backend = "vulkan"', 'backend = "metal"')
 
 
 def _default_toml_content() -> str:
@@ -139,7 +137,7 @@ _WGPU_BACKEND: dict[str, str] = {
 
 _QT_RHI: dict[str, str] = {
     "vulkan": "vulkan",
-    "dx12": "d3d12",   # wgpu name → Qt RHI name
+    "dx12": "d3d12",  # wgpu name → Qt RHI name
     "d3d12": "d3d12",  # Qt RHI name used directly
     "metal": "metal",
     "opengl": "opengl",

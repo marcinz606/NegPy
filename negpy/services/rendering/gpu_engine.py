@@ -1053,9 +1053,7 @@ class GPUEngine:
         ):
             reused_cdf = self._readback_clahe_cdf()
 
-        _, metrics_ref = self.process_to_texture(
-            img_small, settings, scale_factor=scale_factor, clahe_cdf_override=reused_cdf
-        )
+        _, metrics_ref = self.process_to_texture(img_small, settings, scale_factor=scale_factor, clahe_cdf_override=reused_cdf)
 
         global_cdfs = reused_cdf if reused_cdf is not None else self._readback_clahe_cdf()
 
