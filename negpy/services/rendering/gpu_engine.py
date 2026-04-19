@@ -300,19 +300,25 @@ class GPUEngine:
                 ceils=settings.process.local_ceils,
             )
         else:
-            analysis_source = img.copy()
+            # Use views to avoid copying the full-res image; crop to ROI first.
+            analysis_source = img
             if settings.geometry.rotation != 0:
                 analysis_source = np.rot90(analysis_source, k=settings.geometry.rotation)
             if settings.geometry.flip_horizontal:
                 analysis_source = np.fliplr(analysis_source)
             if settings.geometry.flip_vertical:
                 analysis_source = np.flipud(analysis_source)
+            analysis_roi = roi if not tiling_mode else None
+            if analysis_roi is not None:
+                ay1, ay2, ax1, ax2 = analysis_roi
+                analysis_source = np.ascontiguousarray(analysis_source[ay1:ay2, ax1:ax2])
+                analysis_roi = None
             if settings.geometry.fine_rotation != 0.0:
                 analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
 
             bounds = analyze_log_exposure_bounds(
                 analysis_source,
-                roi if not tiling_mode else None,
+                analysis_roi,
                 settings.process.analysis_buffer,
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,
@@ -875,6 +881,24 @@ class GPUEngine:
 
         return paper_w, paper_h, content_w, content_h, off_x, off_y
 
+    def _readback_clahe_cdf(self) -> np.ndarray:
+        """Reads back the CLAHE CDF buffer from GPU."""
+        device = self.gpu.device
+        assert device is not None
+        nbytes = 64 * HISTOGRAM_BINS * 4
+        read_buf = device.create_buffer(
+            size=nbytes,
+            usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ,
+        )
+        encoder = device.create_command_encoder()
+        encoder.copy_buffer_to_buffer(self._buffers["clahe_c"].buffer, 0, read_buf, 0, nbytes)
+        device.queue.submit([encoder.finish()])
+        read_buf.map_sync(wgpu.MapMode.READ)
+        data = np.frombuffer(read_buf.read_mapped(), dtype=np.float32).copy()
+        read_buf.unmap()
+        read_buf.destroy()
+        return data
+
     def _readback_metrics(self) -> np.ndarray:
         """Synchronously reads back histogram data from GPU."""
         device = self.gpu.device
@@ -1019,19 +1043,21 @@ class GPUEngine:
 
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
-        _, metrics_ref = self.process_to_texture(img_small, settings, scale_factor=scale_factor)
 
-        device = self.gpu.device
-        assert device is not None
-        nbytes = 64 * HISTOGRAM_BINS * 4
-        read_buf = device.create_buffer(size=nbytes, usage=wgpu.BufferUsage.COPY_DST | wgpu.MapMode.READ)
-        encoder = device.create_command_encoder()
-        encoder.copy_buffer_to_buffer(self._buffers["clahe_c"].buffer, 0, read_buf, 0, nbytes)
-        device.queue.submit([encoder.finish()])
-        read_buf.map_sync(wgpu.MapMode.READ)
-        global_cdfs = np.frombuffer(read_buf.read_mapped(), dtype=np.float32).copy()
-        read_buf.unmap()
-        read_buf.destroy()
+        # Reuse the CDF from the last preview render when CLAHE settings are unchanged.
+        reused_cdf: Optional[np.ndarray] = None
+        if (
+            settings.lab.clahe_strength > 0
+            and self._last_settings is not None
+            and self._last_settings.lab.clahe_strength == settings.lab.clahe_strength
+        ):
+            reused_cdf = self._readback_clahe_cdf()
+
+        _, metrics_ref = self.process_to_texture(
+            img_small, settings, scale_factor=scale_factor, clahe_cdf_override=reused_cdf
+        )
+
+        global_cdfs = reused_cdf if reused_cdf is not None else self._readback_clahe_cdf()
 
         roi, rot = metrics_ref["active_roi"], settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)

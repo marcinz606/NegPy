@@ -111,14 +111,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         if (params.shadow_tint_strength > 0.0) {
             let s_mask = smoothstep(50.0, 0.0, lab.x);
-            let ab = hue_to_ab(params.shadow_tint_hue, 15.0 * params.shadow_tint_strength * s_mask);
+            let ab = hue_to_ab(params.shadow_tint_hue, 20.0 * params.shadow_tint_strength * s_mask);
             lab.y += ab.x;
             lab.z += ab.y;
         }
 
         if (params.highlight_tint_strength > 0.0) {
             let h_mask = smoothstep(50.0, 100.0, lab.x);
-            let ab = hue_to_ab(params.highlight_tint_hue, 15.0 * params.highlight_tint_strength * h_mask);
+            let ab = hue_to_ab(params.highlight_tint_hue, 20.0 * params.highlight_tint_strength * h_mask);
             lab.y += ab.x;
             lab.z += ab.y;
         }

@@ -116,14 +116,14 @@ def apply_split_toning(
     if shadow_strength > 0.0:
         s_mask = np.clip(1.0 - L / 50.0, 0.0, 1.0)
         rad = np.radians(shadow_hue)
-        lab[:, :, 1] += np.cos(rad) * 15.0 * shadow_strength * s_mask
-        lab[:, :, 2] += np.sin(rad) * 15.0 * shadow_strength * s_mask
+        lab[:, :, 1] += np.cos(rad) * 20.0 * shadow_strength * s_mask
+        lab[:, :, 2] += np.sin(rad) * 20.0 * shadow_strength * s_mask
 
     if highlight_strength > 0.0:
         h_mask = np.clip((L - 50.0) / 50.0, 0.0, 1.0)
         rad = np.radians(highlight_hue)
-        lab[:, :, 1] += np.cos(rad) * 15.0 * highlight_strength * h_mask
-        lab[:, :, 2] += np.sin(rad) * 15.0 * highlight_strength * h_mask
+        lab[:, :, 1] += np.cos(rad) * 20.0 * highlight_strength * h_mask
+        lab[:, :, 2] += np.sin(rad) * 20.0 * highlight_strength * h_mask
 
     return ensure_image(np.clip(cv2.cvtColor(lab, cv2.COLOR_LAB2RGB), 0.0, 1.0))
 

@@ -133,6 +133,11 @@ class ImageProcessor:
     ) -> Tuple[Optional[bytes], str]:
         """Performs high-resolution export with color management."""
         try:
+            from dataclasses import replace as dc_replace
+
+            # Ensure both GPU and CPU paths use the same export settings.
+            params = dc_replace(params, export=export_settings)
+
             ctx_mgr, metadata = loader_factory.get_loader(file_path)
             source_cs = metadata.get("color_space", "Adobe RGB")
             raw_color_space = ColorSpaceRegistry.get_rawpy_space(source_cs)
@@ -173,7 +178,9 @@ class ImageProcessor:
                     metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
                     prefer_gpu=False,
                 )
-                buffer = self._apply_scaling_and_border_f32(buffer, params, export_settings)
+                buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
+                # Release full-res arrays pinned in the CPU stage cache.
+                self.engine_cpu.cache.clear()
 
             is_greyscale = export_settings.export_color_space == "Greyscale"
             is_tiff = export_settings.export_fmt != ExportFormat.JPEG

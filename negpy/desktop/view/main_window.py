@@ -26,8 +26,31 @@ from negpy.services.export.print import PrintService
 from negpy.kernel.image.logic import float_to_uint8
 from negpy.domain.models import AspectRatio
 from negpy.kernel.system.logging import get_logger
+from negpy.desktop.view.styles.theme import THEME
 
 logger = get_logger(__name__)
+
+
+class _EmptyStateOverlay(QWidget):
+    """Shown on top of the canvas when no image is loaded."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        from PyQt6.QtWidgets import QLabel
+
+        label = QLabel("Drop an image to get started")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 15px;")
+        layout.addWidget(label)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self.parent():
+            self.setGeometry(self.parent().rect())
 
 
 class MainWindow(QMainWindow):
@@ -66,6 +89,9 @@ class MainWindow(QMainWindow):
         self.controller.register_canvas(self.canvas)
         self.canvas.set_controller(self.controller)
         self.toolbar = ActionToolbar(self.controller)
+
+        self.empty_state = _EmptyStateOverlay(self.canvas)
+        self.empty_state.raise_()
 
         self.central_layout.addWidget(self.top_status)
         self.central_layout.addWidget(self.metadata_top)
@@ -113,6 +139,7 @@ class MainWindow(QMainWindow):
         self.controller.session.state_changed.connect(self._update_title)
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.loading_started.connect(self.canvas.clear)
+        self.controller.loading_started.connect(lambda: self.empty_state.setVisible(False))
 
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)
@@ -151,6 +178,7 @@ class MainWindow(QMainWindow):
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
+        self.empty_state.setVisible(False)
         metrics = self.state.last_metrics
         if "base_positive" not in metrics:
             logger.warning("Render completed but 'base_positive' not found in metrics")
@@ -214,6 +242,8 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "toast"):
             self.toast._reposition()
+        if hasattr(self, "empty_state"):
+            self.empty_state.setGeometry(self.canvas.rect())
 
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""
