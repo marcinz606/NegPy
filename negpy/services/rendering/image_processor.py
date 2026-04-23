@@ -92,8 +92,8 @@ class ImageProcessor:
                 )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics
-            except Exception as e:
-                logger.error(f"Hardware acceleration failed: {e}")
+            except Exception:
+                logger.exception("Hardware acceleration failed, falling back to CPU")
                 context.metrics["gpu_fallback"] = True
 
         processed = self.engine_cpu.process(img, settings, source_hash, context)
@@ -161,7 +161,7 @@ class ImageProcessor:
                 )
                 rgb = ensure_rgb(rgb)
 
-            f32_buffer = uint16_to_float32(np.ascontiguousarray(rgb))
+            f32_buffer = uint16_to_float32(rgb)
             h_raw, w_raw = f32_buffer.shape[:2]
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import ToolMode
+from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.desktop.view.canvas.toolbar import ActionToolbar
 from negpy.desktop.view.canvas.widget import ImageCanvas
 from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
@@ -65,6 +66,7 @@ class MainWindow(QMainWindow):
         self.state = controller.state
 
         self.resize(1400, 900)
+        self.setAcceptDrops(True)
 
         self._init_ui()
         self._connect_signals()
@@ -255,3 +257,17 @@ class MainWindow(QMainWindow):
         self.controls_panel.exposure_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
         self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            paths = [u.toLocalFile() for u in event.mimeData().urls()]
+            if any(os.path.splitext(p)[1].lower() in SUPPORTED_RAW_EXTENSIONS or os.path.isdir(p) for p in paths):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:
+        paths = [u.toLocalFile() for u in event.mimeData().urls()]
+        if paths:
+            self.controller.request_asset_discovery(paths)
+        event.acceptProposedAction()

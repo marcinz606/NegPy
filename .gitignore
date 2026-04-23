@@ -28,5 +28,6 @@ __pycache__
 VERSION
 TODO.md
 CLAUDE.md
+GEMINI.md
 PLAN.md
 *.egg-info/

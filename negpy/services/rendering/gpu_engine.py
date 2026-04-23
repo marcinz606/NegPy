@@ -944,11 +944,13 @@ class GPUEngine:
         )
         device.queue.submit([encoder.finish()])
         read_buf.map_sync(wgpu.MapMode.READ)
-        raw = np.frombuffer(read_buf.read_mapped(), dtype=np.uint8).reshape((tex.height, prb))
-        valid = raw[:, : tex.width * 16]
-        result = valid.view(np.float32).reshape((tex.height, tex.width, 4))
-        read_buf.unmap()
-        return result[:, :, :3]
+        try:
+            raw = np.frombuffer(read_buf.read_mapped(), dtype=np.uint8).reshape((tex.height, prb))
+            valid = raw[:, : tex.width * 16]
+            result = valid.view(np.float32).reshape((tex.height, tex.width, 4))
+            return result[:, :, :3]
+        finally:
+            read_buf.unmap()
 
     def _dispatch_pass(self, encoder: Any, pipeline_name: str, bindings: list, w: int, h: int) -> None:
         """Configures and dispatches a compute pass."""

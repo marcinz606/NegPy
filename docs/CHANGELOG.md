@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.14.3
+
+- Fix: JPEG and TIFF scans now correctly linearized from sRGB before processing — density curves and color response now physically accurate for scanned negatives.
+- Fix: GPU pipeline failures now log a full stack trace instead of a single-line message, making hardware acceleration issues diagnosable.
+- Fix: GPU readback buffer correctly unmapped on error, preventing render failures after a hardware exception.
+
 ## 0.14.2
 
 - Fix regression: loading monochrome DNG files no longer crashes the app (segfault in display conversion and pixel readout).

@@ -103,6 +103,11 @@ def uint16_to_float32(img: np.ndarray) -> np.ndarray:
     return res
 
 
+def srgb_to_linear(img: np.ndarray) -> np.ndarray:
+    """Convert sRGB gamma-encoded float32 image to linear light (IEC 61966-2-1)."""
+    return np.where(img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
+
+
 @njit(cache=True, fastmath=True)
 def _float_to_uint8_luma_jit(img: np.ndarray) -> np.ndarray:
     """
