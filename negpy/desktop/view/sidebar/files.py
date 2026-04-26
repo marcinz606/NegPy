@@ -190,7 +190,7 @@ class FileBrowser(QWidget):
         self.add_files_btn.clicked.connect(self._on_add_files)
         self.add_folder_btn.clicked.connect(self._on_add_folder)
         self.unload_btn.clicked.connect(self.session.clear_files)
-        self.list_view.clicked.connect(self._on_item_clicked)
+        self.list_view.doubleClicked.connect(self._on_item_double_clicked)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.sync_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("edits"))
@@ -218,13 +218,6 @@ class FileBrowser(QWidget):
         self.list_view.viewport().update()
 
         if current_actual == target_actual:
-            active_idx = self.session.state.selected_file_idx
-            if active_idx >= 0:
-                display_row = model.actual_to_display(active_idx)
-                if display_row >= 0:
-                    qt_idx = model.index(display_row, 0)
-                    if self.list_view.currentIndex() != qt_idx:
-                        self.list_view.setCurrentIndex(qt_idx)
             return
 
         selection_model.blockSignals(True)
@@ -241,7 +234,7 @@ class FileBrowser(QWidget):
                 display_row = model.actual_to_display(active_idx)
                 if display_row >= 0:
                     qt_idx = model.index(display_row, 0)
-                    self.list_view.setCurrentIndex(qt_idx)
+                    selection_model.setCurrentIndex(qt_idx, QItemSelectionModel.SelectionFlag.NoUpdate)
                     self.list_view.scrollTo(qt_idx)
         finally:
             selection_model.blockSignals(False)
@@ -348,15 +341,7 @@ class FileBrowser(QWidget):
         if folder:
             self.controller.request_asset_discovery([folder])
 
-    def _on_item_clicked(self, index) -> None:
-        from PyQt6.QtWidgets import QApplication
-
-        model = self.session.asset_model
-        modifiers = QApplication.keyboardModifiers()
-        actual_indices = [a for idx in self.list_view.selectionModel().selectedIndexes() if (a := model.display_to_actual(idx.row())) >= 0]
-        actual_clicked = model.display_to_actual(index.row())
-
-        if modifiers & Qt.KeyboardModifier.ControlModifier:
-            self.session.update_selection(actual_indices)
-        else:
-            self.session.select_file(actual_clicked, selection_override=actual_indices)
+    def _on_item_double_clicked(self, index) -> None:
+        actual = self.session.asset_model.display_to_actual(index.row())
+        if actual >= 0:
+            self.session.select_file(actual)
