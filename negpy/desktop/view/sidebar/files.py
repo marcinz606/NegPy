@@ -334,12 +334,12 @@ class FileBrowser(QWidget):
             f"Supported Images ({wildcards})",
         )
         if files:
-            self.controller.request_asset_discovery(files)
+            self.controller.request_asset_discovery(files, auto_open=True)
 
     def _on_add_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
-            self.controller.request_asset_discovery([folder])
+            self.controller.request_asset_discovery([folder], auto_open=True)
 
     def _on_item_double_clicked(self, index) -> None:
         actual = self.session.asset_model.display_to_actual(index.row())

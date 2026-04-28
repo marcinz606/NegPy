@@ -106,6 +106,7 @@ class AppController(QObject):
         self._first_render_done = False
         self._export_start_time = 0.0
         self._discovery_running = False
+        self._auto_open_after_discovery = False
         self._gpu_fallback_notified = False
         self._cleaned_up = False
 
@@ -287,7 +288,7 @@ class AppController(QObject):
                 self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
         self.session.asset_model.refresh()
 
-    def request_asset_discovery(self, paths: List[str]) -> None:
+    def request_asset_discovery(self, paths: List[str], auto_open: bool = False) -> None:
         """
         Starts asynchronous discovery of supported assets.
         Silently skips if a discovery task is already in progress.
@@ -298,27 +299,31 @@ class AppController(QObject):
         from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 
         self._discovery_running = True
+        self._auto_open_after_discovery = auto_open
         self.set_status("SCANNING FOR ASSETS...")
         task = AssetDiscoveryTask(paths=paths, supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS))
         self.asset_discovery_requested.emit(task)
 
     def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"HASHING {current}/{total}: {name}")
-        self.status_progress_requested.emit(current, total)
-
     def _on_discovery_finished(self, valid_assets: List[Dict]) -> None:
         """
         Adds discovered assets to the session and starts thumbnail generation.
         """
         self._discovery_running = False
+        auto_open = self._auto_open_after_discovery
+        self._auto_open_after_discovery = False
         pending_scan = getattr(self, "_pending_scanned_file", None)
+
         if valid_assets:
+            first_new_idx = len(self.session.state.uploaded_files)
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
-            # If this was a scan result, auto-select the file
             if pending_scan:
                 self._select_file_by_path(pending_scan)
                 self._pending_scanned_file = None
+            elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
+                self.session.select_file(first_new_idx)
         else:
             self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
             self.status_progress_requested.emit(0, 0)
