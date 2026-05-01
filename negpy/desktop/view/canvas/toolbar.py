@@ -146,7 +146,7 @@ class ActionToolbar(QWidget):
 
         self.btn_export = QPushButton(" Export")
         self.btn_export.setObjectName("export_btn")
-        self.btn_export.setIcon(qta.icon("fa5s.check-circle", color="white"))
+        self.btn_export.setIcon(qta.icon("fa5s.check-circle", color=icon_color))
         self.btn_export.setToolTip("Export  Ctrl+E")
         self.btn_export.setFixedHeight(36)
 

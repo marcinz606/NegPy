@@ -51,7 +51,7 @@ QPushButton {
 
 QPushButton:hover {
     background-color: #262626;
-    border: 1px solid #B71C1C;
+    border: 1px solid #3A3A3A;
 }
 
 QPushButton:pressed {
@@ -62,22 +62,8 @@ QPushButton:pressed {
 QPushButton:checked {
     background-color: #222222;
     color: #FFFFFF;
-    border: 2px solid #B71C1C;
+    border: 2px solid #555555;
 }
-
-/* Primary Action Styling */
-QPushButton#export_btn, QPushButton#batch_export_btn {
-    background-color: #B71C1C;
-    color: #FFFFFF;
-    font-weight: bold;
-    border: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.18);
-}
-
-QPushButton#export_btn:hover, QPushButton#batch_export_btn:hover {
-    background-color: #C62828;
-}
-
 
 QToolButton {
     background-color: transparent;
@@ -88,12 +74,12 @@ QToolButton {
 
 QToolButton:hover {
     background-color: #262626;
-    border: 1px solid #B71C1C;
+    border: 1px solid #3A3A3A;
 }
 
 QToolButton:checked {
     background-color: #222222;
-    border: 2px solid #B71C1C;
+    border: 2px solid #555555;
 }
 
 QSlider::groove:horizontal {
@@ -112,13 +98,13 @@ QSlider#yellow_slider::groove:horizontal {
 }
 
 QSlider#cyan_slider::handle:horizontal { background: #00b1b1; }
-QSlider#cyan_slider::sub-page:horizontal { background: #004444; }
+QSlider#cyan_slider::sub-page:horizontal { background: #3A3A3A; }
 
 QSlider#magenta_slider::handle:horizontal { background: #b100b1; }
-QSlider#magenta_slider::sub-page:horizontal { background: #440044; }
+QSlider#magenta_slider::sub-page:horizontal { background: #3A3A3A; }
 
 QSlider#yellow_slider::handle:horizontal { background: #b1b100; }
-QSlider#yellow_slider::sub-page:horizontal { background: #444400; }
+QSlider#yellow_slider::sub-page:horizontal { background: #3A3A3A; }
 
 QSlider::handle:horizontal {
     background: #B71C1C;
@@ -130,7 +116,7 @@ QSlider::handle:horizontal {
 }
 
 QSlider::sub-page:horizontal {
-    background: #441111;
+    background: #3A3A3A;
     border-radius: 3px;
 }
 
@@ -189,7 +175,7 @@ QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QTextEdit {
 }
 
 QComboBox:focus, QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QTextEdit:focus {
-    border: 1px solid #B71C1C;
+    border: 1px solid #555555;
     background-color: #0D0D0D;
 }
 

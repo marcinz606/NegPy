@@ -301,46 +301,42 @@ class CompactSlider(BaseSlider):
 class HueSlider(CompactSlider):
     """
     CompactSlider variant for 0–360° hue selection.
-    The groove shows a full rainbow gradient; the label color tracks the current hue.
+    The label color and slider handle track the current hue.
     """
 
     def __init__(self, label: str, default_val: float = 0.0, parent=None):
         super().__init__(label, 0.0, 360.0, default_val, step=1.0, precision=1, unit="°", parent=parent)
-        self.slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0.000 hsl(0,55%,45%),
-                    stop:0.167 hsl(60,55%,45%),
-                    stop:0.333 hsl(120,55%,45%),
-                    stop:0.500 hsl(180,55%,45%),
-                    stop:0.667 hsl(240,55%,45%),
-                    stop:0.833 hsl(300,55%,45%),
-                    stop:1.000 hsl(360,55%,45%));
+        self._base_hue_stylesheet = """
+            QSlider::groove:horizontal {{
+                background: #2a2a2a;
                 height: 6px; border-radius: 3px;
-            }
-            QSlider::handle:horizontal {
-                background: white;
+            }}
+            QSlider::handle:horizontal {{
+                background: {color};
                 width: 12px; height: 12px;
                 margin: -3px 0;
                 border-radius: 6px;
                 border: 2px solid rgba(0,0,0,0.5);
-            }
-        """)
-        self._update_label_color(default_val)
+            }}
+        """
+        self._apply_hue(default_val)
 
-    def _update_label_color(self, hue_deg: float) -> None:
-        color = QColor.fromHsv(int(hue_deg) % 360, 200, 210)
+    def _apply_hue(self, hue_deg: float) -> None:
+        """Update label color and slider handle to match the current hue."""
+        h = int(hue_deg) % 360
+        color = QColor.fromHsv(h, 200, 210)
         edited = abs(self.spin.value() - self._default) > 1e-6
         border = f"border-bottom: 1px solid {THEME.accent_edited};" if edited else ""
         self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {color.name()}; {border}")
+        self.slider.setStyleSheet(self._base_hue_stylesheet.format(color=color.name()))
 
     def _on_slider_changed(self, value: int) -> None:
         super()._on_slider_changed(value)
-        self._update_label_color(value / self._precision)
+        self._apply_hue(value / self._precision)
 
     def setValue(self, value: float) -> None:
         super().setValue(value)
-        self._update_label_color(value)
+        self._apply_hue(value)
 
 
 class RangeSlider(QWidget):

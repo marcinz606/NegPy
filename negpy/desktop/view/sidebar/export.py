@@ -134,7 +134,7 @@ class ExportSidebar(BaseSidebar):
         self.batch_export_btn = QPushButton(" Export All")
         self.batch_export_btn.setObjectName("batch_export_btn")
         self.batch_export_btn.setFixedHeight(40)
-        self.batch_export_btn.setIcon(qta.icon("fa5s.images", color="white"))
+        self.batch_export_btn.setIcon(qta.icon("fa5s.images", color=THEME.text_primary))
 
         self.apply_all_btn = QPushButton(" Sync export settings")
         self.apply_all_btn.setFixedHeight(40)
@@ -171,20 +171,16 @@ class ExportSidebar(BaseSidebar):
         )
 
     def _update_apply_all_style(self, checked: bool) -> None:
-        """
-        Toggles button highlighting to match the Export All button when active.
-        """
+        """Toggle checked appearance for the Sync export settings button."""
         if checked:
-            self.apply_all_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {THEME.accent_primary};
+            self.apply_all_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #222222;
                     color: white;
                     font-weight: bold;
+                    border: 2px solid #555555;
                     border-radius: 4px;
-                }}
-                QPushButton:hover {{
-                    background-color: {THEME.accent_secondary};
-                }}
+                }
             """)
             self.apply_all_btn.setIcon(qta.icon("fa5s.clone", color="white"))
         else:
