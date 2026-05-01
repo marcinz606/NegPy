@@ -2,9 +2,9 @@
 
 ## 0.14.3
 
-- Fix: JPEG and TIFF scans now correctly linearized from sRGB before processing.
-- Fix: GPU stability & error handling improvements.
-- UX: Theme subdued — red accents removed from slider fills, button hover/checked outlines, dropdown focus borders, and export action buttons; toning hue slider handle now tracks the current hue color.
+- Fix: JPEG and TIFF scans now correctly linearized from sRGB before processing — density curves and color response now physically accurate for scanned negatives.
+- Fix: GPU pipeline failures now log a full stack trace instead of a single-line message, making hardware acceleration issues diagnosable.
+- Fix: GPU readback buffer correctly unmapped on error, preventing render failures after a hardware exception.
 
 ## 0.14.2
 
