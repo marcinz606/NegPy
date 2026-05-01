@@ -191,10 +191,10 @@ class MainWindow(QMainWindow):
         if self.state.gpu_enabled:
             backend = self.controller.render_worker.processor.backend_name
             header.gpu_badge.setText(backend.upper())
-            header.gpu_badge.setStyleSheet(f"color: {THEME.accent_primary}; font-size: 11px; font-weight: bold;")
+            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px; font-weight: bold;")
         else:
             header.gpu_badge.setText("CPU")
-            header.gpu_badge.setStyleSheet(f"color: {THEME.text_muted}; font-size: 11px; font-weight: bold;")
+            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px; font-weight: bold;")
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""

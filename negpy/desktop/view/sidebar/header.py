@@ -77,7 +77,7 @@ class SidebarHeader(QWidget):
         self.gpu_checkbox.toggled.connect(self._on_gpu_toggled)
 
         self.gpu_badge = QLabel("CPU")
-        self.gpu_badge.setStyleSheet(f"color: {THEME.text_muted}; font-size: 11px; font-weight: bold; text-transform: uppercase;")
+        self.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px; font-weight: bold; text-transform: uppercase;")
 
         gpu_container.addWidget(self.gpu_checkbox)
         gpu_container.addStretch()

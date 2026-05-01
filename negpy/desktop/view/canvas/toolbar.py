@@ -130,7 +130,7 @@ class ActionToolbar(QWidget):
                     border-radius: 3px;
                 }}
                 QToolButton:checked {{
-                    border: 2px solid {THEME.accent_primary};
+                    border: 2px solid {THEME.text_muted};
                 }}
                 QToolButton:hover {{
                     border: 1px solid #888;
