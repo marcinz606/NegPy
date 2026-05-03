@@ -1,4 +1,5 @@
 import math
+
 import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -29,7 +30,7 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addWidget(self.mode_combo)
 
         buf_clip_row = QHBoxLayout()
-        self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
+        self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.50, conf.analysis_buffer)
         self.analysis_buffer_slider.setToolTip(
             "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
         )

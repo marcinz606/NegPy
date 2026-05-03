@@ -2,8 +2,8 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.widgets.sliders import CompactSlider
 
 
 class FinishSidebar(BaseSidebar):
@@ -27,7 +27,7 @@ class FinishSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("BORDER"))
 
         row2 = QHBoxLayout()
-        self.border_slider = CompactSlider("Width", 0.0, 10.0, conf.border_size)
+        self.border_slider = CompactSlider("Width", 0.0, 5.0, conf.border_size)
         self.color_btn = QPushButton()
         self.color_btn.setFixedHeight(30)
         self.color_btn.setFixedWidth(30)

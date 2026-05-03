@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
         buffer = _display_buffer_for_canvas(metrics["base_positive"])
         content_rect = metrics.get("content_rect")
 
-        if isinstance(buffer, np.ndarray):
+        if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:
             finish_conf = self.state.config.finish
             export_conf = self.state.config.export
             should_preview = finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
