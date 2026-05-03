@@ -2,9 +2,9 @@ from typing import Tuple
 
 import cv2
 import numpy as np
+import rawpy
 
 from negpy.domain.types import Dimensions, ImageBuffer
-from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
 from negpy.kernel.image.logic import ensure_rgb, uint16_to_float32
@@ -30,12 +30,6 @@ class PreviewManager:
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
 
-        # Resolve target color space
-        if color_space is None:
-            color_space = metadata.get("color_space", "Adobe RGB")
-
-        raw_color_space = ColorSpaceRegistry.get_rawpy_space(color_space)
-
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
             user_wb = None if use_camera_wb else [1, 1, 1, 1]
@@ -46,7 +40,7 @@ class PreviewManager:
                 use_camera_wb=use_camera_wb,
                 user_wb=user_wb,
                 output_bps=16,
-                output_color=raw_color_space,
+                output_color=rawpy.ColorSpace.raw,
                 demosaic_algorithm=algo,
                 user_flip=0,
             )

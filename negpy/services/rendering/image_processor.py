@@ -1,5 +1,6 @@
 import os
 import io
+import rawpy
 import tifffile
 import numpy as np
 from PIL import Image, ImageCms
@@ -140,7 +141,6 @@ class ImageProcessor:
 
             ctx_mgr, metadata = loader_factory.get_loader(file_path)
             source_cs = metadata.get("color_space", "Adobe RGB")
-            raw_color_space = ColorSpaceRegistry.get_rawpy_space(source_cs)
             target_cs = export_settings.export_color_space
             if target_cs == "Same as Source":
                 target_cs = source_cs
@@ -156,7 +156,7 @@ class ImageProcessor:
                     use_camera_wb=use_camera_wb,
                     user_wb=user_wb,
                     output_bps=16,
-                    output_color=raw_color_space,
+                    output_color=rawpy.ColorSpace.raw,
                     demosaic_algorithm=algo,
                 )
                 rgb = ensure_rgb(rgb)
