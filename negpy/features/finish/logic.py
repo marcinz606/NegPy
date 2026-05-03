@@ -10,7 +10,7 @@ def apply_vignette(img: ImageBuffer, strength: float, size: float) -> ImageBuffe
     Args:
         img: Float32 RGB image [0, 1].
         strength: [-1, 1]. Negative = darken edges, positive = brighten edges, 0 = no effect.
-        size: [0, 1]. Midpoint of gradient falloff. 0 = starts at center, 1 = starts at edges.
+        size: [0, 1]. 0 = vignette barely visible at extreme corners, 1 = covers entire image from center.
 
     Returns:
         Modified ImageBuffer with vignette applied.
@@ -29,8 +29,9 @@ def apply_vignette(img: ImageBuffer, strength: float, size: float) -> ImageBuffe
     dx = (xx - cx) / max(cx, 1.0)
     dist = np.sqrt(dx**2 + dy**2)  # range [0, 1]
 
-    # Remap: t=0 at the midpoint (size), t=1 at farthest edge
-    t = (dist - size) / max(1.0 - size, 1e-6)
+    # Remap: size=0 → vignette barely at corners, size=1 → covers entire image
+    midpoint = 1.0 - size
+    t = (dist - midpoint) / max(1.0 - midpoint, 1e-6)
     t = np.clip(t, 0.0, 1.0)
 
     # Smooth cosine falloff

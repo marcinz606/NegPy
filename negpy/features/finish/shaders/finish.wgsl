@@ -27,8 +27,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let px = vec2<f32>(f32(coords.x), f32(coords.y));
     let d = length(px - center) / max_dist;
 
-    // Remap: t=0 at midpoint, t=1 at farthest edge
-    let t = clamp((d - params.vignette_size) / max(1e-6, 1.0 - params.vignette_size), 0.0, 1.0);
+    // Remap: size=0 → vignette at edges, size=1 → covers entire image
+    let midpoint = 1.0 - params.vignette_size;
+    let t = clamp((d - midpoint) / max(1e-6, 1.0 - midpoint), 0.0, 1.0);
 
     // Smooth cosine falloff
     let factor = 0.5 * (1.0 - cos(t * 3.14159265));

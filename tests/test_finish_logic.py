@@ -48,24 +48,24 @@ class TestVignette(unittest.TestCase):
             res = apply_vignette(img, strength, size=0.5)
             np.testing.assert_array_almost_equal(res[50, 50], img[50, 50], decimal=5)
 
-    def test_size_zero_affects_entire_image(self) -> None:
-        """Size=0 means falloff starts from center — everything affected."""
+    def test_size_zero_barely_affects_corners(self) -> None:
+        """Size=0 means vignette barely visible — only extreme corners affected."""
         img = self._gradient_image()
         res = apply_vignette(img, strength=-1.0, size=0.0)
-        # Center should be darkened too
-        center_luma = float(res[50, 50].mean())
-        self.assertLess(center_luma, 0.5)
-
-    def test_size_one_only_affects_extreme_corners(self) -> None:
-        """Size=1 means falloff starts at edges — most pixels unaffected."""
-        img = self._gradient_image()
-        res = apply_vignette(img, strength=-1.0, size=1.0)
         # Most of the image should be near 0.5
         center_luma = float(res[50, 50].mean())
         self.assertAlmostEqual(center_luma, 0.5, delta=0.01)
         # Extreme corner should still be darkened
         corner_luma = float(res[0, 0].mean())
         self.assertLess(corner_luma, center_luma)
+
+    def test_size_one_affects_entire_image(self) -> None:
+        """Size=1 means vignette covers entire image — center is affected too."""
+        img = self._gradient_image()
+        res = apply_vignette(img, strength=-1.0, size=1.0)
+        # Center should be darkened too
+        center_luma = float(res[50, 50].mean())
+        self.assertLess(center_luma, 0.5)
 
     def test_non_square_image(self) -> None:
         """Works correctly on non-square images."""
