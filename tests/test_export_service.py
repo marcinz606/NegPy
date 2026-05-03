@@ -19,9 +19,7 @@ def test_apply_scaling_f32() -> None:
 
 
 def test_apply_border_f32() -> None:
-    service = ImageProcessor()
     img = np.ones((100, 100, 3), dtype=np.float32)
-    params = WorkspaceConfig()
 
     # 1 inch @ 100 DPI = 100px total
     # 0.1 inch border = 10px
