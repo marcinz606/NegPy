@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.15.1
+
+- Fix: rendering crash on some DNG and TIFF files at extreme D-Range Clip values (`kth out of bounds` error from `np.percentile` on float32 arrays in NumPy 2.2.6).
+- Fix: NaN/inf pixels in loaded images no longer propagate into normalization bounds.
+
 ## 0.15.0
 
 - Add customizable slider shortcuts for all controls @alessandrv

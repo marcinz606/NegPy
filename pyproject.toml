@@ -10,7 +10,7 @@ authors = [
 dynamic = ["version"]
 requires-python = ">=3.13"
 dependencies = [
-    "rawpy==0.25.1",
+    "rawpy==0.26.1",
     "tifffile==2026.4.11",
     "imagecodecs==2026.3.6",
     "imageio==2.37.3",

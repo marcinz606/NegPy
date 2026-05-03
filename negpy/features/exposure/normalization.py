@@ -92,7 +92,7 @@ def analyze_log_exposure_bounds(
     (e.g. 0.0001 = nearly no clipping; 1.0 = clip 1% from each tail).
     """
     epsilon = 1e-6
-    img_log = np.log10(np.clip(image, epsilon, 1.0))
+    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
 
     if roi:
         y1, y2, x1, x2 = roi
@@ -102,7 +102,7 @@ def analyze_log_exposure_bounds(
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
     clip = max(0.00001, min(1.0, percentile_clip))
-    p_low, p_high = clip, 100.0 - clip
+    p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
     fixed_range = 3.0
 
     if process_mode == ProcessMode.E6:

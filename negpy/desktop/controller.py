@@ -760,6 +760,7 @@ class AppController(QObject):
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
         logger.error(f"Worker failure: {message}")
+        self.set_status(f"Failed to load file: {message}", 5000)
 
         if self._pending_render_task:
             task = self._pending_render_task

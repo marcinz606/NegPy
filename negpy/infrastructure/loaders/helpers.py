@@ -97,7 +97,7 @@ def get_best_demosaic_algorithm(raw: Any) -> Any:
                 # 2x2 block means it's a standard Bayer sensor (Canon, Nikon, Sony, etc.)
                 selected_algo = rawpy.DemosaicAlgorithm.AHD
 
-    except Exception as e:
+    except (AttributeError, ValueError) as e:
         logger.exception(f"Failed to determine sensor CFA pattern: {e}. Falling back to LINEAR.")
         selected_algo = rawpy.DemosaicAlgorithm.LINEAR
 
