@@ -191,6 +191,8 @@ class ControlsPanel(QWidget):
         lab.sharpen_slider.setToolTip(tooltip_with_shortcut("Sharpening", ["sharpen_inc", "sharpen_dec"]))
         lab.glow_slider.setToolTip(tooltip_with_shortcut("Glow", ["glow_inc", "glow_dec"]))
         lab.halation_slider.setToolTip(tooltip_with_shortcut("Halation", ["halation_inc", "halation_dec"]))
+        lab.vignette_strength_slider.setToolTip(tooltip_with_shortcut("Vignette strength: negative = darken edges, positive = brighten edges", ["vignette_str_inc", "vignette_str_dec"]))
+        lab.vignette_size_slider.setToolTip(tooltip_with_shortcut("Vignette size: how far the vignette extends from center", ["vignette_size_inc", "vignette_size_dec"]))
 
         ret.pick_dust_btn.setToolTip(tooltip_with_shortcut("Toggle heal tool", "pick_dust"))
         ret.threshold_slider.setToolTip(tooltip_with_shortcut("Auto dust threshold", ["threshold_inc", "threshold_dec"]))
