@@ -1,8 +1,7 @@
 import qtawesome as qta
 from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QColor
+
 from PyQt6.QtWidgets import (
-    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QHBoxLayout,
@@ -85,27 +84,6 @@ class ExportSidebar(BaseSidebar):
         self.layout.addWidget(self.size_container)
         self.size_container.setVisible(not conf.use_original_res)
 
-        border_row = QHBoxLayout()
-        vbox_border = QVBoxLayout()
-        border_label = QLabel('Width <span style="color: #666666; font-size: 10px;">cm</span>')
-        vbox_border.addWidget(border_label)
-        self.border_input = QDoubleSpinBox()
-        self.border_input.setRange(0.0, 10.0)
-        self.border_input.setSingleStep(0.1)
-        self.border_input.setValue(conf.export_border_size)
-        vbox_border.addWidget(self.border_input)
-
-        vbox_color = QVBoxLayout()
-        vbox_color.addWidget(QLabel("Color"))
-        self.color_btn = QPushButton()
-        self.color_btn.setFixedHeight(30)
-        self._update_color_btn(conf.export_border_color)
-        vbox_color.addWidget(self.color_btn)
-
-        border_row.addLayout(vbox_border)
-        border_row.addLayout(vbox_color)
-        self.layout.addLayout(border_row)
-
         self.pattern_input = QLineEdit(conf.filename_pattern)
         self.pattern_input.setPlaceholderText("Filename Pattern...")
         self.pattern_input.setToolTip(
@@ -158,9 +136,7 @@ class ExportSidebar(BaseSidebar):
 
         self.size_input.valueChanged.connect(lambda _: self.update_timer.start())
         self.dpi_input.valueChanged.connect(lambda _: self.update_timer.start())
-        self.border_input.valueChanged.connect(lambda _: self.update_timer.start())
 
-        self.color_btn.clicked.connect(self._on_color_clicked)
         self.browse_btn.clicked.connect(self._on_browse_clicked)
         self.pattern_input.textChanged.connect(lambda _: self.update_timer.start())
         self.path_input.textChanged.connect(lambda _: self.update_timer.start())
@@ -199,7 +175,6 @@ class ExportSidebar(BaseSidebar):
             use_original_res=self.orig_res_btn.isChecked(),
             export_print_size=self.size_input.value(),
             export_dpi=self.dpi_input.value(),
-            export_border_size=self.border_input.value(),
             filename_pattern=self.pattern_input.text(),
             export_path=self.path_input.text(),
         )
@@ -208,23 +183,12 @@ class ExportSidebar(BaseSidebar):
         self.size_container.setVisible(not checked)
         self.update_timer.start()
 
-    def _on_color_clicked(self) -> None:
-        color = QColorDialog.getColor(QColor(self.state.config.export.export_border_color))
-        if color.isValid():
-            hex_color = color.name()
-            self._update_color_btn(hex_color)
-            # Let the timer do it
-            self.update_config_section("export", persist=True, render=True, export_border_color=hex_color)
-
     def _on_browse_clicked(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
 
         path = QFileDialog.getExistingDirectory(self, "Select Export Directory", self.state.config.export.export_path)
         if path:
             self.path_input.setText(path)
-
-    def _update_color_btn(self, hex_color: str) -> None:
-        self.color_btn.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #555;")
 
     def sync_ui(self) -> None:
         conf = self.state.config.export
@@ -237,8 +201,6 @@ class ExportSidebar(BaseSidebar):
             self.size_container.setVisible(not conf.use_original_res)
             self.size_input.setValue(conf.export_print_size)
             self.dpi_input.setValue(conf.export_dpi)
-            self.border_input.setValue(conf.export_border_size)
-            self._update_color_btn(conf.export_border_color)
             self.pattern_input.setText(conf.filename_pattern)
             self.path_input.setText(conf.export_path)
         finally:
@@ -252,7 +214,6 @@ class ExportSidebar(BaseSidebar):
             self.orig_res_btn,
             self.size_input,
             self.dpi_input,
-            self.border_input,
             self.pattern_input,
             self.path_input,
         ]
