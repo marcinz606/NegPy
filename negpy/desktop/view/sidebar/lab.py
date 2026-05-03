@@ -52,7 +52,6 @@ class LabSidebar(BaseSidebar):
         row4.addWidget(self.halation_slider)
         self.layout.addLayout(row4)
 
-
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
@@ -111,7 +110,6 @@ class LabSidebar(BaseSidebar):
         self.halation_slider.valueCommitted.connect(
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, halation_strength=v)
         )
-
 
     def sync_ui(self) -> None:
         conf = self.state.config.lab

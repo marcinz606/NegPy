@@ -1,5 +1,5 @@
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QColorDialog, QDoubleSpinBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.widgets.sliders import CompactSlider
@@ -26,26 +26,15 @@ class FinishSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("BORDER"))
 
-        border_row = QHBoxLayout()
-        vbox_border = QVBoxLayout()
-        border_label = QLabel('Width <span style="color: #666666; font-size: 10px;">cm</span>')
-        vbox_border.addWidget(border_label)
-        self.border_input = QDoubleSpinBox()
-        self.border_input.setRange(0.0, 10.0)
-        self.border_input.setSingleStep(0.1)
-        self.border_input.setValue(conf.border_size)
-        vbox_border.addWidget(self.border_input)
-
-        vbox_color = QVBoxLayout()
-        vbox_color.addWidget(QLabel("Color"))
+        row2 = QHBoxLayout()
+        self.border_slider = CompactSlider("Width", 0.0, 10.0, conf.border_size)
         self.color_btn = QPushButton()
         self.color_btn.setFixedHeight(30)
+        self.color_btn.setFixedWidth(30)
         self._update_color_btn(conf.border_color)
-        vbox_color.addWidget(self.color_btn)
-
-        border_row.addLayout(vbox_border)
-        border_row.addLayout(vbox_color)
-        self.layout.addLayout(border_row)
+        row2.addWidget(self.border_slider)
+        row2.addWidget(self.color_btn)
+        self.layout.addLayout(row2)
 
         self.layout.addStretch()
 
@@ -67,11 +56,11 @@ class FinishSidebar(BaseSidebar):
             lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, vignette_size=v)
         )
 
-        self.border_input.valueChanged.connect(
+        self.border_slider.valueChanged.connect(
             lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, border_size=v)
         )
-        self.border_input.editingFinished.connect(
-            lambda: self.update_config_section("finish", persist=True, readback_metrics=True, border_size=self.border_input.value())
+        self.border_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, border_size=v)
         )
 
         self.color_btn.clicked.connect(self._on_color_clicked)
@@ -89,7 +78,7 @@ class FinishSidebar(BaseSidebar):
         try:
             self.vignette_strength_slider.setValue(conf.vignette_strength)
             self.vignette_size_slider.setValue(conf.vignette_size)
-            self.border_input.setValue(conf.border_size)
+            self.border_slider.setValue(conf.border_size)
             self._update_color_btn(conf.border_color)
         finally:
             self.block_signals(False)
@@ -98,7 +87,7 @@ class FinishSidebar(BaseSidebar):
         widgets = [
             self.vignette_strength_slider,
             self.vignette_size_slider,
-            self.border_input,
+            self.border_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)

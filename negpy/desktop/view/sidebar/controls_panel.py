@@ -106,20 +106,20 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.brush", color=icon_color),
         )
 
-        self.icc_sidebar = ICCSidebar(self.controller)
-        self._add_sidebar_section(
-            "ICC",
-            "icc",
-            self.icc_sidebar,
-            icon=qta.icon("fa5s.eye", color=icon_color),
-        )
-
         self.finish_sidebar = FinishSidebar(self.controller)
         self.finish_section = self._add_sidebar_section(
             "Finishing",
             "finish",
             self.finish_sidebar,
             icon=qta.icon("fa5s.paint-brush", color=icon_color),
+        )
+
+        self.icc_sidebar = ICCSidebar(self.controller)
+        self._add_sidebar_section(
+            "ICC",
+            "icc",
+            self.icc_sidebar,
+            icon=qta.icon("fa5s.eye", color=icon_color),
         )
 
     def _add_sidebar_section(

@@ -67,7 +67,9 @@ class PrintService:
         return paper_w, paper_h
 
     @staticmethod
-    def apply_layout(img: np.ndarray, export_settings: ExportConfig, border_size: float = 0.0, border_color: str = "#ffffff") -> Tuple[np.ndarray, Tuple[int, int, int, int]]:
+    def apply_layout(
+        img: np.ndarray, export_settings: ExportConfig, border_size: float = 0.0, border_color: str = "#ffffff"
+    ) -> Tuple[np.ndarray, Tuple[int, int, int, int]]:
         """
         Scales and pads image to fit paper aspect ratio and border requirements.
         Returns (ImageBuffer, (content_x, content_y, content_w, content_h)).
