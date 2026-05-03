@@ -147,11 +147,15 @@ class ControlsPanel(QWidget):
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
 
         self.exposure_section.reset_requested.connect(lambda: self.controller.session.reset_section("exposure"))
-        self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
+        self.lab_section.reset_requested.connect(self._reset_lab_and_finish)
         self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
         self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
         self.process_section.reset_requested.connect(lambda: self.controller.session.reset_section("process"))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
+
+    def _reset_lab_and_finish(self) -> None:
+        self.controller.session.reset_section("lab")
+        self.controller.session.reset_section("finish")
 
     def apply_shortcut_tooltips(self) -> None:
         exp = self.exposure_sidebar

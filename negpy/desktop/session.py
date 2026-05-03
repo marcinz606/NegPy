@@ -486,6 +486,7 @@ class DesktopSessionManager(QObject):
         from negpy.features.geometry.models import GeometryConfig
         from negpy.features.process.models import ProcessConfig
         from negpy.features.retouch.models import RetouchConfig
+        from negpy.features.finish.models import FinishConfig
 
         defaults = {
             "exposure": ExposureConfig(),
@@ -494,6 +495,7 @@ class DesktopSessionManager(QObject):
             "geometry": GeometryConfig(),
             "process": ProcessConfig(),
             "retouch": RetouchConfig(),
+            "finish": FinishConfig(),
         }
         if section not in defaults:
             return
