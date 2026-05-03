@@ -16,14 +16,14 @@ class PixelReadoutOverlay(QWidget):
 
         self.setStyleSheet(f"""
             QWidget {{
-                background-color: rgba(13, 13, 13, 0.88);
+                background-color: {THEME.surface_overlay};
                 border: 1px solid {THEME.border_primary};
                 border-radius: 4px;
             }}
             QLabel {{
                 color: {THEME.text_secondary};
                 font-family: monospace;
-                font-size: 11px;
+                font-size: {THEME.font_size_xs}px;
                 background: transparent;
                 border: none;
             }}

@@ -9,14 +9,36 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QButtonGroup,
     QLabel,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
-from PyQt6.QtCore import pyqtSignal, QSize, QTimer, QItemSelectionModel, Qt
+from PyQt6.QtCore import pyqtSignal, QSize, QTimer, QItemSelectionModel, Qt, QModelIndex
+from PyQt6.QtGui import QPainter, QPen, QColor
 
 import qtawesome as qta
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
+
+
+class _DirtyUnderlineDelegate(QStyledItemDelegate):
+    """Draws a 1px accent line under the selected item when the file is dirty."""
+
+    def _is_active_dirty(self, index: QModelIndex) -> bool:
+        model = index.model()
+        if model is None or not hasattr(model, "_state"):
+            return False
+        state = model._state
+        actual_idx = model.display_to_actual(index.row())
+        return actual_idx == state.selected_file_idx and state.is_dirty
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        super().paint(painter, option, index)
+        if self._is_active_dirty(index):
+            pen = QPen(QColor(THEME.accent_primary), 1)
+            painter.setPen(pen)
+            painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
 
 
 class FileBrowser(QWidget):
@@ -124,6 +146,7 @@ class FileBrowser(QWidget):
 
         self.list_view = QListView()
         self.list_view.setModel(self.session.asset_model)
+        self.list_view.setItemDelegate(_DirtyUnderlineDelegate(self.list_view))
         self.list_view.setViewMode(QListView.ViewMode.IconMode)
         self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
         self.list_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
@@ -158,6 +181,9 @@ class FileBrowser(QWidget):
             model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes() if model.display_to_actual(idx.row()) >= 0
         }
         target_actual = set(self.session.state.selected_indices)
+
+        # Repaint for dirty underline
+        self.list_view.viewport().update()
 
         if current_actual == target_actual:
             active_idx = self.session.state.selected_file_idx

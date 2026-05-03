@@ -7,6 +7,7 @@ from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.desktop.view.canvas.pixel_readout import PixelReadoutOverlay
+from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.logging import get_logger
@@ -259,9 +260,9 @@ class ImageCanvas(QWidget):
             return
 
         menu = QMenu(self)
-        act_wb = menu.addAction("Pick WB  Shift+W")
+        act_wb = menu.addAction(tooltip_with_shortcut("Pick WB", "pick_wb"))
         act_wb.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.WB_PICK))  # type: ignore[union-attr]
-        act_dust = menu.addAction("Pick Dust  Shift+D")
+        act_dust = menu.addAction(tooltip_with_shortcut("Pick Dust", "pick_dust"))
         act_dust.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.DUST_PICK))  # type: ignore[union-attr]
         menu.addSeparator()
         act_copy = menu.addAction("Copy Settings  Ctrl+C")

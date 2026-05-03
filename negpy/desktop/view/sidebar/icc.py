@@ -22,6 +22,7 @@ class ICCSidebar(BaseSidebar):
 
         self.profile_combo = QComboBox()
         self.profile_combo.addItems([os.path.basename(p) for p in self.profiles])
+        self.profile_combo.setPlaceholderText("Select Profile...")
 
         path = self.state.icc_profile_path
         if path:

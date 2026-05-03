@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider
 from negpy.features.process.models import ProcessMode
 from negpy.features.toning.logic import PAPER_PROFILES
@@ -12,10 +13,10 @@ class ToningSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        from negpy.desktop.view.styles.theme import THEME
-
         self.layout.setSpacing(12)
         conf = self.state.config.toning
+
+        self.layout.addWidget(section_subheader("TONERS"))
 
         self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
         self.selenium_slider.setToolTip("Simulates selenium toning — adds cool blue-purple cast to shadows (B&W only)")
@@ -24,27 +25,28 @@ class ToningSidebar(BaseSidebar):
         self.layout.addWidget(self.selenium_slider)
         self.layout.addWidget(self.sepia_slider)
 
+        self.layout.addWidget(section_subheader("SPLIT TONE"))
+
         row_sh = QHBoxLayout()
-        self.shadow_hue_slider = HueSlider("S-Hue", conf.shadow_tint_hue)
+        self.shadow_hue_slider = HueSlider("Shadow Hue", conf.shadow_tint_hue)
         self.shadow_hue_slider.setToolTip("Hue of the shadow split-toning color")
-        self.shadow_str_slider = CompactSlider("S-Str", 0.0, 1.0, conf.shadow_tint_strength)
+        self.shadow_str_slider = CompactSlider("Shadow Strength", 0.0, 1.0, conf.shadow_tint_strength)
         self.shadow_str_slider.setToolTip("Strength of the shadow split-tone color")
         row_sh.addWidget(self.shadow_hue_slider)
         row_sh.addWidget(self.shadow_str_slider)
         self.layout.addLayout(row_sh)
 
         row_hl = QHBoxLayout()
-        self.highlight_hue_slider = HueSlider("H-Hue", conf.highlight_tint_hue)
+        self.highlight_hue_slider = HueSlider("Highlight Hue", conf.highlight_tint_hue)
         self.highlight_hue_slider.setToolTip("Hue of the highlight split-toning color")
-        self.highlight_str_slider = CompactSlider("H-Str", 0.0, 1.0, conf.highlight_tint_strength)
+        self.highlight_str_slider = CompactSlider("Highlight Strength", 0.0, 1.0, conf.highlight_tint_strength)
         self.highlight_str_slider.setToolTip("Strength of the highlight split-tone color")
         row_hl.addWidget(self.highlight_hue_slider)
         row_hl.addWidget(self.highlight_str_slider)
         self.layout.addLayout(row_hl)
 
-        paper_label = QLabel("Paper Profile")
-        paper_label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary};")
-        self.layout.addWidget(paper_label)
+        self.layout.addWidget(section_subheader("PAPER"))
+
         self.paper_combo = QComboBox()
         self.paper_combo.addItems(list(PAPER_PROFILES.keys()))
         self.paper_combo.setCurrentText(conf.paper_profile)

@@ -7,7 +7,7 @@ class InfoLabel(QLabel):
 
     def __init__(self, text: str = ""):
         super().__init__(text)
-        self.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px; font-weight: bold;")
+        self.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: bold;")
 
 
 class ImageMetadataPanel(QWidget):
@@ -17,12 +17,12 @@ class ImageMetadataPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(24)
+        self.setFixedHeight(28)
         self._init_ui()
 
     def _init_ui(self) -> None:
         self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(10, 0, 10, 0)
+        self.layout.setContentsMargins(THEME.space_md, THEME.space_sm, THEME.space_md, THEME.space_sm)
         self.layout.setSpacing(20)
 
         self.lbl_left = InfoLabel("-")

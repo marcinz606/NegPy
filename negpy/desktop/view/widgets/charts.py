@@ -128,9 +128,9 @@ class HistogramWidget(QWidget):
 
         # Channels
         self._draw_channel(painter, self._data_l, "#D4D4D4", 30, 150, w, h)
-        self._draw_channel(painter, self._data_r, "#D32F2F", 80, 200, w, h)
-        self._draw_channel(painter, self._data_g, "#388E3C", 80, 200, w, h)
-        self._draw_channel(painter, self._data_b, "#1976D2", 80, 200, w, h)
+        self._draw_channel(painter, self._data_r, THEME.channel_red, 80, 200, w, h)
+        self._draw_channel(painter, self._data_g, THEME.channel_green, 80, 200, w, h)
+        self._draw_channel(painter, self._data_b, THEME.channel_blue, 80, 200, w, h)
 
         # H2: Zone tick marks at 0.1 intervals along the bottom
         painter.setPen(QPen(QColor("#3A3A3A"), 1))
@@ -142,7 +142,7 @@ class HistogramWidget(QWidget):
         self._draw_clip_indicators(painter, w, h)
 
     def _draw_clip_indicators(self, painter: QPainter, w: int, h: int) -> None:
-        channels = [("r", "#D32F2F"), ("g", "#388E3C"), ("b", "#1976D2")]
+        channels = [("r", THEME.channel_red), ("g", THEME.channel_green), ("b", THEME.channel_blue)]
         size = 5
         gap = size + 2
 

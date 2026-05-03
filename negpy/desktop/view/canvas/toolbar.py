@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.styles.templates import swatch_qss
 from negpy.desktop.view.styles.theme import THEME
 
 CANVAS_COLORS = [
@@ -40,7 +41,7 @@ class ActionToolbar(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
         line.setFrameShadow(QFrame.Shadow.Plain)
-        line.setStyleSheet(f"color: {THEME.border_color}; background-color: {THEME.border_color};")
+        line.setObjectName("toolbar_separator")
         line.setFixedWidth(1)
         return line
 
@@ -51,14 +52,6 @@ class ActionToolbar(QWidget):
 
         container = QFrame()
         container.setObjectName("toolbar_container")
-        container.setStyleSheet(f"""
-            QFrame#toolbar_container {{
-                background-color: {THEME.bg_panel};
-                border: 1px solid {THEME.border_color};
-                border-radius: 6px;
-                padding: 4px;
-            }}
-        """)
         v_layout = QVBoxLayout(container)
         v_layout.setContentsMargins(6, 4, 6, 4)
         v_layout.setSpacing(0)
@@ -107,7 +100,7 @@ class ActionToolbar(QWidget):
         self.zoom_slider.setFixedWidth(80)
         self.zoom_label = QLabel("100%")
         self.zoom_label.setFixedWidth(35)
-        self.zoom_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px;")
+        self.zoom_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;")
 
         self.btn_hq = QToolButton()
         self.btn_hq.setText("HQ")
@@ -123,19 +116,7 @@ class ActionToolbar(QWidget):
             btn.setCheckable(True)
             btn.setToolTip(f"Canvas: {label}")
             btn.setFixedSize(20, 20)
-            btn.setStyleSheet(f"""
-                QToolButton {{
-                    background-color: {hex_col};
-                    border: 1px solid #444;
-                    border-radius: 3px;
-                }}
-                QToolButton:checked {{
-                    border: 2px solid {THEME.text_muted};
-                }}
-                QToolButton:hover {{
-                    border: 1px solid #888;
-                }}
-            """)
+            btn.setStyleSheet(swatch_qss(hex_col))
             self.canvas_color_group.addButton(btn, i)
             self.canvas_color_btns.append(btn)
         self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
@@ -150,13 +131,39 @@ class ActionToolbar(QWidget):
         self.btn_export.setToolTip("Export  Ctrl+E")
         self.btn_export.setFixedHeight(36)
 
-        # 6. Overflow menu
+        # 6. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
         self.btn_overflow.setIcon(qta.icon("fa5s.ellipsis-h", color=icon_color))
         self.btn_overflow.setToolTip("More actions")
         self.btn_overflow.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         overflow_menu = QMenu(self.btn_overflow)
+
+        # Overflow: swatches + HQ group (<720px)
+        self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
+        self._ov_hq_action.setCheckable(True)
+        self._ov_hq_action.setVisible(False)
+        overflow_menu.addSeparator()
+        self._ov_color_actions: list = []
+        for i, (hex_col, _, label) in enumerate(CANVAS_COLORS):
+            action = overflow_menu.addAction(f"Canvas: {label}")
+            action.setVisible(False)
+            self._ov_color_actions.append(action)
+
+        # Overflow: flip + rotate group (<580px)
+        self._ov_sep_main = overflow_menu.addSeparator()
+        self._ov_sep_main.setVisible(False)
+        self._ov_rot_l_action = overflow_menu.addAction(qta.icon("fa5s.undo", color=icon_color), "Rotate CCW")
+        self._ov_rot_l_action.setVisible(False)
+        self._ov_rot_r_action = overflow_menu.addAction(qta.icon("fa5s.redo", color=icon_color), "Rotate CW")
+        self._ov_rot_r_action.setVisible(False)
+        self._ov_flip_h_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-h", color=icon_color), "Flip Horizontal")
+        self._ov_flip_h_action.setVisible(False)
+        self._ov_flip_v_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-v", color=icon_color), "Flip Vertical")
+        self._ov_flip_v_action.setVisible(False)
+        self._ov_sep_rotate = overflow_menu.addSeparator()
+        self._ov_sep_rotate.setVisible(False)
+
         self._action_undo = overflow_menu.addAction(qta.icon("fa5s.arrow-left", color=icon_color), "Undo  Ctrl+Z", self.session.undo)
         self._action_redo = overflow_menu.addAction(qta.icon("fa5s.arrow-right", color=icon_color), "Redo  Ctrl+Y", self.session.redo)
         overflow_menu.addSeparator()
@@ -193,24 +200,31 @@ class ActionToolbar(QWidget):
         self.btn_export.setIconSize(icon_size)
         self.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: prev · next · sep · zoom+label · hq · swatches · sep · rot_l · rot_r · flip_h · flip_v · sep · save · export · overflow
+        # Single-row layout: prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · save · export · overflow
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
-        row_layout.addWidget(self._create_separator())
+        self._sep1 = self._create_separator()
+        row_layout.addWidget(self._sep1)
         row_layout.addWidget(self.zoom_slider)
         row_layout.addWidget(self.zoom_label)
         row_layout.addWidget(self.btn_hq)
         for btn in self.canvas_color_btns:
             row_layout.addWidget(btn)
-        row_layout.addWidget(self._create_separator())
+        self._sep2 = self._create_separator()
+        row_layout.addWidget(self._sep2)
         row_layout.addWidget(self.btn_rot_l)
         row_layout.addWidget(self.btn_rot_r)
         row_layout.addWidget(self.btn_flip_h)
         row_layout.addWidget(self.btn_flip_v)
-        row_layout.addWidget(self._create_separator())
+        self._sep3 = self._create_separator()
+        row_layout.addWidget(self._sep3)
         row_layout.addWidget(self.btn_save)
         row_layout.addWidget(self.btn_export)
         row_layout.addWidget(self.btn_overflow)
+
+        # Overflow groups for responsive resizeEvent
+        self._ov_swatches_hq: list = [self.btn_hq] + self.canvas_color_btns + [self._sep2]
+        self._ov_flip_rotate: list = [self.btn_rot_l, self.btn_rot_r, self.btn_flip_h, self.btn_flip_v, self._sep3]
 
         v_layout.addLayout(row_layout)
         main_layout.addWidget(container)
@@ -234,6 +248,15 @@ class ActionToolbar(QWidget):
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
+
+        # Overflow menu action connections
+        self._ov_hq_action.triggered.connect(self.controller.toggle_hq_preview)
+        for i, action in enumerate(self._ov_color_actions):
+            action.triggered.connect(lambda checked, idx=i: self._on_canvas_color_changed(idx, True))
+        self._ov_rot_l_action.triggered.connect(lambda: self.rotate(1))
+        self._ov_rot_r_action.triggered.connect(lambda: self.rotate(-1))
+        self._ov_flip_h_action.triggered.connect(lambda: self.flip("horizontal"))
+        self._ov_flip_v_action.triggered.connect(lambda: self.flip("vertical"))
 
     def _on_canvas_color_changed(self, idx: int, checked: bool) -> None:
         if checked:
@@ -281,7 +304,29 @@ class ActionToolbar(QWidget):
         self.btn_prev.setEnabled(state.selected_file_idx > 0)
         self.btn_next.setEnabled(state.selected_file_idx < len(state.uploaded_files) - 1)
         self.btn_hq.setChecked(state.hq_preview)
+        self._ov_hq_action.setChecked(state.hq_preview)
 
         self._action_undo.setEnabled(state.undo_index > 0)
         self._action_redo.setEnabled(state.undo_index < state.max_history_index)
         self._action_paste.setEnabled(state.clipboard is not None)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        w = self.width()
+        show_swatches_hq = w >= 720
+        show_flip_rotate = w >= 580
+
+        for widget in self._ov_swatches_hq:
+            widget.setVisible(show_swatches_hq)
+        self._ov_hq_action.setVisible(not show_swatches_hq)
+        for action in self._ov_color_actions:
+            action.setVisible(not show_swatches_hq)
+
+        for widget in self._ov_flip_rotate:
+            widget.setVisible(show_flip_rotate)
+        self._ov_sep_main.setVisible(not show_flip_rotate)
+        self._ov_rot_l_action.setVisible(not show_flip_rotate)
+        self._ov_rot_r_action.setVisible(not show_flip_rotate)
+        self._ov_flip_h_action.setVisible(not show_flip_rotate)
+        self._ov_flip_v_action.setVisible(not show_flip_rotate)
+        self._ov_sep_rotate.setVisible(not show_flip_rotate)

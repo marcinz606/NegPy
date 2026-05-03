@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.styles.templates import slider_label_qss, hue_handle_qss
 
 
 class _NoScrollSlider(QSlider):
@@ -215,6 +216,7 @@ class CompactSlider(BaseSlider):
         header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.label = QLabel(label)
         self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {self._label_color};")
+        self.label.setToolTip(f"{label} (double-click to reset)")
 
         self.spin.setSingleStep(step)
         if step >= 1.0:
@@ -265,8 +267,7 @@ class CompactSlider(BaseSlider):
 
     def _update_edited_state(self) -> None:
         edited = abs(self.spin.value() - self._default) > 1e-6
-        border = f"border-bottom: 1px solid {THEME.accent_edited};" if edited else ""
-        self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {self._label_color}; {border}")
+        self.label.setStyleSheet(slider_label_qss(self._label_color, edited))
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.spin:
@@ -312,19 +313,6 @@ class HueSlider(CompactSlider):
 
     def __init__(self, label: str, default_val: float = 0.0, parent=None):
         super().__init__(label, 0.0, 360.0, default_val, step=1.0, precision=1, unit="°", parent=parent)
-        self._base_hue_stylesheet = """
-            QSlider::groove:horizontal {{
-                background: #2a2a2a;
-                height: 6px; border-radius: 3px;
-            }}
-            QSlider::handle:horizontal {{
-                background: {color};
-                width: 12px; height: 12px;
-                margin: -3px 0;
-                border-radius: 6px;
-                border: 2px solid rgba(0,0,0,0.5);
-            }}
-        """
         self._apply_hue(default_val)
 
     def _apply_hue(self, hue_deg: float) -> None:
@@ -332,9 +320,8 @@ class HueSlider(CompactSlider):
         h = int(hue_deg) % 360
         color = QColor.fromHsv(h, 200, 210)
         edited = abs(self.spin.value() - self._default) > 1e-6
-        border = f"border-bottom: 1px solid {THEME.accent_edited};" if edited else ""
-        self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {color.name()}; {border}")
-        self.slider.setStyleSheet(self._base_hue_stylesheet.format(color=color.name()))
+        self.label.setStyleSheet(slider_label_qss(color.name(), edited))
+        self.slider.setStyleSheet(hue_handle_qss(color.name()))
 
     def _on_slider_changed(self, value: int) -> None:
         super()._on_slider_changed(value)

@@ -43,8 +43,8 @@ class CollapsibleSection(QWidget):
         self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_button.setFixedHeight(32)
 
-        bg_normal = "rgba(26, 26, 26, 0.82)" if background_widget else "#1A1A1A"
-        bg_hover = "rgba(34, 34, 34, 0.88)" if background_widget else "#222222"
+        bg_normal = THEME.surface_overlay_strong if background_widget else THEME.bg_header
+        bg_hover = THEME.surface_overlay_hover if background_widget else "#222222"
 
         self.toggle_button.setStyleSheet(
             f"""
@@ -91,28 +91,14 @@ class CollapsibleSection(QWidget):
         self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.reset_btn.setToolTip(f"Reset {title} to defaults")
         self.reset_btn.setVisible(False)
-        self.reset_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; }
-            QPushButton:hover { background: #222; border-radius: 3px; }
-        """)
+        self.reset_btn.setObjectName("collapsible_reset_btn")
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         btn_layout.addWidget(self.reset_btn)
-
-        self.modified_dot = QLabel("●")
-        self.modified_dot.setStyleSheet(f"color: {THEME.accent_primary}; background: transparent; font-size: 8px;")
-        self.modified_dot.setVisible(False)
-        btn_layout.addWidget(self.modified_dot)
 
         self.chevron_label = QLabel()
         self.chevron_label.setStyleSheet("background: transparent;")
         self._update_chevron(expanded)
         btn_layout.addWidget(self.chevron_label)
-
-        # 1px accent line below header — visible only when modified count > 0
-        self._modified_border = QFrame()
-        self._modified_border.setFixedHeight(1)
-        self._modified_border.setStyleSheet(f"background-color: {THEME.accent_primary}; border: none;")
-        self._modified_border.setVisible(False)
 
         if background_widget:
             background_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -127,18 +113,8 @@ class CollapsibleSection(QWidget):
         else:
             self.main_layout.addWidget(self.toggle_button)
 
-        self.main_layout.addWidget(self._modified_border)
-
         self.content_area = QFrame()
-        self.content_area.setStyleSheet("""
-            QFrame {
-                background-color: #121212;
-                border-bottom-left-radius: 4px;
-                border-bottom-right-radius: 4px;
-                border: 1px solid #1A1A1A;
-                border-top: none;
-            }
-        """)
+        self.content_area.setObjectName("collapsible_content")
         self.content_layout = QVBoxLayout(self.content_area)
         self.content_layout.setContentsMargins(0, 5, 0, 10)
         self.content_layout.setSpacing(5)
@@ -158,11 +134,9 @@ class CollapsibleSection(QWidget):
             self.chevron_label.setPixmap(qta.icon("fa5s.chevron-right", color="#A0A0A0").pixmap(12, 12))
 
     def set_modified(self, count: int) -> None:
-        """Show or hide modification indicators; append count to title when non-zero."""
+        """Append count to title when non-zero; show reset button."""
         visible = count > 0
-        self.modified_dot.setVisible(visible)
         self.reset_btn.setVisible(visible)
-        self._modified_border.setVisible(visible)
         if visible:
             self.title_label.setText(f"{self._title_text} · {count}")
         else:

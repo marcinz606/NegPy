@@ -29,6 +29,7 @@ class GeometrySidebar(BaseSidebar):
         ratios = [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
         self.ratio_combo.addItems(ratios)
         self.ratio_combo.setCurrentText(conf.autocrop_ratio)
+        self.ratio_combo.setPlaceholderText("Select Ratio...")
         self.ratio_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
         self.layout.addWidget(self.ratio_combo)
 

@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QHBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.templates import section_subheader
 from negpy.features.process.models import ProcessMode
 
 
@@ -12,6 +13,8 @@ class LabSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.layout.setSpacing(12)
         conf = self.state.config.lab
+
+        self.layout.addWidget(section_subheader("COLOR"))
 
         row1 = QHBoxLayout()
         self.separation_slider = CompactSlider("Separation", 1.0, 2.0, conf.color_separation)
@@ -30,6 +33,8 @@ class LabSidebar(BaseSidebar):
         row2.addWidget(self.vibrance_slider)
         self.layout.addLayout(row2)
 
+        self.layout.addWidget(section_subheader("DETAIL"))
+
         row3 = QHBoxLayout()
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
         self.clahe_slider.setToolTip("Contrast Limited Adaptive Histogram Equalization — local contrast enhancement")
@@ -37,6 +42,8 @@ class LabSidebar(BaseSidebar):
         row3.addWidget(self.clahe_slider)
         row3.addWidget(self.sharpen_slider)
         self.layout.addLayout(row3)
+
+        self.layout.addWidget(section_subheader("EFFECTS"))
 
         row4 = QHBoxLayout()
         self.glow_slider = CompactSlider("Glow", 0.0, 1.0, conf.glow_amount)

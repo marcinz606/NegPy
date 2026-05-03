@@ -51,7 +51,7 @@ class SessionPanel(QWidget):
 
         self.update_label = QLabel("")
         self.update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.update_label.setStyleSheet("font-size: 12px; color: #2e7d32; font-weight: bold; padding: 5px;")
+        self.update_label.setObjectName("update_label")
         self.update_label.setVisible(False)
         layout.addWidget(self.update_label)
 

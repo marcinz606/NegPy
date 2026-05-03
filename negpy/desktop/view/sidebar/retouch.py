@@ -1,8 +1,9 @@
-from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QPushButton, QHBoxLayout
 import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
+from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 
@@ -44,6 +45,9 @@ class RetouchSidebar(BaseSidebar):
         self.manual_size_slider.setToolTip("Radius of the manual heal brush")
         self.layout.addWidget(self.manual_size_slider)
 
+        self.heals_subheader = section_subheader("HEALS · 0")
+        self.layout.addWidget(self.heals_subheader)
+
         actions_row = QHBoxLayout()
         self.undo_btn = QPushButton(" Undo Last")
         self.undo_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
@@ -51,13 +55,8 @@ class RetouchSidebar(BaseSidebar):
         self.clear_btn = QPushButton(" Clear All")
         self.clear_btn.setIcon(qta.icon("fa5s.trash-alt", color=THEME.text_primary))
 
-        self.heals_count_lbl = QLabel("Heals: 0")
-        self.heals_count_lbl.setStyleSheet(f"color: {THEME.text_secondary}; font-weight: bold; padding-left: 5px;")
-
-        actions_row.addWidget(self.undo_btn)
-        actions_row.addWidget(self.clear_btn)
-        actions_row.addStretch()
-        actions_row.addWidget(self.heals_count_lbl)
+        actions_row.addWidget(self.undo_btn, 1)
+        actions_row.addWidget(self.clear_btn, 1)
         self.layout.addLayout(actions_row)
 
         self.layout.addStretch()
@@ -68,7 +67,7 @@ class RetouchSidebar(BaseSidebar):
             lambda v: self.update_config_section("retouch", readback_metrics=False, dust_threshold=v)
         )
         self.auto_size_slider.valueChanged.connect(
-            lambda v: self.update_config_section("retouch", readback_metrics=False, dust_size=int(v))
+            lambda v: self.update_config_section("retouch", readback_metrics=False, dust_size=int(v))  # TODO: precision loss from int cast
         )
         self.pick_dust_btn.toggled.connect(self._on_pick_toggled)
         self.manual_size_slider.valueChanged.connect(
@@ -93,7 +92,7 @@ class RetouchSidebar(BaseSidebar):
             self.manual_size_slider.setVisible(self.state.active_tool == ToolMode.DUST_PICK)
 
             num_spots = len(conf.manual_dust_spots)
-            self.heals_count_lbl.setText(f"Heals: {num_spots}")
+            self.heals_subheader.setText(f"HEALS · {num_spots}")
 
             has_spots = num_spots > 0
             self.undo_btn.setEnabled(has_spots)

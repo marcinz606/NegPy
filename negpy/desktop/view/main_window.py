@@ -23,7 +23,6 @@ from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
 from negpy.desktop.view.widgets.status_bar import TopStatusBar
-from negpy.desktop.view.widgets.toast import Toast
 from negpy.domain.models import AspectRatio
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.image.logic import float_to_uint8
@@ -142,14 +141,20 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
         self.statusBar().hide()
 
-        self.toast = Toast(self)
+    TOOL_LABELS: dict[ToolMode, str] = {
+        ToolMode.WB_PICK: "WB Picker",
+        ToolMode.CROP_MANUAL: "Crop",
+        ToolMode.DUST_PICK: "Heal Tool",
+    }
 
     def _update_title(self) -> None:
         state = self.controller.session.state
         if state.current_file_path:
             filename = os.path.basename(state.current_file_path)
             prefix = "● " if state.is_dirty else ""
-            self.setWindowTitle(f"{prefix}NegPy — {filename}")
+            tool = self.TOOL_LABELS.get(state.active_tool)
+            tool_prefix = f"[{tool}] " if tool else ""
+            self.setWindowTitle(f"{prefix}NegPy — {tool_prefix}{filename}")
         else:
             self.setWindowTitle("NegPy")
 
@@ -160,6 +165,7 @@ class MainWindow(QMainWindow):
         self.controller.preview_loaded.connect(self._refresh_image_info)
         self.controller.loading_started.connect(self.canvas.clear)
         self.controller.loading_started.connect(lambda: self.empty_state.setVisible(False))
+        self.controller.zoom_changed.connect(self._on_zoom_info_changed)
 
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)
@@ -170,8 +176,8 @@ class MainWindow(QMainWindow):
 
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)
-        self.controller.session.settings_copied.connect(lambda: self.toast.show_text("Settings copied"))
-        self.controller.session.settings_pasted.connect(lambda: self.toast.show_text("Settings pasted"))
+        self.controller.session.settings_copied.connect(lambda: self.top_status.showMessage("settings copied", timeout=1500))
+        self.controller.session.settings_pasted.connect(lambda: self.top_status.showMessage("settings pasted", timeout=1500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
 
@@ -191,10 +197,10 @@ class MainWindow(QMainWindow):
         if self.state.gpu_enabled:
             backend = self.controller.render_worker.processor.backend_name
             header.gpu_badge.setText(backend.upper())
-            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px; font-weight: bold;")
+            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: bold;")
         else:
             header.gpu_badge.setText("CPU")
-            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px; font-weight: bold;")
+            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: bold;")
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
@@ -233,6 +239,7 @@ class MainWindow(QMainWindow):
         if not self.state.current_file_path:
             self.metadata_top.update_values("No File", "- x - px")
             self.metadata_bottom.update_values("Edits: 0", "16-bit")
+            self.top_status.set_right_cluster("", "", "")
             return
 
         filename = os.path.basename(self.state.current_file_path)
@@ -244,6 +251,17 @@ class MainWindow(QMainWindow):
 
         self.metadata_top.update_values(filename, res_str)
         self.metadata_bottom.update_values(edits_str, mode_str)
+        self._update_status_right()
+
+    def _on_zoom_info_changed(self, zoom: float) -> None:
+        self._update_status_right()
+
+    def _update_status_right(self) -> None:
+        zoom = f"{int(self.canvas.zoom_level * 100)}%"
+        w, h = self.state.original_res
+        dims = f"{w}×{h}" if w and h else ""
+        tool_label = self.TOOL_LABELS.get(self.state.active_tool, "")
+        self.top_status.set_right_cluster(zoom, dims, tool_label)
 
     def _on_canvas_clicked(self, nx: float, ny: float) -> None:
         self.top_status.showMessage(f"Clicked at: {nx:.3f}, {ny:.3f}")
@@ -256,12 +274,10 @@ class MainWindow(QMainWindow):
 
     def _on_export_finished(self, elapsed: float) -> None:
         self.top_status.progress.setVisible(False)
-        self.toast.show_text(f"Export complete in {elapsed:.2f}s", duration_ms=3000)
+        self.top_status.showMessage(f"export complete in {elapsed:.2f}s", timeout=3000)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if hasattr(self, "toast"):
-            self.toast._reposition()
         if hasattr(self, "empty_state"):
             self.empty_state.setGeometry(self.canvas.rect())
 
@@ -274,6 +290,9 @@ class MainWindow(QMainWindow):
         self.controls_panel.exposure_sidebar.pick_wb_btn.setChecked(mode == ToolMode.WB_PICK)
         self.controls_panel.geometry_sidebar.manual_crop_btn.setChecked(mode == ToolMode.CROP_MANUAL)
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
+
+        self._update_title()
+        self._update_status_right()
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():
