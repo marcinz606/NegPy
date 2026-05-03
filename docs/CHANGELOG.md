@@ -2,15 +2,18 @@
 
 ## 0.17.0
 
+- Improved default conversion/normalization process, now out-of-the-box results should be better & more natural.
 - Camera white balance is now applied by default — images open with the camera's as-shot WB for a balanced starting point.
 - Replaced the "Camera WB" toggle with a "Linear RAW" button. Enable it to decode RAW files with neutral (1,1,1,1) multipliers, bypassing the camera WB.
 - Added **Vignette effect**: new Finishing sidebar section with Strength and Size sliders. Applies a radial cosine-falloff vignette post-crop in both CPU and GPU pipelines. Negative strength darkens edges, positive brightens them.
 - Moved **border controls** from the Export section to the new Finishing section. Border Width is now a slider. Old workspace files with border settings are automatically migrated.
-- Thumbnails now also use camera WB by default for a consistent look with the opened file.
+- Increased range of **Analysis buffer** slider.
 - Better error recovery in edge cases (swapchain resizing, invalid crop ratios).
 - Config deserialization now warns on unknown keys — old workspace files with renamed settings won't silently lose data.
 - More tests for GPU-CPU feature parity.
+- Removed some dependencies that were not used.
 - Added test coverage reporting to CI.
+- UI refinements.
 
 ## 0.16.0
 

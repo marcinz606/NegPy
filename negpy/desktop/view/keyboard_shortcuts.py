@@ -119,6 +119,12 @@ class ShortcutManager:
             "highlight_hue_dec": (lambda: controls.toning_sidebar.highlight_hue_slider, -1.0),
             "highlight_strength_inc": (lambda: controls.toning_sidebar.highlight_str_slider, 1.0),
             "highlight_strength_dec": (lambda: controls.toning_sidebar.highlight_str_slider, -1.0),
+            "vignette_str_inc": (lambda: controls.finish_sidebar.vignette_strength_slider, 1.0),
+            "vignette_str_dec": (lambda: controls.finish_sidebar.vignette_strength_slider, -1.0),
+            "vignette_size_inc": (lambda: controls.finish_sidebar.vignette_size_slider, 1.0),
+            "vignette_size_dec": (lambda: controls.finish_sidebar.vignette_size_slider, -1.0),
+            "border_size_inc": (lambda: controls.finish_sidebar.border_slider, 1.0),
+            "border_size_dec": (lambda: controls.finish_sidebar.border_slider, -1.0),
         }
         for action_id, (getter, direction) in slider_targets.items():
             actions[action_id] = self._slider_adjuster(getter, direction)

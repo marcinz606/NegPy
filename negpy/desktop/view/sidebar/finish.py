@@ -27,7 +27,7 @@ class FinishSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("BORDER"))
 
         row2 = QHBoxLayout()
-        self.border_slider = CompactSlider("Width", 0.0, 5.0, conf.border_size)
+        self.border_slider = CompactSlider("Width", 0.0, 2.5, conf.border_size)
         self.color_btn = QPushButton()
         self.color_btn.setFixedHeight(30)
         self.color_btn.setFixedWidth(30)
