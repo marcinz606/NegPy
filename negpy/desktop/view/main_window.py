@@ -214,8 +214,9 @@ class MainWindow(QMainWindow):
         content_rect = metrics.get("content_rect")
 
         if isinstance(buffer, np.ndarray):
+            finish_conf = self.state.config.finish
             export_conf = self.state.config.export
-            should_preview = export_conf.export_border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
+            should_preview = finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
 
             if should_preview:
                 pil_img = Image.fromarray(float_to_uint8(buffer))
@@ -223,9 +224,9 @@ class MainWindow(QMainWindow):
                     pil_img, content_rect = PrintService.apply_preview_layout_to_pil(
                         pil_img,
                         export_conf.paper_aspect_ratio,
-                        export_conf.export_border_size,
+                        finish_conf.border_size,
                         export_conf.export_print_size,
-                        export_conf.export_border_color,
+                        finish_conf.border_color,
                         APP_CONFIG.preview_render_size,
                     )
                     buffer = np.array(pil_img).astype(np.float32) / 255.0

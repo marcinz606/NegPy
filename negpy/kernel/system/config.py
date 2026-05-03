@@ -13,6 +13,7 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.retouch.models import RetouchConfig
+from negpy.features.finish.models import FinishConfig
 from negpy.features.toning.models import PaperProfileName, ToningConfig
 from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
 
@@ -75,8 +76,10 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         export_color_space=ColorSpace.ADOBE_RGB.value,
         export_print_size=30.0,
         export_dpi=300,
-        export_border_size=0.0,
-        export_border_color="#ffffff",
         export_path=APP_CONFIG.default_export_dir,
+    ),
+    finish=FinishConfig(
+        border_size=0.0,
+        border_color="#ffffff",
     ),
 )
