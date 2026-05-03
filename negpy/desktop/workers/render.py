@@ -5,6 +5,7 @@ import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -101,14 +102,12 @@ class RenderWorker(QObject):
                 readback_metrics=task.readback_metrics,
             )
 
-            from negpy.infrastructure.gpu.resources import GPUTexture
-
             if task.icc_profile_path and isinstance(result, GPUTexture):
                 result = result.readback()
 
             if task.icc_profile_path and isinstance(result, np.ndarray):
                 pil_img = self._processor.buffer_to_pil(result, task.config)
-                pil_proof, _ = self._processor._apply_color_management(
+                pil_proof, _ = self._processor.apply_color_management(
                     pil_img,
                     task.color_space,
                     task.icc_profile_path,

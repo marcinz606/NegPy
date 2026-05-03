@@ -193,7 +193,7 @@ class ImageProcessor:
 
                 if export_settings.apply_icc:
                     if is_greyscale:
-                        pil_img, icc_bytes = self._apply_color_management(
+                        pil_img, icc_bytes = self.apply_color_management(
                             Image.fromarray(img_int),
                             color_space,
                             export_settings.icc_profile_path,
@@ -229,7 +229,7 @@ class ImageProcessor:
                 icc_path_to_use = export_settings.icc_profile_path if export_settings.apply_icc else None
                 icc_invert_to_use = export_settings.icc_invert if export_settings.apply_icc else False
 
-                pil_img, icc_bytes = self._apply_color_management(
+                pil_img, icc_bytes = self.apply_color_management(
                     Image.fromarray(img_int),
                     color_space,
                     icc_path_to_use,
@@ -294,7 +294,7 @@ class ImageProcessor:
             logger.error(f"CMS transformation failed: {e}")
             return img_u16, None
 
-    def _apply_color_management(
+    def apply_color_management(
         self,
         pil_img: Image.Image,
         color_space: str,

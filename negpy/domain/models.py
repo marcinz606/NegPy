@@ -9,7 +9,14 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
+from negpy.kernel.system.logging import get_logger
 import negpy.kernel.system.paths as paths
+
+logger = get_logger("domain.models")
+
+# Map of old field names → new field names for backward-compatible deserialization.
+# Add entries here when fields are renamed so old workspace files keep their data.
+MIGRATIONS: Dict[str, str] = {}
 
 
 class AspectRatio(StrEnum):
@@ -109,9 +116,31 @@ class WorkspaceConfig:
         from DB/JSON.
         """
 
+        # Apply field renames for backward compatibility.
+        for old_key, new_key in MIGRATIONS.items():
+            if old_key in data:
+                data[new_key] = data.pop(old_key)
+
+        config_classes = [
+            ProcessConfig,
+            ExposureConfig,
+            GeometryConfig,
+            LabConfig,
+            RetouchConfig,
+            ToningConfig,
+            ExportConfig,
+        ]
+        valid_keys = set()
+        for cc in config_classes:
+            valid_keys.update(cc.__dataclass_fields__.keys())
+
+        unknown = set(data) - valid_keys
+        if unknown:
+            logger.warning("Dropping unknown config keys: %s", sorted(unknown))
+
         def filter_keys(config_cls: Any, d: Dict[str, Any]) -> Dict[str, Any]:
-            valid_keys = config_cls.__dataclass_fields__.keys()
-            return {k: v for k, v in d.items() if k in valid_keys and v is not None}
+            valid = config_cls.__dataclass_fields__.keys()
+            return {k: v for k, v in d.items() if k in valid and v is not None}
 
         return cls(
             process=ProcessConfig(**filter_keys(ProcessConfig, data)),

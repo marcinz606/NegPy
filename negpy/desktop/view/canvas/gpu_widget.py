@@ -245,8 +245,9 @@ class GPUCanvasWidget(QWidget):
 
         try:
             current_tex = self.context.get_current_texture()
-        except Exception:
-            # Swapchain might be invalid during rapid resizing
+        except (RuntimeError, wgpu.GPUError) as exc:
+            # Swapchain unavailable during resize — skip frame
+            logger.debug("swapchain unavailable during resize: %s", exc)
             return
 
         if current_tex is None:

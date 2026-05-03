@@ -126,9 +126,13 @@ class GPUEngine:
     def _get_intermediate_texture(self, w: int, h: int, usage: int, label: str) -> GPUTexture:
         """Retrieves or creates a texture from the pool.
 
-        Key is (w, h, usage, label). A 90°/270° rotation already swaps w and h, so
-        the key naturally changes with geometry — no extra geometry field needed.
+        Key is (w, h, usage, label). A 90°/270° rotation already swaps w and h
+        upstream (see w_rot/h_rot computation), so the key naturally changes
+        with geometry — no extra geometry field needed.
         Contents are fully overwritten each render, so no stale-data risk.
+
+        Invariant: callers must pass post-rotation dimensions. If rotation
+        handling ever moves downstream of texture allocation, revisit this key.
         """
         key = (w, h, usage, label)
         if key not in self._tex_cache:
@@ -248,6 +252,11 @@ class GPUEngine:
         else:
             rot = settings.geometry.rotation % 4
             w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
+            # Invariant: intermediate textures are allocated with post-rotation
+            # dimensions, so the cache key naturally avoids 90°/270° collisions.
+            # If rotation handling ever moves downstream of _get_intermediate_texture
+            # calls, this invariant must be re-checked.
+            assert w_rot > 0 and h_rot > 0
             actual_full_dims, orig_shape = (w_rot, h_rot), (h, w)
             if settings.geometry.manual_crop_rect:
                 roi = get_manual_rect_coords(

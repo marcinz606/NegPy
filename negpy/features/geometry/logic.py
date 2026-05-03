@@ -62,7 +62,7 @@ def enforce_roi_aspect_ratio(
     try:
         w_r, h_r = map(float, target_ratio_str.split(":"))
         target_aspect = w_r / h_r
-    except Exception:
+    except ValueError:
         target_aspect = 1.5
 
     is_vertical = ch > cw

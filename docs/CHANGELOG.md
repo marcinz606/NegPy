@@ -5,6 +5,10 @@
 - Camera white balance is now applied by default — images open with the camera's as-shot WB for a balanced starting point.
 - Replaced the "Camera WB" toggle with a "Linear RAW" button. Enable it to decode RAW files with neutral (1,1,1,1) multipliers, bypassing the camera WB.
 - Thumbnails now also use camera WB by default for a consistent look with the opened file.
+- Better error recovery in edge cases (swapchain resizing, invalid crop ratios).
+- Config deserialization now warns on unknown keys — old workspace files with renamed settings won't silently lose data.
+- More tests for GPU-CPU feature parity.
+- Added test coverage reporting to CI.
 
 ## 0.16.0
 

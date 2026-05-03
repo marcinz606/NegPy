@@ -3,7 +3,7 @@ UV = uv run
 
 # Default target
 .PHONY: all
-all: lint type test
+all: format lint type test
 
 # Install dependencies
 .PHONY: install
@@ -46,7 +46,7 @@ type:
 .PHONY: test
 test:
 	@echo "Running unit tests (pytest)..."
-	@$(UV) pytest tests/
+	@$(UV) pytest tests/ --cov=negpy --cov-report=term-missing
 
 # Auto-format and fix (ruff)
 .PHONY: format

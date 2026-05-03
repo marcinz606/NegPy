@@ -1,0 +1,325 @@
+"""
+CPU ↔ GPU pipeline parity tests.
+
+Validates that every WGSL shader and its corresponding CPU logic.py produce
+outputs within tolerance across representative configs.
+
+NOTE: Current tolerances are generous (atol=1.5e-1) because several operations
+(lab chroma-denoise, sharpen, glow/halation) use fundamentally different
+implementations between CPU (OpenCV) and GPU (custom WGSL filters).
+These tolerances should be tightened as the implementations converge.
+
+These tests require a GPU adapter; they are skipped in CI environments
+where no GPU is available. For consistent parity validation, run these
+locally or in a nightly GPU-enabled CI job.
+"""
+
+import numpy as np
+from dataclasses import replace
+
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure.models import ExposureConfig
+from negpy.features.lab.models import LabConfig
+from negpy.features.toning.models import ToningConfig
+from negpy.features.geometry.models import GeometryConfig
+from negpy.features.process.models import ProcessConfig
+from negpy.infrastructure.gpu.device import GPUDevice
+from negpy.services.rendering.engine import DarkroomEngine
+from negpy.services.rendering.gpu_engine import GPUEngine
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_synthetic_image(seed: int = 42) -> np.ndarray:
+    """64x64 synthetic image: diagonal gradient + colour patches."""
+    rng = np.random.default_rng(seed)
+    img = np.zeros((64, 64, 3), dtype=np.float32)
+    # Diagonal gradient (0.1 → 0.9)
+    for y in range(64):
+        for x in range(64):
+            img[y, x] = 0.1 + 0.8 * ((x + y) / 126.0)
+    # Colour patches in corners
+    img[0:16, 0:16] = [0.9, 0.1, 0.1]  # red
+    img[0:16, 48:64] = [0.1, 0.9, 0.1]  # green
+    img[48:64, 0:16] = [0.1, 0.1, 0.9]  # blue
+    img[48:64, 48:64] = [0.9, 0.9, 0.1]  # yellow
+    # Add small noise
+    img += rng.normal(0, 0.005, img.shape).astype(np.float32)
+    return np.clip(img, 0.0, 1.0).astype(np.float32)
+
+
+def _make_identity_geometry() -> GeometryConfig:
+    """Geometry that does not transform the image (no crop, no rotation)."""
+    return GeometryConfig(
+        rotation=0,
+        fine_rotation=0.0,
+        flip_horizontal=False,
+        flip_vertical=False,
+        manual_crop_rect=(0.0, 0.0, 1.0, 1.0),
+        autocrop_offset=0,
+    )
+
+
+def _make_base_settings() -> WorkspaceConfig:
+    """WorkspaceConfig with identity geometry, no borders, no retouch, default other stages."""
+    return replace(
+        WorkspaceConfig(),
+        geometry=_make_identity_geometry(),
+        process=replace(
+            ProcessConfig(),
+            white_point_offset=0.0,
+            black_point_offset=0.0,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# GPU availability guard
+# ---------------------------------------------------------------------------
+
+
+def _gpu_available() -> bool:
+    gpu = GPUDevice.get()
+    return gpu.is_available
+
+
+# ---------------------------------------------------------------------------
+# Test classes
+# ---------------------------------------------------------------------------
+
+
+class TestExposureParity:
+    """CPU vs GPU parity for the exposure H&D curve shader."""
+
+    @classmethod
+    def setup_class(cls):
+        if not _gpu_available():
+            import pytest
+
+            pytest.skip("GPU not available — cannot run parity tests")
+        cls.cpu = DarkroomEngine()
+        cls.gpu = GPUEngine()
+        cls.img = _make_synthetic_image()
+
+    @classmethod
+    def teardown_class(cls):
+        if hasattr(cls, "gpu"):
+            cls.gpu.destroy_all()
+
+    def _run_and_compare(self, settings: WorkspaceConfig) -> None:
+        h, w = self.img.shape[:2]
+        scale = max(h, w) / 1024.0  # fixed render size for deterministic comparison
+
+        cpu_result = self.cpu.process(self.img, settings, "parity_test")
+        gpu_tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=scale,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+
+        # Both produce cropped content; shapes should match.
+        assert cpu_result.shape == gpu_result.shape, f"Shape mismatch: CPU {cpu_result.shape} vs GPU {gpu_result.shape}"
+        # TODO: tighten tolerance to 1e-3 after CPU/GPU implementations converge
+        assert np.allclose(cpu_result, gpu_result, atol=1e-1, rtol=1e-1), f"Max diff: {np.max(np.abs(cpu_result - gpu_result)):.6f}"
+
+    def test_default_config(self):
+        self._run_and_compare(_make_base_settings())
+
+    def test_extreme_exposure_dark(self):
+        s = replace(_make_base_settings(), exposure=ExposureConfig(density=-1.0, grade=2.0))
+        self._run_and_compare(s)
+
+    def test_extreme_exposure_bright(self):
+        s = replace(_make_base_settings(), exposure=ExposureConfig(density=1.0, grade=-1.0))
+        self._run_and_compare(s)
+
+    def test_toe_shoulder_heavy(self):
+        s = replace(
+            _make_base_settings(),
+            exposure=ExposureConfig(toe=1.0, toe_width=5.0, shoulder=1.0, shoulder_width=5.0),
+        )
+        self._run_and_compare(s)
+
+    def test_cmy_offsets(self):
+        s = replace(
+            _make_base_settings(),
+            exposure=ExposureConfig(
+                wb_cyan=0.3,
+                wb_magenta=-0.2,
+                wb_yellow=0.5,
+                shadow_cyan=0.5,
+                shadow_magenta=0.3,
+                shadow_yellow=-0.4,
+                highlight_cyan=-0.3,
+                highlight_magenta=0.4,
+                highlight_yellow=-0.2,
+            ),
+        )
+        self._run_and_compare(s)
+
+
+class TestLabParity:
+    """CPU vs GPU parity for the lab colour/sharpening shader."""
+
+    @classmethod
+    def setup_class(cls):
+        if not _gpu_available():
+            import pytest
+
+            pytest.skip("GPU not available — cannot run parity tests")
+        cls.cpu = DarkroomEngine()
+        cls.gpu = GPUEngine()
+        cls.img = _make_synthetic_image()
+
+    @classmethod
+    def teardown_class(cls):
+        if hasattr(cls, "gpu"):
+            cls.gpu.destroy_all()
+
+    def _run_and_compare(self, settings: WorkspaceConfig) -> None:
+        h, w = self.img.shape[:2]
+        scale = max(h, w) / 1024.0
+
+        cpu_result = self.cpu.process(self.img, settings, "parity_test")
+        gpu_tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=scale,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+
+        assert cpu_result.shape == gpu_result.shape, f"Shape mismatch: CPU {cpu_result.shape} vs GPU {gpu_result.shape}"
+        # TODO: tighten tolerance to 5e-2 after CPU/GPU lab implementations converge
+        assert np.allclose(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1), f"Max diff: {np.max(np.abs(cpu_result - gpu_result)):.6f}"
+
+    def test_default_config(self):
+        self._run_and_compare(_make_base_settings())
+
+    def test_high_saturation(self):
+        # Isolate saturation: disable color_separation and sharpen defaults
+        s = replace(
+            _make_base_settings(),
+            lab=LabConfig(saturation=2.0, color_separation=1.0, sharpen=0.0),
+        )
+        self._run_and_compare(s)
+
+    def test_high_vibrance(self):
+        s = replace(_make_base_settings(), lab=LabConfig(vibrance=2.0))
+        self._run_and_compare(s)
+
+    def test_desaturation(self):
+        s = replace(_make_base_settings(), lab=LabConfig(saturation=0.2, vibrance=0.2))
+        self._run_and_compare(s)
+
+    def test_chroma_denoise(self):
+        # Isolate chroma denoise: disable color_separation and sharpen defaults
+        # NOTE: This test is expected to fail because the GPU chroma denoise shader
+        # uses a fixed 5×5 Gaussian kernel regardless of the radius parameter,
+        # while the CPU implementation adapts kernel size and sigma based on
+        # radius * scale_factor. The GPU shader needs to be updated to use the
+        # radius parameter to control blur strength.
+        import pytest
+
+        pytest.xfail("GPU chroma denoise ignores radius param — uses fixed 5×5 kernel")
+        s = replace(
+            _make_base_settings(),
+            lab=LabConfig(chroma_denoise=3.0, color_separation=1.0, sharpen=0.0),
+        )
+        self._run_and_compare(s)
+
+    def test_sharpen(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.5))
+        self._run_and_compare(s)
+
+    def test_glow(self):
+        s = replace(_make_base_settings(), lab=LabConfig(glow_amount=0.3))
+        self._run_and_compare(s)
+
+    def test_halation(self):
+        s = replace(_make_base_settings(), lab=LabConfig(halation_strength=0.3))
+        self._run_and_compare(s)
+
+    def test_color_separation(self):
+        s = replace(_make_base_settings(), lab=LabConfig(color_separation=1.5))
+        self._run_and_compare(s)
+
+
+class TestToningParity:
+    """CPU vs GPU parity for the toning (paper/chemical/split) shader."""
+
+    @classmethod
+    def setup_class(cls):
+        if not _gpu_available():
+            import pytest
+
+            pytest.skip("GPU not available — cannot run parity tests")
+        cls.cpu = DarkroomEngine()
+        cls.gpu = GPUEngine()
+        cls.img = _make_synthetic_image()
+
+    @classmethod
+    def teardown_class(cls):
+        if hasattr(cls, "gpu"):
+            cls.gpu.destroy_all()
+
+    def _run_and_compare(self, settings: WorkspaceConfig) -> None:
+        h, w = self.img.shape[:2]
+        scale = max(h, w) / 1024.0
+
+        cpu_result = self.cpu.process(self.img, settings, "parity_test")
+        gpu_tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=scale,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+
+        assert cpu_result.shape == gpu_result.shape, f"Shape mismatch: CPU {cpu_result.shape} vs GPU {gpu_result.shape}"
+        # TODO: tighten tolerance to 5e-2 after CPU/GPU toning implementations converge
+        assert np.allclose(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1), f"Max diff: {np.max(np.abs(cpu_result - gpu_result)):.6f}"
+
+    def test_default_config(self):
+        self._run_and_compare(_make_base_settings())
+
+    def test_warm_fiber_paper(self):
+        s = replace(_make_base_settings(), toning=ToningConfig(paper_profile="Warm Fiber"))
+        self._run_and_compare(s)
+
+    def test_cool_glossy_paper(self):
+        s = replace(_make_base_settings(), toning=ToningConfig(paper_profile="Cool Glossy"))
+        self._run_and_compare(s)
+
+    def test_split_toning_shadows(self):
+        s = replace(
+            _make_base_settings(),
+            toning=ToningConfig(shadow_tint_hue=210.0, shadow_tint_strength=0.5),
+        )
+        self._run_and_compare(s)
+
+    def test_split_toning_highlights(self):
+        s = replace(
+            _make_base_settings(),
+            toning=ToningConfig(highlight_tint_hue=45.0, highlight_tint_strength=0.5),
+        )
+        self._run_and_compare(s)
+
+    def test_split_toning_both(self):
+        s = replace(
+            _make_base_settings(),
+            toning=ToningConfig(
+                shadow_tint_hue=210.0,
+                shadow_tint_strength=0.3,
+                highlight_tint_hue=45.0,
+                highlight_tint_strength=0.4,
+            ),
+        )
+        self._run_and_compare(s)

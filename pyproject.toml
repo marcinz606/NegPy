@@ -15,7 +15,6 @@ dependencies = [
     "imagecodecs==2026.3.6",
     "imageio==2.37.3",
     "jinja2==3.1.6",
-    "llvmlite==0.47.0",
     "numba==0.65.1",
     "numpy==2.4.4",
     "opencv-python-headless==4.13.0.92",
@@ -42,6 +41,7 @@ classifiers = [
 dev = [
     "pyinstaller>=6.18.0",
     "pytest==9.0.2",
+    "pytest-cov>=7.0",
     "ruff==0.14.10",
     "ty>=0.0.26",
 ]
@@ -81,3 +81,6 @@ exclude = [
     "desktop/bin",
     "build",
 ]
+
+[tool.coverage.run]
+source = ["negpy"]
