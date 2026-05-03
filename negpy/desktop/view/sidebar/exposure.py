@@ -61,14 +61,14 @@ class ExposureSidebar(BaseSidebar):
         self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
         self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
 
-        self.camera_wb_btn = QPushButton(" Camera WB")
-        self.camera_wb_btn.setCheckable(True)
-        self.camera_wb_btn.setChecked(conf.use_camera_wb)
-        self.camera_wb_btn.setIcon(qta.icon("fa5s.camera", color=THEME.text_primary))
-        self.camera_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        self.linear_raw_btn = QPushButton(" Linear RAW")
+        self.linear_raw_btn.setCheckable(True)
+        self.linear_raw_btn.setChecked(conf.linear_raw)
+        self.linear_raw_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
+        self.linear_raw_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
 
         wb_btn_row.addWidget(self.pick_wb_btn)
-        wb_btn_row.addWidget(self.camera_wb_btn)
+        wb_btn_row.addWidget(self.linear_raw_btn)
         self.layout.addLayout(wb_btn_row)
 
         self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
@@ -129,7 +129,7 @@ class ExposureSidebar(BaseSidebar):
         )
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
-        self.camera_wb_btn.toggled.connect(self._on_camera_wb_toggled)
+        self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
 
         self.toe_slider.valueChanged.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe=v)
@@ -189,12 +189,12 @@ class ExposureSidebar(BaseSidebar):
     def _on_pick_wb_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.WB_PICK if checked else ToolMode.NONE)
 
-    def _on_camera_wb_toggled(self, checked: bool) -> None:
+    def _on_linear_raw_toggled(self, checked: bool) -> None:
         from dataclasses import replace
 
         new_config = replace(
             self.state.config,
-            exposure=replace(self.state.config.exposure, use_camera_wb=checked),
+            exposure=replace(self.state.config.exposure, linear_raw=checked),
             process=replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0)),
         )
         # render=False: don't analyse bounds on stale (pre-reload) raw data
@@ -238,7 +238,7 @@ class ExposureSidebar(BaseSidebar):
                 self.yellow_slider.setValue(conf.highlight_yellow)
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
-            self.camera_wb_btn.setChecked(conf.use_camera_wb)
+            self.linear_raw_btn.setChecked(conf.linear_raw)
 
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
@@ -263,7 +263,7 @@ class ExposureSidebar(BaseSidebar):
             self.magenta_slider,
             self.yellow_slider,
             self.pick_wb_btn,
-            self.camera_wb_btn,
+            self.linear_raw_btn,
             self.density_slider,
             self.grade_slider,
             self.toe_slider,

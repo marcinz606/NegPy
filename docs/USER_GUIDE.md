@@ -31,7 +31,7 @@ Shaping the light and color.
     *   **Global**: Adjusts the overall white balance.
     *   **Shadows/Highlights**: Applies targeted color shifts to specific regions of the density curve.
 *   **Pick WB**: Select a neutral area in the image to automatically calculate white balance shifts.
-*   **Camera WB**: Uses the white balance metadata from your RAW file as a starting point. **REQUIRED for some cameras**, turn on if your images come with heavy yellow/blue/green color cast out of the box.
+*   **Linear RAW**: Disables the camera white balance and decodes the RAW file with neutral multipliers. When off (default), the camera's as-shot white balance is applied automatically, giving you a balanced starting point. Turn on if you prefer to work from completely neutral (1,1,1,1) RAW data.
 *   **Density**: Controls the overall brightness, simulating exposure time in an analog darkroom. Lower values = brighter.
 *   **Grade**: Controls the contrast, simulating different paper grades.
 *   **Sigmoid Curve (Toe/Shoulder)**:

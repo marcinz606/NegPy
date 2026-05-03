@@ -71,8 +71,8 @@ def get_thumbnail_worker(file_path: str, file_hash: str, asset_store: Any = None
                 algo = rawpy.DemosaicAlgorithm.LINEAR
 
                 rgb = raw.postprocess(
-                    use_camera_wb=False,
-                    user_wb=[1, 1, 1, 1],
+                    use_camera_wb=True,
+                    user_wb=None,
                     half_size=True,
                     no_auto_bright=True,
                     bright=1.0,

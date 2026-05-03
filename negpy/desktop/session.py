@@ -275,10 +275,10 @@ class DesktopSessionManager(QObject):
 
         # Exposure, lab, toning, retouch are per-image look decisions and are
         # deliberately excluded here — fresh files start from WorkspaceConfig defaults.
-        # Exception: use_camera_wb and dust_remove are workflow preferences, not image-specific looks.
-        sticky_camera_wb = self.repo.get_global_setting("last_use_camera_wb")
-        if sticky_camera_wb is not None:
-            config = replace(config, exposure=replace(config.exposure, use_camera_wb=bool(sticky_camera_wb)))
+        # Exception: linear_raw and dust_remove are workflow preferences, not image-specific looks.
+        sticky_linear_raw = self.repo.get_global_setting("last_linear_raw")
+        if sticky_linear_raw is not None:
+            config = replace(config, exposure=replace(config.exposure, linear_raw=bool(sticky_linear_raw)))
 
         # Exception: dust_remove is a workflow preference, not an image-specific look.
         sticky_dust = self.repo.get_global_setting("last_dust_remove")
@@ -306,7 +306,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_wb_cyan", config.exposure.wb_cyan)
         self.repo.save_global_setting("last_wb_magenta", config.exposure.wb_magenta)
         self.repo.save_global_setting("last_wb_yellow", config.exposure.wb_yellow)
-        self.repo.save_global_setting("last_use_camera_wb", config.exposure.use_camera_wb)
+        self.repo.save_global_setting("last_linear_raw", config.exposure.linear_raw)
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)
         self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)

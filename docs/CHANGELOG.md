@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.17.0
+
+- Camera white balance is now applied by default — images open with the camera's as-shot WB for a balanced starting point.
+- Replaced the "Camera WB" toggle with a "Linear RAW" button. Enable it to decode RAW files with neutral (1,1,1,1) multipliers, bypassing the camera WB.
+- Thumbnails now also use camera WB by default for a consistent look with the opened file.
+
 ## 0.16.0
 
 - Fix: rendering crash on some DNG and TIFF files at extreme D-Range Clip values (`kth out of bounds` error from `np.percentile` on float32 arrays.

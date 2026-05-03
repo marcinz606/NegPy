@@ -58,7 +58,7 @@ class PreviewLoadTask:
 
     file_path: str
     workspace_color_space: str
-    use_camera_wb: bool
+    linear_raw: bool
     full_resolution: bool = False
 
 
@@ -250,7 +250,7 @@ class PreviewLoadWorker(QObject):
             raw, dims, _ = self._preview_service.load_linear_preview(
                 task.file_path,
                 task.workspace_color_space,
-                use_camera_wb=task.use_camera_wb,
+                linear_raw=task.linear_raw,
                 full_resolution=task.full_resolution,
             )
             self.finished.emit(task.file_path, raw, dims)
@@ -293,7 +293,7 @@ class NormalizationWorker(QObject):
             async with semaphore:
                 try:
                     params = self._repo.load_file_settings(f_info["hash"])
-                    use_camera_wb = params.exposure.use_camera_wb if params else False
+                    linear_raw = params.exposure.linear_raw if params else False
                     analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
                     drange_clip = params.process.drange_clip if params else DEFAULT_WORKSPACE_CONFIG.process.drange_clip
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
@@ -304,7 +304,7 @@ class NormalizationWorker(QObject):
                         self._preview_service.load_linear_preview,
                         f_info["path"],
                         task.workspace_color_space,
-                        use_camera_wb=use_camera_wb,
+                        linear_raw=linear_raw,
                     )
 
                     bounds = await asyncio.to_thread(

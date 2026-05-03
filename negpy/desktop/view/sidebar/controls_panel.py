@@ -236,7 +236,7 @@ class ControlsPanel(QWidget):
             [
                 exp.density != _exp.density,
                 exp.grade != _exp.grade,
-                exp.use_camera_wb != _exp.use_camera_wb,
+                exp.linear_raw != _exp.linear_raw,
                 exp.wb_cyan != _exp.wb_cyan,
                 exp.wb_magenta != _exp.wb_magenta,
                 exp.wb_yellow != _exp.wb_yellow,

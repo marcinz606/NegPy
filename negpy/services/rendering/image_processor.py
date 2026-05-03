@@ -148,12 +148,12 @@ class ImageProcessor:
 
             with ctx_mgr as raw:
                 algo = get_best_demosaic_algorithm(raw)
-                use_camera_wb = params.exposure.use_camera_wb
-                user_wb = None if use_camera_wb else [1, 1, 1, 1]
+                linear_raw = params.exposure.linear_raw
+                user_wb = [1, 1, 1, 1] if linear_raw else None
                 rgb = raw.postprocess(
                     gamma=(1, 1),
                     no_auto_bright=True,
-                    use_camera_wb=use_camera_wb,
+                    use_camera_wb=not linear_raw,
                     user_wb=user_wb,
                     output_bps=16,
                     output_color=rawpy.ColorSpace.raw,

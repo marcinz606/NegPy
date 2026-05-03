@@ -21,7 +21,7 @@ class PreviewManager:
     def load_linear_preview(
         file_path: str,
         color_space: str | None = None,
-        use_camera_wb: bool = False,
+        linear_raw: bool = False,
         full_resolution: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
@@ -32,12 +32,12 @@ class PreviewManager:
 
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
-            user_wb = None if use_camera_wb else [1, 1, 1, 1]
+            user_wb = [1, 1, 1, 1] if linear_raw else None
 
             rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
-                use_camera_wb=use_camera_wb,
+                use_camera_wb=not linear_raw,
                 user_wb=user_wb,
                 output_bps=16,
                 output_color=rawpy.ColorSpace.raw,

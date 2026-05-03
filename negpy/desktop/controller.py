@@ -282,7 +282,7 @@ class AppController(QObject):
             PreviewLoadTask(
                 file_path=file_path,
                 workspace_color_space=self.state.workspace_color_space,
-                use_camera_wb=self.state.config.exposure.use_camera_wb,
+                linear_raw=self.state.config.exposure.linear_raw,
                 full_resolution=self.state.hq_preview,
             )
         )
