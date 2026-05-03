@@ -8,4 +8,6 @@ class FinishConfig:
     """
 
     vignette_strength: float = 0.0  # [-1.0, 1.0]  0 = off, neg = darken, pos = brighten
-    vignette_size: float = 0.5      # [0.0, 1.0]   midpoint of falloff gradient
+    vignette_size: float = 0.5  # [0.0, 1.0]   midpoint of falloff gradient
+    border_size: float = 0.0  # [0.0, 10.0] cm
+    border_color: str = "#ffffff"  # hex color

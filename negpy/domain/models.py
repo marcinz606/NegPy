@@ -17,7 +17,10 @@ logger = get_logger("domain.models")
 
 # Map of old field names → new field names for backward-compatible deserialization.
 # Add entries here when fields are renamed so old workspace files keep their data.
-MIGRATIONS: Dict[str, str] = {}
+MIGRATIONS: Dict[str, str] = {
+    "export_border_size": "border_size",
+    "export_border_color": "border_color",
+}
 
 
 class AspectRatio(StrEnum):
@@ -73,9 +76,6 @@ class ExportConfig:
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
     export_dpi: int = 300
-    export_add_border: bool = False
-    export_border_size: float = 0.0
-    export_border_color: str = "#ffffff"
     use_original_res: bool = False
     filename_pattern: str = "positive_{{ original_name }}"
     apply_icc: bool = False
