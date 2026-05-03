@@ -14,6 +14,7 @@ from negpy.features.exposure.processor import (
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.lab.processor import PhotoLabProcessor
 from negpy.features.retouch.processor import RetouchProcessor
+from negpy.features.finish.processor import FinishProcessor
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
@@ -142,6 +143,7 @@ class DarkroomEngine:
 
         current_img = ToningProcessor(settings.toning).process(current_img, context)
         current_img = CropProcessor(settings.geometry).process(current_img, context)
+        current_img = FinishProcessor(settings.finish).process(current_img, context)
 
         try:
             uv_grid = CoordinateMapping.create_uv_grid(
