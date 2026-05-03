@@ -245,7 +245,9 @@ class ImageProcessor:
 
     def _apply_scaling_and_border_f32(self, img: np.ndarray, params: WorkspaceConfig, export_settings: ExportConfig) -> np.ndarray:
         """CPU fallback for layout application."""
-        result, _ = PrintService.apply_layout(img, export_settings, border_size=params.finish.border_size, border_color=params.finish.border_color)
+        result, _ = PrintService.apply_layout(
+            img, export_settings, border_size=params.finish.border_size, border_color=params.finish.border_color
+        )
         return result
 
     def _get_target_icc_bytes(self, color_space: str, icc_path: Optional[str], inverse: bool = False) -> Optional[bytes]:
