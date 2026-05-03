@@ -29,14 +29,12 @@ class PrintService:
 
         config = ExportConfig(
             paper_aspect_ratio=paper_aspect_ratio,
-            export_border_size=border_size_cm,
             export_print_size=print_size_cm,
-            export_border_color=border_color_hex,
             export_dpi=virtual_dpi,
             use_original_res=False,
         )
 
-        result_np, content_rect = PrintService.apply_layout(img_np, config)
+        result_np, content_rect = PrintService.apply_layout(img_np, config, border_size=border_size_cm, border_color=border_color_hex)
         result_uint8 = (np.clip(result_np, 0, 1) * 255).astype(np.uint8)
         return Image.fromarray(result_uint8), content_rect
 
@@ -69,7 +67,7 @@ class PrintService:
         return paper_w, paper_h
 
     @staticmethod
-    def apply_layout(img: np.ndarray, export_settings: ExportConfig) -> Tuple[np.ndarray, Tuple[int, int, int, int]]:
+    def apply_layout(img: np.ndarray, export_settings: ExportConfig, border_size: float = 0.0, border_color: str = "#ffffff") -> Tuple[np.ndarray, Tuple[int, int, int, int]]:
         """
         Scales and pads image to fit paper aspect ratio and border requirements.
         Returns (ImageBuffer, (content_x, content_y, content_w, content_h)).
@@ -77,7 +75,7 @@ class PrintService:
         img_h, img_w = img.shape[:2]
         img_aspect = img_w / img_h
         dpi = export_settings.export_dpi
-        border_px = int((export_settings.export_border_size / 2.54) * dpi)
+        border_px = int((border_size / 2.54) * dpi)
 
         if export_settings.paper_aspect_ratio == AspectRatio.ORIGINAL:
             if export_settings.use_original_res:
@@ -137,7 +135,7 @@ class PrintService:
 
                 img_scaled = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LANCZOS4)
 
-        color_hex = export_settings.export_border_color.lstrip("#")
+        color_hex = border_color.lstrip("#")
         r, g, b = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
         channels = img_scaled.shape[2] if img_scaled.ndim == 3 else 1
