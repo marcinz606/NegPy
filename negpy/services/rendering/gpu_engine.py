@@ -58,6 +58,7 @@ class GPUEngine:
             "retouch": get_resource_path(os.path.join("negpy", "features", "retouch", "shaders", "retouch.wgsl")),
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
+            "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
             "layout": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "layout.wgsl")),
         }
@@ -74,6 +75,7 @@ class GPUEngine:
             "retouch_u",
             "lab",
             "toning",
+            "finish",
             "layout",
         ]
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
@@ -118,10 +120,12 @@ class GPUEngine:
             return 4
         if last.toning != settings.toning:
             return 5
-        if last.export != settings.export:
+        if last.finish != settings.finish:
             return 6
+        if last.export != settings.export:
+            return 7
 
-        return 7  # Nothing changed
+        return 8  # Nothing changed
 
     def _get_intermediate_texture(self, w: int, h: int, usage: int, label: str) -> GPUTexture:
         """Retrieves or creates a texture from the pool.
@@ -192,6 +196,7 @@ class GPUEngine:
             "retouch_u": 40,
             "lab": 96,
             "toning": 64,
+            "finish": 32,
             "layout": 48,
         }
         return {
@@ -519,6 +524,29 @@ class GPUEngine:
                 crop_h,
             )
 
+        # --- Finish (Vignette) ---
+        tex_finish = self._get_intermediate_texture(
+            crop_w,
+            crop_h,
+            wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
+            "finish_tex",
+        )
+        if start_stage <= 6:
+            self._dispatch_pass(
+                enc,
+                "finish",
+                [
+                    (0, tex_toning.view),
+                    (1, tex_finish.view),
+                    (2, self._get_uniform_binding("finish")),
+                ],
+                crop_w,
+                crop_h,
+            )
+            tex_for_layout = tex_finish
+        else:
+            tex_for_layout = tex_toning
+
         if not tiling_mode and apply_layout:
             paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
             tex_final = self._get_intermediate_texture(
@@ -527,12 +555,12 @@ class GPUEngine:
                 wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
                 "final",
             )
-            if start_stage <= 6:
+            if start_stage <= 7:
                 self._dispatch_pass(
                     enc,
                     "layout",
                     [
-                        (0, tex_toning.view),
+                        (0, tex_for_layout.view),
                         (1, tex_final.view),
                         (2, self._get_uniform_binding("layout")),
                     ],
@@ -541,7 +569,7 @@ class GPUEngine:
                 )
             content_rect = (off_x, off_y, content_w, content_h)
         else:
-            tex_final, content_rect = tex_toning, (0, 0, crop_w, crop_h)
+            tex_final, content_rect = tex_for_layout, (0, 0, crop_w, crop_h)
 
         if not tiling_mode and readback_metrics:
             device.queue.write_buffer(self._buffers["metrics"].buffer, 0, np.zeros(1024, dtype=np.uint32))
@@ -770,6 +798,11 @@ class GPUEngine:
             )
         )
 
+        f_data = (
+            struct.pack("ff", float(settings.finish.vignette_strength), float(settings.finish.vignette_size))
+            + b"\x00" * 24
+        )
+
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
         color_hex = settings.export.export_border_color.lstrip("#")
         bg = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
@@ -782,7 +815,7 @@ class GPUEngine:
         )
 
         full_buffer = bytearray()
-        for d in [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, y_data]:
+        for d in [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data]:
             full_buffer += d + b"\x00" * (self._alignment - len(d))
 
         if not self.gpu.device:
