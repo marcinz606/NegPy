@@ -57,7 +57,7 @@ class ExportWorker(QObject):
 
                     ext = "jpg" if task.export_settings.export_fmt == ExportFormat.JPEG else "tiff"
 
-                    filename = render_export_filename(task.file_info["path"], task.export_settings)
+                    filename = render_export_filename(task.file_info["path"], task.export_settings, border_size=task.params.finish.border_size)
                     path = os.path.join(out_dir, f"{filename}.{ext}")
 
                     with open(path, "wb") as f:

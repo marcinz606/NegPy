@@ -8,6 +8,7 @@ from negpy.domain.models import ExportConfig
 def render_export_filename(
     original_path: str,
     export_settings: ExportConfig,
+    border_size: float = 0.0,
 ) -> str:
     """
     Renders the export filename using Jinja2 templates.
@@ -30,7 +31,7 @@ def render_export_filename(
         "paper_ratio": export_settings.paper_aspect_ratio,
         "size": f"{export_settings.export_print_size:.0f}cm" if not export_settings.use_original_res else "",
         "dpi": f"{export_settings.export_dpi}dpi" if not export_settings.use_original_res else "",
-        "border": "border" if export_settings.export_border_size > 0 else "",
+        "border": "border" if border_size > 0 else "",
         "date": datetime.now().strftime("%Y%m%d"),
     }
 

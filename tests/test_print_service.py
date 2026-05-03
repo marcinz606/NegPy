@@ -23,8 +23,6 @@ def test_apply_layout_padding():
         export_print_size=2.54,
         export_dpi=300,
         paper_aspect_ratio="1:1",
-        export_border_size=0.0,
-        export_border_color="#ffffff",
         use_original_res=False,
     )
 
@@ -45,12 +43,10 @@ def test_apply_layout_with_border():
         export_print_size=2.54,
         export_dpi=300,
         paper_aspect_ratio="Original",
-        export_border_size=0.1 * 2.54,  # 30px
-        export_border_color="#ffffff",
         use_original_res=True,
     )
 
-    result, _ = PrintService.apply_layout(img, config)
+    result, _ = PrintService.apply_layout(img, config, border_size=0.1 * 2.54, border_color="#ffffff")
     # In 'Original' mode with use_original_res, paper should be img_size + 2*border
     # 300 + 60 = 360, 200 + 60 = 260
     assert result.shape == (260, 360, 3)

@@ -11,7 +11,7 @@ def test_apply_scaling_f32() -> None:
 
     # Export config for 50px result (approx)
     # 1 inch @ 50 DPI
-    export_settings = ExportConfig(export_print_size=2.54, export_dpi=50, export_add_border=False)
+    export_settings = ExportConfig(export_print_size=2.54, export_dpi=50)
 
     res = service._apply_scaling_and_border_f32(img, params, export_settings)
     assert res.shape == (50, 50, 3)
@@ -25,15 +25,14 @@ def test_apply_border_f32() -> None:
 
     # 1 inch @ 100 DPI = 100px total
     # 0.1 inch border = 10px
+    from negpy.services.export.print import PrintService
+
     export_settings = ExportConfig(
         export_print_size=2.54,
         export_dpi=100,
-        export_add_border=True,
-        export_border_size=0.254,
-        export_border_color="#000000",
     )
 
-    res = service._apply_scaling_and_border_f32(img, params, export_settings)
+    res, _ = PrintService.apply_layout(img, export_settings, border_size=0.254, border_color="#000000")
 
     # Total size should be 100x100
     assert res.shape == (100, 100, 3)

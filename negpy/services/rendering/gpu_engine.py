@@ -798,13 +798,10 @@ class GPUEngine:
             )
         )
 
-        f_data = (
-            struct.pack("ff", float(settings.finish.vignette_strength), float(settings.finish.vignette_size))
-            + b"\x00" * 24
-        )
+        f_data = struct.pack("ff", float(settings.finish.vignette_strength), float(settings.finish.vignette_size)) + b"\x00" * 24
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
-        color_hex = settings.export.export_border_color.lstrip("#")
+        color_hex = settings.finish.border_color.lstrip("#")
         bg = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
         scale = float(cw) / max(1.0, float(crop_w))
         y_data = (
@@ -856,7 +853,7 @@ class GPUEngine:
         dpi = settings.export.export_dpi
         if size_ref:
             dpi = int((size_ref * 2.54) / max(0.1, settings.export.export_print_size))
-        border_px = int((settings.export.export_border_size / 2.54) * dpi)
+        border_px = int((settings.finish.border_size / 2.54) * dpi)
 
         use_orig = settings.export.use_original_res
 
@@ -1162,7 +1159,7 @@ class GPUEngine:
             else full_source_res
         )
         result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
-        color_hex = settings.export.export_border_color.lstrip("#")
+        color_hex = settings.finish.border_color.lstrip("#")
         result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
         result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
         return result, metrics_ref

@@ -41,12 +41,12 @@ def test_size_and_dpi_original_res():
 
 def test_border_logic():
     # With border
-    conf_border = ExportConfig(export_border_size=1.5, filename_pattern="{{ original_name }}_{{ border }}")
-    assert render_export_filename("img.jpg", conf_border) == "img_border"
+    conf_border = ExportConfig(filename_pattern="{{ original_name }}_{{ border }}")
+    assert render_export_filename("img.jpg", conf_border, border_size=1.5) == "img_border"
 
     # Without border
-    conf_no_border = ExportConfig(export_border_size=0.0, filename_pattern="{{ original_name }}_{{ border }}")
-    assert render_export_filename("img.jpg", conf_no_border) == "img"
+    conf_no_border = ExportConfig(filename_pattern="{{ original_name }}_{{ border }}")
+    assert render_export_filename("img.jpg", conf_no_border, border_size=0.0) == "img"
 
 
 def test_cleanup_logic():

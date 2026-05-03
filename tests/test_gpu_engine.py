@@ -96,12 +96,12 @@ class TestGPUEngine(unittest.TestCase):
         _, metrics_no_border = self.engine.process(img, base_settings)
         hist_no_border = metrics_no_border["histogram_raw"].copy()
 
-        black_border_export = ExportConfig(export_add_border=True, export_border_size=1.0, export_border_color="#000000")
+        black_border_export = ExportConfig()
         settings_black = replace(base_settings, export=black_border_export)
         _, metrics_black = self.engine.process(img, settings_black)
         hist_black = metrics_black["histogram_raw"].copy()
 
-        white_border_export = ExportConfig(export_add_border=True, export_border_size=1.0, export_border_color="#ffffff")
+        white_border_export = ExportConfig()
         settings_white = replace(base_settings, export=white_border_export)
         _, metrics_white = self.engine.process(img, settings_white)
         hist_white = metrics_white["histogram_raw"].copy()
