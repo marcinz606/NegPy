@@ -52,15 +52,6 @@ class LabSidebar(BaseSidebar):
         row4.addWidget(self.halation_slider)
         self.layout.addLayout(row4)
 
-        self.layout.addWidget(section_subheader("VIGNETTE"))
-
-        row5 = QHBoxLayout()
-        conf_finish = self.state.config.finish
-        self.vignette_strength_slider = CompactSlider("Strength", -1.0, 1.0, conf_finish.vignette_strength)
-        self.vignette_size_slider = CompactSlider("Size", 0.0, 1.0, conf_finish.vignette_size)
-        row5.addWidget(self.vignette_strength_slider)
-        row5.addWidget(self.vignette_size_slider)
-        self.layout.addLayout(row5)
 
         self.layout.addStretch()
 
@@ -121,19 +112,6 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, halation_strength=v)
         )
 
-        self.vignette_strength_slider.valueChanged.connect(
-            lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, vignette_strength=v)
-        )
-        self.vignette_strength_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, vignette_strength=v)
-        )
-
-        self.vignette_size_slider.valueChanged.connect(
-            lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, vignette_size=v)
-        )
-        self.vignette_size_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, vignette_size=v)
-        )
 
     def sync_ui(self) -> None:
         conf = self.state.config.lab
@@ -149,10 +127,6 @@ class LabSidebar(BaseSidebar):
             self.chroma_denoise_slider.setValue(conf.chroma_denoise)
             self.glow_slider.setValue(conf.glow_amount)
             self.halation_slider.setValue(conf.halation_strength)
-
-            conf_finish = self.state.config.finish
-            self.vignette_strength_slider.setValue(conf_finish.vignette_strength)
-            self.vignette_size_slider.setValue(conf_finish.vignette_size)
 
             self.separation_slider.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
@@ -171,8 +145,6 @@ class LabSidebar(BaseSidebar):
             self.chroma_denoise_slider,
             self.glow_slider,
             self.halation_slider,
-            self.vignette_strength_slider,
-            self.vignette_size_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)
