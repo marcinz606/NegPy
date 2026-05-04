@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.17.2
+
+- Fix: export filename templating now preserves `original_name` verbatim — dashes, spaces, and multiple/leading/trailing underscores in the original filename are no longer mangled by the cleanup pass. Also removed `positive_` suffix from default pattern.
+
 ## 0.17.1
 
 - Fix: new vignette shaders not being bundled with appimage on linux

@@ -3,6 +3,9 @@ from negpy.domain.models import ExportConfig, ExportFormat
 from negpy.services.export.templating import render_export_filename
 
 
+# ── Existing tests (unchanged behavior) ──────────────────────────────────────
+
+
 def test_basic_templating():
     conf = ExportConfig(filename_pattern="test_{{ original_name }}_{{ colorspace }}")
     result = render_export_filename("/path/to/image.orf", conf)
@@ -34,26 +37,23 @@ def test_size_and_dpi_original_res():
         export_dpi=300,
         filename_pattern="{{ original_name }}_{{ size }}_{{ dpi }}_end",
     )
-    # size and dpi should be empty strings, cleanup should collapse underscores
     result = render_export_filename("shot.jpg", conf)
     assert result == "shot_end"
 
 
 def test_border_logic():
-    # With border
     conf_border = ExportConfig(filename_pattern="{{ original_name }}_{{ border }}")
     assert render_export_filename("img.jpg", conf_border, border_size=1.5) == "img_border"
 
-    # Without border
     conf_no_border = ExportConfig(filename_pattern="{{ original_name }}_{{ border }}")
     assert render_export_filename("img.jpg", conf_no_border, border_size=0.0) == "img"
 
 
 def test_cleanup_logic():
     conf = ExportConfig(filename_pattern="{{ original_name }} - {{ colorspace }} --- final")
-    # Spaces, dashes and multiple underscores should be collapsed to single underscore
+    # Structural template separators cleaned; original_name content preserved verbatim.
     result = render_export_filename("my scan.jpg", conf)
-    assert result == "my_scan_Adobe_RGB_final"
+    assert result == "my scan_Adobe_RGB_final"
 
 
 def test_format_and_ratio():
@@ -63,21 +63,92 @@ def test_format_and_ratio():
         filename_pattern="{{ original_name }}_{{ format }}_{{ paper_ratio }}",
     )
     result = render_export_filename("img.jpg", conf)
-    # Note: 3:2 has a colon, cleanup might replace it if we were strict,
-    # but current regex [ _-]+ only targets spaces, underscores and dashes.
-    # Let's see what happens.
     assert result == "img_TIFF_3:2"
 
 
 def test_empty_template_fallback():
     conf = ExportConfig(filename_pattern="")
     result = render_export_filename("img.jpg", conf)
-    assert result == "positive_img"
+    assert result == "img"
 
 
 def test_invalid_template_fallback():
     conf = ExportConfig(filename_pattern="{{ invalid_var }}")
-    # Jinja2 by default renders undefined as empty string if not configured otherwise
-    # Cleanup will handle the empty result
     result = render_export_filename("img.jpg", conf)
-    assert result == "positive_img"
+    assert result == "img"
+
+
+# ── original_name preservation ────────────────────────────────────────────────
+
+
+def test_original_name_dash_preserved():
+    """Dashes in the filename must not be converted to underscores."""
+    conf = ExportConfig(filename_pattern="print_{{ original_name }}")
+    assert render_export_filename("/shots/IMG-0001.orf", conf) == "print_IMG-0001"
+
+
+def test_original_name_dash_and_underscore_preserved():
+    """Files with both dashes and underscores keep both."""
+    conf = ExportConfig(filename_pattern="print_{{ original_name }}")
+    assert render_export_filename("scan_001-A.orf", conf) == "print_scan_001-A"
+
+
+def test_original_name_multiple_underscores_preserved():
+    """Double (or more) underscores inside the filename are kept as-is."""
+    conf = ExportConfig(filename_pattern="print_{{ original_name }}")
+    assert render_export_filename("IMG__0001.orf", conf) == "print_IMG__0001"
+
+
+def test_original_name_leading_underscore_preserved():
+    """A leading underscore in the filename is not stripped."""
+    conf = ExportConfig(filename_pattern="print_{{ original_name }}")
+    assert render_export_filename("_scan.orf", conf) == "print__scan"
+
+
+def test_original_name_trailing_underscore_preserved():
+    """A trailing underscore in the filename is not stripped."""
+    conf = ExportConfig(filename_pattern="{{ original_name }}_end")
+    assert render_export_filename("scan_.orf", conf) == "scan__end"
+
+
+def test_original_name_leading_and_trailing_underscores_preserved():
+    """Both leading and trailing underscores survive."""
+    conf = ExportConfig(filename_pattern="print_{{ original_name }}")
+    assert render_export_filename("_scan_001_.orf", conf) == "print__scan_001_"
+
+
+def test_original_name_space_preserved():
+    """Spaces inside the original filename are kept verbatim."""
+    conf = ExportConfig(filename_pattern="print_{{ original_name }}")
+    assert render_export_filename("my scan.jpg", conf) == "print_my scan"
+
+
+def test_original_name_only_pattern():
+    """Pattern with only original_name — no structural parts to clean."""
+    conf = ExportConfig(filename_pattern="{{ original_name }}")
+    assert render_export_filename("IMG-0001.orf", conf) == "IMG-0001"
+
+
+def test_original_name_repeated_in_pattern():
+    """original_name appearing twice is substituted correctly both times."""
+    conf = ExportConfig(filename_pattern="{{ original_name }}_copy_{{ original_name }}")
+    assert render_export_filename("IMG-0001.orf", conf) == "IMG-0001_copy_IMG-0001"
+
+
+def test_structural_dashes_cleaned_but_original_name_untouched():
+    """Dashes as template separators → underscores; dashes inside original_name → preserved."""
+    conf = ExportConfig(filename_pattern="{{ original_name }}-{{ colorspace }}-final")
+    result = render_export_filename("IMG-0001.orf", conf)
+    assert result == "IMG-0001_Adobe_RGB_final"
+
+
+def test_empty_pattern_fallback_preserves_dashes():
+    """Fallback path (empty pattern) gives verbatim original_name."""
+    conf = ExportConfig(filename_pattern="")
+    assert render_export_filename("IMG-0001.orf", conf) == "IMG-0001"
+
+
+def test_invalid_pattern_fallback_preserves_original_name():
+    """Fallback path (bad template) gives verbatim original_name."""
+    conf = ExportConfig(filename_pattern="{{ invalid_var }}")
+    assert render_export_filename("IMG-0001.orf", conf) == "IMG-0001"

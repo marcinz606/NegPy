@@ -77,7 +77,7 @@ class ExportConfig:
     export_print_size: float = 30.0
     export_dpi: int = 300
     use_original_res: bool = False
-    filename_pattern: str = "positive_{{ original_name }}"
+    filename_pattern: str = "{{ original_name }}"
     apply_icc: bool = False
     icc_profile_path: Optional[str] = None
     icc_invert: bool = False

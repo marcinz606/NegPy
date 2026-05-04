@@ -24,8 +24,12 @@ def render_export_filename(
     """
     original_name = os.path.splitext(os.path.basename(original_path))[0]
 
+    # Null-byte placeholder protects original_name from the cleanup regex.
+    # Null bytes cannot appear in filesystem paths, so collision is impossible.
+    _PLACEHOLDER = "\x00ORIG\x00"
+
     context = {
-        "original_name": original_name,
+        "original_name": _PLACEHOLDER,
         "colorspace": export_settings.export_color_space,
         "format": export_settings.export_fmt,
         "paper_ratio": export_settings.paper_aspect_ratio,
@@ -39,14 +43,16 @@ def render_export_filename(
         template = Template(export_settings.filename_pattern)
         rendered = template.render(**context)
 
-        # Clean up: replace multiple underscores/spaces/dashes with single ones
+        # Clean up structural separators (spaces/dashes/underscores in the template
+        # skeleton). original_name is still a placeholder here, so it's untouched.
         rendered = re.sub(r"[ _-]+", "_", rendered).strip("_")
 
-        # Ensure we don't have empty filename
+        # Restore original_name verbatim — dashes, spaces, and underscores intact.
+        rendered = rendered.replace(_PLACEHOLDER, original_name)
+
         if not rendered:
-            return f"positive_{original_name}"
+            return original_name
 
         return rendered
     except Exception:
-        # Fallback to default pattern if template rendering fails
-        return f"positive_{original_name}"
+        return original_name

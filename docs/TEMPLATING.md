@@ -19,16 +19,17 @@ NegPy uses **Jinja2** to allow dynamic naming of exported files. You can configu
 
 | Pattern | Result |
 | :--- | :--- |
-| `positive_{{ original_name }}` | `positive_DSC0123.jpg` |
+| `{{ original_name }}` | `DSC0123.jpg` |
 | `{{ date }}_{{ original_name }}_{{ colorspace }}` | `20260125_DSC0123_Adobe_RGB.jpg` |
 | `{{ original_name }}_{{ size }}_{{ dpi }}_{{ border }}` | `DSC0123_30cm_300dpi_border.jpg` |
 | `PRINT_{{ original_name }}_{{ paper_ratio }}` | `PRINT_DSC0123_3:2.jpg` |
 
 ## Filename Cleanup
 
-NegPy automatically cleans up the resulting filename to ensure it is valid for your filesystem:
-*   Any combination of spaces, dashes, or multiple underscores is collapsed into a **single underscore** (`_`).
-*   Trailing or leading underscores are removed.
+NegPy cleans up the **structural separators** in the template (spaces, dashes, and underscores between variables), but leaves `{{ original_name }}` untouched:
+*   Separators between variables are collapsed into a **single underscore** (`_`).
+*   Leading or trailing separators around the whole filename are removed.
+*   `{{ original_name }}` is always inserted verbatim — dashes, spaces, and underscores in the original filename are preserved exactly.
 *   If a variable is empty (like `{{ border }}` when no border is set), it effectively disappears and the surrounding separators are cleaned up.
 
 **Example:**
