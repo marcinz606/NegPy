@@ -289,6 +289,7 @@ class NormalizationWorker(QObject):
         total = len(task.files)
         limit = max(1, APP_CONFIG.max_workers // 2)
         semaphore = asyncio.Semaphore(limit)
+        completed = [0]
 
         async def _analyze_file(f_info: dict):
             async with semaphore:
@@ -317,9 +318,13 @@ class NormalizationWorker(QObject):
                         percentile_clip=drange_clip,
                     )
 
+                    completed[0] += 1
+                    self.progress.emit(completed[0], total, f_info["name"])
                     return bounds.floors, bounds.ceils, f_info["name"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
+                    completed[0] += 1
+                    self.progress.emit(completed[0], total, f_info["name"])
                     return None
 
         async def _run_batch():
@@ -335,9 +340,6 @@ class NormalizationWorker(QObject):
             valid_results = [r for r in batch_results if r is not None]
             if not valid_results:
                 raise RuntimeError("All files in batch failed analysis")
-
-            for i, (_, _, name) in enumerate(valid_results, start=1):
-                self.progress.emit(i, total, name)
 
             floors_arr = np.array([r[0] for r in valid_results])
             ceils_arr = np.array([r[1] for r in valid_results])

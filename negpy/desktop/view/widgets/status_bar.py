@@ -41,11 +41,11 @@ class TopStatusBar(QWidget):
         self.progress.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.progress.setVisible(False)
         self.progress.setTextVisible(False)
+        self.progress.setFormat("")
         self.progress.setStyleSheet(f"""
             QProgressBar {{
-                background-color: transparent;
+                background-color: {THEME.border_primary};
                 border: none;
-                border-top: 3px solid {THEME.accent_primary};
                 border-radius: 0;
             }}
             QProgressBar::chunk {{
@@ -71,7 +71,9 @@ class TopStatusBar(QWidget):
             self.progress.setVisible(False)
             return
         self.progress.setVisible(True)
-        self.progress.setRange(0, total)
+        self.file_pos_label.clear()
+        if self.progress.maximum() != total:
+            self.progress.setRange(0, total)
         self.progress.setValue(current)
         if current >= total:
             QTimer.singleShot(1000, lambda: self.progress.setVisible(False))

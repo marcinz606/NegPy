@@ -508,7 +508,7 @@ class AppController(QObject):
         )
         self.session.update_config(replace(self.state.config, process=new_process), persist=True)
 
-        self.set_status("Batch Normalization Complete", 3000)
+        self.set_status("batch analysis complete", timeout=3000)
         self.status_progress_requested.emit(0, 0)
         self.request_render()
 

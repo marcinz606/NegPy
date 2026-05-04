@@ -274,6 +274,7 @@ class MainWindow(QMainWindow):
         self.top_status.progress.setVisible(True)
         self.top_status.progress.setRange(0, total)
         self.top_status.progress.setValue(current)
+        self.top_status.file_pos_label.clear()
         self.top_status.showMessage(f"Exporting {filename} ({current}/{total})...")
 
     def _on_export_finished(self, elapsed: float) -> None:

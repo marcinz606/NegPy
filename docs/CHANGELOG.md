@@ -2,6 +2,7 @@
 
 ## 0.17.2
 
+- Fix: batch normalization and batch export progress bars now properly updates on status bar.
 - Fix: export filename templating now preserves `original_name` verbatim — dashes, spaces, and multiple/leading/trailing underscores in the original filename are no longer mangled by the cleanup pass.
 - Changed default export filename pattern from `positive_{{ original_name }}` to `{{ original_name }}`.
 - Changed default export colorspace to be `Same as source` (detected from input file).
