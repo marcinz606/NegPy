@@ -59,6 +59,7 @@ class AppController(QObject):
     config_updated = pyqtSignal()
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
+    _render_cleanup_requested = pyqtSignal()
     status_message_requested = pyqtSignal(str, int)
     status_progress_requested = pyqtSignal(int, int)
     pixel_readout = pyqtSignal(str, str)
@@ -181,6 +182,7 @@ class AppController(QObject):
 
     def _connect_signals(self) -> None:
         self.render_requested.connect(self.render_worker.process)
+        self._render_cleanup_requested.connect(self.render_worker.cleanup)
         self.render_worker.finished.connect(self._on_render_finished)
         self.render_worker.metrics_updated.connect(self._on_metrics_updated)
         self.render_worker.error.connect(self._on_render_error)
@@ -273,7 +275,7 @@ class AppController(QObject):
         self.loading_started.emit()
         self._first_render_done = False
 
-        QMetaObject.invokeMethod(self.render_worker, "cleanup", Qt.ConnectionType.QueuedConnection)
+        self._render_cleanup_requested.emit()
 
         self.state.preview_raw = None
         self.state.original_res = (0, 0)
