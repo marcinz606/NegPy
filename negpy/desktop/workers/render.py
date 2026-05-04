@@ -81,6 +81,7 @@ class RenderWorker(QObject):
     def processor(self) -> ImageProcessor:
         return self._processor
 
+    @pyqtSlot()
     def cleanup(self) -> None:
         """Evacuates transient GPU resources."""
         self._processor.cleanup()
