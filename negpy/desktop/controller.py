@@ -275,7 +275,7 @@ class AppController(QObject):
         self.loading_started.emit()
         self._first_render_done = False
 
-        self._render_cleanup_requested.emit()
+        QMetaObject.invokeMethod(self.render_worker, "cleanup", Qt.ConnectionType.QueuedConnection)
 
         self.state.preview_raw = None
         self.state.original_res = (0, 0)
