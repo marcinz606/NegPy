@@ -9,11 +9,11 @@ from negpy.domain.models import (
 )
 from negpy.domain.types import AppConfig
 from negpy.features.exposure.models import ExposureConfig
+from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.retouch.models import RetouchConfig
-from negpy.features.finish.models import FinishConfig
 from negpy.features.toning.models import PaperProfileName, ToningConfig
 from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
 
@@ -21,7 +21,7 @@ BASE_USER_DIR = get_default_user_dir()
 APP_CONFIG = AppConfig(
     thumbnail_size=120,
     max_workers=max(1, (os.cpu_count() or 1)),
-    preview_render_size=2000,
+    preview_render_size=1600,
     max_history_steps=100,
     edits_db_path=os.path.join(BASE_USER_DIR, "edits.db"),
     settings_db_path=os.path.join(BASE_USER_DIR, "settings.db"),

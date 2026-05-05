@@ -332,6 +332,15 @@ class GPUEngine:
             if settings.geometry.fine_rotation != 0.0:
                 analysis_source = apply_fine_rotation(analysis_source, settings.geometry.fine_rotation)
 
+            ah, aw = analysis_source.shape[:2]
+            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
+            if a_scale < 1.0:
+                analysis_source = cv2.resize(
+                    analysis_source,
+                    (int(aw * a_scale), int(ah * a_scale)),
+                    interpolation=cv2.INTER_AREA,
+                )
+
             bounds = analyze_log_exposure_bounds(
                 analysis_source,
                 analysis_roi,
@@ -1121,9 +1130,21 @@ class GPUEngine:
                 ceils=settings.process.local_ceils,
             )
         else:
+            ah, aw = img_rot.shape[:2]
+            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
+            if a_scale < 1.0:
+                img_rot_analysis = cv2.resize(
+                    img_rot,
+                    (int(aw * a_scale), int(ah * a_scale)),
+                    interpolation=cv2.INTER_AREA,
+                )
+                analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
+            else:
+                img_rot_analysis = img_rot
+                analysis_roi = (y1, y2, x1, x2)
             global_bounds = analyze_log_exposure_bounds(
-                img_rot,
-                roi=(y1, y2, x1, x2),
+                img_rot_analysis,
+                roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,

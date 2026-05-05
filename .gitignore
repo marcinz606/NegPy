@@ -4,6 +4,7 @@
 .idea/
 .python-version
 .vscode
+.coverage
 
 
 # Electron & Packaging
