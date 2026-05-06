@@ -138,6 +138,37 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(saved_config.geometry.manual_crop_rect, (0.2, 0.3, 0.8, 0.9))
         self.controller.request_render.assert_called_once_with()
 
+    def test_handle_crop_translated_updates_rect(self):
+        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_crop_translated(0.3, 0.25, 0.7, 0.55)
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.3, 0.25, 0.7, 0.55))
+        self.controller.request_render.assert_called_once_with()
+
+    def test_handle_crop_translated_noop_when_no_manual_rect(self):
+        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=None)
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_crop_translated(0.1, 0.1, 0.5, 0.5)
+
+        self.mock_session_manager.update_config.assert_not_called()
+        self.controller.request_render.assert_not_called()
+
+    def test_handle_crop_translated_does_not_deactivate_tool(self):
+        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.2, 0.2, 0.6, 0.5))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.state.active_tool = ToolMode.CROP_MOVE
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_crop_translated(0.3, 0.25, 0.7, 0.55)
+
+        self.assertEqual(self.controller.state.active_tool, ToolMode.CROP_MOVE)
+
 
 if __name__ == "__main__":
     unittest.main()

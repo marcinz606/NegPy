@@ -529,3 +529,18 @@ def map_coords_to_geometry(
     ny_new = np.clip(py / max(h, 1), 0.0, 1.0)
 
     return float(nx_new), float(ny_new)
+
+
+def translate_manual_crop_rect(
+    rect: Tuple[float, float, float, float],
+    dx: float,
+    dy: float,
+) -> Tuple[float, float, float, float]:
+    x1, y1, x2, y2 = rect
+    w = x2 - x1
+    h = y2 - y1
+    max_x1 = max(0.0, 1.0 - w)
+    max_y1 = max(0.0, 1.0 - h)
+    nx1 = min(max(x1 + dx, 0.0), max_x1)
+    ny1 = min(max(y1 + dy, 0.0), max_y1)
+    return (nx1, ny1, nx1 + w, ny1 + h)

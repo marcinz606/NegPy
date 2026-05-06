@@ -9,7 +9,9 @@ from PyQt6.QtWidgets import QWidget
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.styles.theme import THEME
+from negpy.features.geometry.logic import translate_manual_crop_rect
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 
 class CanvasOverlay(QWidget):
@@ -19,6 +21,7 @@ class CanvasOverlay(QWidget):
 
     clicked = pyqtSignal(float, float)
     crop_completed = pyqtSignal(float, float, float, float)
+    crop_translated = pyqtSignal(float, float, float, float)
     cursor_moved = pyqtSignal(float, float)
     cursor_left = pyqtSignal()
 
@@ -33,6 +36,10 @@ class CanvasOverlay(QWidget):
         self._crop_active: bool = False
         self._crop_p1: Optional[QPointF] = None
         self._crop_p2: Optional[QPointF] = None
+        self._move_active: bool = False
+        self._move_press_raw: Optional[Tuple[float, float]] = None
+        self._move_orig_rect: Optional[Tuple[float, float, float, float]] = None
+        self._move_last_emitted: Optional[Tuple[float, float, float, float]] = None
         self._tool_mode: ToolMode = ToolMode.NONE
         self._mouse_pos: QPointF = QPointF()
 
@@ -60,6 +67,11 @@ class CanvasOverlay(QWidget):
         if mode != ToolMode.CROP_MANUAL:
             self._crop_p1 = None
             self._crop_p2 = None
+        if mode != ToolMode.CROP_MOVE:
+            self._move_active = False
+            self._move_press_raw = None
+            self._move_orig_rect = None
+            self._move_last_emitted = None
         self.update()
 
     def update_buffer(
@@ -201,6 +213,17 @@ class CanvasOverlay(QWidget):
 
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
+    def _raw_from_screen(self, screen_pos: QPointF) -> Optional[Tuple[float, float]]:
+        if self._view_rect.isEmpty():
+            return None
+        nb_x = float(np.clip((screen_pos.x() - self._view_rect.x()) / self._view_rect.width(), 0.0, 1.0))
+        nb_y = float(np.clip((screen_pos.y() - self._view_rect.y()) / self._view_rect.height(), 0.0, 1.0))
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None:
+            return None
+        return CoordinateMapping.map_click_to_raw(nb_x, nb_y, uv_grid)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton or (
             event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self._tool_mode == ToolMode.NONE
@@ -220,6 +243,14 @@ class CanvasOverlay(QWidget):
                 py = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
                 self._crop_p1 = QPointF(px, py)
                 self._crop_p2 = QPointF(px, py)
+            elif self._tool_mode == ToolMode.CROP_MOVE:
+                orig_rect = self.state.config.geometry.manual_crop_rect
+                press_raw = self._raw_from_screen(event.position())
+                if orig_rect is not None and press_raw is not None:
+                    self._move_active = True
+                    self._move_press_raw = press_raw
+                    self._move_orig_rect = orig_rect
+                    self._move_last_emitted = orig_rect
             self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -236,6 +267,20 @@ class CanvasOverlay(QWidget):
             self.parent()._last_mouse_pos = event.position()
             self.parent().pan_offset += QPointF(delta.x() / self.width(), delta.y() / self.height())
             self.parent()._sync_transform()
+            event.accept()
+            return
+
+        if self._move_active and self._move_press_raw is not None and self._move_orig_rect is not None:
+            curr_raw = self._raw_from_screen(event.position())
+            if curr_raw is not None:
+                fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                sensitivity = 0.2 if fine else 0.5
+                dx = (curr_raw[0] - self._move_press_raw[0]) * sensitivity
+                dy = (curr_raw[1] - self._move_press_raw[1]) * sensitivity
+                new_rect = translate_manual_crop_rect(self._move_orig_rect, dx, dy)
+                if self._move_last_emitted is None or any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._move_last_emitted)):
+                    self._move_last_emitted = new_rect
+                    self.crop_translated.emit(*new_rect)
             event.accept()
             return
 
@@ -270,6 +315,14 @@ class CanvasOverlay(QWidget):
         if self.parent()._is_panning:
             self.parent()._is_panning = False
             self.parent().setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+            return
+
+        if self._move_active:
+            self._move_active = False
+            self._move_press_raw = None
+            self._move_orig_rect = None
+            self._move_last_emitted = None
             event.accept()
             return
 

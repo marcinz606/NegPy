@@ -25,6 +25,7 @@ class ImageCanvas(QWidget):
 
     clicked = pyqtSignal(float, float)
     crop_completed = pyqtSignal(float, float, float, float)
+    crop_translated = pyqtSignal(float, float, float, float)
     zoom_changed = pyqtSignal(float)
     cursor_position_changed = pyqtSignal(float, float)
     cursor_left_canvas = pyqtSignal()
@@ -69,6 +70,7 @@ class ImageCanvas(QWidget):
 
         self.overlay.clicked.connect(self.clicked.emit)
         self.overlay.crop_completed.connect(self.crop_completed.emit)
+        self.overlay.crop_translated.connect(self.crop_translated.emit)
         self.overlay.cursor_moved.connect(self.cursor_position_changed.emit)
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
 

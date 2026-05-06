@@ -189,3 +189,71 @@ def test_get_manual_rect_coords_flips():
     roi = get_manual_rect_coords(img, manual_rect, orig_shape=(100, 100), flip_vertical=True)
     # Should become bottom-left quadrant: y=50..100
     assert roi == (50, 100, 0, 50)
+
+
+def test_translate_within_bounds():
+    from pytest import approx
+    from negpy.features.geometry.logic import translate_manual_crop_rect
+
+    rect = (0.2, 0.2, 0.6, 0.5)
+    result = translate_manual_crop_rect(rect, 0.1, 0.05)
+    assert result == approx((0.3, 0.25, 0.7, 0.55))
+
+
+def test_translate_clamps_at_right_edge():
+    from pytest import approx
+    from negpy.features.geometry.logic import translate_manual_crop_rect
+
+    rect = (0.6, 0.2, 0.9, 0.5)
+    nx1, ny1, nx2, ny2 = translate_manual_crop_rect(rect, 0.5, 0.0)
+    assert nx2 == approx(1.0)
+    assert nx1 == approx(0.7)  # 1.0 - width 0.3
+    assert (ny1, ny2) == approx((0.2, 0.5))
+
+
+def test_translate_clamps_at_left_edge():
+    from pytest import approx
+    from negpy.features.geometry.logic import translate_manual_crop_rect
+
+    rect = (0.2, 0.2, 0.6, 0.5)
+    nx1, ny1, nx2, ny2 = translate_manual_crop_rect(rect, -0.5, 0.0)
+    assert nx1 == approx(0.0)
+    assert nx2 == approx(0.4)  # width preserved
+    assert (ny1, ny2) == approx((0.2, 0.5))
+
+
+def test_translate_clamps_top_and_bottom():
+    from pytest import approx
+    from negpy.features.geometry.logic import translate_manual_crop_rect
+
+    rect = (0.2, 0.2, 0.6, 0.5)
+    _, ny1_top, _, ny2_top = translate_manual_crop_rect(rect, 0.0, -0.5)
+    assert ny1_top == approx(0.0)
+    assert ny2_top == approx(0.3)  # height 0.3 preserved
+
+    _, ny1_bot, _, ny2_bot = translate_manual_crop_rect(rect, 0.0, 0.9)
+    assert ny2_bot == approx(1.0)
+    assert ny1_bot == approx(0.7)  # 1.0 - 0.3
+
+
+def test_translate_clamps_diagonally():
+    from pytest import approx
+    from negpy.features.geometry.logic import translate_manual_crop_rect
+
+    rect = (0.6, 0.6, 0.9, 0.9)
+    result = translate_manual_crop_rect(rect, 0.5, 0.5)
+    assert result == approx((0.7, 0.7, 1.0, 1.0))
+
+
+def test_translate_zero_delta_is_identity():
+    from negpy.features.geometry.logic import translate_manual_crop_rect
+
+    rect = (0.2, 0.3, 0.7, 0.8)
+    assert translate_manual_crop_rect(rect, 0.0, 0.0) == rect
+
+
+def test_translate_full_size_rect_no_movement():
+    from negpy.features.geometry.logic import translate_manual_crop_rect
+
+    rect = (0.0, 0.0, 1.0, 1.0)
+    assert translate_manual_crop_rect(rect, 0.5, -0.5) == rect

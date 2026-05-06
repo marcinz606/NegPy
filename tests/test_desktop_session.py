@@ -124,5 +124,13 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(self.session.state.max_history_index, 5)
 
 
+class TestToolMode(unittest.TestCase):
+    def test_crop_move_is_distinct(self):
+        from negpy.desktop.session import ToolMode
+
+        assert ToolMode.CROP_MOVE != ToolMode.CROP_MANUAL
+        assert ToolMode.CROP_MOVE != ToolMode.NONE
+
+
 if __name__ == "__main__":
     unittest.main()

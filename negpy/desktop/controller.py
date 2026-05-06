@@ -340,6 +340,13 @@ class AppController(QObject):
         self.tool_sync_requested.emit()
         self.request_render()
 
+    def handle_crop_translated(self, nx1: float, ny1: float, nx2: float, ny2: float) -> None:
+        if self.state.config.geometry.manual_crop_rect is None:
+            return
+        new_geo = replace(self.state.config.geometry, manual_crop_rect=(nx1, ny1, nx2, ny2))
+        self.session.update_config(replace(self.state.config, geometry=new_geo))
+        self.request_render()
+
     def reset_crop(self) -> None:
         new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
         self.session.update_config(
