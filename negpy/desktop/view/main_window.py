@@ -1,4 +1,5 @@
 import os
+from typing import Callable
 
 import numpy as np
 from PIL import Image
@@ -51,18 +52,29 @@ def _display_buffer_for_canvas(buffer: object) -> object:
 class _EmptyStateOverlay(QWidget):
     """Shown on top of the canvas when no image is loaded."""
 
-    def __init__(self, parent: QWidget) -> None:
+    def __init__(self, parent: QWidget, on_tour: "Callable[[], None]") -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(12)
 
-        from PyQt6.QtWidgets import QLabel
+        from PyQt6.QtWidgets import QLabel, QPushButton
 
         label = QLabel("Load some scans to get started")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 15px;")
         layout.addWidget(label)
+
+        tour_btn = QPushButton("Take the tour")
+        tour_btn.setFixedWidth(140)
+        tour_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {THEME.text_muted}; "
+            f"border: 1px solid {THEME.border_primary}; border-radius: 3px; "
+            f"padding: 5px 14px; font-size: 12px; }}"
+            f"QPushButton:hover {{ color: {THEME.text_primary}; }}"
+        )
+        tour_btn.clicked.connect(on_tour)
+        layout.addWidget(tour_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -88,6 +100,15 @@ class MainWindow(QMainWindow):
         self.shortcut_manager = setup_keyboard_shortcuts(self)
         self._update_title()
 
+        from negpy.desktop.view.widgets.tutorial_overlay import TutorialOverlay
+
+        self.tutorial_overlay = TutorialOverlay(self)
+        self.tutorial_overlay.finished.connect(self._on_tutorial_finished)
+
+        repo = self.controller.session.repo
+        if not repo.get_global_setting("tutorial_seen", False):
+            QTimer.singleShot(600, self.show_tutorial)
+
     def _init_ui(self) -> None:
         """Setup widgets and layout."""
         # Main Window Padding
@@ -108,7 +129,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_controller(self.controller)
         self.toolbar = ActionToolbar(self.controller)
 
-        self.empty_state = _EmptyStateOverlay(self.canvas)
+        self.empty_state = _EmptyStateOverlay(self.canvas, lambda: self.show_tutorial())
         self.empty_state.raise_()
 
         self.central_layout.addWidget(self.top_status)
@@ -157,6 +178,14 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"{prefix}NegPy — {tool_prefix}{filename}")
         else:
             self.setWindowTitle("NegPy")
+
+    def show_tutorial(self) -> None:
+        from negpy.desktop.view.widgets.tutorial_steps import build
+
+        self.tutorial_overlay.start(build(self))
+
+    def _on_tutorial_finished(self, _completed: bool) -> None:
+        self.controller.session.repo.save_global_setting("tutorial_seen", True)
 
     def _connect_signals(self) -> None:
         """Wire controller and view."""
