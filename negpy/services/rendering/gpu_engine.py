@@ -14,6 +14,7 @@ from negpy.features.exposure.normalization import (
 )
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
+    apply_margin_to_roi,
     get_autocrop_coords,
     get_manual_rect_coords,
     map_coords_to_geometry,
@@ -306,6 +307,9 @@ class GPUEngine:
                     int(roi_tmp[2] * sx),
                     int(roi_tmp[3] * sx),
                 )
+            elif settings.geometry.autocrop_offset > 0:
+                margin = settings.geometry.autocrop_offset * scale_factor
+                roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)
             else:
                 roi = (0, h_rot, 0, w_rot)
             y1, y2, x1, x2 = roi

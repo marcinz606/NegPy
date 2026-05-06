@@ -4,6 +4,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
+    apply_margin_to_roi,
     get_autocrop_coords,
     get_manual_rect_coords,
 )
@@ -61,6 +62,10 @@ class GeometryProcessor:
                 target_ratio_str=self.config.autocrop_ratio,
             )
             context.active_roi = roi
+        elif self.config.autocrop_offset > 0:
+            h_img, w_img = img.shape[:2]
+            margin = self.config.autocrop_offset * context.scale_factor
+            context.active_roi = apply_margin_to_roi((0, h_img, 0, w_img), h_img, w_img, margin)
         else:
             context.active_roi = None
 

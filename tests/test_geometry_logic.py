@@ -257,3 +257,45 @@ def test_translate_full_size_rect_no_movement():
 
     rect = (0.0, 0.0, 1.0, 1.0)
     assert translate_manual_crop_rect(rect, 0.5, -0.5) == rect
+
+
+def test_offset_only_insets_full_image():
+    config = GeometryConfig(autocrop_offset=10)
+    processor = GeometryProcessor(config)
+    ctx = PipelineContext(scale_factor=1.0, original_size=(100, 200))
+    processor.process(np.zeros((100, 200, 3), dtype=np.float32), ctx)
+    assert ctx.active_roi == (10, 90, 10, 190)
+
+
+def test_offset_only_respects_scale_factor():
+    config = GeometryConfig(autocrop_offset=10)
+    processor = GeometryProcessor(config)
+    ctx = PipelineContext(scale_factor=0.5, original_size=(100, 200))
+    processor.process(np.zeros((100, 200, 3), dtype=np.float32), ctx)
+    assert ctx.active_roi == (5, 95, 5, 195)
+
+
+def test_offset_zero_yields_no_roi():
+    config = GeometryConfig(autocrop_offset=0)
+    processor = GeometryProcessor(config)
+    ctx = PipelineContext(scale_factor=1.0, original_size=(100, 200))
+    processor.process(np.zeros((100, 200, 3), dtype=np.float32), ctx)
+    assert ctx.active_roi is None
+
+
+def test_negative_offset_yields_full_image_roi():
+    config = GeometryConfig(autocrop_offset=-5)
+    processor = GeometryProcessor(config)
+    ctx = PipelineContext(scale_factor=1.0, original_size=(100, 200))
+    processor.process(np.zeros((100, 200, 3), dtype=np.float32), ctx)
+    # Negative offset hits the >0 guard → no inset → no ROI
+    assert ctx.active_roi is None
+
+
+def test_manual_crop_unaffected_by_offset():
+    config = GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=20)
+    processor = GeometryProcessor(config)
+    ctx = PipelineContext(scale_factor=1.0, original_size=(100, 200))
+    processor.process(np.zeros((100, 200, 3), dtype=np.float32), ctx)
+    # Manual passes offset_px=0 internally — full manual rect, no extra inset
+    assert ctx.active_roi == (10, 90, 20, 180)

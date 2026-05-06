@@ -10,6 +10,6 @@ class GeometryConfig:
     flip_vertical: bool = False
     auto_crop_enabled: bool = False
 
-    autocrop_offset: int = 1
+    autocrop_offset: int = 0
     autocrop_ratio: str = "3:2"
     manual_crop_rect: Optional[Tuple[float, float, float, float]] = None

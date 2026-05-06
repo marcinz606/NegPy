@@ -40,6 +40,7 @@ class CanvasOverlay(QWidget):
         self._move_press_raw: Optional[Tuple[float, float]] = None
         self._move_orig_rect: Optional[Tuple[float, float, float, float]] = None
         self._move_last_emitted: Optional[Tuple[float, float, float, float]] = None
+        self._move_uv_grid: Optional[np.ndarray] = None
         self._tool_mode: ToolMode = ToolMode.NONE
         self._mouse_pos: QPointF = QPointF()
 
@@ -72,6 +73,7 @@ class CanvasOverlay(QWidget):
             self._move_press_raw = None
             self._move_orig_rect = None
             self._move_last_emitted = None
+            self._move_uv_grid = None
         self.update()
 
     def update_buffer(
@@ -213,15 +215,11 @@ class CanvasOverlay(QWidget):
 
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
-    def _raw_from_screen(self, screen_pos: QPointF) -> Optional[Tuple[float, float]]:
+    def _raw_from_screen_with_grid(self, screen_pos: QPointF, uv_grid: np.ndarray) -> Optional[Tuple[float, float]]:
         if self._view_rect.isEmpty():
             return None
         nb_x = float(np.clip((screen_pos.x() - self._view_rect.x()) / self._view_rect.width(), 0.0, 1.0))
         nb_y = float(np.clip((screen_pos.y() - self._view_rect.y()) / self._view_rect.height(), 0.0, 1.0))
-        with self.state.metrics_lock:
-            uv_grid = self.state.last_metrics.get("uv_grid")
-        if uv_grid is None:
-            return None
         return CoordinateMapping.map_click_to_raw(nb_x, nb_y, uv_grid)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -245,12 +243,16 @@ class CanvasOverlay(QWidget):
                 self._crop_p2 = QPointF(px, py)
             elif self._tool_mode == ToolMode.CROP_MOVE:
                 orig_rect = self.state.config.geometry.manual_crop_rect
-                press_raw = self._raw_from_screen(event.position())
-                if orig_rect is not None and press_raw is not None:
-                    self._move_active = True
-                    self._move_press_raw = press_raw
-                    self._move_orig_rect = orig_rect
-                    self._move_last_emitted = orig_rect
+                with self.state.metrics_lock:
+                    uv_grid = self.state.last_metrics.get("uv_grid")
+                if orig_rect is not None and uv_grid is not None:
+                    self._move_uv_grid = uv_grid
+                    press_raw = self._raw_from_screen_with_grid(event.position(), uv_grid)
+                    if press_raw is not None:
+                        self._move_active = True
+                        self._move_press_raw = press_raw
+                        self._move_orig_rect = orig_rect
+                        self._move_last_emitted = orig_rect
             self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -270,8 +272,8 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        if self._move_active and self._move_press_raw is not None and self._move_orig_rect is not None:
-            curr_raw = self._raw_from_screen(event.position())
+        if self._move_active and self._move_press_raw is not None and self._move_orig_rect is not None and self._move_uv_grid is not None:
+            curr_raw = self._raw_from_screen_with_grid(event.position(), self._move_uv_grid)
             if curr_raw is not None:
                 fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
                 sensitivity = 0.2 if fine else 0.5
@@ -323,6 +325,7 @@ class CanvasOverlay(QWidget):
             self._move_press_raw = None
             self._move_orig_rect = None
             self._move_last_emitted = None
+            self._move_uv_grid = None
             event.accept()
             return
 
