@@ -63,7 +63,7 @@ def get_default_user_dir() -> str:
             user_dirs_file = os.path.join(config_home, "user-dirs.dirs")
             if os.path.exists(user_dirs_file):
                 try:
-                    with open(user_dirs_file, "r") as f:
+                    with open(user_dirs_file, "r", encoding="utf-8") as f:
                         for line in f:
                             if line.startswith("XDG_DOCUMENTS_DIR="):
                                 # Line format: XDG_DOCUMENTS_DIR="$HOME/doc"

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from PyQt6.QtCore import QEvent, QObject, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 
@@ -81,10 +81,14 @@ class TutorialOverlay(QWidget):
         self._title_lbl.setWordWrap(True)
         layout.addWidget(self._title_lbl)
 
-        self._body_lbl = QLabel()
-        self._body_lbl.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_base}px;")
-        self._body_lbl.setWordWrap(True)
-        self._body_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._body_lbl = QTextBrowser()
+        self._body_lbl.setReadOnly(True)
+        self._body_lbl.setOpenExternalLinks(False)
+        self._body_lbl.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._body_lbl.setFrameShape(QFrame.Shape.NoFrame)
+        self._body_lbl.setStyleSheet(
+            f"QTextBrowser {{ background: transparent; border: none; color: {THEME.text_secondary}; font-size: {THEME.font_size_base}px; }}"
+        )
         layout.addWidget(self._body_lbl)
 
         btn_row = QHBoxLayout()
@@ -177,7 +181,14 @@ class TutorialOverlay(QWidget):
         total = len(self._steps)
         self._counter.setText(f"Step {idx + 1} of {total}")
         self._title_lbl.setText(step.title)
-        self._body_lbl.setText(step.body)
+        self._body_lbl.setHtml(step.body)
+        doc = self._body_lbl.document()
+        if doc is not None:
+            doc.setDefaultFont(self._body_lbl.font())
+            doc.setTextWidth(self._POPUP_W - 32)
+            content_h = int(doc.size().height()) + 8
+            max_h = max(80, self._win.height() - 220)
+            self._body_lbl.setFixedHeight(min(content_h, max_h))
         self._prev_btn.setVisible(idx > 0)
         self._skip_btn.setVisible(idx < total - 1)
         self._next_btn.setText("Done" if idx == total - 1 else "Next →")
@@ -198,8 +209,11 @@ class TutorialOverlay(QWidget):
         return QRectF(lp.x(), lp.y(), target.width(), target.height())
 
     def _position_popup(self, target: Optional[QWidget]) -> None:
+        lyt = self._popup.layout()
+        if lyt is not None:
+            lyt.activate()
         self._popup.adjustSize()
-        ph = self._popup.sizeHint().height()
+        ph = self._popup.height()
         pw = self._POPUP_W
         ow, oh = self.width(), self.height()
 

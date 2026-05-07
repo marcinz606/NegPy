@@ -128,7 +128,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Retouch Panel — Dust Removal",
             body=(
                 "<b>Auto Dust</b> detects and removes small particles based on a density threshold. "
-                "Raise the threshold to be more aggressive.<br><br>"
+                "Lower the threshold to be more aggressive.<br><br>"
                 "<b>Heal Tool</b>: click to enable, then click individual dust spots in the preview "
                 "for manual removal. Use <b>Undo Last</b> or <b>Clear All</b> to manage spots."
             ),

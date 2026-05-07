@@ -40,7 +40,7 @@ def main() -> None:
 
     if getattr(sys, "frozen", False):
         log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
-        with open(log_path, "a") as f:
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write("\n--- Booting NegPy ---\n")
 
     try:
@@ -65,7 +65,7 @@ def main() -> None:
 
         qss_path = get_resource_path("negpy/desktop/view/styles/modern_dark.qss")
         if os.path.exists(qss_path):
-            with open(qss_path, "r") as f:
+            with open(qss_path, "r", encoding="utf-8") as f:
                 app.setStyleSheet(f.read())
 
         repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
@@ -85,7 +85,7 @@ def main() -> None:
             import traceback
 
             log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
-            with open(log_path, "a") as f:
+            with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"CRASH: {str(e)}\n")
                 f.write(traceback.format_exc())
         raise e

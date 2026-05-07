@@ -22,7 +22,7 @@ class ShaderLoader:
             if not os.path.exists(path):
                 raise FileNotFoundError(f"Shader source missing: {path}")
 
-            with open(path, "r") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 code = f.read()
 
             gpu = GPUDevice.get()

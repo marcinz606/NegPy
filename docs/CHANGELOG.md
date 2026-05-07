@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.18.1
+
+- Fix: startup crash on Windows systems with non-UTF-8 locale (e.g. Traditional Chinese cp950) caused by reading the stylesheet and other files without explicit encoding.
+- Fix: tutorial popup body text cut off on long steps (e.g. Lab panel) — body now scrolls when content exceeds available height.
+
 ## 0.18.0
 
 - Added **Interactive Tutorial**: step-by-step overlay walkable from the toolbar, covering the full pipeline from loading files to export.

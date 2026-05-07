@@ -18,14 +18,14 @@ def get_app_version() -> str:
             version_file = os.path.join(root_dir, "VERSION")
 
         if os.path.exists(version_file):
-            with open(version_file, "r") as f:
+            with open(version_file, "r", encoding="utf-8") as f:
                 return f.read().strip()
     except Exception:
         pass
 
     try:
         pkg_json_path = os.path.join(root_dir, "package.json")
-        with open(pkg_json_path, "r") as f:
+        with open(pkg_json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             return str(data.get("version", "unknown"))
     except Exception:
