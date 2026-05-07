@@ -1,5 +1,5 @@
 import numpy as np
-from negpy.features.geometry.logic import get_autocrop_coords, get_manual_crop_coords
+from negpy.features.geometry.logic import get_autocrop_coords, get_manual_crop_coords, get_manual_rect_coords
 from negpy.features.geometry.processor import GeometryProcessor
 from negpy.features.geometry.models import GeometryConfig
 from negpy.domain.interfaces import PipelineContext
@@ -292,10 +292,81 @@ def test_negative_offset_yields_full_image_roi():
     assert ctx.active_roi is None
 
 
-def test_manual_crop_unaffected_by_offset():
+def test_manual_crop_applies_offset():
     config = GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.9, 0.9), autocrop_offset=20)
     processor = GeometryProcessor(config)
     ctx = PipelineContext(scale_factor=1.0, original_size=(100, 200))
     processor.process(np.zeros((100, 200, 3), dtype=np.float32), ctx)
-    # Manual passes offset_px=0 internally — full manual rect, no extra inset
-    assert ctx.active_roi == (10, 90, 20, 180)
+    # Manual crop rect inset by autocrop_offset (20px at scale_factor=1.0)
+    assert ctx.active_roi == (30, 70, 40, 160)
+
+
+def test_manual_rect_coords_fractional_inset_scale_invariant():
+    # Verify get_manual_rect_coords is scale-invariant:
+    # calling at preview dims (sf=1.0) then upscaling == calling at full-res dims (sf=3.75).
+    # This pins the invariant violated by the pre-fix GPU double-scale bug.
+    PREV_H, PREV_W = 1066, 1600
+    FULL_H, FULL_W = 4000, 6000
+    scale_factor = FULL_W / PREV_W  # 3.75
+    manual_rect = (0.1, 0.1, 0.9, 0.9)
+    offset_px = 30
+
+    roi_prev = get_manual_rect_coords(
+        (PREV_H, PREV_W),
+        manual_rect,
+        orig_shape=(PREV_H, PREV_W),
+        offset_px=offset_px,
+        scale_factor=1.0,
+    )
+    sy, sx = FULL_H / PREV_H, FULL_W / PREV_W
+    roi_prev_scaled = (
+        int(roi_prev[0] * sy),
+        int(roi_prev[1] * sy),
+        int(roi_prev[2] * sx),
+        int(roi_prev[3] * sx),
+    )
+
+    roi_full = get_manual_rect_coords(
+        (FULL_H, FULL_W),
+        manual_rect,
+        orig_shape=(FULL_H, FULL_W),
+        offset_px=offset_px,
+        scale_factor=scale_factor,
+    )
+
+    # Integer truncation at both stages causes ≤2px divergence; bug would cause ~250px error
+    for a, b in zip(roi_prev_scaled, roi_full):
+        assert abs(a - b) <= 2, f"scale invariant broken: {roi_prev_scaled} vs {roi_full}"
+
+
+def test_autocrop_margin_scale_invariant():
+    # Verify the margin formula inside get_autocrop_coords is scale-invariant.
+    # The detection step is not scale-invariant (fixed-size kernels), so we test
+    # apply_margin_to_roi directly with a known pre-margin ROI at both scales.
+    # This pins the arithmetic the GPU engine relies on after the double-scale fix.
+    from negpy.features.geometry.logic import apply_margin_to_roi
+
+    PREV_H, PREV_W = 1066, 1600
+    FULL_H, FULL_W = 4000, 6000
+    scale_factor = FULL_W / PREV_W  # 3.75
+    offset_px = 20
+
+    # Known pre-margin ROI (10%-90% of image) — represents a proportional detection result
+    roi_prev_init = (int(0.1 * PREV_H), int(0.9 * PREV_H), int(0.1 * PREV_W), int(0.9 * PREV_W))
+    roi_full_init = (int(0.1 * FULL_H), int(0.9 * FULL_H), int(0.1 * FULL_W), int(0.9 * FULL_W))
+
+    # get_autocrop_coords: margin = (2 + offset_px) * scale_factor
+    roi_prev = apply_margin_to_roi(roi_prev_init, PREV_H, PREV_W, (2 + offset_px) * 1.0)
+    roi_full = apply_margin_to_roi(roi_full_init, FULL_H, FULL_W, (2 + offset_px) * scale_factor)
+
+    sy, sx = FULL_H / PREV_H, FULL_W / PREV_W
+    roi_prev_scaled = (
+        int(roi_prev[0] * sy),
+        int(roi_prev[1] * sy),
+        int(roi_prev[2] * sx),
+        int(roi_prev[3] * sx),
+    )
+
+    # Integer truncation causes ≤2px divergence; pre-fix bug caused ~(sf²-sf)*offset ≈ 200px error
+    for a, b in zip(roi_prev_scaled, roi_full):
+        assert abs(a - b) <= 2, f"margin scale invariant broken: {roi_prev_scaled} vs {roi_full}"

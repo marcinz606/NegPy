@@ -367,7 +367,6 @@ class AppController(QObject):
                     self.state.config.geometry,
                     manual_crop_rect=None,
                     auto_crop_enabled=True,
-                    autocrop_ratio="Free",
                 ),
                 process=new_proc,
             )

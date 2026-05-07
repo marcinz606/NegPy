@@ -108,7 +108,6 @@ class TestAppController(unittest.TestCase):
         saved_config = self.mock_session_manager.update_config.call_args.args[0]
         self.assertTrue(saved_config.geometry.auto_crop_enabled)
         self.assertIsNone(saved_config.geometry.manual_crop_rect)
-        self.assertEqual(saved_config.geometry.autocrop_ratio, "Free")
         self.controller.request_render.assert_called_once_with()
 
     def test_reset_crop_disables_auto_crop_and_clears_manual_rect(self):

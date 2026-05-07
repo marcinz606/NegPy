@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.18.2
+
+- Fix: GPU export crop now recomputed at full resolution instead of scaling up the preview ROI — fixes misaligned crop on export when using crop offset with autocrop or manual crop.
+- Fix: applying autocrop no longer silently resets the crop ratio to "Free" — the user's chosen ratio is preserved.
+
 ## 0.18.1
 
 - Fix: startup crash on Windows systems with non-UTF-8 locale (e.g. Traditional Chinese cp950) caused by reading the stylesheet and other files without explicit encoding.

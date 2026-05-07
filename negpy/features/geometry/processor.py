@@ -50,7 +50,7 @@ class GeometryProcessor:
                 fine_rotation=self.config.fine_rotation,
                 flip_horizontal=self.config.flip_horizontal,
                 flip_vertical=self.config.flip_vertical,
-                offset_px=0,
+                offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
             )
             context.active_roi = roi

@@ -296,7 +296,7 @@ class GPUEngine:
                 roi_tmp = get_autocrop_coords(
                     tmp.astype(np.float32),
                     offset_px=settings.geometry.autocrop_offset,
-                    scale_factor=scale_factor,
+                    scale_factor=1.0,  # tmp is preview-sized; sy/sx below carries scale to full-res
                     target_ratio_str=settings.geometry.autocrop_ratio,
                 )
                 rh, rw = tmp.shape[:2]
@@ -1122,12 +1122,48 @@ class GPUEngine:
 
         global_cdfs = reused_cdf if reused_cdf is not None else self._readback_clahe_cdf()
 
-        roi, rot = metrics_ref["active_roi"], settings.geometry.rotation % 4
+        rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
-        h_small, w_small = img_small.shape[:2]
-        w_small_rot, h_small_rot = (h_small, w_small) if rot in (1, 3) else (w_small, h_small)
-        sy, sx = h_rot / h_small_rot, w_rot / w_small_rot
-        y1, y2, x1, x2 = int(roi[0] * sy), int(roi[1] * sy), int(roi[2] * sx), int(roi[3] * sx)
+        if settings.geometry.manual_crop_rect:
+            roi = get_manual_rect_coords(
+                (h_rot, w_rot),
+                settings.geometry.manual_crop_rect,
+                orig_shape=(h, w),
+                rotation_k=settings.geometry.rotation,
+                fine_rotation=settings.geometry.fine_rotation,
+                flip_horizontal=settings.geometry.flip_horizontal,
+                flip_vertical=settings.geometry.flip_vertical,
+                offset_px=settings.geometry.autocrop_offset,
+                scale_factor=scale_factor,
+            )
+        elif settings.geometry.auto_crop_enabled:
+            det = img_small
+            if settings.geometry.rotation != 0:
+                det = np.rot90(det, k=settings.geometry.rotation)
+            if settings.geometry.flip_horizontal:
+                det = np.fliplr(det)
+            if settings.geometry.flip_vertical:
+                det = np.flipud(det)
+            roi_tmp = get_autocrop_coords(
+                det.astype(np.float32),
+                offset_px=settings.geometry.autocrop_offset,
+                scale_factor=1.0,  # det is preview-sized; sy_/sx_ below carries scale to full-res
+                target_ratio_str=settings.geometry.autocrop_ratio,
+            )
+            rh, rw = det.shape[:2]
+            sy_, sx_ = h_rot / rh, w_rot / rw
+            roi = (
+                int(roi_tmp[0] * sy_),
+                int(roi_tmp[1] * sy_),
+                int(roi_tmp[2] * sx_),
+                int(roi_tmp[3] * sx_),
+            )
+        elif settings.geometry.autocrop_offset > 0:
+            margin = settings.geometry.autocrop_offset * scale_factor
+            roi = apply_margin_to_roi((0, h_rot, 0, w_rot), h_rot, w_rot, margin)
+        else:
+            roi = (0, h_rot, 0, w_rot)
+        y1, y2, x1, x2 = roi
         crop_w, crop_h = x2 - x1, y2 - y1
 
         if bounds_override:
