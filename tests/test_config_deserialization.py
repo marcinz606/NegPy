@@ -1,6 +1,6 @@
 import logging
 import unittest
-from negpy.domain.models import WorkspaceConfig
+from negpy.domain.models import ExportResolutionMode, WorkspaceConfig
 from negpy.features.process.models import ProcessMode
 
 
@@ -37,6 +37,29 @@ class TestConfigDeserialization(unittest.TestCase):
 
     def test_no_warning_when_all_keys_valid(self):
         data = {"process_mode": ProcessMode.C41, "density": 0.0}
+        with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
+            WorkspaceConfig.from_flat_dict(data)
+
+    def test_use_original_res_true_migrates_to_original_mode(self):
+        data = {"use_original_res": True, "export_print_size": 30.0}
+        config = WorkspaceConfig.from_flat_dict(data)
+        self.assertEqual(config.export.export_resolution_mode, ExportResolutionMode.ORIGINAL.value)
+
+    def test_use_original_res_false_migrates_to_print_mode(self):
+        data = {"use_original_res": False, "export_print_size": 30.0}
+        config = WorkspaceConfig.from_flat_dict(data)
+        self.assertEqual(config.export.export_resolution_mode, ExportResolutionMode.PRINT.value)
+
+    def test_explicit_mode_wins_over_legacy_use_original_res(self):
+        data = {
+            "use_original_res": True,
+            "export_resolution_mode": ExportResolutionMode.TARGET_PX.value,
+        }
+        config = WorkspaceConfig.from_flat_dict(data)
+        self.assertEqual(config.export.export_resolution_mode, ExportResolutionMode.TARGET_PX.value)
+
+    def test_legacy_use_original_res_does_not_warn(self):
+        data = {"use_original_res": False}
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(data)
 

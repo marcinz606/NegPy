@@ -1,5 +1,5 @@
 from datetime import datetime
-from negpy.domain.models import ExportConfig, ExportFormat
+from negpy.domain.models import ExportConfig, ExportFormat, ExportResolutionMode
 from negpy.services.export.templating import render_export_filename
 
 
@@ -21,7 +21,7 @@ def test_date_templating():
 
 def test_size_and_dpi_normal():
     conf = ExportConfig(
-        use_original_res=False,
+        export_resolution_mode=ExportResolutionMode.PRINT.value,
         export_print_size=30.0,
         export_dpi=300,
         filename_pattern="{{ original_name }}_{{ size }}_{{ dpi }}",
@@ -32,10 +32,29 @@ def test_size_and_dpi_normal():
 
 def test_size_and_dpi_original_res():
     conf = ExportConfig(
-        use_original_res=True,
+        export_resolution_mode=ExportResolutionMode.ORIGINAL.value,
         export_print_size=30.0,
         export_dpi=300,
         filename_pattern="{{ original_name }}_{{ size }}_{{ dpi }}_end",
+    )
+    result = render_export_filename("shot.jpg", conf)
+    assert result == "shot_end"
+
+
+def test_target_px_filename_var():
+    conf = ExportConfig(
+        export_resolution_mode=ExportResolutionMode.TARGET_PX.value,
+        export_target_long_edge_px=2048,
+        filename_pattern="{{ original_name }}_{{ target_px }}",
+    )
+    result = render_export_filename("shot.jpg", conf)
+    assert result == "shot_2048px"
+
+
+def test_target_px_var_empty_in_print_mode():
+    conf = ExportConfig(
+        export_resolution_mode=ExportResolutionMode.PRINT.value,
+        filename_pattern="{{ original_name }}_{{ target_px }}_end",
     )
     result = render_export_filename("shot.jpg", conf)
     assert result == "shot_end"

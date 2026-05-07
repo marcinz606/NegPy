@@ -45,6 +45,12 @@ class ExportFormat(StrEnum):
     TIFF = "TIFF"
 
 
+class ExportResolutionMode(StrEnum):
+    ORIGINAL = "original"
+    PRINT = "print"
+    TARGET_PX = "target_px"
+
+
 class ICCMode(Enum):
     OUTPUT = "Output"
     INPUT = "Input"
@@ -77,7 +83,8 @@ class ExportConfig:
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
     export_dpi: int = 300
-    use_original_res: bool = False
+    export_resolution_mode: str = ExportResolutionMode.PRINT.value
+    export_target_long_edge_px: int = 2000
     filename_pattern: str = "{{ original_name }}"
     apply_icc: bool = False
     icc_profile_path: Optional[str] = None
@@ -124,6 +131,13 @@ class WorkspaceConfig:
         for old_key, new_key in MIGRATIONS.items():
             if old_key in data:
                 data[new_key] = data.pop(old_key)
+
+        if "use_original_res" in data and "export_resolution_mode" not in data:
+            data["export_resolution_mode"] = (
+                ExportResolutionMode.ORIGINAL.value if data.pop("use_original_res") else ExportResolutionMode.PRINT.value
+            )
+        else:
+            data.pop("use_original_res", None)
 
         config_classes = [
             ProcessConfig,

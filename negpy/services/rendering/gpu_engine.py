@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import wgpu  # type: ignore
 
-from negpy.domain.models import AspectRatio, WorkspaceConfig
+from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
@@ -866,33 +866,29 @@ class GPUEngine:
         self, settings: WorkspaceConfig, cw: int, ch: int, size_ref: Optional[float]
     ) -> Tuple[int, int, int, int, int, int]:
         """Calculates final paper and image dimensions based on print settings."""
-        dpi = settings.export.export_dpi
+        mode = settings.export.export_resolution_mode
+
+        # Preview path: size_ref is the desired paper long-edge; derive virtual DPI
+        # from it + print_size_cm so border scales sensibly. Forces non-ORIGINAL math.
         if size_ref:
             dpi = int((size_ref * 2.54) / max(0.1, settings.export.export_print_size))
+            paper_long_px = int(size_ref)
+            mode = ExportResolutionMode.PRINT
+        elif mode == ExportResolutionMode.TARGET_PX:
+            dpi = PrintService.effective_dpi(settings.export)
+            paper_long_px = max(1, int(settings.export.export_target_long_edge_px))
+        else:
+            dpi = settings.export.export_dpi
+            paper_long_px = int((settings.export.export_print_size / 2.54) * dpi)
+
         border_px = int((settings.finish.border_size / 2.54) * dpi)
 
-        use_orig = settings.export.use_original_res
+        if mode == ExportResolutionMode.ORIGINAL:
+            content_w, content_h = cw, ch
 
-        if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
-            if use_orig:
-                content_w, content_h = cw, ch
+            if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
+                paper_w, paper_h = content_w + 2 * border_px, content_h + 2 * border_px
             else:
-                target_long_edge = int((settings.export.export_print_size / 2.54) * dpi)
-                if cw >= ch:
-                    content_w, content_h = (
-                        target_long_edge,
-                        int(ch * (target_long_edge / cw)),
-                    )
-                else:
-                    content_h, content_w = (
-                        target_long_edge,
-                        int(cw * (target_long_edge / ch)),
-                    )
-            paper_w, paper_h = content_w + 2 * border_px, content_h + 2 * border_px
-            off_x, off_y = border_px, border_px
-        else:
-            if use_orig:
-                content_w, content_h = cw, ch
                 try:
                     w_r, h_r = map(float, settings.export.paper_aspect_ratio.split(":"))
                     paper_ratio = w_r / h_r
@@ -908,10 +904,22 @@ class GPUEngine:
                 else:
                     paper_h = min_paper_h
                     paper_w = int(paper_h * paper_ratio)
+
+            off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
+        else:
+            if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
+                content_long_px = max(1, paper_long_px - 2 * border_px)
+                if cw >= ch:
+                    content_w = content_long_px
+                    content_h = max(1, int(ch * (content_long_px / cw)))
+                else:
+                    content_h = content_long_px
+                    content_w = max(1, int(cw * (content_long_px / ch)))
+                paper_w, paper_h = content_w + 2 * border_px, content_h + 2 * border_px
+                off_x, off_y = border_px, border_px
             else:
-                paper_w, paper_h = PrintService.calculate_paper_px(
-                    settings.export.export_print_size,
-                    dpi,
+                paper_w, paper_h = PrintService.paper_dims_from_long_edge(
+                    paper_long_px,
                     settings.export.paper_aspect_ratio,
                     cw,
                     ch,
@@ -920,7 +928,7 @@ class GPUEngine:
                 scale = min(inner_w / cw, inner_h / ch)
                 content_w, content_h = int(cw * scale), int(ch * scale)
 
-            off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
+                off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
 
         max_tex = APP_CONFIG.max_texture_size
         if max_tex is not None:
