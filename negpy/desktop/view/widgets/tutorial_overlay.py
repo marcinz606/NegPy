@@ -91,6 +91,10 @@ class TutorialOverlay(QWidget):
         )
         layout.addWidget(self._body_lbl)
 
+        self._hint_lbl = QLabel("Enter / → to advance  ·  ← to go back  ·  Esc to dismiss")
+        self._hint_lbl.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        layout.addWidget(self._hint_lbl)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
 

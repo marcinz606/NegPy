@@ -23,7 +23,8 @@ class GeometrySidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.geometry
 
-        # First row: Ratio (Borders removed)
+        # First row: Ratio combo + detect button
+        ratio_row = QHBoxLayout()
         self.ratio_combo = QComboBox()
         # Filter out 'Original' as it's not a crop ratio (usually 'Free' is used for no constraint)
         ratios = [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
@@ -31,7 +32,15 @@ class GeometrySidebar(BaseSidebar):
         self.ratio_combo.setCurrentText(conf.autocrop_ratio)
         self.ratio_combo.setPlaceholderText("Select Ratio...")
         self.ratio_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
-        self.layout.addWidget(self.ratio_combo)
+        ratio_row.addWidget(self.ratio_combo, 1)
+
+        self.detect_ratio_btn = QPushButton()
+        self.detect_ratio_btn.setIcon(qta.icon("fa5s.crosshairs", color=THEME.text_primary))
+        self.detect_ratio_btn.setToolTip("Detect closest aspect ratio from the film frame")
+        self.detect_ratio_btn.setFixedWidth(36)
+        ratio_row.addWidget(self.detect_ratio_btn)
+
+        self.layout.addLayout(ratio_row)
 
         # Buttons side by side
         btn_row = QHBoxLayout()
@@ -74,6 +83,7 @@ class GeometrySidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.ratio_combo.currentTextChanged.connect(self._on_ratio_changed)
+        self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.move_crop_btn.toggled.connect(self._on_move_crop_toggled)
         self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
@@ -139,6 +149,7 @@ class GeometrySidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         self.ratio_combo.blockSignals(blocked)
+        self.detect_ratio_btn.blockSignals(blocked)
         self.offset_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)

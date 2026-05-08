@@ -52,7 +52,9 @@ class ExportWorker(QObject):
                 )
 
                 if bits:
-                    out_dir = task.export_settings.export_path
+                    out_dir = (
+                        os.path.dirname(task.file_info["path"]) if task.export_settings.same_as_source else task.export_settings.export_path
+                    )
                     os.makedirs(out_dir, exist_ok=True)
 
                     ext = "jpg" if task.export_settings.export_fmt == ExportFormat.JPEG else "tiff"
@@ -61,6 +63,12 @@ class ExportWorker(QObject):
                         task.file_info["path"], task.export_settings, border_size=task.params.finish.border_size
                     )
                     path = os.path.join(out_dir, f"{filename}.{ext}")
+
+                    if not task.export_settings.overwrite:
+                        counter = 2
+                        while os.path.exists(path):
+                            path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
+                            counter += 1
 
                     with open(path, "wb") as f:
                         f.write(bits)

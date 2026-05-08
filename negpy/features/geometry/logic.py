@@ -1,6 +1,9 @@
+import math
+
 import numpy as np
 import cv2
 from typing import Tuple, Optional
+from negpy.domain.models import AspectRatio
 from negpy.domain.types import ImageBuffer, ROI
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.image.logic import get_luminance
@@ -544,3 +547,43 @@ def translate_manual_crop_rect(
     nx1 = min(max(x1 + dx, 0.0), max_x1)
     ny1 = min(max(y1 + dy, 0.0), max_y1)
     return (nx1, ny1, nx1 + w, ny1 + h)
+
+
+def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> str:
+    """
+    Detect film frame and return the closest standard AspectRatio value.
+    Falls back to `fallback` if frame detection fails.
+    """
+    h_img, w_img = img.shape[:2]
+
+    roi = _find_autocrop_roi_from_contours(img)
+    if roi is None:
+        roi = _get_threshold_autocrop_coords(img, "Free", 1800, None)
+
+    y1, y2, x1, x2 = roi
+    cw, ch = x2 - x1, y2 - y1
+    if cw <= 0 or ch <= 0:
+        return fallback
+
+    detected = cw / ch
+    is_landscape = cw >= ch
+
+    candidates: list[tuple[str, float]] = []
+    for ratio in AspectRatio:
+        if ratio in (AspectRatio.FREE, AspectRatio.ORIGINAL):
+            continue
+        try:
+            w_r, h_r = map(float, ratio.value.split(":"))
+        except ValueError:
+            continue
+        target = w_r / h_r
+        target_landscape = target >= 1.0
+        if is_landscape != target_landscape and target != 1.0:
+            continue
+        candidates.append((ratio.value, target))
+
+    if not candidates:
+        return fallback
+
+    best = min(candidates, key=lambda c: abs(math.log(detected) - math.log(c[1])))
+    return best[0]

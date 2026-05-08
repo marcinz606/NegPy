@@ -26,6 +26,7 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
 )
+from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -373,6 +374,42 @@ class AppController(QObject):
         )
         self.request_render()
 
+    def detect_aspect_ratio(self) -> None:
+        img = self.state.preview_raw
+        if img is None:
+            return
+
+        geom = self.state.config.geometry
+        transformed = img
+        if geom.rotation != 0:
+            transformed = np.rot90(transformed, k=geom.rotation)
+        if geom.flip_horizontal:
+            transformed = np.ascontiguousarray(np.fliplr(transformed))
+        if geom.flip_vertical:
+            transformed = np.ascontiguousarray(np.flipud(transformed))
+        if geom.fine_rotation != 0.0:
+            transformed = apply_fine_rotation(transformed, geom.fine_rotation)
+
+        new_ratio = detect_closest_aspect_ratio(transformed, fallback=geom.autocrop_ratio)
+        if new_ratio == geom.autocrop_ratio:
+            return
+
+        new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
+        self.session.update_config(
+            replace(
+                self.state.config,
+                geometry=replace(geom, autocrop_ratio=new_ratio),
+                process=new_proc,
+            ),
+            persist=True,
+            render=False,
+        )
+        # Emit manually so UI syncs (combo dropdown updates), but without triggering
+        # a render via the state_changed debounce.
+        self.config_updated.emit()
+        if geom.auto_crop_enabled:
+            self.request_render()
+
     def save_current_edits(self) -> None:
         if self.state.current_file_hash:
             self.session.update_config(self.state.config, persist=True)
@@ -631,6 +668,8 @@ class AppController(QObject):
         Returns the valid path or None if the user cancelled.
         """
         export_path = self.state.config.export.export_path
+        if self.state.config.export.same_as_source:
+            return export_path  # path irrelevant when exporting to source folder
         if export_path.strip().lower() in ["export", "/export", ""]:
             from PyQt6.QtWidgets import QFileDialog
 

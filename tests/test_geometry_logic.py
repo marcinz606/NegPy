@@ -1,8 +1,9 @@
 import numpy as np
-from negpy.features.geometry.logic import get_autocrop_coords, get_manual_crop_coords, get_manual_rect_coords
+from negpy.features.geometry.logic import detect_closest_aspect_ratio, get_autocrop_coords, get_manual_crop_coords, get_manual_rect_coords
 from negpy.features.geometry.processor import GeometryProcessor
 from negpy.features.geometry.models import GeometryConfig
 from negpy.domain.interfaces import PipelineContext
+from negpy.domain.models import AspectRatio
 
 
 def test_get_manual_crop_coords_zero_offset():
@@ -370,3 +371,70 @@ def test_autocrop_margin_scale_invariant():
     # Integer truncation causes ≤2px divergence; pre-fix bug caused ~(sf²-sf)*offset ≈ 200px error
     for a, b in zip(roi_prev_scaled, roi_full):
         assert abs(a - b) <= 2, f"margin scale invariant broken: {roi_prev_scaled} vs {roi_full}"
+
+
+# ── detect_closest_aspect_ratio ──────────────────────────────────────────
+
+
+def test_detect_closest_aspect_ratio_landscape_3_2():
+    # 240x360 image with dark frame inset; contour detection pads ~13px in width.
+    # 140h × 210w dark area yields detected ratio ~1.63 → snaps to "3:2".
+    img = np.ones((240, 360, 3), dtype=np.float32)
+    img[50:190, 75:285] = 0.05
+    ratio = detect_closest_aspect_ratio(img)
+    assert ratio == "3:2"
+
+
+def test_detect_closest_aspect_ratio_landscape_4_3():
+    # 300x400 image; 200h × 250w dark inset yields detected ratio ~1.34 → snaps to "4:3".
+    img = np.ones((300, 400, 3), dtype=np.float32)
+    img[50:250, 75:325] = 0.05
+    ratio = detect_closest_aspect_ratio(img)
+    assert ratio == "4:3"
+
+
+def test_detect_closest_aspect_ratio_portrait_2_3():
+    # Portrait 2:3 frame: 360x240 image, dark area 60:300 (h=240) x 60:220 (w=160) -> 2:3.
+    img = np.ones((360, 240, 3), dtype=np.float32)
+    img[60:300, 60:220] = 0.05
+    ratio = detect_closest_aspect_ratio(img)
+    assert ratio == "2:3"
+
+
+def test_detect_closest_aspect_ratio_square():
+    img = np.ones((300, 300, 3), dtype=np.float32)
+    img[30:270, 30:270] = 0.05  # Large dark square, contour detection yields ~1.06 → snaps to "1:1"
+    ratio = detect_closest_aspect_ratio(img)
+    assert ratio == "1:1"
+
+
+def test_detect_closest_aspect_ratio_fallback_on_flat_image():
+    img = np.ones((120, 200, 3), dtype=np.float32) * 0.5
+    ratio = detect_closest_aspect_ratio(img, fallback="3:2")
+    # Flat image: detection may produce degenerate or threshold-based ROI.
+    # Result must be a valid AspectRatio enum value (not Free or Original).
+    assert ratio in {r.value for r in AspectRatio if r not in (AspectRatio.FREE, AspectRatio.ORIGINAL)}
+
+
+def test_detect_closest_aspect_ratio_excludes_free_and_original():
+    # Awkward ratio: function must not return "Free" or "Original".
+    img = np.ones((300, 900, 3), dtype=np.float32)
+    img[60:240, 100:800] = 0.05  # ~3.89:1, panoramic
+    ratio = detect_closest_aspect_ratio(img)
+    assert ratio not in ("Free", "Original")
+
+
+def test_detect_closest_aspect_ratio_orientation_landscape_picks_landscape_set():
+    img = np.ones((240, 360, 3), dtype=np.float32)
+    img[60:180, 80:280] = 0.05  # landscape ~5:3
+    ratio = detect_closest_aspect_ratio(img)
+    w_r, h_r = map(float, ratio.split(":"))
+    assert w_r >= h_r  # landscape or 1:1
+
+
+def test_detect_closest_aspect_ratio_orientation_portrait_picks_portrait_set():
+    img = np.ones((360, 240, 3), dtype=np.float32)
+    img[80:280, 60:180] = 0.05  # portrait ~3:5
+    ratio = detect_closest_aspect_ratio(img)
+    w_r, h_r = map(float, ratio.split(":"))
+    assert w_r <= h_r  # portrait or 1:1

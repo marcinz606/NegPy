@@ -86,6 +86,8 @@ class ExportConfig:
     export_resolution_mode: str = ExportResolutionMode.PRINT.value
     export_target_long_edge_px: int = 2000
     filename_pattern: str = "{{ original_name }}"
+    overwrite: bool = True
+    same_as_source: bool = False
     apply_icc: bool = False
     icc_profile_path: Optional[str] = None
     icc_invert: bool = False
