@@ -8,24 +8,6 @@ from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
 
 
-@njit(cache=True, fastmath=True)
-def _apply_spectral_crosstalk_jit(img_dens: np.ndarray, applied_matrix: np.ndarray) -> np.ndarray:
-    """
-    3x3 Matrix multiplication.
-    """
-    h, w, c = img_dens.shape
-    res = np.empty_like(img_dens)
-    for y in range(h):
-        for x in range(w):
-            r = img_dens[y, x, 0]
-            g = img_dens[y, x, 1]
-            b = img_dens[y, x, 2]
-            res[y, x, 0] = r * applied_matrix[0, 0] + g * applied_matrix[0, 1] + b * applied_matrix[0, 2]
-            res[y, x, 1] = r * applied_matrix[1, 0] + g * applied_matrix[1, 1] + b * applied_matrix[1, 2]
-            res[y, x, 2] = r * applied_matrix[2, 0] + g * applied_matrix[2, 1] + b * applied_matrix[2, 2]
-    return res
-
-
 def apply_spectral_crosstalk(img_dens: ImageBuffer, strength: float, matrix: Optional[List[float]]) -> ImageBuffer:
     """
     Mixes channels using calibration matrix.
@@ -41,10 +23,7 @@ def apply_spectral_crosstalk(img_dens: ImageBuffer, strength: float, matrix: Opt
     row_sums = np.sum(applied_matrix, axis=1, keepdims=True)
     applied_matrix = applied_matrix / np.maximum(row_sums, 1e-6)
 
-    res = _apply_spectral_crosstalk_jit(
-        np.ascontiguousarray(img_dens.astype(np.float32)),
-        np.ascontiguousarray(applied_matrix.astype(np.float32)),
-    )
+    res = np.einsum("hwc,kc->hwk", img_dens.astype(np.float32, copy=False), applied_matrix.astype(np.float32))
 
     return ensure_image(res)
 
