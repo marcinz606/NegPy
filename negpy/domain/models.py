@@ -165,7 +165,7 @@ class WorkspaceConfig:
 
         def filter_keys(config_cls: Any, d: Dict[str, Any]) -> Dict[str, Any]:
             valid = config_cls.__dataclass_fields__.keys()
-            return {k: v for k, v in d.items() if k in valid and v is not None}
+            return {k: v for k, v in d.items() if k in valid}
 
         return cls(
             process=ProcessConfig(**filter_keys(ProcessConfig, data)),
