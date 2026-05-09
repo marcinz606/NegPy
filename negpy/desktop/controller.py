@@ -50,7 +50,6 @@ class AppController(QObject):
     loading_started = pyqtSignal()
     export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal(float)
-    preview_loaded = pyqtSignal()
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
