@@ -438,3 +438,12 @@ def test_detect_closest_aspect_ratio_orientation_portrait_picks_portrait_set():
     ratio = detect_closest_aspect_ratio(img)
     w_r, h_r = map(float, ratio.split(":"))
     assert w_r <= h_r  # portrait or 1:1
+
+
+def test_detect_closest_aspect_ratio_image_dims_sanity_check():
+    # 3:2 image (360x240) with a wide dark inset (~2.7:1) that would normally snap to
+    # 65:24. The image-dims sanity check should override and return 3:2 instead.
+    img = np.ones((240, 360, 3), dtype=np.float32)
+    img[90:150, 20:340] = 0.05  # 60h × 320w ≈ 5.3:1 dark band
+    ratio = detect_closest_aspect_ratio(img)
+    assert ratio == "3:2"

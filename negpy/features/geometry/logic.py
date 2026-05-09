@@ -586,4 +586,12 @@ def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> Aspe
         return AspectRatio(fallback)
 
     best = min(candidates, key=lambda c: abs(math.log(max(detected, 1e-6)) - math.log(max(c[1], 1e-6))))
+
+    # If the chosen ratio disagrees strongly with the full image dimensions, re-detect
+    # using image dims. Guards against ROI detection inflating/deflating the bounding box
+    # (e.g. returning 2.7:1 for a genuine 3:2 frame → incorrectly snapping to 65:24).
+    img_ratio = w_img / h_img
+    if abs(math.log(max(img_ratio, 1e-6)) - math.log(max(best[1], 1e-6))) > 0.3:
+        best = min(candidates, key=lambda c: abs(math.log(max(img_ratio, 1e-6)) - math.log(max(c[1], 1e-6))))
+
     return best[0]
