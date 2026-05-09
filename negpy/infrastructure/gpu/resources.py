@@ -69,8 +69,21 @@ class GPUTexture:
                     self._region_staging.destroy()
                 except Exception:
                     pass
-            self._region_staging = gpu.device.create_buffer(size=required_size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
-            self._region_staging_size = required_size
+                try:
+                    gpu.device._poll_wait()
+                except Exception:
+                    pass
+            self._region_staging = None
+            self._region_staging_size = 0
+            try:
+                self._region_staging = gpu.device.create_buffer(
+                    size=required_size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
+                )
+                self._region_staging_size = required_size
+            except Exception:
+                self._region_staging = None
+                self._region_staging_size = 0
+                raise
         staging = self._region_staging
 
         enc = gpu.device.create_command_encoder()
