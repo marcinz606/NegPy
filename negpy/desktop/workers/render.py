@@ -164,6 +164,7 @@ class ThumbnailWorker(QObject):
                 )
             finally:
                 loop.close()
+                asyncio.set_event_loop(None)
             self.finished.emit(new_thumbs)
         except Exception as e:
             logger.error(f"Thumbnail generation failure: {e}")
@@ -341,7 +342,10 @@ class NormalizationWorker(QObject):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             batch_results = loop.run_until_complete(_run_batch())
-            loop.close()
+            try:
+                loop.close()
+            finally:
+                asyncio.set_event_loop(None)
 
             valid_results = [r for r in batch_results if r is not None]
             if not valid_results:
