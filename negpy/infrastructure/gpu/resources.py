@@ -70,7 +70,7 @@ class GPUTexture:
                 except Exception:
                     pass
                 try:
-                    gpu.device._poll_wait()
+                    gpu.poll()
                 except Exception:
                     pass
             self._region_staging = None
