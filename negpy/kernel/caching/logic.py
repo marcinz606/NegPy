@@ -19,14 +19,24 @@ class CacheEntry:
 
 def calculate_config_hash(config: Any) -> str:
     """
-    Stable MD5 of config state.
+    Stable hash of config state.
+
+    Fast path: frozen dataclasses and tuples support __hash__; use str(hash(config))
+    directly and skip JSON serialization.
+
+    Fallback: configs with to_dict (e.g. WorkspaceConfig) or unhashable frozen
+    dataclasses (lists/arrays in fields) go through JSON+MD5.
     """
+    if not hasattr(config, "to_dict"):
+        try:
+            return str(hash(config))
+        except TypeError:
+            pass
+
     if hasattr(config, "to_dict"):
         data = config.to_dict()
-    elif hasattr(config, "__dataclass_fields__"):
-        data = asdict(config)
     else:
-        data = str(config)
+        data = asdict(config)
 
     serialized = json.dumps(data, sort_keys=True, default=str)
     return hashlib.md5(serialized.encode("utf-8")).hexdigest()
