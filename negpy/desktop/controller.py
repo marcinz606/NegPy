@@ -639,6 +639,9 @@ class AppController(QObject):
 
         self.set_status("Rendering...")
 
+        if self.state.preview_raw is None:
+            return
+
         target_size = float(APP_CONFIG.preview_render_size)
         if self.state.hq_preview and self.state.preview_raw is not None:
             target_size = float(max(self.state.preview_raw.shape[:2]))
@@ -700,7 +703,7 @@ class AppController(QObject):
             icc_invert=self.state.icc_invert,
         )
 
-        source_exif = self.state.source_exif.get(self.state.current_file_hash)
+        source_exif = self.state.source_exif.get(self.state.current_file_hash or "")
 
         self._run_export_tasks(
             [
