@@ -87,9 +87,11 @@ class ActionToolbar(QWidget):
         self.btn_rot_r.setIcon(qta.icon("fa5s.redo", color=icon_color))
         self.btn_rot_r.setToolTip("Rotate CW  ]")
         self.btn_flip_h = QToolButton()
+        self.btn_flip_h.setCheckable(True)
         self.btn_flip_h.setIcon(qta.icon("fa5s.arrows-alt-h", color=icon_color))
         self.btn_flip_h.setToolTip("Flip Horizontal  H")
         self.btn_flip_v = QToolButton()
+        self.btn_flip_v.setCheckable(True)
         self.btn_flip_v.setIcon(qta.icon("fa5s.arrows-alt-v", color=icon_color))
         self.btn_flip_v.setToolTip("Flip Vertical  V")
 
@@ -158,8 +160,10 @@ class ActionToolbar(QWidget):
         self._ov_rot_r_action = overflow_menu.addAction(qta.icon("fa5s.redo", color=icon_color), "Rotate CW")
         self._ov_rot_r_action.setVisible(False)
         self._ov_flip_h_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-h", color=icon_color), "Flip Horizontal")
+        self._ov_flip_h_action.setCheckable(True)
         self._ov_flip_h_action.setVisible(False)
         self._ov_flip_v_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-v", color=icon_color), "Flip Vertical")
+        self._ov_flip_v_action.setCheckable(True)
         self._ov_flip_v_action.setVisible(False)
         self._ov_sep_rotate = overflow_menu.addSeparator()
         self._ov_sep_rotate.setVisible(False)
@@ -275,8 +279,12 @@ class ActionToolbar(QWidget):
     def rotate(self, direction: int) -> None:
         from dataclasses import replace
 
-        new_rot = (self.session.state.config.geometry.rotation + direction) % 4
-        new_geo = replace(self.session.state.config.geometry, rotation=new_rot)
+        geo = self.session.state.config.geometry
+        # Pipeline applies rotate-then-flip; a single mirror inverts rotation handedness.
+        if geo.flip_horizontal != geo.flip_vertical:
+            direction = -direction
+        new_rot = (geo.rotation + direction) % 4
+        new_geo = replace(geo, rotation=new_rot)
         new_config = replace(self.session.state.config, geometry=new_geo)
         self.session.update_config(new_config, persist=True)
         self.controller.request_render()
@@ -313,6 +321,12 @@ class ActionToolbar(QWidget):
         self.btn_next.setEnabled(state.selected_file_idx < len(state.uploaded_files) - 1)
         self.btn_hq.setChecked(state.hq_preview)
         self._ov_hq_action.setChecked(state.hq_preview)
+
+        geo = state.config.geometry
+        self.btn_flip_h.setChecked(geo.flip_horizontal)
+        self.btn_flip_v.setChecked(geo.flip_vertical)
+        self._ov_flip_h_action.setChecked(geo.flip_horizontal)
+        self._ov_flip_v_action.setChecked(geo.flip_vertical)
 
         self._action_undo.setEnabled(state.undo_index > 0)
         self._action_redo.setEnabled(state.undo_index < state.max_history_index)

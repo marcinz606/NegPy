@@ -6,9 +6,11 @@
 - Added **Detect Aspect Ratio** button in the Geometry sidebar (crosshairs icon) — finds the film frame in the image and sets the crop ratio to the closest standard aspect ratio.
 - Added **Same folder as source** export option — exports files to their source directory instead of a fixed export path.
 - Added **Overwrite existing files** toggle — when disabled, exports get incrementing suffixes (`_2`, `_3`) to avoid overwriting.
+- **Sticky flip**: Flip Horizontal/Vertical buttons now show a pressed state when active and their state persists across files and app restarts (applied to new files only — files with saved edits keep their own flip).
 - Tutorial overlay now shows keyboard navigation hints at the bottom.
 - Fix: mouse input in tutorial (Windows) @alessandrv
 - Fix: exports are now written atomically — no partial files left on crash or interrupt.
+- Fix: Rotate CCW/CW buttons (and `[` / `]` shortcuts) reversed direction when the image was flipped horizontally or vertically (but not both).
 - Performance & stability improvements.
 
 ## 0.18.2
