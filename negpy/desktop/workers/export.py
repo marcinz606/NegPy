@@ -3,6 +3,8 @@ from typing import List, Optional, Any
 import os
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
+from negpy.features.metadata.writer import embed_metadata
+from negpy.features.metadata.models import MetadataConfig
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.services.export.templating import render_export_filename
 
@@ -16,6 +18,8 @@ class ExportTask:
     export_settings: ExportConfig
     gpu_enabled: bool = True
     bounds_override: Optional[Any] = None
+    source_exif: Optional[dict] = None
+    metadata_config: Optional[MetadataConfig] = None
 
 
 class ExportWorker(QObject):
@@ -52,6 +56,10 @@ class ExportWorker(QObject):
                 )
 
                 if bits:
+                    # Embed metadata if config is provided
+                    if task.metadata_config is not None:
+                        bits = embed_metadata(bits, task.metadata_config, task.source_exif)
+
                     out_dir = (
                         os.path.dirname(task.file_info["path"]) if task.export_settings.same_as_source else task.export_settings.export_path
                     )

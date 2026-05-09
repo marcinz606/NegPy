@@ -18,6 +18,7 @@ from negpy.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveW
 from negpy.desktop.view.sidebar.header import SidebarHeader
 from negpy.desktop.view.sidebar.files import FileBrowser
 from negpy.desktop.view.sidebar.export import ExportSidebar
+from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.kernel.system.version import check_for_updates
 
 
@@ -81,8 +82,10 @@ class SessionPanel(QWidget):
         self.btn_tab_analysis.setIcon(qta.icon("fa5s.chart-bar", color=THEME.text_secondary))
         self.btn_tab_export = QPushButton(" Export")
         self.btn_tab_export.setIcon(qta.icon("fa5s.file-export", color=THEME.text_secondary))
+        self.btn_tab_metadata = QPushButton(" Metadata")
+        self.btn_tab_metadata.setIcon(qta.icon("fa5s.tags", color=THEME.text_secondary))
 
-        for btn in [self.btn_tab_analysis, self.btn_tab_export]:
+        for btn in [self.btn_tab_analysis, self.btn_tab_export, self.btn_tab_metadata]:
             btn.setCheckable(True)
             btn.setFixedHeight(38)
             btn.setStyleSheet(f"""
@@ -136,6 +139,9 @@ class SessionPanel(QWidget):
         self.export_sidebar = ExportSidebar(self.controller)
         self.stack.addWidget(wrap_scroll(self.export_sidebar))
 
+        self.metadata_sidebar = MetadataSidebar(self.controller)
+        self.stack.addWidget(wrap_scroll(self.metadata_sidebar))
+
         # Default state
         self.btn_tab_analysis.setChecked(True)
         self.stack.setCurrentIndex(0)
@@ -153,15 +159,18 @@ class SessionPanel(QWidget):
 
         self.btn_tab_analysis.clicked.connect(lambda: self._switch_tab(0))
         self.btn_tab_export.clicked.connect(lambda: self._switch_tab(1))
+        self.btn_tab_metadata.clicked.connect(lambda: self._switch_tab(2))
 
     def _switch_tab(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
         self.btn_tab_analysis.setChecked(index == 0)
         self.btn_tab_export.setChecked(index == 1)
+        self.btn_tab_metadata.setChecked(index == 2)
 
         # Sync icon colors
         self.btn_tab_analysis.setIcon(qta.icon("fa5s.chart-bar", color="white" if index == 0 else THEME.text_secondary))
         self.btn_tab_export.setIcon(qta.icon("fa5s.file-export", color="white" if index == 1 else THEME.text_secondary))
+        self.btn_tab_metadata.setIcon(qta.icon("fa5s.tags", color="white" if index == 2 else THEME.text_secondary))
 
     def _on_metrics_available(self, metrics: Dict[str, Any]) -> None:
         hist_data = metrics.get("histogram_raw")

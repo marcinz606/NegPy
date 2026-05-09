@@ -10,6 +10,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
+from negpy.features.metadata.models import MetadataConfig
 from negpy.kernel.system.logging import get_logger
 import negpy.kernel.system.paths as paths
 
@@ -106,6 +107,7 @@ class WorkspaceConfig:
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
     finish: FinishConfig = field(default_factory=FinishConfig)
+    metadata: MetadataConfig = field(default_factory=MetadataConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -120,6 +122,7 @@ class WorkspaceConfig:
         res.update(asdict(self.retouch))
         res.update(asdict(self.toning))
         res.update(asdict(self.finish))
+        res.update(asdict(self.metadata))
         res.update(asdict(self.export))
         return res
 
@@ -149,6 +152,7 @@ class WorkspaceConfig:
             RetouchConfig,
             ToningConfig,
             FinishConfig,
+            MetadataConfig,
             ExportConfig,
         ]
         valid_keys = set()
@@ -171,5 +175,6 @@ class WorkspaceConfig:
             retouch=RetouchConfig(**filter_keys(RetouchConfig, data)),
             toning=ToningConfig(**filter_keys(ToningConfig, data)),
             finish=FinishConfig(**filter_keys(FinishConfig, data)),
+            metadata=MetadataConfig(**filter_keys(MetadataConfig, data)),
             export=ExportConfig(**filter_keys(ExportConfig, data)),
         )

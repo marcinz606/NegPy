@@ -12,6 +12,30 @@ from negpy.kernel.system.logging import get_logger
 logger = get_logger(__name__)
 
 
+def read_exif_from_file(file_path: str) -> Optional[dict]:
+    """Read EXIF data from a file as a piexif-format dict. Returns None on failure."""
+    import piexif
+
+    # Try piexif first (works for JPEG, TIFF)
+    try:
+        return piexif.load(file_path)
+    except Exception:
+        pass
+
+    # Fallback: try to read EXIF via PIL from RAW by opening the file
+    try:
+        from PIL import Image
+
+        img = Image.open(file_path)
+        exif_bytes = img.info.get("exif")
+        if exif_bytes:
+            return piexif.load(exif_bytes)
+    except Exception:
+        pass
+
+    return None
+
+
 def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
     """
     Resolve a ColorSpace enum value from an embedded ICC profile's description.

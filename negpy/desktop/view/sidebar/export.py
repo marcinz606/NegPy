@@ -1,6 +1,5 @@
 import qtawesome as qta
 from PyQt6.QtCore import QTimer
-
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -30,10 +29,9 @@ class ExportSidebar(BaseSidebar):
         self.layout.setSpacing(10)
         conf = self.state.config.export
 
-        # Debounce timer for all export settings
         self.update_timer = QTimer()
         self.update_timer.setSingleShot(True)
-        self.update_timer.setInterval(1000)
+        self.update_timer.setInterval(500)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
         self.layout.addWidget(section_subheader("FORMAT"))
@@ -179,7 +177,6 @@ class ExportSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        # All changes trigger the same debounce timer
         self.fmt_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
         self.cs_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
         self.ratio_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
@@ -291,7 +288,8 @@ class ExportSidebar(BaseSidebar):
             self.path_input.setText(conf.export_path)
             self.overwrite_checkbox.setChecked(conf.overwrite)
             self.same_as_source_checkbox.setChecked(conf.same_as_source)
-            self._on_same_as_source_toggled()
+            self.path_input.setDisabled(conf.same_as_source)
+            self.browse_btn.setDisabled(conf.same_as_source)
         finally:
             self.block_signals(False)
 

@@ -24,11 +24,14 @@ debug/
 # Virtual Environment
 venv/
 .venv
+*.egg-info/
 
 __pycache__
 VERSION
+# llm stuff
 TODO.md
 CLAUDE.md
 GEMINI.md
 PLAN.md
-*.egg-info/
+.superpowers/
+*superpowers

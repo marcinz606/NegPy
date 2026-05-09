@@ -34,6 +34,7 @@ class AppState:
     active_tool: ToolMode = ToolMode.NONE
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     thumbnails: Dict[str, Any] = field(default_factory=dict)  # filename -> QIcon/QPixmap
+    source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
     selected_file_idx: int = -1
     selected_indices: List[int] = field(default_factory=list)
     active_adjustment_idx: int = 0
@@ -339,6 +340,15 @@ class DesktopSessionManager(QObject):
             self.state.selected_indices = selection_override if selection_override is not None else [index]
             self.state.current_file_path = file_info["path"]
             self.state.current_file_hash = file_info["hash"]
+
+            # Read source EXIF for metadata display
+            from negpy.infrastructure.loaders.helpers import read_exif_from_file
+
+            exif = read_exif_from_file(file_info["path"])
+            if exif:
+                self.state.source_exif[file_info["hash"]] = exif
+            elif file_info["hash"] in self.state.source_exif:
+                del self.state.source_exif[file_info["hash"]]
 
             # Restore history state for file
             self.state.undo_index = self.repo.get_max_history_index(file_info["hash"])

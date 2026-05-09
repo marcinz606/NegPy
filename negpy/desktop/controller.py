@@ -700,6 +700,8 @@ class AppController(QObject):
             icc_invert=self.state.icc_invert,
         )
 
+        source_exif = self.state.source_exif.get(self.state.current_file_hash)
+
         self._run_export_tasks(
             [
                 ExportTask(
@@ -711,6 +713,8 @@ class AppController(QObject):
                     params=self.state.config,
                     export_settings=export_conf,
                     gpu_enabled=self.state.gpu_enabled,
+                    source_exif=source_exif,
+                    metadata_config=self.state.config.metadata,
                 )
             ]
         )
@@ -727,6 +731,7 @@ class AppController(QObject):
         icc_path = self.state.icc_profile_path
         icc_invert = self.state.icc_invert
         apply_icc = self.state.apply_icc_to_export
+        sync_metadata = self.state.config.metadata.sync_to_batch
 
         tasks = []
         for f in self.state.uploaded_files:
@@ -747,6 +752,10 @@ class AppController(QObject):
                 with self.state.metrics_lock:
                     bounds_override = self.state.last_metrics.get("log_bounds")
 
+            # Metadata: if sync enabled, use current config for all files
+            source_exif = self.state.source_exif.get(f["hash"])
+            metadata_config = self.state.config.metadata if sync_metadata else params.metadata
+
             tasks.append(
                 ExportTask(
                     file_info=f,
@@ -754,6 +763,8 @@ class AppController(QObject):
                     export_settings=final_export,
                     gpu_enabled=self.state.gpu_enabled,
                     bounds_override=bounds_override,
+                    source_exif=source_exif,
+                    metadata_config=metadata_config,
                 )
             )
 
