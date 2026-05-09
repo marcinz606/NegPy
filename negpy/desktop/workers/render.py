@@ -289,9 +289,11 @@ class NormalizationWorker(QObject):
         total = len(task.files)
         limit = max(1, APP_CONFIG.max_workers // 2)
         semaphore = asyncio.Semaphore(limit)
-        completed = [0]
+        lock = asyncio.Lock()
+        completed = 0
 
         async def _analyze_file(f_info: dict):
+            nonlocal completed
             async with semaphore:
                 try:
                     params = self._repo.load_file_settings(f_info["hash"])
@@ -318,13 +320,17 @@ class NormalizationWorker(QObject):
                         percentile_clip=drange_clip,
                     )
 
-                    completed[0] += 1
-                    self.progress.emit(completed[0], total, f_info["name"])
+                    async with lock:
+                        completed += 1
+                        count = completed
+                    self.progress.emit(count, total, f_info["name"])
                     return bounds.floors, bounds.ceils, f_info["name"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
-                    completed[0] += 1
-                    self.progress.emit(completed[0], total, f_info["name"])
+                    async with lock:
+                        completed += 1
+                        count = completed
+                    self.progress.emit(count, total, f_info["name"])
                     return None
 
         async def _run_batch():
