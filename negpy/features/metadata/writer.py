@@ -1,8 +1,9 @@
 """Pure functions to embed custom metadata into exported image bytes via piexif."""
 
 import io
-import json
 import logging
+import re
+from fractions import Fraction
 from typing import Optional
 
 import piexif
@@ -23,6 +24,45 @@ PUSH_PULL_LABELS = {
     2: "Push +2",
     3: "Push +3",
 }
+
+
+def _parse_exposure_str(text: str) -> dict:
+    """
+    Parse a free-form exposure string like '1/125s f/2.8 ISO 400' into
+    piexif-format rational tuples for ExposureTime, FNumber, and ISOSpeedRatings.
+    Returns an empty dict if parsing fails.
+    """
+    result: dict = {}
+
+    m_shutter = re.search(r"(\d+(?:/\d+)?(?:\.\d+)?)\s*s", text)
+    if m_shutter:
+        val = m_shutter.group(1)
+        if "/" in val:
+            num_str, den_str = val.split("/")
+            result[piexif.ExifIFD.ExposureTime] = (int(num_str), int(den_str))
+        elif "." in val:
+            f = Fraction(val)
+            result[piexif.ExifIFD.ExposureTime] = (f.numerator, f.denominator)
+        else:
+            result[piexif.ExifIFD.ExposureTime] = (int(val), 1)
+
+    m_aperture = re.search(r"f/\s*(\d+(?:\.\d+)?)", text)
+    if m_aperture:
+        val = m_aperture.group(1)
+        if "." in val:
+            int_part, frac_part = val.split(".")
+            den = 10 ** len(frac_part)
+            num = int(int_part) * den + int(frac_part)
+            result[piexif.ExifIFD.FNumber] = (num, den)
+        else:
+            result[piexif.ExifIFD.FNumber] = (int(val), 1)
+
+    m_iso = re.search(r"ISO\s*(\d+)", text)
+    if m_iso:
+        iso_val = int(m_iso.group(1))
+        result[piexif.ExifIFD.ISOSpeedRatings] = iso_val
+
+    return result
 
 
 def _build_custom_exif(config: MetadataConfig) -> dict:
@@ -50,12 +90,23 @@ def _build_custom_exif(config: MetadataConfig) -> dict:
         user_comment_parts["push_pull"] = PUSH_PULL_LABELS.get(config.push_pull, str(config.push_pull))
 
     if user_comment_parts:
-        # EXIF UserComment: 8-byte character code prefix + ASCII content.
+        # EXIF UserComment: 8-byte character code prefix + encoded content.
         # ASCII prefix is universally supported; UNICODE/UTF-16-LE causes garbled
         # output in most EXIF readers (ExifTool, macOS Preview, Lightroom).
-        json_str = json.dumps(user_comment_parts, ensure_ascii=True)
-        uc_bytes = b"ASCII\x00\x00\x00" + json_str.encode("ascii")
+        lines = [f"{k.replace('_', ' ').title()}: {v}" for k, v in user_comment_parts.items()]
+        uc_bytes = b"ASCII\x00\x00\x00" + "\n".join(lines).encode("ascii")
         exif[piexif.ExifIFD.UserComment] = uc_bytes
+
+    # ── EXIF field overrides ─────────────────────────────────────────────
+    if config.camera_override:
+        zeroth[piexif.ImageIFD.Model] = config.camera_override
+
+    if config.lens_override:
+        exif[piexif.ExifIFD.LensModel] = config.lens_override
+
+    if config.exposure_override:
+        parsed = _parse_exposure_str(config.exposure_override)
+        exif.update(parsed)
 
     return {"0th": zeroth, "Exif": exif, "GPS": {}, "Interop": {}, "1st": {}}
 

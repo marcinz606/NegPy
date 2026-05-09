@@ -1,10 +1,13 @@
 import piexif
+import qtawesome as qta
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QToolButton,
     QWidget,
 )
 
@@ -87,32 +90,84 @@ class MetadataSidebar(BaseSidebar):
         # ── INHERITED FROM SOURCE ────────────────────────────────────────
         self.layout.addWidget(section_subheader("INHERITED FROM SOURCE"))
 
-        hint = QLabel("Read-only — preserved from each source file")
+        hint = QLabel("Locked by default — click 🔓 to edit")
         hint.setStyleSheet(f"font-size: {THEME.font_size_xs}px; color: {THEME.text_muted};")
         self.layout.addWidget(hint)
 
+        self._exif_locked: dict[str, bool] = {
+            "camera": True,
+            "lens": True,
+            "exposure": True,
+        }
+
+        # Camera row
         self.camera_label = QLabel("Camera")
-        self.camera_value = QLabel("—")
-        self.camera_value.setStyleSheet(f"color: {THEME.channel_blue};")
         self.layout.addWidget(self.camera_label)
-        self.layout.addWidget(self.camera_value)
+        self.camera_edit = self._make_exif_field("camera")
 
+        # Lens row
         self.lens_label = QLabel("Lens")
-        self.lens_value = QLabel("—")
-        self.lens_value.setStyleSheet(f"color: {THEME.channel_blue};")
         self.layout.addWidget(self.lens_label)
-        self.layout.addWidget(self.lens_value)
+        self.lens_edit = self._make_exif_field("lens")
 
+        # Exposure row
         self.exposure_label = QLabel("Exposure")
-        self.exposure_value = QLabel("—")
-        self.exposure_value.setStyleSheet(f"color: {THEME.channel_blue};")
         self.layout.addWidget(self.exposure_label)
-        self.layout.addWidget(self.exposure_value)
+        self.exposure_edit = self._make_exif_field("exposure")
 
         # Hidden until EXIF is available
         self._set_inherited_visible(False)
 
         self.layout.addStretch()
+
+    def _make_exif_field(self, key: str) -> QLineEdit:
+        """Create a QHBoxLayout row: QLineEdit + lock/unlock QToolButton."""
+        row = QHBoxLayout()
+        row.setSpacing(4)
+
+        edit = QLineEdit()
+        edit.setReadOnly(True)
+        edit.setPlaceholderText("—")
+        self._apply_lock_style(edit, locked=True)
+
+        lock_btn = QToolButton()
+        lock_btn.setCheckable(True)
+        lock_btn.setToolTip("Unlock to edit")
+        self._update_lock_icon(lock_btn, locked=True)
+        lock_btn.toggled.connect(lambda checked, k=key, e=edit, b=lock_btn: self._toggle_exif_lock(k, e, b, checked))
+
+        row.addWidget(edit)
+        row.addWidget(lock_btn)
+        self.layout.addLayout(row)
+
+        # Store lock button reference for visibility/reset
+        setattr(self, f"_{key}_lock_btn", lock_btn)
+
+        return edit
+
+    def _apply_lock_style(self, edit: QLineEdit, locked: bool) -> None:
+        """Style a QLineEdit based on lock state."""
+        if locked:
+            edit.setStyleSheet(f"color: {THEME.text_secondary};")
+            edit.setReadOnly(True)
+        else:
+            edit.setStyleSheet(f"color: {THEME.text_primary};")
+            edit.setReadOnly(False)
+
+    def _update_lock_icon(self, btn: QToolButton, locked: bool) -> None:
+        """Set the lock/unlock icon on a QToolButton."""
+        icon_name = "fa5s.lock" if locked else "fa5s.lock-open"
+        color = THEME.text_muted if locked else THEME.text_primary
+        btn.setIcon(qta.icon(icon_name, color=color))
+
+    def _toggle_exif_lock(self, key: str, edit: QLineEdit, btn: QToolButton, checked: bool) -> None:
+        """Handle lock/unlock toggle for an EXIF field."""
+        locked = not checked
+        self._exif_locked[key] = locked
+        self._apply_lock_style(edit, locked=locked)
+        self._update_lock_icon(btn, locked=locked)
+        if not locked:
+            edit.setFocus()
 
     def _connect_signals(self) -> None:
         # Custom metadata changes → debounced persist
@@ -124,8 +179,19 @@ class MetadataSidebar(BaseSidebar):
         self.scanning_edit.textChanged.connect(self._mark_dirty)
         self.sync_check.toggled.connect(self._mark_dirty)
 
+        # EXIF override edits → debounced persist
+        for edit in self._exif_edits().values():
+            edit.textChanged.connect(self._mark_dirty)
+
         # External sync triggers
         self.controller.session.file_selected.connect(self._on_file_selected)
+
+    def _exif_edits(self) -> dict:
+        return {
+            "camera": self.camera_edit,
+            "lens": self.lens_edit,
+            "exposure": self.exposure_edit,
+        }
 
     def _mark_dirty(self) -> None:
         self._dirty = True
@@ -155,10 +221,13 @@ class MetadataSidebar(BaseSidebar):
             push_pull=PUSH_PULL_VALUES[pp_idx] if 0 <= pp_idx < len(PUSH_PULL_VALUES) else 0,
             scanning=self.scanning_edit.text().strip(),
             sync_to_batch=self.sync_check.isChecked(),
+            camera_override=self.camera_edit.text().strip(),
+            lens_override=self.lens_edit.text().strip(),
+            exposure_override=self.exposure_edit.text().strip(),
         )
 
     def sync_ui(self) -> None:
-        """Sync custom metadata widgets from config (undo/redo, file switch)."""
+        """Sync custom metadata widgets and EXIF overrides from config (undo/redo, file switch)."""
         if self._dirty:
             return
 
@@ -178,26 +247,59 @@ class MetadataSidebar(BaseSidebar):
             self.push_pull_combo.setCurrentIndex(idx)
             self.scanning_edit.setText(conf.scanning)
             self.sync_check.setChecked(conf.sync_to_batch)
+
+            # Refresh EXIF override fields from config
+            self._set_exif_text_quiet("camera", conf.camera_override)
+            self._set_exif_text_quiet("lens", conf.lens_override)
+            self._set_exif_text_quiet("exposure", conf.exposure_override)
         finally:
             self.block_signals(False)
+
+    def _set_exif_text_quiet(self, key: str, text: str) -> None:
+        """Set EXIF edit text without triggering signals or dirty flag."""
+        edit = self._exif_edits().get(key)
+        if edit is None:
+            return
+        edit.blockSignals(True)
+        try:
+            edit.setText(text)
+        finally:
+            edit.blockSignals(False)
 
     def _on_file_selected(self, _path: str) -> None:
         """Called when the active file changes — sync widgets + EXIF display."""
         self._dirty = False
+        self._reset_exif_locks()
         self.sync_ui()
         self._update_exif_display()
 
+    def _reset_exif_locks(self) -> None:
+        """Reset all EXIF fields to locked state."""
+        for key, edit in self._exif_edits().items():
+            self._exif_locked[key] = True
+            self._apply_lock_style(edit, locked=True)
+            btn = getattr(self, f"_{key}_lock_btn", None)
+            if btn is not None:
+                btn.blockSignals(True)
+                btn.setChecked(False)
+                btn.blockSignals(False)
+                self._update_lock_icon(btn, locked=True)
+
     def _update_exif_display(self) -> None:
-        """Update the inherited EXIF section from the current file's source EXIF."""
+        """Update the inherited EXIF section from source EXIF or config overrides."""
+        conf = self.state.config.metadata
         source_exif = self.state.source_exif
         current_hash = self.state.current_file_hash
+
         if current_hash and current_hash in source_exif:
-            self._update_inherited_display(source_exif[current_hash])
+            exif = source_exif[current_hash]
+            self._update_inherited_display(exif, conf)
         else:
+            # No EXIF available — clear fields
             self._set_inherited_visible(False)
 
-    def _update_inherited_display(self, exif: dict) -> None:
-        """Parse piexif-format EXIF dict and show read-only values."""
+    def _update_inherited_display(self, exif: dict, conf) -> None:
+        """Parse piexif-format EXIF dict and set QLineEdit text, preferring overrides."""
         zeroth = exif.get("0th", {}) if isinstance(exif, dict) else {}
         exif_tags = exif.get("Exif", {}) if isinstance(exif, dict) else {}
 
@@ -205,33 +307,43 @@ class MetadataSidebar(BaseSidebar):
         model = _safe_str(zeroth.get(piexif.ImageIFD.Model, ""))
         lens = _safe_str(exif_tags.get(piexif.ExifIFD.LensModel, ""))
 
-        camera = f"{make} {model}".strip()
-        if camera:
-            self.camera_value.setText(camera)
+        # Camera: override > source EXIF
+        if conf.camera_override:
+            camera = conf.camera_override
         else:
-            self.camera_value.setText("—")
+            camera = f"{make} {model}".strip()
 
-        if lens:
-            self.lens_value.setText(lens)
+        # Lens: override > source EXIF
+        if conf.lens_override:
+            lens_text = conf.lens_override
         else:
-            self.lens_value.setText("—")
+            lens_text = lens
 
-        exp_parts = _format_exposure(exif_tags)
-        if exp_parts:
-            self.exposure_value.setText(exp_parts)
+        # Exposure: override > source EXIF
+        if conf.exposure_override:
+            exp_text = conf.exposure_override
         else:
-            self.exposure_value.setText("—")
+            exp_parts = _format_exposure(exif_tags)
+            exp_text = exp_parts if exp_parts else ""
 
-        has_any = bool(camera or lens or exp_parts)
+        self._set_exif_text_quiet("camera", camera)
+        self._set_exif_text_quiet("lens", lens_text)
+        self._set_exif_text_quiet("exposure", exp_text)
+
+        has_any = bool(camera or lens_text or exp_text)
         self._set_inherited_visible(has_any)
 
     def _set_inherited_visible(self, visible: bool) -> None:
-        self.camera_label.setVisible(visible)
-        self.camera_value.setVisible(visible)
-        self.lens_label.setVisible(visible)
-        self.lens_value.setVisible(visible)
-        self.exposure_label.setVisible(visible)
-        self.exposure_value.setVisible(visible)
+        for key in ("camera", "lens", "exposure"):
+            label = getattr(self, f"{key}_label", None)
+            edit = self._exif_edits().get(key)
+            btn = getattr(self, f"_{key}_lock_btn", None)
+            if label:
+                label.setVisible(visible)
+            if edit:
+                edit.setVisible(visible)
+            if btn:
+                btn.setVisible(visible)
 
     def block_signals(self, blocked: bool) -> None:
         for w in self.findChildren(QWidget):

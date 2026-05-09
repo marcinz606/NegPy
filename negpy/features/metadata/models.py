@@ -15,3 +15,8 @@ class MetadataConfig:
     push_pull: int = 0  # -3..+3, 0 = Normal
     scanning: str = ""
     sync_to_batch: bool = False
+
+    # EXIF field overrides (editable by user, empty = use source EXIF)
+    camera_override: str = ""
+    lens_override: str = ""
+    exposure_override: str = ""
