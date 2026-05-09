@@ -585,5 +585,5 @@ def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> str:
     if not candidates:
         return fallback
 
-    best = min(candidates, key=lambda c: abs(math.log(detected) - math.log(c[1])))
+    best = min(candidates, key=lambda c: abs(math.log(max(detected, 1e-6)) - math.log(max(c[1], 1e-6))))
     return best[0]
