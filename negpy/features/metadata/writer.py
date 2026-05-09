@@ -50,10 +50,11 @@ def _build_custom_exif(config: MetadataConfig) -> dict:
         user_comment_parts["push_pull"] = PUSH_PULL_LABELS.get(config.push_pull, str(config.push_pull))
 
     if user_comment_parts:
-        # EXIF UserComment: 8-byte character code prefix + encoded content.
-        # Use UNICODE prefix (UTF-16-LE) so non-ASCII film/developer names survive.
-        json_str = json.dumps(user_comment_parts, ensure_ascii=False)
-        uc_bytes = b"UNICODE\x00" + json_str.encode("utf-16-le")
+        # EXIF UserComment: 8-byte character code prefix + ASCII content.
+        # ASCII prefix is universally supported; UNICODE/UTF-16-LE causes garbled
+        # output in most EXIF readers (ExifTool, macOS Preview, Lightroom).
+        json_str = json.dumps(user_comment_parts, ensure_ascii=True)
+        uc_bytes = b"ASCII\x00\x00\x00" + json_str.encode("ascii")
         exif[piexif.ExifIFD.UserComment] = uc_bytes
 
     return {"0th": zeroth, "Exif": exif, "GPS": {}, "Interop": {}, "1st": {}}
