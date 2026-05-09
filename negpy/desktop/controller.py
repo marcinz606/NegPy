@@ -73,6 +73,7 @@ class AppController(QObject):
         self._export_start_time = 0.0
         self._discovery_running = False
         self._gpu_fallback_notified = False
+        self._cleaned_up = False
 
         self.preview_service = PreviewManager()
         self.watcher = FolderWatchService()
@@ -876,16 +877,25 @@ class AppController(QObject):
         """
         Total system evacuation on exit.
         """
-        self.render_thread.quit()
-        self.render_thread.wait()
-        self.export_thread.quit()
-        self.export_thread.wait()
-        self.thumb_thread.quit()
-        self.thumb_thread.wait()
-        self.norm_thread.quit()
-        self.norm_thread.wait()
-        self.discovery_thread.quit()
-        self.discovery_thread.wait()
-        self.preview_load_thread.quit()
-        self.preview_load_thread.wait()
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
+        if self.render_thread.isRunning():
+            self.render_thread.quit()
+            self.render_thread.wait()
+        if self.export_thread.isRunning():
+            self.export_thread.quit()
+            self.export_thread.wait()
+        if self.thumb_thread.isRunning():
+            self.thumb_thread.quit()
+            self.thumb_thread.wait()
+        if self.norm_thread.isRunning():
+            self.norm_thread.quit()
+            self.norm_thread.wait()
+        if self.discovery_thread.isRunning():
+            self.discovery_thread.quit()
+            self.discovery_thread.wait()
+        if self.preview_load_thread.isRunning():
+            self.preview_load_thread.quit()
+            self.preview_load_thread.wait()
         self.render_worker.destroy_all()
