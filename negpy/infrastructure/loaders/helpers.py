@@ -26,10 +26,10 @@ def read_exif_from_file(file_path: str) -> Optional[dict]:
     try:
         from PIL import Image
 
-        img = Image.open(file_path)
-        exif_bytes = img.info.get("exif")
-        if exif_bytes:
-            return piexif.load(exif_bytes)
+        with Image.open(file_path) as img:
+            exif_bytes = img.info.get("exif")
+            if exif_bytes:
+                return piexif.load(exif_bytes)
     except Exception:
         pass
 
@@ -80,12 +80,12 @@ def detect_color_space_from_raw(raw: Any) -> Optional[str]:
     try:
         thumb = raw.extract_thumb()
         if thumb.format == rawpy.ThumbFormat.JPEG:
-            img = Image.open(io.BytesIO(thumb.data))
-            cs_tag = img.getexif().get(0xA001)
-            if cs_tag == 1:
-                return ColorSpace.SRGB.value
-            if cs_tag == 65535:
-                return ColorSpace.ADOBE_RGB.value
+            with Image.open(io.BytesIO(thumb.data)) as img:
+                cs_tag = img.getexif().get(0xA001)
+                if cs_tag == 1:
+                    return ColorSpace.SRGB.value
+                if cs_tag == 65535:
+                    return ColorSpace.ADOBE_RGB.value
     except Exception:
         pass
     return None
