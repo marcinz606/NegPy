@@ -1,3 +1,4 @@
+import threading
 from typing import Optional
 import wgpu  # type: ignore
 from negpy.kernel.system.logging import get_logger
@@ -12,6 +13,7 @@ class GPUDevice:
     """
 
     _instance: Optional["GPUDevice"] = None
+    _lock: threading.Lock = threading.Lock()
 
     def __init__(self) -> None:
         if GPUDevice._instance is not None:
@@ -23,7 +25,9 @@ class GPUDevice:
     @classmethod
     def get(cls) -> "GPUDevice":
         if cls._instance is None:
-            cls._instance = GPUDevice()
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = GPUDevice()
         return cls._instance
 
     def _initialize(self) -> None:
