@@ -3,8 +3,11 @@ from typing import Any, Optional
 from PIL import Image, ImageCms
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
+from negpy.kernel.system.logging import get_logger
 from negpy.domain.models import ColorSpace
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+
+logger = get_logger(__name__)
 
 
 class ColorService:
@@ -63,7 +66,8 @@ class ColorService:
                 flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
             )
             return result_icc if result_icc is not None else pil_img
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to apply ICC profile", exc_info=e)
             return pil_img
 
     @staticmethod
@@ -89,8 +93,8 @@ class ColorService:
                 outputMode="RGB",
             )
             return result_sim if result_sim is not None else pil_img
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to simulate color space transform to sRGB", exc_info=e)
         return pil_img
 
     @staticmethod

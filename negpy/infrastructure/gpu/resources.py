@@ -1,6 +1,9 @@
 import numpy as np
 import wgpu  # type: ignore
 from negpy.infrastructure.gpu.device import GPUDevice
+from negpy.kernel.system.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class GPUTexture:
@@ -67,12 +70,12 @@ class GPUTexture:
             if self._region_staging is not None:
                 try:
                     self._region_staging.destroy()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to destroy region staging buffer", exc_info=e)
                 try:
                     gpu.poll()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to poll GPU device", exc_info=e)
             self._region_staging = None
             self._region_staging_size = 0
             try:
@@ -80,7 +83,8 @@ class GPUTexture:
                     size=required_size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
                 )
                 self._region_staging_size = required_size
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to create region staging buffer", exc_info=e)
                 self._region_staging = None
                 self._region_staging_size = 0
                 raise
@@ -145,15 +149,15 @@ class GPUTexture:
             if self.texture:
                 self.texture.destroy()
                 self.texture = None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to destroy GPU texture", exc_info=e)
         for attr in ("_readback_staging", "_region_staging"):
             buf = getattr(self, attr, None)
             if buf is not None:
                 try:
                     buf.destroy()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to destroy GPU buffer ({attr})", exc_info=e)
                 setattr(self, attr, None)
         self._region_staging_size = 0
 
@@ -178,5 +182,5 @@ class GPUBuffer:
             if self.buffer:
                 self.buffer.destroy()
                 self.buffer = None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to destroy GPU buffer", exc_info=e)
