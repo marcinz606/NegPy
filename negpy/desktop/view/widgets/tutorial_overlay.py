@@ -309,12 +309,17 @@ class TutorialOverlay(QWidget):
             super().keyPressEvent(a0)
 
     def eventFilter(self, a0: Optional[QObject], a1: Optional[QEvent]) -> bool:  # type: ignore[override]
-        if a0 is self._win and a1 is not None and a1.type() in {
-            QEvent.Type.Move,
-            QEvent.Type.Resize,
-            QEvent.Type.Show,
-            QEvent.Type.WindowStateChange,
-        }:
+        if (
+            a0 is self._win
+            and a1 is not None
+            and a1.type()
+            in {
+                QEvent.Type.Move,
+                QEvent.Type.Resize,
+                QEvent.Type.Show,
+                QEvent.Type.WindowStateChange,
+            }
+        ):
             self._sync_geometry()
             target: Optional[QWidget] = None
             if self._steps:
