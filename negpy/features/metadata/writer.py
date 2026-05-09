@@ -111,6 +111,26 @@ def _build_custom_exif(config: MetadataConfig) -> dict:
     return {"0th": zeroth, "Exif": exif, "GPS": {}, "Interop": {}, "1st": {}}
 
 
+def _sanitize_exif(exif_dict: dict) -> dict:
+    """Drop RATIONAL/SRATIONAL entries stored as raw bytes (piexif cannot serialize them).
+    ASCII tags (type 2) legitimately use bytes and are left untouched."""
+    _RATIONAL_TYPES = {5, 10}  # RATIONAL, SRATIONAL
+    result = {}
+    for ifd_name, ifd_data in exif_dict.items():
+        if not isinstance(ifd_data, dict):
+            result[ifd_name] = ifd_data
+            continue
+        tags_info = piexif.TAGS.get(ifd_name, {})
+        clean = {}
+        for tag, value in ifd_data.items():
+            tag_type = tags_info.get(tag, {}).get("type")
+            if isinstance(value, bytes) and tag_type in _RATIONAL_TYPES:
+                continue
+            clean[tag] = value
+        result[ifd_name] = clean
+    return result
+
+
 def embed_metadata(
     image_bytes: bytes,
     config: MetadataConfig,
@@ -142,7 +162,7 @@ def embed_metadata(
             merged[ifd_name].update(custom[ifd_name])
 
     try:
-        exif_bytes = piexif.dump(merged)
+        exif_bytes = piexif.dump(_sanitize_exif(merged))
         output = io.BytesIO()
         if image_bytes[:2] == b"\xff\xd8":
             piexif.insert(exif_bytes, image_bytes, output)
