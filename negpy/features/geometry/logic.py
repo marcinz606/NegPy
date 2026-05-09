@@ -295,7 +295,7 @@ def _get_threshold_autocrop_coords(
     h, w = img.shape[:2]
     det_scale = detect_res / max(h, w)
 
-    d_h, d_w = int(h * det_scale), int(w * det_scale)
+    d_h, d_w = max(1, int(h * det_scale)), max(1, int(w * det_scale))
     img_small = cv2.resize(img, (d_w, d_h), interpolation=cv2.INTER_AREA)
 
     lum = get_luminance(ensure_image(img_small))
@@ -370,6 +370,8 @@ def enforce_roi_aspect_ratio(
 
     try:
         w_r, h_r = map(float, target_ratio_str.split(":"))
+        if h_r == 0:
+            h_r = 1
         target_aspect = w_r / h_r
     except ValueError:
         target_aspect = 1.5
