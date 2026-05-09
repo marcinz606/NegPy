@@ -549,9 +549,9 @@ def translate_manual_crop_rect(
     return (nx1, ny1, nx1 + w, ny1 + h)
 
 
-def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> str:
+def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> AspectRatio:
     """
-    Detect film frame and return the closest standard AspectRatio value.
+    Detect film frame and return the closest standard AspectRatio enum member.
     Falls back to `fallback` if frame detection fails.
     """
     h_img, w_img = img.shape[:2]
@@ -563,12 +563,12 @@ def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> str:
     y1, y2, x1, x2 = roi
     cw, ch = x2 - x1, y2 - y1
     if cw <= 0 or ch <= 0:
-        return fallback
+        return AspectRatio(fallback)
 
     detected = cw / ch
     is_landscape = cw >= ch
 
-    candidates: list[tuple[str, float]] = []
+    candidates: list[tuple[AspectRatio, float]] = []
     for ratio in AspectRatio:
         if ratio in (AspectRatio.FREE, AspectRatio.ORIGINAL):
             continue
@@ -580,10 +580,10 @@ def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> str:
         target_landscape = target >= 1.0
         if is_landscape != target_landscape and target != 1.0:
             continue
-        candidates.append((ratio.value, target))
+        candidates.append((ratio, target))
 
     if not candidates:
-        return fallback
+        return AspectRatio(fallback)
 
     best = min(candidates, key=lambda c: abs(math.log(max(detected, 1e-6)) - math.log(max(c[1], 1e-6))))
     return best[0]
