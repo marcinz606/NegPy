@@ -15,7 +15,7 @@ class ProcessConfig:
     Core film/sensor processing parameters.
     """
 
-    process_mode: str = ProcessMode.C41
+    process_mode: ProcessMode = ProcessMode.C41
     analysis_buffer: float = 0.10
     drange_clip: float = 0.0
     e6_normalize: bool = True

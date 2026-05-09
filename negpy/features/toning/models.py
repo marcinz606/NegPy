@@ -23,7 +23,7 @@ class ToningConfig:
     Paper & Toner params.
     """
 
-    paper_profile: str = PaperProfileName.NONE
+    paper_profile: PaperProfileName = PaperProfileName.NONE
     selenium_strength: float = 0.0
     sepia_strength: float = 0.0
     shadow_tint_hue: float = 0.0
