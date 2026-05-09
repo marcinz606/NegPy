@@ -76,9 +76,9 @@ class ExportConfig:
     Export parameters (path, format, sizing).
     """
 
-    userDir = paths.get_default_user_dir()
+    userDir: str = field(default_factory=paths.get_default_user_dir)
 
-    export_path: str = os.path.join(userDir, "export")
+    export_path: str = field(default_factory=lambda: os.path.join(paths.get_default_user_dir(), "export"))
     export_fmt: str = ExportFormat.JPEG
     export_color_space: str = ColorSpace.SAME_AS_SOURCE.value
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
