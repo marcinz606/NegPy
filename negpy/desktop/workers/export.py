@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional, Any
 import os
+import tempfile
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
 from negpy.features.metadata.writer import embed_metadata
@@ -78,8 +79,17 @@ class ExportWorker(QObject):
                             path = os.path.join(out_dir, f"{filename}_{counter}.{ext}")
                             counter += 1
 
-                    with open(path, "wb") as f:
-                        f.write(bits)
+                    tmp_path = None
+                    try:
+                        with tempfile.NamedTemporaryFile(dir=out_dir, delete=False, suffix=".part") as tmp:
+                            tmp_path = tmp.name
+                            tmp.write(bits)
+                        os.replace(tmp_path, path)
+                    except Exception as write_err:
+                        if tmp_path is not None and os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                        self.error.emit(str(write_err))
+                        continue
 
                 # Aggressive VRAM evacuation between files
                 self._processor.cleanup()
