@@ -880,6 +880,8 @@ class AppController(QObject):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        self._render_debounce.stop()
+        self._cursor_readout_timer.stop()
         if self.render_thread.isRunning():
             self.render_thread.quit()
             self.render_thread.wait()
