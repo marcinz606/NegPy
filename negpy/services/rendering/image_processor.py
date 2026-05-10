@@ -73,9 +73,6 @@ class ImageProcessor:
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
         """
         h_orig, w_cols = img.shape[:2]
-        # scale_factor calibrates kernel/margin sizes against the canonical
-        # preview reference, independent of render_size_ref (which sizes the
-        # output texture). Keeps HQ preview ≡ export visually.
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
 
         context = PipelineContext(
