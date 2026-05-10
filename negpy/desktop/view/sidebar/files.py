@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QButtonGroup,
     QLabel,
+    QLineEdit,
     QStyledItemDelegate,
     QStyleOptionViewItem,
 )
@@ -61,6 +62,11 @@ class FileBrowser(QWidget):
         self.selection_timer.setSingleShot(True)
         self.selection_timer.setInterval(200)
         self.selection_timer.timeout.connect(self._commit_selection)
+
+        self.filter_timer = QTimer(self)
+        self.filter_timer.setSingleShot(True)
+        self.filter_timer.setInterval(200)
+        self.filter_timer.timeout.connect(self._apply_filter)
 
         self._init_ui()
         self._connect_signals()
@@ -144,6 +150,22 @@ class FileBrowser(QWidget):
 
         layout.addWidget(action_group)
 
+        search_row = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Filter by filename...")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.addAction(
+            qta.icon("fa5s.search", color=THEME.text_secondary),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
+        self.regex_btn = QPushButton(".*")
+        self.regex_btn.setCheckable(True)
+        self.regex_btn.setFixedWidth(36)
+        self.regex_btn.setToolTip("Regex mode")
+        search_row.addWidget(self.search_input)
+        search_row.addWidget(self.regex_btn)
+        layout.addLayout(search_row)
+
         self.list_view = QListView()
         self.list_view.setModel(self.session.asset_model)
         self.list_view.setItemDelegate(_DirtyUnderlineDelegate(self.list_view))
@@ -171,6 +193,8 @@ class FileBrowser(QWidget):
         self.sort_date_btn.clicked.connect(lambda: self._apply_sort_order("date"))
         self.sort_asc_btn.clicked.connect(lambda: self._apply_sort_direction(False))
         self.sort_desc_btn.clicked.connect(lambda: self._apply_sort_direction(True))
+        self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
+        self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
 
     def sync_ui(self) -> None:
         """Updates list selection to match session state."""
@@ -223,6 +247,45 @@ class FileBrowser(QWidget):
         actual_indices = [a for idx in self.list_view.selectionModel().selectedIndexes() if (a := model.display_to_actual(idx.row())) >= 0]
         if set(actual_indices) != set(self.session.state.selected_indices):
             self.session.update_selection(actual_indices)
+
+    def _apply_filter(self) -> None:
+        text = self.search_input.text().strip()
+        regex = self.regex_btn.isChecked()
+        ok = self.session.asset_model.set_filter(text, regex)
+        self._set_search_error(not ok)
+        if ok:
+            self._prune_selection_to_visible()
+            self.sync_ui()
+
+    def _set_search_error(self, error: bool) -> None:
+        if error:
+            self.search_input.setStyleSheet(f"border: 1px solid {THEME.accent_primary};")
+        else:
+            self.search_input.setStyleSheet("")
+
+    def _prune_selection_to_visible(self) -> None:
+        visible = self.session.asset_model.visible_actual_indices()
+        state = self.session.state
+        new_selection = [i for i in state.selected_indices if i in visible]
+        if state.selected_file_idx in visible:
+            new_active = state.selected_file_idx
+        elif new_selection:
+            new_active = new_selection[0]
+        else:
+            new_active = -1
+
+        selection_changed = new_selection != state.selected_indices
+        active_changed = new_active != state.selected_file_idx
+
+        if active_changed and new_active >= 0:
+            self.session.select_file(new_active, selection_override=new_selection)
+            return
+
+        if selection_changed:
+            self.session.update_selection(new_selection)
+        if active_changed and new_active == -1:
+            state.selected_file_idx = -1
+            self.session.state_changed.emit()
 
     def _apply_sort_order(self, order: str, save: bool = True) -> None:
         self.sort_name_btn.setChecked(order == "name")

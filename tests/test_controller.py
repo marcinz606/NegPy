@@ -169,5 +169,90 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(self.controller.state.active_tool, ToolMode.CROP_MOVE)
 
 
+class TestBatchExportFiltering(unittest.TestCase):
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+
+        self.mock_session_manager.state.uploaded_files = [
+            {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
+            {"name": "IMG_0002.cr2", "path": "/tmp/IMG_0002.cr2", "hash": "h2"},
+            {"name": "scan.tif", "path": "/tmp/scan.tif", "hash": "h3"},
+        ]
+
+        self.visible_indices = [0, 1, 2]
+        self.mock_session_manager.asset_model = MagicMock()
+        self.mock_session_manager.asset_model.visible_actual_indices_ordered.side_effect = lambda: list(self.visible_indices)
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+
+        self.controller._ensure_valid_export_path = MagicMock(return_value="/tmp/out")
+        self.controller._run_export_tasks = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def _captured_tasks(self):
+        self.controller._run_export_tasks.assert_called_once()
+        return self.controller._run_export_tasks.call_args.args[0]
+
+    def test_export_all_with_no_filter(self):
+        self.visible_indices = [0, 1, 2]
+        self.controller.request_batch_export()
+        tasks = self._captured_tasks()
+        self.assertEqual([t.file_info["name"] for t in tasks], ["IMG_0001.cr2", "IMG_0002.cr2", "scan.tif"])
+
+    def test_export_all_respects_filter(self):
+        self.visible_indices = [0, 1]  # only IMG_*
+        self.controller.request_batch_export()
+        tasks = self._captured_tasks()
+        self.assertEqual([t.file_info["name"] for t in tasks], ["IMG_0001.cr2", "IMG_0002.cr2"])
+
+    def test_export_all_zero_matches_does_not_dispatch(self):
+        self.visible_indices = []
+        self.controller.request_batch_export()
+        self.controller._run_export_tasks.assert_not_called()
+
+    def test_export_all_preserves_display_order(self):
+        self.visible_indices = [2, 0]  # reversed visible order from sort+filter
+        self.controller.request_batch_export()
+        tasks = self._captured_tasks()
+        self.assertEqual([t.file_info["name"] for t in tasks], ["scan.tif", "IMG_0001.cr2"])
+
+    def test_export_all_override_settings_applies_current_export_to_all(self):
+        self.visible_indices = [0, 1]
+        self.controller.state.config = replace(
+            self.controller.state.config,
+            export=replace(self.controller.state.config.export, export_path="/orig"),
+        )
+        self.controller.request_batch_export(override_settings=True)
+        tasks = self._captured_tasks()
+        for t in tasks:
+            self.assertEqual(t.params.export.export_path, "/tmp/out")
+
+
 if __name__ == "__main__":
     unittest.main()

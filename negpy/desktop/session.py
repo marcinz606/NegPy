@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
@@ -76,6 +77,9 @@ class AssetListModel(QAbstractListModel):
         self._state = state
         self._sort_order = "name"  # "name" | "date"
         self._sort_descending = False
+        self._filter_text: str = ""
+        self._filter_regex: bool = False
+        self._filter_pattern: Optional[re.Pattern] = None
         self._sorted_indices: list[int] = []
         self._rebuild_indices()
 
@@ -93,6 +97,15 @@ class AssetListModel(QAbstractListModel):
                     return 0.0
 
             indices.sort(key=_mtime, reverse=self._sort_descending)
+
+        if self._filter_text:
+            if self._filter_pattern is not None:
+                pattern = self._filter_pattern
+                indices = [i for i in indices if pattern.search(files[i]["name"])]
+            else:
+                needle = self._filter_text
+                indices = [i for i in indices if needle in files[i]["name"].lower()]
+
         self._sorted_indices = indices
 
     def set_sort_order(self, order: str) -> None:
@@ -104,6 +117,40 @@ class AssetListModel(QAbstractListModel):
         self._sort_descending = descending
         self._rebuild_indices()
         self.layoutChanged.emit()
+
+    def set_filter(self, text: str, regex: bool) -> bool:
+        """Updates filter. Returns True on success, False if regex failed to compile."""
+        text = text.strip()
+        if not text:
+            self._filter_text = ""
+            self._filter_regex = regex
+            self._filter_pattern = None
+            self._rebuild_indices()
+            self.layoutChanged.emit()
+            return True
+
+        if regex:
+            try:
+                pattern = re.compile(text, re.IGNORECASE)
+            except re.error:
+                return False
+            self._filter_text = text
+            self._filter_regex = True
+            self._filter_pattern = pattern
+        else:
+            self._filter_text = text.lower()
+            self._filter_regex = False
+            self._filter_pattern = None
+
+        self._rebuild_indices()
+        self.layoutChanged.emit()
+        return True
+
+    def visible_actual_indices(self) -> set[int]:
+        return set(self._sorted_indices)
+
+    def visible_actual_indices_ordered(self) -> list[int]:
+        return list(self._sorted_indices)
 
     def display_to_actual(self, display_row: int) -> int:
         if display_row < 0 or display_row >= len(self._sorted_indices):

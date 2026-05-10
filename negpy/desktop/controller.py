@@ -737,8 +737,10 @@ class AppController(QObject):
         apply_icc = self.state.apply_icc_to_export
         sync_metadata = self.state.config.metadata.sync_to_batch
 
+        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+
         tasks = []
-        for f in self.state.uploaded_files:
+        for f in visible_files:
             params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
 
             if override_settings:

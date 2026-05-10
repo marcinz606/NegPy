@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock
 from dataclasses import replace
 
-from negpy.desktop.session import DesktopSessionManager
+from negpy.desktop.session import AppState, AssetListModel, DesktopSessionManager
 from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, ProcessConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
@@ -122,6 +122,87 @@ class TestDesktopSessionSync(unittest.TestCase):
         # 3. Verify session state recovered the index
         self.assertEqual(self.session.state.undo_index, 5)
         self.assertEqual(self.session.state.max_history_index, 5)
+
+
+class TestAssetListModelFilter(unittest.TestCase):
+    def setUp(self):
+        self.state = AppState()
+        self.state.uploaded_files = [
+            {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
+            {"name": "IMG_0002.cr2", "path": "/tmp/IMG_0002.cr2", "hash": "h2"},
+            {"name": "image.NEF", "path": "/tmp/image.NEF", "hash": "h3"},
+            {"name": "note.txt", "path": "/tmp/note.txt", "hash": "h4"},
+            {"name": "scan_42.tif", "path": "/tmp/scan_42.tif", "hash": "h5"},
+        ]
+        self.model = AssetListModel(self.state)
+
+    def _names(self):
+        return [self.state.uploaded_files[i]["name"] for i in self.model._sorted_indices]
+
+    def test_empty_filter_shows_all(self):
+        self.model.set_filter("", regex=False)
+        self.assertEqual(len(self.model._sorted_indices), 5)
+
+    def test_plain_substring_case_insensitive(self):
+        ok = self.model.set_filter("IMG", regex=False)
+        self.assertTrue(ok)
+        self.assertEqual(set(self._names()), {"IMG_0001.cr2", "IMG_0002.cr2"})
+
+    def test_plain_substring_matches_unrelated_prefix(self):
+        self.model.set_filter("scan", regex=False)
+        self.assertEqual(set(self._names()), {"scan_42.tif"})
+
+    def test_plain_extension_match(self):
+        self.model.set_filter(".cr2", regex=False)
+        self.assertEqual(set(self._names()), {"IMG_0001.cr2", "IMG_0002.cr2"})
+
+    def test_plain_no_match(self):
+        self.model.set_filter("zzzzz", regex=False)
+        self.assertEqual(self.model.rowCount(), 0)
+        self.assertEqual(self.model._sorted_indices, [])
+
+    def test_regex_success(self):
+        ok = self.model.set_filter(r"^IMG_\d{4}\.cr2$", regex=True)
+        self.assertTrue(ok)
+        self.assertEqual(set(self._names()), {"IMG_0001.cr2", "IMG_0002.cr2"})
+
+    def test_regex_invalid_preserves_previous_filter(self):
+        self.model.set_filter("img", regex=False)
+        before = list(self.model._sorted_indices)
+        ok = self.model.set_filter("[", regex=True)
+        self.assertFalse(ok)
+        self.assertEqual(self.model._sorted_indices, before)
+
+    def test_filter_after_sort_descending(self):
+        self.model.set_sort_order("name")
+        self.model.set_sort_descending(True)
+        self.model.set_filter(".cr2", regex=False)
+        self.assertEqual(self._names(), ["IMG_0002.cr2", "IMG_0001.cr2"])
+
+    def test_display_actual_roundtrip_with_filter(self):
+        self.model.set_filter("img", regex=False)
+        for display in range(self.model.rowCount()):
+            actual = self.model.display_to_actual(display)
+            self.assertEqual(self.model.actual_to_display(actual), display)
+
+    def test_visible_actual_indices_ordered(self):
+        self.model.set_sort_order("name")
+        self.model.set_sort_descending(False)
+        self.model.set_filter(".cr2", regex=False)
+        self.assertEqual(self.model.visible_actual_indices_ordered(), self.model._sorted_indices)
+        self.assertEqual(self.model.visible_actual_indices(), set(self.model._sorted_indices))
+
+    def test_filter_persists_through_refresh(self):
+        self.model.set_filter("IMG", regex=False)
+        self.state.uploaded_files.append({"name": "extra.txt", "path": "/tmp/extra.txt", "hash": "h6"})
+        self.model.refresh()
+        self.assertNotIn("extra.txt", self._names())
+        self.assertEqual(set(self._names()), {"IMG_0001.cr2", "IMG_0002.cr2"})
+
+    def test_clearing_filter_restores_full_list(self):
+        self.model.set_filter("IMG", regex=False)
+        self.model.set_filter("", regex=False)
+        self.assertEqual(len(self.model._sorted_indices), 5)
 
 
 class TestToolMode(unittest.TestCase):
