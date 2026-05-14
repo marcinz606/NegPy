@@ -13,6 +13,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
+from negpy.features.process.models import invalidate_local_bounds
 
 
 class GeometrySidebar(BaseSidebar):
@@ -104,7 +105,7 @@ class GeometrySidebar(BaseSidebar):
         new_config = replace(
             self.state.config,
             geometry=replace(self.state.config.geometry, autocrop_ratio=ratio),
-            process=replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0)),
+            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
         )
         self.controller.session.update_config(new_config, persist=True)
         self.controller.request_render()
@@ -113,7 +114,7 @@ class GeometrySidebar(BaseSidebar):
         new_config = replace(
             self.state.config,
             geometry=replace(self.state.config.geometry, autocrop_offset=int(v)),
-            process=replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0)),
+            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
         )
         self.controller.session.update_config(new_config, persist=True)
         self.controller.request_render()

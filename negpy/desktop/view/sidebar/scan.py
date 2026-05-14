@@ -199,6 +199,7 @@ class ScanSidebar(QWidget):
     def _sane_available() -> bool:
         try:
             import sane  # noqa: F401
+
             return True
         except Exception:
             return False
@@ -214,9 +215,7 @@ class ScanSidebar(QWidget):
         self.device_combo.addItem("SANE not available", None)
         self.device_combo.setEnabled(False)
         self.scan_btn.setEnabled(False)
-        self.status_label.setText(
-            f"Scanner support requires SANE (libsane).\n\nTo enable:\n{hint}"
-        )
+        self.status_label.setText(f"Scanner support requires SANE (libsane).\n\nTo enable:\n{hint}")
 
     def _on_refresh(self) -> None:
         self._request_devices()

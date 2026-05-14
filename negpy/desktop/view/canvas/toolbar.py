@@ -174,6 +174,9 @@ class ActionToolbar(QWidget):
         self._action_copy = overflow_menu.addAction(
             qta.icon("fa5s.copy", color=icon_color), "Copy Settings  Ctrl+C", self.session.copy_settings
         )
+        self._action_copy_bounds = overflow_menu.addAction(
+            qta.icon("fa5s.copy", color=icon_color), "Copy Settings + Bounds  Ctrl+Shift+C", self.session.copy_settings_with_bounds
+        )
         self._action_paste = overflow_menu.addAction(
             qta.icon("fa5s.paste", color=icon_color), "Paste Settings  Ctrl+V", self.session.paste_settings
         )

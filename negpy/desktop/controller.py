@@ -28,6 +28,7 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts_from_log,
 )
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
+from negpy.features.process.models import invalidate_local_bounds
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -360,7 +361,7 @@ class AppController(QObject):
             ),
             auto_crop_enabled=False,
         )
-        new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
+        new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
         self.session.update_config(replace(self.state.config, geometry=new_geo, process=new_proc))
         self.state.active_tool = ToolMode.NONE
         self.tool_sync_requested.emit()
@@ -374,7 +375,7 @@ class AppController(QObject):
         self.request_render()
 
     def reset_crop(self) -> None:
-        new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
+        new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
         self.session.update_config(
             replace(
                 self.state.config,
@@ -385,7 +386,7 @@ class AppController(QObject):
         self.request_render()
 
     def apply_auto_crop(self) -> None:
-        new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
+        new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
         self.session.update_config(
             replace(
                 self.state.config,
@@ -419,7 +420,7 @@ class AppController(QObject):
         if new_ratio == geom.autocrop_ratio:
             return
 
-        new_proc = replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0))
+        new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
         self.session.update_config(
             replace(
                 self.state.config,
@@ -647,8 +648,7 @@ class AppController(QObject):
         """
         new_process = replace(
             self.state.config.process,
-            local_floors=(0.0, 0.0, 0.0),
-            local_ceils=(0.0, 0.0, 0.0),
+            **invalidate_local_bounds(self.state.config.process),
         )
         self.session.update_config(replace(self.state.config, process=new_process))
         self.request_render()
@@ -877,7 +877,7 @@ class AppController(QObject):
             bounds = metrics.get("log_bounds")
 
             changes = {}
-            if bounds:
+            if bounds and not self.state.config.process.lock_bounds:
                 current = self.state.config.process
                 if bounds.floors != current.local_floors or bounds.ceils != current.local_ceils:
                     changes["local_floors"] = bounds.floors

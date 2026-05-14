@@ -12,7 +12,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
 
 class ProcessSidebar(BaseSidebar):
@@ -24,10 +24,18 @@ class ProcessSidebar(BaseSidebar):
         self.layout.setSpacing(12)
         conf = self.state.config.process
 
+        mode_row = QHBoxLayout()
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([m.value for m in ProcessMode])
         self.mode_combo.setCurrentText(conf.process_mode)
-        self.layout.addWidget(self.mode_combo)
+        self.lock_bounds_btn = QPushButton()
+        self.lock_bounds_btn.setCheckable(True)
+        self.lock_bounds_btn.setIcon(qta.icon("fa5s.lock", color=THEME.text_primary))
+        self.lock_bounds_btn.setToolTip("Freeze normalization bounds — crop and analysis sliders no longer re-analyze")
+        self.lock_bounds_btn.setFixedWidth(28)
+        mode_row.addWidget(self.mode_combo, stretch=1)
+        mode_row.addWidget(self.lock_bounds_btn)
+        self.layout.addLayout(mode_row)
 
         buf_clip_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.50, conf.analysis_buffer)
@@ -99,6 +107,7 @@ class ProcessSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        self.lock_bounds_btn.toggled.connect(self._on_lock_bounds_toggled)
 
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
@@ -127,14 +136,17 @@ class ProcessSidebar(BaseSidebar):
     def _on_black_point_changed(self, val: float, persist: bool = True) -> None:
         self.update_config_section("process", black_point_offset=val, persist=persist)
 
+    def _on_lock_bounds_toggled(self, checked: bool) -> None:
+        self.update_config_section("process", lock_bounds=checked, persist=True, render=False)
+        self.sync_ui()
+
     def _on_mode_changed(self, mode: str) -> None:
         self.update_config_section(
             "process",
             process_mode=mode,
             render=True,
             persist=True,
-            local_floors=(0.0, 0.0, 0.0),
-            local_ceils=(0.0, 0.0, 0.0),
+            **invalidate_local_bounds(self.state.config.process),
         )
         self.sync_ui()
 
@@ -144,8 +156,7 @@ class ProcessSidebar(BaseSidebar):
             e6_normalize=checked,
             render=True,
             persist=True,
-            local_floors=(0.0, 0.0, 0.0),
-            local_ceils=(0.0, 0.0, 0.0),
+            **invalidate_local_bounds(self.state.config.process),
         )
 
     def _on_buffer_changed(self, val: float, persist: bool = True) -> None:
@@ -154,8 +165,7 @@ class ProcessSidebar(BaseSidebar):
             persist=persist,
             render=True,
             analysis_buffer=val,
-            local_floors=(0.0, 0.0, 0.0),
-            local_ceils=(0.0, 0.0, 0.0),
+            **invalidate_local_bounds(self.state.config.process),
         )
 
     def _on_drange_clip_changed(self, val: float, persist: bool = True) -> None:
@@ -165,8 +175,7 @@ class ProcessSidebar(BaseSidebar):
             persist=persist,
             render=True,
             drange_clip=drange_clip,
-            local_floors=(0.0, 0.0, 0.0),
-            local_ceils=(0.0, 0.0, 0.0),
+            **invalidate_local_bounds(self.state.config.process),
         )
 
     def _on_use_roll_average_toggled(self, checked: bool) -> None:
@@ -180,8 +189,7 @@ class ProcessSidebar(BaseSidebar):
                 persist=True,
                 render=True,
                 use_roll_average=False,
-                local_floors=(0.0, 0.0, 0.0),
-                local_ceils=(0.0, 0.0, 0.0),
+                **invalidate_local_bounds(self.state.config.process),
                 roll_name=None,
             )
         else:
@@ -244,10 +252,12 @@ class ProcessSidebar(BaseSidebar):
             self.normalize_e6_btn.setVisible(is_e6)
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
 
+            self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
 
-            for slider in (self.analysis_buffer_slider, self.drange_clip_slider):
-                slider.setEnabled(not conf.use_roll_average)
+            locked = conf.lock_bounds
+            for w in (self.analysis_buffer_slider, self.drange_clip_slider, self.white_point_slider, self.black_point_slider):
+                w.setEnabled(not locked and not conf.use_roll_average)
 
             self._refresh_rolls()
             if conf.roll_name:
@@ -261,6 +271,7 @@ class ProcessSidebar(BaseSidebar):
         """
         widgets = [
             self.mode_combo,
+            self.lock_bounds_btn,
             self.analysis_buffer_slider,
             self.drange_clip_slider,
             self.white_point_slider,

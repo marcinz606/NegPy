@@ -10,6 +10,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
+from negpy.features.process.models import invalidate_local_bounds
 
 
 class ExposureSidebar(BaseSidebar):
@@ -195,7 +196,7 @@ class ExposureSidebar(BaseSidebar):
         new_config = replace(
             self.state.config,
             exposure=replace(self.state.config.exposure, linear_raw=checked),
-            process=replace(self.state.config.process, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0)),
+            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
         )
         # render=False: don't analyse bounds on stale (pre-reload) raw data
         self.controller.session.update_config(new_config, persist=True, render=False)

@@ -108,6 +108,7 @@ class DarkroomEngine:
             settings.process.local_ceils,
             settings.process.white_point_offset,
             settings.process.black_point_offset,
+            settings.process.lock_bounds,
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
 

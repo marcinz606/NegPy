@@ -28,6 +28,8 @@ class ProcessConfig:
     white_point_offset: float = 0.0
     black_point_offset: float = 0.0
 
+    lock_bounds: bool = False
+
     roll_name: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -48,3 +50,10 @@ class ProcessConfig:
     def is_locked_initialized(self) -> bool:
         """Checks if a roll-wide baseline is available."""
         return any(v != 0.0 for v in self.locked_floors)
+
+
+def invalidate_local_bounds(process: ProcessConfig) -> dict:
+    """Returns kwargs for dataclasses.replace that clear local bounds; no-op when lock_bounds=True."""
+    if process.lock_bounds:
+        return {}
+    return {"local_floors": (0.0, 0.0, 0.0), "local_ceils": (0.0, 0.0, 0.0)}

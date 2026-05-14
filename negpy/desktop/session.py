@@ -569,12 +569,26 @@ class DesktopSessionManager(QObject):
         new_config = replace(self.state.config, **{section: defaults[section]})
         self.update_config(new_config, persist=True)
 
-    def copy_settings(self) -> None:
+    def copy_settings(self, include_bounds: bool = False) -> None:
         import copy
 
-        self.state.clipboard = copy.deepcopy(self.state.config)
+        cfg = copy.deepcopy(self.state.config)
+        if not include_bounds:
+            cfg = replace(
+                cfg,
+                process=replace(
+                    cfg.process,
+                    local_floors=(0.0, 0.0, 0.0),
+                    local_ceils=(0.0, 0.0, 0.0),
+                    lock_bounds=False,
+                ),
+            )
+        self.state.clipboard = cfg
         self.state_changed.emit()
         self.settings_copied.emit()
+
+    def copy_settings_with_bounds(self) -> None:
+        self.copy_settings(include_bounds=True)
 
     def paste_settings(self) -> None:
         if self.state.clipboard and self.state.current_file_hash:
