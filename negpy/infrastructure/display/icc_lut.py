@@ -119,3 +119,25 @@ def apply_icc_u16_rgb(
     """Apply an ICC RGB→RGB transform to a (H,W,3) uint16 image."""
     lut = build_3d_lut(p_src, p_dst, rendering_intent, flags, size)
     return apply_lut_u16(img_u16, lut)
+
+
+def apply_icc_u16_greyscale(
+    img_u16: np.ndarray,
+    p_src: Any,
+    p_dst: Any,
+    rendering_intent: ImageCms.Intent,
+    flags: ImageCms.Flags,
+    size: int = DEFAULT_LUT_SIZE,
+) -> np.ndarray:
+    """Apply an ICC transform to a (H,W) uint16 greyscale image.
+
+    Extracts the neutral axis (R=G=B diagonal) of the 3D LUT to build a 1D
+    grey→grey curve, then applies it via a full 65536-entry lookup table.
+    """
+    lut = build_3d_lut(p_src, p_dst, rendering_intent, flags, size)
+    idx = np.arange(size)
+    diag = lut[idx, idx, idx, 0]  # (size,) float32 in [0, 1]
+    xs = np.linspace(0, 65535, size, dtype=np.float64)
+    full_lut = np.interp(np.arange(65536, dtype=np.float64), xs, diag.astype(np.float64))
+    full_lut = np.clip(full_lut * 65535.0 + 0.5, 0, 65535).astype(np.uint16)
+    return full_lut[img_u16]
