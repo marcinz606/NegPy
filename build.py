@@ -47,6 +47,11 @@ params = [
     "--hidden-import=jinja2",
     "--hidden-import=PyQt6",
     "--hidden-import=qtawesome",
+    # Scanner support: bundle the python-sane C extension but NOT libsane.so.1.
+    # libsane.so.1 must come from the host so SANE can find its backend plugins
+    # in /usr/lib/sane/. See libs_to_remove in package_linux().
+    # Requires: uv sync --group scanner before building on Linux/macOS.
+    *([] if is_windows else ["--hidden-import=sane"]),
     # Exclude unused modules
     # Metadata
     "--copy-metadata=imageio",
@@ -115,6 +120,8 @@ def package_linux():
         "libfontconfig.so*",
         "libfreetype.so*",
         "libexpat.so*",
+        # Must use host libsane so SANE can locate backend plugins in /usr/lib/sane/
+        "libsane.so*",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:

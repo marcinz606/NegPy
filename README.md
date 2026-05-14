@@ -48,6 +48,13 @@ Grab the latest release for your OS from the **[Releases Page](https://github.co
 #### **🐧 Linux**
 I provide an `.AppImage`. Make it executable using `chmod +x` and It should just work.
 
+**Scanner support** requires SANE to be installed on your system:
+```
+sudo apt install libsane        # Debian/Ubuntu
+sudo pacman -S sane             # Arch
+```
+Or your distro's equivalent. The app launches fine without it — the Scan tab will show install instructions if SANE is missing.
+
 You can also clone the repo and build it yourself, instruction here: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 #### **🛡️ Unsigned Software Warning**
@@ -57,6 +64,12 @@ Since this is a free hobby project, I don't pay Apple or Microsoft ransom for th
 1.  Double click `.dmg` file & drag the app to `/Applications`.
 2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app` (this gets rid of the warning).
 3.  Launch it.
+
+**Scanner support** requires SANE via Homebrew:
+```
+brew install sane-backends
+```
+The app launches fine without it — the Scan tab will show this instruction if SANE is missing.
 
 **🪟 Windows**:
 1. Run the installer (ignore the warnings)

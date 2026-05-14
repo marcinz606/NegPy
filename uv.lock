@@ -287,6 +287,7 @@ dependencies = [
     { name = "numba" },
     { name = "numpy" },
     { name = "opencv-python-headless" },
+    { name = "pidng" },
     { name = "piexif" },
     { name = "pillow" },
     { name = "pyqt6" },
@@ -305,6 +306,9 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+scanner = [
+    { name = "python-sane" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -314,6 +318,7 @@ requires-dist = [
     { name = "numba", specifier = "==0.65.1" },
     { name = "numpy", specifier = "==2.4.4" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
+    { name = "pidng", specifier = ">=4.0.9" },
     { name = "piexif", specifier = "==1.1.3" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "pyqt6", specifier = "==6.11.0" },
@@ -332,6 +337,7 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
+scanner = [{ name = "python-sane", specifier = ">=2.8" }]
 
 [[package]]
 name = "numba"
@@ -442,6 +448,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/03/4f/2750f7f6f025a1507
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/16/12b82f791c7f50ddec566873d5bdd245baa1491bac11d15ffb98aecc8f8b/pefile-2024.8.26-py3-none-any.whl", hash = "sha256:76f8b485dcd3b1bb8166f1128d395fa3d87af26360c2358fb75b80019b957c6f", size = 74766, upload-time = "2024-08-26T21:01:02.632Z" },
 ]
+
+[[package]]
+name = "pidng"
+version = "4.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/65/2670c465c8a63a23eb3a5e5547262e247e1aa2d3889a0a6781da9109d5f7/pidng-4.0.9.tar.gz", hash = "sha256:560eb008086f8a715fd9e1ab998817a7d4c8500a7f161b9ce6af5ab27501f82c", size = 21907, upload-time = "2022-05-06T19:09:32.093Z" }
 
 [[package]]
 name = "piexif"
@@ -686,6 +701,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/b1/51/a849f96e117386044
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl", hash = "sha256:a0461110b7865f9a271aa1b51e516c9a95de9d696734a2f71e3e78f46e1d4678", size = 22876, upload-time = "2026-03-21T20:11:14.438Z" },
 ]
+
+[[package]]
+name = "python-sane"
+version = "2.9.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/e9/e8baff69fc2347606c547201204d4b4843c7ad8ecb9164eceee42016eff6/python_sane-2.9.2.tar.gz", hash = "sha256:50ab8e0b033cececad26c7231a7254f80ad8fe9ec6b5c25add2493d7e2a07bbe", size = 22513, upload-time = "2025-07-21T21:20:21.735Z" }
 
 [[package]]
 name = "pywin32-ctypes"

@@ -45,7 +45,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     
     let t_floor = vec2<i32>(floor(tile_pos));
     let t_ceil = t_floor + vec2<i32>(1, 1);
-    let frac = tile_pos - floor(tile_pos);
+    let raw_frac = tile_pos - floor(tile_pos);
+    let frac = raw_frac * raw_frac * (3.0 - 2.0 * raw_frac);
 
     let v00 = get_cdf_val(u32(max(t_floor.x, 0)), u32(max(t_floor.y, 0)), bin);
     let v10 = get_cdf_val(u32(min(t_ceil.x, 7)),  u32(max(t_floor.y, 0)), bin);
