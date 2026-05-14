@@ -1,22 +1,23 @@
 import os
-from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QPushButton,
-    QListView,
-    QFileDialog,
-    QHBoxLayout,
-    QGroupBox,
-    QButtonGroup,
-    QLabel,
-    QLineEdit,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
-)
-from PyQt6.QtCore import pyqtSignal, QSize, QTimer, QItemSelectionModel, Qt, QModelIndex
-from PyQt6.QtGui import QPainter, QPen, QColor
 
 import qtawesome as qta
+from PyQt6.QtCore import QItemSelectionModel, QModelIndex, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QPushButton,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -189,6 +190,7 @@ class FileBrowser(QWidget):
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.sync_btn.clicked.connect(self.session.sync_selected_settings)
         self.session.state_changed.connect(self.sync_ui)
+        self.session.files_changed.connect(self.sync_ui)
         self.sort_name_btn.clicked.connect(lambda: self._apply_sort_order("name"))
         self.sort_date_btn.clicked.connect(lambda: self._apply_sort_order("date"))
         self.sort_asc_btn.clicked.connect(lambda: self._apply_sort_direction(False))
@@ -309,12 +311,8 @@ class FileBrowser(QWidget):
             self.scan_timer.stop()
 
     def _update_hot_folder_style(self, checked: bool) -> None:
-        if checked:
-            self.hot_folder_btn.setStyleSheet(f"background-color: {THEME.accent_primary}; color: white; font-weight: bold;")
-            self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color="white"))
-        else:
-            self.hot_folder_btn.setStyleSheet("")
-            self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=THEME.text_primary))
+        icon_color = "white" if checked else THEME.text_primary
+        self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=icon_color))
 
     def _scan_folder(self) -> None:
         if not self.session.state.uploaded_files:

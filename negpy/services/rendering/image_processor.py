@@ -318,7 +318,9 @@ class ImageProcessor:
             if profile_selected:
                 p_src, p_dst = (profile_selected, profile_working) if inverse else (profile_working, profile_selected)
                 result = apply_icc_u16_greyscale(
-                    img_u16, p_src, p_dst,
+                    img_u16,
+                    p_src,
+                    p_dst,
                     ImageCms.Intent.RELATIVE_COLORIMETRIC,
                     ImageCms.Flags.BLACKPOINTCOMPENSATION,
                 )

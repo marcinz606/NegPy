@@ -194,6 +194,7 @@ class DesktopSessionManager(QObject):
     """
 
     state_changed = pyqtSignal()
+    files_changed = pyqtSignal()  # File list additions only — does not trigger sidebar sync
     history_changed = pyqtSignal()  # Emitted when undo/redo/persist happens
     settings_saved = pyqtSignal()
     settings_copied = pyqtSignal()
@@ -627,7 +628,7 @@ class DesktopSessionManager(QObject):
                     get_logger(__name__).error(f"Failed to add {path}: {e}")
 
         self.asset_model.refresh()
-        self.state_changed.emit()
+        self.files_changed.emit()
 
     def clear_files(self) -> None:
         """
