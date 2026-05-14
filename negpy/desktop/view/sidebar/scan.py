@@ -124,7 +124,7 @@ class ScanSidebar(QWidget):
         self.form.addRow("Folder", folder_row)
 
         self.pattern_edit = QLineEdit()
-        self.pattern_edit.setToolTip("Filename pattern. Supports {date} and {seq:03d}")
+        self.pattern_edit.setToolTip('Jinja2 template. Variables: {{ date }}, {{ seq }}.\nExample: {{ date }}_{{ "%03d" % seq }}')
         self.form.addRow("Filename", self.pattern_edit)
 
         layout.addLayout(self.form)
@@ -365,7 +365,7 @@ class ScanSidebar(QWidget):
             device_id=device.id,
             params=params,
             output_folder=output_folder,
-            filename_pattern=self.pattern_edit.text().strip() or "scan_{date}_{seq:03d}",
+            filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
             output_format=self.fmt_combo.currentText(),
         )
 
@@ -425,7 +425,7 @@ class ScanSidebar(QWidget):
             capture_ir=self.ir_check.isChecked() and self.ir_check.isEnabled(),
             output_folder=self.folder_edit.text().strip(),
             output_format=self.fmt_combo.currentText(),
-            filename_pattern=self.pattern_edit.text().strip() or "scan_{date}_{seq:03d}",
+            filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
         )
 
 

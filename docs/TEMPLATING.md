@@ -1,8 +1,12 @@
-# Export Filename Templating
+# Filename Templating
 
-NegPy uses **Jinja2** to allow dynamic naming of exported files. You can configure this pattern in the **Export** sidebar.
+NegPy uses **Jinja2** for dynamic file naming in both the **Export** and **Scan** sidebars.
 
-## Available Variables
+---
+
+## Export Sidebar
+
+### Available Variables
 
 | Variable | Description | Example Output |
 | :--- | :--- | :--- |
@@ -15,7 +19,7 @@ NegPy uses **Jinja2** to allow dynamic naming of exported files. You can configu
 | `{{ border }}` | Inserts "border" if width > 0, else empty. | `border` |
 | `{{ date }}` | Current date in YYYYMMDD format. | `20260125` |
 
-## Examples
+### Examples
 
 | Pattern | Result |
 | :--- | :--- |
@@ -24,13 +28,40 @@ NegPy uses **Jinja2** to allow dynamic naming of exported files. You can configu
 | `{{ original_name }}_{{ size }}_{{ dpi }}_{{ border }}` | `DSC0123_30cm_300dpi_border.jpg` |
 | `PRINT_{{ original_name }}_{{ paper_ratio }}` | `PRINT_DSC0123_3:2.jpg` |
 
+---
+
+## Scan Sidebar
+
+### Available Variables
+
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `{{ date }}` | Current date in YYYYMMDD format. | `20260125` |
+| `{{ seq }}` | Sequence number (integer, auto-incremented to avoid overwriting). | `1`, `2`, … |
+
+To zero-pad the sequence number use Python's `%` format operator: `{{ "%03d" % seq }}`.
+
+### Examples
+
+| Pattern | Result |
+| :--- | :--- |
+| `{{ date }}_{{ "%03d" % seq }}` | `20260125_001.tif` |
+| `roll_{{ date }}_{{ seq }}` | `roll_20260125_1.tif` |
+| `plustek_{{ date }}_{{ "%04d" % seq }}` | `plustek_20260125_0001.tif` |
+
+### Auto-increment
+
+The sequence starts at `1` for each scan session and increments automatically until a filename that does not yet exist on disk is found. Existing files are **never overwritten**.
+
+---
+
 ## Filename Cleanup
 
-NegPy cleans up the **structural separators** in the template (spaces, dashes, and underscores between variables), but leaves `{{ original_name }}` untouched:
-*   Separators between variables are collapsed into a **single underscore** (`_`).
-*   Leading or trailing separators around the whole filename are removed.
-*   `{{ original_name }}` is always inserted verbatim — dashes, spaces, and underscores in the original filename are preserved exactly.
-*   If a variable is empty (like `{{ border }}` when no border is set), it effectively disappears and the surrounding separators are cleaned up.
+Both sidebars apply the same separator cleanup to the rendered template:
+*   Spaces, dashes, and underscores between variables are collapsed into a **single underscore** (`_`).
+*   Leading or trailing separators are removed.
+*   If a variable is empty (like `{{ border }}` when no border is set), surrounding separators are cleaned up automatically.
+*   `{{ original_name }}` (export only) is always inserted verbatim — dashes, spaces, and underscores in the original filename are preserved exactly.
 
 **Example:**
 Pattern: `{{ original_name }} - {{ border }} - final`

@@ -11,7 +11,7 @@ class ScannerSettings:
     capture_ir: bool = False
     output_folder: str = ""
     output_format: str = "TIFF"
-    filename_pattern: str = "scan_{date}_{seq:03d}"
+    filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
 
     @classmethod
     def defaults(cls) -> "ScannerSettings":

@@ -133,41 +133,42 @@ class TestScannerServiceWithFakeBackend:
         assert devices == []
 
 
-class TestSequenceNumber:
-    def test_empty_folder_returns_1(self) -> None:
-        from negpy.services.scanning.service import _make_sequence_number
+class TestRenderScanFilename:
+    def test_basic_template(self) -> None:
+        from negpy.services.scanning.templating import render_scan_filename
 
+        result = render_scan_filename('{{ date }}_{{ "%03d" % seq }}', "20260511", 1)
+        assert result == "20260511_001"
+
+    def test_seq_increments(self) -> None:
+        from negpy.services.scanning.templating import render_scan_filename
+
+        assert render_scan_filename('{{ date }}_{{ "%03d" % seq }}', "20260511", 5) == "20260511_005"
+
+    def test_invalid_template_falls_back(self) -> None:
+        from negpy.services.scanning.templating import render_scan_filename
+
+        result = render_scan_filename("{{ unclosed", "20260511", 1)
+        assert result == "20260511_001"
+
+    def test_no_overwrite_increments(self) -> None:
         import tempfile
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            assert _make_sequence_number(tmpdir, "20260511") == 1
+        import numpy as np
 
-    def test_existing_files_increment(self) -> None:
-        from negpy.services.scanning.service import _make_sequence_number
+        from negpy.infrastructure.scanners.result import ScanResult
 
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            for i in range(1, 4):
-                open(os.path.join(tmpdir, f"scan_20260511_{i:03d}.tif"), "w").close()
-            assert _make_sequence_number(tmpdir, "20260511") == 4
-
-    def test_ignores_other_dates(self) -> None:
-        from negpy.services.scanning.service import _make_sequence_number
-
-        import tempfile
+        h, w = 10, 10
+        result = ScanResult(rgb=np.zeros((h, w, 3), dtype=np.uint16), ir=None, dpi=300, device_model="Test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            open(os.path.join(tmpdir, "scan_20260510_001.tif"), "w").close()
-            open(os.path.join(tmpdir, "scan_20260510_002.tif"), "w").close()
-            assert _make_sequence_number(tmpdir, "20260511") == 1
+            service = ScannerService()
+            service._backend = FakeBackend()
+            pattern = '{{ date }}_{{ "%03d" % seq }}'
 
-    def test_ignores_different_patterns(self) -> None:
-        from negpy.services.scanning.service import _make_sequence_number
+            path1 = service.write_result(result, tmpdir, pattern, "TIFF")
+            path2 = service.write_result(result, tmpdir, pattern, "TIFF")
 
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            open(os.path.join(tmpdir, "other_file.tif"), "w").close()
-            open(os.path.join(tmpdir, "scan_20260511_001.jpg"), "w").close()
-            assert _make_sequence_number(tmpdir, "20260511") == 1
+            assert os.path.exists(path1)
+            assert os.path.exists(path2)
+            assert path1 != path2

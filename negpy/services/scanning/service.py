@@ -1,5 +1,4 @@
 import os
-import re
 import threading
 from typing import Callable
 
@@ -8,29 +7,9 @@ from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.infrastructure.scanners.sane_backend import SaneBackend
 from negpy.kernel.system.logging import get_logger
+from negpy.services.scanning.templating import render_scan_filename
 
 logger = get_logger(__name__)
-
-
-def _make_sequence_number(folder: str, date: str) -> int:
-    """Find the next sequence number for a (folder, date) pair.
-
-    Scans existing files matching `scan_{date}_*.{tif,tiff,dng}` and returns max+1.
-    """
-    if not folder or not os.path.isdir(folder):
-        return 1
-    pattern = re.compile(rf"^scan_{re.escape(date)}_(\d+)\.(?:tiff?|dng)$", re.IGNORECASE)
-    max_seq = 0
-    try:
-        for entry in os.scandir(folder):
-            m = pattern.match(entry.name)
-            if m:
-                seq = int(m.group(1))
-                if seq > max_seq:
-                    max_seq = seq
-    except OSError:
-        pass
-    return max_seq + 1
 
 
 class ScannerService:
@@ -72,7 +51,7 @@ class ScannerService:
     ) -> str:
         """Write ScanResult to disk. Returns path to the RGB file.
 
-        Filename pattern supports {date} and {seq:03d} placeholders.
+        Filename pattern is a Jinja2 template with variables: date, seq.
         """
         from datetime import date as dt_date
 
@@ -81,16 +60,15 @@ class ScannerService:
         os.makedirs(output_folder, exist_ok=True)
 
         date_str = dt_date.today().strftime("%Y%m%d")
-        seq = _make_sequence_number(output_folder, date_str)
+        ext = ".dng" if output_format.upper() == "DNG" else ".tif"
 
-        # Replace placeholders
-        basename = filename_pattern
-        basename = basename.replace("{date}", date_str)
-        # Handle {seq:03d} and {seq}
-        basename = re.sub(r"\{seq:0?(\d+)d\}", lambda m: str(seq).zfill(int(m.group(1))), basename)
-        basename = basename.replace("{seq}", str(seq))
-
-        rgb_path = os.path.join(output_folder, basename)
+        seq = 1
+        while True:
+            basename = render_scan_filename(filename_pattern, date_str, seq)
+            rgb_path = os.path.join(output_folder, basename)
+            if not os.path.exists(rgb_path + ext):
+                break
+            seq += 1
 
         if output_format.upper() == "DNG":
             rgb_path = write_dng_linear(result, rgb_path)
