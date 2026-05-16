@@ -121,12 +121,13 @@ def package_linux():
         "libfreetype.so*",
         "libexpat.so*",
         # Must use host libsane so SANE can locate backend plugins in /usr/lib/sane/.
-        # Must also strip libusb so SANE backends (loaded by host libsane) use the
-        # host's libusb — a bundled Ubuntu libusb silently breaks USB device enumeration
-        # on other distros because LD_LIBRARY_PATH makes it take priority.
+        # libusb and libudev are transitive deps of libsane collected by PyInstaller;
+        # bundling Ubuntu versions causes SANE backends on other distros to silently
+        # find no USB devices (LD_LIBRARY_PATH serves wrong version first).
         "libsane.so*",
         "libusb-1.0.so*",
         "libusb-0.1.so*",
+        "libudev.so*",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:
@@ -144,6 +145,7 @@ def package_linux():
                         "gcc_s",
                         "wayland-",
                         "xkbcommon-",
+                        "usb-",   # libusb-1.0.so* — system USB lib, not a wheel
                     ]
                     if "-" in basename and not any(p in basename for p in system_prefixes):
                         continue
