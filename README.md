@@ -53,7 +53,7 @@ I provide an `.AppImage`. Make it executable using `chmod +x` and It should just
 sudo apt install libsane        # Debian/Ubuntu
 sudo pacman -S sane             # Arch
 ```
-Or your distro's equivalent. The app launches fine without it — the Scan tab will show install instructions if SANE is missing.
+Or your distro's equivalent. The app launches fine without so you can ignore that if you don't plan to use a scanner.
 
 You can also clone the repo and build it yourself, instruction here: [CONTRIBUTING.md](CONTRIBUTING.md)
 
@@ -65,11 +65,11 @@ Since this is a free hobby project, I don't pay Apple or Microsoft ransom for th
 2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app` (this gets rid of the warning).
 3.  Launch it.
 
-**Scanner support** requires SANE via Homebrew:
+**Scanner support** requires SANE via [Homebrew](https://brew.sh/):
 ```
 brew install sane-backends
 ```
-The app launches fine without it — the Scan tab will show this instruction if SANE is missing.
+The app launches fine without so you can ignore that if you don't plan to use a scanner.
 
 **🪟 Windows**:
 1. Run the installer (ignore the warnings)

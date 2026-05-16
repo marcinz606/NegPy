@@ -7,7 +7,7 @@ from fractions import Fraction
 from typing import Optional
 
 import piexif
-from PIL import Image
+import tifffile
 
 from negpy.features.metadata.models import MetadataConfig
 
@@ -167,9 +167,148 @@ def embed_metadata(
         if image_bytes[:2] == b"\xff\xd8":
             piexif.insert(exif_bytes, image_bytes, output)
         else:
-            img = Image.open(io.BytesIO(image_bytes))
-            img.save(output, format="TIFF", exif=exif_bytes)
+            _rewrite_tiff_with_metadata(image_bytes, exif_bytes, output)
         return output.getvalue()
     except Exception:
         _log.warning("metadata embed failed", exc_info=True)
         return image_bytes
+
+
+# TIFF type codes we know how to map onto tifffile extratags.
+_TIFF_TYPE_SCALAR = {3, 4, 8, 9}  # SHORT, LONG, SSHORT, SLONG
+_TIFF_TYPE_RATIONAL = {5, 10}  # RATIONAL, SRATIONAL
+
+# Tags tifffile owns. TAG_FILTERED covers the core image IFD (and the EXIF/GPS
+# sub-IFD pointers, conveniently); the rest correspond to tifffile.imwrite
+# kwargs we already pass (description, resolution, software, iccprofile).
+_TIFFFILE_RESERVED_TAGS: set[int] = set(tifffile.TIFF.TAG_FILTERED) | {270, 282, 283, 296, 305, 34675}
+
+
+def _decode_ascii(value: object) -> str | None:
+    if isinstance(value, bytes):
+        return value.rstrip(b"\x00").decode("ascii", "replace")
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _exif_bytes_to_extratags(exif_bytes: bytes) -> tuple[str | None, list[tuple]]:
+    """Flatten a piexif EXIF block into ``(description, extratags)`` for tifffile.
+
+    EXIF/GPS sub-IFD entries are hoisted into the main IFD because tifffile
+    has no API for writing sub-IFDs, and PIL's own ``exif=`` path is broken
+    for TIFF (see ``_rewrite_tiff_with_metadata``). The description is split
+    out so it can be passed via ``description=`` instead of ``extratags``.
+    """
+    exif_dict = piexif.load(exif_bytes)
+    description = _decode_ascii(exif_dict.get("0th", {}).get(piexif.ImageIFD.ImageDescription))
+
+    extratags: list[tuple] = []
+    for ifd_name in ("0th", "Exif", "GPS"):
+        ifd_data = exif_dict.get(ifd_name) or {}
+        type_table = piexif.TAGS.get(ifd_name, {})
+        for tag, value in ifd_data.items():
+            if tag in _TIFFFILE_RESERVED_TAGS:
+                continue
+            tag_info = type_table.get(tag)
+            if not tag_info:
+                continue
+            entry = _build_extratag(tag, tag_info["type"], value)
+            if entry is not None:
+                extratags.append(entry)
+
+    return description, extratags
+
+
+def _build_extratag(tag: int, ttype: int, value: object) -> tuple | None:
+    """Coerce a piexif value into a tifffile extratag tuple, or None if untranslatable."""
+    if ttype == 2:  # ASCII
+        text = _decode_ascii(value)
+        if text is None:
+            return None
+        return (tag, ttype, 0, text, True)  # count=0: tifffile sizes ASCII itself
+
+    if ttype in (1, 7):  # BYTE, UNDEFINED
+        if not isinstance(value, (bytes, bytearray)):
+            return None
+        return (tag, ttype, len(value), bytes(value), True)
+
+    if ttype in _TIFF_TYPE_SCALAR:
+        if isinstance(value, int):
+            return (tag, ttype, 1, value, True)
+        if isinstance(value, (list, tuple)) and all(isinstance(v, int) for v in value):
+            return (tag, ttype, len(value), value, True)
+        return None
+
+    if ttype in _TIFF_TYPE_RATIONAL:
+        if isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, int) for v in value):
+            return (tag, ttype, 1, value, True)
+        if isinstance(value, (list, tuple)) and all(isinstance(v, tuple) and len(v) == 2 for v in value):
+            # tifffile internally doubles count for RATIONAL and unpacks `*value`,
+            # so multi-element values must be a flat sequence of ints.
+            flat = [n for pair in value for n in pair]
+            return (tag, ttype, len(value), flat, True)
+        return None
+
+    return None
+
+
+def _rewrite_tiff_with_metadata(image_bytes: bytes, exif_bytes: bytes, output: io.BytesIO) -> None:
+    """Re-encode a TIFF with EXIF metadata via tifffile.
+
+    PIL's ``img.save(format="TIFF", exif=...)`` path is doubly unusable here:
+    it writes the EXIF sub-IFD pointer as a dict-coerced LONG8 which libtiff
+    rejects with ``_TIFFVSetField: Bad LONG8 ... EXIFIFDOffset``, and it has
+    no 16-bit RGB mode so it would silently downconvert the image to 8-bit.
+    Round-tripping through tifffile preserves the pixel data; EXIF tags are
+    folded into the main IFD via ``extratags``.
+    """
+    with tifffile.TiffFile(io.BytesIO(image_bytes)) as tf:
+        page = tf.pages[0]
+        arr = page.asarray()
+        photometric = page.photometric.name.lower()
+        compression = page.compression.name.lower() if int(page.compression) != 1 else None
+        icc = page.iccprofile
+
+    description, extratags = _exif_bytes_to_extratags(exif_bytes)
+    description = _fold_user_comment_into_description(description, extratags)
+
+    tifffile.imwrite(
+        output,
+        arr,
+        photometric=photometric,
+        compression=compression,
+        iccprofile=icc,
+        description=description or "",
+        metadata=None,
+        extratags=extratags,
+    )
+
+
+def _fold_user_comment_into_description(description: str | None, extratags: list[tuple]) -> str | None:
+    """Mirror UserComment into ImageDescription for TIFF output.
+
+    UserComment lives in the EXIF sub-IFD on JPEG, but tifffile can only emit
+    it as a main-IFD tag — and most TIFF readers (macOS Preview, Lightroom)
+    don't expose UNDEFINED main-IFD tags. Folding the text into description
+    keeps every custom field (film, format, developer, push/pull) visible.
+    """
+    uc_text: str | None = None
+    for entry in extratags:
+        tag, _ttype, _count, value, _ = entry
+        if tag != piexif.ExifIFD.UserComment or not isinstance(value, (bytes, bytearray)):
+            continue
+        raw = bytes(value)
+        # EXIF spec: 8-byte character-code prefix + payload. We only decode
+        # ASCII; UNICODE (UTF-16-LE) and JIS would garble under ASCII decode.
+        if raw[:8] == b"ASCII\x00\x00\x00":
+            uc_text = raw[8:].decode("ascii", "replace").rstrip("\x00").strip()
+        break
+
+    if not uc_text:
+        return description
+    if not description or description in uc_text:
+        return uc_text
+    if uc_text in description:
+        return description
+    return f"{description}\n{uc_text}"

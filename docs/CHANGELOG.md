@@ -1,5 +1,17 @@
 # Change Log
 
+  ## 0.21.0
+
+  - Added initial **Scanner support** on Linux and macOS: new Scan tab — select a SANE-compatible scanner, choose resolution, bit depth, output format, and filename template; scanned files auto-load into the session. This is initial implementation, tested with Plustek 8100 on Arch Linux and latest macOS. As it often is with (old in most cases of film scanners) hardware support i cannot guarantee that it will support your scanner. **IMPORTANT: check [README.md](README.md) for information about SANE dependencies. **IMPORTANT**
+  - Added **Lock Bounds** button in the Process section — freeze normalization bounds so cropping and re-analysis don't overwrite them; useful for locking in exposure after initial analysis.
+  - Added **Copy/Paste Bounds** between files — transfer normalization bounds from one file to another (**CTRL+Shift+C** -> CTRL+V).
+  - **Canvas zoom**: pinch-to-zoom gesture support; smooth trackpad scrolling; increased min/max zoom bounds. @reederphill
+  - Fix: TIFF export with ICC profile applied produced 8-bit tiffs.
+  - Fix: Custom metadata not written correctly in tiffs.
+  - Fix: Hot folder mode caused session UI debouncing lag.
+  - Docs: More detailed [USER_GUIDE.md](docs/USER_GUIDE.md)
+
+
 ## 0.20.0
 
 - Added **filtering** options to film strip - details in [FILTERING.md](docs/FILTERING.md)
