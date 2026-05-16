@@ -56,9 +56,6 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
-      - name: Install Dependencies
-        run: uv sync --all-groups
-
       - name: Install System Dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -81,6 +78,14 @@ jobs:
             echo "Found NSIS at: $nsisPath"
             echo "$nsisPath" >> $GITHUB_PATH
           }
+
+      - name: Install Dependencies (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: uv sync --all-groups
+
+      - name: Install Dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        run: uv sync --no-group scanner
 
       - name: Set Version
         shell: bash
