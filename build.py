@@ -120,8 +120,13 @@ def package_linux():
         "libfontconfig.so*",
         "libfreetype.so*",
         "libexpat.so*",
-        # Must use host libsane so SANE can locate backend plugins in /usr/lib/sane/
+        # Must use host libsane so SANE can locate backend plugins in /usr/lib/sane/.
+        # Must also strip libusb so SANE backends (loaded by host libsane) use the
+        # host's libusb — a bundled Ubuntu libusb silently breaks USB device enumeration
+        # on other distros because LD_LIBRARY_PATH makes it take priority.
         "libsane.so*",
+        "libusb-1.0.so*",
+        "libusb-0.1.so*",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:
