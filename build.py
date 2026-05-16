@@ -128,6 +128,10 @@ def package_linux():
         "libusb-1.0.so*",
         "libusb-0.1.so*",
         "libudev.so*",
+        # The unmangled libjpeg.so.8 collected by PyInstaller lacks jpeg12_* symbols.
+        # System libtiff (loaded by genesys SANE backend) needs the full libjpeg.
+        # Mangled wheel copies (libjpeg-HASH.so.8) are protected by the '-' safety check.
+        "libjpeg.so*",
     ]
     print("De-bundling system libraries from AppDir...")
     for pattern in libs_to_remove:
