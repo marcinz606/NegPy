@@ -344,8 +344,10 @@ class ScanSidebar(QWidget):
 
         output_folder = self.folder_edit.text().strip()
         if not output_folder:
-            self.status_label.setText("Select an output folder.")
-            return
+            self._on_browse()
+            output_folder = self.folder_edit.text().strip()
+            if not output_folder:
+                return
 
         # Build ScanRequest
         from negpy.desktop.workers.scan_worker import ScanRequest

@@ -37,10 +37,32 @@ def _resolve_install_hint() -> str:
     return "Scanner support is not available on this platform."
 
 
+def _preload_libsane() -> None:
+    """Load libsane.so.1 globally before the _sane C extension is dlopened.
+
+    AppImages set LD_LIBRARY_PATH to their own _internal/ dir. Without this,
+    the dynamic linker may fail to find the host's libsane.so.1 when resolving
+    _sane.so's DT_NEEDED entries, even though ldconfig knows where it is.
+    Loading it explicitly with RTLD_GLOBAL puts it in the process symbol table
+    first so _sane.so can bind to it correctly.
+    """
+    import ctypes
+    import ctypes.util
+
+    name = ctypes.util.find_library("sane") or "libsane.so.1"
+    try:
+        ctypes.CDLL(name, mode=ctypes.RTLD_GLOBAL)
+        logger.debug(f"preloaded {name}")
+    except OSError as e:
+        logger.warning(f"could not preload libsane ({name}): {e}")
+
+
 class SaneBackend:
     """python-sane implementation of ScannerBackend. Only module that imports `sane`."""
 
     def __init__(self) -> None:
+        if sys.platform.startswith("linux"):
+            _preload_libsane()
         try:
             import sane  # noqa: F811
         except ImportError:

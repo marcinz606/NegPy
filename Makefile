@@ -65,6 +65,7 @@ run:
 .PHONY: build
 build:
 	@echo "Building NegPy..."
+	rm -rf dist/
 	@$(UV) python build.py
 
 # Clean up caches and build artifacts
