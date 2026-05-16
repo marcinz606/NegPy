@@ -62,6 +62,7 @@ class SaneBackend:
                 return []
 
         raw_devices = self._sane.get_devices()
+        logger.info(f"SANE found {len(raw_devices)} raw device(s): {[r[0] for r in raw_devices]}")
         devices: list[ScannerDevice] = []
         for raw in raw_devices:
             try:
@@ -77,6 +78,8 @@ class SaneBackend:
                             capabilities=caps,
                         )
                     )
+                else:
+                    logger.warning(f"Device {raw[0]} has no recognised film sources — skipping")
             except Exception as e:
                 logger.warning(f"Could not probe device {raw[0]}: {e}")
 

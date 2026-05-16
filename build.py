@@ -51,7 +51,7 @@ params = [
     # libsane.so.1 must come from the host so SANE can find its backend plugins
     # in /usr/lib/sane/. See libs_to_remove in package_linux().
     # Requires: uv sync --group scanner before building on Linux/macOS.
-    *([] if is_windows else ["--hidden-import=sane"]),
+    *([] if is_windows else ["--hidden-import=sane", "--hidden-import=_sane"]),
     # Exclude unused modules
     # Metadata
     "--copy-metadata=imageio",
