@@ -79,9 +79,13 @@ jobs:
             echo "$nsisPath" >> $GITHUB_PATH
           }
 
-      - name: Install Dependencies (Linux/macOS)
-        if: matrix.os != 'windows-latest'
+      - name: Install Dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
         run: uv sync --all-groups
+
+      - name: Install Dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: CFLAGS="-I$(brew --prefix)/include" uv sync --all-groups
 
       - name: Install Dependencies (Windows)
         if: matrix.os == 'windows-latest'
