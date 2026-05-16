@@ -13,28 +13,18 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you hav
 
 - **Linux** (Debian/Ubuntu):
   ```bash
-  sudo apt install libsane-dev
-  ```
-  After installation, add your user to the `scanner` group and reload udev:
-  ```bash
-  sudo usermod -a -G scanner $USER
-  sudo udevadm control --reload-rules && sudo udevadm trigger
-  ```
-  Log out and back in for group changes to take effect. Verify with:
-  ```bash
-  scanimage -L
+  sudo pacman -S sane  # arch
+  sudo apt install libsane-dev  # debian/ubuntu
   ```
 
 - **macOS**:
   ```bash
   brew install sane-backends
   ```
-  Verify with `scanimage -L`. If no scanner is found:
-  - Quit Image Capture.app and Preview.app (they may hold a USB claim via ICA).
-  - On Apple Silicon, ensure brew is installed at `/opt/homebrew` (arm64).
-  - First connection may trigger a macOS USB permission prompt.
 
-- **Windows**: Scanner support is not available on Windows (SANE is Linux/macOS only). Use VueScan / SilverFast / vendor tools to scan, then load the resulting TIFF/DNG via the Files tab.
+- **Windows**: 
+Scanner support is not yet available on windows.
+
 
 ### 2. Python Environment
 The `Makefile` handles synchronization via `uv`. Run this to set up your environment:
