@@ -11,6 +11,6 @@ class ScanMode(StrEnum):
 @dataclass(frozen=True)
 class ScanParams:
     dpi: int
-    depth: int  # 8 or 16
-    capture_ir: bool  # ignored if device cap.ir_channel is False
-    area: tuple[float, float, float, float] | None = None  # (tl_x, tl_y, br_x, br_y) in mm; None = device default frame
+    depth: int
+    capture_ir: bool
+    area: tuple[float, float, float, float] | None = None

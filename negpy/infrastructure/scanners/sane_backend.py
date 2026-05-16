@@ -11,7 +11,6 @@ from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Map SANE source strings to ScanMode (case-insensitive on stripped source).
 _SOURCE_MAP: dict[str, ScanMode] = {
     "negative": ScanMode.NEGATIVE,
     "negative film": ScanMode.NEGATIVE,
@@ -201,7 +200,6 @@ class SaneBackend:
                     logger.warning(f"IR scan failed, continuing without IR: {e}")
                     ir_array = None
 
-            # Emit done progress
             if progress:
                 try:
                     progress(1.0)
@@ -233,7 +231,6 @@ class SaneBackend:
         """Read dev.opt to build ScannerCapabilities."""
         opt = dev.opt if hasattr(dev, "opt") else {}
 
-        # DPI detection
         dpi = ()
         if "resolution" in opt:
             constraint = opt["resolution"].constraint
@@ -248,14 +245,12 @@ class SaneBackend:
                 if not dpi:
                     dpi = tuple(CANONICAL_DPI_STOPS)
 
-        # Depth detection
         depth = (8, 16)
         if "depth" in opt:
             constraint = opt["depth"].constraint
             if isinstance(constraint, (list, tuple)):
                 depth = tuple(sorted(int(d) for d in constraint))
 
-        # Source detection
         sources: tuple[ScanMode, ...] = ()
         if "source" in opt:
             constraint = opt["source"].constraint
@@ -263,7 +258,6 @@ class SaneBackend:
                 modes: set[ScanMode] = set()
                 for s in constraint:
                     s_stripped = str(s).strip().lower()
-                    # Also try without trailing parentheticals (e.g. "Transparency (IR)")
                     if "(" in s_stripped:
                         s_base = s_stripped.split("(")[0].strip()
                     else:
@@ -273,7 +267,6 @@ class SaneBackend:
                         modes.add(mode)
                 sources = tuple(sorted(modes, key=lambda m: list(ScanMode).index(m)))
 
-        # IR detection
         ir_channel = False
         for key in opt:
             key_lower = str(key).lower()
@@ -281,7 +274,6 @@ class SaneBackend:
                 ir_channel = True
                 break
 
-        # Max area detection
         max_area = (36.0, 25.0)  # default 35mm frame
         br_x = -1.0
         br_y = -1.0

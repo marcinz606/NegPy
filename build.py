@@ -56,7 +56,6 @@ params = [
     # Metadata
     "--copy-metadata=imageio",
     "--copy-metadata=rawpy",
-    # Collect all for complex binary packages
     "--collect-all=wgpu",
     "--collect-all=rawpy",
     "--collect-all=imageio",
@@ -128,9 +127,6 @@ def package_linux():
         "libusb-1.0.so*",
         "libusb-0.1.so*",
         "libudev.so*",
-        # The unmangled libjpeg.so.8 collected by PyInstaller lacks jpeg12_* symbols.
-        # System libtiff (loaded by genesys SANE backend) needs the full libjpeg.
-        # Mangled wheel copies (libjpeg-HASH.so.8) are protected by the '-' safety check.
         "libjpeg.so*",
     ]
     print("De-bundling system libraries from AppDir...")
@@ -149,7 +145,7 @@ def package_linux():
                         "gcc_s",
                         "wayland-",
                         "xkbcommon-",
-                        "usb-",   # libusb-1.0.so* — system USB lib, not a wheel
+                        "usb-",  # libusb-1.0.so* — system USB lib, not a wheel
                     ]
                     if "-" in basename and not any(p in basename for p in system_prefixes):
                         continue
