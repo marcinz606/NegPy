@@ -9,6 +9,7 @@
   - Fix: TIFF export with ICC profile applied produced 8-bit tiffs.
   - Fix: Custom metadata not written correctly in tiffs.
   - Fix: Hot folder mode caused session UI debouncing lag.
+  - Fix: **Saturation** slider above 1.0 darkened already-saturated reds/blues. Saturation now scales chroma in CIELAB, preserving perceived lightness (matches Vibrance behavior). (#193)
   - Docs: More detailed [USER_GUIDE.md](docs/USER_GUIDE.md)
 
 

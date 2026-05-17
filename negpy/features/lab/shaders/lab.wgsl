@@ -241,11 +241,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = lab_to_rgb(lab);
     }
 
-    // 4. Global Saturation
+    // 4. Global Saturation (CIELAB chroma scaling — preserves L*)
     if (params.saturation != 1.0) {
-        var hsv = rgb_to_hsv(color);
-        hsv.y = clamp(hsv.y * params.saturation, 0.0, 1.0);
-        color = hsv_to_rgb(hsv);
+        var lab = rgb_to_lab(color);
+        lab.y = lab.y * params.saturation;
+        lab.z = lab.z * params.saturation;
+        color = lab_to_rgb(lab);
     }
 
     // 5. Sharpening

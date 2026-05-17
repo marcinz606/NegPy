@@ -46,29 +46,50 @@ class TestLabLogic(unittest.TestCase):
         self.assertGreater(np.var(res), np.var(img))
 
     def test_saturation(self) -> None:
-        """Saturation should modify color intensity."""
-        # Pure Red (H=0, S=1, V=1)
+        """Saturation scales chroma in CIELAB — preserves L*, no V-style darkening."""
+        # Pure Red (1, 0, 0). L* ≈ 53.
         img = np.zeros((10, 10, 3), dtype=np.float32)
         img[:, :, 0] = 1.0
+        l_input = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)[0, 0, 0]
 
-        # Reduce saturation to 0 (Greyscale)
+        # Desaturate fully → mid-gray (R≈G≈B) at the same L*.
         desat = apply_saturation(img, 0.0)
+        r, g, b = float(desat[0, 0, 0]), float(desat[0, 0, 1]), float(desat[0, 0, 2])
+        self.assertAlmostEqual(r, g, delta=1e-3)
+        self.assertAlmostEqual(g, b, delta=1e-3)
+        # Pure red has L* ≈ 53 → sRGB gray ≈ 0.5, NOT white.
+        self.assertLess(r, 0.7)
+        self.assertGreater(r, 0.3)
+        l_desat = cv2.cvtColor(desat, cv2.COLOR_RGB2LAB)[0, 0, 0]
+        self.assertAlmostEqual(float(l_desat), float(l_input), delta=1.0)
 
-        # Desaturated pure primary should result in high value (white in this context for HSV)
-        self.assertAlmostEqual(desat[0, 0, 0], 1.0)
-        self.assertAlmostEqual(desat[0, 0, 1], 1.0)
-        self.assertAlmostEqual(desat[0, 0, 2], 1.0)
-
-        # Increase saturation of a pale color
-        # Pale Red: R=1.0, G=0.5, B=0.5
+        # Saturate pale red (0.8, 0.5, 0.5) × 2.0 → still red-dominant, L* preserved
+        # (in-gamut input chosen so the result doesn't hit per-channel sRGB clip).
         img2 = np.ones((10, 10, 3), dtype=np.float32) * 0.5
-        img2[:, :, 0] = 1.0
+        img2[:, :, 0] = 0.8
+        l_input2 = cv2.cvtColor(img2, cv2.COLOR_RGB2LAB)[0, 0, 0]
 
         sat = apply_saturation(img2, 2.0)
-        # S should become 1.0 -> Pure Red
-        self.assertAlmostEqual(sat[0, 0, 0], 1.0, delta=1e-5)
-        self.assertAlmostEqual(sat[0, 0, 1], 0.0, delta=1e-5)
-        self.assertAlmostEqual(sat[0, 0, 2], 0.0, delta=1e-5)
+        r2, g2, b2 = float(sat[0, 0, 0]), float(sat[0, 0, 1]), float(sat[0, 0, 2])
+        self.assertGreater(r2, g2)
+        self.assertGreater(r2, b2)
+        l_sat = cv2.cvtColor(sat, cv2.COLOR_RGB2LAB)[0, 0, 0]
+        self.assertAlmostEqual(float(l_sat), float(l_input2), delta=2.0)
+
+    def test_saturation_does_not_darken_saturated_red(self) -> None:
+        """Regression for #193: boosting saturation must not drop perceived lightness L*."""
+        img = np.zeros((10, 10, 3), dtype=np.float32)
+        img[:, :, 0] = 0.9
+        img[:, :, 1] = 0.15
+        img[:, :, 2] = 0.1
+
+        l_in = float(cv2.cvtColor(img, cv2.COLOR_RGB2LAB)[0, 0, 0])
+        boosted = apply_saturation(img, 1.5)
+        l_out = float(cv2.cvtColor(boosted, cv2.COLOR_RGB2LAB)[0, 0, 0])
+
+        # L* must be preserved (or higher after gamut clip pushes toward pure red).
+        # HSV path would have dropped L* below input by clamping S=1 with V fixed.
+        self.assertGreaterEqual(l_out, l_in - 1.0)
 
     def test_vibrance(self) -> None:
         """Vibrance should increase saturation of pale colors more than vibrant ones."""

@@ -110,17 +110,20 @@ def apply_output_sharpening(img: ImageBuffer, amount: float, scale_factor: float
 
 def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
     """
-    Adjusts saturation via HSV space.
+    Adjusts saturation by scaling chroma (a*, b*) in CIELAB.
+    Preserves perceived lightness, unlike HSV S-scaling which darkens
+    already-saturated colors when S clips to 1.0.
     """
     if saturation == 1.0:
         return img
 
-    hsv = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2HSV)
-    hsv[:, :, 1] = hsv[:, :, 1] * saturation
-    hsv[:, :, 1] = np.clip(hsv[:, :, 1], 0.0, 1.0)
-
-    res = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
-    return ensure_image(np.clip(res, 0.0, 1.0))
+    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    l_chan, a, b = cv2.split(lab)
+    a_new = a * saturation
+    b_new = b * saturation
+    res_lab = cv2.merge([l_chan, a_new, b_new])
+    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
+    return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 
 def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 1.0) -> ImageBuffer:
