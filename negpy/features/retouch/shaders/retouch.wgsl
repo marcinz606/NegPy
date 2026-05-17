@@ -6,6 +6,9 @@ struct RetouchUniforms {
     global_offset: vec2<i32>,
     full_dims: vec2<i32>,
     scale_factor: f32,
+    ir_enabled: u32,
+    ir_threshold: f32,
+    ir_inpaint_radius: f32,
 };
 
 struct ManualSpot {
@@ -18,6 +21,7 @@ struct ManualSpot {
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: RetouchUniforms;
 @group(0) @binding(3) var<storage, read> manual_spots: array<ManualSpot>;
+@group(0) @binding(4) var ir_tex: texture_2d<f32>;
 
 fn hash(p: vec2<f32>) -> f32 {
     var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
@@ -221,6 +225,39 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
             let grain = get_noise(global_uv * 1000.0) * 0.003 * (4.0 * mean * (1.0 - mean));
             res = mix(original, healed_val + vec3<f32>(grain), feather);
+        }
+    }
+
+    if (params.ir_enabled == 1u) {
+        let ir_val = textureLoad(ir_tex, coords, 0).r;
+        var masked = ir_val < params.ir_threshold;
+        if (masked) {
+            let ir_scale = max(1.0, params.scale_factor);
+            let ir_p_rad = i32(max(2.0, params.ir_inpaint_radius * ir_scale));
+            var ir_sr = array<f32, 8>(); var ir_sg = array<f32, 8>(); var ir_sb = array<f32, 8>(); var ir_sl = array<f32, 8>();
+            let ir_dxs = array<i32, 8>(-ir_p_rad, ir_p_rad, 0, 0, -ir_p_rad, -ir_p_rad, ir_p_rad, ir_p_rad);
+            let ir_dys = array<i32, 8>(0, 0, -ir_p_rad, ir_p_rad, -ir_p_rad, ir_p_rad, -ir_p_rad, ir_p_rad);
+            for (var i = 0; i < 8; i++) {
+                let sc = clamp(coords + vec2<i32>(ir_dxs[i], ir_dys[i]), vec2<i32>(0), idims - 1);
+                let pix = textureLoad(input_tex, sc, 0).rgb;
+                ir_sr[i] = pix.r; ir_sg[i] = pix.g; ir_sb[i] = pix.b;
+                ir_sl[i] = dot(pix, vec3<f32>(0.2126, 0.7152, 0.0722));
+            }
+            for (var i = 0; i < 7; i++) {
+                for (var j = i + 1; j < 8; j++) {
+                    if (ir_sl[i] > ir_sl[j]) {
+                        let tl = ir_sl[i]; ir_sl[i] = ir_sl[j]; ir_sl[j] = tl;
+                        let tr = ir_sr[i]; ir_sr[i] = ir_sr[j]; ir_sr[j] = tr;
+                        let tg = ir_sg[i]; ir_sg[i] = ir_sg[j]; ir_sg[j] = tg;
+                        let tb = ir_sb[i]; ir_sb[i] = ir_sb[j]; ir_sb[j] = tb;
+                    }
+                }
+            }
+            res = vec3<f32>(
+                (ir_sr[2] + ir_sr[3] + ir_sr[4] + ir_sr[5]) / 4.0,
+                (ir_sg[2] + ir_sg[3] + ir_sg[4] + ir_sg[5]) / 4.0,
+                (ir_sb[2] + ir_sb[3] + ir_sb[4] + ir_sb[5]) / 4.0,
+            );
         }
     }
 

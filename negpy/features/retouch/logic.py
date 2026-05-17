@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from numba import njit  # type: ignore
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from negpy.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.image.logic import get_luminance
@@ -150,6 +150,55 @@ def _apply_inpainting_grain_jit(
     return res
 
 
+def _inpaint_with_mask(img: ImageBuffer, mask_u8: np.ndarray, inpaint_rad: int) -> ImageBuffer:
+    """Telea inpaint + grain restoration. Shared by manual_spots and IR paths."""
+    rad = max(1, inpaint_rad) | 1
+    img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
+    img_inpainted_u8 = ensure_image(cv2.inpaint(img_u8, mask_u8, rad, cv2.INPAINT_TELEA))
+
+    noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
+    mask_base = mask_u8.astype(np.float32) / 255.0
+    mask_blur = cv2.GaussianBlur(mask_base, (rad, rad), 0)
+    if mask_blur.ndim == 2:
+        mask_final = mask_blur[:, :, None].astype(np.float32)
+    else:
+        mask_final = mask_blur.astype(np.float32)
+
+    return ensure_image(
+        _apply_inpainting_grain_jit(
+            np.ascontiguousarray(img.astype(np.float32)),
+            np.ascontiguousarray(img_inpainted_u8.astype(np.float32)),
+            np.ascontiguousarray(mask_final.astype(np.float32)),
+            np.ascontiguousarray(noise_arr.astype(np.float32)),
+        )
+    )
+
+
+def apply_ir_dust_removal(
+    img: ImageBuffer,
+    ir: np.ndarray,
+    threshold: float,
+    inpaint_radius: int,
+    scale_factor: float,
+) -> Tuple[ImageBuffer, np.ndarray]:
+    """Threshold IR → Telea inpaint.
+
+    Returns (img_out, mask_u8). IR convention: dye = high IR transmittance,
+    physical defects = low transmittance, so `ir < threshold` marks defects.
+    Mask must be in the same frame as `img` (i.e. post-geometry).
+    """
+    if ir.shape[:2] != img.shape[:2]:
+        return img, np.zeros(img.shape[:2], dtype=np.uint8)
+
+    mask = ((ir < threshold).astype(np.uint8)) * 255
+
+    if not np.any(mask):
+        return img, mask
+
+    rad = max(1, int(inpaint_radius * scale_factor))
+    return _inpaint_with_mask(img, mask, rad), mask
+
+
 def apply_dust_removal(
     img: ImageBuffer,
     dust_remove: bool,
@@ -157,8 +206,14 @@ def apply_dust_removal(
     dust_size: int,
     manual_spots: List[Tuple[float, float, float]],
     scale_factor: float,
+    ir_buffer: Optional[np.ndarray] = None,
+    ir_dust_remove: bool = False,
+    ir_threshold: float = 0.55,
+    ir_inpaint_radius: int = 3,
 ) -> ImageBuffer:
-    if not (dust_remove or manual_spots):
+    """Composite dust removal: luminance-auto → IR → manual spots."""
+    do_ir = ir_dust_remove and ir_buffer is not None
+    if not (dust_remove or manual_spots or do_ir):
         return img
 
     if dust_remove:
@@ -182,6 +237,15 @@ def apply_dust_removal(
             float(scale_factor),
         )
 
+    if do_ir and ir_buffer is not None:
+        img, _ = apply_ir_dust_removal(
+            img,
+            ir_buffer,
+            ir_threshold,
+            ir_inpaint_radius,
+            scale_factor,
+        )
+
     if manual_spots:
         h_img, w_img = img.shape[:2]
         manual_mask_u8 = np.zeros((h_img, w_img), dtype=np.uint8)
@@ -190,22 +254,7 @@ def apply_dust_removal(
             radius = int(max(1, s_size * scale_factor))
             cv2.circle(manual_mask_u8, (int(nx * w_img), int(ny * h_img)), radius, 255, -1)
 
-        img_u8 = np.clip(np.nan_to_num(img * 255), 0, 255).astype(np.uint8)
-        inpaint_rad = int(3 * scale_factor) | 1
-        img_inpainted_u8 = ensure_image(cv2.inpaint(img_u8, manual_mask_u8, inpaint_rad, cv2.INPAINT_TELEA))
-
-        noise_arr = np.random.normal(0, 3.5, img_inpainted_u8.shape).astype(np.float32)
-        mask_base = manual_mask_u8.astype(np.float32) / 255.0
-        mask_blur = cv2.GaussianBlur(mask_base[:, :, None], (inpaint_rad | 1, inpaint_rad | 1), 0)
-        mask_final = (mask_blur[:, :, None] if mask_blur.ndim == 2 else mask_blur).astype(np.float32)
-
-        img = ensure_image(
-            _apply_inpainting_grain_jit(
-                np.ascontiguousarray(img.astype(np.float32)),
-                np.ascontiguousarray(img_inpainted_u8.astype(np.float32)),
-                np.ascontiguousarray(mask_final.astype(np.float32)),
-                np.ascontiguousarray(noise_arr.astype(np.float32)),
-            )
-        )
+        inpaint_rad = int(3 * scale_factor)
+        img = _inpaint_with_mask(img, manual_mask_u8, inpaint_rad)
 
     return ensure_image(img)

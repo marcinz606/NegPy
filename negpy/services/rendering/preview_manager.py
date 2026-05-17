@@ -50,6 +50,7 @@ class PreviewManager:
             h_orig, w_orig = full_linear.shape[:2]
 
             max_res = APP_CONFIG.preview_render_size
+            ir_full = metadata.get("ir")
             if max(h_orig, w_orig) > max_res and not full_resolution:
                 scale = max_res / max(h_orig, w_orig)
                 target_w = int(w_orig * scale)
@@ -62,7 +63,18 @@ class PreviewManager:
                         interpolation=cv2.INTER_AREA,
                     )
                 )
+                if ir_full is not None and ir_full.shape[:2] == (h_orig, w_orig):
+                    metadata["ir_preview"] = cv2.resize(
+                        ir_full.astype(np.float32),
+                        (target_w, target_h),
+                        interpolation=cv2.INTER_AREA,
+                    ).astype(np.float32)
+                else:
+                    metadata["ir_preview"] = None
             else:
                 preview_raw = full_linear.copy()
+                metadata["ir_preview"] = (
+                    ir_full.astype(np.float32).copy() if ir_full is not None and ir_full.shape[:2] == (h_orig, w_orig) else None
+                )
 
             return ensure_image(preview_raw), (h_orig, w_orig), metadata

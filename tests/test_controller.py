@@ -91,11 +91,13 @@ class TestAppController(unittest.TestCase):
         raw = object()
         dims = (1234, 5678)
 
-        self.controller._on_preview_loaded("dummy.dng", raw, dims, "")
+        self.controller._on_preview_loaded("dummy.dng", raw, dims, "", None)
 
         self.assertIs(self.controller.state.preview_raw, raw)
         self.assertEqual(self.controller.state.original_res, dims)
         self.assertEqual(self.controller.state.current_file_path, "dummy.dng")
+        self.assertFalse(self.controller.state.has_ir)
+        self.assertIsNone(self.controller.state.preview_ir)
         mock_slot.assert_called_once_with()
         self.controller.request_render.assert_called_once_with()
 

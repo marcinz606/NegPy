@@ -26,6 +26,7 @@ class RenderTask:
     color_space: str = "Adobe RGB"
     gpu_enabled: bool = True
     readback_metrics: bool = True
+    ir_buffer: Optional[np.ndarray] = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ class RenderWorker(QObject):
                 render_size_ref=task.preview_size,
                 prefer_gpu=task.gpu_enabled,
                 readback_metrics=task.readback_metrics,
+                ir_buffer=task.ir_buffer,
             )
 
             if task.icc_profile_path and isinstance(result, GPUTexture):
@@ -238,7 +240,7 @@ class PreviewLoadWorker(QObject):
     Keeps the UI thread free during slow I/O and demosaicing.
     """
 
-    finished = pyqtSignal(str, object, object, str)  # (file_path, raw ndarray, dims tuple, source_cs)
+    finished = pyqtSignal(str, object, object, str, object)  # (file_path, raw, dims, source_cs, ir_preview)
     error = pyqtSignal(str)
 
     def __init__(self, preview_service) -> None:
@@ -255,7 +257,8 @@ class PreviewLoadWorker(QObject):
                 full_resolution=task.full_resolution,
             )
             source_cs = metadata.get("color_space", "")
-            self.finished.emit(task.file_path, raw, dims, source_cs)
+            ir_preview = metadata.get("ir_preview")
+            self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview)
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
             self.error.emit(str(e))

@@ -59,7 +59,24 @@ class RetouchSidebar(BaseSidebar):
         actions_row.addWidget(self.clear_btn, 1)
         self.layout.addLayout(actions_row)
 
+        self.ir_subheader = section_subheader("IR DUST")
+        self.layout.addWidget(self.ir_subheader)
+
+        ir_row = QHBoxLayout()
+        self.ir_dust_btn = QPushButton(" IR Dust")
+        self.ir_dust_btn.setCheckable(True)
+        self.ir_dust_btn.setChecked(conf.ir_dust_remove)
+        self.ir_dust_btn.setIcon(qta.icon("fa5s.broom", color=THEME.text_primary))
+        self.ir_dust_btn.setToolTip("Use scanner IR channel to detect and inpaint dust/scratches")
+        self.ir_threshold_slider = CompactSlider("IR Thresh", 0.05, 0.95, float(conf.ir_threshold))
+        self.ir_threshold_slider.setToolTip("IR transmittance below this is flagged as defect")
+        ir_row.addWidget(self.ir_dust_btn, stretch=1)
+        ir_row.addWidget(self.ir_threshold_slider, stretch=1)
+        self.layout.addLayout(ir_row)
+
         self.layout.addStretch()
+
+        self._set_ir_controls_enabled(self.state.has_ir)
 
     def _connect_signals(self) -> None:
         self.auto_dust_btn.toggled.connect(lambda c: self.update_config_section("retouch", persist=True, render=True, dust_remove=c))
@@ -76,9 +93,20 @@ class RetouchSidebar(BaseSidebar):
         self.undo_btn.clicked.connect(self.controller.undo_last_retouch)
         self.clear_btn.clicked.connect(self.controller.clear_retouch)
 
+        self.ir_dust_btn.toggled.connect(lambda c: self.update_config_section("retouch", persist=True, render=True, ir_dust_remove=c))
+        self.ir_threshold_slider.valueChanged.connect(
+            lambda v: self.update_config_section("retouch", readback_metrics=False, ir_threshold=float(v))
+        )
+
     def _on_pick_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.DUST_PICK if checked else ToolMode.NONE)
         self.manual_size_slider.setVisible(checked)
+
+    def _set_ir_controls_enabled(self, enabled: bool) -> None:
+        tip = "" if enabled else "No IR channel in this scan"
+        for w in (self.ir_subheader, self.ir_dust_btn, self.ir_threshold_slider):
+            w.setEnabled(enabled)
+            w.setToolTip(w.toolTip() if enabled else tip)
 
     def sync_ui(self) -> None:
         conf = self.state.config.retouch
@@ -97,6 +125,10 @@ class RetouchSidebar(BaseSidebar):
             has_spots = num_spots > 0
             self.undo_btn.setEnabled(has_spots)
             self.clear_btn.setEnabled(has_spots)
+
+            self.ir_dust_btn.setChecked(conf.ir_dust_remove)
+            self.ir_threshold_slider.setValue(float(conf.ir_threshold))
+            self._set_ir_controls_enabled(self.state.has_ir)
         finally:
             self.block_signals(False)
 
@@ -107,6 +139,8 @@ class RetouchSidebar(BaseSidebar):
             self.auto_size_slider,
             self.manual_size_slider,
             self.pick_dust_btn,
+            self.ir_dust_btn,
+            self.ir_threshold_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)

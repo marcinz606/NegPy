@@ -47,13 +47,17 @@ class RetouchProcessor:
                 )
                 mapped_spots.append((mnx, mny, size))
 
-        img = apply_dust_removal(
+        ir_post_geometry = context.metrics.get("ir_post_geometry")
+
+        return apply_dust_removal(
             img,
             self.config.dust_remove,
             self.config.dust_threshold,
             self.config.dust_size,
             mapped_spots,
             scale_factor,
+            ir_buffer=ir_post_geometry,
+            ir_dust_remove=self.config.ir_dust_remove,
+            ir_threshold=self.config.ir_threshold,
+            ir_inpaint_radius=self.config.ir_inpaint_radius,
         )
-
-        return img

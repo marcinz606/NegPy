@@ -42,6 +42,8 @@ class AppState:
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
     preview_raw: Optional[Any] = None
+    preview_ir: Optional[Any] = None  # downsampled IR float32 [0,1] (H,W); None if source has no IR
+    has_ir: bool = False
     original_res: tuple[int, int] = (0, 0)
     clipboard: Optional[WorkspaceConfig] = None
 
@@ -660,6 +662,8 @@ class DesktopSessionManager(QObject):
                 self.state.current_file_path = None
                 self.state.current_file_hash = None
                 self.state.preview_raw = None
+                self.state.preview_ir = None
+                self.state.has_ir = False
                 self.state.config = WorkspaceConfig()
             else:
                 new_idx = min(idx, len(self.state.uploaded_files) - 1)

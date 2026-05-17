@@ -68,6 +68,7 @@ class ImageProcessor:
         metrics: Optional[Dict[str, Any]] = None,
         prefer_gpu: bool = True,
         readback_metrics: bool = True,
+        ir_buffer: Optional[np.ndarray] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
@@ -79,6 +80,7 @@ class ImageProcessor:
             scale_factor=scale_factor,
             original_size=(h_orig, w_cols),
             process_mode=settings.process.process_mode,
+            ir_buffer=ir_buffer,
         )
         if metrics:
             context.metrics.update(metrics)
@@ -91,6 +93,7 @@ class ImageProcessor:
                     scale_factor=scale_factor,
                     render_size_ref=render_size_ref,
                     readback_metrics=readback_metrics,
+                    ir_buffer=ir_buffer,
                 )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics
@@ -142,6 +145,7 @@ class ImageProcessor:
 
             ctx_mgr, metadata = loader_factory.get_loader(file_path)
             source_cs = metadata.get("color_space", ColorSpace.ADOBE_RGB.value)
+            ir_full = metadata.get("ir")
             target_cs = export_settings.export_color_space
             if target_cs == ColorSpace.SAME_AS_SOURCE.value:
                 target_cs = source_cs
@@ -168,7 +172,7 @@ class ImageProcessor:
 
             if prefer_gpu and self.engine_gpu:
                 buffer, gpu_metrics = self.engine_gpu.process(
-                    f32_buffer, params, scale_factor=export_scale, bounds_override=bounds_override
+                    f32_buffer, params, scale_factor=export_scale, bounds_override=bounds_override, ir_buffer=ir_full
                 )
             else:
                 buffer, _ = self.run_pipeline(
@@ -178,6 +182,7 @@ class ImageProcessor:
                     render_size_ref=float(APP_CONFIG.preview_render_size),
                     metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
                     prefer_gpu=False,
+                    ir_buffer=ir_full,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
                 # Release full-res arrays pinned in the CPU stage cache.
