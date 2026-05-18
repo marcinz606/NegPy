@@ -12,6 +12,12 @@ from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
 
 
+# Pre-warm the Numba JIT so the first actual preview load doesn't pay the compile cost.
+_warmup = np.zeros((2, 2, 3), dtype=np.uint16)
+uint16_to_float32(_warmup)
+del _warmup
+
+
 class PreviewManager:
     """
     Loads RAW files for UI preview.
@@ -31,7 +37,7 @@ class PreviewManager:
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
 
         with ctx_mgr as raw:
-            algo = get_best_demosaic_algorithm(raw)
+            algo = get_best_demosaic_algorithm(raw, for_preview=True)
             user_wb = [1, 1, 1, 1] if linear_raw else None
 
             rgb = raw.postprocess(
