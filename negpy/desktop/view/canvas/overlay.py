@@ -253,6 +253,7 @@ class CanvasOverlay(QWidget):
                         self._move_press_raw = press_raw
                         self._move_orig_rect = orig_rect
                         self._move_last_emitted = orig_rect
+                        self.setCursor(Qt.CursorShape.ClosedHandCursor)
             self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -316,7 +317,7 @@ class CanvasOverlay(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self.parent()._is_panning:
             self.parent()._is_panning = False
-            self.parent().setCursor(Qt.CursorShape.ArrowCursor)
+            self.parent().reset_tool_cursor()
             event.accept()
             return
 
@@ -326,6 +327,7 @@ class CanvasOverlay(QWidget):
             self._move_orig_rect = None
             self._move_last_emitted = None
             self._move_uv_grid = None
+            self.unsetCursor()
             event.accept()
             return
 

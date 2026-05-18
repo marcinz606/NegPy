@@ -37,6 +37,25 @@ def _read_sidecar_ir(file_path: str) -> Optional[np.ndarray]:
     return None
 
 
+def _read_ir_from_extra_page(file_path: str, main_h: int, main_w: int) -> Optional[np.ndarray]:
+    """Finds a grayscale page at full resolution — SilverFast iSRD stores IR as page 2 with NewSubfileType=4."""
+    try:
+        with tifffile.TiffFile(file_path) as tif:
+            for page in tif.pages[1:]:
+                if page.shape != (main_h, main_w):
+                    continue
+                tags = getattr(page, "tags", None) or {}
+                nst = tags.get(254)
+                photometric = getattr(page, "photometric", None)
+                is_mask_page = nst is not None and nst.value == 4
+                is_grayscale = photometric is not None and int(photometric) == 1
+                if is_mask_page or is_grayscale:
+                    return _normalize_ir_to_float32(page.asarray())
+    except Exception as e:
+        logger.warning(f"Failed to read extra-page IR from {file_path}: {e}")
+    return None
+
+
 def _extract_ir_from_extrasamples(file_path: str, img: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Inspects ExtraSamples; returns (rgb, ir_or_none).
 
@@ -93,6 +112,9 @@ class TiffLoader(IImageLoader):
 
         if ir is None:
             ir = _read_sidecar_ir(file_path)
+
+        if ir is None:
+            ir = _read_ir_from_extra_page(file_path, img.shape[0], img.shape[1])
 
         if img.dtype == np.uint8:
             f32 = uint8_to_float32(np.ascontiguousarray(img))

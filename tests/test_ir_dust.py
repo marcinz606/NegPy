@@ -154,6 +154,27 @@ def test_tiff_loader_no_ir_when_rgb_only():
         assert metadata["ir"] is None
 
 
+def test_tiff_loader_silverfast_multipage_ir():
+    """SilverFast iSRD: IR stored as page 2 with NewSubfileType=4 (transparency mask)."""
+    h, w = 16, 24
+    rgb = np.full((h, w, 3), 30000, dtype=np.uint16)
+    ir = np.full((h, w), 50000, dtype=np.uint16)
+    thumb = np.full((4, 6, 3), 30000, dtype=np.uint16)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "silverfast.tif")
+        with tifffile.TiffWriter(path) as tw:
+            tw.write(rgb, photometric="rgb", subfiletype=0)
+            tw.write(thumb, photometric="rgb", subfiletype=1)
+            tw.write(ir, photometric="minisblack", subfiletype=0)
+        ctx_mgr, metadata = LoaderFactory().get_loader(path)
+        with ctx_mgr:
+            pass
+        assert metadata["ir"] is not None
+        assert metadata["ir"].shape == (h, w)
+        assert metadata["ir"].dtype == np.float32
+        assert abs(float(metadata["ir"].mean()) - (50000.0 / 65535.0)) < 1e-3
+
+
 def test_ir_dust_remove_field_invalidates_retouch_hash():
     from negpy.kernel.caching.logic import calculate_config_hash
 

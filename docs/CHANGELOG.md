@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.22.0
+
+- **Tool-aware cursor**: mouse pointer changes shape to reflect the active tool — pointing hand for WB Pick, crosshair for Manual Crop, open/closed hand for Move Crop, hidden cursor (brush circle) for Heal.
+- Added **IR Dust Removal**: uses the infrared channel from IR-capable scanners (Nikon Coolscan, Epson flatbeds with SilverFast iSRD, VueScan 4-channel output) to detect and inpaint dust and scratches with near-zero false positives. Toggle and threshold slider in the Retouch panel — controls are disabled automatically when no IR channel is present in the loaded file.
+- IR channel is read from: 4-channel TIFFs with ExtraSamples (VueScan, NegPy's own scanner output), multi-page TIFFs with a grayscale IR page (SilverFast iSRD), and `_IR.tif` sidecar files.
+
   ## 0.21.0
 
   - Added initial **Scanner support** on Linux and macOS: new Scan tab — select a SANE-compatible scanner, choose resolution, bit depth, output format, and filename template; scanned files auto-load into the session. This is initial implementation, tested with Plustek 8100 on Arch Linux and latest macOS. As it often is with (old in most cases of film scanners) hardware support i cannot guarantee that it will support your scanner. **IMPORTANT:** check [README.md](../README.md) for information about SANE dependencies. **IMPORTANT**
