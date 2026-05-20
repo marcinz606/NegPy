@@ -8,6 +8,75 @@ from negpy.kernel.image.logic import get_luminance
 
 
 @njit(cache=True, fastmath=True)
+def _heal_with_mask_jit(
+    img: np.ndarray,
+    hit_mask: np.ndarray,
+    exp_rad: int,
+    p_rad: int,
+) -> np.ndarray:
+    """Stochastic perimeter sampling with cubic-smoothstep feather.
+
+    For each pixel, finds nearest masked pixel within ``exp_rad``, builds a
+    feather weight from the distance, samples 8 perimeter points at ``p_rad``,
+    trim-means them, and blends into the original.
+    """
+    h, w, _ = img.shape
+    res = img.copy()
+
+    for y in range(h):
+        for x in range(w):
+            min_d2 = 1e6
+            for dy in range(-exp_rad, exp_rad + 1):
+                for dx in range(-exp_rad, exp_rad + 1):
+                    ry, rx = y + dy, x + dx
+                    if 0 <= ry < h and 0 <= rx < w and hit_mask[ry, rx] > 0.5:
+                        d2 = float(dy * dy + dx * dx)
+                        if d2 < min_d2:
+                            min_d2 = d2
+
+            if min_d2 < float(exp_rad * exp_rad + 1):
+                dist = np.sqrt(min_d2)
+                feather = 1.0 - (dist / float(exp_rad + 1.0))
+                if feather < 0.0:
+                    feather = 0.0
+                feather = feather * feather * (3.0 - 2.0 * feather)
+
+                if feather > 0.001:
+                    s_r = np.zeros(8)
+                    s_g = np.zeros(8)
+                    s_b = np.zeros(8)
+                    s_l = np.zeros(8)
+
+                    dy_off = np.array([-p_rad, p_rad, 0, 0, -p_rad, -p_rad, p_rad, p_rad])
+                    dx_off = np.array([0, 0, -p_rad, p_rad, -p_rad, p_rad, -p_rad, p_rad])
+
+                    for i in range(8):
+                        sy, sx = y + dy_off[i], x + dx_off[i]
+                        sy, sx = max(0, min(h - 1, sy)), max(0, min(w - 1, sx))
+                        r, g, b = img[sy, sx, 0], img[sy, sx, 1], img[sy, sx, 2]
+                        s_r[i], s_g[i], s_b[i] = r, g, b
+                        s_l[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+                    for i in range(8):
+                        for j in range(i + 1, 8):
+                            if s_l[i] > s_l[j]:
+                                s_l[i], s_l[j] = s_l[j], s_l[i]
+                                s_r[i], s_r[j] = s_r[j], s_r[i]
+                                s_g[i], s_g[j] = s_g[j], s_g[i]
+                                s_b[i], s_b[j] = s_b[j], s_b[i]
+
+                    bg_r = (s_r[2] + s_r[3] + s_r[4] + s_r[5]) / 4.0
+                    bg_g = (s_g[2] + s_g[3] + s_g[4] + s_g[5]) / 4.0
+                    bg_b = (s_b[2] + s_b[3] + s_b[4] + s_b[5]) / 4.0
+
+                    res[y, x, 0] = img[y, x, 0] * (1.0 - feather) + bg_r * feather
+                    res[y, x, 1] = img[y, x, 1] * (1.0 - feather) + bg_g * feather
+                    res[y, x, 2] = img[y, x, 2] * (1.0 - feather) + bg_b * feather
+
+    return res
+
+
+@njit(cache=True, fastmath=True)
 def _apply_auto_retouch_jit(
     img: np.ndarray,
     mean: np.ndarray,
@@ -17,7 +86,7 @@ def _apply_auto_retouch_jit(
     dust_size: float,
     scale_factor: float,
 ) -> np.ndarray:
-    h, w, c = img.shape
+    h, w, _ = img.shape
     hit_mask = np.zeros((h, w), dtype=np.float32)
 
     # 1. Detection Pass
@@ -53,67 +122,12 @@ def _apply_auto_retouch_jit(
                 else:
                     hit_mask[y, x] = 1.0
 
-    # 2. Healing Pass: Stochastic Perimeter Sampling (SPS) with Soft Blending
-    res = img.copy()
     exp_rad = int(max(1.0, dust_size * 0.4 * scale_factor))
     if exp_rad > 16:
         exp_rad = 16
     p_rad = exp_rad + int(3 * scale_factor)
 
-    for y in range(h):
-        for x in range(w):
-            min_d2 = 1e6
-            for dy in range(-exp_rad, exp_rad + 1):
-                for dx in range(-exp_rad, exp_rad + 1):
-                    ry, rx = y + dy, x + dx
-                    if 0 <= ry < h and 0 <= rx < w and hit_mask[ry, rx] > 0.5:
-                        d2 = float(dy * dy + dx * dx)
-                        if d2 < min_d2:
-                            min_d2 = d2
-
-            if min_d2 < float(exp_rad * exp_rad + 1):
-                dist = np.sqrt(min_d2)
-                feather = 1.0 - (dist / float(exp_rad + 1.0))
-                if feather < 0.0:
-                    feather = 0.0
-                feather = feather * feather * (3.0 - 2.0 * feather)
-
-                if feather > 0.001:
-                    s_r = np.zeros(8)
-                    s_g = np.zeros(8)
-                    s_b = np.zeros(8)
-                    s_l = np.zeros(8)
-
-                    # 8-point perimeter sampling
-                    dy_off = np.array([-p_rad, p_rad, 0, 0, -p_rad, -p_rad, p_rad, p_rad])
-                    dx_off = np.array([0, 0, -p_rad, p_rad, -p_rad, p_rad, -p_rad, p_rad])
-
-                    for i in range(8):
-                        sy, sx = y + dy_off[i], x + dx_off[i]
-                        sy, sx = max(0, min(h - 1, sy)), max(0, min(w - 1, sx))
-                        r, g, b = img[sy, sx, 0], img[sy, sx, 1], img[sy, sx, 2]
-                        s_r[i], s_g[i], s_b[i] = r, g, b
-                        s_l[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-                    # Selection sort for outlier rejection
-                    for i in range(8):
-                        for j in range(i + 1, 8):
-                            if s_l[i] > s_l[j]:
-                                s_l[i], s_l[j] = s_l[j], s_l[i]
-                                s_r[i], s_r[j] = s_r[j], s_r[i]
-                                s_g[i], s_g[j] = s_g[j], s_g[i]
-                                s_b[i], s_b[j] = s_b[j], s_b[i]
-
-                    # Average middle 50% (discard 2 brightest, 2 darkest)
-                    bg_r = (s_r[2] + s_r[3] + s_r[4] + s_r[5]) / 4.0
-                    bg_g = (s_g[2] + s_g[3] + s_g[4] + s_g[5]) / 4.0
-                    bg_b = (s_b[2] + s_b[3] + s_b[4] + s_b[5]) / 4.0
-
-                    res[y, x, 0] = img[y, x, 0] * (1.0 - feather) + bg_r * feather
-                    res[y, x, 1] = img[y, x, 1] * (1.0 - feather) + bg_g * feather
-                    res[y, x, 2] = img[y, x, 2] * (1.0 - feather) + bg_b * feather
-
-    return res
+    return _heal_with_mask_jit(img, hit_mask, exp_rad, p_rad)
 
 
 @njit(cache=True, fastmath=True)
@@ -181,7 +195,7 @@ def apply_ir_dust_removal(
     inpaint_radius: int,
     scale_factor: float,
 ) -> Tuple[ImageBuffer, np.ndarray]:
-    """Threshold IR → Telea inpaint.
+    """Threshold IR → perimeter-sample inpaint with cubic-smoothstep feather.
 
     Returns (img_out, mask_u8). IR convention: dye = high IR transmittance,
     physical defects = low transmittance, so `ir < threshold` marks defects.
@@ -190,13 +204,25 @@ def apply_ir_dust_removal(
     if ir.shape[:2] != img.shape[:2]:
         return img, np.zeros(img.shape[:2], dtype=np.uint8)
 
-    mask = ((ir < threshold).astype(np.uint8)) * 255
+    hit_mask = (ir < threshold).astype(np.float32)
+    mask_u8 = (hit_mask * 255).astype(np.uint8)
 
-    if not np.any(mask):
-        return img, mask
+    if not np.any(hit_mask):
+        return img, mask_u8
 
-    rad = max(1, int(inpaint_radius * scale_factor))
-    return _inpaint_with_mask(img, mask, rad), mask
+    scale = max(1.0, float(scale_factor))
+    exp_rad = int(max(1.0, float(inpaint_radius) * scale))
+    if exp_rad > 16:
+        exp_rad = 16
+    p_rad = exp_rad + int(max(2.0, 3.0 * scale))
+
+    out = _heal_with_mask_jit(
+        np.ascontiguousarray(img.astype(np.float32)),
+        np.ascontiguousarray(hit_mask),
+        exp_rad,
+        p_rad,
+    )
+    return ensure_image(out), mask_u8
 
 
 def apply_dust_removal(

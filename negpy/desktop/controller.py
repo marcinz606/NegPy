@@ -328,6 +328,7 @@ class AppController(QObject):
         self.state.current_file_path = file_path
         self.state.source_cs = source_cs
         self.preview_loaded.emit()
+        self.config_updated.emit()
         self.request_render()
 
     def toggle_hq_preview(self) -> None:

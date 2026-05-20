@@ -92,6 +92,7 @@ class GPUEngine:
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_scale_factor: float = 1.0
         self._pending_ir_buffer: Optional[np.ndarray] = None
+        self._ir_upload_key: Optional[Tuple[int, Any, int, int]] = None
 
         # Persistent staging buffers — avoid create_buffer() on every readback
         self._metrics_staging: Optional[Any] = None
@@ -511,8 +512,11 @@ class GPUEngine:
 
         if start_stage <= 3:
             if settings.retouch.ir_dust_remove and self._pending_ir_buffer is not None:
-                ir_for_gpu = self._transform_ir_for_gpu(self._pending_ir_buffer, settings.geometry, w_rot, h_rot)
-                tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
+                upload_key = (id(self._pending_ir_buffer), settings.geometry, w_rot, h_rot)
+                if upload_key != self._ir_upload_key:
+                    ir_for_gpu = self._transform_ir_for_gpu(self._pending_ir_buffer, settings.geometry, w_rot, h_rot)
+                    tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
+                    self._ir_upload_key = upload_key
             self._dispatch_pass(
                 enc,
                 "retouch",
@@ -1278,6 +1282,7 @@ class GPUEngine:
         for tex in self._tex_cache.values():
             tex.destroy()
         self._tex_cache.clear()
+        self._ir_upload_key = None
         gc.collect()
         logger.info("GPUEngine: VRAM resources released")
 
