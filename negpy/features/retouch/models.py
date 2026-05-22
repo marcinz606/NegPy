@@ -10,5 +10,5 @@ class RetouchConfig:
     manual_dust_spots: List[Tuple[float, float, float]] = field(default_factory=list)
     manual_dust_size: int = 6
     ir_dust_remove: bool = False
-    ir_threshold: float = 0.55
+    ir_threshold: float = 0.5
     ir_inpaint_radius: int = 3

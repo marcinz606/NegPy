@@ -773,7 +773,7 @@ class GPUEngine:
             full_dims[1],
             float(scale_factor),
             ir_active,
-            float(ret.ir_threshold),
+            float(1.0 - ret.ir_threshold),
             float(ret.ir_inpaint_radius),
         )
 

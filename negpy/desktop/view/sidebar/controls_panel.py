@@ -170,64 +170,248 @@ class ControlsPanel(QWidget):
         proc = self.process_sidebar
         ret = self.retouch_sidebar
         ton = self.toning_sidebar
-
-        exp.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
-        exp.cyan_slider.setToolTip(tooltip_with_shortcut("Cyan-Red white balance shift", ["cyan_inc", "cyan_dec"]))
-        exp.magenta_slider.setToolTip(tooltip_with_shortcut("Magenta-Green white balance shift", ["magenta_up", "magenta_down"]))
-        exp.yellow_slider.setToolTip(tooltip_with_shortcut("Yellow-Blue white balance shift", ["yellow_up", "yellow_down"]))
-        exp.density_slider.setToolTip(tooltip_with_shortcut("Overall exposure", ["density_up", "density_down"]))
-        exp.grade_slider.setToolTip(tooltip_with_shortcut("Contrast grade", ["grade_up", "grade_down"]))
-        exp.toe_slider.setToolTip(tooltip_with_shortcut("Shadow toe lift", ["toe_inc", "toe_dec"]))
-        exp.toe_w_slider.setToolTip(tooltip_with_shortcut("Shadow toe width", ["toe_width_inc", "toe_width_dec"]))
-        exp.sh_slider.setToolTip(tooltip_with_shortcut("Highlight shoulder roll", ["shoulder_inc", "shoulder_dec"]))
-        exp.sh_w_slider.setToolTip(tooltip_with_shortcut("Highlight shoulder width", ["shoulder_width_inc", "shoulder_width_dec"]))
-
-        geo.manual_crop_btn.setToolTip(tooltip_with_shortcut("Manual crop", "manual_crop"))
-        geo.offset_slider.setToolTip(tooltip_with_shortcut("Auto-crop border offset", ["offset_inc", "offset_dec"]))
-        geo.fine_rot_slider.setToolTip(tooltip_with_shortcut("Fine rotation", ["fine_rot_inc", "fine_rot_dec"]))
-
-        proc.analysis_buffer_slider.setToolTip(
-            tooltip_with_shortcut("Analysis region crop", ["analysis_buffer_inc", "analysis_buffer_dec"])
-        )
-        proc.drange_clip_slider.setToolTip(tooltip_with_shortcut("Dynamic range clip", ["drange_clip_inc", "drange_clip_dec"]))
-        proc.white_point_slider.setToolTip(tooltip_with_shortcut("White point offset", ["white_point_inc", "white_point_dec"]))
-        proc.black_point_slider.setToolTip(tooltip_with_shortcut("Black point offset", ["black_point_inc", "black_point_dec"]))
-
-        lab.separation_slider.setToolTip(tooltip_with_shortcut("Color separation", ["separation_inc", "separation_dec"]))
-        lab.chroma_denoise_slider.setToolTip(tooltip_with_shortcut("Chroma noise reduction", ["chroma_denoise_inc", "chroma_denoise_dec"]))
-        lab.saturation_slider.setToolTip(tooltip_with_shortcut("Saturation", ["saturation_inc", "saturation_dec"]))
-        lab.vibrance_slider.setToolTip(tooltip_with_shortcut("Vibrance", ["vibrance_inc", "vibrance_dec"]))
-        lab.clahe_slider.setToolTip(tooltip_with_shortcut("Local contrast (CLAHE)", ["clahe_inc", "clahe_dec"]))
-        lab.sharpen_slider.setToolTip(tooltip_with_shortcut("Sharpening", ["sharpen_inc", "sharpen_dec"]))
-        lab.glow_slider.setToolTip(tooltip_with_shortcut("Glow", ["glow_inc", "glow_dec"]))
-        lab.halation_slider.setToolTip(tooltip_with_shortcut("Halation", ["halation_inc", "halation_dec"]))
-
-        ret.pick_dust_btn.setToolTip(tooltip_with_shortcut("Toggle heal tool", "pick_dust"))
-        ret.threshold_slider.setToolTip(tooltip_with_shortcut("Auto dust threshold", ["threshold_inc", "threshold_dec"]))
-        ret.auto_size_slider.setToolTip(tooltip_with_shortcut("Auto dust size", ["auto_size_inc", "auto_size_dec"]))
-        ret.manual_size_slider.setToolTip(tooltip_with_shortcut("Heal brush size", ["manual_size_inc", "manual_size_dec"]))
-
-        ton.selenium_slider.setToolTip(tooltip_with_shortcut("Selenium toning", ["selenium_inc", "selenium_dec"]))
-        ton.sepia_slider.setToolTip(tooltip_with_shortcut("Sepia toning", ["sepia_inc", "sepia_dec"]))
-        ton.shadow_hue_slider.setToolTip(tooltip_with_shortcut("Shadow split-tone hue", ["shadow_hue_inc", "shadow_hue_dec"]))
-        ton.shadow_str_slider.setToolTip(
-            tooltip_with_shortcut("Shadow split-tone strength", ["shadow_strength_inc", "shadow_strength_dec"])
-        )
-        ton.highlight_hue_slider.setToolTip(tooltip_with_shortcut("Highlight split-tone hue", ["highlight_hue_inc", "highlight_hue_dec"]))
-        ton.highlight_str_slider.setToolTip(
-            tooltip_with_shortcut("Highlight split-tone strength", ["highlight_strength_inc", "highlight_strength_dec"])
-        )
-
         fin = self.finish_sidebar
+
+        exp.pick_wb_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Activate eyedropper — click a neutral grey pixel to auto-compute white balance offsets",
+                "pick_wb",
+            )
+        )
+        exp.cyan_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Cyan↔Red white balance shift; negative = cyan, positive = red. Applies to selected region (Global/Shadows/Highlights)",
+                ["cyan_inc", "cyan_dec"],
+            )
+        )
+        exp.magenta_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Magenta↔Green white balance shift. Applies to selected region (Global/Shadows/Highlights)",
+                ["magenta_up", "magenta_down"],
+            )
+        )
+        exp.yellow_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Yellow↔Blue white balance shift. Applies to selected region (Global/Shadows/Highlights)",
+                ["yellow_up", "yellow_down"],
+            )
+        )
+        exp.density_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Overall print density — simulates enlarger exposure time. Lower = brighter, higher = darker",
+                ["density_up", "density_down"],
+            )
+        )
+        exp.grade_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Contrast grade, like paper grades in the darkroom. 0 = very soft (flat), 5 = very hard (contrasty)",
+                ["grade_up", "grade_down"],
+            )
+        )
+        exp.toe_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Shadow toe: positive lifts shadows for a gentle film toe; negative deepens blacks",
+                ["toe_inc", "toe_dec"],
+            )
+        )
+        exp.toe_w_slider.setToolTip(
+            tooltip_with_shortcut(
+                "How broadly the shadow toe transition spreads into the midtones",
+                ["toe_width_inc", "toe_width_dec"],
+            )
+        )
+        exp.sh_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Highlight shoulder: positive compresses highlights (film roll-off); negative extends them and risks clipping",
+                ["shoulder_inc", "shoulder_dec"],
+            )
+        )
+        exp.sh_w_slider.setToolTip(
+            tooltip_with_shortcut(
+                "How broadly the highlight shoulder transition spreads into the midtones",
+                ["shoulder_width_inc", "shoulder_width_dec"],
+            )
+        )
+
+        geo.manual_crop_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Draw a crop rectangle on the canvas — drag to set, constrained by the current aspect ratio",
+                "manual_crop",
+            )
+        )
+        geo.offset_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Insets the auto-crop border from the detected film edge. Positive = trim more; negative = bleed outside",
+                ["offset_inc", "offset_dec"],
+            )
+        )
+        geo.fine_rot_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Sub-degree rotation correction for tilted scans, applied after auto-crop",
+                ["fine_rot_inc", "fine_rot_dec"],
+            )
+        )
+
+        proc.lock_bounds_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Freeze normalization bounds — crop and analysis sliders no longer re-analyze the frame",
+                "lock_bounds_toggle",
+            )
+        )
+        proc.analysis_buffer_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Insets the analysis window from the frame edge so rebate, sprocket holes, and scanner borders don't skew black/white-point detection",
+                ["analysis_buffer_inc", "analysis_buffer_dec"],
+            )
+        )
+        proc.drange_clip_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Statistical percentile clip before locating black/white points. Higher = discard more outlier pixels",
+                ["drange_clip_inc", "drange_clip_dec"],
+            )
+        )
+        proc.white_point_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Manual offset on top of the auto-detected white point. Positive = brighter; negative = pull highlights back",
+                ["white_point_inc", "white_point_dec"],
+            )
+        )
+        proc.black_point_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Manual offset for the black point. Positive = lifted blacks; negative = deeper blacks",
+                ["black_point_inc", "black_point_dec"],
+            )
+        )
+
+        lab.separation_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Amplifies differences between R, G, B channels. Higher = richer colour separation; 1.0 = identity",
+                ["separation_inc", "separation_dec"],
+            )
+        )
+        lab.chroma_denoise_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Chroma denoise in Lab space — smooths colour noise while preserving luminance grain",
+                ["chroma_denoise_inc", "chroma_denoise_dec"],
+            )
+        )
+        lab.saturation_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Linear saturation. 1.0 = unchanged, 0 = greyscale, 2.0 = double saturation",
+                ["saturation_inc", "saturation_dec"],
+            )
+        )
+        lab.vibrance_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones than raw Saturation",
+                ["vibrance_inc", "vibrance_dec"],
+            )
+        )
+        lab.clahe_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Local contrast (CLAHE) without blowing global highlights or crushing shadows. Use sparingly — near 1.0 can look cartoonish",
+                ["clahe_inc", "clahe_dec"],
+            )
+        )
+        lab.sharpen_slider.setToolTip(
+            tooltip_with_shortcut(
+                "L-channel unsharp mask — crisps detail without introducing colour halos around edges",
+                ["sharpen_inc", "sharpen_dec"],
+            )
+        )
+        lab.glow_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Lens bloom — bright highlights scatter equally across all channels, softening edges and adding a dreamy quality",
+                ["glow_inc", "glow_dec"],
+            )
+        )
+        lab.halation_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Simulates the red glow from light scattering back through the film base. Affects highlights only, strongly red-dominant",
+                ["halation_inc", "halation_dec"],
+            )
+        )
+
+        ret.pick_dust_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Toggle manual heal brush — click dust spots in the preview to paint them out one at a time",
+                "pick_dust",
+            )
+        )
+        ret.threshold_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Brightness delta above which a pixel is classified as dust. Lower = catch more (risk false positives on real detail)",
+                ["threshold_inc", "threshold_dec"],
+            )
+        )
+        ret.auto_size_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Maximum radius of auto-detected dust spots. Larger catches bigger blobs but risks eating fine detail",
+                ["auto_size_inc", "auto_size_dec"],
+            )
+        )
+        ret.manual_size_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Radius of the manual heal brush",
+                ["manual_size_inc", "manual_size_dec"],
+            )
+        )
+
+        ton.selenium_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Simulates selenium toning — adds a cool blue-purple cast to shadows. B&W mode only",
+                ["selenium_inc", "selenium_dec"],
+            )
+        )
+        ton.sepia_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Simulates sepia toning — adds a warm brown cast across the full tonal range. B&W mode only",
+                ["sepia_inc", "sepia_dec"],
+            )
+        )
+        ton.shadow_hue_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Hue of the shadow split-tone colour injection",
+                ["shadow_hue_inc", "shadow_hue_dec"],
+            )
+        )
+        ton.shadow_str_slider.setToolTip(
+            tooltip_with_shortcut(
+                "How strongly the shadow hue is mixed in",
+                ["shadow_strength_inc", "shadow_strength_dec"],
+            )
+        )
+        ton.highlight_hue_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Hue of the highlight split-tone colour injection",
+                ["highlight_hue_inc", "highlight_hue_dec"],
+            )
+        )
+        ton.highlight_str_slider.setToolTip(
+            tooltip_with_shortcut(
+                "How strongly the highlight hue is mixed in",
+                ["highlight_strength_inc", "highlight_strength_dec"],
+            )
+        )
+
         fin.vignette_strength_slider.setToolTip(
             tooltip_with_shortcut(
-                "Vignette strength: negative = darken edges, positive = brighten edges", ["vignette_str_inc", "vignette_str_dec"]
+                "Negative = darken corners (classic vignette); positive = lighten corners. 0 = off",
+                ["vignette_str_inc", "vignette_str_dec"],
             )
         )
         fin.vignette_size_slider.setToolTip(
-            tooltip_with_shortcut("Vignette size: how far the vignette extends from center", ["vignette_size_inc", "vignette_size_dec"])
+            tooltip_with_shortcut(
+                "Falloff radius: smaller = tight corner effect; larger = vignette spreads well into the frame",
+                ["vignette_size_inc", "vignette_size_dec"],
+            )
         )
-        fin.border_slider.setToolTip(tooltip_with_shortcut("Border width", ["border_size_inc", "border_size_dec"]))
+        fin.border_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Border thickness as a fraction of the image dimensions. Zero = no border",
+                ["border_size_inc", "border_size_dec"],
+            )
+        )
 
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""

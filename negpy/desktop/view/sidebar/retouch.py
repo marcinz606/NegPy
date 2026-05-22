@@ -31,6 +31,7 @@ class RetouchSidebar(BaseSidebar):
         self.auto_dust_btn.setCheckable(True)
         self.auto_dust_btn.setChecked(conf.dust_remove)
         self.auto_dust_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
+        self.auto_dust_btn.setToolTip("Enable automatic dust removal using the Threshold and Auto Size settings above")
 
         self.pick_dust_btn = QPushButton(" Heal Tool")
         self.pick_dust_btn.setCheckable(True)
@@ -51,9 +52,11 @@ class RetouchSidebar(BaseSidebar):
         actions_row = QHBoxLayout()
         self.undo_btn = QPushButton(" Undo Last")
         self.undo_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
+        self.undo_btn.setToolTip("Remove the most recent manual healing spot")
 
         self.clear_btn = QPushButton(" Clear All")
         self.clear_btn.setIcon(qta.icon("fa5s.trash-alt", color=THEME.text_primary))
+        self.clear_btn.setToolTip("Remove all manual healing spots (auto-detected dust is unaffected)")
 
         actions_row.addWidget(self.undo_btn, 1)
         actions_row.addWidget(self.clear_btn, 1)
@@ -69,7 +72,7 @@ class RetouchSidebar(BaseSidebar):
         self.ir_dust_btn.setIcon(qta.icon("fa5s.broom", color=THEME.text_primary))
         self.ir_dust_btn.setToolTip("Use scanner IR channel to detect and inpaint dust/scratches")
         self.ir_threshold_slider = CompactSlider("IR Thresh", 0.05, 0.95, float(conf.ir_threshold))
-        self.ir_threshold_slider.setToolTip("IR transmittance below this is flagged as defect")
+        self.ir_threshold_slider.setToolTip("IR dust sensitivity — lower catches more (risk false positives); higher is conservative")
         ir_row.addWidget(self.ir_dust_btn, stretch=1)
         ir_row.addWidget(self.ir_threshold_slider, stretch=1)
         self.layout.addLayout(ir_row)

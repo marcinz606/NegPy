@@ -58,6 +58,6 @@ class RetouchProcessor:
             scale_factor,
             ir_buffer=ir_post_geometry,
             ir_dust_remove=self.config.ir_dust_remove,
-            ir_threshold=self.config.ir_threshold,
+            ir_threshold=1.0 - self.config.ir_threshold,
             ir_inpaint_radius=self.config.ir_inpaint_radius,
         )

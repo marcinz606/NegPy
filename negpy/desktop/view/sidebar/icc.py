@@ -23,6 +23,7 @@ class ICCSidebar(BaseSidebar):
         self.profile_combo = QComboBox()
         self.profile_combo.addItems([os.path.basename(p) for p in self.profiles])
         self.profile_combo.setPlaceholderText("Select Profile...")
+        self.profile_combo.setToolTip("ICC profile for soft-proofing in the preview (and optionally embedding in exports)")
 
         path = self.state.icc_profile_path
         if path:
@@ -34,7 +35,9 @@ class ICCSidebar(BaseSidebar):
         self.mode_group = QGroupBox("Direction")
         mode_layout = QHBoxLayout(self.mode_group)
         self.radio_input = QRadioButton("Input")
+        self.radio_input.setToolTip("Treat the chosen profile as the source/input profile (e.g. you know the scan's profile)")
         self.radio_output = QRadioButton("Output")
+        self.radio_output.setToolTip("Treat the chosen profile as the destination/output profile — preview rendered through it")
 
         if self.state.icc_invert:
             self.radio_input.setChecked(True)
@@ -47,6 +50,7 @@ class ICCSidebar(BaseSidebar):
         # Export Toggle
         self.apply_export_check = QCheckBox("Apply to Export")
         self.apply_export_check.setChecked(self.state.apply_icc_to_export)
+        self.apply_export_check.setToolTip("Also apply (and embed) the selected ICC profile in exported files")
 
         self.layout.addWidget(self.profile_combo)
         self.layout.addWidget(self.mode_group)

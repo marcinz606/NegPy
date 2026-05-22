@@ -21,9 +21,9 @@ _RAF_URL = "http://www.rawsamples.ch/raws/fuji/RAW_FUJI_X-T10.RAF"
 
 @dataclass(frozen=True)
 class RawFixture:
-    key: str       # short lowercase id used in env vars and metric names
+    key: str  # short lowercase id used in env vars and metric names
     filename: str  # basename for the local cache file
-    url: str       # public download URL
+    url: str  # public download URL
 
 
 FIXTURES: list[RawFixture] = [

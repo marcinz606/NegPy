@@ -50,6 +50,7 @@ class ToningSidebar(BaseSidebar):
         self.paper_combo = QComboBox()
         self.paper_combo.addItems(list(PAPER_PROFILES.keys()))
         self.paper_combo.setCurrentText(conf.paper_profile)
+        self.paper_combo.setToolTip("Paper substrate profile — warm-tone, neutral, or cool-tone baseline applied before other toning")
         self.layout.addWidget(self.paper_combo)
 
         self.layout.addStretch()

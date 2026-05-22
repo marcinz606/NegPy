@@ -28,6 +28,7 @@ class ProcessSidebar(BaseSidebar):
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([m.value for m in ProcessMode])
         self.mode_combo.setCurrentText(conf.process_mode)
+        self.mode_combo.setToolTip("Film process mode: C41 (colour negative), B&W (panchromatic), E-6 (slide/reversal)")
         self.lock_bounds_btn = QPushButton()
         self.lock_bounds_btn.setCheckable(True)
         self.lock_bounds_btn.setIcon(qta.icon("fa5s.lock", color=THEME.text_primary))
@@ -72,10 +73,12 @@ class ProcessSidebar(BaseSidebar):
         btns_row = QHBoxLayout()
         self.analyze_roll_btn = QPushButton(" Batch Analysis")
         self.analyze_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
+        self.analyze_roll_btn.setToolTip("Scan every loaded file and compute a roll-wide average density and colour balance baseline")
 
         self.use_roll_avg_btn = QPushButton(" Use Roll Average")
         self.use_roll_avg_btn.setCheckable(True)
         self.use_roll_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
+        self.use_roll_avg_btn.setToolTip("Toggle between per-image local normalization and the roll-wide baseline from Batch Analysis")
 
         btns_row.addWidget(self.analyze_roll_btn)
         btns_row.addWidget(self.use_roll_avg_btn)
@@ -85,18 +88,22 @@ class ProcessSidebar(BaseSidebar):
 
         self.roll_combo = QComboBox()
         self.roll_combo.setPlaceholderText("Select Roll...")
+        self.roll_combo.setToolTip("Previously saved roll normalization baselines")
         self._refresh_rolls()
         self.layout.addWidget(self.roll_combo)
 
         roll_actions = QHBoxLayout()
         self.load_roll_btn = QPushButton(" Load")
         self.load_roll_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
+        self.load_roll_btn.setToolTip("Apply the selected roll's bounds and balance to the current workspace")
 
         self.save_roll_btn = QPushButton(" Save")
         self.save_roll_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
+        self.save_roll_btn.setToolTip("Save the current Batch Analysis result as a named reusable roll")
 
         self.delete_roll_btn = QPushButton(" Delete")
         self.delete_roll_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
+        self.delete_roll_btn.setToolTip("Remove the selected roll from the database")
 
         roll_actions.addWidget(self.load_roll_btn)
         roll_actions.addWidget(self.save_roll_btn)
