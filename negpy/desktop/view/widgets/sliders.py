@@ -156,6 +156,8 @@ class BaseSlider(QWidget):
         self.valueChanged.emit(self.spin.value())
 
     def setValue(self, value: float) -> None:
+        if self.slider.isSliderDown() or self.spin.hasFocus():
+            return
         self.slider.blockSignals(True)
         self.spin.blockSignals(True)
         self.slider.setValue(int(value * self._precision))

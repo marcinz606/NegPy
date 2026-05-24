@@ -39,7 +39,7 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(mode_row)
 
         buf_clip_row = QHBoxLayout()
-        self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.50, conf.analysis_buffer)
+        self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.analysis_buffer_slider.setToolTip(
             "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
         )
@@ -174,6 +174,7 @@ class ProcessSidebar(BaseSidebar):
             analysis_buffer=val,
             **invalidate_local_bounds(self.state.config.process),
         )
+        self.controller.analysis_buffer_preview_requested.emit(val)
 
     def _on_drange_clip_changed(self, val: float, persist: bool = True) -> None:
         drange_clip = math.pow(10, 0.05 * val - 5)

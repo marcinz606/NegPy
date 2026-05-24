@@ -94,7 +94,7 @@ class FileBrowser(QWidget):
         action_layout.addLayout(btns_row)
 
         hot_sync_row = QHBoxLayout()
-        self.hot_folder_btn = QPushButton(" Hot Folder Mode")
+        self.hot_folder_btn = QPushButton(" Hot Folder")
         self.hot_folder_btn.setCheckable(True)
         self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=THEME.text_primary))
         self.hot_folder_btn.setToolTip("Automatically load new images from the current folder")
@@ -102,10 +102,15 @@ class FileBrowser(QWidget):
 
         self.sync_btn = QPushButton(" Sync Edits")
         self.sync_btn.setIcon(qta.icon("fa5s.sync", color=THEME.text_primary))
-        self.sync_btn.setToolTip("Apply current settings to all selected images (excluding crop/rotation)")
+        self.sync_btn.setToolTip("Apply exposure / lab / toning to selected images (preserves their crop and rotation)")
 
-        hot_sync_row.addWidget(self.hot_folder_btn)
-        hot_sync_row.addWidget(self.sync_btn)
+        self.sync_crop_btn = QPushButton(" Sync Crop")
+        self.sync_crop_btn.setIcon(qta.icon("fa5s.crop", color=THEME.text_primary))
+        self.sync_crop_btn.setToolTip("Apply current crop and rotation to selected images")
+
+        hot_sync_row.addWidget(self.hot_folder_btn, 1)
+        hot_sync_row.addWidget(self.sync_btn, 1)
+        hot_sync_row.addWidget(self.sync_crop_btn, 1)
         action_layout.addLayout(hot_sync_row)
 
         sort_row = QHBoxLayout()
@@ -188,7 +193,8 @@ class FileBrowser(QWidget):
         self.list_view.clicked.connect(self._on_item_clicked)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
-        self.sync_btn.clicked.connect(self.session.sync_selected_settings)
+        self.sync_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("edits"))
+        self.sync_crop_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("geometry_only"))
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self.sync_ui)
         self.sort_name_btn.clicked.connect(lambda: self._apply_sort_order("name"))

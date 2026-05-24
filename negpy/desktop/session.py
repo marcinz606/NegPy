@@ -427,12 +427,18 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = indices
         self.state_changed.emit()
 
-    def sync_selected_settings(self) -> None:
+    def sync_selected_settings(self, mode: str = "edits") -> None:
         """
-        Synchronizes current settings to all other selected files,
-        excluding file-specific parameters (crop, rotation, retouch).
+        Synchronizes current settings to all other selected files.
+
+        Modes:
+            "edits"               — sync everything except crop, fine_rotation, dust spots, local bounds.
+            "edits_with_geometry" — also sync manual_crop_rect and fine_rotation.
+            "geometry_only"       — sync only the GeometryConfig; leave other configs untouched.
         """
         if not self.state.selected_indices or self.state.selected_file_idx == -1:
+            return
+        if mode not in ("edits", "edits_with_geometry", "geometry_only"):
             return
 
         source_config = self.state.config
@@ -449,26 +455,32 @@ class DesktopSessionManager(QObject):
                 if not target_config:
                     target_config = WorkspaceConfig()
 
-                merged_geo = replace(
-                    source_config.geometry,
-                    manual_crop_rect=target_config.geometry.manual_crop_rect,
-                    fine_rotation=target_config.geometry.fine_rotation,
-                )
+                if mode == "geometry_only":
+                    new_config = replace(target_config, geometry=source_config.geometry)
+                else:
+                    if mode == "edits_with_geometry":
+                        merged_geo = source_config.geometry
+                    else:
+                        merged_geo = replace(
+                            source_config.geometry,
+                            manual_crop_rect=target_config.geometry.manual_crop_rect,
+                            fine_rotation=target_config.geometry.fine_rotation,
+                        )
 
-                merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
+                    merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
 
-                merged_process = replace(
-                    source_config.process,
-                    local_floors=target_config.process.local_floors,
-                    local_ceils=target_config.process.local_ceils,
-                )
+                    merged_process = replace(
+                        source_config.process,
+                        local_floors=target_config.process.local_floors,
+                        local_ceils=target_config.process.local_ceils,
+                    )
 
-                new_config = replace(
-                    source_config,
-                    geometry=merged_geo,
-                    retouch=merged_retouch,
-                    process=merged_process,
-                )
+                    new_config = replace(
+                        source_config,
+                        geometry=merged_geo,
+                        retouch=merged_retouch,
+                        process=merged_process,
+                    )
 
                 self.repo.save_file_settings(target_hash, new_config)
 

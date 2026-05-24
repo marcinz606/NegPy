@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.22.1
+
+- Fix: **Batch Analysis** now respects each file's crop and orientation when computing the roll-wide baseline. Previously, files with large borders (e.g. 6×6 negatives in a 3:2 scan) skewed the average because analysis ran on the full frame. (#213)
+- **Sync Crop**: split the Sync Edits button in two — `Sync Edits` (exposure / lab / toning / process settings, preserves per-file crop) and `Sync Crop` (manual crop + rotation only). Useful when every frame on a roll shares the same scanner mask.
+- Added **Analysis Buffer overlay**: while moving the Analysis Buffer slider, the canvas shows a dim border around the excluded region with a dashed accent-colored boundary, so you can see exactly what's being analyzed. Disappears shortly after the last slider movement.
+- Pre-batch warning: if none of the selected files have a crop set, Batch Analysis prompts before running and points to either cropping or raising the Analysis Buffer.
+- Status bar during Batch Analysis now indicates per-file crop state (`[cropped]` vs `[full frame]`).
+- Lowered default **Analysis Buffer** to 0.05 and clamped slider max to 0.25 to match the underlying clamp in analysis.
+
 ## 0.22.0
 
 - **Tool-aware cursor**: mouse pointer changes shape to reflect the active tool — pointing hand for WB Pick, crosshair for Manual Crop, open/closed hand for Move Crop, hidden cursor (brush circle) for Heal.

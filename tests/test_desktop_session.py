@@ -76,6 +76,75 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(saved_config.retouch.manual_dust_spots, [])
         self.assertTrue(saved_config.retouch.dust_remove)
 
+    def test_sync_selected_settings_edits_with_geometry(self):
+        source_config = WorkspaceConfig(
+            exposure=replace(WorkspaceConfig().exposure, density=1.5),
+            geometry=GeometryConfig(rotation=1, fine_rotation=5.5, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+            retouch=RetouchConfig(dust_remove=True, manual_dust_spots=[(0.1, 0.1, 5)]),
+            process=ProcessConfig(process_mode="E-6", e6_normalize=True),
+        )
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = source_config
+
+        target_config = WorkspaceConfig(
+            exposure=replace(WorkspaceConfig().exposure, density=0.0),
+            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
+            retouch=RetouchConfig(dust_remove=False, manual_dust_spots=[(0.5, 0.5, 3)]),
+            process=ProcessConfig(process_mode="C41", e6_normalize=False),
+        )
+        self.mock_repo.load_file_settings.return_value = target_config
+
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings("edits_with_geometry")
+
+        args, _ = self.mock_repo.save_file_settings.call_args
+        saved_config = args[1]
+
+        # Crop and fine_rotation should now propagate from source
+        self.assertEqual(saved_config.geometry.fine_rotation, 5.5)
+        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.1, 0.1, 0.9, 0.9))
+        self.assertEqual(saved_config.geometry.rotation, 1)
+        # Edits still synced
+        self.assertEqual(saved_config.exposure.density, 1.5)
+        # Dust spots still per-target
+        self.assertEqual(saved_config.retouch.manual_dust_spots, [(0.5, 0.5, 3)])
+
+    def test_sync_selected_settings_geometry_only(self):
+        source_config = WorkspaceConfig(
+            exposure=replace(WorkspaceConfig().exposure, density=1.5),
+            geometry=GeometryConfig(rotation=2, fine_rotation=3.0, manual_crop_rect=(0.0, 0.0, 0.5, 0.5)),
+        )
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = source_config
+
+        target_config = WorkspaceConfig(
+            exposure=replace(WorkspaceConfig().exposure, density=0.7),
+            geometry=GeometryConfig(rotation=0, fine_rotation=0.0, manual_crop_rect=None),
+        )
+        self.mock_repo.load_file_settings.return_value = target_config
+
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings("geometry_only")
+
+        args, _ = self.mock_repo.save_file_settings.call_args
+        saved_config = args[1]
+
+        # Geometry comes from source
+        self.assertEqual(saved_config.geometry.rotation, 2)
+        self.assertEqual(saved_config.geometry.fine_rotation, 3.0)
+        self.assertEqual(saved_config.geometry.manual_crop_rect, (0.0, 0.0, 0.5, 0.5))
+        # Other config preserved from target
+        self.assertEqual(saved_config.exposure.density, 0.7)
+
+    def test_sync_selected_settings_invalid_mode_is_noop(self):
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.update_selection([0, 1])
+        self.session.sync_selected_settings("bogus")
+        self.mock_repo.save_file_settings.assert_not_called()
+
     def test_undo_redo_persistence(self):
         self.session.select_file(0)
         initial_config = self.session.state.config

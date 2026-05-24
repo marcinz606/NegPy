@@ -55,6 +55,7 @@ class AppController(QObject):
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
+    analysis_buffer_preview_requested = pyqtSignal(float)
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -561,6 +562,30 @@ class AppController(QObject):
         if not self.state.uploaded_files:
             return
 
+        cropped = 0
+        for f in self.state.uploaded_files:
+            p = self.session.repo.load_file_settings(f["hash"])
+            if p and (p.geometry.manual_crop_rect or p.geometry.auto_crop_enabled):
+                cropped += 1
+
+        if cropped == 0:
+            from PyQt6.QtWidgets import QMessageBox
+
+            reply = QMessageBox.question(
+                None,
+                "No Crops Set",
+                "None of the selected files have a crop set.\n\n"
+                "Roll average analysis samples the full frame, so any borders or "
+                "letterboxing around the negative will skew the baseline.\n\n"
+                "For better results, either crop each file to the negative area, "
+                "or raise the Analysis Buffer to exclude a margin around the edges.\n\n"
+                "Continue anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         self.set_status("Starting Batch Normalization...")
         task = NormalizationTask(
             files=self.state.uploaded_files.copy(),
@@ -568,11 +593,12 @@ class AppController(QObject):
         )
         self.normalization_requested.emit(task)
 
-    def _on_normalization_progress(self, current: int, total: int, name: str) -> None:
+    def _on_normalization_progress(self, current: int, total: int, name: str, has_crop: bool) -> None:
         """
         Updates UI status during batch analysis.
         """
-        self.set_status(f"Analyzing {current}/{total}: {name}...")
+        marker = "cropped" if has_crop else "full frame"
+        self.set_status(f"Analyzing {current}/{total}: {name} [{marker}]...")
         self.status_progress_requested.emit(current, total)
 
     def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple) -> None:

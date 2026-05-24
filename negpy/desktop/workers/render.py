@@ -270,7 +270,7 @@ class NormalizationWorker(QObject):
     Analyzes multiple RAW files to find a consistent baseline.
     """
 
-    progress = pyqtSignal(int, int, str)
+    progress = pyqtSignal(int, int, str, bool)
     finished = pyqtSignal(tuple, tuple)
     error = pyqtSignal(str)
 
@@ -288,7 +288,9 @@ class NormalizationWorker(QObject):
 
         import numpy as np
 
+        from negpy.domain.interfaces import PipelineContext
         from negpy.features.exposure.normalization import analyze_log_exposure_bounds
+        from negpy.features.geometry.processor import GeometryProcessor
 
         total = len(task.files)
         limit = max(1, APP_CONFIG.max_workers // 2)
@@ -306,6 +308,7 @@ class NormalizationWorker(QObject):
                     drange_clip = params.process.drange_clip if params else DEFAULT_WORKSPACE_CONFIG.process.drange_clip
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
+                    geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
 
                     # Use to_thread for blocking CPU/IO bound load and analysis
                     raw, _, _ = await asyncio.to_thread(
@@ -315,9 +318,18 @@ class NormalizationWorker(QObject):
                         linear_raw=linear_raw,
                     )
 
+                    ctx = PipelineContext(
+                        original_size=(raw.shape[1], raw.shape[0]),
+                        scale_factor=1.0,
+                        process_mode=process_mode,
+                    )
+                    transformed = await asyncio.to_thread(GeometryProcessor(geometry).process, raw, ctx)
+                    has_crop = ctx.active_roi is not None
+
                     bounds = await asyncio.to_thread(
                         analyze_log_exposure_bounds,
-                        raw,
+                        transformed,
+                        roi=ctx.active_roi,
                         analysis_buffer=analysis_buffer,
                         process_mode=process_mode,
                         e6_normalize=e6_normalize,
@@ -327,14 +339,14 @@ class NormalizationWorker(QObject):
                     async with lock:
                         completed += 1
                         count = completed
-                    self.progress.emit(count, total, f_info["name"])
+                    self.progress.emit(count, total, f_info["name"], has_crop)
                     return bounds.floors, bounds.ceils, f_info["name"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
                     async with lock:
                         completed += 1
                         count = completed
-                    self.progress.emit(count, total, f_info["name"])
+                    self.progress.emit(count, total, f_info["name"], False)
                     return None
 
         async def _run_batch():

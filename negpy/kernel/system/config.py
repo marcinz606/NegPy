@@ -40,7 +40,7 @@ APP_CONFIG = AppConfig(
 DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     process=ProcessConfig(
         process_mode=ProcessMode.C41,
-        analysis_buffer=0.10,
+        analysis_buffer=0.05,
     ),
     exposure=ExposureConfig(
         density=1.0,
