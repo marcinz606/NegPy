@@ -72,7 +72,7 @@ class CanvasOverlay(QWidget):
     def show_analysis_buffer(self, ratio: float) -> None:
         self._buffer_overlay_ratio = max(0.0, min(ratio, 0.3))
         self._buffer_overlay_visible = True
-        self._buffer_hide_timer.start(100)
+        self._buffer_hide_timer.start(1000)
         self.update()
 
     def _hide_buffer_overlay(self) -> None:
