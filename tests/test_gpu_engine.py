@@ -85,6 +85,65 @@ class TestGPUEngine(unittest.TestCase):
     def _engine_buffers_count(self):
         return self.engine._buffers
 
+    def test_gpu_tiled_export_propagates_ir_buffer(self):
+        """Regression: _process_tiled previously dropped ir_buffer, so IR dust removal
+        was applied in preview but silently skipped on export of >12MP scans."""
+        from negpy.features.retouch.models import RetouchConfig
+        from dataclasses import replace
+
+        h, w = 128, 128
+        img = np.full((h, w, 3), 0.5, dtype=np.float32)
+        img[64, 64] = 0.95
+        ir = np.full((h, w), 0.9, dtype=np.float32)
+        ir[62:67, 62:67] = 0.05
+
+        base = WorkspaceConfig()
+        with_ir = replace(base, retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.5, ir_inpaint_radius=3))
+        without_ir = replace(base, retouch=RetouchConfig(ir_dust_remove=False))
+
+        res_with, _ = self.engine._process_tiled(img, with_ir, scale_factor=1.0, ir_buffer=ir)
+        res_without, _ = self.engine._process_tiled(img, without_ir, scale_factor=1.0, ir_buffer=ir)
+
+        # IR dust removal must change pixels somewhere in the output.
+        diff_max = float(np.abs(res_with - res_without).max())
+        self.assertGreater(diff_max, 0.05, "Tiled export ignored IR buffer; output identical to IR-off")
+
+    def test_gpu_tiled_export_ir_no_crash_without_buffer(self):
+        """ir_dust_remove enabled but ir_buffer=None must not crash the tiled path."""
+        from negpy.features.retouch.models import RetouchConfig
+        from dataclasses import replace
+
+        img = np.random.rand(96, 96, 3).astype(np.float32)
+        settings = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True))
+        res, _ = self.engine._process_tiled(img, settings, scale_factor=1.0, ir_buffer=None)
+        self.assertIsNotNone(res)
+
+    def test_gpu_tiled_export_respects_geometry_for_ir(self):
+        """Tiled path must pre-transform IR with the same geometry as the RGB tiles;
+        otherwise rotated/flipped exports would heal pixels at wrong locations."""
+        from negpy.features.retouch.models import RetouchConfig
+        from negpy.features.geometry.models import GeometryConfig
+        from dataclasses import replace
+
+        h, w = 96, 128
+        rng = np.random.default_rng(0)
+        img = rng.random((h, w, 3), dtype=np.float32) * 0.3 + 0.4
+        ir = np.full((h, w), 0.9, dtype=np.float32)
+        ir[30:34, 30:34] = 0.05
+
+        settings = replace(
+            WorkspaceConfig(),
+            retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.5, ir_inpaint_radius=3),
+            geometry=GeometryConfig(rotation=1),
+        )
+        settings_off = replace(settings, retouch=RetouchConfig(ir_dust_remove=False))
+
+        res_on, _ = self.engine._process_tiled(img, settings, scale_factor=1.0, ir_buffer=ir)
+        res_off, _ = self.engine._process_tiled(img, settings_off, scale_factor=1.0, ir_buffer=ir)
+        # Geometry-rotated tiled export with IR must still produce a different output
+        # than the same export with IR disabled.
+        self.assertGreater(float(np.abs(res_on - res_off).max()), 0.05)
+
     def test_histogram_unaffected_by_border(self):
         """Border pixels must not skew the histogram — metrics are computed on content only."""
         from dataclasses import replace
