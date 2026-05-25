@@ -231,6 +231,7 @@ class GPUEngine:
         source_hash: Optional[str] = None,
         readback_metrics: bool = True,
         ir_buffer: Optional[np.ndarray] = None,
+        vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
@@ -372,6 +373,7 @@ class GPUEngine:
             tiling_mode,
             render_size_ref,
             scale_factor,
+            vignette_full_crop=vignette_full_crop,
         )
         self._update_retouch_storage(
             settings.retouch,
@@ -664,6 +666,7 @@ class GPUEngine:
         tiling_mode: bool,
         render_size_ref: Optional[float],
         scale_factor: float,
+        vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         g_data = (
@@ -842,7 +845,22 @@ class GPUEngine:
             )
         )
 
-        f_data = struct.pack("ff", float(settings.finish.vignette_strength), float(settings.finish.vignette_size)) + b"\x00" * 24
+        if vignette_full_crop is None:
+            v_full_w, v_full_h, v_off_x, v_off_y = crop_w, crop_h, 0, 0
+        else:
+            v_full_w, v_full_h, v_off_x, v_off_y = vignette_full_crop
+        f_data = (
+            struct.pack(
+                "ffffff",
+                float(settings.finish.vignette_strength),
+                float(settings.finish.vignette_size),
+                float(v_full_w),
+                float(v_full_h),
+                float(v_off_x),
+                float(v_off_y),
+            )
+            + b"\x00" * 8
+        )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
         color_hex = settings.finish.border_color.lstrip("#")
@@ -1271,6 +1289,7 @@ class GPUEngine:
                     min(h_rot, y1 + ty + th + TILE_HALO),
                 )
                 ir_tile = np.ascontiguousarray(ir_rot[iy1:iy2, ix1:ix2]) if ir_rot is not None else None
+                ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 tile_res, _ = self.process_to_texture(
                     img_rot[iy1:iy2, ix1:ix2],
                     settings,
@@ -1282,8 +1301,8 @@ class GPUEngine:
                     clahe_cdf_override=global_cdfs,
                     apply_layout=False,
                     ir_buffer=ir_tile,
+                    vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
                 )
-                ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 
         scaled_content = (
