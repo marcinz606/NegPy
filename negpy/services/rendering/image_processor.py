@@ -20,6 +20,7 @@ from negpy.services.rendering.engine import DarkroomEngine
 from negpy.services.rendering.gpu_engine import GPUEngine
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.image.logic import (
+    apply_exif_orientation,
     float_to_uint8,
     float_to_uint16,
     ensure_rgb,
@@ -163,10 +164,16 @@ class ImageProcessor:
                     output_bps=16,
                     output_color=rawpy.ColorSpace.raw,
                     demosaic_algorithm=algo,
+                    user_flip=0,
                 )
                 rgb = ensure_rgb(rgb)
 
             f32_buffer = uint16_to_float32(rgb)
+
+            orientation = metadata.get("orientation", 1)
+            f32_buffer = apply_exif_orientation(f32_buffer, orientation)
+            if ir_full is not None:
+                ir_full = apply_exif_orientation(ir_full, orientation)
             h_raw, w_raw = f32_buffer.shape[:2]
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 

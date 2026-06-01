@@ -6,7 +6,7 @@ from PIL import Image
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.domain.models import ColorSpace
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, identify_color_space_from_icc, read_orientation
 from negpy.kernel.image.logic import srgb_to_linear, uint8_to_float32
 
 
@@ -37,5 +37,5 @@ class JpegLoader(IImageLoader):
         color_space = identify_color_space_from_icc(icc_bytes) or ColorSpace.SRGB.value
         if color_space == ColorSpace.SRGB.value:
             f32 = srgb_to_linear(f32)
-        metadata = {"orientation": 0, "color_space": color_space, "icc_profile": icc_bytes, "ir": None}
+        metadata = {"orientation": read_orientation(file_path), "color_space": color_space, "icc_profile": icc_bytes, "ir": None}
         return NonStandardFileWrapper(f32), metadata

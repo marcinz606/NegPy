@@ -7,7 +7,7 @@ import tifffile
 
 from negpy.domain.interfaces import IImageLoader
 from negpy.domain.models import ColorSpace
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, detect_color_space_from_raw
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, detect_color_space_from_raw, read_orientation
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -68,7 +68,7 @@ class RawpyLoader(IImageLoader):
         if peeked is not None:
             rgb, ir = peeked
             metadata = {
-                "orientation": 0,
+                "orientation": read_orientation(file_path),
                 "raw_flip": 0,
                 "color_space": ColorSpace.ADOBE_RGB.value,
                 "ir": ir,
@@ -78,7 +78,7 @@ class RawpyLoader(IImageLoader):
         raw = rawpy.imread(file_path)
 
         metadata = {
-            "orientation": 0,
+            "orientation": read_orientation(file_path),
             "raw_flip": 0,
             "color_space": detect_color_space_from_raw(raw) or "Adobe RGB",
             "ir": None,

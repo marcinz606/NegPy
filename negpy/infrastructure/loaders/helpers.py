@@ -36,6 +36,22 @@ def read_exif_from_file(file_path: str) -> Optional[dict]:
     return None
 
 
+def read_orientation(file_path: str) -> int:
+    """Read the EXIF orientation tag (1-8) from a file. Returns 1 (normal) when absent."""
+    import piexif
+
+    exif = read_exif_from_file(file_path)
+    if not exif:
+        return 1
+    try:
+        val = exif.get("0th", {}).get(piexif.ImageIFD.Orientation)
+    except Exception:
+        return 1
+    if isinstance(val, int) and 1 <= val <= 8:
+        return val
+    return 1
+
+
 def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
     """
     Resolve a ColorSpace enum value from an embedded ICC profile's description.

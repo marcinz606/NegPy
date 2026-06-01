@@ -7,7 +7,7 @@ import rawpy
 from negpy.domain.types import Dimensions, ImageBuffer
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
-from negpy.kernel.image.logic import ensure_rgb, uint16_to_float32
+from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -53,10 +53,15 @@ class PreviewManager:
             rgb = ensure_rgb(rgb)
 
             full_linear = uint16_to_float32(np.ascontiguousarray(rgb))
+
+            orientation = metadata.get("orientation", 1)
+            full_linear = apply_exif_orientation(full_linear, orientation)
             h_orig, w_orig = full_linear.shape[:2]
 
             max_res = APP_CONFIG.preview_render_size
             ir_full = metadata.get("ir")
+            if ir_full is not None:
+                ir_full = apply_exif_orientation(ir_full, orientation)
             if max(h_orig, w_orig) > max_res and not full_resolution:
                 scale = max_res / max(h_orig, w_orig)
                 target_w = int(w_orig * scale)

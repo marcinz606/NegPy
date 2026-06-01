@@ -161,6 +161,11 @@ def embed_metadata(
                 merged[ifd_name] = {}
             merged[ifd_name].update(custom[ifd_name])
 
+    # Pixels are exported upright; declare normal orientation so viewers don't re-rotate.
+    merged.setdefault("0th", {})[piexif.ImageIFD.Orientation] = 1
+    if isinstance(merged.get("1st"), dict):
+        merged["1st"].pop(piexif.ImageIFD.Orientation, None)
+
     try:
         exif_bytes = piexif.dump(_sanitize_exif(merged))
         output = io.BytesIO()

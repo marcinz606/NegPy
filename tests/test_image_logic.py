@@ -2,6 +2,31 @@ import numpy as np
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
 )
+from negpy.kernel.image.logic import apply_exif_orientation
+
+
+def test_apply_exif_orientation_noop():
+    arr = np.arange(6).reshape(2, 3).astype(np.float32)
+    for o in (1, 0, None):
+        assert np.array_equal(apply_exif_orientation(arr, o), arr)
+
+
+def test_apply_exif_orientation_rotations_match_numpy():
+    arr = np.arange(6).reshape(2, 3).astype(np.float32)
+    assert np.array_equal(apply_exif_orientation(arr, 3), np.rot90(arr, 2))
+    assert np.array_equal(apply_exif_orientation(arr, 6), np.rot90(arr, 3))  # 90 CW
+    assert np.array_equal(apply_exif_orientation(arr, 8), np.rot90(arr, 1))  # 90 CCW
+    assert np.array_equal(apply_exif_orientation(arr, 2), np.fliplr(arr))
+    assert np.array_equal(apply_exif_orientation(arr, 4), np.flipud(arr))
+
+
+def test_apply_exif_orientation_swaps_dims_for_90deg():
+    # (2,3,3) RGB → 90° rotation yields (3,2,3); channel axis preserved
+    arr = np.random.rand(2, 3, 3).astype(np.float32)
+    for o in (5, 6, 7, 8):
+        out = apply_exif_orientation(arr, o)
+        assert out.shape == (3, 2, 3)
+        assert out.flags["C_CONTIGUOUS"]
 
 
 def test_apply_film_characteristic_curve_range():

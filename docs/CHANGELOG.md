@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.22.3
+
+- Fix: exported images now honor the source file's EXIF orientation and match the preview — rotation and crop no longer drift on export for files carrying an orientation tag. (#218)
+
 ## 0.22.2
 
 - Fix: tiled GPU export now correctly applies IR dust removal — it was silently skipped when the image was split into tiles during high-resolution export. (#216)
