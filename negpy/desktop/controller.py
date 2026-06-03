@@ -28,7 +28,7 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts_from_log,
 )
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
-from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -318,19 +318,36 @@ class AppController(QObject):
                 workspace_color_space=self.state.workspace_color_space,
                 linear_raw=self.state.config.exposure.linear_raw,
                 full_resolution=self.state.hq_preview,
+                detect_mode=self.state.current_file_is_new,
             )
         )
 
-    def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any) -> None:
+    def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
         self.state.preview_raw = raw
         self.state.preview_ir = ir_preview
         self.state.has_ir = ir_preview is not None
         self.state.original_res = dims
         self.state.current_file_path = file_path
         self.state.source_cs = source_cs
+        self._apply_detected_mode(detected_mode)
         self.preview_loaded.emit()
         self.config_updated.emit()
         self.request_render()
+
+    def _apply_detected_mode(self, detected_mode: str) -> None:
+        """
+        Silently apply the autodetected process mode for a new file. Never overrides
+        a saved or user-edited mode (the worker only runs detection on new files).
+        """
+        if not detected_mode or detected_mode == self.state.config.process.process_mode:
+            return
+        new_proc = replace(
+            self.state.config.process,
+            process_mode=ProcessMode(detected_mode),
+            **invalidate_local_bounds(self.state.config.process),
+        )
+        self.state.config = replace(self.state.config, process=new_proc)
+        self.state.is_dirty = True
 
     def toggle_hq_preview(self) -> None:
         self.session.set_hq_preview(not self.state.hq_preview)

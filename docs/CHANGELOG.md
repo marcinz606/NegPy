@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.22.4
+
+- Added **Process mode autodetect**: new files are now analyzed on load and the process mode (C41 / B&W / E-6) is set automatically — orange-mask detection for C41, channel-correlation for B&W, balanced channels for E-6. Detection runs on a non-white-balanced decode (the C41 mask is otherwise hidden by camera WB) and only applies to files without saved settings, so it never overrides a mode you set yourself.
+
 ## 0.22.3
 
 - Fix: exported images now honor the source file's EXIF orientation and match the preview — rotation and crop no longer drift on export for files carrying an orientation tag. (#218)

@@ -68,6 +68,9 @@ class AppState:
     # Dirty flag: True when explicit persist=True edits have been made since last file open/switch
     is_dirty: bool = False
 
+    # True when the active file has no saved config yet (gates process-mode autodetect)
+    current_file_is_new: bool = False
+
 
 class AssetListModel(QAbstractListModel):
     """
@@ -413,6 +416,7 @@ class DesktopSessionManager(QObject):
             self.state.max_history_index = self.state.undo_index
 
             saved_config = self.repo.load_file_settings(file_info["hash"])
+            self.state.current_file_is_new = saved_config is None
 
             if saved_config:
                 self.state.config = self._apply_sticky_settings(saved_config, only_global=True)

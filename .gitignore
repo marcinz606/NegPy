@@ -39,3 +39,6 @@ plans/
 .superpowers/
 *superpowers
 .serena/
+
+# debug stuff
+samples/

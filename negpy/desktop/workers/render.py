@@ -62,6 +62,7 @@ class PreviewLoadTask:
     workspace_color_space: str
     linear_raw: bool
     full_resolution: bool = False
+    detect_mode: bool = False  # run process-mode autodetect (new files only)
 
 
 class RenderWorker(QObject):
@@ -240,7 +241,8 @@ class PreviewLoadWorker(QObject):
     Keeps the UI thread free during slow I/O and demosaicing.
     """
 
-    finished = pyqtSignal(str, object, object, str, object)  # (file_path, raw, dims, source_cs, ir_preview)
+    # (file_path, raw, dims, source_cs, ir_preview, detected_mode)
+    finished = pyqtSignal(str, object, object, str, object, str)
     error = pyqtSignal(str)
 
     def __init__(self, preview_service) -> None:
@@ -258,10 +260,29 @@ class PreviewLoadWorker(QObject):
             )
             source_cs = metadata.get("color_space", "")
             ir_preview = metadata.get("ir_preview")
-            self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview)
+            detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+            self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
             self.error.emit(str(e))
+
+    def _detect_mode(self, task: PreviewLoadTask, raw) -> str:
+        """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""
+        from negpy.features.process.logic import detect_process_mode
+
+        try:
+            if task.linear_raw:
+                scan = raw
+            else:
+                scan, _, _ = self._preview_service.load_linear_preview(
+                    task.file_path,
+                    task.workspace_color_space,
+                    linear_raw=True,
+                )
+            return str(detect_process_mode(scan))
+        except Exception:
+            logger.exception(f"Process-mode detection failed: {task.file_path}")
+            return ""
 
 
 class NormalizationWorker(QObject):
