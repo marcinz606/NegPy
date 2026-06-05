@@ -88,8 +88,11 @@ def analyze_log_exposure_bounds(
 ) -> LogNegativeBounds:
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
-    percentile_clip controls how far from the histogram extremes the bounds are sampled
-    (e.g. 0.0001 = nearly no clipping; 1.0 = clip 1% from each tail).
+    percentile_clip controls how the bounds are sampled:
+      > 0  clips the histogram tails (e.g. 0.0001 = nearly no clipping; 1.0 = clip 1% per tail).
+      = 0  samples the true min/max extremes (gentlest percentile stretch).
+      < 0  outward headroom: bounds are pushed BEYOND the true extremes by margin = -percentile_clip
+           (in log-density units), leaving lifted blacks / unclipped highlights (gentler than 0).
     """
     epsilon = 1e-6
     img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
@@ -101,7 +104,12 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    clip = max(0.00001, min(1.0, percentile_clip))
+    if percentile_clip >= 0:
+        clip = max(0.00001, min(1.0, percentile_clip))
+        margin = 0.0
+    else:
+        clip = 0.0
+        margin = -percentile_clip
     p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
     fixed_range = 3.0
 
@@ -121,6 +129,16 @@ def analyze_log_exposure_bounds(
             ceils.append(float(c))
         else:
             ceils.append(float(floors[ch] + fixed_range))
+
+    if margin > 0.0:
+        # Expand outward; per-channel sign handles both f < c and f > c (E6).
+        for ch in range(3):
+            if ceils[ch] >= floors[ch]:
+                floors[ch] -= margin
+                ceils[ch] += margin
+            else:
+                floors[ch] += margin
+                ceils[ch] -= margin
 
     return LogNegativeBounds(
         (floors[0], floors[1], floors[2]),

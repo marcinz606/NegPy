@@ -399,6 +399,7 @@ class ImageProcessor:
             buf,
             format=fmt,
             quality=95,
+            subsampling=0,
             dpi=(export_settings.export_dpi, export_settings.export_dpi),
             icc_profile=icc_bytes,
             compression="tiff_lzw" if fmt == "TIFF" else None,

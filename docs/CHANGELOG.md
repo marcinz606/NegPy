@@ -1,8 +1,10 @@
 # Change Log
 
-## 0.22.4
+## 0.23.0
 
-- Added **Process mode autodetect**: new files are now analyzed on load and the process mode (C41 / B&W / E-6) is set automatically — orange-mask detection for C41, channel-correlation for B&W, balanced channels for E-6. Detection runs on a non-white-balanced decode (the C41 mask is otherwise hidden by camera WB) and only applies to files without saved settings, so it never overrides a mode you set yourself.
+- **D-Range Clip** now extends into negative values for outward headroom. The slider previously bottomed out at the true min/max (no clipping); pulling it below 0 pushes the normalization bounds *beyond* the histogram extremes, leaving lifted blacks and unclipped highlights for a gentler-than-default stretch. Positive values behave exactly as before (clipping the tails for more aggressive recovery).
+- Added **Process mode autodetect**: new files are now analyzed on load and the process mode (C41 / B&W / E-6) is set automatically — orange-mask detection for C41, channel-correlation for B&W, balanced channels for E-6. Detection only applies to files without saved settings, so it never overrides a mode you set yourself.
+- Fix: JPEG export now uses **4:4:4** chroma subsampling instead of libjpeg's default 4:2:0, preserving full color resolution at quality 95. Fine film grain and color detail no longer pick up chroma artifacts on export. (#224)
 
 ## 0.22.3
 
