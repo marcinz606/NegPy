@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.23.2
+
+- Fix: a manually cropped photo no longer fails to load with "asdict() should be called on dataclass instances" after switching to another photo and returning. The crop rectangle was reloaded as a list instead of a tuple, making the config unhashable and crashing the render cache. (#228)
+
 ## 0.23.1
 
 - Fix: adjust thresholds for film type detection to reduce negatives falsely recognized as positives.
