@@ -15,7 +15,9 @@ from negpy.features.process.models import ProcessMode
 _ANALYSIS_BUFFER = 0.12  # centre-crop ratio: drops film rebate / borders
 _MAX_ANALYSIS_DIM = 256  # downsample longest edge to this for speed
 _BW_CORR_THRESHOLD = 0.99  # min channel correlation above this -> monochrome
-_C41_ORANGE_THRESHOLD = 2.0  # red-over-blue cast above this -> orange mask (C41)
+_C41_ORANGE_THRESHOLD = 1.5  # red-over-blue cast above this -> orange mask (C41)
+_PURPLE_G_DEFICIT = 0.05  # min absolute linear deficit: (R+B)/2 - G (purple mask)
+_PURPLE_RB_BALANCE = 1.05  # min(R,B)/G must exceed this (both R and B above G)
 
 
 def _downsample(img: ImageBuffer, max_dim: int) -> ImageBuffer:
@@ -33,6 +35,13 @@ def _corr(a: np.ndarray, b: np.ndarray) -> float:
     b = b.ravel() - float(b.mean())
     denom = float(np.sqrt(np.sum(a * a) * np.sum(b * b))) + 1e-12
     return float(np.sum(a * b) / denom)
+
+
+def _has_purple_mask(r_v: float, g_v: float, b_v: float) -> bool:
+    """True iff a single (r,g,b) triplet shows the purple-mask pattern (R≈B>>G)."""
+    deficit = (r_v + b_v) / 2 - g_v
+    balance = min(r_v, b_v) / (g_v + 1e-6)
+    return deficit > _PURPLE_G_DEFICIT and balance > _PURPLE_RB_BALANCE
 
 
 def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
@@ -57,11 +66,23 @@ def detect_process_mode(raw: Optional[ImageBuffer]) -> ProcessMode:
     if min_corr > _BW_CORR_THRESHOLD:
         return ProcessMode.BW
 
-    # C41 vs E-6: orange-mask red-over-blue ratio (global mean + brightest pixels).
-    mean_ratio = (float(np.mean(r)) + 1e-6) / (float(np.mean(b)) + 1e-6)
-    base_ratio = (float(np.percentile(r, 98)) + 1e-6) / (float(np.percentile(b, 98)) + 1e-6)
-    orange_score = 0.5 * (mean_ratio + base_ratio)
+    r_mean, b_mean = float(np.mean(r)), float(np.mean(b))
+    r_p25, b_p25 = float(np.percentile(r, 25)), float(np.percentile(b, 25))
+    r_p98, g_p98, b_p98 = float(np.percentile(r, 98)), float(np.percentile(g, 98)), float(np.percentile(b, 98))
 
+    # Orange mask (standard C41): R >> B.
+    # Scanners sometimes correct the mask only in bright areas; check across density levels.
+    orange_score = max(
+        (r_mean + 1e-6) / (b_mean + 1e-6),
+        (r_p25 + 1e-6) / (b_p25 + 1e-6),
+        (r_p98 + 1e-6) / (b_p98 + 1e-6),
+    )
     if orange_score > _C41_ORANGE_THRESHOLD:
         return ProcessMode.C41
+
+    # Purple mask (e.g. Harman Phoenix): R≈B with G suppressed.
+    # Check at p98 (clearest film areas) where the base colour is most visible.
+    if _has_purple_mask(r_p98, g_p98, b_p98):
+        return ProcessMode.C41
+
     return ProcessMode.E6

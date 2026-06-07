@@ -25,6 +25,15 @@ def _c41_scan() -> np.ndarray:
     return np.stack([r, g, b], axis=-1)
 
 
+def _phoenix_scan() -> np.ndarray:
+    """Harman Phoenix C41: purple base (R≈B>>G), decorrelated channels."""
+    rng = np.random.default_rng(2)
+    r = np.clip(0.50 + rng.uniform(-0.10, 0.10, (128, 128)), 0, 1).astype(np.float32)
+    g = np.clip(0.30 + rng.uniform(-0.10, 0.10, (128, 128)), 0, 1).astype(np.float32)
+    b = np.clip(0.48 + rng.uniform(-0.10, 0.10, (128, 128)), 0, 1).astype(np.float32)
+    return np.stack([r, g, b], axis=-1)
+
+
 def _e6_scan() -> np.ndarray:
     """Saturated positive with balanced channel means (no orange cast)."""
     rng = np.random.default_rng(1)
@@ -41,6 +50,10 @@ def test_detects_tinted_bw():
 
 def test_detects_c41():
     assert detect_process_mode(_c41_scan()) == ProcessMode.C41
+
+
+def test_detects_phoenix_c41():
+    assert detect_process_mode(_phoenix_scan()) == ProcessMode.C41
 
 
 def test_detects_e6():

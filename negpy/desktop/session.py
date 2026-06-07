@@ -58,6 +58,9 @@ class AppState:
     # High Quality / Full Resoluiton Preview Toggle
     hq_preview: bool = False
 
+    # Process-mode autodetect on file load (opt-in)
+    autodetect_enabled: bool = False
+
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
 
@@ -232,6 +235,10 @@ class DesktopSessionManager(QObject):
         if APP_CONFIG.force_hq_preview is not None:
             self.state.hq_preview = APP_CONFIG.force_hq_preview
 
+        saved_autodetect = self.repo.get_global_setting("autodetect_enabled")
+        if saved_autodetect is not None:
+            self.state.autodetect_enabled = bool(saved_autodetect)
+
         saved_bg = self.repo.get_global_setting("canvas_bg_index")
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
@@ -258,6 +265,13 @@ class DesktopSessionManager(QObject):
         if self.state.hq_preview != enabled:
             self.state.hq_preview = enabled
             self.repo.save_global_setting("hq_preview", enabled)
+            self.state_changed.emit()
+
+    def set_autodetect_enabled(self, enabled: bool) -> None:
+        """Updates and persists the process-mode autodetect preference."""
+        if self.state.autodetect_enabled != enabled:
+            self.state.autodetect_enabled = enabled
+            self.repo.save_global_setting("autodetect_enabled", enabled)
             self.state_changed.emit()
 
     def set_canvas_bg(self, index: int) -> None:

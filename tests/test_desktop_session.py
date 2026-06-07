@@ -39,6 +39,16 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(self.session.state.selected_file_idx, 1)
         self.assertEqual(self.session.state.selected_indices, [1])
 
+    def test_set_autodetect_enabled_persists(self):
+        self.assertFalse(self.session.state.autodetect_enabled)
+        self.session.set_autodetect_enabled(True)
+        self.assertTrue(self.session.state.autodetect_enabled)
+        self.mock_repo.save_global_setting.assert_called_with("autodetect_enabled", True)
+
+    def test_set_autodetect_enabled_noop_when_unchanged(self):
+        self.session.set_autodetect_enabled(False)
+        self.mock_repo.save_global_setting.assert_not_called()
+
     def test_sync_selected_settings_exclusions(self):
         source_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=1.5),

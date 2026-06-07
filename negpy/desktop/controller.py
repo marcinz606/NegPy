@@ -295,7 +295,7 @@ class AppController(QObject):
             self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
             self.status_progress_requested.emit(0, 0)
 
-    def load_file(self, file_path: str, preserve_zoom: bool = False) -> None:
+    def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
         Dispatches RAW decode to a background worker to keep the UI thread free.
         """
@@ -318,7 +318,7 @@ class AppController(QObject):
                 workspace_color_space=self.state.workspace_color_space,
                 linear_raw=self.state.config.exposure.linear_raw,
                 full_resolution=self.state.hq_preview,
-                detect_mode=self.state.current_file_is_new,
+                detect_mode=force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new),
             )
         )
 
@@ -348,6 +348,11 @@ class AppController(QObject):
         )
         self.state.config = replace(self.state.config, process=new_proc)
         self.state.is_dirty = True
+
+    def toggle_autodetect(self, enabled: bool) -> None:
+        self.session.set_autodetect_enabled(enabled)
+        if enabled and self.state.current_file_path:
+            self.load_file(self.state.current_file_path, preserve_zoom=True, force_detect=True)
 
     def toggle_hq_preview(self) -> None:
         self.session.set_hq_preview(not self.state.hq_preview)

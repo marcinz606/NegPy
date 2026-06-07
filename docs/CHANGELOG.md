@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.23.1
+
+- Fix: adjust thresholds for film type detection to reduce negatives falsely recognized as positives.
+- Made **process mode autodetect** toggleable using button next to the process dropdown.
+
+
 ## 0.23.0
 
 - **D-Range Clip** now extends into negative values for outward headroom. The slider previously bottomed out at the true min/max (no clipping); pulling it below 0 pushes the normalization bounds *beyond* the histogram extremes, leaving lifted blacks and unclipped highlights for a gentler-than-default stretch. Positive values behave exactly as before (clipping the tails for more aggressive recovery).

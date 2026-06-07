@@ -54,7 +54,13 @@ class ProcessSidebar(BaseSidebar):
         self.lock_bounds_btn.setIcon(qta.icon("fa5s.lock", color=THEME.text_primary))
         self.lock_bounds_btn.setToolTip("Freeze normalization bounds — crop and analysis sliders no longer re-analyze")
         self.lock_bounds_btn.setFixedWidth(28)
+        self.autodetect_btn = QPushButton()
+        self.autodetect_btn.setCheckable(True)
+        self.autodetect_btn.setIcon(qta.icon("mdi6.auto-fix", color=THEME.text_primary))
+        self.autodetect_btn.setToolTip("Auto-detect film process (C41/B&W/E-6) on load")
+        self.autodetect_btn.setFixedWidth(28)
         mode_row.addWidget(self.mode_combo, stretch=1)
+        mode_row.addWidget(self.autodetect_btn)
         mode_row.addWidget(self.lock_bounds_btn)
         self.layout.addLayout(mode_row)
 
@@ -135,6 +141,7 @@ class ProcessSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        self.autodetect_btn.toggled.connect(lambda c: self.controller.toggle_autodetect(c))
         self.lock_bounds_btn.toggled.connect(self._on_lock_bounds_toggled)
 
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
@@ -282,6 +289,7 @@ class ProcessSidebar(BaseSidebar):
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
 
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
+            self.autodetect_btn.setChecked(self.state.autodetect_enabled)
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
 
             locked = conf.lock_bounds
@@ -300,6 +308,7 @@ class ProcessSidebar(BaseSidebar):
         """
         widgets = [
             self.mode_combo,
+            self.autodetect_btn,
             self.lock_bounds_btn,
             self.analysis_buffer_slider,
             self.drange_clip_slider,
