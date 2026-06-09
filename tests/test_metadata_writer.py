@@ -40,6 +40,25 @@ def test_embed_handles_oversized_exif_without_dropping_metadata() -> None:
     assert piexif.ExifIFD.MakerNote not in loaded["Exif"]
 
 
+def test_embed_trims_oversized_nonstandard_tag_keeps_custom_fields() -> None:
+    # Overflow from a tag the targeted trims don't touch (e.g. bloated ImageDescription/XMP).
+    source_exif = {
+        "0th": {piexif.ImageIFD.ImageDescription: b"x" * 70_000},
+        "Exif": {},
+        "GPS": {},
+        "Interop": {},
+        "1st": {},
+    }
+    config = MetadataConfig(camera_override="MyCam")
+
+    out = embed_metadata(_jpeg(), config, source_exif)
+
+    loaded = piexif.load(out)
+    # Embed succeeded (no fallback to original) and the user's field survived.
+    assert loaded["0th"][piexif.ImageIFD.Orientation] == 1
+    assert loaded["0th"][piexif.ImageIFD.Model] == b"MyCam"
+
+
 def test_embed_keeps_small_exif_intact() -> None:
     source_exif = {
         "0th": {piexif.ImageIFD.Make: b"TestCam"},

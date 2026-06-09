@@ -170,7 +170,7 @@ def embed_metadata(
         output = io.BytesIO()
         if image_bytes[:2] == b"\xff\xd8":
             # JPEG APP1 (EXIF) must fit in a single 64 KB segment.
-            exif_bytes = _dump_exif_within_app1_limit(merged)
+            exif_bytes = _dump_exif_within_app1_limit(merged, config)
             piexif.insert(exif_bytes, image_bytes, output)
         else:
             # TIFF has no 64 KB EXIF cap (tifffile writes a separate IFD).
@@ -187,16 +187,19 @@ def embed_metadata(
 _APP1_EXIF_LIMIT = 65533
 
 
-def _dump_exif_within_app1_limit(merged: dict) -> bytes:
+def _dump_exif_within_app1_limit(merged: dict, config: MetadataConfig) -> bytes:
     """
-    Serialize EXIF for a JPEG, progressively dropping the largest optional blocks until it
-    fits the 64 KB APP1 segment. Source RAWs often carry an embedded thumbnail and/or a
-    multi-KB MakerNote that overflow it; the small user/override fields are always kept.
+    Serialize EXIF for a JPEG so it always fits the 64 KB APP1 segment.
+
+    Tries to keep as much source EXIF as fits, dropping the usual offenders first
+    (thumbnail, then MakerNote). If a non-standard large tag (e.g. embedded XMP in
+    ImageDescription) still overflows, falls back to NegPy's own small fields, and finally
+    to orientation-only — which is guaranteed to fit, so piexif.insert can never overflow.
     """
     candidate = _sanitize_exif(merged)
 
-    def _try_dump() -> Optional[bytes]:
-        # Treat both an oversized result and a dump failure (e.g. a malformed source
+    def _fits() -> Optional[bytes]:
+        # Treat both an oversized result and a dump failure (e.g. malformed source
         # thumbnail) as "needs more trimming".
         try:
             b = piexif.dump(candidate)
@@ -204,29 +207,35 @@ def _dump_exif_within_app1_limit(merged: dict) -> bytes:
             return None
         return b if len(b) <= _APP1_EXIF_LIMIT else None
 
-    exif_bytes = _try_dump()
+    exif_bytes = _fits()
     if exif_bytes is not None:
         return exif_bytes
 
     # 1) Drop the embedded thumbnail (largest blob, and it'd be the un-edited source anyway).
     candidate.pop("thumbnail", None)
     candidate["1st"] = {}
-    exif_bytes = _try_dump()
+    exif_bytes = _fits()
     if exif_bytes is not None:
         return exif_bytes
 
     # 2) Drop MakerNote (can be tens of KB on some bodies).
     if isinstance(candidate.get("Exif"), dict):
         candidate["Exif"].pop(piexif.ExifIFD.MakerNote, None)
-    exif_bytes = _try_dump()
+    exif_bytes = _fits()
     if exif_bytes is not None:
         return exif_bytes
 
-    # 3) Last resort: drop UserComment + Interop too.
-    _log.warning("EXIF still oversized after trimming thumbnail+MakerNote")
-    if isinstance(candidate.get("Exif"), dict):
-        candidate["Exif"].pop(piexif.ExifIFD.UserComment, None)
-    candidate["Interop"] = {}
+    # 3) Source EXIF still too big (e.g. a bloated ImageDescription/XMP/GPS): discard it and
+    #    keep only NegPy's own fields, which are always small.
+    _log.warning("source EXIF too large for JPEG APP1; keeping only NegPy metadata")
+    candidate = _sanitize_exif(_build_custom_exif(config))
+    candidate.setdefault("0th", {})[piexif.ImageIFD.Orientation] = 1
+    exif_bytes = _fits()
+    if exif_bytes is not None:
+        return exif_bytes
+
+    # 4) Absolute floor — orientation only. Cannot exceed the limit.
+    candidate = {"0th": {piexif.ImageIFD.Orientation: 1}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}}
     return piexif.dump(candidate)
 
 
