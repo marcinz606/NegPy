@@ -33,7 +33,7 @@ APP_CONFIG = AppConfig(
     use_gpu=True,
     override_toml_path=os.path.join(BASE_USER_DIR, "override.toml"),
     preview_cache_max_entries=8,
-    preview_cache_max_bytes=1_800_000_000,
+    preview_cache_max_bytes=1_200_000_000,
     canvas_zoom_min=0.25,
     canvas_zoom_max=8.0,
 )

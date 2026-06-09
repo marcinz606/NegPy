@@ -374,11 +374,16 @@ class AppController(QObject):
             idx = self.state.selected_file_idx
             files = self.state.uploaded_files
             for path, h in neighbor_paths_and_hashes(files, idx):
+                # Match the cache key load_file will use for this neighbour: its own saved
+                # linear_raw, not the current file's. Otherwise the warm buffer lands under
+                # the wrong key and navigation re-decodes anyway.
+                saved = self.session.repo.load_file_settings(h) if h else None
+                linear_raw = saved.exposure.linear_raw if saved else False
                 self.preview_load_requested.emit(
                     PreviewLoadTask(
                         file_path=path,
                         workspace_color_space=self.state.workspace_color_space,
-                        use_camera_wb=not self.state.config.exposure.linear_raw,
+                        use_camera_wb=not linear_raw,
                         full_resolution=self.state.hq_preview,
                         file_hash=h,
                         use_splash=False,

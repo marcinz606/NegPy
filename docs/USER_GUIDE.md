@@ -314,6 +314,8 @@ If NegPy crashes on launch or has rendering glitches, you can force specific bac
 | `display.qt_platform` | `"auto"`, `"xcb"`, `"wayland"` | Window system plugin (Linux only). |
 | `performance.max_texture_size` | `"auto"` or a number, e.g. `4096` | Caps GPU texture size — reduce if you see out-of-memory errors on low-VRAM cards. |
 | `performance.force_hq_preview` | `true` / `false` (or absent) | Overrides the saved HQ preview toggle. |
+| `performance.preview_cache_max_bytes` | a number, e.g. `1200000000` | Memory budget for the preview cache. Lower it on low-RAM machines (default ~1.2 GB). |
+| `performance.preview_cache_max_entries` | a number, e.g. `8` | Max recently-viewed photos kept in memory for instant navigation. |
 | `logging.level` | `"debug"`, `"info"`, `"warning"`, `"error"` | Controls log verbosity. Use `"debug"` when reporting issues. |
 
 **Common fixes:**

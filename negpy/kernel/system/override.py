@@ -35,6 +35,11 @@ qt_platform = "auto"
 # "auto" lets wgpu/hardware decide the maximum. Set a number (e.g. 4096) to cap it.
 max_texture_size = "auto"
 
+# Preview cache size. Larger keeps more recently-viewed photos in memory for instant
+# navigation; lower it on machines with little RAM. Uncomment to override defaults.
+# preview_cache_max_bytes = 1200000000
+# preview_cache_max_entries = 8
+
 [logging]
 # Verbosity: "debug", "info", "warning", "error"
 level = "info"
@@ -54,6 +59,8 @@ class OverrideConfig:
     qt_platform: str = "auto"
     force_hq_preview: bool | None = None
     max_texture_size: int | None = None
+    preview_cache_max_bytes: int | None = None
+    preview_cache_max_entries: int | None = None
     log_level: str = "info"
 
     @property
@@ -115,6 +122,12 @@ def _parse(data: dict) -> OverrideConfig:
     raw_tex = performance.get("max_texture_size")
     max_tex: int | None = int(raw_tex) if isinstance(raw_tex, int) and raw_tex > 0 else None
 
+    raw_cache_b = performance.get("preview_cache_max_bytes")
+    cache_b: int | None = int(raw_cache_b) if isinstance(raw_cache_b, int) and raw_cache_b > 0 else None
+
+    raw_cache_n = performance.get("preview_cache_max_entries")
+    cache_n: int | None = int(raw_cache_n) if isinstance(raw_cache_n, int) and raw_cache_n > 0 else None
+
     log_level = str(logging_section.get("level", "info")).lower()
     if log_level not in ("debug", "info", "warning", "error"):
         log_level = "info"
@@ -125,6 +138,8 @@ def _parse(data: dict) -> OverrideConfig:
         qt_platform=qt_platform,
         force_hq_preview=force_hq,
         max_texture_size=max_tex,
+        preview_cache_max_bytes=cache_b,
+        preview_cache_max_entries=cache_n,
         log_level=log_level,
     )
 
@@ -181,3 +196,9 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.force_hq_preview is not None:
         app_config.force_hq_preview = cfg.force_hq_preview
+
+    if cfg.preview_cache_max_bytes is not None:
+        app_config.preview_cache_max_bytes = cfg.preview_cache_max_bytes
+
+    if cfg.preview_cache_max_entries is not None:
+        app_config.preview_cache_max_entries = cfg.preview_cache_max_entries

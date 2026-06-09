@@ -252,6 +252,27 @@ def test_load_linear_preview_ir_preview_resized_with_downscale() -> None:
     assert max(out_meta["ir_preview"].shape) == 80
 
 
+def test_ir_preview_survives_warm_cache_hit() -> None:
+    """A warm cache hit must still carry ir_preview — the cache stores/returns metadata."""
+    data = np.full((120, 160, 3), 0.5, dtype=np.float32)
+    ir = np.full((120, 160), 0.3, dtype=np.float32)
+    ctx = NonStandardFileWrapper(data)
+    pm = PreviewManager()
+
+    with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+        lf.get_loader.return_value = (ctx, {"color_space": "Adobe RGB", "ir": ir})
+        # Cold: populates the cache (file_hash + explicit color_space activate the cache path).
+        pm.load_linear_preview("/fake/path.tif", color_space="Adobe RGB", file_hash="abc123")
+        # Warm: must hit the cache without re-opening the loader.
+        lf.get_loader.reset_mock()
+        buf, _dims, out_meta = pm.load_linear_preview("/fake/path.tif", color_space="Adobe RGB", file_hash="abc123")
+
+    lf.get_loader.assert_not_called()
+    assert out_meta["ir_preview"] is not None
+    assert out_meta["ir_preview"].shape == buf.shape[:2]
+    assert np.allclose(out_meta["ir_preview"], 0.3, atol=1e-4)
+
+
 def test_load_linear_preview_no_ir_preview_when_absent() -> None:
     """No IR channel -> ir_preview is None (not missing)."""
     data = np.full((64, 64, 3), 0.5, dtype=np.float32)

@@ -42,7 +42,7 @@ class AppConfig:
     force_hq_preview: bool | None = None
     # Preview buffer LRU (decoded float preview before render pipeline)
     preview_cache_max_entries: int = 8
-    preview_cache_max_bytes: int = 1_800_000_000
+    preview_cache_max_bytes: int = 1_200_000_000
     # Canvas zoom (1.0 = 100%)
     canvas_zoom_min: float = 0.25
     canvas_zoom_max: float = 8.0

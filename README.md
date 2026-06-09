@@ -112,6 +112,11 @@ max_texture_size = "auto"
 # Force HQ preview on/off. Uncomment to override saved preference.
 # force_hq_preview = false
 
+# Preview cache size — keeps recently-viewed photos in memory for instant navigation.
+# Lower these on low-RAM machines. Uncomment to override defaults (~1.2 GB / 8 photos).
+# preview_cache_max_bytes = 1200000000
+# preview_cache_max_entries = 8
+
 [logging]
 # "debug", "info", "warning", "error"
 level = "info"
