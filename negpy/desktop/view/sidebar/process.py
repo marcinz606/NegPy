@@ -293,8 +293,10 @@ class ProcessSidebar(BaseSidebar):
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
 
             locked = conf.lock_bounds
-            for w in (self.analysis_buffer_slider, self.drange_clip_slider, self.white_point_slider, self.black_point_slider):
+            for w in (self.analysis_buffer_slider, self.drange_clip_slider):
                 w.setEnabled(not locked and not conf.use_roll_average)
+            for w in (self.white_point_slider, self.black_point_slider):
+                w.setEnabled(not locked)
 
             self._refresh_rolls()
             if conf.roll_name:

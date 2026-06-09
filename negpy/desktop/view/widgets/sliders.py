@@ -283,11 +283,13 @@ class CompactSlider(BaseSlider):
         if obj is self.label:
             et = event.type()
             if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                if not self.isEnabled():
+                    return True
                 self._scrub_active = True
                 self._scrub_start_x = event.position().x()
                 self._scrub_start_val = self.spin.value()
                 return True
-            if et == QEvent.Type.MouseMove and self._scrub_active:
+            if et == QEvent.Type.MouseMove and self._scrub_active and self.isEnabled():
                 dx = event.position().x() - self._scrub_start_x
                 span = self._max - self._min
                 sensitivity = span / 400.0
