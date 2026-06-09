@@ -226,7 +226,6 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.zoom_slider)
         row_layout.addWidget(self.zoom_label)
         row_layout.addWidget(self.btn_hq)
-        row_layout.addWidget(self.btn_compare)
         for btn in self.canvas_color_btns:
             row_layout.addWidget(btn)
         self._sep2 = self._create_separator()
@@ -239,6 +238,7 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self._sep3)
         row_layout.addWidget(self.btn_save)
         row_layout.addWidget(self.btn_export)
+        row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_overflow)
 
         # Overflow groups for responsive resizeEvent
