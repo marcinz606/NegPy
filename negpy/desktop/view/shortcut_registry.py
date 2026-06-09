@@ -12,6 +12,7 @@ class ShortcutEntry:
 REGISTRY: dict[str, ShortcutEntry] = {
     "prev_file": ShortcutEntry("Left", "Previous file", "Navigation"),
     "next_file": ShortcutEntry("Right", "Next file", "Navigation"),
+    "toggle_compare": ShortcutEntry("\\", "Before/after (auto baseline)", "Tools"),
     "rotate_cw": ShortcutEntry("]", "Rotate 90° CW", "Geometry"),
     "rotate_ccw": ShortcutEntry("[", "Rotate 90° CCW", "Geometry"),
     "flip_h": ShortcutEntry("H", "Flip horizontal", "Geometry"),

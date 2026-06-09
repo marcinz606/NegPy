@@ -36,6 +36,7 @@ class ShortcutManager:
         actions: dict[str, Callable[[], None]] = {
             "prev_file": controller.session.prev_file,
             "next_file": controller.session.next_file,
+            "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),
             "rotate_cw": lambda: toolbar.rotate(-1),
             "flip_h": lambda: toolbar.flip("horizontal"),

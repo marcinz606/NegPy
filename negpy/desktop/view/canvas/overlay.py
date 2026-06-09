@@ -224,6 +224,17 @@ class CanvasOverlay(QWidget):
                 painter.drawLine(QPointF(visible_rect.x(), self._mouse_pos.y()), QPointF(visible_rect.right(), self._mouse_pos.y()))
                 painter.drawLine(QPointF(self._mouse_pos.x(), visible_rect.top()), QPointF(self._mouse_pos.x(), visible_rect.bottom()))
 
+        if getattr(self.state, "compare_mode", False):
+            self._draw_compare_badge(painter, visible_rect)
+
+    def _draw_compare_badge(self, painter: QPainter, visible_rect: QRectF) -> None:
+        badge = QRectF(visible_rect.x() + 12, visible_rect.y() + 12, 78, 22)
+        painter.setBrush(QColor(0, 0, 0, 170))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(badge, 4, 4)
+        painter.setPen(QColor(THEME.accent_primary))
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "BEFORE")
+
     def _draw_brush(self, painter: QPainter) -> None:
         conf = self.state.config.retouch
         max_screen_dim = max(self._view_rect.width(), self._view_rect.height())

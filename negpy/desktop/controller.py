@@ -27,8 +27,14 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
 )
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure.models import ExposureConfig
+from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
+from negpy.features.lab.models import LabConfig
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
+from negpy.features.retouch.models import RetouchConfig
+from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -38,6 +44,22 @@ from negpy.services.rendering.preview_manager import PreviewManager
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
+
+
+def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
+    """
+    The 'before' config for the before/after view: reset the creative sections to defaults
+    while keeping process (mode + normalization bounds), geometry/crop, export and metadata,
+    so it shows the un-graded auto conversion of the same framed image.
+    """
+    return replace(
+        config,
+        exposure=ExposureConfig(),
+        lab=LabConfig(),
+        toning=ToningConfig(),
+        finish=FinishConfig(),
+        retouch=RetouchConfig(),
+    )
 
 
 class AppController(QObject):
@@ -50,6 +72,7 @@ class AppController(QObject):
     preview_loaded = pyqtSignal()
     metrics_available = pyqtSignal(dict)
     loading_started = pyqtSignal()
+    load_failed = pyqtSignal()
     export_progress = pyqtSignal(int, int, str)
     export_finished = pyqtSignal(float)
     render_requested = pyqtSignal(RenderTask)
@@ -61,6 +84,7 @@ class AppController(QObject):
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
+    compare_changed = pyqtSignal(bool)
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
     _render_cleanup_requested = pyqtSignal()
@@ -793,12 +817,22 @@ class AppController(QObject):
                 self.session.select_file(i)
                 return
 
-    def request_render(self, readback_metrics: bool = True) -> None:
+    def request_render(self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None) -> None:
         """
         Dispatches a render task to the worker thread.
         Direct callers bypass the debounce; the timer is cancelled to avoid a duplicate.
+
+        config_override renders an alternate config (e.g. the before/after baseline) without
+        mutating session state; pass readback_metrics=False so it doesn't disturb
+        histogram/bounds persistence.
         """
         self._render_debounce.stop()
+
+        # Any non-compare render (a user edit, navigation, etc.) exits before/after compare.
+        if config_override is None and self.state.compare_mode:
+            self.state.compare_mode = False
+            self.compare_changed.emit(False)
+
         if self.state.preview_raw is None:
             return
 
@@ -814,7 +848,7 @@ class AppController(QObject):
 
         task = RenderTask(
             buffer=preview_raw,
-            config=self.state.config,
+            config=config_override if config_override is not None else self.state.config,
             source_hash=self.state.current_file_hash or "preview",
             preview_size=target_size,
             icc_profile_path=self.state.icc_profile_path,
@@ -831,6 +865,22 @@ class AppController(QObject):
 
         self._is_rendering = True
         self.render_requested.emit(task)
+
+    def _baseline_compare_config(self) -> WorkspaceConfig:
+        return baseline_compare_config(self.state.config)
+
+    def toggle_compare(self) -> None:
+        """Toggle the before/after view between current edits and the auto baseline."""
+        if self.state.preview_raw is None:
+            return
+        if self.state.compare_mode:
+            self.state.compare_mode = False
+            self.compare_changed.emit(False)
+            self.request_render()
+        else:
+            self.state.compare_mode = True
+            self.compare_changed.emit(True)
+            self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
 
     def _ensure_valid_export_path(self) -> Optional[str]:
         """
@@ -1010,6 +1060,7 @@ class AppController(QObject):
         self.state.is_processing = self._is_rendering = False
         logger.error(f"Worker failure: {message}")
         self.set_status(f"Failed to load file: {message}", 5000)
+        self.load_failed.emit()
 
         if self._pending_render_task:
             task = self._pending_render_task

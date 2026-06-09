@@ -74,6 +74,9 @@ class AppState:
     # True when the active file has no saved config yet (gates process-mode autodetect)
     current_file_is_new: bool = False
 
+    # True while the before/after view shows the un-graded auto baseline instead of edits
+    compare_mode: bool = False
+
 
 class AssetListModel(QAbstractListModel):
     """

@@ -22,6 +22,7 @@ from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
 from negpy.desktop.view.widgets.status_bar import TopStatusBar
 from negpy.domain.models import AspectRatio
@@ -132,6 +133,9 @@ class MainWindow(QMainWindow):
         self.empty_state = _EmptyStateOverlay(self.canvas, lambda: self.show_tutorial())
         self.empty_state.raise_()
 
+        self.loading_overlay = LoadingOverlay(self.canvas)
+        self.loading_overlay.raise_()
+
         self.central_layout.addWidget(self.top_status)
         self.central_layout.addWidget(self.metadata_top)
         self.central_layout.addWidget(self.canvas, stretch=1)
@@ -192,8 +196,9 @@ class MainWindow(QMainWindow):
         self.controller.session.state_changed.connect(self._update_title)
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.preview_loaded.connect(self._refresh_image_info)
-        self.controller.loading_started.connect(self.canvas.clear)
-        self.controller.loading_started.connect(lambda: self.empty_state.setVisible(False))
+        self.controller.loading_started.connect(self._on_loading_started)
+        self.controller.image_updated.connect(self.loading_overlay.stop)
+        self.controller.load_failed.connect(self._on_load_failed)
         self.controller.zoom_changed.connect(self._on_zoom_info_changed)
 
         # Metadata updates only on persistent history changes or file selection
@@ -210,6 +215,7 @@ class MainWindow(QMainWindow):
         self.controller.session.settings_pasted.connect(lambda: self.top_status.showMessage("settings pasted", timeout=1500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
+        self.controller.compare_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.analysis_buffer_preview_requested.connect(self.canvas.overlay.show_analysis_buffer)
 
         self.controller.status_message_requested.connect(self.top_status.showMessage)
@@ -241,6 +247,15 @@ class MainWindow(QMainWindow):
             return buffer[:, :, :3]
 
         return buffer
+
+    def _on_loading_started(self) -> None:
+        """Keep the previous frame visible (dimmed) under a spinner instead of blanking."""
+        self.empty_state.setVisible(False)
+        self.loading_overlay.start()
+
+    def _on_load_failed(self) -> None:
+        self.loading_overlay.stop()
+        self.canvas.clear()
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
@@ -325,6 +340,8 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "empty_state"):
             self.empty_state.setGeometry(self.canvas.rect())
+        if hasattr(self, "loading_overlay"):
+            self.loading_overlay.setGeometry(self.canvas.rect())
 
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""
