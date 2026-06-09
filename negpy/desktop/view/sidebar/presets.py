@@ -20,10 +20,12 @@ class PresetsSidebar(BaseSidebar):
         # Load Row
         row_load = QHBoxLayout()
         self.preset_combo = QComboBox()
+        self.preset_combo.setToolTip("Saved presets — full WorkspaceConfig snapshots")
         self._refresh_presets()
 
         self.load_btn = QPushButton(" Load")
         self.load_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
+        self.load_btn.setToolTip("Apply the selected preset to the current image")
 
         row_load.addWidget(self.preset_combo, stretch=1)
         row_load.addWidget(self.load_btn)
@@ -35,6 +37,7 @@ class PresetsSidebar(BaseSidebar):
         self.name_input.setPlaceholderText("New Preset Name")
         self.save_btn = QPushButton(" Save")
         self.save_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
+        self.save_btn.setToolTip("Save the current settings as a new preset under the typed name")
 
         row_save.addWidget(self.name_input, stretch=1)
         row_save.addWidget(self.save_btn)

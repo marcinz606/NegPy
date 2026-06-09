@@ -48,14 +48,12 @@ class TestVignette(unittest.TestCase):
             res = apply_vignette(img, strength, size=0.5)
             np.testing.assert_array_almost_equal(res[50, 50], img[50, 50], decimal=5)
 
-    def test_size_zero_barely_affects_corners(self) -> None:
-        """Size=0 means vignette barely visible — only extreme corners affected."""
+    def test_small_size_localizes_to_corners(self) -> None:
+        """Small size keeps the center untouched while still darkening corners."""
         img = self._gradient_image()
-        res = apply_vignette(img, strength=-1.0, size=0.0)
-        # Most of the image should be near 0.5
+        res = apply_vignette(img, strength=-1.0, size=0.1)
         center_luma = float(res[50, 50].mean())
         self.assertAlmostEqual(center_luma, 0.5, delta=0.01)
-        # Extreme corner should still be darkened
         corner_luma = float(res[0, 0].mean())
         self.assertLess(corner_luma, center_luma)
 
@@ -74,6 +72,25 @@ class TestVignette(unittest.TestCase):
         self.assertEqual(res.shape, img.shape)
         self.assertGreaterEqual(float(res.min()), 0.0)
         self.assertLessEqual(float(res.max()), 1.0)
+
+    def test_circular_falloff_invariant(self) -> None:
+        """Pixels equidistant from center receive identical vignette weight."""
+        h, w = 100, 200
+        img = np.full((h, w, 3), 0.5, dtype=np.float32)
+        res = apply_vignette(img, strength=-1.0, size=0.5)
+
+        c00 = res[0, 0]
+        c0w = res[0, w - 1]
+        ch0 = res[h - 1, 0]
+        chw = res[h - 1, w - 1]
+        np.testing.assert_allclose(c00, c0w, atol=1e-5)
+        np.testing.assert_allclose(c00, ch0, atol=1e-5)
+        np.testing.assert_allclose(c00, chw, atol=1e-5)
+
+        mid_x = w // 2
+        mid_y = h // 2
+        np.testing.assert_allclose(res[0, mid_x], res[h - 1, mid_x], atol=1e-5)
+        np.testing.assert_allclose(res[mid_y, 0], res[mid_y, w - 1], atol=1e-5)
 
 
 if __name__ == "__main__":

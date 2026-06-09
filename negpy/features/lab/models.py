@@ -8,7 +8,7 @@ class LabConfig:
     Scanner emulation (Sharpening, CLAHE).
     """
 
-    color_separation: float = 1.5
+    color_separation: float = 1.0
     saturation: float = 1.0
     vibrance: float = 1.0
     clahe_strength: float = 0.0

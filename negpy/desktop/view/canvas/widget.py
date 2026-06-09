@@ -28,6 +28,14 @@ def clamp_canvas_zoom_level(zoom: float) -> float:
 WHEEL_ZOOM_NOTCH = 1.1
 # Trackpad: map pixel delta to notch-equivalents (tuned for ~smooth steps).
 _WHEEL_PIXELS_PER_NOTCH = 64.0
+
+_TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
+    ToolMode.NONE: Qt.CursorShape.ArrowCursor,
+    ToolMode.WB_PICK: Qt.CursorShape.PointingHandCursor,
+    ToolMode.CROP_MANUAL: Qt.CursorShape.CrossCursor,
+    ToolMode.CROP_MOVE: Qt.CursorShape.OpenHandCursor,
+    ToolMode.DUST_PICK: Qt.CursorShape.BlankCursor,
+}
 # Do not apply more than this many notch-equivalents in a single event (huge flings).
 _WHEEL_MAX_NOTCHES = 4.0
 
@@ -126,7 +134,11 @@ class ImageCanvas(QWidget):
         self.grabGesture(Qt.GestureType.PinchGesture)
 
     def set_tool_mode(self, mode: ToolMode) -> None:
+        self.setCursor(_TOOL_CURSORS.get(mode, Qt.CursorShape.ArrowCursor))
         self.overlay.set_tool_mode(mode)
+
+    def reset_tool_cursor(self) -> None:
+        self.setCursor(_TOOL_CURSORS.get(self.state.active_tool, Qt.CursorShape.ArrowCursor))
 
     def set_controller(self, controller: "AppController") -> None:
         self._controller = controller
@@ -358,7 +370,7 @@ class ImageCanvas(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._is_panning:
             self._is_panning = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.reset_tool_cursor()
             event.accept()
         else:
             super().mouseReleaseEvent(event)

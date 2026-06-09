@@ -14,6 +14,26 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
+# D-Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
+# positions -100..0 map to an outward log-density margin (gentler-than-zero stretch).
+_DRANGE_MARGIN_MIN = 0.005
+_DRANGE_MARGIN_MAX = 1.0
+
+
+def _drange_slider_to_value(pos: float) -> float:
+    if pos >= 0:
+        return math.pow(10, 0.05 * pos - 5)
+    lo, hi = math.log10(_DRANGE_MARGIN_MIN), math.log10(_DRANGE_MARGIN_MAX)
+    margin = math.pow(10, lo + (-pos / 100.0) * (hi - lo))
+    return -margin
+
+
+def _drange_value_to_slider(v: float) -> float:
+    if v >= 0:
+        return 20 * (math.log10(max(v, 1e-5)) + 5)
+    lo, hi = math.log10(_DRANGE_MARGIN_MIN), math.log10(_DRANGE_MARGIN_MAX)
+    return -100.0 * (math.log10(-v) - lo) / (hi - lo)
+
 
 class ProcessSidebar(BaseSidebar):
     """
@@ -28,24 +48,32 @@ class ProcessSidebar(BaseSidebar):
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([m.value for m in ProcessMode])
         self.mode_combo.setCurrentText(conf.process_mode)
+        self.mode_combo.setToolTip("Film process mode: C41 (colour negative), B&W (panchromatic), E-6 (slide/reversal)")
         self.lock_bounds_btn = QPushButton()
         self.lock_bounds_btn.setCheckable(True)
         self.lock_bounds_btn.setIcon(qta.icon("fa5s.lock", color=THEME.text_primary))
         self.lock_bounds_btn.setToolTip("Freeze normalization bounds — crop and analysis sliders no longer re-analyze")
         self.lock_bounds_btn.setFixedWidth(28)
+        self.autodetect_btn = QPushButton()
+        self.autodetect_btn.setCheckable(True)
+        self.autodetect_btn.setIcon(qta.icon("mdi6.auto-fix", color=THEME.text_primary))
+        self.autodetect_btn.setToolTip("Auto-detect film process (C41/B&W/E-6) on load")
+        self.autodetect_btn.setFixedWidth(28)
         mode_row.addWidget(self.mode_combo, stretch=1)
+        mode_row.addWidget(self.autodetect_btn)
         mode_row.addWidget(self.lock_bounds_btn)
         self.layout.addLayout(mode_row)
 
         buf_clip_row = QHBoxLayout()
-        self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.50, conf.analysis_buffer)
+        self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.analysis_buffer_slider.setToolTip(
             "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
         )
-        initial_drange_slider_val = 20 * (math.log10(max(conf.drange_clip, 1e-5)) + 5)
-        self.drange_clip_slider = CompactSlider("D-Range Clip", 0, 100, initial_drange_slider_val, precision=1, step=1)
+        initial_drange_slider_val = _drange_value_to_slider(conf.drange_clip)
+        self.drange_clip_slider = CompactSlider("D-Range Clip", -100, 100, initial_drange_slider_val, precision=1, step=1, has_neutral=True)
         self.drange_clip_slider.setToolTip(
-            "Clips the top/bottom of the tonal range during normalization — higher values allow more aggressive highlight/shadow recovery"
+            "Tonal-range normalization. Positive: clips the top/bottom for more aggressive highlight/shadow recovery. "
+            "Negative: outward headroom — leaves lifted blacks / unclipped highlights for a gentler stretch (double-click to reset)"
         )
         buf_clip_row.addWidget(self.analysis_buffer_slider)
         buf_clip_row.addWidget(self.drange_clip_slider)
@@ -72,10 +100,12 @@ class ProcessSidebar(BaseSidebar):
         btns_row = QHBoxLayout()
         self.analyze_roll_btn = QPushButton(" Batch Analysis")
         self.analyze_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
+        self.analyze_roll_btn.setToolTip("Scan every loaded file and compute a roll-wide average density and colour balance baseline")
 
         self.use_roll_avg_btn = QPushButton(" Use Roll Average")
         self.use_roll_avg_btn.setCheckable(True)
         self.use_roll_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
+        self.use_roll_avg_btn.setToolTip("Toggle between per-image local normalization and the roll-wide baseline from Batch Analysis")
 
         btns_row.addWidget(self.analyze_roll_btn)
         btns_row.addWidget(self.use_roll_avg_btn)
@@ -85,18 +115,22 @@ class ProcessSidebar(BaseSidebar):
 
         self.roll_combo = QComboBox()
         self.roll_combo.setPlaceholderText("Select Roll...")
+        self.roll_combo.setToolTip("Previously saved roll normalization baselines")
         self._refresh_rolls()
         self.layout.addWidget(self.roll_combo)
 
         roll_actions = QHBoxLayout()
         self.load_roll_btn = QPushButton(" Load")
         self.load_roll_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
+        self.load_roll_btn.setToolTip("Apply the selected roll's bounds and balance to the current workspace")
 
         self.save_roll_btn = QPushButton(" Save")
         self.save_roll_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
+        self.save_roll_btn.setToolTip("Save the current Batch Analysis result as a named reusable roll")
 
         self.delete_roll_btn = QPushButton(" Delete")
         self.delete_roll_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
+        self.delete_roll_btn.setToolTip("Remove the selected roll from the database")
 
         roll_actions.addWidget(self.load_roll_btn)
         roll_actions.addWidget(self.save_roll_btn)
@@ -107,6 +141,7 @@ class ProcessSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        self.autodetect_btn.toggled.connect(lambda c: self.controller.toggle_autodetect(c))
         self.lock_bounds_btn.toggled.connect(self._on_lock_bounds_toggled)
 
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
@@ -167,9 +202,10 @@ class ProcessSidebar(BaseSidebar):
             analysis_buffer=val,
             **invalidate_local_bounds(self.state.config.process),
         )
+        self.controller.analysis_buffer_preview_requested.emit(val)
 
     def _on_drange_clip_changed(self, val: float, persist: bool = True) -> None:
-        drange_clip = math.pow(10, 0.05 * val - 5)
+        drange_clip = _drange_slider_to_value(val)
         self.update_config_section(
             "process",
             persist=persist,
@@ -243,7 +279,7 @@ class ProcessSidebar(BaseSidebar):
         try:
             self.mode_combo.setCurrentText(conf.process_mode)
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
-            drange_slider_val = 20 * (math.log10(max(conf.drange_clip, 1e-5)) + 5)
+            drange_slider_val = _drange_value_to_slider(conf.drange_clip)
             self.drange_clip_slider.setValue(drange_slider_val)
             self.white_point_slider.setValue(conf.white_point_offset)
             self.black_point_slider.setValue(conf.black_point_offset)
@@ -253,6 +289,7 @@ class ProcessSidebar(BaseSidebar):
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
 
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
+            self.autodetect_btn.setChecked(self.state.autodetect_enabled)
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
 
             locked = conf.lock_bounds
@@ -271,6 +308,7 @@ class ProcessSidebar(BaseSidebar):
         """
         widgets = [
             self.mode_combo,
+            self.autodetect_btn,
             self.lock_bounds_btn,
             self.analysis_buffer_slider,
             self.drange_clip_slider,

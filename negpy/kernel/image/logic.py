@@ -1,6 +1,6 @@
 import hashlib
 import os
-from typing import Any
+from typing import Any, Optional
 import numpy as np
 from numba import njit  # type: ignore
 from negpy.domain.types import LUMA_R, LUMA_G, LUMA_B
@@ -211,6 +211,30 @@ def ensure_rgb(img: np.ndarray) -> np.ndarray:
     if img.ndim == 3 and img.shape[2] == 1:
         return np.concatenate([img] * 3, axis=-1)
     return img
+
+
+def apply_exif_orientation(arr: np.ndarray, orientation: Optional[int]) -> np.ndarray:
+    """
+    Bake an EXIF orientation value (1-8) into pixels so the array displays upright.
+    Works on HxW (IR) and HxWxC (RGB) arrays. Returns the input unchanged for 1/None.
+    """
+    if not orientation or orientation == 1:
+        return arr
+    if orientation == 2:
+        return np.ascontiguousarray(np.fliplr(arr))
+    if orientation == 3:
+        return np.ascontiguousarray(np.rot90(arr, 2))
+    if orientation == 4:
+        return np.ascontiguousarray(np.flipud(arr))
+    if orientation == 5:
+        return np.ascontiguousarray(np.swapaxes(arr, 0, 1))
+    if orientation == 6:  # rotate 90° CW
+        return np.ascontiguousarray(np.rot90(arr, 3))
+    if orientation == 7:
+        return np.ascontiguousarray(np.rot90(np.swapaxes(arr, 0, 1), 2))
+    if orientation == 8:  # rotate 90° CCW
+        return np.ascontiguousarray(np.rot90(arr, 1))
+    return arr
 
 
 def get_luminance(img: np.ndarray) -> np.ndarray:

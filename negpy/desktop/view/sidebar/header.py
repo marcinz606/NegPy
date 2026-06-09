@@ -69,6 +69,9 @@ class SidebarHeader(QWidget):
 
         if gpu_available:
             self.gpu_checkbox.setChecked(self.session.state.gpu_enabled)
+            self.gpu_checkbox.setToolTip(
+                "Use WebGPU for near-instant previews. Turn off to force CPU pipeline if you suspect a driver issue."
+            )
         else:
             self.gpu_checkbox.setEnabled(False)
             self.gpu_checkbox.setChecked(False)

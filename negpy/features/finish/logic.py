@@ -21,13 +21,11 @@ def apply_vignette(img: ImageBuffer, strength: float, size: float) -> ImageBuffe
     h, w = img.shape[:2]
     cy, cx = (h - 1) * 0.5, (w - 1) * 0.5
 
-    # Euclidean distance from center, normalized so corners = 1.0
     y_coords = np.arange(h, dtype=np.float32)
     x_coords = np.arange(w, dtype=np.float32)
     yy, xx = np.meshgrid(y_coords, x_coords, indexing="ij")
-    dy = (yy - cy) / max(cy, 1.0)
-    dx = (xx - cx) / max(cx, 1.0)
-    dist = np.sqrt(dx**2 + dy**2)  # range [0, 1]
+    max_dist = float(np.sqrt(cx * cx + cy * cy))
+    dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / max(max_dist, 1.0)
 
     # Remap: size=0 → vignette barely at corners, size=1 → covers entire image
     midpoint = 1.0 - size

@@ -9,10 +9,9 @@ from PIL import Image
 import rawpy
 
 from negpy.domain.types import Dimensions, ImageBuffer
-from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm
-from negpy.kernel.image.logic import ensure_rgb, uint16_to_float32
+from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -37,6 +36,12 @@ def _output_dimensions_from_raw(raw: Any, postprocessed_h: int, postprocessed_w:
     except Exception:
         pass
     return (postprocessed_h, postprocessed_w)
+
+
+# Pre-warm the Numba JIT so the first actual preview load doesn't pay the compile cost.
+_warmup = np.zeros((2, 2, 3), dtype=np.uint16)
+uint16_to_float32(_warmup)
+del _warmup
 
 
 # Pre-warm the Numba JIT so the first actual preview load doesn't pay the compile cost.
@@ -105,7 +110,6 @@ class PreviewManager:
         Handles cache write on completion.
         """
         t_decode = time.perf_counter()
-        raw_color_space = ColorSpaceRegistry.get_rawpy_space(color_space)
 
         use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper))
         if use_fast:
@@ -128,7 +132,7 @@ class PreviewManager:
             use_camera_wb=use_camera_wb,
             user_wb=user_wb,
             output_bps=16,
-            output_color=raw_color_space,
+            output_color=rawpy.ColorSpace.raw,
             demosaic_algorithm=demosaic,
             user_flip=0,
             **post_kw,
@@ -136,11 +140,20 @@ class PreviewManager:
         logger.debug("raw.postprocess %.3fs (fast=%s)", time.perf_counter() - t_pp, use_fast)
         rgb = ensure_rgb(rgb)
 
-        full_linear = uint16_to_float32(np.ascontiguousarray(rgb))
+        # Bake EXIF orientation into the buffer (postprocess runs with user_flip=0).
+        orientation = metadata.get("orientation", 1)
+        full_linear = apply_exif_orientation(uint16_to_float32(np.ascontiguousarray(rgb)), orientation)
+        ir_full = metadata.get("ir")
+        if ir_full is not None:
+            ir_full = apply_exif_orientation(ir_full, orientation)
+
         h_p, w_p = full_linear.shape[:2]
         # Use pre-postprocess dims if valid; fall back to buffer shape (e.g. NonStandardFileWrapper).
         if full_dims_pre[0] > 0:
             h_orig, w_orig = full_dims_pre
+            # Sensor dims are pre-orientation; swap to match the oriented buffer for 90° rotations.
+            if orientation in (5, 6, 7, 8):
+                h_orig, w_orig = w_orig, h_orig
         else:
             h_orig, w_orig = _output_dimensions_from_raw(raw, h_p, w_p)
         t_resize0 = time.perf_counter()
@@ -159,6 +172,20 @@ class PreviewManager:
         else:
             preview_raw = full_linear.copy()
         logger.debug("preview resize+convert %.3fs", time.perf_counter() - t_resize0)
+
+        # IR channel travels with the preview; resize it to match the final preview dims.
+        if ir_full is not None and ir_full.shape[:2] == full_linear.shape[:2]:
+            ph, pw = preview_raw.shape[:2]
+            if (ph, pw) != ir_full.shape[:2]:
+                metadata["ir_preview"] = cv2.resize(
+                    ir_full.astype(np.float32),
+                    (pw, ph),
+                    interpolation=cv2.INTER_AREA,
+                ).astype(np.float32)
+            else:
+                metadata["ir_preview"] = ir_full.astype(np.float32).copy()
+        else:
+            metadata["ir_preview"] = None
 
         out = ensure_image(preview_raw)
         logger.debug(

@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         self.controller.session.settings_pasted.connect(lambda: self.top_status.showMessage("settings pasted", timeout=1500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
+        self.controller.analysis_buffer_preview_requested.connect(self.canvas.overlay.show_analysis_buffer)
 
         self.controller.status_message_requested.connect(self.top_status.showMessage)
         self.controller.status_progress_requested.connect(self.top_status.set_progress)

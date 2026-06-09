@@ -108,6 +108,42 @@ class TestEmbedMetadata:
             chroma = page.tags.get(319)
             assert chroma is not None and chroma.count == 6
 
+    def test_normalizes_orientation_tag_jpeg(self) -> None:
+        """NegPy bakes orientation into pixels, so the exported file must declare
+        Orientation=1 — otherwise viewers re-rotate the already-upright image (#218)."""
+        arr = np.random.randint(0, 255, (16, 16, 3), dtype=np.uint8)
+        jpeg = io.BytesIO()
+        from PIL import Image
+
+        Image.fromarray(arr).save(jpeg, format="JPEG")
+        source_exif = {
+            "0th": {piexif.ImageIFD.Orientation: 6, piexif.ImageIFD.Make: b"Nikon"},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {piexif.ImageIFD.Orientation: 6},
+        }
+
+        out = embed_metadata(jpeg.getvalue(), MetadataConfig(), source_exif)
+
+        exif = piexif.load(out)
+        assert exif["0th"].get(piexif.ImageIFD.Orientation) == 1
+        assert piexif.ImageIFD.Orientation not in exif["1st"]
+
+    def test_normalizes_orientation_tag_tiff(self) -> None:
+        source_exif = {
+            "0th": {piexif.ImageIFD.Orientation: 8, piexif.ImageIFD.Make: b"Plustek"},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        out = embed_metadata(_make_tiff_bytes(), MetadataConfig(), source_exif)
+        with tifffile.TiffFile(io.BytesIO(out)) as tf:
+            ori = tf.pages[0].tags.get(piexif.ImageIFD.Orientation)
+            # tifffile defaults Orientation to 1 when not emitted; explicit 1 also fine.
+            assert ori is None or ori.value == 1
+
     def test_folds_user_comment_into_image_description(self) -> None:
         """tifffile can't write a real EXIF sub-IFD, so UserComment must be
         mirrored into ImageDescription to stay visible in viewers that only

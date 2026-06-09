@@ -31,6 +31,7 @@ class FinishSidebar(BaseSidebar):
         self.color_btn = QPushButton()
         self.color_btn.setFixedHeight(30)
         self.color_btn.setFixedWidth(30)
+        self.color_btn.setToolTip("Click to pick a border colour")
         self._update_color_btn(conf.border_color)
         row2.addWidget(self.border_slider)
         row2.addWidget(self.color_btn)

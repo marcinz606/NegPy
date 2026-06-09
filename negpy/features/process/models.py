@@ -16,7 +16,7 @@ class ProcessConfig:
     """
 
     process_mode: ProcessMode = ProcessMode.C41
-    analysis_buffer: float = 0.10
+    analysis_buffer: float = 0.05
     drange_clip: float = 0.0
     e6_normalize: bool = True
     use_roll_average: bool = False

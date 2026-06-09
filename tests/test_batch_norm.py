@@ -2,6 +2,7 @@ import unittest
 import numpy as np
 from dataclasses import replace
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure.normalization import analyze_log_exposure_bounds
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
 from negpy.domain.interfaces import PipelineContext
 
@@ -68,6 +69,30 @@ class TestBatchNormalization(unittest.TestCase):
         res_manual = processor_manual.process(img, self.context)
 
         np.testing.assert_array_almost_equal(res_batch, res_manual)
+
+
+class TestAnalyzeBoundsROI(unittest.TestCase):
+    """
+    Black borders surrounding a negative skew percentile-based bounds.
+    Passing the ROI of the negative area must remove that skew.
+    """
+
+    def test_roi_excludes_border_pixels(self):
+        # Image where the inner 50x50 region has C41-ish negative density
+        # (low log10 values, e.g. ~10^-1) and the outer border is near-black (~10^-5)
+        h, w = 200, 200
+        img = np.full((h, w, 3), 1e-5, dtype=np.float32)
+        roi_val = 10**-0.5
+        img[75:125, 75:125, :] = roi_val
+
+        no_roi = analyze_log_exposure_bounds(img, percentile_clip=0.5)
+        with_roi = analyze_log_exposure_bounds(img, roi=(75, 125, 75, 125), percentile_clip=0.5)
+
+        # Without ROI the borders pull the floors very low (near -5)
+        # With ROI the floors hug the negative density (near -0.5)
+        for ch in range(3):
+            self.assertLess(no_roi.floors[ch], -3.0)
+            self.assertGreater(with_roi.floors[ch], -1.0)
 
 
 if __name__ == "__main__":

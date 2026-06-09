@@ -3,7 +3,8 @@ from typing import Optional, Any, List, Dict, Tuple
 from PIL import Image
 import rawpy
 from negpy.kernel.system.config import APP_CONFIG
-from negpy.kernel.image.logic import ensure_rgb, prepare_thumbnail
+import numpy as np
+from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, prepare_thumbnail
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.kernel.system.logging import get_logger
 
@@ -77,13 +78,14 @@ def get_thumbnail_worker(file_path: str, file_hash: str, asset_store: Any = None
                     no_auto_bright=True,
                     bright=1.0,
                     demosaic_algorithm=algo,
+                    user_flip=0,
                 )
                 rgb = ensure_rgb(rgb)
                 img = Image.fromarray(rgb)
 
-            rot = metadata.get("orientation", 0)
-            if rot != 0:
-                img = img.rotate(rot * -90, expand=True)
+            orientation = metadata.get("orientation", 1)
+            if orientation and orientation != 1:
+                img = Image.fromarray(apply_exif_orientation(np.asarray(img), orientation))
 
             square_img: Image.Image = prepare_thumbnail(img, ts)
 

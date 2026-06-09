@@ -42,6 +42,8 @@ class AppState:
     last_metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_lock: threading.Lock = field(default_factory=threading.Lock, init=False, compare=False, repr=False)
     preview_raw: Optional[Any] = None
+    preview_ir: Optional[Any] = None  # downsampled IR float32 [0,1] (H,W); None if source has no IR
+    has_ir: bool = False
     original_res: tuple[int, int] = (0, 0)
     clipboard: Optional[WorkspaceConfig] = None
 
@@ -56,6 +58,9 @@ class AppState:
     # High Quality / Full Resoluiton Preview Toggle
     hq_preview: bool = False
 
+    # Process-mode autodetect on file load (opt-in)
+    autodetect_enabled: bool = False
+
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
 
@@ -65,6 +70,9 @@ class AppState:
 
     # Dirty flag: True when explicit persist=True edits have been made since last file open/switch
     is_dirty: bool = False
+
+    # True when the active file has no saved config yet (gates process-mode autodetect)
+    current_file_is_new: bool = False
 
 
 class AssetListModel(QAbstractListModel):
@@ -227,6 +235,10 @@ class DesktopSessionManager(QObject):
         if APP_CONFIG.force_hq_preview is not None:
             self.state.hq_preview = APP_CONFIG.force_hq_preview
 
+        saved_autodetect = self.repo.get_global_setting("autodetect_enabled")
+        if saved_autodetect is not None:
+            self.state.autodetect_enabled = bool(saved_autodetect)
+
         saved_bg = self.repo.get_global_setting("canvas_bg_index")
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
@@ -253,6 +265,13 @@ class DesktopSessionManager(QObject):
         if self.state.hq_preview != enabled:
             self.state.hq_preview = enabled
             self.repo.save_global_setting("hq_preview", enabled)
+            self.state_changed.emit()
+
+    def set_autodetect_enabled(self, enabled: bool) -> None:
+        """Updates and persists the process-mode autodetect preference."""
+        if self.state.autodetect_enabled != enabled:
+            self.state.autodetect_enabled = enabled
+            self.repo.save_global_setting("autodetect_enabled", enabled)
             self.state_changed.emit()
 
     def set_canvas_bg(self, index: int) -> None:
@@ -411,6 +430,7 @@ class DesktopSessionManager(QObject):
             self.state.max_history_index = self.state.undo_index
 
             saved_config = self.repo.load_file_settings(file_info["hash"])
+            self.state.current_file_is_new = saved_config is None
 
             if saved_config:
                 self.state.config = self._apply_sticky_settings(saved_config, only_global=True)
@@ -425,12 +445,18 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = indices
         self.state_changed.emit()
 
-    def sync_selected_settings(self) -> None:
+    def sync_selected_settings(self, mode: str = "edits") -> None:
         """
-        Synchronizes current settings to all other selected files,
-        excluding file-specific parameters (crop, rotation, retouch).
+        Synchronizes current settings to all other selected files.
+
+        Modes:
+            "edits"               — sync everything except crop, fine_rotation, dust spots, local bounds.
+            "edits_with_geometry" — also sync manual_crop_rect and fine_rotation.
+            "geometry_only"       — sync only the GeometryConfig; leave other configs untouched.
         """
         if not self.state.selected_indices or self.state.selected_file_idx == -1:
+            return
+        if mode not in ("edits", "edits_with_geometry", "geometry_only"):
             return
 
         source_config = self.state.config
@@ -447,26 +473,32 @@ class DesktopSessionManager(QObject):
                 if not target_config:
                     target_config = WorkspaceConfig()
 
-                merged_geo = replace(
-                    source_config.geometry,
-                    manual_crop_rect=target_config.geometry.manual_crop_rect,
-                    fine_rotation=target_config.geometry.fine_rotation,
-                )
+                if mode == "geometry_only":
+                    new_config = replace(target_config, geometry=source_config.geometry)
+                else:
+                    if mode == "edits_with_geometry":
+                        merged_geo = source_config.geometry
+                    else:
+                        merged_geo = replace(
+                            source_config.geometry,
+                            manual_crop_rect=target_config.geometry.manual_crop_rect,
+                            fine_rotation=target_config.geometry.fine_rotation,
+                        )
 
-                merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
+                    merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
 
-                merged_process = replace(
-                    source_config.process,
-                    local_floors=target_config.process.local_floors,
-                    local_ceils=target_config.process.local_ceils,
-                )
+                    merged_process = replace(
+                        source_config.process,
+                        local_floors=target_config.process.local_floors,
+                        local_ceils=target_config.process.local_ceils,
+                    )
 
-                new_config = replace(
-                    source_config,
-                    geometry=merged_geo,
-                    retouch=merged_retouch,
-                    process=merged_process,
-                )
+                    new_config = replace(
+                        source_config,
+                        geometry=merged_geo,
+                        retouch=merged_retouch,
+                        process=merged_process,
+                    )
 
                 self.repo.save_file_settings(target_hash, new_config)
 
@@ -660,6 +692,8 @@ class DesktopSessionManager(QObject):
                 self.state.current_file_path = None
                 self.state.current_file_hash = None
                 self.state.preview_raw = None
+                self.state.preview_ir = None
+                self.state.has_ir = False
                 self.state.config = WorkspaceConfig()
             else:
                 new_idx = min(idx, len(self.state.uploaded_files) - 1)

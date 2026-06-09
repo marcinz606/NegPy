@@ -2,7 +2,7 @@ import sys
 from typing import Optional, Tuple
 
 import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
@@ -50,6 +50,12 @@ class CanvasOverlay(QWidget):
 
         self._view_rect: QRectF = QRectF()
 
+        self._buffer_overlay_ratio: float = 0.0
+        self._buffer_overlay_visible: bool = False
+        self._buffer_hide_timer = QTimer(self)
+        self._buffer_hide_timer.setSingleShot(True)
+        self._buffer_hide_timer.timeout.connect(self._hide_buffer_overlay)
+
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -61,6 +67,16 @@ class CanvasOverlay(QWidget):
         self.pan_x = px
         self.pan_y = py
         self._recalc_view_rect()
+        self.update()
+
+    def show_analysis_buffer(self, ratio: float) -> None:
+        self._buffer_overlay_ratio = max(0.0, min(ratio, 0.3))
+        self._buffer_overlay_visible = True
+        self._buffer_hide_timer.start(1000)
+        self.update()
+
+    def _hide_buffer_overlay(self) -> None:
+        self._buffer_overlay_visible = False
         self.update()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
@@ -179,6 +195,25 @@ class CanvasOverlay(QWidget):
             painter.setPen(pen)
             painter.drawRect(rect)
 
+        if self._buffer_overlay_visible and self._buffer_overlay_ratio > 1e-4 and not self._crop_active:
+            d = visible_rect
+            margin_w = d.width() * self._buffer_overlay_ratio
+            margin_h = d.height() * self._buffer_overlay_ratio
+            inner = QRectF(d.x() + margin_w, d.y() + margin_h, d.width() - 2 * margin_w, d.height() - 2 * margin_h)
+
+            painter.setBrush(QColor(0, 0, 0, 140))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(QRectF(d.x(), d.y(), d.width(), margin_h))
+            painter.drawRect(QRectF(d.x(), inner.bottom(), d.width(), margin_h))
+            painter.drawRect(QRectF(d.x(), inner.y(), margin_w, inner.height()))
+            painter.drawRect(QRectF(inner.right(), inner.y(), margin_w, inner.height()))
+
+            pen = QPen(QColor(THEME.accent_primary), 1, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(pen)
+            painter.drawRect(inner)
+
         if self._tool_mode != ToolMode.NONE and visible_rect.contains(self._mouse_pos):
             if self._tool_mode == ToolMode.DUST_PICK:
                 self._draw_brush(painter)
@@ -253,6 +288,7 @@ class CanvasOverlay(QWidget):
                         self._move_press_raw = press_raw
                         self._move_orig_rect = orig_rect
                         self._move_last_emitted = orig_rect
+                        self.setCursor(Qt.CursorShape.ClosedHandCursor)
             self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -316,7 +352,7 @@ class CanvasOverlay(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self.parent()._is_panning:
             self.parent()._is_panning = False
-            self.parent().setCursor(Qt.CursorShape.ArrowCursor)
+            self.parent().reset_tool_cursor()
             event.accept()
             return
 
@@ -326,6 +362,7 @@ class CanvasOverlay(QWidget):
             self._move_orig_rect = None
             self._move_last_emitted = None
             self._move_uv_grid = None
+            self.unsetCursor()
             event.accept()
             return
 

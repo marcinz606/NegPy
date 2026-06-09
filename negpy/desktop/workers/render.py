@@ -27,6 +27,7 @@ class RenderTask:
     color_space: str = "Adobe RGB"
     gpu_enabled: bool = True
     readback_metrics: bool = True
+    ir_buffer: Optional[np.ndarray] = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ class PreviewLoadTask:
     file_hash: str | None = None
     use_splash: bool = True
     for_cache_warm: bool = False
+    detect_mode: bool = False  # run process-mode autodetect (new files only)
 
 
 class RenderWorker(QObject):
@@ -105,6 +107,7 @@ class RenderWorker(QObject):
                 render_size_ref=task.preview_size,
                 prefer_gpu=task.gpu_enabled,
                 readback_metrics=task.readback_metrics,
+                ir_buffer=task.ir_buffer,
             )
 
             if task.icc_profile_path and isinstance(result, GPUTexture):
@@ -242,7 +245,8 @@ class PreviewLoadWorker(QObject):
     Keeps the UI thread free during slow I/O and demosaicing.
     """
 
-    finished = pyqtSignal(str, object, object, str)  # (file_path, raw ndarray, dims tuple, source_cs)
+    # (file_path, raw, dims, source_cs, ir_preview, detected_mode)
+    finished = pyqtSignal(str, object, object, str, object, str)
     splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
     error = pyqtSignal(str)
 
@@ -287,11 +291,31 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                 )
             source_cs = metadata.get("color_space", "")
+            ir_preview = metadata.get("ir_preview")
+            detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
             logger.debug("PreviewLoadWorker load %.3fs for %s", time.perf_counter() - t0, task.file_path)
-            self.finished.emit(task.file_path, raw, dims, source_cs)
+            self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
             self.error.emit(str(e))
+
+    def _detect_mode(self, task: PreviewLoadTask, raw) -> str:
+        """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""
+        from negpy.features.process.logic import detect_process_mode
+
+        try:
+            if not task.use_camera_wb:
+                scan = raw
+            else:
+                scan, _, _ = self._preview_service.load_linear_preview(
+                    task.file_path,
+                    task.workspace_color_space,
+                    use_camera_wb=False,
+                )
+            return str(detect_process_mode(scan))
+        except Exception:
+            logger.exception(f"Process-mode detection failed: {task.file_path}")
+            return ""
 
 
 class NormalizationWorker(QObject):
@@ -300,7 +324,7 @@ class NormalizationWorker(QObject):
     Analyzes multiple RAW files to find a consistent baseline.
     """
 
-    progress = pyqtSignal(int, int, str)
+    progress = pyqtSignal(int, int, str, bool)
     finished = pyqtSignal(tuple, tuple)
     error = pyqtSignal(str)
 
@@ -318,7 +342,9 @@ class NormalizationWorker(QObject):
 
         import numpy as np
 
+        from negpy.domain.interfaces import PipelineContext
         from negpy.features.exposure.normalization import analyze_log_exposure_bounds
+        from negpy.features.geometry.processor import GeometryProcessor
 
         total = len(task.files)
         limit = max(1, APP_CONFIG.max_workers // 2)
@@ -335,6 +361,7 @@ class NormalizationWorker(QObject):
                     drange_clip = params.process.drange_clip if params else DEFAULT_WORKSPACE_CONFIG.process.drange_clip
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
+                    geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
 
                     # Use to_thread for blocking CPU/IO bound load and analysis
                     # Always use flat WB (use_camera_wb=False) for normalization:
@@ -349,9 +376,18 @@ class NormalizationWorker(QObject):
                         f_info.get("hash"),
                     )
 
+                    ctx = PipelineContext(
+                        original_size=(raw.shape[1], raw.shape[0]),
+                        scale_factor=1.0,
+                        process_mode=process_mode,
+                    )
+                    transformed = await asyncio.to_thread(GeometryProcessor(geometry).process, raw, ctx)
+                    has_crop = ctx.active_roi is not None
+
                     bounds = await asyncio.to_thread(
                         analyze_log_exposure_bounds,
-                        raw,
+                        transformed,
+                        roi=ctx.active_roi,
                         analysis_buffer=analysis_buffer,
                         process_mode=process_mode,
                         e6_normalize=e6_normalize,
@@ -361,14 +397,14 @@ class NormalizationWorker(QObject):
                     async with lock:
                         completed += 1
                         count = completed
-                    self.progress.emit(count, total, f_info["name"])
+                    self.progress.emit(count, total, f_info["name"], has_crop)
                     return bounds.floors, bounds.ceils, f_info["name"]
                 except Exception as e:
                     logger.error(f"Failed to analyze {f_info['name']}: {e}")
                     async with lock:
                         completed += 1
                         count = completed
-                    self.progress.emit(count, total, f_info["name"])
+                    self.progress.emit(count, total, f_info["name"], False)
                     return None
 
         async def _run_batch():

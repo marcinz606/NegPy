@@ -22,6 +22,7 @@ class PipelineContext:
     process_mode: str = "C41"
     active_roi: Optional[ROI] = None
     metrics: dict[str, Any] = field(default_factory=dict)
+    ir_buffer: Optional[Any] = None  # 2D float32 [0,1] (H,W), RAW (pre-geometry) frame; None if absent
 
 
 class IImageSource(Protocol):

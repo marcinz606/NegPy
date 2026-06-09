@@ -13,3 +13,9 @@ class GeometryConfig:
     autocrop_offset: int = 0
     autocrop_ratio: str = "3:2"
     manual_crop_rect: Optional[Tuple[float, float, float, float]] = None
+
+    def __post_init__(self) -> None:
+        """Ensure a JSON-loaded list is converted back to a tuple, keeping the
+        frozen dataclass hashable for pipeline cache keys."""
+        if self.manual_crop_rect is not None:
+            object.__setattr__(self, "manual_crop_rect", tuple(self.manual_crop_rect))

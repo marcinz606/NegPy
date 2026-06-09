@@ -56,10 +56,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             "github_sha": os.environ.get("GITHUB_SHA", ""),
             "github_workflow": os.environ.get("GITHUB_WORKFLOW", ""),
         },
-        "input": {
-            f"negpy_perf_raw_{f.key}": os.environ.get(f"NEGPY_PERF_RAW_{f.key.upper()}", "")
-            for f in _fixture_mod.FIXTURES
-        },
+        "input": {f"negpy_perf_raw_{f.key}": os.environ.get(f"NEGPY_PERF_RAW_{f.key.upper()}", "") for f in _fixture_mod.FIXTURES},
         "metrics": recorder.snapshot(),
     }
     path = Path(out)

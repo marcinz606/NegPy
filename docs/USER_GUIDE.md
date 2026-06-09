@@ -33,7 +33,7 @@ The foundation of your edit — film type, exposure analysis, and roll-wide base
 *   **Analysis Buffer** (0.0–0.50): Insets the analysis window from the frame edge so film rebate, sprocket holes, and scanner borders don't skew the black/white-point detection. Raise it on scans with wide borders; lower it for tightly-cropped frames.
 *   **D-Range Clip** (0–100): Statistical percentile clip on the histogram before NegPy locates the black/white points. Higher values discard more outlier pixels, which helps with dense, fogged, or specular negatives where a few stray bright/dark pixels would otherwise pull the bounds toward the extremes.
 *   **White Point** (-0.25–0.25): Manual offset applied on top of the auto-detected white point. Positive values brighten; negative values pull highlights back down. Centered (0) means "use auto exactly."
-*   **Black Point** (-0.25–0.25): Manual offset for the black point. Positive values deepen the blacks; negative values lift them.
+*   **Black Point** (-0.25–0.25): Manual offset for the black point. Positive values lift the blacks; negative values deepen them.
 
 ### AUTO
 

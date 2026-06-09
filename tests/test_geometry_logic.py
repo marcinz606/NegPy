@@ -1,6 +1,8 @@
+import cv2
 import numpy as np
+import pytest
 from negpy.features.geometry.logic import detect_closest_aspect_ratio, get_autocrop_coords, get_manual_crop_coords, get_manual_rect_coords
-from negpy.features.geometry.processor import GeometryProcessor
+from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.features.geometry.models import GeometryConfig
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import AspectRatio
@@ -447,3 +449,58 @@ def test_detect_closest_aspect_ratio_image_dims_sanity_check():
     img[90:150, 20:340] = 0.05  # 60h × 320w ≈ 5.3:1 dark band
     ratio = detect_closest_aspect_ratio(img)
     assert ratio == "3:2"
+
+
+def _normalized_roi(roi, h, w):
+    y1, y2, x1, x2 = roi
+    return (y1 / h, y2 / h, x1 / w, x2 / w)
+
+
+@pytest.mark.parametrize("rotation_k", [0, 1, 2, 3])
+@pytest.mark.parametrize("flip_h", [False, True])
+def test_manual_crop_roi_consistent_preview_vs_export(rotation_k, flip_h):
+    # The export path reuses GeometryProcessor at full-res scale_factor while the
+    # preview runs it downsampled. A manual crop (+ rotation/flip) must resolve to the
+    # same fractional region in both, or export won't match the preview (#218).
+    full_h, full_w = 3000, 4500
+    prev_h, prev_w = 1000, 1500
+
+    config = GeometryConfig(manual_crop_rect=(0.15, 0.2, 0.7, 0.85), rotation=rotation_k, flip_horizontal=flip_h)
+    proc = GeometryProcessor(config)
+
+    ctx_full = PipelineContext(scale_factor=1.0, original_size=(full_h, full_w))
+    img_full = proc.process(np.zeros((full_h, full_w, 3), dtype=np.float32), ctx_full)
+
+    ctx_prev = PipelineContext(scale_factor=max(prev_h, prev_w) / float(max(full_h, full_w)), original_size=(prev_h, prev_w))
+    img_prev = proc.process(np.zeros((prev_h, prev_w, 3), dtype=np.float32), ctx_prev)
+
+    # active_roi lives in post-rotation pixel space; normalize by the rotated frame dims.
+    norm_full = _normalized_roi(ctx_full.active_roi, *img_full.shape[:2])
+    norm_prev = _normalized_roi(ctx_prev.active_roi, *img_prev.shape[:2])
+    for a, b in zip(norm_full, norm_prev):
+        assert abs(a - b) < 0.005
+
+
+@pytest.mark.parametrize("rotation_k", [0, 1, 2, 3])
+def test_manual_crop_extracts_same_marker_at_preview_and_export(rotation_k):
+    # End-to-end content parity: a marker filling the crop rect must survive the crop
+    # identically at full-res (export) and downsampled (preview) resolution.
+    full_h, full_w = 600, 900
+    full = np.zeros((full_h, full_w, 3), dtype=np.float32)
+    full[60:180, 90:270] = 1.0  # exactly normalized (0.1..0.3, 0.1..0.3)
+    prev = cv2.resize(full, (300, 200), interpolation=cv2.INTER_AREA)
+
+    config = GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.3, 0.3), rotation=rotation_k)
+    proc = GeometryProcessor(config)
+    cropper = CropProcessor(config)
+
+    ctx_full = PipelineContext(scale_factor=1.0, original_size=(full_h, full_w))
+    out_full = cropper.process(proc.process(full, ctx_full), ctx_full)
+
+    ctx_prev = PipelineContext(scale_factor=full_w / 300.0, original_size=(200, 300))
+    out_prev = cropper.process(proc.process(prev, ctx_prev), ctx_prev)
+
+    # Crop region equals the marker → both crops are (near) fully white regardless of rotation.
+    assert out_full.size > 0 and out_prev.size > 0
+    assert out_full.mean() > 0.95
+    assert out_prev.mean() > 0.9

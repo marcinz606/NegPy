@@ -1,7 +1,10 @@
+import json
 import logging
 import unittest
+from dataclasses import replace
 from negpy.domain.models import ExportResolutionMode, WorkspaceConfig
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.caching.logic import calculate_config_hash
 
 
 class TestConfigDeserialization(unittest.TestCase):
@@ -62,6 +65,37 @@ class TestConfigDeserialization(unittest.TestCase):
         data = {"use_original_res": False}
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(data)
+
+    def test_manual_crop_rect_survives_db_roundtrip_as_tuple(self):
+        """Manual crop saved to JSON reloads as a list, making the frozen
+        GeometryConfig unhashable and crashing the pipeline hash. The reloaded
+        rect must be a tuple and geometry must stay hashable."""
+        config = WorkspaceConfig()
+        config = replace(config, geometry=replace(config.geometry, manual_crop_rect=(0.1, 0.2, 0.8, 0.9)))
+
+        # Exactly what repository.save_file_settings / load_file_settings do.
+        reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
+
+        self.assertIsInstance(reloaded.geometry.manual_crop_rect, tuple)
+        self.assertEqual(reloaded.geometry.manual_crop_rect, (0.1, 0.2, 0.8, 0.9))
+        hash(reloaded.geometry)  # must not raise
+
+    def test_manual_crop_rect_hashable_in_engine_base_key(self):
+        """DarkroomEngine wraps geometry in a plain tuple (base_key) before
+        hashing; an unhashable geometry made calculate_config_hash fall through
+        to asdict(tuple) -> 'asdict() should be called on dataclass instances'."""
+        config = WorkspaceConfig()
+        config = replace(config, geometry=replace(config.geometry, manual_crop_rect=(0.1, 0.2, 0.8, 0.9)))
+        reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
+
+        base_key = (
+            reloaded.process.process_mode,
+            reloaded.process.e6_normalize,
+            reloaded.geometry,
+            reloaded.process.analysis_buffer,
+            reloaded.process.drange_clip,
+        )
+        self.assertIsInstance(calculate_config_hash(base_key), str)
 
 
 if __name__ == "__main__":

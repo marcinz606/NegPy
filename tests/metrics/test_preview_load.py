@@ -48,10 +48,7 @@ def _regression_pct() -> float:
 def test_preview_load_cold_within_budget(fix: fixture.RawFixture) -> None:
     path = fixture.get_fixture_path(fix)
     if path is None:
-        pytest.skip(
-            f"No perf fixture for {fix.key!r} "
-            f"(network down and NEGPY_PERF_RAW_{fix.key.upper()} not set)"
-        )
+        pytest.skip(f"No perf fixture for {fix.key!r} (network down and NEGPY_PERF_RAW_{fix.key.upper()} not set)")
 
     max_sec = _max_seconds()
     t0 = time.perf_counter()

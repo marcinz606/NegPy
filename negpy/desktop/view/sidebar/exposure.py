@@ -33,6 +33,9 @@ class ExposureSidebar(BaseSidebar):
             btn.setStyleSheet(btn_style)
             region_row.addWidget(btn)
         self.region_global_btn.setChecked(True)
+        self.region_global_btn.setToolTip("Apply CMY white balance to the entire tonal range")
+        self.region_shadow_btn.setToolTip("Apply CMY white balance biased toward shadow (low-density) areas")
+        self.region_highlight_btn.setToolTip("Apply CMY white balance biased toward highlight (high-density) areas")
         self.region_btn_group = QButtonGroup(self)
         self.region_btn_group.setExclusive(True)
         self.region_btn_group.addButton(self.region_global_btn, 0)
@@ -67,6 +70,9 @@ class ExposureSidebar(BaseSidebar):
         self.linear_raw_btn.setChecked(conf.linear_raw)
         self.linear_raw_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
         self.linear_raw_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        self.linear_raw_btn.setToolTip(
+            "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
+        )
 
         wb_btn_row.addWidget(self.pick_wb_btn)
         wb_btn_row.addWidget(self.linear_raw_btn)

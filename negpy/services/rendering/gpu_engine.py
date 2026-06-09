@@ -91,6 +91,8 @@ class GPUEngine:
         self._current_source_hash: Optional[str] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_scale_factor: float = 1.0
+        self._pending_ir_buffer: Optional[np.ndarray] = None
+        self._ir_upload_key: Optional[Tuple[int, Any, int, int]] = None
 
         # Persistent staging buffers — avoid create_buffer() on every readback
         self._metrics_staging: Optional[Any] = None
@@ -202,7 +204,7 @@ class GPUEngine:
             "normalization": 112,
             "exposure": 160,
             "clahe_u": 32,
-            "retouch_u": 40,
+            "retouch_u": 64,
             "lab": 96,
             "toning": 64,
             "finish": 32,
@@ -228,12 +230,15 @@ class GPUEngine:
         render_size_ref: Optional[float] = None,
         source_hash: Optional[str] = None,
         readback_metrics: bool = True,
+        ir_buffer: Optional[np.ndarray] = None,
+        vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
         """
         if not self.gpu.is_available:
             raise RuntimeError("GPU not available")
+        self._pending_ir_buffer = ir_buffer
         self._init_resources()
         device = self.gpu.device
         assert device is not None
@@ -368,6 +373,7 @@ class GPUEngine:
             tiling_mode,
             render_size_ref,
             scale_factor,
+            vignette_full_crop=vignette_full_crop,
         )
         self._update_retouch_storage(
             settings.retouch,
@@ -410,6 +416,12 @@ class GPUEngine:
             h_rot,
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "ret",
+        )
+        tex_ir = self._get_intermediate_texture(
+            w_rot,
+            h_rot,
+            wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+            "ir",
         )
         tex_lab = self._get_intermediate_texture(
             w_rot,
@@ -501,6 +513,19 @@ class GPUEngine:
             prev_tex = tex_expo
 
         if start_stage <= 3:
+            if settings.retouch.ir_dust_remove and self._pending_ir_buffer is not None:
+                if tiling_mode:
+                    # Tiled export pre-transforms + slices IR per tile in _process_tiled,
+                    # so upload it as-is. Cache key doesn't help (each tile is a fresh slice).
+                    ir_for_gpu = np.ascontiguousarray(self._pending_ir_buffer.astype(np.float32))
+                    tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
+                    self._ir_upload_key = None
+                else:
+                    upload_key = (id(self._pending_ir_buffer), settings.geometry, w_rot, h_rot)
+                    if upload_key != self._ir_upload_key:
+                        ir_for_gpu = self._transform_ir_for_gpu(self._pending_ir_buffer, settings.geometry, w_rot, h_rot)
+                        tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
+                        self._ir_upload_key = upload_key
             self._dispatch_pass(
                 enc,
                 "retouch",
@@ -509,6 +534,7 @@ class GPUEngine:
                     (1, tex_ret.view),
                     (2, self._get_uniform_binding("retouch_u")),
                     (3, self._buffers["retouch_s"]),
+                    (4, tex_ir.view),
                 ],
                 w_rot,
                 h_rot,
@@ -640,6 +666,7 @@ class GPUEngine:
         tiling_mode: bool,
         render_size_ref: Optional[float],
         scale_factor: float,
+        vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         g_data = (
@@ -743,8 +770,9 @@ class GPUEngine:
         )
 
         ret = settings.retouch
+        ir_active = 1 if (ret.ir_dust_remove and self._pending_ir_buffer is not None) else 0
         r_u_data = struct.pack(
-            "ffIIiiIIf",
+            "ffIIiiIIfIff",
             float(ret.dust_threshold),
             float(ret.dust_size),
             len(ret.manual_dust_spots),
@@ -754,6 +782,9 @@ class GPUEngine:
             full_dims[0],
             full_dims[1],
             float(scale_factor),
+            ir_active,
+            float(1.0 - ret.ir_threshold),
+            float(ret.ir_inpaint_radius),
         )
 
         lab = settings.lab
@@ -814,7 +845,22 @@ class GPUEngine:
             )
         )
 
-        f_data = struct.pack("ff", float(settings.finish.vignette_strength), float(settings.finish.vignette_size)) + b"\x00" * 24
+        if vignette_full_crop is None:
+            v_full_w, v_full_h, v_off_x, v_off_y = crop_w, crop_h, 0, 0
+        else:
+            v_full_w, v_full_h, v_off_x, v_off_y = vignette_full_crop
+        f_data = (
+            struct.pack(
+                "ffffff",
+                float(settings.finish.vignette_strength),
+                float(settings.finish.vignette_size),
+                float(v_full_w),
+                float(v_full_h),
+                float(v_off_x),
+                float(v_off_y),
+            )
+            + b"\x00" * 8
+        )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
         color_hex = settings.finish.border_color.lstrip("#")
@@ -834,6 +880,32 @@ class GPUEngine:
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
         self.gpu.device.queue.write_buffer(self._buffers["unified_u"].buffer, 0, full_buffer)
+
+    def _transform_ir_for_gpu(
+        self,
+        ir_raw: np.ndarray,
+        geom: Any,
+        w_rot: int,
+        h_rot: int,
+    ) -> np.ndarray:
+        """CPU-transforms the IR sidecar (rotation, flip, fine rotation) so it aligns
+        with the geometry-transformed RGB texture the retouch shader samples."""
+        import cv2
+        from negpy.features.geometry.logic import apply_fine_rotation
+
+        ir = ir_raw
+        if geom.rotation % 4 != 0:
+            ir = np.rot90(ir, k=geom.rotation % 4)
+        if geom.flip_horizontal:
+            ir = np.fliplr(ir)
+        if geom.flip_vertical:
+            ir = np.flipud(ir)
+        ir = np.ascontiguousarray(ir.astype(np.float32))
+        if geom.fine_rotation != 0.0:
+            ir = apply_fine_rotation(ir, geom.fine_rotation)
+        if ir.shape[:2] != (h_rot, w_rot):
+            ir = cv2.resize(ir, (w_rot, h_rot), interpolation=cv2.INTER_LINEAR)
+        return np.ascontiguousarray(ir.astype(np.float32))
 
     def _update_retouch_storage(
         self,
@@ -1074,6 +1146,7 @@ class GPUEngine:
         settings: WorkspaceConfig,
         scale_factor: float = 1.0,
         bounds_override: Optional[Any] = None,
+        ir_buffer: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
@@ -1082,8 +1155,10 @@ class GPUEngine:
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
-            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override)
-        tex_final, metrics = self.process_to_texture(img, settings, scale_factor=scale_factor, bounds_override=bounds_override)
+            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, ir_buffer=ir_buffer)
+        tex_final, metrics = self.process_to_texture(
+            img, settings, scale_factor=scale_factor, bounds_override=bounds_override, ir_buffer=ir_buffer
+        )
         return self._readback_downsampled(tex_final), metrics
 
     def _process_tiled(
@@ -1092,6 +1167,7 @@ class GPUEngine:
         settings: WorkspaceConfig,
         scale_factor: float,
         bounds_override: Optional[Any] = None,
+        ir_buffer: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
@@ -1105,6 +1181,16 @@ class GPUEngine:
             img_rot = np.flipud(img_rot)
         if settings.geometry.fine_rotation != 0.0:
             img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
+
+        # Pre-transform IR once into the post-geometry frame; tiles slice it directly.
+        ir_rot: Optional[np.ndarray] = None
+        if ir_buffer is not None and settings.retouch.ir_dust_remove:
+            h_rot_full, w_rot_full = img_rot.shape[:2]
+            try:
+                ir_rot = self._transform_ir_for_gpu(ir_buffer, settings.geometry, w_rot_full, h_rot_full)
+            except Exception as e:
+                logger.warning(f"IR pre-transform failed for tiled export; skipping IR dust removal: {e}")
+                ir_rot = None
 
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
@@ -1202,6 +1288,8 @@ class GPUEngine:
                     min(w_rot, x1 + tx + tw + TILE_HALO),
                     min(h_rot, y1 + ty + th + TILE_HALO),
                 )
+                ir_tile = np.ascontiguousarray(ir_rot[iy1:iy2, ix1:ix2]) if ir_rot is not None else None
+                ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 tile_res, _ = self.process_to_texture(
                     img_rot[iy1:iy2, ix1:ix2],
                     settings,
@@ -1212,8 +1300,9 @@ class GPUEngine:
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,
                     apply_layout=False,
+                    ir_buffer=ir_tile,
+                    vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
                 )
-                ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 
         scaled_content = (
@@ -1232,6 +1321,7 @@ class GPUEngine:
         for tex in self._tex_cache.values():
             tex.destroy()
         self._tex_cache.clear()
+        self._ir_upload_key = None
         gc.collect()
         logger.info("GPUEngine: VRAM resources released")
 

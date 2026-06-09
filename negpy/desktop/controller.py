@@ -28,7 +28,7 @@ from negpy.features.exposure.logic import (
     calculate_wb_shifts_from_log,
 )
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
-from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -55,6 +55,7 @@ class AppController(QObject):
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
+    analysis_buffer_preview_requested = pyqtSignal(float)
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -306,7 +307,7 @@ class AppController(QObject):
                 return f.get("hash")
         return None
 
-    def load_file(self, file_path: str, preserve_zoom: bool = False) -> None:
+    def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
         Dispatches RAW decode to a background worker to keep the UI thread free.
         """
@@ -322,6 +323,8 @@ class AppController(QObject):
         self._render_cleanup_requested.emit()
 
         self.state.preview_raw = None
+        self.state.preview_ir = None
+        self.state.has_ir = False
         self.state.original_res = (0, 0)
 
         self.preview_load_requested.emit(
@@ -331,6 +334,7 @@ class AppController(QObject):
                 use_camera_wb=not self.state.config.exposure.linear_raw,
                 full_resolution=self.state.hq_preview,
                 file_hash=self._file_hash_for_path(file_path),
+                detect_mode=force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new),
             )
         )
 
@@ -341,17 +345,21 @@ class AppController(QObject):
         self.state.original_res = dims
         self.request_render()
 
-    def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str) -> None:
+    def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
         logger.debug(
             "preview e2e (load request to decoded buffer) %.3fs for %s",
             time.perf_counter() - self._preview_load_t0,
             file_path,
         )
         self.state.preview_raw = raw
+        self.state.preview_ir = ir_preview
+        self.state.has_ir = ir_preview is not None
         self.state.original_res = dims
         self.state.current_file_path = file_path
         self.state.source_cs = source_cs
+        self._apply_detected_mode(detected_mode)
         self.preview_loaded.emit()
+        self.config_updated.emit()
         self.request_render()
         self._schedule_prefetch_neighbors()
 
@@ -379,6 +387,26 @@ class AppController(QObject):
                 )
 
         QTimer.singleShot(50, _run)
+
+    def _apply_detected_mode(self, detected_mode: str) -> None:
+        """
+        Silently apply the autodetected process mode for a new file. Never overrides
+        a saved or user-edited mode (the worker only runs detection on new files).
+        """
+        if not detected_mode or detected_mode == self.state.config.process.process_mode:
+            return
+        new_proc = replace(
+            self.state.config.process,
+            process_mode=ProcessMode(detected_mode),
+            **invalidate_local_bounds(self.state.config.process),
+        )
+        self.state.config = replace(self.state.config, process=new_proc)
+        self.state.is_dirty = True
+
+    def toggle_autodetect(self, enabled: bool) -> None:
+        self.session.set_autodetect_enabled(enabled)
+        if enabled and self.state.current_file_path:
+            self.load_file(self.state.current_file_path, preserve_zoom=True, force_detect=True)
 
     def toggle_hq_preview(self) -> None:
         self.session.set_hq_preview(not self.state.hq_preview)
@@ -610,6 +638,30 @@ class AppController(QObject):
         if not self.state.uploaded_files:
             return
 
+        cropped = 0
+        for f in self.state.uploaded_files:
+            p = self.session.repo.load_file_settings(f["hash"])
+            if p and (p.geometry.manual_crop_rect or p.geometry.auto_crop_enabled):
+                cropped += 1
+
+        if cropped == 0:
+            from PyQt6.QtWidgets import QMessageBox
+
+            reply = QMessageBox.question(
+                None,
+                "No Crops Set",
+                "None of the selected files have a crop set.\n\n"
+                "Roll average analysis samples the full frame, so any borders or "
+                "letterboxing around the negative will skew the baseline.\n\n"
+                "For better results, either crop each file to the negative area, "
+                "or raise the Analysis Buffer to exclude a margin around the edges.\n\n"
+                "Continue anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         self.set_status("Starting Batch Normalization...")
         task = NormalizationTask(
             files=self.state.uploaded_files.copy(),
@@ -617,11 +669,12 @@ class AppController(QObject):
         )
         self.normalization_requested.emit(task)
 
-    def _on_normalization_progress(self, current: int, total: int, name: str) -> None:
+    def _on_normalization_progress(self, current: int, total: int, name: str, has_crop: bool) -> None:
         """
         Updates UI status during batch analysis.
         """
-        self.set_status(f"Analyzing {current}/{total}: {name}...")
+        marker = "cropped" if has_crop else "full frame"
+        self.set_status(f"Analyzing {current}/{total}: {name} [{marker}]...")
         self.status_progress_requested.emit(current, total)
 
     def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple) -> None:
@@ -764,6 +817,7 @@ class AppController(QObject):
             color_space=self.state.workspace_color_space,
             gpu_enabled=self.state.gpu_enabled,
             readback_metrics=readback_metrics,
+            ir_buffer=self.state.preview_ir,
         )
 
         if self._is_rendering:
