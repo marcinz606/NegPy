@@ -362,16 +362,18 @@ class NormalizationWorker(QObject):
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
                     geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
+                    linear_raw = params.exposure.linear_raw if params else DEFAULT_WORKSPACE_CONFIG.exposure.linear_raw
 
-                    # Use to_thread for blocking CPU/IO bound load and analysis
-                    # Always use flat WB (use_camera_wb=False) for normalization:
-                    # density analysis needs neutral channel values regardless of
-                    # the per-file exposure.linear_raw preference.
+                    # Use to_thread for blocking CPU/IO bound load and analysis.
+                    # Decode with the SAME WB the render path uses (use_camera_wb =
+                    # not linear_raw): the roll-average bounds are applied to the
+                    # render-decoded image, so analysing in a different WB space
+                    # shifts per-channel floors/ceils and produces a color cast.
                     raw, _, _ = await asyncio.to_thread(
                         self._preview_service.load_linear_preview,
                         f_info["path"],
                         task.workspace_color_space,
-                        False,  # use_camera_wb
+                        not linear_raw,  # use_camera_wb
                         False,  # full_resolution
                         f_info.get("hash"),
                     )
