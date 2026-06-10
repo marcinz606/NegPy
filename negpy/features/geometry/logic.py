@@ -5,6 +5,7 @@ import cv2
 from typing import Tuple, Optional
 from negpy.domain.models import AspectRatio
 from negpy.domain.types import ImageBuffer, ROI
+from negpy.features.geometry.models import AutocropMode
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.image.logic import get_luminance
 
@@ -251,7 +252,11 @@ def _score_contour(contour: np.ndarray, image_area: float) -> tuple[float, np.nd
     return score, cv2.boxPoints(rect)
 
 
-def _find_autocrop_roi_from_contours(img: ImageBuffer) -> ROI | None:
+def _detect_film_bounds(img: ImageBuffer) -> ROI | None:
+    """
+    Detects the film extent against the light source / scan bed via contours.
+    Returns the outer film boundary (rebate/sprockets included), or None.
+    """
     color = _ensure_color(img)
     preview = _normalize_to_uint8(color)
     gray = cv2.cvtColor(preview, cv2.COLOR_BGR2GRAY)
@@ -282,8 +287,23 @@ def _find_autocrop_roi_from_contours(img: ImageBuffer) -> ROI | None:
     if right - left <= 0 or bottom - top <= 0:
         return None
 
-    _, (ref_left, ref_top, ref_right, ref_bottom) = _refine_frame_bounds(img[top:bottom, left:right])
-    return top + ref_top, top + ref_bottom, left + ref_left, left + ref_right
+    return top, bottom, left, right
+
+
+def _refine_roi_to_image(img: ImageBuffer, film_roi: ROI) -> ROI:
+    """
+    Refines a film-extent ROI inward to the exposed image area (rebate excluded).
+    """
+    y1, y2, x1, x2 = film_roi
+    _, (ref_left, ref_top, ref_right, ref_bottom) = _refine_frame_bounds(img[y1:y2, x1:x2])
+    return y1 + ref_top, y1 + ref_bottom, x1 + ref_left, x1 + ref_right
+
+
+def _find_autocrop_roi_from_contours(img: ImageBuffer) -> ROI | None:
+    roi = _detect_film_bounds(img)
+    if roi is None:
+        return None
+    return _refine_roi_to_image(img, roi)
 
 
 def _get_threshold_autocrop_coords(
@@ -470,19 +490,33 @@ def get_autocrop_coords(
     detect_res: int = 1800,
     assist_point: Optional[Tuple[float, float]] = None,
     assist_luma: Optional[float] = None,
+    mode: str = AutocropMode.IMAGE,
 ) -> ROI:
     """
     Detects film border via density thresholding.
+
+    mode="film" crops to the film extent (rebate/sprockets kept);
+    mode="image" refines inward to the exposed image area.
     """
     h, w = img.shape[:2]
-    roi = _find_autocrop_roi_from_contours(img)
-    if roi is None:
-        roi = _get_threshold_autocrop_coords(img, target_ratio_str, detect_res, assist_luma)
+    film_roi = _detect_film_bounds(img)
+    from_contours = film_roi is not None
+    if film_roi is None:
+        film_roi = _get_threshold_autocrop_coords(img, target_ratio_str, detect_res, assist_luma)
+
+    if mode == AutocropMode.FILM or not from_contours:
+        roi = film_roi
+    else:
+        roi = _refine_roi_to_image(img, film_roi)
+
+    ratio_str = target_ratio_str
+    if ratio_str == AspectRatio.FREE:
+        ratio_str = _closest_standard_ratio(roi, (h, w), fallback="3:2").value
 
     margin = (2 + offset_px) * scale_factor
     roi = apply_margin_to_roi(roi, h, w, margin)
 
-    return enforce_roi_aspect_ratio(roi, h, w, target_ratio_str)
+    return enforce_roi_aspect_ratio(roi, h, w, ratio_str)
 
 
 def map_coords_to_geometry(
@@ -551,16 +585,12 @@ def translate_manual_crop_rect(
     return (nx1, ny1, nx1 + w, ny1 + h)
 
 
-def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> AspectRatio:
+def _closest_standard_ratio(roi: ROI, img_shape: Tuple[int, int], fallback: str = "3:2") -> AspectRatio:
     """
-    Detect film frame and return the closest standard AspectRatio enum member.
-    Falls back to `fallback` if frame detection fails.
+    Returns the standard AspectRatio closest to the ROI's aspect (log-space distance),
+    sanity-checked against the full image dimensions.
     """
-    h_img, w_img = img.shape[:2]
-
-    roi = _find_autocrop_roi_from_contours(img)
-    if roi is None:
-        roi = _get_threshold_autocrop_coords(img, "Free", 1800, None)
+    h_img, w_img = img_shape
 
     y1, y2, x1, x2 = roi
     cw, ch = x2 - x1, y2 - y1
@@ -597,3 +627,17 @@ def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> Aspe
         best = min(candidates, key=lambda c: abs(math.log(max(img_ratio, 1e-6)) - math.log(max(c[1], 1e-6))))
 
     return best[0]
+
+
+def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> AspectRatio:
+    """
+    Detect film frame and return the closest standard AspectRatio enum member.
+    Falls back to `fallback` if frame detection fails.
+    """
+    h_img, w_img = img.shape[:2]
+
+    roi = _find_autocrop_roi_from_contours(img)
+    if roi is None:
+        roi = _get_threshold_autocrop_coords(img, "Free", 1800, None)
+
+    return _closest_standard_ratio(roi, (h_img, w_img), fallback)

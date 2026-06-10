@@ -504,3 +504,83 @@ def test_manual_crop_extracts_same_marker_at_preview_and_export(rotation_k):
     assert out_full.size > 0 and out_prev.size > 0
     assert out_full.mean() > 0.95
     assert out_prev.mean() > 0.9
+
+
+def _three_tier_negative() -> np.ndarray:
+    # Synthetic raw negative: light bed (1.0) >> film base/rebate (0.78) > exposed frame (0.25).
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)
+    img[80:400, 100:620] = 0.78  # film strip incl. rebate
+    img[105:375, 135:585] = 0.25  # exposed frame, 270h x 450w
+    return img
+
+
+def test_autocrop_film_mode_keeps_rebate():
+    img = _three_tier_negative()
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="film")
+
+    y1, y2, x1, x2 = roi
+    # ROI reaches into the rebate (outside the exposed frame at 105:375, 135:585),
+    # near film bounds 80:400, 100:620 (Free snaps the 1.6:1 film box to 3:2).
+    assert y1 < 105 and y2 > 375
+    assert x1 < 135 and x2 > 585
+    assert 65 <= y1 <= 100
+    assert 380 <= y2 <= 420
+    assert 95 <= x1 <= 130
+    assert 590 <= x2 <= 630
+
+
+def test_autocrop_image_mode_excludes_rebate():
+    img = _three_tier_negative()
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+
+    y1, y2, x1, x2 = roi
+    # ROI hugs the exposed frame (105:375, 135:585); x is narrowed further by the
+    # Free→3:2 snap (frame is 1.67:1). Crucially, the rebate band stays excluded.
+    assert 88 <= y1 <= 120
+    assert 360 <= y2 <= 392
+    assert 137 <= x1 <= 170
+    assert 550 <= x2 <= 583
+
+
+def test_autocrop_modes_nest():
+    img = _three_tier_negative()
+
+    film = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="film")
+    image = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+
+    fy1, fy2, fx1, fx2 = film
+    iy1, iy2, ix1, ix2 = image
+    assert fy1 <= iy1 and fy2 >= iy2
+    assert fx1 <= ix1 and fx2 >= ix2
+    assert (iy2 - iy1) * (ix2 - ix1) < (fy2 - fy1) * (fx2 - fx1)
+
+
+def test_autocrop_free_snaps_to_standard_ratio():
+    # Exposed frame is 450w x 270h ≈ 5:3; "Free" must snap to a standard ratio (closest: 3:2).
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)
+    img[80:400, 100:620] = 0.78
+    img[115:385, 135:585] = 0.25  # 270h x 450w ≈ 5:3 inside film
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+
+    y1, y2, x1, x2 = roi
+    aspect = (x2 - x1) / (y2 - y1)
+    standard = []
+    for ratio in AspectRatio:
+        if ratio in (AspectRatio.FREE, AspectRatio.ORIGINAL):
+            continue
+        w_r, h_r = map(float, ratio.value.split(":"))
+        standard.append(w_r / h_r)
+    assert any(abs(aspect - s) / s < 0.03 for s in standard)
+
+
+def test_autocrop_specific_ratio_holds_in_both_modes():
+    img = _three_tier_negative()
+
+    for mode in ("film", "image"):
+        roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="3:2", mode=mode)
+        y1, y2, x1, x2 = roi
+        aspect = (x2 - x1) / (y2 - y1)
+        assert abs(aspect - 1.5) < 0.05, f"mode={mode}: aspect {aspect} not ~3:2"

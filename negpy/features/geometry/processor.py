@@ -70,6 +70,7 @@ class GeometryProcessor:
                 offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
                 target_ratio_str=self.config.autocrop_ratio,
+                mode=self.config.autocrop_mode,
             )
             context.active_roi = roi
         elif self.config.autocrop_offset > 0:

@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QPushButton,
+    QSizePolicy,
 )
 
 from negpy.desktop.session import ToolMode
@@ -13,6 +14,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
+from negpy.features.geometry.models import AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
 
 
@@ -61,8 +63,21 @@ class GeometrySidebar(BaseSidebar):
         self.reset_crop_btn.setToolTip("Apply automatic crop using the current ratio and offset")
         btn_row.addWidget(self.manual_crop_btn)
         btn_row.addWidget(self.move_crop_btn)
-        btn_row.addWidget(self.reset_crop_btn)
         self.layout.addLayout(btn_row)
+
+        # Auto crop toggle + mode: crop to exposed image, or keep full film incl. rebate
+        auto_row = QHBoxLayout()
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Image only", AutocropMode.IMAGE.value)
+        self.mode_combo.addItem("Film edge", AutocropMode.FILM.value)
+        self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
+        self.mode_combo.setToolTip("Auto crop target: exposed image only, or full film including rebate/sprockets")
+        self.mode_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
+        self.reset_crop_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.mode_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        auto_row.addWidget(self.reset_crop_btn, 1)
+        auto_row.addWidget(self.mode_combo, 1)
+        self.layout.addLayout(auto_row)
 
         # Sliders (2 columns)
         slider_row = QHBoxLayout()
@@ -84,6 +99,7 @@ class GeometrySidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.ratio_combo.currentTextChanged.connect(self._on_ratio_changed)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.move_crop_btn.toggled.connect(self._on_move_crop_toggled)
@@ -105,6 +121,15 @@ class GeometrySidebar(BaseSidebar):
         new_config = replace(
             self.state.config,
             geometry=replace(self.state.config.geometry, autocrop_ratio=ratio),
+            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
+        )
+        self.controller.session.update_config(new_config, persist=True)
+        self.controller.request_render()
+
+    def _on_mode_changed(self, idx: int) -> None:
+        new_config = replace(
+            self.state.config,
+            geometry=replace(self.state.config.geometry, autocrop_mode=self.mode_combo.itemData(idx)),
             process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
         )
         self.controller.session.update_config(new_config, persist=True)
@@ -137,6 +162,7 @@ class GeometrySidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.ratio_combo.setCurrentText(conf.autocrop_ratio)
+            self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
 
             self.offset_slider.setValue(float(conf.autocrop_offset))
             self.fine_rot_slider.setValue(conf.fine_rotation)
@@ -150,6 +176,7 @@ class GeometrySidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         self.ratio_combo.blockSignals(blocked)
+        self.mode_combo.blockSignals(blocked)
         self.detect_ratio_btn.blockSignals(blocked)
         self.offset_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)

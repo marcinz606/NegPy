@@ -1,5 +1,11 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Optional, Tuple
+
+
+class AutocropMode(StrEnum):
+    IMAGE = "image"  # crop to exposed image area (default)
+    FILM = "film"  # crop to film extent, keep rebate/sprockets
 
 
 @dataclass(frozen=True)
@@ -12,6 +18,7 @@ class GeometryConfig:
 
     autocrop_offset: int = 0
     autocrop_ratio: str = "3:2"
+    autocrop_mode: str = AutocropMode.IMAGE
     manual_crop_rect: Optional[Tuple[float, float, float, float]] = None
 
     def __post_init__(self) -> None:
@@ -19,3 +26,5 @@ class GeometryConfig:
         frozen dataclass hashable for pipeline cache keys."""
         if self.manual_crop_rect is not None:
             object.__setattr__(self, "manual_crop_rect", tuple(self.manual_crop_rect))
+        if self.autocrop_mode not in (AutocropMode.IMAGE, AutocropMode.FILM):
+            object.__setattr__(self, "autocrop_mode", AutocropMode.IMAGE.value)

@@ -22,6 +22,7 @@ class Presets:
             "rotation",
             "fine_rotation",
             "autocrop",
+            "autocrop_mode",
             "autocrop_offset",
             "manual_dust_spots",
             "local_adjustments",

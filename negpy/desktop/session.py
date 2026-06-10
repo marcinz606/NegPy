@@ -338,12 +338,15 @@ class DesktopSessionManager(QObject):
         config = replace(config, process=new_process)
 
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
+        sticky_autocrop_mode = self.repo.get_global_setting("last_autocrop_mode")
         sticky_offset = self.repo.get_global_setting("last_autocrop_offset")
         sticky_flip_h = self.repo.get_global_setting("last_flip_horizontal")
         sticky_flip_v = self.repo.get_global_setting("last_flip_vertical")
         new_geo = config.geometry
         if sticky_ratio:
             new_geo = replace(new_geo, autocrop_ratio=sticky_ratio)
+        if sticky_autocrop_mode:
+            new_geo = replace(new_geo, autocrop_mode=str(sticky_autocrop_mode))
         if sticky_offset is not None:
             new_geo = replace(new_geo, autocrop_offset=int(sticky_offset))
         if sticky_flip_h is not None:
@@ -393,6 +396,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_shoulder_width", config.exposure.shoulder_width)
 
         self.repo.save_global_setting("last_aspect_ratio", config.geometry.autocrop_ratio)
+        self.repo.save_global_setting("last_autocrop_mode", config.geometry.autocrop_mode)
         self.repo.save_global_setting("last_autocrop_offset", config.geometry.autocrop_offset)
         self.repo.save_global_setting("last_flip_horizontal", config.geometry.flip_horizontal)
         self.repo.save_global_setting("last_flip_vertical", config.geometry.flip_vertical)

@@ -303,6 +303,7 @@ class GPUEngine:
                     offset_px=settings.geometry.autocrop_offset,
                     scale_factor=1.0,  # tmp is preview-sized; sy/sx below carries scale to full-res
                     target_ratio_str=settings.geometry.autocrop_ratio,
+                    mode=settings.geometry.autocrop_mode,
                 )
                 rh, rw = tmp.shape[:2]
                 sy, sx = h_rot / rh, w_rot / rw
@@ -1235,6 +1236,7 @@ class GPUEngine:
                 offset_px=settings.geometry.autocrop_offset,
                 scale_factor=1.0,  # det is preview-sized; sy_/sx_ below carries scale to full-res
                 target_ratio_str=settings.geometry.autocrop_ratio,
+                mode=settings.geometry.autocrop_mode,
             )
             rh, rw = det.shape[:2]
             sy_, sx_ = h_rot / rh, w_rot / rw

@@ -97,6 +97,23 @@ class TestConfigDeserialization(unittest.TestCase):
         )
         self.assertIsInstance(calculate_config_hash(base_key), str)
 
+    def test_autocrop_mode_defaults_to_image_for_legacy_dicts(self):
+        config = WorkspaceConfig.from_flat_dict({"process_mode": ProcessMode.C41})
+        self.assertEqual(config.geometry.autocrop_mode, "image")
+
+    def test_autocrop_mode_survives_roundtrip(self):
+        config = WorkspaceConfig()
+        config = replace(config, geometry=replace(config.geometry, autocrop_mode="film"))
+
+        reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
+
+        self.assertEqual(reloaded.geometry.autocrop_mode, "film")
+        hash(reloaded.geometry)  # must not raise
+
+    def test_autocrop_mode_invalid_value_coerces_to_image(self):
+        config = WorkspaceConfig.from_flat_dict({"autocrop_mode": "banana"})
+        self.assertEqual(config.geometry.autocrop_mode, "image")
+
 
 if __name__ == "__main__":
     unittest.main()
