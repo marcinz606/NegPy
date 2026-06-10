@@ -36,6 +36,7 @@ from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
+from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
 from negpy.kernel.system.config import APP_CONFIG
@@ -1134,3 +1135,6 @@ class AppController(QObject):
             self.scan_thread.quit()
             self.scan_thread.wait()
         self.render_worker.destroy_all()
+
+        # All GPU-touching threads are now joined; release the wgpu device.
+        GPUDevice.destroy_singleton()

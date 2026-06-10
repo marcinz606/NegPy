@@ -3,7 +3,10 @@
 ## 0.24.0
 
 - Added **Before/After**: toggle button (and `\` shortcut) to flash the un-graded auto conversion of the current frame, so you can see what your edits changed at a glance.
-- **Faster preview loading**: opening and navigating between photos is now near-instant. Previews use a quick decode for display (full quality is still used on export), recently-viewed images are kept in memory, and an embedded thumbnail shows immediately while the full preview loads. Next/previous files are pre-loaded in the background so flipping through a roll feels instant. @reederphill (#230)
+- **Faster preview loading**: opening and navigating between photos is now faster. Previews use a quick decode for display (full quality is still used on export), recently-viewed images are kept in memory, and an embedded thumbnail shows immediately while the full preview loads. @reederphill
+- **Process** sliders: White/Black Point offsets stay editable while Roll Average is on (only Analysis Buffer and D-Range Clip are locked by roll average). Disabled sliders can no longer be scrubbed by dragging their label. @reederphill
+- **Selection vs. open**: clicking a thumbnail now only selects it (for batch operations); double-click — or the arrow keys — opens it for editing. Importing files or a folder auto-opens the first one. @reederphill
+- Switching photos no longer blanks the canvas — the previous frame stays on screen, dimmed under a loading spinner, until the new one is ready.
 - Fix: exporting a file whose source has a large embedded thumbnail or maker-note no longer silently drops all metadata — oversized EXIF is now trimmed to fit the JPEG limit instead of failing.
 
 ## 0.23.2

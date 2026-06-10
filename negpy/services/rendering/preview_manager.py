@@ -44,12 +44,6 @@ uint16_to_float32(_warmup)
 del _warmup
 
 
-# Pre-warm the Numba JIT so the first actual preview load doesn't pay the compile cost.
-_warmup = np.zeros((2, 2, 3), dtype=np.uint16)
-uint16_to_float32(_warmup)
-del _warmup
-
-
 class PreviewManager:
     """
     Loads RAW (and other) files for UI preview, with in-memory LRU and fast decode.
