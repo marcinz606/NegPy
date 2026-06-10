@@ -306,6 +306,7 @@ class AppController(QObject):
 
     def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"HASHING {current}/{total}: {name}")
+
     def _on_discovery_finished(self, valid_assets: List[Dict]) -> None:
         """
         Adds discovered assets to the session and starts thumbnail generation.

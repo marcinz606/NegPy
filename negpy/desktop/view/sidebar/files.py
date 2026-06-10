@@ -1,7 +1,7 @@
 import os
 
 import qtawesome as qta
-from PyQt6.QtCore import QItemSelectionModel, QModelIndex, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QItemSelectionModel, QModelIndex, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QButtonGroup,
