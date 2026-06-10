@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtWidgets import QMessageBox
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode
@@ -23,11 +24,11 @@ from negpy.desktop.workers.render import (
     ThumbnailWorker,
 )
 from negpy.desktop.workers.scan_worker import ScanRequest, ScanWorker
+from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
 )
-from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
@@ -674,6 +675,7 @@ class AppController(QObject):
         if not self.state.uploaded_files:
             return
 
+        total = len(self.state.uploaded_files)
         cropped = 0
         for f in self.state.uploaded_files:
             p = self.session.repo.load_file_settings(f["hash"])
@@ -681,27 +683,51 @@ class AppController(QObject):
                 cropped += 1
 
         if cropped == 0:
-            from PyQt6.QtWidgets import QMessageBox
-
-            reply = QMessageBox.question(
-                None,
-                "No Crops Set",
-                "None of the selected files have a crop set.\n\n"
-                "Roll average analysis samples the full frame, so any borders or "
-                "letterboxing around the negative will skew the baseline.\n\n"
-                "For better results, either crop each file to the negative area, "
-                "or raise the Analysis Buffer to exclude a margin around the edges.\n\n"
-                "Continue anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
+            crop_note = (
+                "Crop status: none of the files have a crop set. Analysis samples the "
+                "full frame, so any border or letterboxing around the negative will skew "
+                "the average. For best results, crop each file to the negative area — or, "
+                "if that's not practical, raise the Analysis Buffer to exclude the margin."
             )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        elif cropped < total:
+            crop_note = (
+                f"Crop status: {cropped} of {total} files have a crop set. The uncropped "
+                "ones are analyzed on the full frame, so their borders may skew the "
+                "average. Crop them, or raise the Analysis Buffer to exclude the margin."
+            )
+        else:
+            crop_note = (
+                "Crop status: all files are cropped — analysis runs on the negative area, "
+                "ignoring borders. The Analysis Buffer still trims a margin inside the crop."
+            )
+
+        reply = QMessageBox.question(
+            None,
+            "Batch Analysis",
+            "Batch Analysis measures the exposure bounds of every file and applies "
+            "their average to the whole roll, so all your frames share a consistent "
+            "baseline.\n\n"
+            "Two settings from the image you have open right now are applied to every "
+            "file before averaging:\n"
+            "  • Analysis Buffer — shrinks the analyzed region inward, excluding a "
+            "margin around the edges (film borders, light leaks, the scanner mask).\n"
+            "  • D-Range Clip — how aggressively the highlight/shadow tails are "
+            "clipped when setting each file's bounds.\n"
+            "Set both on the current frame before running.\n\n"
+            f"{crop_note}\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
 
         self.set_status("Starting Batch Normalization...")
         task = NormalizationTask(
             files=self.state.uploaded_files.copy(),
             workspace_color_space=self.state.workspace_color_space,
+            override_analysis_buffer=self.state.config.process.analysis_buffer,
+            override_drange_clip=self.state.config.process.drange_clip,
         )
         self.normalization_requested.emit(task)
 

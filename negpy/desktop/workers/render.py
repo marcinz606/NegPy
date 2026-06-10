@@ -45,6 +45,10 @@ class NormalizationTask:
 
     files: list[dict]
     workspace_color_space: str
+    # Roll-wide overrides taken from the current image: applied to every file's
+    # analysis before averaging so the whole roll shares one buffer / d-range.
+    override_analysis_buffer: float
+    override_drange_clip: float
 
 
 @dataclass(frozen=True)
@@ -357,8 +361,10 @@ class NormalizationWorker(QObject):
             async with semaphore:
                 try:
                     params = self._repo.load_file_settings(f_info["hash"])
-                    analysis_buffer = params.process.analysis_buffer if params else DEFAULT_WORKSPACE_CONFIG.process.analysis_buffer
-                    drange_clip = params.process.drange_clip if params else DEFAULT_WORKSPACE_CONFIG.process.drange_clip
+                    # Roll-wide buffer / d-range from the current image — applied to every
+                    # file so one slider setting drives the whole batch baseline.
+                    analysis_buffer = task.override_analysis_buffer
+                    drange_clip = task.override_drange_clip
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
                     geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry

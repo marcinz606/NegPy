@@ -47,6 +47,8 @@ def test_batch_analysis_decodes_in_render_wb(qapp):
             {"path": "/b.dng", "hash": "h_flat", "name": "b"},
         ],
         workspace_color_space="sRGB",
+        override_analysis_buffer=base.process.analysis_buffer,
+        override_drange_clip=base.process.drange_clip,
     )
 
     captured: list[tuple] = []
@@ -62,3 +64,46 @@ def test_batch_analysis_decodes_in_render_wb(qapp):
     assert len(captured) == 1
     floors, ceils = captured[0]
     assert len(floors) == 3 and len(ceils) == 3
+
+
+def test_batch_analysis_applies_roll_wide_buffer_and_drange(qapp, monkeypatch):
+    """The current image's analysis_buffer / drange_clip override every file's own
+    saved value, so the whole roll is analyzed with one setting before averaging."""
+    import negpy.features.exposure.normalization as norm_mod
+
+    captured_kwargs: list[dict] = []
+
+    class _Bounds:
+        floors = (0.0, 0.0, 0.0)
+        ceils = (1.0, 1.0, 1.0)
+
+    def _spy(transformed, **kwargs):
+        captured_kwargs.append(kwargs)
+        return _Bounds()
+
+    monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", _spy)
+
+    base = WorkspaceConfig()
+    # Files carry DIFFERENT saved buffer/d-range — must be ignored in favor of override.
+    settings = {
+        "h1": replace(base, process=replace(base.process, analysis_buffer=0.20, drange_clip=5.0)),
+        "h2": replace(base, process=replace(base.process, analysis_buffer=0.01, drange_clip=-2.0)),
+    }
+    worker = NormalizationWorker(_FakePreviewService(), _FakeRepo(settings))
+
+    task = NormalizationTask(
+        files=[
+            {"path": "/a.dng", "hash": "h1", "name": "a"},
+            {"path": "/b.dng", "hash": "h2", "name": "b"},
+        ],
+        workspace_color_space="sRGB",
+        override_analysis_buffer=0.12,
+        override_drange_clip=3.5,
+    )
+
+    worker.process(task)
+
+    assert len(captured_kwargs) == 2
+    for kw in captured_kwargs:
+        assert kw["analysis_buffer"] == 0.12
+        assert kw["percentile_clip"] == 3.5
