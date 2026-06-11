@@ -44,7 +44,7 @@ class TestExportColorManagement(unittest.TestCase):
 
         decoded = {}
         for target in (ColorSpace.SRGB.value, ColorSpace.ADOBE_RGB.value, ColorSpace.PROPHOTO.value):
-            out, _ = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, target, None, False)
+            out, _ = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, target, None, None)
             decoded[target] = _decode_to_srgb_u16(out, target).astype(np.float32) / 65535.0
 
         ref = decoded[ColorSpace.SRGB.value]
@@ -57,7 +57,7 @@ class TestExportColorManagement(unittest.TestCase):
     def test_same_space_export_is_noop(self):
         """working == target with no custom profile leaves pixels untouched."""
         img_u16 = np.random.randint(0, 65535, size=(4, 4, 3), dtype=np.uint16)
-        out, icc = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, WORKING_COLOR_SPACE, None, False)
+        out, icc = self.proc._apply_color_management_u16_rgb(img_u16, WORKING_COLOR_SPACE, WORKING_COLOR_SPACE, None, None)
         np.testing.assert_array_equal(out, img_u16)
         self.assertIsNotNone(icc)  # target profile still embedded
 

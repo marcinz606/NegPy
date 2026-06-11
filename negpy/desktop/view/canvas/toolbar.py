@@ -64,6 +64,18 @@ class ActionToolbar(QWidget):
         icon_size = QSize(16, 16)
         btn_height = 32
 
+        # 0. Panel toggles (live at the toolbar's outer edges)
+        self.btn_toggle_left = QToolButton()
+        self.btn_toggle_left.setCheckable(True)
+        self.btn_toggle_left.setChecked(True)
+        self.btn_toggle_left.setIcon(qta.icon("fa5s.columns", color=icon_color))
+        self.btn_toggle_left.setToolTip("Toggle Session Panel  Ctrl+[")
+        self.btn_toggle_right = QToolButton()
+        self.btn_toggle_right.setCheckable(True)
+        self.btn_toggle_right.setChecked(True)
+        self.btn_toggle_right.setIcon(qta.icon("fa5s.sliders-h", color=icon_color))
+        self.btn_toggle_right.setToolTip("Toggle Controls Panel  Ctrl+]")
+
         # 1. Navigation
         self.btn_prev = QToolButton()
         self.btn_prev.setIcon(qta.icon("fa5s.chevron-left", color=icon_color))
@@ -199,6 +211,8 @@ class ActionToolbar(QWidget):
         self.btn_overflow.setMenu(overflow_menu)
 
         standard_buttons = [
+            self.btn_toggle_left,
+            self.btn_toggle_right,
             self.btn_prev,
             self.btn_next,
             self.btn_rot_l,
@@ -218,7 +232,8 @@ class ActionToolbar(QWidget):
         self.btn_export.setIconSize(icon_size)
         self.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · save · export · overflow
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · save · export · overflow · toggle_right
+        row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
         self._sep1 = self._create_separator()
@@ -240,6 +255,7 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_export)
         row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_overflow)
+        row_layout.addWidget(self.btn_toggle_right)
 
         # Overflow groups for responsive resizeEvent
         self._ov_swatches_hq: list = [self.btn_hq] + self.canvas_color_btns + [self._sep2]

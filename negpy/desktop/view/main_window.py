@@ -162,6 +162,11 @@ class MainWindow(QMainWindow):
         self.session_dock.setWidget(self.session_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.session_dock)
 
+        # Restore saved panel visibility
+        repo = self.controller.session.repo
+        self.session_dock.setVisible(repo.get_global_setting("panel_left_visible", True))
+        self.drawer.setVisible(repo.get_global_setting("panel_right_visible", True))
+
         # hide status bar - we use TopStatusBar instead
         self.setStatusBar(QStatusBar())
         self.statusBar().hide()
@@ -191,9 +196,28 @@ class MainWindow(QMainWindow):
     def _on_tutorial_finished(self, _completed: bool) -> None:
         self.controller.session.repo.save_global_setting("tutorial_seen", True)
 
+    def toggle_session_dock(self) -> None:
+        visible = not self.session_dock.isVisible()
+        self.session_dock.setVisible(visible)
+        self.controller.session.repo.save_global_setting("panel_left_visible", visible)
+
+    def toggle_controls_dock(self) -> None:
+        visible = not self.drawer.isVisible()
+        self.drawer.setVisible(visible)
+        self.controller.session.repo.save_global_setting("panel_right_visible", visible)
+
     def _connect_signals(self) -> None:
         """Wire controller and view."""
         self.controller.session.state_changed.connect(self._update_title)
+
+        # visibilityChanged only mirrors the button — it also fires on close/minimize,
+        # so we persist in the toggle methods to avoid clobbering the saved state on exit.
+        self.toolbar.btn_toggle_left.clicked.connect(self.toggle_session_dock)
+        self.toolbar.btn_toggle_right.clicked.connect(self.toggle_controls_dock)
+        self.session_dock.visibilityChanged.connect(self.toolbar.btn_toggle_left.setChecked)
+        self.drawer.visibilityChanged.connect(self.toolbar.btn_toggle_right.setChecked)
+        self.toolbar.btn_toggle_left.setChecked(self.session_dock.isVisible())
+        self.toolbar.btn_toggle_right.setChecked(self.drawer.isVisible())
         self.controller.image_updated.connect(self._on_image_updated)
         self.controller.preview_loaded.connect(self._refresh_image_info)
         self.controller.loading_started.connect(self._on_loading_started)
@@ -288,10 +312,10 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.error(f"Border preview failure: {e}")
 
-        # When a soft-proof ICC profile is active the render worker has already
-        # baked the proof simulation into the buffer, so display it as-is (sRGB)
-        # rather than applying the working→sRGB display transform a second time.
-        display_cs = ColorSpace.SRGB.value if self.state.icc_profile_path else self.state.workspace_color_space
+        # With a proof active the render worker already baked it into the buffer, so
+        # show it raw instead of re-applying the working→sRGB display transform.
+        icc_active = self.state.icc_input_path or self.controller.effective_output_icc()
+        display_cs = ColorSpace.SRGB.value if icc_active else self.state.workspace_color_space
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect)
 
     def _refresh_image_info(self) -> None:

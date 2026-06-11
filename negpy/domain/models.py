@@ -62,7 +62,6 @@ class ColorSpace(Enum):
     SRGB = "sRGB"
     ADOBE_RGB = "Adobe RGB"
     PROPHOTO = "ProPhoto RGB"
-    WIDE = "Wide Gamut RGB"
     ACES = "ACES"
     P3_D65 = "P3 D65"
     REC2020 = "Rec 2020"
@@ -89,9 +88,8 @@ class ExportConfig:
     filename_pattern: str = "{{ original_name }}"
     overwrite: bool = True
     same_as_source: bool = False
-    apply_icc: bool = False
-    icc_profile_path: Optional[str] = None
-    icc_invert: bool = False
+    icc_input_path: Optional[str] = None
+    icc_output_path: Optional[str] = None
 
 
 @dataclass(frozen=True)

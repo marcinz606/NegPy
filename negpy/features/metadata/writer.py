@@ -112,9 +112,15 @@ def _build_custom_exif(config: MetadataConfig) -> dict:
 
 
 def _sanitize_exif(exif_dict: dict) -> dict:
-    """Drop RATIONAL/SRATIONAL entries stored as raw bytes (piexif cannot serialize them).
-    ASCII tags (type 2) legitimately use bytes and are left untouched."""
+    """Drop entries piexif can't serialize: RATIONAL/SRATIONAL stored as raw bytes, and
+    SHORT tags whose (malformed) value overflows 0..65535. ASCII tags (type 2) legitimately
+    use bytes and are left untouched."""
     _RATIONAL_TYPES = {5, 10}  # RATIONAL, SRATIONAL
+
+    def _short_overflows(value) -> bool:
+        vals = value if isinstance(value, (tuple, list)) else (value,)
+        return any(isinstance(v, int) and not (0 <= v <= 65535) for v in vals)
+
     result = {}
     for ifd_name, ifd_data in exif_dict.items():
         if not isinstance(ifd_data, dict):
@@ -125,6 +131,8 @@ def _sanitize_exif(exif_dict: dict) -> dict:
         for tag, value in ifd_data.items():
             tag_type = tags_info.get(tag, {}).get("type")
             if isinstance(value, bytes) and tag_type in _RATIONAL_TYPES:
+                continue
+            if tag_type == 3 and _short_overflows(value):  # SHORT out of range
                 continue
             clean[tag] = value
         result[ifd_name] = clean

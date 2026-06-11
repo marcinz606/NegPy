@@ -22,7 +22,6 @@ class ColorSpaceRegistry:
         ColorSpace.SRGB.value: rawpy.ColorSpace.sRGB,
         ColorSpace.ADOBE_RGB.value: rawpy.ColorSpace.Adobe,
         ColorSpace.PROPHOTO.value: rawpy.ColorSpace.ProPhoto,
-        ColorSpace.WIDE.value: rawpy.ColorSpace.Wide,
         ColorSpace.ACES.value: rawpy.ColorSpace.ACES,
         ColorSpace.P3_D65.value: rawpy.ColorSpace.P3D65,
         ColorSpace.REC2020.value: rawpy.ColorSpace.Rec2020,
@@ -34,9 +33,9 @@ class ColorSpaceRegistry:
         ColorSpace.SRGB.value: "sRGB-v4.icc",
         ColorSpace.ADOBE_RGB.value: "AdobeCompat-v4.icc",
         ColorSpace.PROPHOTO.value: "ProPhoto-v4.icc",
-        ColorSpace.WIDE.value: "WideGamut-v4.icc",
         ColorSpace.P3_D65.value: "DisplayP3-v4.icc",
         ColorSpace.REC2020.value: "Rec2020-v4.icc",
+        ColorSpace.GREYSCALE.value: "GrayGamma2.2.icc",
     }
 
     @classmethod

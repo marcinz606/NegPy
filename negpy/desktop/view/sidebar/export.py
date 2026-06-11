@@ -1,3 +1,5 @@
+import os
+
 import qtawesome as qta
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
@@ -18,6 +20,8 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.domain.models import AspectRatio, ColorSpace, ExportFormat, ExportResolutionMode
+from negpy.infrastructure.display.color_mgmt import ColorService
+from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 
 class ExportSidebar(BaseSidebar):
@@ -34,6 +38,41 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.setInterval(500)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
+        self.layout.addWidget(section_subheader("ICC"))
+
+        # Drop bundled profiles that already back a color-space enum (e.g.
+        # AdobeCompat-v4.icc ↔ "Adobe RGB") so the Output list isn't duplicated.
+        enum_mapped = {ColorSpaceRegistry.get_icc_path(cs.value) for cs in ColorSpace}
+        enum_mapped.discard(None)
+        custom_profiles = [p for p in ColorService.get_available_profiles() if p not in enum_mapped]
+
+        # Input: source profile correction.
+        self.input_profiles = ["None"] + custom_profiles
+        self.input_combo = QComboBox()
+        self.input_combo.addItems([os.path.basename(p) for p in self.input_profiles])
+        self.input_combo.setToolTip("Source/input ICC profile — soft-proofed in the preview")
+        in_path = self.state.icc_input_path
+        self.input_combo.setCurrentText(os.path.basename(in_path) if in_path else "None")
+        in_row = QHBoxLayout()
+        in_row.addWidget(QLabel("Input"))
+        in_row.addWidget(self.input_combo)
+        self.layout.addLayout(in_row)
+
+        # Output: one selector for a color space (→ export_color_space) or a custom
+        # ICC profile (→ icc_output_path).
+        self.output_spaces = [cs.value for cs in ColorSpace]
+        self.output_profiles = custom_profiles
+        self.output_map = list(self.output_spaces) + list(self.output_profiles)
+        self.output_combo = QComboBox()
+        self.output_combo.addItems(self.output_spaces + [os.path.basename(p) for p in self.output_profiles])
+        self.output_combo.setToolTip("Output color space or custom ICC profile — soft-proofed in the preview")
+        out_path = self.state.icc_output_path
+        self.output_combo.setCurrentText(os.path.basename(out_path) if out_path else conf.export_color_space)
+        out_row = QHBoxLayout()
+        out_row.addWidget(QLabel("Output"))
+        out_row.addWidget(self.output_combo)
+        self.layout.addLayout(out_row)
+
         self.layout.addWidget(section_subheader("FORMAT"))
 
         fmt_row = QHBoxLayout()
@@ -41,24 +80,17 @@ class ExportSidebar(BaseSidebar):
         self.fmt_combo.addItems([f.value for f in ExportFormat])
         self.fmt_combo.setCurrentText(conf.export_fmt)
         self.fmt_combo.setToolTip("File format")
-
-        self.cs_combo = QComboBox()
-        self.cs_combo.addItems([cs.value for cs in ColorSpace])
-        self.cs_combo.setCurrentText(conf.export_color_space)
-        self.cs_combo.setToolTip("Output color space")
-        fmt_row.addWidget(self.fmt_combo)
-        fmt_row.addWidget(self.cs_combo)
-        self.layout.addLayout(fmt_row)
-
         self.ratio_combo = QComboBox()
         # "Original" is first, then the rest
         ratios = [AspectRatio.ORIGINAL] + [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
         self.ratio_combo.addItems(ratios)
         self.ratio_combo.setCurrentText(conf.paper_aspect_ratio)
         self.ratio_combo.setToolTip("Paper aspect ratio")
-        self.layout.addWidget(self.ratio_combo)
+        fmt_row.addWidget(self.fmt_combo)
+        fmt_row.addWidget(self.ratio_combo)
+        self.layout.addLayout(fmt_row)
 
-        self.layout.addWidget(section_subheader("RESOLUTION"))
+        self.layout.addWidget(section_subheader("SIZE"))
 
         mode_row = QHBoxLayout()
         mode_row.setSpacing(4)
@@ -178,7 +210,8 @@ class ExportSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.fmt_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
-        self.cs_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
+        self.input_combo.currentIndexChanged.connect(self._on_input_changed)
+        self.output_combo.currentIndexChanged.connect(self._on_output_changed)
         self.ratio_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
         self.mode_btn_group.idToggled.connect(self._on_mode_toggled)
 
@@ -221,7 +254,7 @@ class ExportSidebar(BaseSidebar):
             persist=True,
             render=True,
             export_fmt=self.fmt_combo.currentText(),
-            export_color_space=self.cs_combo.currentText(),
+            export_color_space=self._current_export_color_space(),
             paper_aspect_ratio=self.ratio_combo.currentText(),
             export_resolution_mode=self._current_mode_value(),
             export_print_size=self.size_input.value(),
@@ -232,6 +265,32 @@ class ExportSidebar(BaseSidebar):
             overwrite=self.overwrite_checkbox.isChecked(),
             same_as_source=self.same_as_source_checkbox.isChecked(),
         )
+
+    def _on_input_changed(self, index: int) -> None:
+        path = self.input_profiles[index]
+        self.state.icc_input_path = path if path != "None" else None
+        self.controller.session.save_icc_prefs()
+        self.controller.request_render()
+
+    def _on_output_changed(self, index: int) -> None:
+        if index < len(self.output_spaces):
+            # Color space: persist synchronously (not debounced) so this render resolves
+            # the effective output from the new export_color_space.
+            self.state.icc_output_path = None
+            self.controller.session.save_icc_prefs()
+            self._persist_all_export_settings()
+        else:
+            # Custom output profile.
+            self.state.icc_output_path = self.output_map[index]
+            self.controller.session.save_icc_prefs()
+            self.controller.request_render()
+
+    def _current_export_color_space(self) -> str:
+        """Output dropdown value when a standard space is selected; else keep prior."""
+        idx = self.output_combo.currentIndex()
+        if 0 <= idx < len(self.output_spaces):
+            return self.output_map[idx]
+        return self.state.config.export.export_color_space
 
     _MODE_BY_ID = {
         0: ExportResolutionMode.ORIGINAL.value,
@@ -277,7 +336,10 @@ class ExportSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.fmt_combo.setCurrentText(conf.export_fmt)
-            self.cs_combo.setCurrentText(conf.export_color_space)
+            in_path = self.state.icc_input_path
+            self.input_combo.setCurrentText(os.path.basename(in_path) if in_path else "None")
+            out_path = self.state.icc_output_path
+            self.output_combo.setCurrentText(os.path.basename(out_path) if out_path else conf.export_color_space)
             self.ratio_combo.setCurrentText(conf.paper_aspect_ratio)
             self._select_mode_button(conf.export_resolution_mode)
             self._update_mode_visibility(conf.export_resolution_mode)
@@ -296,7 +358,8 @@ class ExportSidebar(BaseSidebar):
     def block_signals(self, blocked: bool) -> None:
         widgets = [
             self.fmt_combo,
-            self.cs_combo,
+            self.input_combo,
+            self.output_combo,
             self.ratio_combo,
             self.mode_original_btn,
             self.mode_print_btn,

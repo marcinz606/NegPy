@@ -45,6 +45,8 @@ class ShortcutManager:
             "pick_wb": lambda: controls.exposure_sidebar.pick_wb_btn.toggle(),
             "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
             "pick_dust": lambda: controls.retouch_sidebar.pick_dust_btn.toggle(),
+            "toggle_left_panel": self.window.toggle_session_dock,
+            "toggle_right_panel": self.window.toggle_controls_dock,
             "fit_view": self.window.canvas.fit_to_window,
             "zoom_100": lambda: controller.zoom_requested.emit(1.0),
             "zoom_200": lambda: controller.zoom_requested.emit(2.0),

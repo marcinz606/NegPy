@@ -37,6 +37,7 @@ from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
+from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -850,6 +851,11 @@ class AppController(QObject):
                 self.session.select_file(i)
                 return
 
+    def effective_output_icc(self) -> Optional[str]:
+        """Output profile the preview proofs through: a custom override, else the
+        profile for the selected export color space. None means no proof (Same as Source)."""
+        return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
+
     def request_render(self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None) -> None:
         """
         Dispatches a render task to the worker thread.
@@ -879,13 +885,15 @@ class AppController(QObject):
         if self.state.hq_preview:
             target_size = float(max(preview_raw.shape[:2]))
 
+        effective_output = self.effective_output_icc()
+
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
             source_hash=self.state.current_file_hash or "preview",
             preview_size=target_size,
-            icc_profile_path=self.state.icc_profile_path,
-            icc_invert=self.state.icc_invert,
+            icc_input_path=self.state.icc_input_path,
+            icc_output_path=effective_output,
             color_space=self.state.workspace_color_space,
             gpu_enabled=self.state.gpu_enabled,
             readback_metrics=readback_metrics,
@@ -948,9 +956,8 @@ class AppController(QObject):
         export_conf = replace(
             self.state.config.export,
             export_path=export_path,
-            apply_icc=self.state.apply_icc_to_export,
-            icc_profile_path=self.state.icc_profile_path,
-            icc_invert=self.state.icc_invert,
+            icc_input_path=self.state.icc_input_path,
+            icc_output_path=self.state.icc_output_path,
         )
 
         source_exif = self.state.source_exif.get(self.state.current_file_hash or "")
@@ -982,9 +989,8 @@ class AppController(QObject):
             return
 
         current_export = replace(self.state.config.export, export_path=export_path)
-        icc_path = self.state.icc_profile_path
-        icc_invert = self.state.icc_invert
-        apply_icc = self.state.apply_icc_to_export
+        icc_input = self.state.icc_input_path
+        icc_output = self.state.icc_output_path
         sync_metadata = self.state.config.metadata.sync_to_batch
 
         visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
@@ -998,9 +1004,8 @@ class AppController(QObject):
 
             final_export = replace(
                 params.export,
-                apply_icc=apply_icc,
-                icc_profile_path=icc_path,
-                icc_invert=icc_invert,
+                icc_input_path=icc_input,
+                icc_output_path=icc_output,
             )
 
             bounds_override = None

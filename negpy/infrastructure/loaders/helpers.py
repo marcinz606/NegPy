@@ -74,8 +74,6 @@ def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
         return ColorSpace.REC2020.value
     if "display p3" in desc or "p3 d65" in desc:
         return ColorSpace.P3_D65.value
-    if "wide gamut" in desc:
-        return ColorSpace.WIDE.value
     if "aces" in desc:
         return ColorSpace.ACES.value
     if "adobe rgb" in desc or "adobe compat" in desc:

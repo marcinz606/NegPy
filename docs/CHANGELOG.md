@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.25.0
+
+- **Hideable side panels**: the left Session panel and right Controls panel can now be collapsed for a focused, canvas-only view. New toggle buttons sit at the outer edges of the bottom toolbar (and `Ctrl+[` / `Ctrl+]` shortcuts) — the button reflects each panel's current state and hidden/shown state is remembered across restarts.
+- **Autocrop rework**: more robust film-edge detection, with a new **Autocrop Mode** selector in the Geometry sidebar — *Image only* crops to the exposed image area (default), *Film edge* crops to the full film extent, keeping the rebate/sprockets. Detection is more reliable across stocks and border types.
+- Fix: **ICC color management now apply correctly on export** — The on-screen preview is now color-managed through a working-space → sRGB display LUT, so what you see matches the exported file.
+- **ICC moved into Export panel**: a dedicated **ICC** section holds explicit **Input** and **Output** selectors. The Output selector lists target color spaces and custom ICC profiles (bundled profiles that duplicate a color-space entry are hidden). The Output selection drives both the preview and the exported file (WYSIWYG — no separate apply toggle): the preview shows the output space directly, matching the file as seen in a non-color-managed viewer, and the export converts to and embeds the same profile. Input ICC corrects the source. The standalone ICC section in the right Controls panel has been removed.
+- Fix: export no longer drops metadata when the source EXIF carries an out-of-range tag.
+
 ## 0.24.1
 
 - Autocrop improvements.

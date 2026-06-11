@@ -22,8 +22,8 @@ class RenderTask:
     config: WorkspaceConfig
     source_hash: str
     preview_size: float
-    icc_profile_path: Optional[str] = None
-    icc_invert: bool = False
+    icc_input_path: Optional[str] = None
+    icc_output_path: Optional[str] = None
     color_space: str = "Adobe RGB"
     gpu_enabled: bool = True
     readback_metrics: bool = True
@@ -114,17 +114,18 @@ class RenderWorker(QObject):
                 ir_buffer=task.ir_buffer,
             )
 
-            if task.icc_profile_path and isinstance(result, GPUTexture):
+            soft_proof = task.icc_input_path or task.icc_output_path
+
+            if soft_proof and isinstance(result, GPUTexture):
                 result = result.readback()
 
-            if task.icc_profile_path and isinstance(result, np.ndarray):
+            if soft_proof and isinstance(result, np.ndarray):
                 pil_img = self._processor.buffer_to_pil(result, task.config)
-                pil_proof, _ = self._processor.apply_color_management(
+                pil_proof = self._processor.soft_proof_preview(
                     pil_img,
                     task.color_space,
-                    task.color_space,
-                    task.icc_profile_path,
-                    task.icc_invert,
+                    task.icc_input_path,
+                    task.icc_output_path,
                 )
                 arr = np.array(pil_proof)
                 result = arr.astype(np.float32) / (65535.0 if arr.dtype == np.uint16 else 255.0)

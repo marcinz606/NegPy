@@ -31,7 +31,7 @@ from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
 from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
-from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb, apply_icc_u16_greyscale
+from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
 
 logger = get_logger(__name__)
 
@@ -199,12 +199,10 @@ class ImageProcessor:
             is_greyscale = color_space == ColorSpace.GREYSCALE.value
             is_tiff = export_settings.export_fmt != ExportFormat.JPEG
 
-            # The chosen export color space always drives a real working→target
-            # conversion (appearance-preserving), so the file's embedded profile
-            # matches its pixels. A custom ICC profile ("Apply to Export") overrides
-            # the destination; otherwise it is None and the target space is used.
-            icc_path = export_settings.icc_profile_path if export_settings.apply_icc else None
-            icc_invert = export_settings.icc_invert if export_settings.apply_icc else False
+            # Input ICC overrides the source, output ICC the destination; both always
+            # applied so the file matches the preview.
+            icc_input = export_settings.icc_input_path
+            icc_output = export_settings.icc_output_path
 
             if is_tiff:
                 img_out_f32 = buffer
@@ -217,16 +215,16 @@ class ImageProcessor:
                         img_int,
                         working_color_space,
                         color_space,
-                        icc_path,
-                        icc_invert,
+                        icc_output,
+                        icc_input,
                     )
                 else:
                     img_out, icc_bytes = self._apply_color_management_u16_rgb(
                         img_int,
                         working_color_space,
                         color_space,
-                        icc_path,
-                        icc_invert,
+                        icc_output,
+                        icc_input,
                     )
 
                 output_buf = io.BytesIO()
@@ -245,8 +243,8 @@ class ImageProcessor:
                     Image.fromarray(img_int),
                     working_color_space,
                     color_space,
-                    icc_path,
-                    icc_invert,
+                    icc_output,
+                    icc_input,
                 )
                 output_buf = io.BytesIO()
                 self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
@@ -263,9 +261,9 @@ class ImageProcessor:
         )
         return result
 
-    def _get_target_icc_bytes(self, color_space: str, icc_path: Optional[str], inverse: bool = False) -> Optional[bytes]:
-        """Loads ICC profile data for embedding."""
-        if not inverse and icc_path and os.path.exists(icc_path):
+    def _get_target_icc_bytes(self, color_space: str, icc_path: Optional[str]) -> Optional[bytes]:
+        """Loads ICC profile data for embedding (custom output profile or target space)."""
+        if icc_path and os.path.exists(icc_path):
             with open(icc_path, "rb") as f:
                 return f.read()
         path = ColorSpaceRegistry.get_icc_path(color_space)
@@ -274,45 +272,57 @@ class ImageProcessor:
                 return f.read()
         return None
 
+    @staticmethod
+    def _has_custom_icc(input_icc_path: Optional[str], output_icc_path: Optional[str]) -> bool:
+        """True when an input or output ICC override file is present."""
+        return bool((input_icc_path and os.path.exists(input_icc_path)) or (output_icc_path and os.path.exists(output_icc_path)))
+
+    @staticmethod
+    def _resolve_src_profile(working_color_space: str, input_icc_path: Optional[str]) -> Any:
+        """Source profile: input ICC override if present, else the working space."""
+        if input_icc_path and os.path.exists(input_icc_path):
+            return ImageCms.getOpenProfile(input_icc_path)
+        path_src = ColorSpaceRegistry.get_icc_path(working_color_space)
+        return ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
+
+    @staticmethod
+    def _resolve_dst_profile(color_space: str, output_icc_path: Optional[str]) -> Any:
+        """Destination profile: output ICC override if present, else the target space (or None)."""
+        if output_icc_path and os.path.exists(output_icc_path):
+            return ImageCms.getOpenProfile(output_icc_path)
+        path_dst = ColorSpaceRegistry.get_icc_path(color_space)
+        return ImageCms.getOpenProfile(path_dst) if path_dst and os.path.exists(path_dst) else None
+
     def _apply_color_management_u16_rgb(
         self,
         img_u16: np.ndarray,
         working_color_space: str,
         color_space: str,
-        icc_path: Optional[str],
-        inverse: bool = False,
+        output_icc_path: Optional[str],
+        input_icc_path: Optional[str] = None,
     ) -> Tuple[np.ndarray, Optional[bytes]]:
         """ICC RGB transform for 16-bit arrays (PIL has no 16-bit RGB mode).
 
-        Converts from the working space (source) to the target export space (or a
-        custom ``icc_path`` destination), so the embedded profile matches the pixels.
+        Source is the input override or the working space; destination is the output
+        override or the target space. One src→dst transform, so the embedded profile
+        matches the pixels.
         """
-        has_custom = bool(icc_path and os.path.exists(icc_path))
+        has_custom = self._has_custom_icc(input_icc_path, output_icc_path)
         if not has_custom and working_color_space == color_space:
             return img_u16, self._get_target_icc_bytes(color_space, None)
-        path_src = ColorSpaceRegistry.get_icc_path(working_color_space)
-        profile_working = ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
         try:
-            profile_selected = None
-            if icc_path and os.path.exists(icc_path):
-                profile_selected = ImageCms.getOpenProfile(icc_path)
-            else:
-                path_dst = ColorSpaceRegistry.get_icc_path(color_space)
-                if path_dst and os.path.exists(path_dst):
-                    profile_selected = ImageCms.getOpenProfile(path_dst)
-
-            if profile_selected:
-                p_src, p_dst = (profile_selected, profile_working) if inverse else (profile_working, profile_selected)
-                result = apply_icc_u16_rgb(
-                    img_u16,
-                    p_src,
-                    p_dst,
-                    ImageCms.Intent.RELATIVE_COLORIMETRIC,
-                    ImageCms.Flags.BLACKPOINTCOMPENSATION,
-                )
-                icc_bytes = self._get_target_icc_bytes(color_space, icc_path) if not inverse else None
-                return result, icc_bytes
-            return img_u16, self._get_target_icc_bytes(color_space, None)
+            p_src = self._resolve_src_profile(working_color_space, input_icc_path)
+            p_dst = self._resolve_dst_profile(color_space, output_icc_path)
+            if p_dst is None:
+                return img_u16, self._get_target_icc_bytes(color_space, None)
+            result = apply_icc_u16_rgb(
+                img_u16,
+                p_src,
+                p_dst,
+                ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                ImageCms.Flags.BLACKPOINTCOMPENSATION,
+            )
+            return result, self._get_target_icc_bytes(color_space, output_icc_path)
         except Exception as e:
             logger.error(f"CMS transformation failed: {e}")
             return img_u16, None
@@ -322,86 +332,92 @@ class ImageProcessor:
         img_u16: np.ndarray,
         working_color_space: str,
         color_space: str,
-        icc_path: Optional[str],
-        inverse: bool = False,
+        output_icc_path: Optional[str],
+        input_icc_path: Optional[str] = None,
     ) -> Tuple[np.ndarray, Optional[bytes]]:
-        """ICC grey→grey transform for (H,W) uint16 arrays."""
-        has_custom = bool(icc_path and os.path.exists(icc_path))
-        if not has_custom and working_color_space == color_space:
-            return img_u16, self._get_target_icc_bytes(color_space, None)
-        path_src = ColorSpaceRegistry.get_icc_path(working_color_space)
-        profile_working = ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
-        try:
-            profile_selected = None
-            if icc_path and os.path.exists(icc_path):
-                profile_selected = ImageCms.getOpenProfile(icc_path)
-            else:
-                path_dst = ColorSpaceRegistry.get_icc_path(color_space)
-                if path_dst and os.path.exists(path_dst):
-                    profile_selected = ImageCms.getOpenProfile(path_dst)
+        """Tag a (H,W) uint16 luma buffer with the target grey profile.
 
-            if profile_selected:
-                p_src, p_dst = (profile_selected, profile_working) if inverse else (profile_working, profile_selected)
-                result = apply_icc_u16_greyscale(
-                    img_u16,
-                    p_src,
-                    p_dst,
-                    ImageCms.Intent.RELATIVE_COLORIMETRIC,
-                    ImageCms.Flags.BLACKPOINTCOMPENSATION,
-                )
-                icc_bytes = self._get_target_icc_bytes(color_space, icc_path) if not inverse else None
-                return result, icc_bytes
-            return img_u16, self._get_target_icc_bytes(color_space, None)
-        except Exception as e:
-            logger.error(f"CMS greyscale transform failed: {e}")
-            return img_u16, None
+        The buffer is already luma in the working gamma (matching GrayGamma2.2), so no
+        pixel transform is run — an RGB working profile can't drive a 1-channel transform.
+        """
+        return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
 
     def apply_color_management(
         self,
         pil_img: Image.Image,
         working_color_space: str,
         color_space: str,
-        icc_path: Optional[str],
-        inverse: bool = False,
+        output_icc_path: Optional[str],
+        input_icc_path: Optional[str] = None,
     ) -> Tuple[Image.Image, Optional[bytes]]:
-        """Applies ICC profile transformations from the working space to the target."""
-        has_custom = bool(icc_path and os.path.exists(icc_path))
+        """ICC transform for export. Source is the input override or working space;
+        destination is the output override or target space."""
+        has_custom = self._has_custom_icc(input_icc_path, output_icc_path)
         if not has_custom and working_color_space == color_space:
             return pil_img, self._get_target_icc_bytes(color_space, None)
-        path_src = ColorSpaceRegistry.get_icc_path(working_color_space)
-        profile_working = ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
 
         try:
-            profile_selected = None
-            if icc_path and os.path.exists(icc_path):
-                profile_selected = ImageCms.getOpenProfile(icc_path)
-            else:
-                path_dst = ColorSpaceRegistry.get_icc_path(color_space)
-                if path_dst and os.path.exists(path_dst):
-                    profile_selected = ImageCms.getOpenProfile(path_dst)
+            p_src = self._resolve_src_profile(working_color_space, input_icc_path)
+            p_dst = self._resolve_dst_profile(color_space, output_icc_path)
+            if p_dst is None:
+                return pil_img, self._get_target_icc_bytes(color_space, None)
 
-            if profile_selected:
-                p_src, p_dst = (profile_selected, profile_working) if inverse else (profile_working, profile_selected)
-                if pil_img.mode not in ("RGB", "L"):
-                    pil_img = pil_img.convert("RGB" if pil_img.mode != "I;16" else "L")
+            if pil_img.mode not in ("RGB", "L"):
+                pil_img = pil_img.convert("RGB" if pil_img.mode != "I;16" else "L")
 
-                result_pil = ImageCms.profileToProfile(
-                    pil_img,
-                    p_src,
-                    p_dst,
-                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
-                    outputMode="RGB" if pil_img.mode != "L" else "L",
-                    flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
-                )
-                if result_pil:
-                    pil_img = result_pil
-                icc_bytes = self._get_target_icc_bytes(color_space, icc_path) if not inverse else None
-            else:
-                icc_bytes = self._get_target_icc_bytes(color_space, None)
-            return pil_img, icc_bytes
+            result_pil = ImageCms.profileToProfile(
+                pil_img,
+                p_src,
+                p_dst,
+                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                outputMode="RGB" if pil_img.mode != "L" else "L",
+                flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
+            )
+            if result_pil:
+                pil_img = result_pil
+            return pil_img, self._get_target_icc_bytes(color_space, output_icc_path)
         except Exception as e:
             logger.error(f"CMS transformation failed: {e}")
             return pil_img, None
+
+    def soft_proof_preview(
+        self,
+        pil_img: Image.Image,
+        working_color_space: str,
+        input_icc_path: Optional[str],
+        output_icc_path: Optional[str],
+    ) -> Image.Image:
+        """Convert the working-space preview into the output space and show it raw.
+
+        input → working → output, displayed without a further sRGB transform, so the
+        preview matches the exported file in a non-color-managed viewer.
+        """
+        try:
+            # littleCMS needs RGB against the RGB working/output profiles.
+            if pil_img.mode != "RGB":
+                pil_img = pil_img.convert("RGB")
+            p_src = self._resolve_src_profile(working_color_space, input_icc_path)
+            # Custom output profile, or the working space when only an input is set.
+            p_dst = self._resolve_dst_profile(working_color_space, output_icc_path)
+            if p_dst is None:
+                return pil_img
+            # GRAY destinations need an "L" intermediate.
+            dst_space = (getattr(p_dst.profile, "xcolor_space", "RGB ") or "RGB ").strip()
+            out_mode = "L" if dst_space == "GRAY" else "RGB"
+            result = ImageCms.profileToProfile(
+                pil_img,
+                p_src,
+                p_dst,
+                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                outputMode=out_mode,
+                flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
+            )
+            if result is None:
+                return pil_img
+            return result if result.mode == "RGB" else result.convert("RGB")
+        except Exception as e:
+            logger.error(f"Soft-proof preview failed: {e}")
+            return pil_img
 
     def _save_to_pil_buffer(
         self,

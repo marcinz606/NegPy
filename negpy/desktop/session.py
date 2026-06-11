@@ -48,9 +48,8 @@ class AppState:
     clipboard: Optional[WorkspaceConfig] = None
 
     # ICC Management
-    icc_profile_path: Optional[str] = None
-    icc_invert: bool = False
-    apply_icc_to_export: bool = False
+    icc_input_path: Optional[str] = None
+    icc_output_path: Optional[str] = None
 
     # Hardware Acceleration
     gpu_enabled: bool = True
@@ -246,15 +245,12 @@ class DesktopSessionManager(QObject):
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
 
-        saved_icc_path = self.repo.get_global_setting("icc_profile_path")
-        if saved_icc_path and os.path.exists(saved_icc_path):
-            self.state.icc_profile_path = saved_icc_path
-        saved_icc_invert = self.repo.get_global_setting("icc_invert")
-        if saved_icc_invert is not None:
-            self.state.icc_invert = bool(saved_icc_invert)
-        saved_icc_apply = self.repo.get_global_setting("icc_apply_to_export")
-        if saved_icc_apply is not None:
-            self.state.apply_icc_to_export = bool(saved_icc_apply)
+        saved_icc_in = self.repo.get_global_setting("icc_input_path")
+        if saved_icc_in and os.path.exists(saved_icc_in):
+            self.state.icc_input_path = saved_icc_in
+        saved_icc_out = self.repo.get_global_setting("icc_output_path")
+        if saved_icc_out and os.path.exists(saved_icc_out):
+            self.state.icc_output_path = saved_icc_out
 
     def set_gpu_enabled(self, enabled: bool) -> None:
         """Updates and persists the hardware acceleration preference."""
@@ -285,9 +281,8 @@ class DesktopSessionManager(QObject):
 
     def save_icc_prefs(self) -> None:
         """Persists current ICC profile settings."""
-        self.repo.save_global_setting("icc_profile_path", self.state.icc_profile_path)
-        self.repo.save_global_setting("icc_invert", self.state.icc_invert)
-        self.repo.save_global_setting("icc_apply_to_export", self.state.apply_icc_to_export)
+        self.repo.save_global_setting("icc_input_path", self.state.icc_input_path)
+        self.repo.save_global_setting("icc_output_path", self.state.icc_output_path)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """

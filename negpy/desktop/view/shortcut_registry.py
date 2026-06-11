@@ -91,6 +91,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "vignette_size_inc": ShortcutEntry("Alt+S", "Vignette size up", "Finishing"),
     "border_size_dec": ShortcutEntry("Alt+Shift+D", "Border width down", "Finishing"),
     "border_size_inc": ShortcutEntry("Alt+D", "Border width up", "Finishing"),
+    "toggle_left_panel": ShortcutEntry("Ctrl+[", "Toggle session panel", "View"),
+    "toggle_right_panel": ShortcutEntry("Ctrl+]", "Toggle controls panel", "View"),
     "fit_view": ShortcutEntry("0", "Fit to window", "View"),
     "zoom_100": ShortcutEntry("1", "Zoom 100%", "View"),
     "zoom_200": ShortcutEntry("2", "Zoom 200%", "View"),

@@ -24,7 +24,6 @@ from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.desktop.view.sidebar.lab import LabSidebar
 from negpy.desktop.view.sidebar.toning import ToningSidebar
 from negpy.desktop.view.sidebar.retouch import RetouchSidebar
-from negpy.desktop.view.sidebar.icc import ICCSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
 
@@ -112,14 +111,6 @@ class ControlsPanel(QWidget):
             "finish",
             self.finish_sidebar,
             icon=qta.icon("fa5s.paint-brush", color=icon_color),
-        )
-
-        self.icc_sidebar = ICCSidebar(self.controller)
-        self._add_sidebar_section(
-            "ICC",
-            "icc",
-            self.icc_sidebar,
-            icon=qta.icon("fa5s.eye", color=icon_color),
         )
 
     def _add_sidebar_section(
@@ -421,7 +412,6 @@ class ControlsPanel(QWidget):
         self.lab_sidebar.sync_ui()
         self.toning_sidebar.sync_ui()
         self.retouch_sidebar.sync_ui()
-        self.icc_sidebar.sync_ui()
         self.finish_sidebar.sync_ui()
         self.presets_sidebar.sync_ui()
         self._sync_modified_dots()
