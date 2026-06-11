@@ -30,7 +30,7 @@ from negpy.kernel.image.logic import (
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
 from negpy.services.export.print import PrintService
-from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb, apply_icc_u16_greyscale
 
 logger = get_logger(__name__)
@@ -136,6 +136,7 @@ class ImageProcessor:
         metrics: Optional[Dict[str, Any]] = None,
         prefer_gpu: bool = True,
         bounds_override: Optional[Any] = None,
+        working_color_space: str = WORKING_COLOR_SPACE,
     ) -> Tuple[Optional[bytes], str]:
         """Performs high-resolution export with color management."""
         try:
@@ -198,33 +199,34 @@ class ImageProcessor:
             is_greyscale = color_space == ColorSpace.GREYSCALE.value
             is_tiff = export_settings.export_fmt != ExportFormat.JPEG
 
+            # The chosen export color space always drives a real working→target
+            # conversion (appearance-preserving), so the file's embedded profile
+            # matches its pixels. A custom ICC profile ("Apply to Export") overrides
+            # the destination; otherwise it is None and the target space is used.
+            icc_path = export_settings.icc_profile_path if export_settings.apply_icc else None
+            icc_invert = export_settings.icc_invert if export_settings.apply_icc else False
+
             if is_tiff:
                 img_out_f32 = buffer
                 img_int = (
                     float_to_uint_luma(np.ascontiguousarray(img_out_f32), bit_depth=16) if is_greyscale else float_to_uint16(img_out_f32)
                 )
 
-                if export_settings.apply_icc:
-                    if is_greyscale:
-                        img_out, icc_bytes = self._apply_color_management_u16_greyscale(
-                            img_int,
-                            color_space,
-                            export_settings.icc_profile_path,
-                            export_settings.icc_invert,
-                        )
-                    else:
-                        img_out, icc_bytes = self._apply_color_management_u16_rgb(
-                            img_int,
-                            color_space,
-                            export_settings.icc_profile_path,
-                            export_settings.icc_invert,
-                        )
-                else:
-                    img_out = img_int
-                    icc_bytes = self._get_target_icc_bytes(
+                if is_greyscale:
+                    img_out, icc_bytes = self._apply_color_management_u16_greyscale(
+                        img_int,
+                        working_color_space,
                         color_space,
-                        export_settings.icc_profile_path,
-                        export_settings.icc_invert,
+                        icc_path,
+                        icc_invert,
+                    )
+                else:
+                    img_out, icc_bytes = self._apply_color_management_u16_rgb(
+                        img_int,
+                        working_color_space,
+                        color_space,
+                        icc_path,
+                        icc_invert,
                     )
 
                 output_buf = io.BytesIO()
@@ -238,14 +240,13 @@ class ImageProcessor:
                 return output_buf.getvalue(), "tiff"
             else:
                 img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
-                icc_path_to_use = export_settings.icc_profile_path if export_settings.apply_icc else None
-                icc_invert_to_use = export_settings.icc_invert if export_settings.apply_icc else False
 
                 pil_img, icc_bytes = self.apply_color_management(
                     Image.fromarray(img_int),
+                    working_color_space,
                     color_space,
-                    icc_path_to_use,
-                    icc_invert_to_use,
+                    icc_path,
+                    icc_invert,
                 )
                 output_buf = io.BytesIO()
                 self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
@@ -276,12 +277,20 @@ class ImageProcessor:
     def _apply_color_management_u16_rgb(
         self,
         img_u16: np.ndarray,
+        working_color_space: str,
         color_space: str,
         icc_path: Optional[str],
         inverse: bool = False,
     ) -> Tuple[np.ndarray, Optional[bytes]]:
-        """ICC RGB transform for 16-bit arrays (PIL has no 16-bit RGB mode)."""
-        path_src = ColorSpaceRegistry.get_icc_path(color_space)
+        """ICC RGB transform for 16-bit arrays (PIL has no 16-bit RGB mode).
+
+        Converts from the working space (source) to the target export space (or a
+        custom ``icc_path`` destination), so the embedded profile matches the pixels.
+        """
+        has_custom = bool(icc_path and os.path.exists(icc_path))
+        if not has_custom and working_color_space == color_space:
+            return img_u16, self._get_target_icc_bytes(color_space, None)
+        path_src = ColorSpaceRegistry.get_icc_path(working_color_space)
         profile_working = ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
         try:
             profile_selected = None
@@ -311,12 +320,16 @@ class ImageProcessor:
     def _apply_color_management_u16_greyscale(
         self,
         img_u16: np.ndarray,
+        working_color_space: str,
         color_space: str,
         icc_path: Optional[str],
         inverse: bool = False,
     ) -> Tuple[np.ndarray, Optional[bytes]]:
         """ICC grey→grey transform for (H,W) uint16 arrays."""
-        path_src = ColorSpaceRegistry.get_icc_path(color_space)
+        has_custom = bool(icc_path and os.path.exists(icc_path))
+        if not has_custom and working_color_space == color_space:
+            return img_u16, self._get_target_icc_bytes(color_space, None)
+        path_src = ColorSpaceRegistry.get_icc_path(working_color_space)
         profile_working = ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
         try:
             profile_selected = None
@@ -346,12 +359,16 @@ class ImageProcessor:
     def apply_color_management(
         self,
         pil_img: Image.Image,
+        working_color_space: str,
         color_space: str,
         icc_path: Optional[str],
         inverse: bool = False,
     ) -> Tuple[Image.Image, Optional[bytes]]:
-        """Applies ICC profile transformations."""
-        path_src = ColorSpaceRegistry.get_icc_path(color_space)
+        """Applies ICC profile transformations from the working space to the target."""
+        has_custom = bool(icc_path and os.path.exists(icc_path))
+        if not has_custom and working_color_space == color_space:
+            return pil_img, self._get_target_icc_bytes(color_space, None)
+        path_src = ColorSpaceRegistry.get_icc_path(working_color_space)
         profile_working = ImageCms.getOpenProfile(path_src) if path_src and os.path.exists(path_src) else ImageCms.createProfile("sRGB")
 
         try:

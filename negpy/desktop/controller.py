@@ -968,6 +968,7 @@ class AppController(QObject):
                     gpu_enabled=self.state.gpu_enabled,
                     source_exif=source_exif,
                     metadata_config=self.state.config.metadata,
+                    working_color_space=self.state.workspace_color_space,
                 )
             ]
         )
@@ -1020,6 +1021,7 @@ class AppController(QObject):
                     bounds_override=bounds_override,
                     source_exif=source_exif,
                     metadata_config=metadata_config,
+                    working_color_space=self.state.workspace_color_space,
                 )
             )
 

@@ -25,7 +25,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
 from negpy.desktop.view.widgets.status_bar import TopStatusBar
-from negpy.domain.models import AspectRatio
+from negpy.domain.models import AspectRatio, ColorSpace
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.image.logic import float_to_uint8
 from negpy.kernel.system.config import APP_CONFIG
@@ -288,7 +288,11 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.error(f"Border preview failure: {e}")
 
-        self.canvas.update_buffer(buffer, self.state.workspace_color_space, content_rect=content_rect)
+        # When a soft-proof ICC profile is active the render worker has already
+        # baked the proof simulation into the buffer, so display it as-is (sRGB)
+        # rather than applying the working→sRGB display transform a second time.
+        display_cs = ColorSpace.SRGB.value if self.state.icc_profile_path else self.state.workspace_color_space
+        self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect)
 
     def _refresh_image_info(self) -> None:
         """Updates the persistent metadata panels."""

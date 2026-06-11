@@ -6,6 +6,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
 from negpy.features.metadata.writer import embed_metadata
 from negpy.features.metadata.models import MetadataConfig
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.services.export.templating import render_export_filename
 
@@ -21,6 +22,7 @@ class ExportTask:
     bounds_override: Optional[Any] = None
     source_exif: Optional[dict] = None
     metadata_config: Optional[MetadataConfig] = None
+    working_color_space: str = WORKING_COLOR_SPACE
 
 
 class ExportWorker(QObject):
@@ -54,6 +56,7 @@ class ExportWorker(QObject):
                     task.file_info["hash"],
                     prefer_gpu=task.gpu_enabled,
                     bounds_override=task.bounds_override,
+                    working_color_space=task.working_color_space,
                 )
 
                 if bits:

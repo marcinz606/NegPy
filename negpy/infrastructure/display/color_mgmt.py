@@ -1,5 +1,8 @@
 import os
+from functools import lru_cache
 from typing import Any, Optional
+
+import numpy as np
 from PIL import Image, ImageCms
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
@@ -8,6 +11,49 @@ from negpy.domain.models import ColorSpace
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=8)
+def get_display_lut(working_color_space: str) -> Optional[np.ndarray]:
+    """3D LUT converting the working space to sRGB for monitor display.
+
+    Cached per working space. Returns ``None`` when the working space is already
+    sRGB (the transform is identity, so callers can skip it). Used by both the CPU
+    (`ImageConverter.to_qimage`) and GPU display paths so the preview shows the
+    true working-space appearance — matching a color-managed view of the export.
+    """
+    if working_color_space == ColorSpace.SRGB.value:
+        return None
+    try:
+        from negpy.infrastructure.display.icc_lut import build_3d_lut
+
+        src = ColorService._get_profile(working_color_space)
+        dst: Any = ImageCms.createProfile("sRGB")
+        return build_3d_lut(
+            src,
+            dst,
+            ImageCms.Intent.RELATIVE_COLORIMETRIC,
+            ImageCms.Flags.BLACKPOINTCOMPENSATION,
+        )
+    except Exception as e:
+        logger.warning("Failed to build display LUT for %s", working_color_space, exc_info=e)
+        return None
+
+
+def apply_display_transform(buffer: np.ndarray, working_color_space: str) -> np.ndarray:
+    """Convert a float32 RGB buffer from the working space to sRGB for display.
+
+    No-op for non-RGB buffers (greyscale display stays neutral) or when the working
+    space is sRGB. Used on the CPU display path before quantizing to 8-bit.
+    """
+    if buffer.dtype != np.float32 or buffer.ndim != 3 or buffer.shape[2] != 3:
+        return buffer
+    lut = get_display_lut(working_color_space)
+    if lut is None:
+        return buffer
+    from negpy.infrastructure.display.icc_lut import apply_lut_f32
+
+    return apply_lut_f32(buffer, lut)
 
 
 class ColorService:

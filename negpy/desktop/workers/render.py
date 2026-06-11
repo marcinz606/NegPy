@@ -122,6 +122,7 @@ class RenderWorker(QObject):
                 pil_proof, _ = self._processor.apply_color_management(
                     pil_img,
                     task.color_space,
+                    task.color_space,
                     task.icc_profile_path,
                     task.icc_invert,
                 )

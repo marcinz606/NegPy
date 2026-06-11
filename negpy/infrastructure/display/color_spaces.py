@@ -5,6 +5,11 @@ from negpy.domain.models import ColorSpace
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
 
+# Color space the editing pipeline operates in. RAW is decoded with
+# output_color=raw and treated as Adobe RGB throughout; export converts FROM
+# this space and the preview is color-managed FROM this space to the display.
+WORKING_COLOR_SPACE = ColorSpace.ADOBE_RGB.value
+
 
 class ColorSpaceRegistry:
     """

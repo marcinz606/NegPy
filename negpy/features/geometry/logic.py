@@ -403,10 +403,15 @@ def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, 
     bed = float(np.percentile(lum, 99))
     box_median = float(np.percentile(box, 50))
     ring_w = max(3, round(0.04 * min(bh, bw)))
-    sides = (box[:ring_w, :], box[-ring_w:, :], box[:, :ring_w], box[:, -ring_w:])
+    sides = {
+        "top": box[:ring_w, :],
+        "bottom": box[-ring_w:, :],
+        "left": box[:, :ring_w],
+        "right": box[:, -ring_w:],
+    }
 
-    best: Optional[Tuple[float, float]] = None
-    for strip in sides:
+    qualifying: dict[str, Tuple[float, float]] = {}
+    for name, strip in sides.items():
         vals = strip[strip < bed - 0.05]  # exclude sprocket holes / bed slop in the box
         if vals.size < 0.25 * strip.size:
             continue
@@ -418,9 +423,16 @@ def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, 
             continue  # rebate is the lowest-density tier: must sit clearly above the
             # image interior; a plateau near the median is bright image content
             # reaching the film edge (full-bleed) or holder slop, not film base
-        if best is None or p60 > best[0]:
-            best = (p60, spread)
-    return best
+        qualifying[name] = (p60, spread)
+
+    # A genuine film rebate borders the frame and therefore shows up as an opposite
+    # pair (top+bottom or left+right). A lone qualifying side is almost always a
+    # uniform bright scene region (a wall, a sunlit window edge) in a full-bleed
+    # frame — trusting it carves the picture down to a dark subject. Require a pair.
+    has_pair = ("top" in qualifying and "bottom" in qualifying) or ("left" in qualifying and "right" in qualifying)
+    if not has_pair:
+        return None
+    return max(qualifying.values(), key=lambda t: t[0])
 
 
 def _estimate_tier_levels(lum: np.ndarray, film_roi: ROI) -> Optional[_TierLevels]:
@@ -623,6 +635,50 @@ def _get_threshold_autocrop_coords(
         return 0, h, 0, w
 
     return int(rows_det[0]), int(rows_det[-1]), int(cols_det[0]), int(cols_det[-1])
+
+
+def _trim_opaque_border(
+    lum: np.ndarray,
+    roi: ROI,
+    black: float = 0.02,
+    frac: float = 0.7,
+    max_trim: float = 0.2,
+) -> ROI:
+    """
+    Shrinks each ROI edge inward past a contiguous band of opaque (near-black)
+    pixels — a camera-scan negative holder masks frame edges with an opaque stripe
+    (lum ~ 0), well below the darkest real negative content (even unexposed film
+    base transmits orange light). An edge moves only while its border line is
+    dominated (>= `frac`) by sub-`black` pixels, capped at `max_trim` of the side
+    so it can never eat into the image. `lum` is detection luminance (bed ~ 1.0).
+    """
+    y1, y2, x1, x2 = roi
+    sub = lum[y1:y2, x1:x2]
+    bh, bw = sub.shape[:2]
+    if bh < 4 or bw < 4:
+        return roi
+
+    row_black = (sub < black).mean(axis=1)
+    col_black = (sub < black).mean(axis=0)
+
+    def _run(profile: np.ndarray, limit: int, from_start: bool) -> int:
+        n = profile.size
+        i = 0
+        while i < limit and profile[i if from_start else n - 1 - i] >= frac:
+            i += 1
+        return i
+
+    ly = int(round(max_trim * bh))
+    lx = int(round(max_trim * bw))
+    top = _run(row_black, ly, True)
+    bottom = _run(row_black, ly, False)
+    left = _run(col_black, lx, True)
+    right = _run(col_black, lx, False)
+
+    ny1, ny2, nx1, nx2 = y1 + top, y2 - bottom, x1 + left, x2 - right
+    if ny2 - ny1 <= 0 or nx2 - nx1 <= 0:
+        return roi
+    return ny1, ny2, nx1, nx2
 
 
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
@@ -858,6 +914,10 @@ def get_autocrop_coords(
     from_contours = film_roi is not None
     if film_roi is None:
         film_roi = _get_threshold_autocrop_coords(det, assist_luma)
+
+    # Trim opaque holder/border stripes (lum ~ 0) the film detection left in — these
+    # sit at the absolute frame edge and become a white band after inversion.
+    film_roi = _trim_opaque_border(_detection_luma(det), film_roi)
 
     row_occ = col_occ = None
     if mode == AutocropMode.FILM or not from_contours:

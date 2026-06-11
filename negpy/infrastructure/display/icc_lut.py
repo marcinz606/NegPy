@@ -108,6 +108,59 @@ def apply_lut_u16(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     return _apply_lut_u16_jit(img_c, lut_c)
 
 
+@njit(cache=True, fastmath=True, parallel=True)
+def _apply_lut_f32_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    h = img.shape[0]
+    w = img.shape[1]
+    n = lut.shape[0]
+    scale = np.float32(n - 1)
+    out = np.empty_like(img)
+    for y in prange(h):
+        for x in range(w):
+            rf = min(max(img[y, x, 0], np.float32(0.0)), np.float32(1.0)) * scale
+            gf = min(max(img[y, x, 1], np.float32(0.0)), np.float32(1.0)) * scale
+            bf = min(max(img[y, x, 2], np.float32(0.0)), np.float32(1.0)) * scale
+            r0 = int(rf)
+            g0 = int(gf)
+            b0 = int(bf)
+            if r0 >= n - 1:
+                r0 = n - 2
+            if g0 >= n - 1:
+                g0 = n - 2
+            if b0 >= n - 1:
+                b0 = n - 2
+            r1 = r0 + 1
+            g1 = g0 + 1
+            b1 = b0 + 1
+            dr = rf - r0
+            dg = gf - g0
+            db = bf - b0
+            for c in range(3):
+                c000 = lut[r0, g0, b0, c]
+                c001 = lut[r0, g0, b1, c]
+                c010 = lut[r0, g1, b0, c]
+                c011 = lut[r0, g1, b1, c]
+                c100 = lut[r1, g0, b0, c]
+                c101 = lut[r1, g0, b1, c]
+                c110 = lut[r1, g1, b0, c]
+                c111 = lut[r1, g1, b1, c]
+                c00 = c000 * (1.0 - db) + c001 * db
+                c01 = c010 * (1.0 - db) + c011 * db
+                c10 = c100 * (1.0 - db) + c101 * db
+                c11 = c110 * (1.0 - db) + c111 * db
+                c0 = c00 * (1.0 - dg) + c01 * dg
+                c1 = c10 * (1.0 - dg) + c11 * dg
+                out[y, x, c] = c0 * (1.0 - dr) + c1 * dr
+    return out
+
+
+def apply_lut_f32(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    """Trilinearly interpolate `lut` onto a float32 RGB image in [0, 1]."""
+    img_c = np.ascontiguousarray(img.astype(np.float32))
+    lut_c = np.ascontiguousarray(lut.astype(np.float32))
+    return _apply_lut_f32_jit(img_c, lut_c)
+
+
 def apply_icc_u16_rgb(
     img_u16: np.ndarray,
     p_src: Any,

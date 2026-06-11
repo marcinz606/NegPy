@@ -89,6 +89,44 @@ def test_get_autocrop_coords_detects_dark_frame_on_light_bed():
     assert 250 <= x2 <= 285
 
 
+def test_trim_opaque_border_removes_holder_bands():
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.full((100, 120), 0.4, dtype=np.float32)
+    lum[90:, :] = 0.0  # opaque holder band at the bottom (10px)
+    lum[:, :6] = 0.0  # opaque sliver on the left (6px)
+
+    y1, y2, x1, x2 = _trim_opaque_border(lum, (0, 100, 0, 120))
+    assert (y1, y2, x1, x2) == (0, 90, 6, 120)
+
+
+def test_trim_opaque_border_noop_without_black_band():
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.full((100, 120), 0.4, dtype=np.float32)
+    roi = (10, 90, 5, 115)
+    assert _trim_opaque_border(lum, roi) == roi
+
+
+def test_trim_opaque_border_keeps_dark_negative_content():
+    # Dark negative content still transmits film base (lum ~ 0.08) — well above the
+    # opaque threshold, so it must NOT be trimmed as if it were a holder band.
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.full((100, 120), 0.4, dtype=np.float32)
+    lum[80:, :] = 0.08
+    assert _trim_opaque_border(lum, (0, 100, 0, 120)) == (0, 100, 0, 120)
+
+
+def test_trim_opaque_border_capped_for_all_black_roi():
+    from negpy.features.geometry.logic import _trim_opaque_border
+
+    lum = np.zeros((100, 100), dtype=np.float32)
+    y1, y2, x1, x2 = _trim_opaque_border(lum, (0, 100, 0, 100))
+    assert y1 <= 20 and (100 - y2) <= 20 and x1 <= 20 and (100 - x2) <= 20
+    assert y2 > y1 and x2 > x1
+
+
 def test_get_autocrop_coords_fallback_preserves_valid_roi_for_flat_image():
     img = np.ones((120, 200, 3), dtype=np.float32) * 0.5
 
@@ -744,6 +782,41 @@ def test_autocrop_image_mode_full_bleed_frame_keeps_film_box():
     # Film box is 80:400, 100:620 — crop must cover (almost) all of it.
     assert (y2 - y1) * (x2 - x1) >= 0.90 * 320 * 520
     assert y1 >= 60 and y2 <= 420 and x1 >= 80 and x2 <= 640  # and stay near the film
+
+
+def test_find_rebate_level_requires_opposite_pair():
+    from negpy.features.geometry.logic import _find_rebate_level
+
+    lum = np.full((200, 200), 0.2, dtype=np.float32)
+    lum[:8, :] = 1.0  # a few bed-level pixels so the global P99 anchor sits high
+    roi = (0, 200, 0, 200)
+
+    one_side = lum.copy()
+    one_side[:, -16:] = 0.8  # lone bright strip (e.g. a sunlit window edge)
+    assert _find_rebate_level(one_side, roi) is None
+
+    pair = lum.copy()
+    pair[:, :16] = 0.8
+    pair[:, -16:] = 0.8  # rebate border on both left and right
+    res = _find_rebate_level(pair, roi)
+    assert res is not None and abs(res[0] - 0.8) < 0.05
+
+
+def test_autocrop_image_mode_single_bright_side_not_rebate():
+    # High-key full-bleed frame with a uniform bright strip on ONE side only (a
+    # sunlit window edge) plus a dark subject. The bright strip must NOT be taken
+    # for film rebate — image mode must keep the frame, not crop to the subject.
+    h, w = 480, 720
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    texture = 0.45 + 0.20 * np.sin(xx / 13.0) * np.cos(yy / 19.0)
+    img = np.repeat(texture[..., None], 3, axis=2).astype(np.float32)
+    img[:, -40:] = 0.80  # uniform bright strip on the right edge only
+    img[120:300, 200:480] = 0.15  # dark subject
+
+    for mode in ("film", "image"):
+        y1, y2, x1, x2 = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode=mode)
+        area = (y2 - y1) * (x2 - x1)
+        assert area >= 0.85 * h * w, f"mode={mode}: cropped to {area / (h * w):.2f} of frame"
 
 
 def test_place_window_by_occupancy_maximizes_coverage():

@@ -1,5 +1,6 @@
 import numpy as np
 from PyQt6.QtGui import QImage
+from negpy.infrastructure.display.color_mgmt import apply_display_transform
 from negpy.kernel.image.logic import float_to_uint8
 
 
@@ -13,9 +14,13 @@ class ImageConverter:
         """
         Safely converts a NumPy float32 or uint8 buffer to a QImage.
         Performs a deep copy to prevent memory corruption (harsh noise).
+
+        ``color_space`` is the working space of ``buffer``; it is color-managed to
+        sRGB for display so the preview matches a color-managed view of the export.
         """
-        # 1. Ensure uint8 for display
+        # 1. Color-manage working space → sRGB, then quantize to uint8 for display
         if buffer.dtype == np.float32:
+            buffer = apply_display_transform(buffer, color_space)
             u8_buffer = float_to_uint8(buffer)
         else:
             u8_buffer = buffer
