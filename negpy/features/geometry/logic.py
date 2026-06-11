@@ -1,13 +1,45 @@
 import math
+from typing import NamedTuple, Optional, Tuple
 
-import numpy as np
 import cv2
-from typing import Tuple, Optional
+import numpy as np
+
 from negpy.domain.models import AspectRatio
-from negpy.domain.types import ImageBuffer, ROI
+from negpy.domain.types import ROI, ImageBuffer
 from negpy.features.geometry.models import AutocropMode
-from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.image.logic import get_luminance
+from negpy.kernel.image.validation import ensure_image
+
+AUTOCROP_DETECT_RES = 1800
+
+
+def _normalize_detection_input(img: ImageBuffer, detect_res: int) -> tuple[np.ndarray, float]:
+    """
+    Downsamples to detect_res longest edge (INTER_AREA). Never upscales.
+    Returns (det_img, det_scale) with det_scale <= 1.0.
+    """
+    h, w = img.shape[:2]
+    det_scale = min(1.0, detect_res / max(h, w))
+    if det_scale >= 1.0:
+        return img, 1.0
+    d_w, d_h = max(1, round(w * det_scale)), max(1, round(h * det_scale))
+    det = cv2.resize(np.ascontiguousarray(img), (d_w, d_h), interpolation=cv2.INTER_AREA)
+    return det, det_scale
+
+
+def _scale_roi(roi: ROI, det_scale: float, h: int, w: int) -> ROI:
+    """
+    Maps a detection-space ROI back to input coordinates, clamped to bounds.
+    """
+    if det_scale >= 1.0:
+        return roi
+    y1, y2, x1, x2 = roi
+    return (
+        max(0, int(round(y1 / det_scale))),
+        min(h, int(round(y2 / det_scale))),
+        max(0, int(round(x1 / det_scale))),
+        min(w, int(round(x2 / det_scale))),
+    )
 
 
 def _normalize_to_uint8(image: np.ndarray) -> np.ndarray:
@@ -287,38 +319,298 @@ def _detect_film_bounds(img: ImageBuffer) -> ROI | None:
     if right - left <= 0 or bottom - top <= 0:
         return None
 
-    return top, bottom, left, right
+    lum = _detection_luma(img)
+    if not _film_surround_is_plausible(lum, (top, bottom, left, right)):
+        return None
+
+    return _snap_film_bounds_to_bed_gradient((top, bottom, left, right), lum)
 
 
-def _refine_roi_to_image(img: ImageBuffer, film_roi: ROI) -> ROI:
+def _film_surround_is_plausible(lum: np.ndarray, roi: ROI) -> bool:
     """
-    Refines a film-extent ROI inward to the exposed image area (rebate excluded).
+    A real film box sits on a light bed (uniform, near-clipping surround) or in a
+    dark holder. A mid-tone textured surround means the contour latched onto image
+    content in a borderless scan — reject so detection falls back to full frame.
+    """
+    h, w = lum.shape[:2]
+    y1, y2, x1, x2 = roi
+    out_mask = np.ones((h, w), dtype=bool)
+    out_mask[y1:y2, x1:x2] = False
+    out = lum[out_mask]
+    if out.size < 0.005 * lum.size:
+        return True  # box covers nearly the whole scan; no surround evidence either way
+    out_med = float(np.median(out))
+    box_med = float(np.median(lum[y1:y2, x1:x2]))
+    bed_like = out_med >= 0.85  # lum is anchored so the light bed sits near 1.0
+    holder_like = out_med <= 0.30 and out_med <= box_med - 0.15
+    return bed_like or holder_like
+
+
+def _snap_film_bounds_to_bed_gradient(roi: ROI, lum: np.ndarray) -> ROI:
+    """
+    Refines contour film bounds to the strongest bed->film luminance gradient within
+    a +/-2% window per edge (contour morphology kernels inflate/deflate bounds by
+    ~10-20px). Each edge moves only on a dominant gradient; otherwise it is kept.
+    """
+    h, w = lum.shape[:2]
+    y1, y2, x1, x2 = roi
+    col_profile = lum[y1:y2, :].mean(axis=0)
+    row_profile = lum[:, x1:x2].mean(axis=1)
+    # 16px floor: contour morphology kernels are fixed-pixel (21-31px), so their
+    # inflation doesn't shrink with image size the way the 2% window does.
+    snap = dict(window_out=0.02, window_in=0.02, min_dominance=3.0, min_window_px=16)
+    nx1 = _snap_edge_to_gradient(col_profile, x1, is_start=True, **snap)
+    nx2 = _snap_edge_to_gradient(col_profile, x2, is_start=False, **snap)
+    ny1 = _snap_edge_to_gradient(row_profile, y1, is_start=True, **snap)
+    ny2 = _snap_edge_to_gradient(row_profile, y2, is_start=False, **snap)
+    if ny2 - ny1 <= 0 or nx2 - nx1 <= 0:
+        return roi
+    # Keep the bed->film transition rows inside the box: downstream refinement needs
+    # them, and the (2+offset) crop margin re-tightens the 2px afterwards.
+    return max(0, ny1 - 2), min(h, ny2 + 2), max(0, nx1 - 2), min(w, nx2 + 2)
+
+
+class _TierLevels(NamedTuple):
+    bed: float
+    rebate: float
+    image: float
+    ring_spread: float
+
+
+def _detection_luma(img: np.ndarray) -> np.ndarray:
+    """
+    Luminance normalized so the light bed sits near 1.0 (anchored at P99.5).
+    Content-stable alternative to _normalize_to_uint8's 1/99 stretch.
+    """
+    lum = get_luminance(ensure_image(_ensure_color(img)))
+    anchor = float(np.percentile(lum, 99.5))
+    return np.clip(lum / max(anchor, 1e-6), 0.0, 2.0)
+
+
+def _find_rebate_level(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[float, float]]:
+    """
+    Searches the four border strips inside the film box for a rebate plateau:
+    a uniform strip (low spread, sprocket holes excluded) clearly present on at
+    least one side. The rebate can exist on some sides only (cut film strips,
+    full-bleed edges), so sides are evaluated independently and the brightest
+    qualifying plateau wins. Returns (rebate_level, spread) or None.
     """
     y1, y2, x1, x2 = film_roi
+    box = lum[y1:y2, x1:x2]
+    bh, bw = box.shape[:2]
+    if bh < 16 or bw < 16:
+        return None
+    bed = float(np.percentile(lum, 99))
+    box_median = float(np.percentile(box, 50))
+    ring_w = max(3, round(0.04 * min(bh, bw)))
+    sides = (box[:ring_w, :], box[-ring_w:, :], box[:, :ring_w], box[:, -ring_w:])
+
+    best: Optional[Tuple[float, float]] = None
+    for strip in sides:
+        vals = strip[strip < bed - 0.05]  # exclude sprocket holes / bed slop in the box
+        if vals.size < 0.25 * strip.size:
+            continue
+        spread = float(np.percentile(vals, 80) - np.percentile(vals, 20))
+        if spread > 0.10:
+            continue  # textured strip = image content reaches this film edge
+        p60 = float(np.percentile(vals, 60))
+        if p60 < box_median + 0.10:
+            continue  # rebate is the lowest-density tier: must sit clearly above the
+            # image interior; a plateau near the median is bright image content
+            # reaching the film edge (full-bleed) or holder slop, not film base
+        if best is None or p60 > best[0]:
+            best = (p60, spread)
+    return best
+
+
+def _estimate_tier_levels(lum: np.ndarray, film_roi: ROI) -> Optional[_TierLevels]:
+    """
+    Estimates the three luminance tiers (bed, rebate, exposed image) for a film box.
+    Returns None when the tiers are not reliably separable.
+    """
+    y1, y2, x1, x2 = film_roi
+    box = lum[y1:y2, x1:x2]
+
+    found = _find_rebate_level(lum, film_roi)
+    if found is None:
+        return None
+    rebate, ring_spread = found
+    bed = float(np.percentile(lum, 99))
+
+    dark = box[box < rebate - 0.02]
+    if dark.size < 0.05 * box.size:
+        return None
+    image_level = float(np.percentile(dark, 30))
+
+    separation = rebate - image_level
+    if separation < max(0.04, 3.0 * ring_spread):
+        return None
+    return _TierLevels(bed, rebate, image_level, ring_spread)
+
+
+def _longest_run_above(profile: np.ndarray, threshold: float) -> Optional[Tuple[int, int]]:
+    """
+    Longest contiguous half-open index run with profile >= threshold.
+    """
+    idx = np.where(profile >= threshold)[0]
+    if idx.size == 0:
+        return None
+    breaks = np.where(np.diff(idx) > 1)[0]
+    starts = np.concatenate(([0], breaks + 1))
+    ends = np.concatenate((breaks, [idx.size - 1]))
+    k = int(np.argmax(idx[ends] - idx[starts]))
+    return int(idx[starts[k]]), int(idx[ends[k]]) + 1
+
+
+def _snap_edge_to_gradient(
+    profile: np.ndarray,
+    idx: int,
+    is_start: bool,
+    window_out: float = 0.06,
+    window_in: float = 0.02,
+    min_dominance: float = 2.0,
+    min_window_px: int = 3,
+) -> int:
+    """
+    Snaps a coarse edge index to the strongest |gradient| of the smoothed profile
+    within an asymmetric window biased outward (toward the film border) — recovers
+    frame area when bright content touching the edge suppresses occupancy.
+    Keeps idx unless the peak clearly dominates the window (>= 2x median).
+    """
+    n = profile.size
+    if n < 8:
+        return idx
+    sm = _smooth_signal(profile, max(3, round(0.01 * n)))
+    grad = np.abs(np.diff(sm))
+    out_px = max(min_window_px, round(window_out * n))
+    in_px = max(min_window_px, round(window_in * n))
+    if is_start:
+        lo, hi = max(0, idx - out_px), min(n - 1, idx + in_px)
+    else:
+        lo, hi = max(0, idx - in_px), min(n - 1, idx + out_px)
+    window = grad[lo:hi]
+    if window.size == 0:
+        return idx
+    m = int(np.argmax(window))
+    if window[m] >= min_dominance * float(np.median(window)) + 1e-6:
+        return lo + m + 1
+    return idx
+
+
+def _refine_film_roi_by_tiers(lum: np.ndarray, film_roi: ROI) -> Optional[Tuple[ROI, np.ndarray, np.ndarray]]:
+    """
+    Tier-based image-area refinement: classify pixels inside the film box against the
+    rebate/image midpoint, take the longest occupancy runs, then snap each edge to the
+    strongest local luminance gradient. Returns (roi, row_occupancy, col_occupancy) in
+    detection-image coords (profiles padded to full image length), or None when tiers
+    are not separable (caller falls back to the Sobel path).
+    """
+    levels = _estimate_tier_levels(lum, film_roi)
+    if levels is None:
+        return None
+
+    y1, y2, x1, x2 = film_roi
+    box = lum[y1:y2, x1:x2]
+    bh, bw = box.shape[:2]
+    # Image pixels are anything meaningfully darker than the rebate plateau (any
+    # exposure adds density over base+fog) — not just pixels near the image median.
+    # Keeps thin/bright frame regions classified as image; midpoint is the floor
+    # for tightly separated tiers.
+    threshold = max(
+        0.5 * (levels.rebate + levels.image),
+        levels.rebate - max(0.04, 3.0 * levels.ring_spread),
+    )
+    mask = box < threshold
+
+    row_occ = mask.mean(axis=1)
+    vrun = _longest_run_above(row_occ, 0.55)
+    if vrun is None:
+        return None
+    vt, vb = vrun
+    # Restrict to the vertical run so rebate rows don't dilute column occupancy.
+    col_occ = mask[vt:vb].mean(axis=0)
+    hrun = _longest_run_above(col_occ, 0.55)
+    if hrun is None:
+        return None
+    hl, hr = hrun
+
+    # Single-frame sanity; multi-frame strip scans fail here -> Sobel fallback (intended).
+    if (vb - vt) < 0.35 * bh or (hr - hl) < 0.35 * bw:
+        return None
+    area_ratio = ((vb - vt) * (hr - hl)) / float(bh * bw)
+    if not (0.15 <= area_ratio <= 0.95):
+        return None
+
+    col_profile = box[vt:vb, :].mean(axis=0)
+    row_profile = box[:, hl:hr].mean(axis=1)
+    hl = _snap_edge_to_gradient(col_profile, hl, is_start=True)
+    hr = _snap_edge_to_gradient(col_profile, hr, is_start=False)
+    vt = _snap_edge_to_gradient(row_profile, vt, is_start=True)
+    vb = _snap_edge_to_gradient(row_profile, vb, is_start=False)
+
+    pad_y = max(2, round(0.004 * bh))
+    pad_x = max(2, round(0.004 * bw))
+    vt, vb = max(0, vt - pad_y), min(bh, vb + pad_y)
+    hl, hr = max(0, hl - pad_x), min(bw, hr + pad_x)
+    if vb - vt <= 0 or hr - hl <= 0:
+        return None
+
+    h_det, w_det = lum.shape[:2]
+    row_occ_full = np.zeros(h_det, dtype=np.float32)
+    row_occ_full[y1:y2] = row_occ
+    col_occ_full = np.zeros(w_det, dtype=np.float32)
+    col_occ_full[x1:x2] = col_occ
+
+    return (y1 + vt, y1 + vb, x1 + hl, x1 + hr), row_occ_full, col_occ_full
+
+
+def _refine_roi_to_image(img: ImageBuffer, film_roi: ROI) -> Tuple[ROI, Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Refines a film-extent ROI inward to the exposed image area (rebate excluded).
+    Tier-based refinement first; Sobel gradient refinement as fallback.
+    Returns (roi, row_occupancy | None, col_occupancy | None).
+    """
+    lum = _detection_luma(img)
+    refined = _refine_film_roi_by_tiers(lum, film_roi)
+    if refined is not None:
+        return refined
+
+    if _find_rebate_level(lum, film_roi) is None:
+        # No uniform rebate plateau on any side = image content runs to the film
+        # edge (full-bleed frame). Nothing to refine away; Sobel would cut into
+        # the picture.
+        return film_roi, None, None
+
+    y1, y2, x1, x2 = film_roi
     _, (ref_left, ref_top, ref_right, ref_bottom) = _refine_frame_bounds(img[y1:y2, x1:x2])
-    return y1 + ref_top, y1 + ref_bottom, x1 + ref_left, x1 + ref_right
+    roi = (y1 + ref_top, y1 + ref_bottom, x1 + ref_left, x1 + ref_right)
+
+    # Rebate is physically a small fraction of the film area; a Sobel cut removing
+    # more than a quarter of the box means it latched onto image content.
+    film_area = max(1, (y2 - y1) * (x2 - x1))
+    if (roi[1] - roi[0]) * (roi[3] - roi[2]) < 0.75 * film_area:
+        return film_roi, None, None
+    return roi, None, None
 
 
 def _find_autocrop_roi_from_contours(img: ImageBuffer) -> ROI | None:
-    roi = _detect_film_bounds(img)
-    if roi is None:
+    film_roi = _detect_film_bounds(img)
+    if film_roi is None:
         return None
-    return _refine_roi_to_image(img, roi)
+    roi, _, _ = _refine_roi_to_image(img, film_roi)
+    return roi
 
 
 def _get_threshold_autocrop_coords(
     img: ImageBuffer,
-    target_ratio_str: str,
-    detect_res: int,
     assist_luma: Optional[float],
 ) -> ROI:
+    """
+    Luminance-threshold fallback. Expects a detection-resolution image
+    (see _normalize_detection_input); returns a det-space ROI.
+    """
     h, w = img.shape[:2]
-    det_scale = detect_res / max(h, w)
-
-    d_h, d_w = max(1, int(h * det_scale)), max(1, int(w * det_scale))
-    img_small = cv2.resize(img, (d_w, d_h), interpolation=cv2.INTER_AREA)
-
-    lum = get_luminance(ensure_image(img_small))
+    lum = get_luminance(ensure_image(img))
 
     threshold = 0.96
     if assist_luma is not None:
@@ -330,9 +622,7 @@ def _get_threshold_autocrop_coords(
     if len(rows_det) < 10 or len(cols_det) < 10:
         return 0, h, 0, w
 
-    y1, y2 = rows_det[0] / det_scale, rows_det[-1] / det_scale
-    x1, x2 = cols_det[0] / det_scale, cols_det[-1] / det_scale
-    return int(y1), int(y2), int(x1), int(x2)
+    return int(rows_det[0]), int(rows_det[-1]), int(cols_det[0]), int(cols_det[-1])
 
 
 def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
@@ -370,6 +660,32 @@ def apply_margin_to_roi(
     return int(max(0, ny1)), int(min(h, ny2)), int(max(0, nx1)), int(min(w, nx2))
 
 
+def _resolve_ratio_dims(cw: int, ch: int, target_ratio_str: str) -> Tuple[float, float]:
+    """
+    Returns (target_w, target_h) <= (cw, ch) for the orientation-corrected ratio.
+    """
+    try:
+        w_r, h_r = map(float, target_ratio_str.split(":"))
+        if h_r == 0:
+            h_r = 1
+        target_aspect = w_r / h_r
+    except ValueError:
+        target_aspect = 1.5
+
+    is_vertical = ch > cw
+    if is_vertical:
+        if target_aspect > 1.0:
+            target_aspect = 1.0 / target_aspect
+    else:
+        if target_aspect < 1.0:
+            target_aspect = 1.0 / target_aspect
+
+    current_aspect = cw / ch
+    if current_aspect > target_aspect:
+        return ch * target_aspect, float(ch)
+    return float(cw), cw / target_aspect
+
+
 def enforce_roi_aspect_ratio(
     roi: ROI,
     h: int,
@@ -388,34 +704,72 @@ def enforce_roi_aspect_ratio(
     if target_ratio_str == "Free":
         return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
 
-    try:
-        w_r, h_r = map(float, target_ratio_str.split(":"))
-        if h_r == 0:
-            h_r = 1
-        target_aspect = w_r / h_r
-    except ValueError:
-        target_aspect = 1.5
-
-    is_vertical = ch > cw
-    if is_vertical:
-        if target_aspect > 1.0:
-            target_aspect = 1.0 / target_aspect
-    else:
-        if target_aspect < 1.0:
-            target_aspect = 1.0 / target_aspect
-
-    current_aspect = cw / ch
-
-    if current_aspect > target_aspect:
-        target_w = ch * target_aspect
+    target_w, target_h = _resolve_ratio_dims(cw, ch, target_ratio_str)
+    if target_w < cw:
         nx1 = x1 + (cw - target_w) / 2
         nx2 = nx1 + target_w
         x1, x2 = int(nx1), int(nx2)
-    else:
-        target_h = cw / target_aspect
+    elif target_h < ch:
         ny1 = y1 + (ch - target_h) / 2
         ny2 = ny1 + target_h
         y1, y2 = int(ny1), int(ny2)
+
+    return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
+
+
+def _place_window_by_occupancy(start: int, end: int, target_len: float, occupancy: np.ndarray, scale: float) -> int:
+    """
+    Slides a target_len window within [start, end) (input coords) to maximize summed
+    occupancy (detection coords; scale = det/input ratio). Ties resolve toward the
+    centered position, so uniform occupancy reproduces plain centering.
+    Returns the new window start in input coords.
+    """
+    d_start = max(0, int(round(start * scale)))
+    d_end = min(occupancy.size, int(round(end * scale)))
+    d_len = max(1, int(round(target_len * scale)))
+    if d_len >= d_end - d_start:
+        return start
+
+    cs = np.concatenate(([0.0], np.cumsum(occupancy[d_start:d_end], dtype=np.float64)))
+    n_pos = (d_end - d_start) - d_len + 1
+    scores = cs[d_len : d_len + n_pos] - cs[:n_pos]
+    candidates = np.where(scores >= float(np.max(scores)) - 1e-9)[0]
+    centered = ((d_end - d_start) - d_len) / 2.0
+    k = int(candidates[np.argmin(np.abs(candidates - centered))])
+
+    new_start = round((d_start + k) / scale)
+    return int(min(max(start, new_start), end - target_len))
+
+
+def _enforce_ratio_by_occupancy(
+    roi: ROI,
+    h: int,
+    w: int,
+    target_ratio_str: str,
+    row_occupancy: np.ndarray,
+    col_occupancy: np.ndarray,
+    det_scale: float,
+) -> ROI:
+    """
+    Like enforce_roi_aspect_ratio, but places the shrink-axis window where the
+    image-class occupancy is highest instead of blindly centering.
+    """
+    y1, y2, x1, x2 = roi
+    cw, ch = x2 - x1, y2 - y1
+
+    if cw <= 0 or ch <= 0:
+        return 0, h, 0, w
+
+    if target_ratio_str == "Free":
+        return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
+
+    target_w, target_h = _resolve_ratio_dims(cw, ch, target_ratio_str)
+    if target_w < cw:
+        x1 = _place_window_by_occupancy(x1, x2, target_w, col_occupancy, det_scale)
+        x2 = int(round(x1 + target_w))
+    elif target_h < ch:
+        y1 = _place_window_by_occupancy(y1, y2, target_h, row_occupancy, det_scale)
+        y2 = int(round(y1 + target_h))
 
     return int(max(0, y1)), int(min(h, y2)), int(max(0, x1)), int(min(w, x2))
 
@@ -487,7 +841,7 @@ def get_autocrop_coords(
     offset_px: int = 0,
     scale_factor: float = 1.0,
     target_ratio_str: str = "3:2",
-    detect_res: int = 1800,
+    detect_res: int = AUTOCROP_DETECT_RES,
     assist_point: Optional[Tuple[float, float]] = None,
     assist_luma: Optional[float] = None,
     mode: str = AutocropMode.IMAGE,
@@ -499,15 +853,19 @@ def get_autocrop_coords(
     mode="image" refines inward to the exposed image area.
     """
     h, w = img.shape[:2]
-    film_roi = _detect_film_bounds(img)
+    det, det_scale = _normalize_detection_input(img, detect_res)
+    film_roi = _detect_film_bounds(det)
     from_contours = film_roi is not None
     if film_roi is None:
-        film_roi = _get_threshold_autocrop_coords(img, target_ratio_str, detect_res, assist_luma)
+        film_roi = _get_threshold_autocrop_coords(det, assist_luma)
 
+    row_occ = col_occ = None
     if mode == AutocropMode.FILM or not from_contours:
         roi = film_roi
     else:
-        roi = _refine_roi_to_image(img, film_roi)
+        roi, row_occ, col_occ = _refine_roi_to_image(det, film_roi)
+
+    roi = _scale_roi(roi, det_scale, h, w)
 
     ratio_str = target_ratio_str
     if ratio_str == AspectRatio.FREE:
@@ -516,7 +874,9 @@ def get_autocrop_coords(
     margin = (2 + offset_px) * scale_factor
     roi = apply_margin_to_roi(roi, h, w, margin)
 
-    return enforce_roi_aspect_ratio(roi, h, w, ratio_str)
+    if row_occ is None or col_occ is None:
+        return enforce_roi_aspect_ratio(roi, h, w, ratio_str)
+    return _enforce_ratio_by_occupancy(roi, h, w, ratio_str, row_occ, col_occ, det_scale)
 
 
 def map_coords_to_geometry(
@@ -636,8 +996,10 @@ def detect_closest_aspect_ratio(img: ImageBuffer, fallback: str = "3:2") -> Aspe
     """
     h_img, w_img = img.shape[:2]
 
-    roi = _find_autocrop_roi_from_contours(img)
+    det, det_scale = _normalize_detection_input(img, AUTOCROP_DETECT_RES)
+    roi = _find_autocrop_roi_from_contours(det)
     if roi is None:
-        roi = _get_threshold_autocrop_coords(img, "Free", 1800, None)
+        roi = _get_threshold_autocrop_coords(det, None)
+    roi = _scale_roi(roi, det_scale, h_img, w_img)
 
     return _closest_standard_ratio(roi, (h_img, w_img), fallback)

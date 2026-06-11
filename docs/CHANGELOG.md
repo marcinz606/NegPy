@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.24.1
+
+- Autocrop improvements.
+
 ## 0.24.0
 
 - Added **Before/After**: toggle button ◑ on toolbar (and `\` shortcut) to flash the un-graded auto conversion of the current frame, so you can see what your edits changed at a glance.

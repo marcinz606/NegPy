@@ -388,17 +388,21 @@ def test_detect_closest_aspect_ratio_landscape_3_2():
 
 
 def test_detect_closest_aspect_ratio_landscape_4_3():
-    # 300x400 image; 200h × 250w dark inset yields detected ratio ~1.34 → snaps to "4:3".
+    # 300x400 image; 200h × 266w dark inset is 1.33 → snaps to "4:3".
+    # (Rect was 250w=1.25 before; the old inflated contour bounds happened to read
+    # it as ~1.34. Detection is accurate now, so the fixture must actually be 4:3.)
     img = np.ones((300, 400, 3), dtype=np.float32)
-    img[50:250, 75:325] = 0.05
+    img[50:250, 70:336] = 0.05
     ratio = detect_closest_aspect_ratio(img)
     assert ratio == "4:3"
 
 
 def test_detect_closest_aspect_ratio_portrait_2_3():
-    # Portrait 2:3 frame: 360x240 image, dark area 60:300 (h=240) x 60:220 (w=160) -> 2:3.
+    # Portrait 2:3 frame: 360x240 image, dark area 60:300 (h=240) x 40:200 (w=160) -> 2:3.
+    # (Rect centered with 40px margins; the previous 20px right margin was inside the
+    # fixed-size morphology kernels' bleed range, inflating the detected box.)
     img = np.ones((360, 240, 3), dtype=np.float32)
-    img[60:300, 60:220] = 0.05
+    img[60:300, 40:200] = 0.05
     ratio = detect_closest_aspect_ratio(img)
     assert ratio == "2:3"
 
@@ -514,6 +518,15 @@ def _three_tier_negative() -> np.ndarray:
     return img
 
 
+def _three_tier_negative_at(long_edge: int) -> np.ndarray:
+    # Same scene as _three_tier_negative, fraction-defined, at arbitrary resolution.
+    h, w = round(long_edge * 480 / 720), long_edge
+    img = np.full((h, w, 3), 1.0, dtype=np.float32)
+    img[round(h * 80 / 480) : round(h * 400 / 480), round(w * 100 / 720) : round(w * 620 / 720)] = 0.78
+    img[round(h * 105 / 480) : round(h * 375 / 480), round(w * 135 / 720) : round(w * 585 / 720)] = 0.25
+    return img
+
+
 def test_autocrop_film_mode_keeps_rebate():
     img = _three_tier_negative()
 
@@ -574,6 +587,206 @@ def test_autocrop_free_snaps_to_standard_ratio():
         w_r, h_r = map(float, ratio.value.split(":"))
         standard.append(w_r / h_r)
     assert any(abs(aspect - s) / s < 0.03 for s in standard)
+
+
+def _with_sprocket_holes(img: np.ndarray) -> np.ndarray:
+    # Bright (bed-level) sprocket holes punched in both rebate bands.
+    img = img.copy()
+    for x in range(110, 610, 40):
+        img[84:94, x : x + 10] = 1.0
+        img[386:396, x : x + 10] = 1.0
+    return img
+
+
+def _low_contrast_bw_negative() -> np.ndarray:
+    # B&W negative with dark rebate: rebate/image separation too small for tier path.
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)
+    img[80:400, 100:620] = 0.40
+    img[105:375, 135:585] = 0.25
+    return img
+
+
+def test_autocrop_image_mode_handles_tilt():
+    from negpy.features.geometry.logic import apply_fine_rotation
+
+    img = apply_fine_rotation(_three_tier_negative(), 1.5)
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+
+    y1, y2, x1, x2 = roi
+    # Same frame as the straight fixture, bands widened for the tilt.
+    assert 78 <= y1 <= 130
+    assert 350 <= y2 <= 402
+    assert 127 <= x1 <= 180
+    assert 540 <= x2 <= 593
+
+
+def test_autocrop_film_mode_survives_sprocket_holes():
+    img = _with_sprocket_holes(_three_tier_negative())
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="film")
+
+    y1, y2, x1, x2 = roi
+    assert 65 <= y1 <= 100
+    assert 380 <= y2 <= 420
+    assert 95 <= x1 <= 130
+    assert 590 <= x2 <= 630
+
+
+def test_autocrop_image_mode_survives_sprocket_holes():
+    img = _with_sprocket_holes(_three_tier_negative())
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+
+    y1, y2, x1, x2 = roi
+    assert 88 <= y1 <= 120
+    assert 360 <= y2 <= 392
+    assert 137 <= x1 <= 170
+    assert 550 <= x2 <= 583
+
+
+def test_autocrop_image_mode_bright_region_touching_edge():
+    # Thin-negative band (deep shadow ~ near rebate level) touching the top frame edge:
+    # must stay classified as image, not get cropped away.
+    img = _three_tier_negative()
+    img[105:145, 135:585] = 0.70
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+
+    y1, _, _, _ = roi
+    assert 95 <= y1 <= 125
+
+
+def test_tier_refinement_handles_low_contrast_dark_rebate():
+    # B&W negative with a dark (0.40) but uniform rebate: the per-side plateau
+    # detection must still find it and exclude it from the image crop.
+    img = _low_contrast_bw_negative()
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+    y1, y2, x1, x2 = roi
+    assert 85 <= y1 <= 125
+    assert 355 <= y2 <= 395
+    assert 115 <= x1 <= 175
+    assert 545 <= x2 <= 605
+
+
+def test_tier_refinement_rejects_when_separation_too_small():
+    from negpy.features.geometry.logic import _detection_luma, _refine_film_roi_by_tiers
+
+    # Rebate barely distinguishable from the image (0.78 vs 0.75): the separation
+    # gate must reject so the Sobel path decides instead.
+    img = np.full((480, 720, 3), 1.0, dtype=np.float32)
+    img[80:400, 100:620] = 0.78
+    img[105:375, 135:585] = 0.75
+
+    assert _refine_film_roi_by_tiers(_detection_luma(img), (73, 406, 93, 626)) is None
+
+
+def test_autocrop_resolution_stability():
+    # Detection is internally normalized to AUTOCROP_DETECT_RES (1800): 2400 gets
+    # downsampled, 900 does not — the normalized ROIs must agree regardless.
+    img_a, img_b = _three_tier_negative_at(900), _three_tier_negative_at(2400)
+
+    roi_a = get_autocrop_coords(img_a, offset_px=0, scale_factor=1.0, target_ratio_str="3:2", mode="image")
+    roi_b = get_autocrop_coords(img_b, offset_px=0, scale_factor=1.0, target_ratio_str="3:2", mode="image")
+
+    norm_a = _normalized_roi(roi_a, *img_a.shape[:2])
+    norm_b = _normalized_roi(roi_b, *img_b.shape[:2])
+    for a, b in zip(norm_a, norm_b):
+        assert abs(a - b) < 0.015
+
+
+def test_autocrop_parity_preview_vs_fullres():
+    # GPU contract: detect on an INTER_AREA-downsampled image with margin carried by
+    # scale_factor, upscale ROI — must match full-res detection (CPU path).
+    full = _three_tier_negative_at(3600)
+    h, w = full.shape[:2]
+
+    roi_full = get_autocrop_coords(full, offset_px=10, scale_factor=3600 / 1600, target_ratio_str="3:2", mode="image")
+
+    small = cv2.resize(full, (round(w * 0.5), round(h * 0.5)), interpolation=cv2.INTER_AREA)
+    roi_small = get_autocrop_coords(small, offset_px=10, scale_factor=1800 / 1600, target_ratio_str="3:2", mode="image")
+    roi_up = tuple(v * 2 for v in roi_small)
+
+    norm_full = _normalized_roi(roi_full, h, w)
+    norm_up = _normalized_roi(roi_up, h, w)
+    for a, b in zip(norm_full, norm_up):
+        assert abs(a - b) < 0.01
+
+
+def test_autocrop_borderless_scan_returns_full_frame():
+    # Full-frame scan with no light bed or holder visible: mid-tone textured content
+    # with a dark region. Detection must not latch onto the dark blob — both modes
+    # should return (near) the full frame.
+    h, w = 480, 720
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    base = 0.45 + 0.25 * np.sin(xx / 17.0) * np.cos(yy / 23.0)  # textured mid-tones
+    img = np.repeat(base[..., None], 3, axis=2).astype(np.float32)
+    img[40:240, 180:560] = 0.12  # dark sky-like blob
+
+    for mode in ("film", "image"):
+        y1, y2, x1, x2 = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode=mode)
+        area = (y2 - y1) * (x2 - x1)
+        assert area >= 0.90 * h * w, f"mode={mode}: cropped to {area / (h * w):.2f} of frame"
+
+
+def test_autocrop_image_mode_full_bleed_frame_keeps_film_box():
+    # Image content fills the entire film area (no rebate). Image mode must return
+    # the film box, not carve an arbitrary inner crop out of the picture.
+    h, w = 480, 720
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    img = np.full((h, w, 3), 1.0, dtype=np.float32)  # light bed
+    texture = 0.30 + 0.20 * np.sin(xx / 13.0) * np.cos(yy / 19.0)
+    img[80:400, 100:620] = np.repeat(texture[80:400, 100:620, None], 3, axis=2)
+
+    y1, y2, x1, x2 = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="Free", mode="image")
+
+    # Film box is 80:400, 100:620 — crop must cover (almost) all of it.
+    assert (y2 - y1) * (x2 - x1) >= 0.90 * 320 * 520
+    assert y1 >= 60 and y2 <= 420 and x1 >= 80 and x2 <= 640  # and stay near the film
+
+
+def test_place_window_by_occupancy_maximizes_coverage():
+    from negpy.features.geometry.logic import _place_window_by_occupancy
+
+    occ = np.zeros(14, dtype=np.float32)
+    occ[4:10] = 1.0
+    assert _place_window_by_occupancy(0, 14, 6, occ, 1.0) == 4
+
+
+def test_place_window_by_occupancy_ties_center():
+    from negpy.features.geometry.logic import _place_window_by_occupancy
+
+    occ = np.ones(20, dtype=np.float32)
+    assert _place_window_by_occupancy(0, 20, 10, occ, 1.0) == 5
+
+
+def test_place_window_by_occupancy_clamps_to_bounds():
+    from negpy.features.geometry.logic import _place_window_by_occupancy
+
+    occ = np.zeros(20, dtype=np.float32)
+    occ[16:] = 1.0
+    assert _place_window_by_occupancy(0, 20, 8, occ, 1.0) == 12
+
+
+def test_aspect_placement_uniform_occupancy_matches_centering():
+    # Symmetric fixture: occupancy is uniform inside the frame, so occupancy
+    # placement must reproduce the centered crop of the pre-placement behavior.
+    img = _three_tier_negative()
+
+    roi = get_autocrop_coords(img, offset_px=0, scale_factor=1.0, target_ratio_str="3:2", mode="image")
+
+    y1, y2, x1, x2 = roi
+    assert abs((x1 - 135) - (585 - x2)) <= 6  # crop centered within the frame
+    assert abs((x2 - x1) / (y2 - y1) - 1.5) < 0.02
+
+
+def test_enforce_roi_aspect_ratio_centering_unchanged():
+    from negpy.features.geometry.logic import enforce_roi_aspect_ratio
+
+    # Pins the manual-crop path: plain centering, no occupancy involved.
+    assert enforce_roi_aspect_ratio((100, 400, 50, 650), 480, 720, "3:2") == (100, 400, 125, 575)
+    assert enforce_roi_aspect_ratio((100, 400, 50, 650), 480, 720, "Free") == (100, 400, 50, 650)
 
 
 def test_autocrop_specific_ratio_holds_in_both_modes():
