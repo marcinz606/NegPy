@@ -12,9 +12,12 @@ from negpy.features.exposure.processor import NormalizationProcessor, Photometri
 
 class TestGradeToSlope(unittest.TestCase):
     def test_iso_r_exposure_range(self):
-        # ISO R110 -> exposure range 1.1; typical negative range 1.3.
+        # ISO R110 -> exposure range 1.1; typical negative range 1.3, scaled to
+        # the textural range (ISO 6846 grades against detail-to-detail range,
+        # not the robust extreme-to-extreme range the analysis measures).
         span = sigmoid_span(EXPOSURE_CONSTANTS["paper_toe_nu"])
-        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), span * 1.3 / 1.1, places=5)
+        rng = 1.3 * EXPOSURE_CONSTANTS["textural_range_factor"]
+        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), span * rng / 1.1, places=5)
 
     def test_span_generalizes_ln81(self):
         # nu = 1 must reduce to the plain logistic's 10-90% span.

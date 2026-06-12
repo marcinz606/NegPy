@@ -34,7 +34,7 @@ class TestPaperDmin(unittest.TestCase):
     def test_off_keeps_pure_white_reachable(self):
         # Without the floor a very thin negative approaches pure white
         # (residual density from the projected-asymptote curve stays small).
-        self.assertGreater(self._run(0.0, paper_dmin=False), 0.93)
+        self.assertGreater(self._run(0.0, paper_dmin=False), 0.91)
 
     def test_shadows_unaffected_direction(self):
         # Deep blacks stay governed by d_max; the floor barely moves them.

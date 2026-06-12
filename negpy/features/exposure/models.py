@@ -52,6 +52,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "curve_asymptote": 2.7,
     "dmax_shoulder": 5.0,
     "paper_toe_nu": 3.0,
+    "textural_range_factor": 0.79,
     "toe_onset_density": 1.2,
     "toe_shoulder_strength": 0.85,
     "analysis_grid": 1024,

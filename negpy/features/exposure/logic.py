@@ -301,7 +301,9 @@ def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     if density_range is None:
         density_range = 1.3  # typical C41 green-channel range
     er = min(max(grade, c["iso_r_min"]), c["iso_r_max"]) / 100.0
-    rng = min(max(abs(density_range), 0.3), 3.5)
+    # The analysis measures the robust extreme-to-extreme range; ISO 6846
+    # grades against the smaller textural (detail-to-detail) range.
+    rng = min(max(abs(density_range), 0.3), 3.5) * float(c["textural_range_factor"])
     k = sigmoid_span(float(c["paper_toe_nu"])) * rng / er
     return float(min(max(k, c["slope_min"]), c["slope_max"]))
 
