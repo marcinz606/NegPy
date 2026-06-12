@@ -2,11 +2,17 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
-from negpy.features.exposure.logic import apply_characteristic_curve, compute_pivot, grade_to_slope
+from negpy.features.exposure.logic import (
+    apply_characteristic_curve,
+    compute_pivot,
+    grade_to_slope,
+    shadow_neutral_offsets,
+)
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    measure_shadow_refs_from_log,
     normalize_log_image,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
@@ -70,6 +76,20 @@ class NormalizationProcessor:
 
         context.metrics["norm_density_range"] = abs(bounds.ceils[1] - bounds.floors[1])
 
+        if context.process_mode == ProcessMode.C41:
+            cached_ref_buffer = context.metrics.get("shadow_refs_buffer_val")
+            if (
+                "shadow_log_refs" not in context.metrics
+                or cached_ref_buffer is None
+                or abs(cached_ref_buffer - self.config.analysis_buffer) > 1e-5
+            ):
+                context.metrics["shadow_log_refs"] = measure_shadow_refs_from_log(
+                    img_log,
+                    context.active_roi,
+                    self.config.analysis_buffer,
+                )
+                context.metrics["shadow_refs_buffer_val"] = self.config.analysis_buffer
+
         if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
             wp_offset = self.config.white_point_offset
             bp_offset = self.config.black_point_offset
@@ -92,6 +112,7 @@ class NormalizationProcessor:
 
         res = normalize_log_image(img_log, bounds)
 
+        context.metrics["final_bounds"] = bounds
         context.metrics["normalized_log"] = res
         return res
 
@@ -121,6 +142,16 @@ class PhotometricProcessor:
             self.config.shadow_magenta * cmy_max,
             self.config.shadow_yellow * cmy_max,
         )
+        if self.config.auto_shadow_neutral and context.process_mode == ProcessMode.C41:
+            refs = context.metrics.get("shadow_log_refs")
+            final_bounds = context.metrics.get("final_bounds")
+            if refs is not None and final_bounds is not None:
+                auto = shadow_neutral_offsets(refs, final_bounds.floors, final_bounds.ceils)
+                shadow_cmy = (
+                    shadow_cmy[0] + auto[0],
+                    shadow_cmy[1] + auto[1],
+                    shadow_cmy[2] + auto[2],
+                )
         highlight_cmy = (
             self.config.highlight_cyan * cmy_max,
             self.config.highlight_magenta * cmy_max,

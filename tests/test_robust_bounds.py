@@ -49,11 +49,15 @@ class TestRobustBounds(unittest.TestCase):
         A coherent extreme region below the baseline clip fraction (survives the
         median prefilter) must still be excluded at percentile_clip = 0.
         """
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
         img = _gradient_image(1024, 1024)
         clean = analyze_log_exposure_bounds(img)
 
+        base_fraction = float(EXPOSURE_CONSTANTS["base_drange_clip"]) / 100.0
+        side = max(2, int((img.shape[0] * img.shape[1] * base_fraction * 0.5) ** 0.5))
         dirty = img.copy()
-        dirty[:20, :20, :] = 1.0  # 400 px = 0.038% < baseline clip
+        dirty[:side, :side, :] = 1.0  # coherent region at half the baseline fraction
         robust = analyze_log_exposure_bounds(dirty)
         for ch in range(3):
             self.assertAlmostEqual(clean.ceils[ch], robust.ceils[ch], delta=0.02)

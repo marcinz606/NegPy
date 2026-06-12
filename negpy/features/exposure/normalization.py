@@ -64,6 +64,62 @@ def get_analysis_crop(img: ImageBuffer, buffer_ratio: float) -> ImageBuffer:
     return img[cut_h : h - cut_h, cut_w : w - cut_w]
 
 
+def _block_median_grid(img_log: ImageBuffer) -> ImageBuffer:
+    """
+    Block-median prefilter to a fixed target grid: isolated extremes (speculars,
+    dust pinholes) vanish inside their block's median, and statistics become nearly
+    resolution-invariant since the grid size is constant.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    h, w = img_log.shape[:2]
+    grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
+    b = int(np.ceil(max(h, w) / grid))
+    if b > 1 and h >= b and w >= b:
+        hb, wb = (h // b) * b, (w // b) * b
+        blocks = img_log[:hb, :wb].reshape(hb // b, b, wb // b, b, img_log.shape[2])
+        img_log = np.median(blocks, axis=(1, 3))
+    return img_log
+
+
+def measure_shadow_refs_from_log(
+    img_log: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> Tuple[float, float, float]:
+    """
+    Per-channel shadow reference density: a high percentile of the prefiltered
+    log image — the tones just inside print black (thin negative side for C-41).
+    Channel differences here are the residual shadow cast that auto
+    shadow-neutral cancels.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+
+    img_log = _block_median_grid(img_log)
+    p = float(EXPOSURE_CONSTANTS["shadow_neutral_percentile"])
+    refs = [float(np.percentile(img_log[:, :, ch], p)) for ch in range(3)]
+    return (refs[0], refs[1], refs[2])
+
+
+def measure_shadow_log_refs(
+    image: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> Tuple[float, float, float]:
+    """
+    Linear-image wrapper around measure_shadow_refs_from_log.
+    """
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    return measure_shadow_refs_from_log(img_log, roi, analysis_buffer)
+
+
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:
     """
     Stretches log-data to fit [0, 1].
@@ -104,16 +160,7 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
-    # Block-median prefilter to a fixed target grid: isolated extremes (speculars,
-    # dust pinholes) vanish inside their block's median, and bounds become nearly
-    # resolution-invariant since the grid size is constant.
-    h, w = img_log.shape[:2]
-    grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
-    b = int(np.ceil(max(h, w) / grid))
-    if b > 1 and h >= b and w >= b:
-        hb, wb = (h // b) * b, (w // b) * b
-        blocks = img_log[:hb, :wb].reshape(hb // b, b, wb // b, b, img_log.shape[2])
-        img_log = np.median(blocks, axis=(1, 3))
+    img_log = _block_median_grid(img_log)
 
     base = float(EXPOSURE_CONSTANTS["base_drange_clip"])
     if percentile_clip >= 0:

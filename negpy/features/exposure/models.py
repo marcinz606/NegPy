@@ -25,6 +25,7 @@ class ExposureConfig:
     shoulder: float = 0.0
     shoulder_width: float = 2.5
     paper_dmin: bool = False
+    auto_shadow_neutral: bool = True
 
     def __post_init__(self) -> None:
         """
@@ -40,7 +41,7 @@ class ExposureConfig:
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "cmy_max_density": 0.2,
     "density_multiplier": 0.2,
-    "anchor_target_density": 0.85,
+    "anchor_target_density": 1.0,
     "iso_r_min": 50.0,
     "iso_r_max": 180.0,
     "slope_min": 2.0,
@@ -53,5 +54,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "toe_onset_density": 1.2,
     "toe_shoulder_strength": 0.85,
     "analysis_grid": 1024,
-    "base_drange_clip": 0.05,
+    "base_drange_clip": 0.01,
+    "shadow_neutral_percentile": 98.0,
+    "shadow_neutral_max_offset": 0.1,
 }

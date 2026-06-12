@@ -109,6 +109,7 @@ class ExposureSidebar(BaseSidebar):
         sh_row.addWidget(self.sh_w_slider)
         self.layout.addLayout(sh_row)
 
+        paper_row = QHBoxLayout()
         self.paper_dmin_btn = QPushButton(" Paper White")
         self.paper_dmin_btn.setCheckable(True)
         self.paper_dmin_btn.setChecked(conf.paper_dmin)
@@ -117,7 +118,18 @@ class ExposureSidebar(BaseSidebar):
         self.paper_dmin_btn.setToolTip(
             "Simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print"
         )
-        self.layout.addWidget(self.paper_dmin_btn)
+        self.auto_neutral_btn = QPushButton(" Shadow Neutral")
+        self.auto_neutral_btn.setCheckable(True)
+        self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
+        self.auto_neutral_btn.setIcon(qta.icon("fa5s.adjust", color=THEME.text_primary))
+        self.auto_neutral_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        self.auto_neutral_btn.setToolTip(
+            "Neutralize the residual color cast in the deepest print shadows — like filtration "
+            "printing film base+fog to a neutral black (C-41 only)"
+        )
+        paper_row.addWidget(self.paper_dmin_btn)
+        paper_row.addWidget(self.auto_neutral_btn)
+        self.layout.addLayout(paper_row)
 
         self.layout.addStretch()
 
@@ -154,6 +166,11 @@ class ExposureSidebar(BaseSidebar):
         self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
         self.paper_dmin_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_dmin=checked)
+        )
+        self.auto_neutral_btn.toggled.connect(
+            lambda checked: self.update_config_section(
+                "exposure", render=True, persist=True, readback_metrics=True, auto_shadow_neutral=checked
+            )
         )
 
         self.toe_slider.valueChanged.connect(
@@ -275,6 +292,7 @@ class ExposureSidebar(BaseSidebar):
             self.sh_w_slider.setValue(conf.shoulder_width)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
+            self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
         finally:
             self.block_signals(False)
 
@@ -298,6 +316,7 @@ class ExposureSidebar(BaseSidebar):
             self.sh_slider,
             self.sh_w_slider,
             self.paper_dmin_btn,
+            self.auto_neutral_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)

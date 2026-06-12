@@ -11,6 +11,7 @@ from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConf
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    measure_shadow_log_refs,
 )
 from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
@@ -267,6 +268,7 @@ class GPUEngine:
         global_offset: Tuple[int, int] = (0, 0),
         full_dims: Optional[Tuple[int, int]] = None,
         clahe_cdf_override: Optional[np.ndarray] = None,
+        shadow_refs_override: Optional[Tuple[float, float, float]] = None,
         apply_layout: bool = True,
         render_size_ref: Optional[float] = None,
         source_hash: Optional[str] = None,
@@ -340,19 +342,21 @@ class GPUEngine:
             y1, y2, x1, x2 = roi
             crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
 
-        if bounds_override:
-            bounds = bounds_override
-        elif settings.process.use_roll_average and settings.process.is_locked_initialized:
-            bounds = LogNegativeBounds(
-                floors=settings.process.locked_floors,
-                ceils=settings.process.locked_ceils,
-            )
-        elif settings.process.is_local_initialized:
-            bounds = LogNegativeBounds(
-                floors=settings.process.local_floors,
-                ceils=settings.process.local_ceils,
-            )
-        else:
+        needs_refs = (
+            shadow_refs_override is None
+            and not tiling_mode
+            and settings.exposure.auto_shadow_neutral
+            and settings.process.process_mode == ProcessMode.C41
+        )
+        needs_bounds_analysis = not (
+            bounds_override
+            or (settings.process.use_roll_average and settings.process.is_locked_initialized)
+            or settings.process.is_local_initialized
+        )
+
+        analysis_source = None
+        analysis_roi = None
+        if needs_bounds_analysis or needs_refs:
             # Use views to avoid copying the full-res image; crop to ROI first.
             analysis_source = img
             if settings.geometry.rotation != 0:
@@ -371,6 +375,19 @@ class GPUEngine:
 
             analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
 
+        if bounds_override:
+            bounds = bounds_override
+        elif settings.process.use_roll_average and settings.process.is_locked_initialized:
+            bounds = LogNegativeBounds(
+                floors=settings.process.locked_floors,
+                ceils=settings.process.locked_ceils,
+            )
+        elif settings.process.is_local_initialized:
+            bounds = LogNegativeBounds(
+                floors=settings.process.local_floors,
+                ceils=settings.process.local_ceils,
+            )
+        else:
             bounds = analyze_log_exposure_bounds(
                 analysis_source,
                 analysis_roi,
@@ -378,6 +395,14 @@ class GPUEngine:
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,
                 percentile_clip=settings.process.drange_clip,
+            )
+
+        shadow_refs = shadow_refs_override
+        if needs_refs and analysis_source is not None:
+            shadow_refs = measure_shadow_log_refs(
+                analysis_source,
+                analysis_roi,
+                settings.process.analysis_buffer,
             )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
@@ -394,6 +419,7 @@ class GPUEngine:
             render_size_ref,
             scale_factor,
             vignette_full_crop=vignette_full_crop,
+            shadow_refs=shadow_refs,
         )
         self._update_retouch_storage(
             settings.retouch,
@@ -688,6 +714,7 @@ class GPUEngine:
         render_size_ref: Optional[float],
         scale_factor: float,
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
+        shadow_refs: Optional[Tuple[float, float, float]] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         g_data = (
@@ -732,7 +759,7 @@ class GPUEngine:
             + b"\x00" * 32
         )
 
-        from negpy.features.exposure.logic import compute_pivot, grade_to_slope
+        from negpy.features.exposure.logic import compute_pivot, grade_to_slope, shadow_neutral_offsets
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         exp = settings.exposure
@@ -740,6 +767,18 @@ class GPUEngine:
         d_min = EXPOSURE_CONSTANTS["d_min"] if exp.paper_dmin else 0.0
         pivot = compute_pivot(slope, exp.density, d_min=d_min)
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
+
+        auto_sn = (0.0, 0.0, 0.0)
+        if shadow_refs is not None:
+            # Same final bounds the shader normalizes with (after WP/BP offsets),
+            # mirroring the CPU path exactly.
+            wp = offset_sign * settings.process.white_point_offset
+            bp = offset_sign * settings.process.black_point_offset
+            auto_sn = shadow_neutral_offsets(
+                shadow_refs,
+                (f[0] + wp, f[1] + wp, f[2] + wp),
+                (c[0] + bp, c[1] + bp, c[2] + bp),
+            )
 
         e_data = (
             struct.pack("ffff", pivot, pivot, pivot, 0.0)
@@ -753,9 +792,9 @@ class GPUEngine:
             )
             + struct.pack(
                 "ffff",
-                exp.shadow_cyan * cmy_m,
-                exp.shadow_magenta * cmy_m,
-                exp.shadow_yellow * cmy_m,
+                exp.shadow_cyan * cmy_m + auto_sn[0],
+                exp.shadow_magenta * cmy_m + auto_sn[1],
+                exp.shadow_yellow * cmy_m + auto_sn[2],
                 0.0,
             )
             + struct.pack(
@@ -1286,6 +1325,18 @@ class GPUEngine:
                 percentile_clip=settings.process.drange_clip,
             )
 
+        global_shadow_refs = None
+        if settings.exposure.auto_shadow_neutral and settings.process.process_mode == ProcessMode.C41:
+            # Tiles must share one global measurement, like global_bounds.
+            ah, aw = img_rot.shape[:2]
+            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
+            analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
+            global_shadow_refs = measure_shadow_log_refs(
+                _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
+                roi=analysis_roi,
+                analysis_buffer=settings.process.analysis_buffer,
+            )
+
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
@@ -1305,6 +1356,7 @@ class GPUEngine:
                     scale_factor=scale_factor,
                     tiling_mode=True,
                     bounds_override=global_bounds,
+                    shadow_refs_override=global_shadow_refs,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,

@@ -306,6 +306,32 @@ def compute_pivot(slope: float, density: float, d_min: float = 0.0) -> float:
     return base + (1.0 - density) * c["density_multiplier"]
 
 
+def shadow_neutral_offsets(
+    refs: Tuple[float, float, float],
+    floors: Tuple[float, float, float],
+    ceils: Tuple[float, float, float],
+) -> Tuple[float, float, float]:
+    """
+    Normalized-space shadow CMY offsets that print the measured shadow
+    reference tone neutral — like filtration printing film base+fog to a
+    neutral black. Green-referenced (consistent with the green-referenced
+    density range), clamped to shadow_neutral_max_offset.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    epsilon = 1e-6
+    limit = float(EXPOSURE_CONSTANTS["shadow_neutral_max_offset"])
+    n = []
+    for ch in range(3):
+        denom = ceils[ch] - floors[ch]
+        if abs(denom) < epsilon:
+            denom = epsilon if denom >= 0 else -epsilon
+        n.append((refs[ch] - floors[ch]) / denom)
+    offsets = [min(max(n[1] - n[ch], -limit), limit) for ch in range(3)]
+    offsets[1] = 0.0
+    return (offsets[0], offsets[1], offsets[2])
+
+
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:
     """
     Converts a CMY slider value (-1.0..1.0) to a physical density shift (D).
