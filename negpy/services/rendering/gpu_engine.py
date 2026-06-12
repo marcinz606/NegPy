@@ -11,6 +11,7 @@ from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConf
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    harmonize_bounds,
 )
 from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
@@ -702,12 +703,16 @@ class GPUEngine:
         if tiling_mode:
             g_data = b"\x00" * 32
 
-        f, c = bounds.floors, bounds.ceils
+        harmonized = harmonize_bounds(bounds)
+        f, c = harmonized.floors, harmonized.ceils
         mode_val = 0
         if settings.process.process_mode == ProcessMode.BW:
             mode_val = 1
         elif settings.process.process_mode == ProcessMode.E6:
             mode_val = 2
+
+        # E6 mirrors the CPU path (NormalizationProcessor), which negates the offsets.
+        offset_sign = -1.0 if mode_val == 2 else 1.0
 
         n_data = (
             struct.pack("ffff", f[0], f[1], f[2], 0.0)
@@ -716,8 +721,8 @@ class GPUEngine:
                 "IIffffffff",
                 mode_val,
                 (1 if settings.process.e6_normalize else 0),
-                settings.process.white_point_offset,
-                settings.process.black_point_offset,
+                offset_sign * settings.process.white_point_offset,
+                offset_sign * settings.process.black_point_offset,
                 0.0,
                 0.0,
                 0.0,

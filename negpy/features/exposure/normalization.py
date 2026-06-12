@@ -11,7 +11,8 @@ from negpy.kernel.image.validation import ensure_image
 @njit(cache=True, fastmath=True)
 def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.ndarray) -> np.ndarray:
     """
-    Log -> 0.0-1.0 (Linear stretch).
+    Log -> ~0.0-1.0 (Linear stretch, unclamped: out-of-bounds densities are
+    rolled off by the downstream characteristic curve).
     Supports both f < c (Negative) and f > c (Positive) mapping.
     """
     h, w, c = img_log.shape
@@ -32,12 +33,7 @@ def _normalize_log_image_jit(img_log: np.ndarray, floors: np.ndarray, ceils: np.
                     else:
                         denom = -epsilon
 
-                norm = (img_log[y, x, ch] - f) / denom
-                if norm < 0.0:
-                    norm = 0.0
-                elif norm > 1.0:
-                    norm = 1.0
-                res[y, x, ch] = norm
+                res[y, x, ch] = (img_log[y, x, ch] - f) / denom
     return res
 
 
@@ -49,6 +45,20 @@ class LogNegativeBounds:
     def __init__(self, floors: Tuple[float, float, float], ceils: Tuple[float, float, float]):
         self.floors = floors
         self.ceils = ceils
+
+
+def harmonize_bounds(bounds: LogNegativeBounds) -> LogNegativeBounds:
+    """
+    Shared density scale: green-referenced range, ceil-anchored (film-base neutral).
+    Every channel keeps its own ceil (orange mask cancellation) but is scaled by the
+    green channel's range, so all channels share one contrast scale; residual
+    highlight casts are film character, corrected via CMY filtration. Idempotent.
+    """
+    r = bounds.ceils[1] - bounds.floors[1]
+    return LogNegativeBounds(
+        floors=(bounds.ceils[0] - r, bounds.ceils[1] - r, bounds.ceils[2] - r),
+        ceils=bounds.ceils,
+    )
 
 
 def get_analysis_crop(img: ImageBuffer, buffer_ratio: float) -> ImageBuffer:

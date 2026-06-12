@@ -50,7 +50,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         let norm = (log_color[ch] - f) / denom;
-        res[ch] = clamp(norm, 0.0, 1.0);
+        res[ch] = norm;
     }
 
     textureStore(output_tex, coords, vec4<f32>(res, 1.0));

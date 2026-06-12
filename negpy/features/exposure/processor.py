@@ -7,6 +7,7 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    harmonize_bounds,
     normalize_log_image,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
@@ -82,7 +83,7 @@ class NormalizationProcessor:
             )
             bounds = LogNegativeBounds(floors=adj_floors, ceils=adj_ceils)
 
-        res = normalize_log_image(img_log, bounds)
+        res = normalize_log_image(img_log, harmonize_bounds(bounds))
 
         context.metrics["normalized_log"] = res
         return res
