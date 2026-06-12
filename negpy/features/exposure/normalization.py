@@ -85,11 +85,15 @@ def analyze_log_exposure_bounds(
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
     percentile_clip controls how the bounds are sampled:
-      > 0  clips the histogram tails (e.g. 0.0001 = nearly no clipping; 1.0 = clip 1% per tail).
-      = 0  samples the true min/max extremes (gentlest percentile stretch).
-      < 0  outward headroom: bounds are pushed BEYOND the true extremes by margin = -percentile_clip
+      > 0  clips the histogram tails (e.g. 0.0001 = nearly no clipping; 1.0 = clip 1% per tail),
+           added on top of the robust baseline clip.
+      = 0  robust extremes: a block-median prefilter rejects isolated outliers (speculars,
+           dust) and base_drange_clip excludes small coherent extreme populations.
+      < 0  outward headroom: bounds are pushed BEYOND the robust extremes by margin = -percentile_clip
            (in log-density units), leaving lifted blacks / unclipped highlights (gentler than 0).
     """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
     epsilon = 1e-6
     img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
 
@@ -100,11 +104,25 @@ def analyze_log_exposure_bounds(
     if analysis_buffer > 0:
         img_log = get_analysis_crop(img_log, analysis_buffer)
 
+    # Block-median prefilter to a fixed target grid: isolated extremes (speculars,
+    # dust pinholes) vanish inside their block's median, and bounds become nearly
+    # resolution-invariant since the grid size is constant.
+    h, w = img_log.shape[:2]
+    grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
+    b = int(np.ceil(max(h, w) / grid))
+    if b > 1 and h >= b and w >= b:
+        hb, wb = (h // b) * b, (w // b) * b
+        blocks = img_log[:hb, :wb].reshape(hb // b, b, wb // b, b, img_log.shape[2])
+        img_log = np.median(blocks, axis=(1, 3))
+
+    base = float(EXPOSURE_CONSTANTS["base_drange_clip"])
     if percentile_clip >= 0:
-        clip = max(0.00001, min(1.0, percentile_clip))
+        clip = max(0.00001, min(1.0, percentile_clip + base))
         margin = 0.0
     else:
-        clip = 0.0
+        # Margin mode expands from the same robust basis so the slider stays
+        # continuous through its neutral position.
+        clip = base
         margin = -percentile_clip
     p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
     fixed_range = 3.0

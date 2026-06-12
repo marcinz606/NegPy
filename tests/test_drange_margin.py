@@ -16,13 +16,16 @@ class TestDRangeMargin(unittest.TestCase):
     def setUp(self):
         self.img = _gradient_image()
 
-    def test_zero_clip_samples_true_extremes(self):
-        """clip == 0 must map the true log min/max (gentlest percentile stretch)."""
+    def test_zero_clip_samples_robust_extremes(self):
+        """clip == 0 maps the robust extremes: baseline-clipped percentiles."""
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+        base = float(EXPOSURE_CONSTANTS["base_drange_clip"])
         bounds = analyze_log_exposure_bounds(self.img, percentile_clip=0.0)
         log = np.log10(np.clip(self.img, 1e-6, 1.0))
         for ch in range(3):
-            self.assertAlmostEqual(bounds.floors[ch], float(log[:, :, ch].min()), places=4)
-            self.assertAlmostEqual(bounds.ceils[ch], float(log[:, :, ch].max()), places=4)
+            self.assertAlmostEqual(bounds.floors[ch], float(np.percentile(log[:, :, ch], base)), places=4)
+            self.assertAlmostEqual(bounds.ceils[ch], float(np.percentile(log[:, :, ch], 100.0 - base)), places=4)
 
     def test_negative_clip_expands_outward_c41(self):
         """Negative clip pushes bounds beyond the extremes by exactly the margin."""

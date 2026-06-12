@@ -72,7 +72,8 @@ class ProcessSidebar(BaseSidebar):
         initial_drange_slider_val = _drange_value_to_slider(conf.drange_clip)
         self.drange_clip_slider = CompactSlider("D-Range Clip", -100, 100, initial_drange_slider_val, precision=1, step=1, has_neutral=True)
         self.drange_clip_slider.setToolTip(
-            "Tonal-range normalization. Positive: clips the top/bottom for more aggressive highlight/shadow recovery. "
+            "Tonal-range normalization. Neutral already applies a small robust clip (speculars and dust don't set the range). "
+            "Positive: clips the top/bottom for more aggressive highlight/shadow recovery. "
             "Negative: outward headroom — leaves lifted blacks / unclipped highlights for a gentler stretch (double-click to reset)"
         )
         buf_clip_row.addWidget(self.analysis_buffer_slider)

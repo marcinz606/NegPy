@@ -52,4 +52,6 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "dmax_shoulder": 8.0,
     "toe_onset_density": 1.2,
     "toe_shoulder_strength": 0.85,
+    "analysis_grid": 1024,
+    "base_drange_clip": 0.05,
 }
