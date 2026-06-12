@@ -11,7 +11,6 @@ from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConf
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
-    harmonize_bounds,
 )
 from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
@@ -653,6 +652,7 @@ class GPUEngine:
             "normalized_log": tex_norm,
             "content_rect": content_rect,
             "log_bounds": bounds,
+            "norm_density_range": abs(bounds.ceils[1] - bounds.floors[1]),
         }
 
         if not tiling_mode and readback_metrics:
@@ -703,8 +703,7 @@ class GPUEngine:
         if tiling_mode:
             g_data = b"\x00" * 32
 
-        harmonized = harmonize_bounds(bounds)
-        f, c = harmonized.floors, harmonized.ceils
+        f, c = bounds.floors, bounds.ceils
         mode_val = 0
         if settings.process.process_mode == ProcessMode.BW:
             mode_val = 1
@@ -733,14 +732,13 @@ class GPUEngine:
             + b"\x00" * 32
         )
 
+        from negpy.features.exposure.logic import compute_pivot, grade_to_slope
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         exp = settings.exposure
-        shift = 0.01 + (exp.density * EXPOSURE_CONSTANTS["density_multiplier"])
-        slope, pivot = (
-            1.0 + (exp.grade * EXPOSURE_CONSTANTS["grade_multiplier"]),
-            1.0 - shift,
-        )
+        slope = grade_to_slope(exp.grade, bounds.ceils[1] - bounds.floors[1])
+        d_min = EXPOSURE_CONSTANTS["d_min"] if exp.paper_dmin else 0.0
+        pivot = compute_pivot(slope, exp.density, d_min=d_min)
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
 
         e_data = (
@@ -769,14 +767,20 @@ class GPUEngine:
             )
             + struct.pack(
                 "ffffff",
-                exp.toe,
+                exp.toe * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
                 exp.toe_width,
-                exp.shoulder,
+                exp.shoulder * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
                 exp.shoulder_width,
-                4.0,  # d_max
-                2.2,  # gamma
+                EXPOSURE_CONSTANTS["d_max"],
+                d_min,
             )
-            + struct.pack("Ifff", mode_val, 0.0, 0.0, 0.0)
+            + struct.pack(
+                "Ifff",
+                mode_val,
+                EXPOSURE_CONSTANTS["toe_onset_density"],
+                EXPOSURE_CONSTANTS["curve_asymptote"],
+                EXPOSURE_CONSTANTS["dmax_shoulder"],
+            )
             + b"\x00" * 16
         )
 

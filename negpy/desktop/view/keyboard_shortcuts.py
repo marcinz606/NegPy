@@ -68,8 +68,9 @@ class ShortcutManager:
             "yellow_down": (lambda: controls.exposure_sidebar.yellow_slider, -1.0),
             "density_up": (lambda: controls.exposure_sidebar.density_slider, 1.0),
             "density_down": (lambda: controls.exposure_sidebar.density_slider, -1.0),
-            "grade_up": (lambda: controls.exposure_sidebar.grade_slider, 1.0),
-            "grade_down": (lambda: controls.exposure_sidebar.grade_slider, -1.0),
+            # ISO R scale is inverted: harder grade = lower R.
+            "grade_up": (lambda: controls.exposure_sidebar.grade_slider, -10.0),
+            "grade_down": (lambda: controls.exposure_sidebar.grade_slider, 10.0),
             "toe_inc": (lambda: controls.exposure_sidebar.toe_slider, 1.0),
             "toe_dec": (lambda: controls.exposure_sidebar.toe_slider, -1.0),
             "toe_width_inc": (lambda: controls.exposure_sidebar.toe_w_slider, 1.0),

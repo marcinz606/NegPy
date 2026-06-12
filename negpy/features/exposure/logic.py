@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 from numba import njit  # type: ignore
@@ -8,8 +8,11 @@ from negpy.kernel.image.validation import ensure_image
 
 
 def _expit(x: Any) -> Any:
-    """Numpy implementation of the logistic sigmoid function (scipy.special.expit fallback)."""
-    return 1.0 / (1.0 + np.exp(-x))
+    """Numpy implementation of the logistic sigmoid function (scipy.special.expit fallback).
+
+    expit(x) = exp(-logaddexp(0, -x)) — exact and overflow-free for any x.
+    """
+    return np.exp(-np.logaddexp(0.0, -x))
 
 
 @njit(inline="always")
@@ -26,6 +29,27 @@ def _fast_sigmoid(x: float) -> float:
         return float(z / (1.0 + z))
 
 
+@njit(inline="always")
+def _softplus(x: float) -> float:
+    """
+    Numerically stable softplus: log(1 + exp(x)). Antiderivative of the sigmoid.
+    """
+    if x > 0:
+        return float(x + np.log1p(np.exp(-x)))
+    return float(np.log1p(np.exp(x)))
+
+
+@njit(inline="always")
+def _srgb_oetf(t: float) -> float:
+    """
+    sRGB opto-electronic transfer function (linear -> display encoding).
+    Matches the sRGB decode used by the downstream Lab stage.
+    """
+    if t <= 0.0031308:
+        return float(12.92 * t)
+    return float(1.055 * t ** (1.0 / 2.4) - 0.055)
+
+
 @njit(cache=True, fastmath=True)
 def _apply_photometric_fused_kernel(
     img: np.ndarray,
@@ -38,54 +62,82 @@ def _apply_photometric_fused_kernel(
     cmy_offsets: np.ndarray,
     shadow_cmy: np.ndarray,
     highlight_cmy: np.ndarray,
-    d_max: float = 4.0,
-    gamma: float = 2.2,
+    d_max: float = 2.3,
+    d_min: float = 0.0,
+    d_onset: float = 1.2,
+    asymptote: float = 3.2,
+    shoulder_beta: float = 8.0,
     mode: int = 0,
 ) -> np.ndarray:
     """
-    Fused JIT kernel for H&D curve application with hybrid toe/shoulder control.
+    Fused JIT kernel for H&D curve application with integrated toe/shoulder.
+
+    Shoulder modulates local contrast on the input axis: gamma(d) = 1 - shoulder*M_s(d),
+    with the closed-form integral (softplus) as curve argument, anchored at the
+    pivot (x(0) = 0). Toe works in the DENSITY domain as a shadow lever —
+    raising or crushing print tones darker than the onset — because the shadow
+    zone above the pivot is too narrow for an input-axis toe to have useful
+    strength. Both are
+    monotone and smooth by construction; shoulder leaves the pivot tone
+    invariant, toe (anchored at D = 0) leaves highlights invariant.
+    `toe`/`shoulder` arrive pre-scaled by EXPOSURE_CONSTANTS["toe_shoulder_strength"].
     """
     h, w, c = img.shape
     res = np.empty_like(img)
-    inv_gamma = 1.0 / gamma
+    epsilon = 1e-6
+
+    # Density-domain toe geometry: onset where print shadows begin
+    # (d_onset = 1.2 D, ~0.28 sRGB), so the slider works as a shadow
+    # lever — raise or crush everything darker than that.
+    # Anchored at D = 0 with its tangent removed (zero value AND zero slope),
+    # so highlights are invariant even at very soft widths.
+    b_t = toe_width * 2.0
+    sp_toe0 = _softplus(b_t * (0.0 - d_onset)) / b_t
+    sig_toe0 = _fast_sigmoid(b_t * (0.0 - d_onset))
+
+    # Per-channel mask geometry (same centers/widths as the legacy masks).
+    a_t = np.empty(3, dtype=np.float64)
+    c_t = np.empty(3, dtype=np.float64)
+    a_s = np.empty(3, dtype=np.float64)
+    c_s = np.empty(3, dtype=np.float64)
+    sig_s0 = np.empty(3, dtype=np.float64)
+    for ch in range(3):
+        p = float(pivots[ch])
+        a_t[ch] = toe_width / max(1.0 - p, epsilon)
+        c_t[ch] = 0.5 * (1.0 - p)
+        a_s[ch] = shoulder_width / max(p, epsilon)
+        c_s[ch] = -0.5 * p
+        sig_s0[ch] = -_softplus(-a_s[ch] * (0.0 - c_s[ch])) / a_s[ch]
 
     for y in range(h):
         for x in range(w):
             for ch in range(3):
                 val = img[y, x, ch] + cmy_offsets[ch]
                 diff = val - pivots[ch]
-                epsilon = 1e-6
 
-                # Toe Mask (Shadows): Active at high diff (Positive/Dense in negative space)
-                t_val = toe_width * (diff / max(1.0 - float(pivots[ch]), epsilon) - 0.5)
-                toe_mask = _fast_sigmoid(t_val)
+                zt = a_t[ch] * (diff - c_t[ch])
+                zs = -a_s[ch] * (diff - c_s[ch])
+                toe_mask = _fast_sigmoid(zt)
+                shoulder_mask = _fast_sigmoid(zs)
 
-                # Shoulder Mask (Highlights): Active at low diff (Negative/Thin in negative space)
-                s_val = -shoulder_width * (diff / max(float(pivots[ch]), epsilon) + 0.5)
-                shoulder_mask = _fast_sigmoid(s_val)
+                sig_s = -_softplus(zs) / a_s[ch]
 
-                toe_density_offset = toe * toe_mask * 0.25
-                shoulder_density_offset = shoulder * shoulder_mask * 0.25
+                x_adj = diff - shoulder * (sig_s - sig_s0[ch])
+                arg = x_adj + shadow_cmy[ch] * toe_mask + highlight_cmy[ch] * shoulder_mask
 
-                shadow_color_offset = shadow_cmy[ch] * toe_mask
-                highlight_color_offset = highlight_cmy[ch] * shoulder_mask
+                # Logistic toward the projected (virtual) asymptote; the
+                # physical paper black is enforced by the soft clamp below.
+                density = d_min + (asymptote - d_min) * _fast_sigmoid(float(slopes[ch]) * arg)
 
-                diff_adj = diff + shadow_color_offset + highlight_color_offset - toe_density_offset + shoulder_density_offset
+                if toe != 0.0:
+                    sp_d = _softplus(b_t * (density - d_onset)) / b_t
+                    density = density - toe * (sp_d - sp_toe0 - sig_toe0 * density)
 
-                damp_toe = toe * toe_mask * 0.5
-                damp_shoulder = shoulder * shoulder_mask * 0.5
-
-                k_mod = 1.0 - damp_toe - damp_shoulder
-                if k_mod < 0.1:
-                    k_mod = 0.1
-                elif k_mod > 2.0:
-                    k_mod = 2.0
-
-                slope = slopes[ch]
-                density = d_max * _fast_sigmoid(float(slope) * diff_adj * k_mod)
+                # Abrupt smooth saturation shoulder at paper Dmax.
+                density = density - _softplus(shoulder_beta * (density - d_max)) / shoulder_beta
 
                 transmittance = 10.0 ** (-density)
-                final_val = transmittance**inv_gamma
+                final_val = _srgb_oetf(transmittance)
 
                 if final_val < 0.0:
                     final_val = 0.0
@@ -98,14 +150,17 @@ def _apply_photometric_fused_kernel(
 
 class LogisticSigmoid:
     """
-    Sigmoid approximation of the H&D curve with hybrid toe/shoulder.
+    H&D curve with integrated toe/shoulder — same math as the fused kernel
+    (used for the curve display, so chart and render stay identical).
+    Returns density (pre-transmittance/encode).
     """
 
     def __init__(
         self,
         contrast: float,
         pivot: float,
-        d_max: float = 4.0,
+        d_max: Optional[float] = None,
+        d_min: float = 0.0,
         toe: float = 0.0,
         toe_width: float = 3.0,
         shoulder: float = 0.0,
@@ -113,12 +168,21 @@ class LogisticSigmoid:
         shadow_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
         highlight_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
     ):
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+        ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
         self.k = contrast
         self.x0 = pivot
-        self.L = d_max
-        self.toe = toe
+        # L is the projected (virtual) asymptote; d_max is the physical paper
+        # black enforced by the soft saturation clamp in __call__.
+        self.L = EXPOSURE_CONSTANTS["curve_asymptote"] if d_max is None else d_max
+        self.d_max = EXPOSURE_CONSTANTS["d_max"]
+        self.shoulder_beta = EXPOSURE_CONSTANTS["dmax_shoulder"]
+        self.d_min = d_min
+        self.d_onset = EXPOSURE_CONSTANTS["toe_onset_density"]
+        self.toe = toe * ts
         self.toe_width = toe_width
-        self.shoulder = shoulder
+        self.shoulder = shoulder * ts
         self.shoulder_width = shoulder_width
         self.shadow_cmy = shadow_cmy
         self.highlight_cmy = highlight_cmy
@@ -127,22 +191,32 @@ class LogisticSigmoid:
         diff = x - self.x0
         epsilon = 1e-6
 
-        t_val = self.toe_width * (diff / max(1.0 - self.x0, epsilon) - 0.5)
-        toe_mask = _expit(t_val)
+        a_s = self.shoulder_width / max(self.x0, epsilon)
+        c_s = -0.5 * self.x0
 
-        s_val = -self.shoulder_width * (diff / max(self.x0, epsilon) + 0.5)
-        shoulder_mask = _expit(s_val)
+        zs = -a_s * (diff - c_s)
 
-        toe_density_offset = self.toe * toe_mask * 0.3
-        shoulder_density_offset = self.shoulder * shoulder_mask * 0.3
+        # np.logaddexp(0, z) is a numerically stable softplus.
+        sig_s = -np.logaddexp(0.0, zs) / a_s
+        sig_s0 = -np.logaddexp(0.0, -a_s * (0.0 - c_s)) / a_s
 
-        diff_adj = diff - toe_density_offset + shoulder_density_offset
+        x_adj = diff - self.shoulder * (sig_s - sig_s0)
 
-        k_mod = 1.0 - (self.toe * toe_mask) - (self.shoulder * shoulder_mask)
-        k_mod = np.clip(k_mod, 0.1, 2.0)
+        res = self.d_min + (self.L - self.d_min) * _expit(self.k * x_adj)
 
-        val = self.k * diff_adj * k_mod
-        res = self.L * _expit(val)
+        if self.toe != 0.0:
+            # Density-domain toe (shadow lever), anchored at D = 0 with
+            # its tangent removed so highlights are invariant at any width.
+            b_t = self.toe_width * 2.0
+            d_onset = self.d_onset
+            sp_d = np.logaddexp(0.0, b_t * (res - d_onset)) / b_t
+            sp_0 = np.logaddexp(0.0, b_t * (0.0 - d_onset)) / b_t
+            sig_0 = _expit(b_t * (0.0 - d_onset))
+            res = res - self.toe * (sp_d - sp_0 - sig_0 * res)
+
+        # Abrupt smooth saturation shoulder at paper Dmax.
+        res = res - np.logaddexp(0.0, self.shoulder_beta * (res - self.d_max)) / self.shoulder_beta
+
         return ensure_image(res)
 
 
@@ -158,11 +232,15 @@ def apply_characteristic_curve(
     shadow_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    d_min: float = 0.0,
     mode: int = 0,
 ) -> ImageBuffer:
     """
     Applies a film/paper characteristic curve (Sigmoid) per channel in Log-Density space.
     """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
     pivots = np.ascontiguousarray(np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32))
     slopes = np.ascontiguousarray(np.array([params_r[1], params_g[1], params_b[1]], dtype=np.float32))
     offsets = np.ascontiguousarray(np.array(cmy_offsets, dtype=np.float32))
@@ -173,17 +251,59 @@ def apply_characteristic_curve(
         np.ascontiguousarray(img.astype(np.float32)),
         pivots,
         slopes,
-        float(toe),
+        float(toe * ts),
         float(toe_width),
-        float(shoulder),
+        float(shoulder * ts),
         float(shoulder_width),
         offsets,
         s_cmy,
         h_cmy,
+        d_max=float(EXPOSURE_CONSTANTS["d_max"]),
+        d_min=float(d_min),
+        d_onset=float(EXPOSURE_CONSTANTS["toe_onset_density"]),
+        asymptote=float(EXPOSURE_CONSTANTS["curve_asymptote"]),
+        shoulder_beta=float(EXPOSURE_CONSTANTS["dmax_shoulder"]),
         mode=mode,
     )
 
     return ensure_image(res)
+
+
+def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
+    """
+    Slope from the grade given as an ISO R paper exposure range
+    (R180 very soft ... R50 very hard; R110 ~ classic grade 2 paper).
+    The sigmoid's 10-90% span (ln 81 / k) covers the paper's exposure range
+    expressed in normalized negative-density units, so contrast = negative
+    density range / paper exposure range — like real graded paper.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    if density_range is None:
+        density_range = 1.3  # typical C41 green-channel range
+    er = min(max(grade, c["iso_r_min"]), c["iso_r_max"]) / 100.0
+    rng = min(max(abs(density_range), 0.3), 3.5)
+    k = np.log(81.0) * rng / er
+    return float(min(max(k, c["slope_min"]), c["slope_max"]))
+
+
+def compute_pivot(slope: float, density: float, d_min: float = 0.0) -> float:
+    """
+    Fixed calibrated exposure: solve the curve pivot so the assumed reference
+    tone (assumed_anchor, a typical negative's normalized median) prints at
+    anchor_target_density for the current effective slope — grade changes
+    rotate around that reference tone instead of shifting brightness. The
+    density slider offsets exposure around it.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    t = c["anchor_target_density"]
+    # Solve against the projected asymptote (the target sits well below the
+    # Dmax saturation shoulder, so the soft clamp doesn't shift it).
+    base = c["assumed_anchor"] + float(np.log((c["curve_asymptote"] - t) / (t - d_min))) / slope
+    return base + (1.0 - density) * c["density_multiplier"]
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:

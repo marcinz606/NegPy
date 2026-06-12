@@ -2,12 +2,11 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
-from negpy.features.exposure.logic import apply_characteristic_curve
+from negpy.features.exposure.logic import apply_characteristic_curve, compute_pivot, grade_to_slope
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
-    harmonize_bounds,
     normalize_log_image,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
@@ -27,9 +26,15 @@ class NormalizationProcessor:
         img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
 
         if self.config.use_roll_average and self.config.is_locked_initialized:
-            bounds = LogNegativeBounds(floors=self.config.locked_floors, ceils=self.config.locked_ceils)
+            bounds = LogNegativeBounds(
+                floors=self.config.locked_floors,
+                ceils=self.config.locked_ceils,
+            )
         elif self.config.is_local_initialized:
-            bounds = LogNegativeBounds(floors=self.config.local_floors, ceils=self.config.local_ceils)
+            bounds = LogNegativeBounds(
+                floors=self.config.local_floors,
+                ceils=self.config.local_ceils,
+            )
         else:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
             cached_norm = context.metrics.get("log_bounds_norm_val")
@@ -63,6 +68,8 @@ class NormalizationProcessor:
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
                 context.metrics["log_bounds_mode_val"] = context.process_mode
 
+        context.metrics["norm_density_range"] = abs(bounds.ceils[1] - bounds.floors[1])
+
         if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
             wp_offset = self.config.white_point_offset
             bp_offset = self.config.black_point_offset
@@ -83,7 +90,7 @@ class NormalizationProcessor:
             )
             bounds = LogNegativeBounds(floors=adj_floors, ceils=adj_ceils)
 
-        res = normalize_log_image(img_log, harmonize_bounds(bounds))
+        res = normalize_log_image(img_log, bounds)
 
         context.metrics["normalized_log"] = res
         return res
@@ -98,11 +105,10 @@ class PhotometricProcessor:
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        master_ref = 1.0
-        exposure_shift = 0.01 + (self.config.density * EXPOSURE_CONSTANTS["density_multiplier"])
-        slope = 1.0 + (self.config.grade * EXPOSURE_CONSTANTS["grade_multiplier"])
-
-        pivots = [master_ref - exposure_shift] * 3
+        slope = grade_to_slope(self.config.grade, context.metrics.get("norm_density_range"))
+        d_min = EXPOSURE_CONSTANTS["d_min"] if self.config.paper_dmin else 0.0
+        pivot = compute_pivot(slope, self.config.density, d_min=d_min)
+        pivots = [pivot] * 3
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = (
@@ -127,6 +133,12 @@ class PhotometricProcessor:
         elif context.process_mode == ProcessMode.E6:
             mode_val = 2
 
+        if context.process_mode == ProcessMode.BW:
+            # Panchromatic response: collapse to a single density BEFORE the
+            # curve, so the curve shapes one channel instead of mixing three.
+            lum = get_luminance(image)
+            image = np.stack([lum, lum, lum], axis=-1)
+
         img_pos = apply_characteristic_curve(
             image,
             params_r=(pivots[0], slope),
@@ -139,6 +151,7 @@ class PhotometricProcessor:
             shadow_cmy=shadow_cmy,
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
+            d_min=d_min,
             mode=mode_val,
         )
 

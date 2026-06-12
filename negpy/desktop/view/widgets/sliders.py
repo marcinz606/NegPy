@@ -45,6 +45,8 @@ class _NoScrollSlider(QSlider):
             usable = max(1, self.width() - 12)
             rng = self.maximum() - self.minimum()
             delta_px = event.position().x() - self._drag_anchor_px
+            if self.invertedAppearance():
+                delta_px = -delta_px
             value_change = int(round(delta_px * 0.1 * rng / usable))
             new_value = max(self.minimum(), min(self.maximum(), self._drag_anchor_value + value_change))
             self.setValue(new_value)
@@ -93,6 +95,7 @@ class BaseSlider(QWidget):
         default_val: float,
         precision: int = 100,
         has_neutral: bool = False,
+        inverted: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -103,7 +106,12 @@ class BaseSlider(QWidget):
         self._last_committed_value = default_val
 
         default_pos = (default_val - min_val) / (max_val - min_val) if max_val > min_val else None
+        if inverted and default_pos is not None:
+            default_pos = 1.0 - default_pos
         self.slider = _NoScrollSlider(Qt.Orientation.Horizontal, default_pos=default_pos)
+        if inverted:
+            self.slider.setInvertedAppearance(True)
+            self.slider.setInvertedControls(True)
         if has_neutral:
             self.slider.setObjectName("neutral_slider")
         self.slider.setRange(int(min_val * self._precision), int(max_val * self._precision))
@@ -204,9 +212,10 @@ class CompactSlider(BaseSlider):
         color: str = None,
         has_neutral: bool = False,
         unit: str = "",
+        inverted: bool = False,
         parent=None,
     ):
-        super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, parent=parent)
+        super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, inverted=inverted, parent=parent)
 
         self._label_color = color if color else THEME.text_secondary
 

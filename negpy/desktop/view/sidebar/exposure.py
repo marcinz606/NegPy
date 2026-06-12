@@ -6,10 +6,10 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.session import ToolMode
+from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.features.process.models import invalidate_local_bounds
 
 
@@ -80,8 +80,13 @@ class ExposureSidebar(BaseSidebar):
 
         self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
         self.density_slider.setToolTip(tooltip_with_shortcut("Overall exposure — higher values darken the print", "density_up"))
-        self.grade_slider = CompactSlider("Grade", 0.0, 5.0, conf.grade)
-        self.grade_slider.setToolTip(tooltip_with_shortcut("Contrast grade: 0 = soft, 5 = very hard", "grade_up"))
+        self.grade_slider = CompactSlider("ISO-R Grade", 50.0, 180.0, conf.grade, step=1.0, inverted=True)
+        self.grade_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Contrast (ISO R paper exposure range): R180 = very soft, R50 = very hard; R110 ≈ grade 2 paper",
+                "grade_up",
+            )
+        )
 
         self.layout.addWidget(self.density_slider)
         self.layout.addWidget(self.grade_slider)
@@ -103,6 +108,16 @@ class ExposureSidebar(BaseSidebar):
         sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
         self.layout.addLayout(sh_row)
+
+        self.paper_dmin_btn = QPushButton(" Paper White")
+        self.paper_dmin_btn.setCheckable(True)
+        self.paper_dmin_btn.setChecked(conf.paper_dmin)
+        self.paper_dmin_btn.setIcon(qta.icon("fa5s.file", color=THEME.text_primary))
+        self.paper_dmin_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        self.paper_dmin_btn.setToolTip(
+            "Simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print"
+        )
+        self.layout.addWidget(self.paper_dmin_btn)
 
         self.layout.addStretch()
 
@@ -137,6 +152,9 @@ class ExposureSidebar(BaseSidebar):
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
         self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
+        self.paper_dmin_btn.toggled.connect(
+            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_dmin=checked)
+        )
 
         self.toe_slider.valueChanged.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, toe=v)
@@ -255,6 +273,8 @@ class ExposureSidebar(BaseSidebar):
 
             self.sh_slider.setValue(conf.shoulder)
             self.sh_w_slider.setValue(conf.shoulder_width)
+
+            self.paper_dmin_btn.setChecked(conf.paper_dmin)
         finally:
             self.block_signals(False)
 
@@ -277,6 +297,7 @@ class ExposureSidebar(BaseSidebar):
             self.toe_w_slider,
             self.sh_slider,
             self.sh_w_slider,
+            self.paper_dmin_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)

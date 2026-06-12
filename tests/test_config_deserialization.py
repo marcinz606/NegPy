@@ -19,7 +19,8 @@ class TestConfigDeserialization(unittest.TestCase):
 
         self.assertEqual(config.process.process_mode, ProcessMode.BW)
         self.assertEqual(config.exposure.density, 1.2)
-        self.assertEqual(config.exposure.grade, 3.0)
+        # Legacy 0-5 paper grade migrates to ISO R (150 - 20*G).
+        self.assertEqual(config.exposure.grade, 90.0)
         self.assertEqual(config.export.export_fmt, "TIFF")
 
     def test_unknown_keys_warning(self):

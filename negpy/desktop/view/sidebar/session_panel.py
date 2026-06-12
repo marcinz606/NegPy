@@ -208,7 +208,14 @@ class SessionPanel(QWidget):
             if buffer is not None:
                 self.hist_widget.update_data(buffer)
 
-        self.curve_widget.update_curve(self.controller.session.state.config.exposure)
+        from negpy.features.exposure.logic import compute_pivot, grade_to_slope
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+        config = self.controller.session.state.config.exposure
+        slope = grade_to_slope(config.grade, metrics.get("norm_density_range"))
+        d_min = EXPOSURE_CONSTANTS["d_min"] if config.paper_dmin else 0.0
+        pivot = compute_pivot(slope, config.density, d_min=d_min)
+        self.curve_widget.update_curve(config, slope=slope, pivot=pivot)
 
     def _on_update_found(self, version: str) -> None:
         self.update_label.setText(f"Update Available: v{version}")

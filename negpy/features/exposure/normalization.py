@@ -47,20 +47,6 @@ class LogNegativeBounds:
         self.ceils = ceils
 
 
-def harmonize_bounds(bounds: LogNegativeBounds) -> LogNegativeBounds:
-    """
-    Shared density scale: green-referenced range, ceil-anchored (film-base neutral).
-    Every channel keeps its own ceil (orange mask cancellation) but is scaled by the
-    green channel's range, so all channels share one contrast scale; residual
-    highlight casts are film character, corrected via CMY filtration. Idempotent.
-    """
-    r = bounds.ceils[1] - bounds.floors[1]
-    return LogNegativeBounds(
-        floors=(bounds.ceils[0] - r, bounds.ceils[1] - r, bounds.ceils[2] - r),
-        ceils=bounds.ceils,
-    )
-
-
 def get_analysis_crop(img: ImageBuffer, buffer_ratio: float) -> ImageBuffer:
     """
     Returns a center crop of the image for analysis purposes.

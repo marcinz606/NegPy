@@ -13,7 +13,6 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
-
 from negpy.kernel.image.logic import get_luminance
 
 _CLIP_THRESH = 0.005  # fraction of pixels considered "clipping"
@@ -241,19 +240,25 @@ class PhotometricCurveWidget(QWidget):
 
     # ── data update ──────────────────────────────────────────────────────────
 
-    def update_curve(self, params) -> None:
-        from negpy.features.exposure.logic import LogisticSigmoid
+    def update_curve(self, params, slope: float | None = None, pivot: float | None = None) -> None:
+        from negpy.features.exposure.logic import LogisticSigmoid, _expit, compute_pivot, grade_to_slope
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.kernel.image.validation import ensure_image
 
-        exposure_shift = 0.1 + (params.density * EXPOSURE_CONSTANTS["density_multiplier"])
-        pivot = 1.0 - exposure_shift
-        slope = 1.0 + (params.grade * EXPOSURE_CONSTANTS["grade_multiplier"])
+        d_min = EXPOSURE_CONSTANTS["d_min"] if params.paper_dmin else 0.0
 
+        # Slope/pivot come from the render path (session panel); fall back to
+        # the same helpers with no metrics when called without them.
+        if slope is None:
+            slope = grade_to_slope(params.grade, None)
+        if pivot is None:
+            pivot = compute_pivot(slope, params.density, d_min=d_min)
+
+        # d_max/d_min from constants so the chart matches the render exactly.
         curve = LogisticSigmoid(
             contrast=slope,
             pivot=pivot,
-            d_max=3.5,
+            d_min=d_min,
             toe=params.toe,
             toe_width=params.toe_width,
             shoulder=params.shoulder,
@@ -266,16 +271,17 @@ class PhotometricCurveWidget(QWidget):
 
         d = curve(ensure_image(x_log_exp))
         t = np.power(10.0, -d)
-        y = np.power(t, 1.0 / 2.2)
+        # sRGB OETF — must match the exposure kernel's output encode.
+        y = np.where(t <= 0.0031308, 12.92 * t, 1.055 * np.power(t, 1.0 / 2.4) - 0.055)
         self._curve_pts = list(zip(plt_x.tolist(), y.tolist()))
 
         # Toe/shoulder masks for zone shading (same formula as LogisticSigmoid)
         diff = x_log_exp - pivot
         epsilon = 1e-6
         t_val = params.toe_width * (diff / max(1.0 - pivot, epsilon) - 0.5)
-        self._toe_mask = (1.0 / (1.0 + np.exp(-t_val))).tolist()
+        self._toe_mask = _expit(t_val).tolist()
         s_val = -params.shoulder_width * (diff / max(pivot, epsilon) + 0.5)
-        self._shoulder_mask = (1.0 / (1.0 + np.exp(-s_val))).tolist()
+        self._shoulder_mask = _expit(s_val).tolist()
         self._toe_strength = params.toe
         self._shoulder_strength = params.shoulder
 

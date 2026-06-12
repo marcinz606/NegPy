@@ -7,6 +7,7 @@ from negpy.features.exposure.logic import (
     cmy_to_density,
     density_to_cmy,
 )
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
 
 class TestExposureLogic(unittest.TestCase):
@@ -15,13 +16,16 @@ class TestExposureLogic(unittest.TestCase):
         Verify math for neutral/flat settings.
         """
         img = np.full((10, 10, 3), 0.0, dtype=np.float32)  # Log space 0.0
-        # If pivot=0, diff=0, sigmoid(0)=0.5.
-        # d_max=4.0 -> density=2.0
-        # transmittance = 10^-2.0 = 0.01
-        # final = 0.01 ^ (1/2.2)
+        # If pivot=0, diff=0, sigmoid(0)=0.5 -> density = asymptote / 2,
+        # then the soft Dmax shoulder; transmittance = 10^-density;
+        # final = sRGB OETF(transmittance).
         params = (0.0, 1.0)
         res = apply_characteristic_curve(img, params, params, params)
-        self.assertAlmostEqual(res[0, 0, 0], 0.01 ** (1 / 2.2), delta=0.01)
+        beta = EXPOSURE_CONSTANTS["dmax_shoulder"]
+        d = EXPOSURE_CONSTANTS["curve_asymptote"] / 2.0
+        d -= np.logaddexp(0.0, beta * (d - EXPOSURE_CONSTANTS["d_max"])) / beta
+        t = 10.0**-d
+        self.assertAlmostEqual(res[0, 0, 0], 1.055 * t ** (1 / 2.4) - 0.055, delta=0.01)
 
     def test_exposure_shift(self):
         """Check density shift direction."""
@@ -56,21 +60,34 @@ class TestExposureLogic(unittest.TestCase):
         self.assertLess(dy, 0)
 
     def test_toe_shoulder_direction(self):
-        """Verify that positive toe/shoulder values brighten the image (hybrid lift/recovery)."""
-        img = np.full((10, 10, 3), 0.5, dtype=np.float32)
-        params = (0.5, 1.0)
+        """Verify toe/shoulder act in their zones; the midtone (pivot) stays anchored."""
+        params = (0.5, 4.0)
 
-        res_neutral = apply_characteristic_curve(img, params, params, params)
-        res_toe = apply_characteristic_curve(img, params, params, params, toe=1.0)
-        res_shoulder = apply_characteristic_curve(img, params, params, params, shoulder=1.0)
-
-        # Positive toe lifts shadows -> brighter
-        # Positive shoulder recovers highlights -> darker (in positive sense, but here it shifts exposure)
-        # Wait, if shoulder > 0 it increases density (recovers highlights), so it should be DARKER.
-        # If toe > 0 it decreases density (lifts shadows), so it should be BRIGHTER.
-
+        # Shadow zone (high input = dense print): positive toe lifts -> brighter.
+        img_shadow = np.full((10, 10, 3), 0.9, dtype=np.float32)
+        res_neutral = apply_characteristic_curve(img_shadow, params, params, params)
+        res_toe = apply_characteristic_curve(img_shadow, params, params, params, toe=1.0)
         self.assertGreater(float(np.mean(res_toe)), float(np.mean(res_neutral)))
-        self.assertLess(float(np.mean(res_shoulder)), float(np.mean(res_neutral)))
+
+        # Highlight zone (low input = bright print): positive shoulder compresses -> darker.
+        img_highlight = np.full((10, 10, 3), 0.1, dtype=np.float32)
+        res_neutral_hl = apply_characteristic_curve(img_highlight, params, params, params)
+        res_shoulder = apply_characteristic_curve(img_highlight, params, params, params, shoulder=1.0)
+        self.assertLess(float(np.mean(res_shoulder)), float(np.mean(res_neutral_hl)))
+
+        # Midtone anchor: value at the pivot is invariant under shoulder.
+        img_mid = np.full((10, 10, 3), 0.5, dtype=np.float32)
+        res_mid = apply_characteristic_curve(img_mid, params, params, params)
+        res_mid_s = apply_characteristic_curve(img_mid, params, params, params, shoulder=-1.0)
+        np.testing.assert_array_almost_equal(res_mid, res_mid_s, decimal=5)
+
+        # Highlight anchor: toe (density-domain, anchored at D=0) leaves
+        # bright print tones untouched (true highlights, well above the
+        # shadow-lever onset).
+        img_bright = np.full((10, 10, 3), 0.0, dtype=np.float32)
+        res_neutral_b = apply_characteristic_curve(img_bright, params, params, params)
+        res_b_toe = apply_characteristic_curve(img_bright, params, params, params, toe=1.0)
+        np.testing.assert_array_almost_equal(res_neutral_b, res_b_toe, decimal=2)
 
     def test_regional_cmy(self):
         """Verify that regional CMY affects the output."""
