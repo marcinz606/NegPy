@@ -53,7 +53,9 @@ class TestToeShoulderSmoothness(unittest.TestCase):
         ~0.14 sRGB at d_max 2.3, so the lift is relative, not from zero.)
         """
         img = np.full((4, 4, 3), 1.0, dtype=np.float32)
-        params = (0.79, 5.375)
+        # Pivot chosen so the pixel prints as a deep shadow (~1.8 D) on the
+        # Richards curve — the zone the toe lever exists to control.
+        params = (0.64, 5.375)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
         lifted = float(apply_characteristic_curve(img, params, params, params, toe=1.0, toe_width=2.5)[0, 0, 0])
         self.assertGreater(lifted, base + 0.08)
@@ -78,7 +80,10 @@ class TestToeShoulderSmoothness(unittest.TestCase):
         params = (pivot, slope)
         res = apply_characteristic_curve(img, params, params, params)
 
-        density = EXPOSURE_CONSTANTS["curve_asymptote"] * _expit(slope * (img[0, :, 0].astype(np.float64) - pivot))
+        density = (
+            EXPOSURE_CONSTANTS["curve_asymptote"]
+            * _expit(slope * (img[0, :, 0].astype(np.float64) - pivot)) ** EXPOSURE_CONSTANTS["paper_toe_nu"]
+        )
         beta = EXPOSURE_CONSTANTS["dmax_shoulder"]
         density -= np.logaddexp(0.0, beta * (density - EXPOSURE_CONSTANTS["d_max"])) / beta
         expected = np.clip(_srgb_oetf(10.0 ** (-density)), 0.0, 1.0)

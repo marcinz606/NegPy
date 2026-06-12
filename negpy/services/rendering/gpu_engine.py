@@ -814,13 +814,14 @@ class GPUEngine:
                 d_min,
             )
             + struct.pack(
-                "Ifff",
+                "Iffff",
                 mode_val,
                 EXPOSURE_CONSTANTS["toe_onset_density"],
                 EXPOSURE_CONSTANTS["curve_asymptote"],
                 EXPOSURE_CONSTANTS["dmax_shoulder"],
+                EXPOSURE_CONSTANTS["paper_toe_nu"],
             )
-            + b"\x00" * 16
+            + b"\x00" * 12
         )
 
         cls = float(settings.lab.clahe_strength)

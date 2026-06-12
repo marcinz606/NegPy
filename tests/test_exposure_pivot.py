@@ -20,19 +20,21 @@ class TestComputePivot(unittest.TestCase):
     def test_reference_tone_prints_at_target(self):
         """The assumed reference tone must land exactly on anchor_target_density."""
         asym = EXPOSURE_CONSTANTS["curve_asymptote"]
+        nu = EXPOSURE_CONSTANTS["paper_toe_nu"]
         x_ref = EXPOSURE_CONSTANTS["assumed_anchor"]
         slope = grade_to_slope(110.0, 1.3)
         pivot = compute_pivot(slope, density=1.0)
-        density_out = asym * _expit(slope * (x_ref - pivot))
+        density_out = asym * _expit(slope * (x_ref - pivot)) ** nu
         self.assertAlmostEqual(density_out, EXPOSURE_CONSTANTS["anchor_target_density"], places=5)
 
     def test_reference_tone_prints_at_target_with_dmin(self):
         """The Dmin floor must not shift the reference tone off target."""
         asym, d_min = EXPOSURE_CONSTANTS["curve_asymptote"], EXPOSURE_CONSTANTS["d_min"]
+        nu = EXPOSURE_CONSTANTS["paper_toe_nu"]
         x_ref = EXPOSURE_CONSTANTS["assumed_anchor"]
         slope = grade_to_slope(110.0, 1.3)
         pivot = compute_pivot(slope, density=1.0, d_min=d_min)
-        density_out = d_min + (asym - d_min) * _expit(slope * (x_ref - pivot))
+        density_out = d_min + (asym - d_min) * _expit(slope * (x_ref - pivot)) ** nu
         self.assertAlmostEqual(density_out, EXPOSURE_CONSTANTS["anchor_target_density"], places=5)
 
     def test_grade_does_not_shift_reference_tone(self):

@@ -14,7 +14,10 @@ struct ExposureUniforms {
     toe_onset: f32,
     asymptote: f32,
     shoulder_beta: f32,
-    pad3: vec4<f32>,
+    nu: f32,
+    pad_a: f32,
+    pad_b: f32,
+    pad_c: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -90,9 +93,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let x_adj = diff - params.shoulder * (sig_s - sig_s0);
         let arg = x_adj + params.shadow_cmy[ch] * toe_mask + params.highlight_cmy[ch] * shoulder_mask;
 
-        // Logistic toward the projected (virtual) asymptote; the physical
-        // paper black is enforced by the soft clamp below.
-        var density = params.d_min + (params.asymptote - params.d_min) * fast_sigmoid(params.slopes[ch] * arg);
+        // Richards curve toward the projected (virtual) asymptote: nu shortens
+        // the toe (whites snap to paper white) and lengthens the top approach,
+        // like real paper. Paper black is enforced by the soft clamp below.
+        var density = params.d_min + (params.asymptote - params.d_min) * pow(fast_sigmoid(params.slopes[ch] * arg), params.nu);
 
         if (params.toe != 0.0) {
             let b_t = params.toe_width * 2.0;

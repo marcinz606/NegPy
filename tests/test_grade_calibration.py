@@ -5,7 +5,7 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.logic import grade_to_slope
+from negpy.features.exposure.logic import grade_to_slope, sigmoid_span
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
 
@@ -13,7 +13,12 @@ from negpy.features.exposure.processor import NormalizationProcessor, Photometri
 class TestGradeToSlope(unittest.TestCase):
     def test_iso_r_exposure_range(self):
         # ISO R110 -> exposure range 1.1; typical negative range 1.3.
-        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), np.log(81.0) * 1.3 / 1.1, places=5)
+        span = sigmoid_span(EXPOSURE_CONSTANTS["paper_toe_nu"])
+        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), span * 1.3 / 1.1, places=5)
+
+    def test_span_generalizes_ln81(self):
+        # nu = 1 must reduce to the plain logistic's 10-90% span.
+        self.assertAlmostEqual(sigmoid_span(1.0), np.log(81.0), places=9)
 
     def test_missing_range_uses_typical(self):
         self.assertAlmostEqual(grade_to_slope(110.0, None), grade_to_slope(110.0, 1.3), places=6)

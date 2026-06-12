@@ -22,7 +22,7 @@ class TestExposureLogic(unittest.TestCase):
         params = (0.0, 1.0)
         res = apply_characteristic_curve(img, params, params, params)
         beta = EXPOSURE_CONSTANTS["dmax_shoulder"]
-        d = EXPOSURE_CONSTANTS["curve_asymptote"] / 2.0
+        d = EXPOSURE_CONSTANTS["curve_asymptote"] * 0.5 ** EXPOSURE_CONSTANTS["paper_toe_nu"]
         d -= np.logaddexp(0.0, beta * (d - EXPOSURE_CONSTANTS["d_max"])) / beta
         t = 10.0**-d
         self.assertAlmostEqual(res[0, 0, 0], 1.055 * t ** (1 / 2.4) - 0.055, delta=0.01)

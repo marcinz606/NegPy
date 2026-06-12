@@ -67,6 +67,7 @@ def _apply_photometric_fused_kernel(
     d_onset: float = 1.2,
     asymptote: float = 3.2,
     shoulder_beta: float = 8.0,
+    nu: float = 1.0,
     mode: int = 0,
 ) -> np.ndarray:
     """
@@ -125,9 +126,11 @@ def _apply_photometric_fused_kernel(
                 x_adj = diff - shoulder * (sig_s - sig_s0[ch])
                 arg = x_adj + shadow_cmy[ch] * toe_mask + highlight_cmy[ch] * shoulder_mask
 
-                # Logistic toward the projected (virtual) asymptote; the
-                # physical paper black is enforced by the soft clamp below.
-                density = d_min + (asymptote - d_min) * _fast_sigmoid(float(slopes[ch]) * arg)
+                # Richards curve toward the projected (virtual) asymptote: the
+                # nu exponent shortens the toe (whites snap to paper white) and
+                # lengthens the top approach, like real paper. Physical paper
+                # black is enforced by the soft clamp below.
+                density = d_min + (asymptote - d_min) * _fast_sigmoid(float(slopes[ch]) * arg) ** nu
 
                 if toe != 0.0:
                     sp_d = _softplus(b_t * (density - d_onset)) / b_t
@@ -179,6 +182,7 @@ class LogisticSigmoid:
         self.d_max = EXPOSURE_CONSTANTS["d_max"]
         self.shoulder_beta = EXPOSURE_CONSTANTS["dmax_shoulder"]
         self.d_min = d_min
+        self.nu = float(EXPOSURE_CONSTANTS["paper_toe_nu"])
         self.d_onset = EXPOSURE_CONSTANTS["toe_onset_density"]
         self.toe = toe * ts
         self.toe_width = toe_width
@@ -202,7 +206,7 @@ class LogisticSigmoid:
 
         x_adj = diff - self.shoulder * (sig_s - sig_s0)
 
-        res = self.d_min + (self.L - self.d_min) * _expit(self.k * x_adj)
+        res = self.d_min + (self.L - self.d_min) * _expit(self.k * x_adj) ** self.nu
 
         if self.toe != 0.0:
             # Density-domain toe (shadow lever), anchored at D = 0 with
@@ -263,19 +267,33 @@ def apply_characteristic_curve(
         d_onset=float(EXPOSURE_CONSTANTS["toe_onset_density"]),
         asymptote=float(EXPOSURE_CONSTANTS["curve_asymptote"]),
         shoulder_beta=float(EXPOSURE_CONSTANTS["dmax_shoulder"]),
+        nu=float(EXPOSURE_CONSTANTS["paper_toe_nu"]),
         mode=mode,
     )
 
     return ensure_image(res)
 
 
+def sigmoid_span(nu: float) -> float:
+    """
+    Curve-argument span between 10% and 90% of the Richards asymptote —
+    generalizes ln 81 (the nu = 1 value). Used to map ISO R to slope so the
+    grade keeps its ISO meaning for any paper-toe sharpness.
+    """
+
+    def _logit(s: float) -> float:
+        return float(np.log(s / (1.0 - s)))
+
+    return _logit(0.9 ** (1.0 / nu)) - _logit(0.1 ** (1.0 / nu))
+
+
 def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     """
     Slope from the grade given as an ISO R paper exposure range
     (R180 very soft ... R50 very hard; R110 ~ classic grade 2 paper).
-    The sigmoid's 10-90% span (ln 81 / k) covers the paper's exposure range
-    expressed in normalized negative-density units, so contrast = negative
-    density range / paper exposure range — like real graded paper.
+    The curve's 10-90% span covers the paper's exposure range expressed in
+    normalized negative-density units, so contrast = negative density range /
+    paper exposure range — like real graded paper.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -284,7 +302,7 @@ def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
         density_range = 1.3  # typical C41 green-channel range
     er = min(max(grade, c["iso_r_min"]), c["iso_r_max"]) / 100.0
     rng = min(max(abs(density_range), 0.3), 3.5)
-    k = np.log(81.0) * rng / er
+    k = sigmoid_span(float(c["paper_toe_nu"])) * rng / er
     return float(min(max(k, c["slope_min"]), c["slope_max"]))
 
 
@@ -300,9 +318,13 @@ def compute_pivot(slope: float, density: float, d_min: float = 0.0) -> float:
 
     c = EXPOSURE_CONSTANTS
     t = c["anchor_target_density"]
+    nu = float(c["paper_toe_nu"])
     # Solve against the projected asymptote (the target sits well below the
-    # Dmax saturation shoulder, so the soft clamp doesn't shift it).
-    base = c["assumed_anchor"] + float(np.log((c["curve_asymptote"] - t) / (t - d_min))) / slope
+    # Dmax saturation shoulder, so the soft clamp doesn't shift it):
+    # sigmoid(slope*(anchor - pivot))^nu == s  =>  pivot = anchor - logit(s^(1/nu))/slope.
+    s = (t - d_min) / (c["curve_asymptote"] - d_min)
+    root = s ** (1.0 / nu)
+    base = c["assumed_anchor"] - float(np.log(root / (1.0 - root))) / slope
     return base + (1.0 - density) * c["density_multiplier"]
 
 

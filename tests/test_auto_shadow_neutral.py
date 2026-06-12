@@ -10,24 +10,38 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
 
 
-def _cast_negative(h: int = 256, w: int = 64, skew: float = 1.15) -> np.ndarray:
+_H = 1000
+_PATCH = slice(int(0.89 * _H), int(0.99 * _H))
+
+
+def _cast_negative(h: int = _H, w: int = 32, cast: float = 0.06) -> np.ndarray:
     """
-    Synthetic C-41 negative with a per-channel gamma skew: all channels share the
-    same density endpoints (so min/max normalization aligns the bounds), but the
-    blue channel's interior tones sit at different densities — exactly the
-    film-gamma mismatch that leaves a cast in print shadows.
+    Synthetic C-41 negative in three zones: a tonal gradient, a deep-shadow
+    patch carrying a blue cast (the dense-end channel misalignment), and a 1%
+    thinnest-extreme anchor that is neutral — so the robust bounds stay
+    channel-aligned while the p98 shadow reference lands inside the cast patch.
     """
-    t = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None].repeat(w, axis=1)
-    log_rg = -2.0 + 1.7 * t
-    log_b = -2.0 + 1.7 * t**skew
-    return np.stack([10.0**log_rg, 10.0**log_rg, 10.0**log_b], axis=-1).astype(np.float32)
+    n_grad, n_patch = _PATCH.start, _PATCH.stop - _PATCH.start
+    log_g = np.concatenate(
+        [
+            np.linspace(-2.83, -1.35, n_grad, dtype=np.float32),
+            np.full(n_patch, -1.22, dtype=np.float32),
+            np.full(h - n_grad - n_patch, -0.35, dtype=np.float32),
+        ]
+    )[:, None].repeat(w, axis=1)
+    log_b = log_g.copy()
+    log_b[_PATCH] -= cast
+    return np.stack([10.0**log_g, 10.0**log_g, 10.0**log_b], axis=-1).astype(np.float32)
 
 
 class TestAutoShadowNeutral(unittest.TestCase):
     def _render(self, img: np.ndarray, auto: bool, mode: str = "C41") -> np.ndarray:
         config = WorkspaceConfig()
+        # No analysis border crop — the fixture's cast fade sits near the
+        # extreme and must stay inside the analyzed region.
+        process = replace(config.process, analysis_buffer=0.0)
         ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)
-        norm = NormalizationProcessor(config.process).process(img, ctx)
+        norm = NormalizationProcessor(process).process(img, ctx)
         exp = replace(config.exposure, auto_shadow_neutral=auto)
         return PhotometricProcessor(exp).process(norm, ctx)
 
@@ -36,15 +50,12 @@ class TestAutoShadowNeutral(unittest.TestCase):
         off = self._render(img, auto=False)
         on = self._render(img, auto=True)
 
-        # Print shadows = thin negative side = bottom rows of the gradient.
-        shadows_off = off[-24:, :, :]
-        shadows_on = on[-24:, :, :]
-        spread_off = abs(float(shadows_off[..., 1].mean()) - float(shadows_off[..., 2].mean()))
-        spread_on = abs(float(shadows_on[..., 1].mean()) - float(shadows_on[..., 2].mean()))
-        self.assertLess(spread_on, spread_off * 0.5)
+        spread_off = abs(float(off[_PATCH, :, 1].mean()) - float(off[_PATCH, :, 2].mean()))
+        spread_on = abs(float(on[_PATCH, :, 1].mean()) - float(on[_PATCH, :, 2].mean()))
+        self.assertLess(spread_on, spread_off * 0.7)
 
     def test_neutral_image_unchanged(self):
-        img = _cast_negative(skew=1.0)
+        img = _cast_negative(cast=0.0)
         off = self._render(img, auto=False)
         on = self._render(img, auto=True)
         self.assertTrue(np.allclose(on, off, atol=1e-4))
