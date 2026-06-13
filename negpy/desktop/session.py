@@ -366,6 +366,7 @@ class DesktopSessionManager(QObject):
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
             ("last_cast_removal", "cast_removal"),
             ("last_paper_dmin", "paper_dmin"),
+            ("last_surround", "surround"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
@@ -403,6 +404,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_auto_normalize_contrast", config.exposure.auto_normalize_contrast)
         self.repo.save_global_setting("last_cast_removal", config.exposure.cast_removal)
         self.repo.save_global_setting("last_paper_dmin", config.exposure.paper_dmin)
+        self.repo.save_global_setting("last_surround", config.exposure.surround)
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)
         self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)

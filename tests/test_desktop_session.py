@@ -57,6 +57,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_auto_normalize_contrast": True,
             "last_cast_removal": False,
             "last_paper_dmin": True,
+            "last_surround": True,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
@@ -64,6 +65,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertTrue(config.exposure.auto_normalize_contrast)
         self.assertFalse(config.exposure.cast_removal)
         self.assertTrue(config.exposure.paper_dmin)
+        self.assertTrue(config.exposure.surround)
 
     def test_processing_toggles_not_applied_to_edited_files(self):
         # only_global=True (file has a sidecar) must not override per-file toggles.
