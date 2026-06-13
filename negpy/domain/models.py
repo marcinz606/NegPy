@@ -21,6 +21,7 @@ logger = get_logger("domain.models")
 MIGRATIONS: Dict[str, str] = {
     "export_border_size": "border_size",
     "export_border_color": "border_color",
+    "crossover": "density_balance",
 }
 
 

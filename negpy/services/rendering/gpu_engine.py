@@ -793,6 +793,7 @@ class GPUEngine:
         )
 
         from negpy.features.exposure.logic import (
+            normalize_refs,
             per_channel_curve_params,
             shadow_neutral_offsets,
         )
@@ -805,18 +806,22 @@ class GPUEngine:
         # only let it move the render when the toggle is on.
         render_anchor = metered_anchor if exp.auto_exposure else None
         lum_range = luminance_density_range(bounds)
-        channel_ranges = (
-            bounds.ceils[0] - bounds.floors[0],
-            bounds.ceils[1] - bounds.floors[1],
-            bounds.ceils[2] - bounds.floors[2],
-        )
+        # Final bounds the shader normalizes with (after WP/BP offsets); shared by
+        # the density-balance shadow refs and auto shadow-neutral, mirroring the CPU path.
+        wp = offset_sign * settings.process.white_point_offset
+        bp = offset_sign * settings.process.black_point_offset
+        adj_floors = (f[0] + wp, f[1] + wp, f[2] + wp)
+        adj_ceils = (c[0] + bp, c[1] + bp, c[2] + bp)
+        shadow_refs_norm = None
+        if shadow_refs is not None:
+            shadow_refs_norm = normalize_refs(shadow_refs, adj_floors, adj_ceils)
         slopes, pivots = per_channel_curve_params(
             exp.grade,
             exp.density,
             exp.auto_normalize_contrast,
-            exp.crossover,
+            exp.density_balance,
             lum_range,
-            channel_ranges,
+            shadow_refs_norm,
             textural_range,
             d_min=d_min,
             anchor=render_anchor,
@@ -825,15 +830,7 @@ class GPUEngine:
 
         auto_sn = (0.0, 0.0, 0.0)
         if shadow_refs is not None:
-            # Same final bounds the shader normalizes with (after WP/BP offsets),
-            # mirroring the CPU path exactly.
-            wp = offset_sign * settings.process.white_point_offset
-            bp = offset_sign * settings.process.black_point_offset
-            auto_sn = shadow_neutral_offsets(
-                shadow_refs,
-                (f[0] + wp, f[1] + wp, f[2] + wp),
-                (c[0] + bp, c[1] + bp, c[2] + bp),
-            )
+            auto_sn = shadow_neutral_offsets(shadow_refs, adj_floors, adj_ceils)
 
         e_data = (
             struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)

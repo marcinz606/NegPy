@@ -4,6 +4,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
+    normalize_refs,
     per_channel_curve_params,
     shadow_neutral_offsets,
 )
@@ -138,20 +139,17 @@ class PhotometricProcessor:
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
         lum_range = context.metrics.get("norm_density_range")
         final_bounds = context.metrics.get("final_bounds")
-        channel_ranges = None
-        if final_bounds is not None:
-            channel_ranges = (
-                final_bounds.ceils[0] - final_bounds.floors[0],
-                final_bounds.ceils[1] - final_bounds.floors[1],
-                final_bounds.ceils[2] - final_bounds.floors[2],
-            )
+        shadow_refs = context.metrics.get("shadow_log_refs")
+        shadow_refs_norm = None
+        if final_bounds is not None and shadow_refs is not None:
+            shadow_refs_norm = normalize_refs(shadow_refs, final_bounds.floors, final_bounds.ceils)
         slopes, pivots = per_channel_curve_params(
             self.config.grade,
             self.config.density,
             self.config.auto_normalize_contrast,
-            self.config.crossover,
+            self.config.density_balance,
             lum_range,
-            channel_ranges,
+            shadow_refs_norm,
             context.metrics.get("textural_range"),
             d_min=d_min,
             anchor=anchor,

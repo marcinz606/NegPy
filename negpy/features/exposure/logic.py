@@ -449,13 +449,33 @@ def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Opti
     return base + (1.0 - density) * c["density_multiplier"]
 
 
+def normalize_refs(
+    refs: Tuple[float, float, float],
+    floors: Tuple[float, float, float],
+    ceils: Tuple[float, float, float],
+) -> Tuple[float, float, float]:
+    """
+    Per-channel reference densities -> normalized [0, 1] position in the same
+    floor->ceil stretch the image is normalized with (matches shadow_neutral_offsets'
+    normalization). Shared by the CPU/GPU/chart call sites so they can't drift.
+    """
+    epsilon = 1e-6
+    out = []
+    for ch in range(3):
+        denom = ceils[ch] - floors[ch]
+        if abs(denom) < epsilon:
+            denom = epsilon if denom >= 0 else -epsilon
+        out.append((refs[ch] - floors[ch]) / denom)
+    return (out[0], out[1], out[2])
+
+
 def per_channel_curve_params(
     grade: float,
     density: float,
     auto_normalize_contrast: bool,
-    crossover: bool,
+    density_balance: bool,
     lum_range: Optional[float],
-    channel_ranges: Optional[Tuple[float, float, float]],
+    shadow_refs_norm: Optional[Tuple[float, float, float]],
     textural_range: Optional[float],
     d_min: float = 0.0,
     anchor: Optional[float] = None,
@@ -465,39 +485,50 @@ def per_channel_curve_params(
     of truth shared by the CPU processor, the GPU uniform packer, and the chart,
     so the three can never drift apart.
 
-    Crossover off (or no measured ranges): all three channels get the same base
-    slope/pivot — identical to the legacy single-curve path. Crossover on: each
-    channel's effective grade range is scaled toward its own measured negative
-    density range (the physical per-layer gamma of this scan) by
-    crossover_strength, and its pivot is solved independently so the metered
-    anchor still prints at anchor_target_density on every channel — the midtone
-    stays neutral and the layers diverge only in the toe/shoulder (the crossover).
+    Density balance off (or no shadow refs — E6/B&W): all three channels get the
+    same base slope/pivot, identical to the legacy single-curve path.
+
+    Density balance on: a research-correct two-point per-channel gray balance.
+    Each layer of a colour negative has its own gamma, so balancing only the
+    midtone leaves the rest of the scale tinted (colour crossover). We pin TWO
+    neutrals per channel: the midtone anchor (via compute_pivot, prints at
+    anchor_target_density) and the measured shadow reference (must print at the
+    reference/green channel's shadow density). With the Richards core
+    slope*(x - pivot) = g(D) and g() channel-independent, eliminating the pivot
+    gives a closed form:
+
+        slope_ch = slope_green * (anchor - r_green) / (anchor - r_ch)
+
+    where r_* are the normalized shadow refs. Green keeps the grade-derived slope.
+    Both neutrals then read equal-RGB, so the channels are parallel through the
+    neutral axis -> grays stay neutral across the range (crossover removed).
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
+    c = EXPOSURE_CONSTANTS
     r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
     base_slope = grade_to_slope(grade, r_eff)
 
-    use_crossover = (
-        crossover
-        and r_eff is not None
-        and lum_range is not None
-        and channel_ranges is not None
-        and abs(float(lum_range)) > 1e-6
-    )
-    if not use_crossover:
+    if not density_balance or shadow_refs_norm is None:
         base_pivot = compute_pivot(base_slope, density, d_min=d_min, anchor=anchor)
         return (base_slope, base_slope, base_slope), (base_pivot, base_pivot, base_pivot)
 
-    strength = float(EXPOSURE_CONSTANTS["crossover_strength"])
-    r_eff_f = float(r_eff)
-    lum = abs(float(lum_range))
+    epsilon = 1e-6
+    anchor_val = float(c["assumed_anchor"]) if anchor is None else float(anchor)
+    slope_min = float(c["slope_min"])
+    slope_max = float(c["slope_max"])
+    r_green = float(shadow_refs_norm[1])
+    numer = anchor_val - r_green
+
     slopes = []
     pivots = []
     for ch in range(3):
-        ratio = abs(float(channel_ranges[ch])) / lum
-        r_ch = r_eff_f * (1.0 + strength * (ratio - 1.0))
-        slope_ch = grade_to_slope(grade, r_ch)
+        denom = anchor_val - float(shadow_refs_norm[ch])
+        if ch == 1 or abs(denom) < epsilon:
+            slope_ch = base_slope
+        else:
+            slope_ch = base_slope * numer / denom
+            slope_ch = min(max(slope_ch, slope_min), slope_max)
         slopes.append(slope_ch)
         pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor))
     return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])

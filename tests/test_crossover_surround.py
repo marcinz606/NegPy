@@ -11,50 +11,57 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.kernel.image.validation import ensure_image
 
 
-class TestCrossover(unittest.TestCase):
+class TestDensityBalance(unittest.TestCase):
     """
-    Per-channel color crossover: each channel's slope is scaled toward its own
-    measured negative density range, with the pivot solved per channel so the
-    metered anchor still prints neutral.
+    Per-channel density balance: a two-point gray balance. Each channel's slope is
+    solved so its measured shadow reference prints at the green channel's shadow
+    density, while compute_pivot keeps the midtone anchor neutral — so both
+    neutrals read equal-RGB and grays stay neutral across the range (crossover
+    removed). shadow_refs_norm are per-channel shadow positions in normalized [0,1].
     """
 
     def test_off_collapses_to_single_curve(self):
-        s, p = per_channel_curve_params(
-            115.0, 1.0, True, False, 1.4, (1.3, 1.4, 1.5), 0.7, d_min=0.06, anchor=0.46
-        )
+        s, p = per_channel_curve_params(115.0, 1.0, True, False, 1.4, (0.85, 0.80, 0.75), 0.7, d_min=0.06, anchor=0.46)
         self.assertEqual(s[0], s[1])
         self.assertEqual(s[1], s[2])
         self.assertEqual(p[0], p[1])
         self.assertEqual(p[1], p[2])
 
-    def test_on_diverges_with_measured_ranges(self):
-        s, p = per_channel_curve_params(
-            115.0, 1.0, True, True, 1.4, (1.3, 1.4, 1.5), 0.7, d_min=0.06, anchor=0.46
-        )
-        # Distinct per-channel ranges -> distinct slopes/pivots.
-        self.assertGreater(max(s) - min(s), 1e-4)
-        self.assertGreater(max(p) - min(p), 1e-4)
+    def test_no_refs_collapses_to_single_curve(self):
+        # E6 / B&W: no shadow refs -> behaves like off.
+        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, None, 0.7, d_min=0.06, anchor=0.46)
+        self.assertEqual(s[0], s[1])
+        self.assertEqual(s[1], s[2])
 
-    def test_equal_ranges_stay_neutral_even_on(self):
-        s, p = per_channel_curve_params(
-            115.0, 1.0, True, True, 1.4, (1.4, 1.4, 1.4), 0.7, d_min=0.06, anchor=0.46
-        )
+    def test_equal_refs_stay_neutral_even_on(self):
+        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, (0.80, 0.80, 0.80), 0.7, d_min=0.06, anchor=0.46)
         self.assertAlmostEqual(s[0], s[2], places=6)
         self.assertAlmostEqual(p[0], p[2], places=6)
 
-    def test_midtone_prints_neutral_under_crossover(self):
+    def test_mismatched_refs_diverge_slopes(self):
+        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, (0.85, 0.80, 0.72), 0.7, d_min=0.06, anchor=0.46)
+        self.assertGreater(max(s) - min(s), 1e-4)
+        # Green keeps the base slope (reference channel).
+        s_off, _ = per_channel_curve_params(115.0, 1.0, True, False, 1.4, (0.85, 0.80, 0.72), 0.7, d_min=0.06, anchor=0.46)
+        self.assertAlmostEqual(s[1], s_off[1], places=6)
+
+    def test_two_neutrals_print_neutral(self):
         anchor = 0.46
-        s, p = per_channel_curve_params(
-            115.0, 1.0, True, True, 1.4, (1.2, 1.4, 1.6), 0.7, d_min=0.06, anchor=anchor
-        )
-        densities = []
+        refs = (0.85, 0.80, 0.72)
+        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, refs, 0.7, d_min=0.06, anchor=anchor)
+        anchor_d = []
+        shadow_d = []
         for ch in range(3):
             curve = LogisticSigmoid(contrast=s[ch], pivot=p[ch], d_min=0.06)
-            densities.append(float(curve(ensure_image(np.array([anchor])))[0]))
-        # All three channels print the anchor tone at the same density => neutral.
-        self.assertAlmostEqual(densities[0], densities[1], places=4)
-        self.assertAlmostEqual(densities[1], densities[2], places=4)
-        self.assertAlmostEqual(densities[0], EXPOSURE_CONSTANTS["anchor_target_density"], places=3)
+            anchor_d.append(float(curve(ensure_image(np.array([anchor])))[0]))
+            shadow_d.append(float(curve(ensure_image(np.array([refs[ch]])))[0]))
+        # Midtone neutral: every channel prints the anchor at anchor_target_density.
+        for d in anchor_d:
+            self.assertAlmostEqual(d, EXPOSURE_CONSTANTS["anchor_target_density"], places=3)
+        # Shadow neutral: every channel's shadow ref prints at the SAME density
+        # (the green channel's), so the shadow is neutral too.
+        self.assertAlmostEqual(shadow_d[0], shadow_d[1], places=3)
+        self.assertAlmostEqual(shadow_d[1], shadow_d[2], places=3)
 
 
 class TestSurroundGamma(unittest.TestCase):
@@ -67,9 +74,7 @@ class TestSurroundGamma(unittest.TestCase):
     def test_identity_is_no_op(self):
         img = np.random.default_rng(0).random((8, 8, 3)).astype(np.float32)
         a = apply_characteristic_curve(img, (0.4, 5.0), (0.4, 5.0), (0.4, 5.0), d_min=0.06)
-        b = apply_characteristic_curve(
-            img, (0.4, 5.0), (0.4, 5.0), (0.4, 5.0), d_min=0.06, surround_gamma=1.0
-        )
+        b = apply_characteristic_curve(img, (0.4, 5.0), (0.4, 5.0), (0.4, 5.0), d_min=0.06, surround_gamma=1.0)
         self.assertTrue(np.allclose(np.asarray(a), np.asarray(b)))
 
     def test_paper_white_invariant(self):

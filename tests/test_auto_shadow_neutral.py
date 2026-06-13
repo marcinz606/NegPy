@@ -100,5 +100,39 @@ class TestAutoShadowNeutral(unittest.TestCase):
         self.assertFalse(restored.exposure.auto_shadow_neutral)
 
 
+class TestDensityBalanceIntegration(unittest.TestCase):
+    """End-to-end: density balance neutralizes a per-channel shadow cast via slope."""
+
+    def _render(self, img: np.ndarray, density_balance: bool, mode: str = "C41") -> np.ndarray:
+        config = WorkspaceConfig()
+        process = replace(config.process, analysis_buffer=0.0)
+        ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)
+        norm = NormalizationProcessor(process).process(img, ctx)
+        # Isolate density balance from the translation-based shadow-neutral.
+        exp = replace(config.exposure, auto_shadow_neutral=False, density_balance=density_balance)
+        return PhotometricProcessor(exp).process(norm, ctx)
+
+    def test_cast_shrinks_in_print_shadows(self):
+        img = _cast_negative()
+        off = self._render(img, density_balance=False)
+        on = self._render(img, density_balance=True)
+        spread_off = abs(float(off[_PATCH, :, 1].mean()) - float(off[_PATCH, :, 2].mean()))
+        spread_on = abs(float(on[_PATCH, :, 1].mean()) - float(on[_PATCH, :, 2].mean()))
+        self.assertLess(spread_on, spread_off * 0.7)
+
+    def test_neutral_image_unchanged(self):
+        img = _cast_negative(cast=0.0)
+        off = self._render(img, density_balance=False)
+        on = self._render(img, density_balance=True)
+        self.assertTrue(np.allclose(on, off, atol=1e-4))
+
+    def test_e6_mode_noop(self):
+        # E6 measures no shadow refs -> density balance falls back to single curve.
+        img = _cast_negative()
+        off = self._render(img, density_balance=False, mode="E6")
+        on = self._render(img, density_balance=True, mode="E6")
+        self.assertTrue(np.allclose(on, off, atol=1e-6))
+
+
 if __name__ == "__main__":
     unittest.main()

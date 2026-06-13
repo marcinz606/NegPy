@@ -127,11 +127,12 @@ class ExposureSidebar(BaseSidebar):
             "Flare: veiling-glare floor that lifts the deepest print blacks and softens the toe "
             "(film look) while leaving paper white fixed",
         )
-        self.crossover_btn = self._icon_toggle(
+        self.density_balance_btn = self._icon_toggle(
             "fa5s.palette",
-            conf.crossover,
-            "Color Crossover: give each layer its own measured contrast, so shadows and highlights "
-            "drift in complementary hues (the signature film look) while the midtone stays neutral",
+            conf.density_balance,
+            "Density Balance: per-channel gray balance from two measured neutrals (midtone + "
+            "shadow), so grays stay neutral across the whole range — removes per-layer color "
+            "crossover instead of adding it",
         )
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
@@ -139,7 +140,7 @@ class ExposureSidebar(BaseSidebar):
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.toe_slider.setToolTip("Shadow toe lift: positive raises shadows, negative deepens blacks")
         toe_row.addWidget(self.flare_btn)
-        toe_row.addWidget(self.crossover_btn)
+        toe_row.addWidget(self.density_balance_btn)
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         self.layout.addLayout(toe_row)
@@ -221,8 +222,10 @@ class ExposureSidebar(BaseSidebar):
         self.flare_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, flare=checked)
         )
-        self.crossover_btn.toggled.connect(
-            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, crossover=checked)
+        self.density_balance_btn.toggled.connect(
+            lambda checked: self.update_config_section(
+                "exposure", render=True, persist=True, readback_metrics=True, density_balance=checked
+            )
         )
         self.surround_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, surround=checked)
@@ -356,7 +359,7 @@ class ExposureSidebar(BaseSidebar):
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.flare_btn.setChecked(conf.flare)
-            self.crossover_btn.setChecked(conf.crossover)
+            self.density_balance_btn.setChecked(conf.density_balance)
             self.surround_btn.setChecked(conf.surround)
             self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
             self.auto_density_btn.setChecked(conf.auto_exposure)
@@ -385,7 +388,7 @@ class ExposureSidebar(BaseSidebar):
             self.sh_w_slider,
             self.paper_dmin_btn,
             self.flare_btn,
-            self.crossover_btn,
+            self.density_balance_btn,
             self.surround_btn,
             self.auto_neutral_btn,
             self.auto_density_btn,

@@ -215,6 +215,7 @@ class SessionPanel(QWidget):
             compute_pivot,
             effective_grade_range,
             grade_to_slope,
+            normalize_refs,
             per_channel_curve_params,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -233,23 +234,20 @@ class SessionPanel(QWidget):
         pivot = compute_pivot(slope, config.density, d_min=d_min, anchor=anchor)
 
         # Per-channel slope/pivot via the shared helper, so the plotted R/G/B
-        # traces match the render exactly (and collapse to one when crossover off).
+        # traces match the render exactly (collapse to one when density balance off).
         # CPU pipeline stores "final_bounds"; the GPU pipeline stores "log_bounds".
         bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
-        channel_ranges = None
-        if bounds is not None:
-            channel_ranges = (
-                bounds.ceils[0] - bounds.floors[0],
-                bounds.ceils[1] - bounds.floors[1],
-                bounds.ceils[2] - bounds.floors[2],
-            )
+        shadow_refs = metrics.get("shadow_log_refs")
+        shadow_refs_norm = None
+        if bounds is not None and shadow_refs is not None:
+            shadow_refs_norm = normalize_refs(shadow_refs, bounds.floors, bounds.ceils)
         slopes, pivots = per_channel_curve_params(
             config.grade,
             config.density,
             config.auto_normalize_contrast,
-            config.crossover,
+            config.density_balance,
             metrics.get("norm_density_range"),
-            channel_ranges,
+            shadow_refs_norm,
             metrics.get("textural_range"),
             d_min=d_min,
             anchor=anchor,

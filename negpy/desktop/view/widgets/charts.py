@@ -236,7 +236,7 @@ class PhotometricCurveWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(40)
         self._curve_pts: list[tuple[float, float]] = []
-        # Per-channel (color, points) traces, populated only when crossover
+        # Per-channel (color, points) traces, populated only when density balance
         # diverges the channels; empty → the single white curve is drawn.
         self._channel_curves: list[tuple[QColor, list[tuple[float, float]]]] = []
         self._pivot_pt: tuple[float, float] | None = None
@@ -305,16 +305,14 @@ class PhotometricCurveWidget(QWidget):
         # Base (white) reference curve — also the fill/pivot/zone geometry.
         self._curve_pts = _curve_points(slope, pivot)
 
-        # Per-channel traces only when crossover actually diverges the channels;
+        # Per-channel traces only when density balance actually diverges the channels;
         # otherwise the single white curve preserves the current look.
         self._channel_curves = []
         if slopes is not None and pivots is not None:
             diverged = (max(slopes) - min(slopes) > 1e-9) or (max(pivots) - min(pivots) > 1e-9)
             if diverged:
                 ch_colors = (QColor(255, 90, 90), QColor(90, 220, 120), QColor(95, 150, 255))
-                self._channel_curves = [
-                    (ch_colors[ch], _curve_points(slopes[ch], pivots[ch])) for ch in range(3)
-                ]
+                self._channel_curves = [(ch_colors[ch], _curve_points(slopes[ch], pivots[ch])) for ch in range(3)]
 
         # Toe/shoulder masks for zone shading (same formula as LogisticSigmoid)
         diff = x_log_exp - pivot
@@ -400,7 +398,7 @@ class PhotometricCurveWidget(QWidget):
             zx = int(self._wx(i * 0.1, w))
             painter.drawLine(zx, h - 5, zx, h - 1)
 
-        # Curve line (drawn after fills so it sits on top). With crossover the
+        # Curve line (drawn after fills so it sits on top). With density balance the
         # three per-channel traces replace the single white line; they converge
         # at the pivot and fan apart in the toe/shoulder.
         painter.setBrush(Qt.BrushStyle.NoBrush)

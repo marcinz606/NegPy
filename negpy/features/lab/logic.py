@@ -5,6 +5,7 @@ import numpy as np
 from numba import njit  # type: ignore
 
 from negpy.domain.types import ImageBuffer
+from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -35,7 +36,7 @@ def apply_clahe(img: ImageBuffer, strength: float, scale_factor: float = 1.0) ->
     if strength <= 0:
         return img
 
-    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+    lab = rgb_to_lab_working(img)
     l_chan, a, b = cv2.split(lab)
 
     l_u16 = (l_chan * (65535.0 / 100.0)).astype(np.uint16)
@@ -50,7 +51,7 @@ def apply_clahe(img: ImageBuffer, strength: float, scale_factor: float = 1.0) ->
     l_final = l_chan * (1.0 - strength) + l_enhanced * strength
 
     lab_enhanced = cv2.merge([l_final, a, b])
-    res = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2RGB)
+    res = lab_to_rgb_working(lab_enhanced)
 
     return ensure_image(np.clip(res, 0.0, 1.0))
 
@@ -88,7 +89,7 @@ def apply_output_sharpening(img: ImageBuffer, amount: float, scale_factor: float
     if amount <= 0:
         return img
 
-    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    lab = rgb_to_lab_working(img.astype(np.float32))
     l_chan, a, b = cv2.split(lab)
 
     k_size = max(3, int(5 * scale_factor) | 1)
@@ -103,7 +104,7 @@ def apply_output_sharpening(img: ImageBuffer, amount: float, scale_factor: float
     )
 
     res_lab = cv2.merge([l_sharpened, a, b])
-    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
+    res_rgb = lab_to_rgb_working(res_lab)
 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
@@ -117,12 +118,12 @@ def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:
     if saturation == 1.0:
         return img
 
-    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    lab = rgb_to_lab_working(img.astype(np.float32))
     l_chan, a, b = cv2.split(lab)
     a_new = a * saturation
     b_new = b * saturation
     res_lab = cv2.merge([l_chan, a_new, b_new])
-    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
+    res_rgb = lab_to_rgb_working(res_lab)
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 
@@ -133,7 +134,7 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     if radius <= 0:
         return img
 
-    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    lab = rgb_to_lab_working(img.astype(np.float32))
     l_chan, a, b = cv2.split(lab)
 
     k_radius = radius * scale_factor
@@ -144,7 +145,7 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     b_blur = cv2.GaussianBlur(b, (k_size, k_size), sigma)
 
     res_lab = cv2.merge([l_chan, a_blur, b_blur])
-    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
+    res_rgb = lab_to_rgb_working(res_lab)
 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
@@ -199,7 +200,7 @@ def apply_vibrance(img: ImageBuffer, strength: float) -> ImageBuffer:
     if strength == 1.0:
         return img
 
-    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
+    lab = rgb_to_lab_working(img.astype(np.float32))
     l_chan, a, b = cv2.split(lab)
 
     chroma = np.sqrt(a**2 + b**2)
@@ -210,6 +211,6 @@ def apply_vibrance(img: ImageBuffer, strength: float) -> ImageBuffer:
     b_new = b * (1.0 + boost)
 
     res_lab = cv2.merge([l_chan, a_new, b_new])
-    res_rgb = cv2.cvtColor(res_lab, cv2.COLOR_LAB2RGB)
+    res_rgb = lab_to_rgb_working(res_lab)
 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))

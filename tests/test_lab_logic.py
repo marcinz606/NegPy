@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
 import cv2
+from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_clahe,
@@ -47,33 +48,33 @@ class TestLabLogic(unittest.TestCase):
 
     def test_saturation(self) -> None:
         """Saturation scales chroma in CIELAB — preserves L*, no V-style darkening."""
-        # Pure Red (1, 0, 0). L* ≈ 53.
+        # Pure Red (1, 0, 0). L* measured in the working space (Adobe RGB CIELAB).
         img = np.zeros((10, 10, 3), dtype=np.float32)
         img[:, :, 0] = 1.0
-        l_input = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)[0, 0, 0]
+        l_input = rgb_to_lab_working(img)[0, 0, 0]
 
         # Desaturate fully → mid-gray (R≈G≈B) at the same L*.
         desat = apply_saturation(img, 0.0)
         r, g, b = float(desat[0, 0, 0]), float(desat[0, 0, 1]), float(desat[0, 0, 2])
         self.assertAlmostEqual(r, g, delta=1e-3)
         self.assertAlmostEqual(g, b, delta=1e-3)
-        # Pure red has L* ≈ 53 → sRGB gray ≈ 0.5, NOT white.
+        # Pure red is a midtone gray after desaturation, NOT white.
         self.assertLess(r, 0.7)
         self.assertGreater(r, 0.3)
-        l_desat = cv2.cvtColor(desat, cv2.COLOR_RGB2LAB)[0, 0, 0]
+        l_desat = rgb_to_lab_working(desat)[0, 0, 0]
         self.assertAlmostEqual(float(l_desat), float(l_input), delta=1.0)
 
         # Saturate pale red (0.8, 0.5, 0.5) × 2.0 → still red-dominant, L* preserved
         # (in-gamut input chosen so the result doesn't hit per-channel sRGB clip).
         img2 = np.ones((10, 10, 3), dtype=np.float32) * 0.5
         img2[:, :, 0] = 0.8
-        l_input2 = cv2.cvtColor(img2, cv2.COLOR_RGB2LAB)[0, 0, 0]
+        l_input2 = rgb_to_lab_working(img2)[0, 0, 0]
 
         sat = apply_saturation(img2, 2.0)
         r2, g2, b2 = float(sat[0, 0, 0]), float(sat[0, 0, 1]), float(sat[0, 0, 2])
         self.assertGreater(r2, g2)
         self.assertGreater(r2, b2)
-        l_sat = cv2.cvtColor(sat, cv2.COLOR_RGB2LAB)[0, 0, 0]
+        l_sat = rgb_to_lab_working(sat)[0, 0, 0]
         self.assertAlmostEqual(float(l_sat), float(l_input2), delta=2.0)
 
     def test_saturation_does_not_darken_saturated_red(self) -> None:
@@ -83,9 +84,9 @@ class TestLabLogic(unittest.TestCase):
         img[:, :, 1] = 0.15
         img[:, :, 2] = 0.1
 
-        l_in = float(cv2.cvtColor(img, cv2.COLOR_RGB2LAB)[0, 0, 0])
+        l_in = float(rgb_to_lab_working(img)[0, 0, 0])
         boosted = apply_saturation(img, 1.5)
-        l_out = float(cv2.cvtColor(boosted, cv2.COLOR_RGB2LAB)[0, 0, 0])
+        l_out = float(rgb_to_lab_working(boosted)[0, 0, 0])
 
         # L* must be preserved (or higher after gamut clip pushes toward pure red).
         # HSV path would have dropped L* below input by clamping S=1 with V fixed.
@@ -116,12 +117,12 @@ class TestLabLogic(unittest.TestCase):
 
     def test_chroma_denoise(self) -> None:
         img = np.full((100, 100, 3), 0.5, dtype=np.float32)
-        lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
-        lab[:, :, 1] += np.random.normal(0, 5, (100, 100))
-        img_noisy = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        lab = rgb_to_lab_working(img)
+        lab[:, :, 1] += np.random.normal(0, 5, (100, 100)).astype(np.float32)
+        img_noisy = lab_to_rgb_working(lab)
 
         res = apply_chroma_denoise(img_noisy, radius=2.0)
-        res_lab = cv2.cvtColor(res, cv2.COLOR_RGB2LAB)
+        res_lab = rgb_to_lab_working(res)
 
         np.testing.assert_array_almost_equal(lab[:, :, 0], res_lab[:, :, 0], decimal=0)
         self.assertLess(float(np.var(res_lab[:, :, 1])), float(np.var(lab[:, :, 1])))

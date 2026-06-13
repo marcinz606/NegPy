@@ -26,7 +26,7 @@ class ExposureConfig:
     shoulder_width: float = 2.5
     paper_dmin: bool = True
     flare: bool = False
-    crossover: bool = False
+    density_balance: bool = False
     surround: bool = False
     auto_shadow_neutral: bool = True
     auto_exposure: bool = True
@@ -91,14 +91,6 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # expansion about paper white when the Surround toggle is on
     # (ExposureConfig.surround); 1.0 = identity.
     "target_system_gamma": 1.10,
-    # Per-channel color crossover intensity (ExposureConfig.crossover). Scales
-    # each channel's effective grade range toward its own measured negative
-    # density range (the physical per-layer gamma of this scan): 0 = all channels
-    # share the luminance range (no crossover, exact current behavior), 1 = each
-    # channel prints at its full measured per-layer contrast. The midtone anchor
-    # stays neutral by construction (per-channel pivot solve), so the divergence
-    # appears only as a gentle hue split in the shadows and highlights.
-    "crossover_strength": 0.6,
     "textural_range_clip": 10.0,
     "auto_density_target_offset": 0.0,
     # Veiling-glare / print-flare floor: a uniform light added to print

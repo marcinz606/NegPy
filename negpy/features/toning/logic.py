@@ -1,11 +1,11 @@
 from typing import Dict
 
-import cv2
 import numpy as np
 from numba import njit  # type: ignore
 
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.toning.models import PaperProfileName, PaperSubstrate
+from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -110,8 +110,8 @@ def apply_split_toning(
     if shadow_strength == 0.0 and highlight_strength == 0.0:
         return img
 
-    lab = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_RGB2LAB)
-    L = lab[:, :, 0]  # 0–100 in OpenCV float Lab
+    lab = rgb_to_lab_working(img.astype(np.float32))
+    L = lab[:, :, 0]  # 0–100 CIELAB (Adobe RGB working space)
 
     if shadow_strength > 0.0:
         s_mask = np.clip(1.0 - L / 50.0, 0.0, 1.0)
@@ -125,7 +125,7 @@ def apply_split_toning(
         lab[:, :, 1] += np.cos(rad) * 20.0 * highlight_strength * h_mask
         lab[:, :, 2] += np.sin(rad) * 20.0 * highlight_strength * h_mask
 
-    return ensure_image(np.clip(cv2.cvtColor(lab, cv2.COLOR_LAB2RGB), 0.0, 1.0))
+    return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
 
 
 def apply_chemical_toning(
