@@ -3,7 +3,6 @@ struct ToningUniforms {
     selenium_strength: f32,
     sepia_strength: f32,
     gamma: f32,
-    tint: vec4<f32>,           // rgb + dmax_boost
     crop_offset: vec2<i32>,    // x, y offset in input texture
     is_bw: u32,                // 1 if B&W mode
     pad2: f32,
@@ -126,12 +125,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         color = lab_to_rgb(lab);
-    }
-
-    // 4. Paper Tint / Dmax
-    color = color * params.tint.rgb;
-    if (params.tint.a != 1.0) {
-        color = pow(color, vec3<f32>(params.tint.a));
     }
 
     textureStore(output_tex, coords_out, vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));

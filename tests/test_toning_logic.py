@@ -2,29 +2,12 @@ import unittest
 import cv2
 import numpy as np
 from negpy.features.toning.logic import (
-    simulate_paper_substrate,
     apply_chemical_toning,
     apply_split_toning,
-    PAPER_PROFILES,
 )
 
 
 class TestToningLogic(unittest.TestCase):
-    def test_simulate_paper_substrate_none(self):
-        """Identity check for 'None' profile."""
-        img = np.full((10, 10, 3), 0.5, dtype=np.float32)
-        res = simulate_paper_substrate(img, "None")
-        np.testing.assert_array_almost_equal(img, res)
-
-    def test_simulate_paper_substrate_tint(self):
-        """Verify tint application."""
-        img = np.full((10, 10, 3), 1.0, dtype=np.float32)  # White input
-        res = simulate_paper_substrate(img, "Warm Fiber")
-
-        profile = PAPER_PROFILES["Warm Fiber"]
-        expected_tint = np.array(profile.tint, dtype=np.float32)
-        np.testing.assert_array_almost_equal(res[0, 0], expected_tint, decimal=2)
-
     def test_apply_chemical_toning_selenium(self):
         """Selenium targets shadows (low luma)."""
         # Create a gradient from 0 to 1

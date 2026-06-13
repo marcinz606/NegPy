@@ -1,29 +1,12 @@
 from dataclasses import dataclass
-from enum import StrEnum
-from typing import Tuple
-
-
-class PaperProfileName(StrEnum):
-    NONE = "None"
-    NEUTRAL_RC = "Neutral RC"
-    COOL_GLOSSY = "Cool Glossy"
-    WARM_FIBER = "Warm Fiber"
-
-
-@dataclass
-class PaperSubstrate:
-    name: str
-    tint: Tuple[float, float, float]
-    dmax_boost: float
 
 
 @dataclass(frozen=True)
 class ToningConfig:
     """
-    Paper & Toner params.
+    Toner params.
     """
 
-    paper_profile: PaperProfileName = PaperProfileName.NONE
     selenium_strength: float = 0.0
     sepia_strength: float = 0.0
     shadow_tint_hue: float = 0.0

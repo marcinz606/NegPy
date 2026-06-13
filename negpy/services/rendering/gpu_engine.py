@@ -936,15 +936,7 @@ class GPUEngine:
             + b"\x00" * 20
         )
 
-        from negpy.features.toning.logic import PAPER_PROFILES, PaperProfileName
-
-        prof = settings.toning.paper_profile
-        p_obj = PAPER_PROFILES.get(prof, PAPER_PROFILES[PaperProfileName.NONE])
-        tint, dmax, is_bw = (
-            p_obj.tint,
-            p_obj.dmax_boost,
-            (1 if settings.process.process_mode == ProcessMode.BW else 0),
-        )
+        is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
         t_data = (
             struct.pack(
                 "ffff",
@@ -953,7 +945,6 @@ class GPUEngine:
                 float(settings.toning.sepia_strength),
                 2.2,
             )
-            + struct.pack("ffff", tint[0], tint[1], tint[2], dmax)
             + struct.pack("iiIf", crop_offset[0], crop_offset[1], is_bw, 0.0)
             + struct.pack(
                 "ffff",

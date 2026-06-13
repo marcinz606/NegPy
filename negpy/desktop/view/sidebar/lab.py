@@ -1,8 +1,9 @@
-from PyQt6.QtWidgets import QHBoxLayout
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.features.process.models import ProcessMode
+from negpy.services.assets.crosstalk import CrosstalkProfiles
 
 
 class LabSidebar(BaseSidebar):
@@ -16,9 +17,22 @@ class LabSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("COLOR"))
 
+        matrix_row = QHBoxLayout()
+        self.crosstalk_label = QLabel("Crosstalk Matrix")
+        self.crosstalk_combo = QComboBox()
+        self.crosstalk_combo.addItems(CrosstalkProfiles.list_profiles())
+        self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
+        self.crosstalk_combo.setToolTip(
+            "Crosstalk matrix used by the Crosstalk slider. 'Default' is built-in; "
+            "drop custom .toml matrices in the NegPy/crosstalk folder (see docs/CROSSTALK.md)"
+        )
+        matrix_row.addWidget(self.crosstalk_label, 1)
+        matrix_row.addWidget(self.crosstalk_combo, 1)
+        self.layout.addLayout(matrix_row)
+
         row1 = QHBoxLayout()
-        self.separation_slider = CompactSlider("Separation", 1.0, 2.0, conf.color_separation)
-        self.separation_slider.setToolTip("Color channel separation: amplifies differences between R, G, B channels for richer color")
+        self.separation_slider = CompactSlider("Crosstalk", 1.0, 2.0, conf.color_separation)
+        self.separation_slider.setToolTip("Spectral crosstalk correction: unmixes R, G, B channels for richer color separation")
         self.chroma_denoise_slider = CompactSlider("Denoise", 0.0, 5.0, conf.chroma_denoise)
         self.chroma_denoise_slider.setToolTip("Chroma noise reduction in Lab space — smooths color noise while preserving luminance grain")
         row1.addWidget(self.separation_slider)
@@ -55,6 +69,8 @@ class LabSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
+        self.crosstalk_combo.currentTextChanged.connect(self._on_crosstalk_changed)
+
         self.clahe_slider.valueChanged.connect(
             lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, clahe_strength=v)
         )
@@ -111,12 +127,22 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, halation_strength=v)
         )
 
+    def _on_crosstalk_changed(self, name: str) -> None:
+        matrix = CrosstalkProfiles.get_matrix(name)
+        self.update_config_section("lab", persist=True, crosstalk_profile=name, crosstalk_matrix=matrix)
+
     def sync_ui(self) -> None:
         conf = self.state.config.lab
         is_bw = self.state.config.process.process_mode == ProcessMode.BW
 
         self.block_signals(True)
         try:
+            profiles = CrosstalkProfiles.list_profiles()
+            if profiles != [self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())]:
+                self.crosstalk_combo.clear()
+                self.crosstalk_combo.addItems(profiles)
+            self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
+
             self.clahe_slider.setValue(conf.clahe_strength)
             self.sharpen_slider.setValue(conf.sharpen)
             self.saturation_slider.setValue(conf.saturation)
@@ -127,6 +153,8 @@ class LabSidebar(BaseSidebar):
             self.halation_slider.setValue(conf.halation_strength)
 
             self.separation_slider.setVisible(not is_bw)
+            self.crosstalk_combo.setVisible(not is_bw)
+            self.crosstalk_label.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
             self.vibrance_slider.setVisible(not is_bw)
             self.chroma_denoise_slider.setVisible(not is_bw)
@@ -140,6 +168,7 @@ class LabSidebar(BaseSidebar):
             self.saturation_slider,
             self.vibrance_slider,
             self.separation_slider,
+            self.crosstalk_combo,
             self.chroma_denoise_slider,
             self.glow_slider,
             self.halation_slider,

@@ -110,9 +110,7 @@ class ImageProcessor:
         if not isinstance(buffer, np.ndarray):
             raise ValueError("Direct GPU textures cannot be converted to PIL without readback.")
 
-        is_toned = (
-            settings.toning.selenium_strength != 0.0 or settings.toning.sepia_strength != 0.0 or settings.toning.paper_profile != "None"
-        )
+        is_toned = settings.toning.selenium_strength != 0.0 or settings.toning.sepia_strength != 0.0
         is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 
         if is_bw:

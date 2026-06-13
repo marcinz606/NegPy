@@ -1,0 +1,14 @@
+# NegPy custom spectral-crosstalk matrix.
+# See docs/CROSSTALK.md for how to build one.
+#
+# 3x3, row-major. Each row is an OUTPUT channel (R, G, B).
+# Each column is the contribution from an INPUT channel density (R, G, B).
+# The diagonal stays ~1.0; off-diagonal terms subtract the dye contamination
+# that one layer leaks into another.
+
+name = "Kodak Gold 200 (example)"
+matrix = [
+  [ 1.00, -0.05, -0.02],
+  [-0.04,  1.00, -0.08],
+  [-0.01, -0.10,  1.00],
+]

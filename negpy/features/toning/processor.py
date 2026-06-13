@@ -2,7 +2,7 @@ import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.toning.models import ToningConfig
-from negpy.features.toning.logic import simulate_paper_substrate, apply_chemical_toning, apply_split_toning
+from negpy.features.toning.logic import apply_chemical_toning, apply_split_toning
 from negpy.kernel.image.logic import get_luminance
 from negpy.features.process.models import ProcessMode
 
@@ -20,7 +20,6 @@ class ToningProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
-        img = simulate_paper_substrate(img, self.config.paper_profile)
 
         if context.process_mode == ProcessMode.BW:
             img = apply_chemical_toning(

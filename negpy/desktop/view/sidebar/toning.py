@@ -1,15 +1,14 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider, HueSlider
 from negpy.features.process.models import ProcessMode
-from negpy.features.toning.logic import PAPER_PROFILES
 
 
 class ToningSidebar(BaseSidebar):
     """
-    Panel for chemical toning simulation and paper substrate.
+    Panel for chemical and split toning simulation.
     """
 
     def _init_ui(self) -> None:
@@ -45,18 +44,9 @@ class ToningSidebar(BaseSidebar):
         row_hl.addWidget(self.highlight_str_slider)
         self.layout.addLayout(row_hl)
 
-        self.layout.addWidget(section_subheader("PAPER"))
-
-        self.paper_combo = QComboBox()
-        self.paper_combo.addItems(list(PAPER_PROFILES.keys()))
-        self.paper_combo.setCurrentText(conf.paper_profile)
-        self.paper_combo.setToolTip("Paper substrate profile — warm-tone, neutral, or cool-tone baseline applied before other toning")
-        self.layout.addWidget(self.paper_combo)
-
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.paper_combo.currentTextChanged.connect(lambda v: self.update_config_section("toning", persist=True, paper_profile=v))
         self.selenium_slider.valueChanged.connect(
             lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, selenium_strength=v)
         )
@@ -100,7 +90,6 @@ class ToningSidebar(BaseSidebar):
 
         self.block_signals(True)
         try:
-            self.paper_combo.setCurrentText(conf.paper_profile)
             self.selenium_slider.setValue(conf.selenium_strength)
             self.sepia_slider.setValue(conf.sepia_strength)
             self.shadow_hue_slider.setValue(conf.shadow_tint_hue)
@@ -115,7 +104,6 @@ class ToningSidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         widgets = [
-            self.paper_combo,
             self.selenium_slider,
             self.sepia_slider,
             self.shadow_hue_slider,

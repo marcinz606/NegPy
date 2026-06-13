@@ -14,7 +14,7 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.features.retouch.models import RetouchConfig
-from negpy.features.toning.models import PaperProfileName, ToningConfig
+from negpy.features.toning.models import ToningConfig
 from negpy.kernel.system.paths import get_default_user_dir, get_resource_path
 
 BASE_USER_DIR = get_default_user_dir()
@@ -28,6 +28,7 @@ APP_CONFIG = AppConfig(
     presets_dir=os.path.join(BASE_USER_DIR, "presets"),
     cache_dir=os.path.join(BASE_USER_DIR, "cache"),
     user_icc_dir=os.path.join(BASE_USER_DIR, "icc"),
+    crosstalk_dir=os.path.join(BASE_USER_DIR, "crosstalk"),
     default_export_dir=os.path.join(BASE_USER_DIR, "export"),
     adobe_rgb_profile=get_resource_path("icc/AdobeCompat-v4.icc"),
     use_gpu=True,
@@ -65,7 +66,6 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         sharpen=0.25,
     ),
     toning=ToningConfig(
-        paper_profile=PaperProfileName.NONE,
         selenium_strength=0.0,
         sepia_strength=0.0,
     ),

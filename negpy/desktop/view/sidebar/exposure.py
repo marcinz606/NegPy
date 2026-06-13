@@ -220,9 +220,7 @@ class ExposureSidebar(BaseSidebar):
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_dmin=checked)
         )
         self.cast_removal_btn.toggled.connect(
-            lambda checked: self.update_config_section(
-                "exposure", render=True, persist=True, readback_metrics=True, cast_removal=checked
-            )
+            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, cast_removal=checked)
         )
         self.flare_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, flare=checked)

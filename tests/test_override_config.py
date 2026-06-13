@@ -28,6 +28,7 @@ def _make_app_config(**kwargs) -> AppConfig:
         presets_dir="/tmp/presets",
         cache_dir="/tmp/cache",
         user_icc_dir="/tmp/icc",
+        crosstalk_dir="/tmp/crosstalk",
         default_export_dir="/tmp/export",
         adobe_rgb_profile="/tmp/adobe.icc",
         override_toml_path="/tmp/override.toml",

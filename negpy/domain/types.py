@@ -34,6 +34,7 @@ class AppConfig:
     presets_dir: str
     cache_dir: str
     user_icc_dir: str
+    crosstalk_dir: str
     default_export_dir: str
     adobe_rgb_profile: str
     use_gpu: bool = True

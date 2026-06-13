@@ -466,7 +466,6 @@ class ControlsPanel(QWidget):
         ton = cfg.toning
         toning_count = sum(
             [
-                ton.paper_profile != _ton.paper_profile,
                 ton.selenium_strength != _ton.selenium_strength,
                 ton.sepia_strength != _ton.sepia_strength,
                 ton.shadow_tint_hue != _ton.shadow_tint_hue,

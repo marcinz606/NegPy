@@ -137,9 +137,7 @@ class PhotometricProcessor:
         d_min = EXPOSURE_CONSTANTS["d_min"] if self.config.paper_dmin else 0.0
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
         lum_range = context.metrics.get("norm_density_range")
-        shadow_refs_norm = normalized_shadow_refs(
-            context.metrics.get("final_bounds"), context.metrics.get("shadow_log_refs")
-        )
+        shadow_refs_norm = normalized_shadow_refs(context.metrics.get("final_bounds"), context.metrics.get("shadow_log_refs"))
         slopes, pivots = per_channel_curve_params(
             self.config.grade,
             self.config.density,

@@ -27,7 +27,6 @@ class Presets:
             "manual_dust_spots",
             "local_adjustments",
             "active_adjustment_idx",
-            "crosstalk_matrix",
             "export_path",
             "icc_input_path",
             "icc_output_path",

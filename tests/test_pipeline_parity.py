@@ -347,14 +347,6 @@ class TestToningParity:
     def test_default_config(self):
         self._run_and_compare(_make_base_settings())
 
-    def test_warm_fiber_paper(self):
-        s = replace(_make_base_settings(), toning=ToningConfig(paper_profile="Warm Fiber"))
-        self._run_and_compare(s)
-
-    def test_cool_glossy_paper(self):
-        s = replace(_make_base_settings(), toning=ToningConfig(paper_profile="Cool Glossy"))
-        self._run_and_compare(s)
-
     def test_split_toning_shadows(self):
         s = replace(
             _make_base_settings(),
