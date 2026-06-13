@@ -186,7 +186,8 @@ class LogisticSigmoid:
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
-        self.flare = float(EXPOSURE_CONSTANTS["flare_fraction"]) if flare is None else float(flare)
+        # Off by default; gated callers pass EXPOSURE_CONSTANTS["flare_fraction"].
+        self.flare = 0.0 if flare is None else float(flare)
         self.k = contrast
         self.x0 = pivot
         # L is the projected (virtual) asymptote; d_max is the physical paper
@@ -290,7 +291,8 @@ def apply_characteristic_curve(
         asymptote=float(EXPOSURE_CONSTANTS["curve_asymptote"]),
         shoulder_beta=float(EXPOSURE_CONSTANTS["dmax_shoulder"]),
         nu=float(EXPOSURE_CONSTANTS["paper_toe_nu"]),
-        flare=float(EXPOSURE_CONSTANTS["flare_fraction"]) if flare is None else float(flare),
+        # Off by default; gated callers pass EXPOSURE_CONSTANTS["flare_fraction"].
+        flare=0.0 if flare is None else float(flare),
         mode=mode,
     )
 

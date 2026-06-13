@@ -275,6 +275,7 @@ class PhotometricCurveWidget(QWidget):
             toe_width=params.toe_width,
             shoulder=params.shoulder,
             shoulder_width=params.shoulder_width,
+            flare=EXPOSURE_CONSTANTS["flare_fraction"] if params.flare else 0.0,
         )
 
         n = 300

@@ -65,6 +65,13 @@ class ExposureSidebar(BaseSidebar):
         self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
         self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
 
+        self.auto_neutral_btn = self._icon_toggle(
+            "fa5s.adjust",
+            conf.auto_shadow_neutral,
+            "Shadow Neutral: neutralize the residual color cast in the deepest print shadows — like "
+            "filtration printing film base+fog to a neutral black (C-41 only)",
+        )
+
         self.linear_raw_btn = QPushButton(" Linear RAW")
         self.linear_raw_btn.setCheckable(True)
         self.linear_raw_btn.setChecked(conf.linear_raw)
@@ -75,6 +82,7 @@ class ExposureSidebar(BaseSidebar):
         )
 
         wb_btn_row.addWidget(self.pick_wb_btn)
+        wb_btn_row.addWidget(self.auto_neutral_btn)
         wb_btn_row.addWidget(self.linear_raw_btn)
         self.layout.addLayout(wb_btn_row)
 
@@ -110,18 +118,18 @@ class ExposureSidebar(BaseSidebar):
         grade_row.addWidget(self.grade_slider)
         self.layout.addLayout(grade_row)
 
-        self.auto_neutral_btn = self._icon_toggle(
-            "fa5s.adjust",
-            conf.auto_shadow_neutral,
-            "Shadow Neutral: neutralize the residual color cast in the deepest print shadows — like "
-            "filtration printing film base+fog to a neutral black (C-41 only)",
+        self.flare_btn = self._icon_toggle(
+            "fa5s.sun",
+            conf.flare,
+            "Flare: veiling-glare floor that lifts the deepest print blacks and softens the toe "
+            "(film look) while leaving paper white fixed",
         )
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_slider.setToolTip("Width of the shadow toe transition zone")
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.toe_slider.setToolTip("Shadow toe lift: positive raises shadows, negative deepens blacks")
-        toe_row.addWidget(self.auto_neutral_btn)
+        toe_row.addWidget(self.flare_btn)
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         self.layout.addLayout(toe_row)
@@ -192,6 +200,9 @@ class ExposureSidebar(BaseSidebar):
             lambda checked: self.update_config_section(
                 "exposure", render=True, persist=True, readback_metrics=True, auto_shadow_neutral=checked
             )
+        )
+        self.flare_btn.toggled.connect(
+            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, flare=checked)
         )
         self.auto_density_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, auto_exposure=checked)
@@ -321,6 +332,7 @@ class ExposureSidebar(BaseSidebar):
             self.sh_w_slider.setValue(conf.shoulder_width)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
+            self.flare_btn.setChecked(conf.flare)
             self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
             self.auto_density_btn.setChecked(conf.auto_exposure)
             self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
@@ -347,6 +359,7 @@ class ExposureSidebar(BaseSidebar):
             self.sh_slider,
             self.sh_w_slider,
             self.paper_dmin_btn,
+            self.flare_btn,
             self.auto_neutral_btn,
             self.auto_density_btn,
             self.auto_grade_btn,

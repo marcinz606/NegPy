@@ -199,6 +199,7 @@ class PhotometricProcessor:
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
             d_min=d_min,
+            flare=EXPOSURE_CONSTANTS["flare_fraction"] if self.config.flare else 0.0,
             mode=mode_val,
         )
 

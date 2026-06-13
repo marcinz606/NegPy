@@ -25,6 +25,7 @@ class ExposureConfig:
     shoulder: float = 0.0
     shoulder_width: float = 2.5
     paper_dmin: bool = True
+    flare: bool = False
     auto_shadow_neutral: bool = True
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
@@ -92,6 +93,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Veiling-glare / print-flare floor: a uniform light added to print
     # reflectance, out = (r + f) / (1 + f) with r normalized to paper white.
     # Lifts the deepest blacks and softens the toe (film look) while leaving
-    # paper white fixed; 0.0 = off (no change). Classic order ~0.005-0.02.
-    "flare_fraction": 0.0,
+    # paper white fixed. The amount applied when the Flare toggle is on
+    # (ExposureConfig.flare); classic order ~0.005-0.02.
+    "flare_fraction": 0.01,
 }

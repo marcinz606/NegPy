@@ -865,7 +865,7 @@ class GPUEngine:
                 EXPOSURE_CONSTANTS["paper_toe_nu"],
             )
             # flare (veiling-glare floor) + 2 pad floats; mirrors the CPU kernel.
-            + struct.pack("f", float(EXPOSURE_CONSTANTS["flare_fraction"]))
+            + struct.pack("f", float(EXPOSURE_CONSTANTS["flare_fraction"]) if exp.flare else 0.0)
             + b"\x00" * 8
         )
 
