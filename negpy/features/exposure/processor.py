@@ -4,7 +4,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
-    normalize_refs,
+    normalized_shadow_refs,
     per_channel_curve_params,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
@@ -137,11 +137,9 @@ class PhotometricProcessor:
         d_min = EXPOSURE_CONSTANTS["d_min"] if self.config.paper_dmin else 0.0
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
         lum_range = context.metrics.get("norm_density_range")
-        final_bounds = context.metrics.get("final_bounds")
-        shadow_refs = context.metrics.get("shadow_log_refs")
-        shadow_refs_norm = None
-        if final_bounds is not None and shadow_refs is not None:
-            shadow_refs_norm = normalize_refs(shadow_refs, final_bounds.floors, final_bounds.ceils)
+        shadow_refs_norm = normalized_shadow_refs(
+            context.metrics.get("final_bounds"), context.metrics.get("shadow_log_refs")
+        )
         slopes, pivots = per_channel_curve_params(
             self.config.grade,
             self.config.density,
@@ -160,8 +158,7 @@ class PhotometricProcessor:
             self.config.wb_magenta * cmy_max,
             self.config.wb_yellow * cmy_max,
         )
-        # Manual shadow CMY only; the automatic neutralization is now handled by
-        # Cast Removal as a per-channel slope balance (per_channel_curve_params).
+        # Manual shadow CMY only; auto neutralization is Cast Removal (slope balance).
         shadow_cmy = (
             self.config.shadow_cyan * cmy_max,
             self.config.shadow_magenta * cmy_max,

@@ -108,13 +108,8 @@ def srgb_to_linear(img: np.ndarray) -> np.ndarray:
     return np.where(img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
 
-# CIELAB in the pipeline's working color space (Adobe RGB 1998, D65). The image is
-# sRGB-OETF-encoded (the photometric kernel ends with _srgb_oetf) but in Adobe RGB
-# primaries, so we linearize with the sRGB transfer (matches the encoding) and use the
-# Adobe RGB <-> XYZ matrices for the tristimulus. This mirrors the GPU rgb_to_lab/lab_to_rgb
-# in lab.wgsl / toning.wgsl exactly (chart==render==GPU parity). Output matches OpenCV's
-# float Lab scale: L in [0,100], a/b in true CIELAB units, so all downstream constants
-# (clahe 65535/100, split-tone +-20, vibrance chroma/60) stay valid.
+# CIELAB in the working space (Adobe RGB 1998, D65): sRGB transfer (matches the encoding) +
+# Adobe RGB primaries. Mirrors the WGSL rgb_to_lab; OpenCV's float Lab scale (L 0-100).
 _ADOBE_RGB_TO_XYZ = np.array(
     [
         [0.5767309, 0.1855540, 0.1881852],

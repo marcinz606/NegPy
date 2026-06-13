@@ -61,44 +61,22 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "analysis_grid": 1024,
     "base_drange_clip": 0.01,
     "shadow_neutral_percentile": 97.5,
-    # Cast Removal safety clamp: max normalized shadow cast (green - channel) the
-    # per-channel gray balance will correct, so a chromatic/bad shadow reference
-    # can't tilt a channel's contrast too far.
+    # Cast Removal: max normalized shadow cast (green - channel) corrected, bounding the tilt.
     "cast_removal_max_offset": 0.125,
     "anchor_meter_percentile": 50.0,
     "anchor_meter_band": 0.12,
-    # Auto Density partial metering: the anchor moves only this fraction from the
-    # assumed key toward the measured median. Full re-centering forces every frame
-    # to mid-key (dark negs print too bright, bright negs too dark), so it is kept
-    # gentle to preserve the scene's intended key.
+    # Auto Density: fraction the anchor moves from the assumed key toward the measured median.
     "anchor_meter_strength": 0.25,
-    # Auto Grade base contrast: the effective grade range for a nominal frame is
-    # auto_grade_target * auto_grade_nominal_ratio. Larger = punchier overall.
+    # Auto Grade nominal-frame contrast = auto_grade_target * auto_grade_nominal_ratio.
     "auto_grade_target": 0.6,
-    # Adaptation strength of Auto Grade (partial normalization, like an
-    # auto-printer's slope control). 0 = fixed contrast (ignore the scene),
-    # 1 = fully hold printed textural contrast constant — which overcorrects
-    # (flat scenes go harsh, contrasty scenes go muddy). ~0.4 leans contrast
-    # toward the scene without printing to a hard extreme.
+    # Auto Grade adaptation strength (partial slope normalization): 0 = fixed, 1 = full.
     "auto_grade_strength": 0.4,
-    # Nominal floor_ceil / textural ratio of a well-exposed frame: pure
-    # percentile geometry of a roughly-normal tone distribution (P10-P90 =
-    # 2.56 sigma, P0.5-P99.5 = 5.15 sigma -> ~2.0). Used to derive the default
-    # grade range (auto_grade_target * this) when no per-frame textural range is
-    # measured, so the fallback obeys the same printed-contrast rule instead of a
-    # standalone magic number.
+    # Canonical floor_ceil/textural ratio of a normal tone distribution (~2.0); default-range fallback.
     "auto_grade_nominal_ratio": 2.0,
-    # Preferred midtone print gamma for an average viewing surround
-    # (Bartleson-Breneman: ~1.05-1.15, not 1:1). Applied as a fixed contrast
-    # expansion about paper white when the Surround toggle is on
-    # (ExposureConfig.surround); 1.0 = identity.
+    # Preferred dim-surround print gamma (Bartleson-Breneman ~1.1); applied when surround is on.
     "target_system_gamma": 1.10,
     "textural_range_clip": 10.0,
     "auto_density_target_offset": 0.0,
-    # Veiling-glare / print-flare floor: a uniform light added to print
-    # reflectance, out = (r + f) / (1 + f) with r normalized to paper white.
-    # Lifts the deepest blacks and softens the toe (film look) while leaving
-    # paper white fixed. The amount applied when the Flare toggle is on
-    # (ExposureConfig.flare); classic order ~0.005-0.02.
+    # Veiling-glare floor out=(r+f)/(1+f), r normalized to paper white; applied when flare is on.
     "flare_fraction": 0.005,
 }

@@ -76,11 +76,13 @@ class ExposureSidebar(BaseSidebar):
             "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
         )
         self.surround_btn = self._labeled_toggle(
-            "fa5s.bolt",
-            " Print Punch",
+            "fa5s.eye",
+            " Contrast Lift",
             conf.surround,
-            "Print Punch: adds the bit of extra midtone contrast a real paper print has over a flat "
-            "backlit scan, so the image gets some snap when viewed in a normal room.",
+            "Contrast Lift: a gentle fixed contrast expansion about paper white. Prints viewed in a "
+            "normal (dim) surround read flatter than a 1:1 reproduction, so preferred tone "
+            "reproduction (Bartleson-Breneman) calls for a slightly higher system gamma (~1.1) — "
+            "this darkens midtones a touch and adds snap, uniformly on every frame.",
         )
         self.cast_removal_btn = self._labeled_toggle(
             "fa5s.palette",

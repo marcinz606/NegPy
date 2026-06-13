@@ -236,8 +236,7 @@ class PhotometricCurveWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(40)
         self._curve_pts: list[tuple[float, float]] = []
-        # Per-channel (color, points) traces, populated only when density balance
-        # diverges the channels; empty → the single white curve is drawn.
+        # Per-channel (color, points) traces; empty unless Cast Removal diverges the channels.
         self._channel_curves: list[tuple[QColor, list[tuple[float, float]]]] = []
         self._pivot_pt: tuple[float, float] | None = None
         self._toe_mask: list[float] = []
@@ -277,7 +276,7 @@ class PhotometricCurveWidget(QWidget):
             pivot = compute_pivot(slope, params.density, d_min=d_min)
 
         flare = EXPOSURE_CONSTANTS["flare_fraction"] if params.flare else 0.0
-        surround_gamma = EXPOSURE_CONSTANTS["target_system_gamma"] if params.surround else None
+        surround_gamma = EXPOSURE_CONSTANTS["target_system_gamma"] if params.surround else 1.0
 
         n = 300
         plt_x = np.linspace(self._X_MIN, self._X_MAX, n)
@@ -305,8 +304,7 @@ class PhotometricCurveWidget(QWidget):
         # Base (white) reference curve — also the fill/pivot/zone geometry.
         self._curve_pts = _curve_points(slope, pivot)
 
-        # Per-channel traces only when density balance actually diverges the channels;
-        # otherwise the single white curve preserves the current look.
+        # Per-channel traces only when Cast Removal diverges the channels; else one white curve.
         self._channel_curves = []
         if slopes is not None and pivots is not None:
             diverged = (max(slopes) - min(slopes) > 1e-9) or (max(pivots) - min(pivots) > 1e-9)
@@ -398,9 +396,7 @@ class PhotometricCurveWidget(QWidget):
             zx = int(self._wx(i * 0.1, w))
             painter.drawLine(zx, h - 5, zx, h - 1)
 
-        # Curve line (drawn after fills so it sits on top). With density balance the
-        # three per-channel traces replace the single white line; they converge
-        # at the pivot and fan apart in the toe/shoulder.
+        # Curve line on top; per-channel traces replace the white line when present.
         painter.setBrush(Qt.BrushStyle.NoBrush)
         if self._channel_curves:
             for color, pts in self._channel_curves:

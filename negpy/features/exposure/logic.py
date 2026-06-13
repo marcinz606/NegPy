@@ -92,11 +92,8 @@ def _apply_photometric_fused_kernel(
     # Paper white reflectance for the veiling-glare floor (out = (r+f)/(1+f)).
     flare_white = 10.0 ** (-d_min)
 
-    # Density-domain toe geometry: onset where print shadows begin
-    # (d_onset = 1.2 D, ~0.28 sRGB), so the slider works as a shadow
-    # lever — raise or crush everything darker than that.
-    # Anchored at D = 0 with its tangent removed (zero value AND zero slope),
-    # so highlights are invariant even at very soft widths.
+    # Density-domain toe (shadow lever) anchored at D=0 with its tangent removed,
+    # so highlights stay invariant at any width.
     b_t = toe_width * 2.0
     sp_toe0 = _softplus(b_t * (0.0 - d_onset)) / b_t
     sig_toe0 = _fast_sigmoid(b_t * (0.0 - d_onset))
@@ -131,9 +128,7 @@ def _apply_photometric_fused_kernel(
                 x_adj = diff - shoulder * (sig_s - sig_s0[ch])
                 arg = x_adj + shadow_cmy[ch] * toe_mask + highlight_cmy[ch] * shoulder_mask
 
-                # Richards curve toward the projected (virtual) asymptote: the
-                # nu exponent shortens the toe (whites snap to paper white) and
-                # lengthens the top approach, like real paper. Physical paper
+                # Richards curve toward the virtual asymptote; nu shapes the toe. Paper
                 # black is enforced by the soft clamp below.
                 density = d_min + (asymptote - d_min) * _fast_sigmoid(float(slopes[ch]) * arg) ** nu
 
@@ -141,20 +136,17 @@ def _apply_photometric_fused_kernel(
                     sp_d = _softplus(b_t * (density - d_onset)) / b_t
                     density = density - toe * (sp_d - sp_toe0 - sig_toe0 * density)
 
-                # Surround system gamma (Bartleson-Breneman): a fixed contrast
-                # expansion about paper white for dim-surround viewing, applied
-                # before the Dmax clamp so physical black is still capped.
+                # Surround gamma: contrast expansion about paper white, before the
+                # Dmax clamp so black stays capped.
                 if surround_gamma != 1.0:
                     density = d_min + surround_gamma * (density - d_min)
 
-                # Abrupt smooth saturation shoulder at paper Dmax.
+                # Soft saturation shoulder at paper Dmax.
                 density = density - _softplus(shoulder_beta * (density - d_max)) / shoulder_beta
 
                 transmittance = 10.0 ** (-density)
 
-                # Veiling-glare / print-flare floor: a uniform light added in
-                # linear reflectance, normalized so paper white is invariant.
-                # Lifts the deepest blacks and softens the toe (film look).
+                # Veiling-glare floor in linear reflectance (paper white invariant).
                 if flare != 0.0:
                     transmittance = (transmittance + flare * flare_white) / (1.0 + flare)
 
@@ -188,16 +180,14 @@ class LogisticSigmoid:
         shoulder_width: float = 3.0,
         shadow_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
         highlight_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
-        flare: Optional[float] = None,
-        surround_gamma: Optional[float] = None,
+        flare: float = 0.0,
+        surround_gamma: float = 1.0,
     ):
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
-        # Off by default; gated callers pass EXPOSURE_CONSTANTS["flare_fraction"].
-        self.flare = 0.0 if flare is None else float(flare)
-        # Identity by default; gated callers pass EXPOSURE_CONSTANTS["target_system_gamma"].
-        self.surround_gamma = 1.0 if surround_gamma is None else float(surround_gamma)
+        self.flare = float(flare)
+        self.surround_gamma = float(surround_gamma)
         self.k = contrast
         self.x0 = pivot
         # L is the projected (virtual) asymptote; d_max is the physical paper
@@ -242,16 +232,12 @@ class LogisticSigmoid:
             sig_0 = _expit(b_t * (0.0 - d_onset))
             res = res - self.toe * (sp_d - sp_0 - sig_0 * res)
 
-        # Surround system gamma (Bartleson-Breneman): fixed contrast expansion
-        # about paper white, before the Dmax clamp (matches the render kernel).
+        # Matches the render kernel: surround gamma, Dmax clamp, then flare.
         if self.surround_gamma != 1.0:
             res = self.d_min + self.surround_gamma * (res - self.d_min)
 
-        # Abrupt smooth saturation shoulder at paper Dmax.
         res = res - np.logaddexp(0.0, self.shoulder_beta * (res - self.d_max)) / self.shoulder_beta
 
-        # Veiling-glare / print-flare floor in linear reflectance (matches the
-        # render kernel), converted back to density so the chart stays identical.
         if self.flare != 0.0:
             white = 10.0 ** (-self.d_min)
             t = 10.0 ** (-res)
@@ -274,8 +260,8 @@ def apply_characteristic_curve(
     highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     d_min: float = 0.0,
-    flare: Optional[float] = None,
-    surround_gamma: Optional[float] = None,
+    flare: float = 0.0,
+    surround_gamma: float = 1.0,
     mode: int = 0,
 ) -> ImageBuffer:
     """
@@ -307,10 +293,8 @@ def apply_characteristic_curve(
         asymptote=float(EXPOSURE_CONSTANTS["curve_asymptote"]),
         shoulder_beta=float(EXPOSURE_CONSTANTS["dmax_shoulder"]),
         nu=float(EXPOSURE_CONSTANTS["paper_toe_nu"]),
-        # Off by default; gated callers pass EXPOSURE_CONSTANTS["flare_fraction"].
-        flare=0.0 if flare is None else float(flare),
-        # Identity by default; gated callers pass EXPOSURE_CONSTANTS["target_system_gamma"].
-        surround_gamma=1.0 if surround_gamma is None else float(surround_gamma),
+        flare=float(flare),
+        surround_gamma=float(surround_gamma),
         mode=mode,
     )
 
@@ -331,13 +315,7 @@ def sigmoid_span(nu: float) -> float:
 
 
 def default_grade_range() -> float:
-    """
-    Density range for a nominal frame when none is measured: the printed-contrast
-    rule (auto_grade_target * floor_ceil/textural) evaluated at the canonical
-    floor_ceil/textural ratio of a roughly-normal tone distribution
-    (auto_grade_nominal_ratio ~ 2.0). Keeps the fallback on the same rule as the
-    measured path instead of a standalone reference number.
-    """
+    """Fallback density range when none is measured: auto_grade_target * nominal ratio."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
@@ -386,23 +364,10 @@ def effective_grade_range(
     textural_range: Optional[float],
 ) -> Optional[float]:
     """
-    Range fed to grade_to_slope for the contrast (grade) decision.
-
-    - Auto Grade off (physical): the floor-to-ceil range — contrast fully tracks
-      the negative's measured density range.
-    - Auto Grade on: lean contrast toward holding the *printed* contrast of the
-      detail-bearing midtones constant, but only partially (like an auto-printer's
-      slope control). Normalization stretches floor->ceil to [0, 1], so the
-      textural midtones occupy a fraction textural/floor_ceil of the input axis;
-      the floor_ceil/textural ratio is how much the slope would need to re-expand
-      them to a fixed print-density span. Fully tracking that ratio (strength 1)
-      overcorrects — flat scenes go harsh, contrasty scenes muddy — so the ratio
-      is damped toward the nominal frame by auto_grade_strength:
-
-          effective = K * (nominal + strength * (ratio - nominal))
-
-      K = auto_grade_target (base contrast), nominal = auto_grade_nominal_ratio.
-      strength 0 = fixed grade, 1 = full constant-printed-contrast.
+    Range fed to grade_to_slope. Auto Grade off: the measured floor-to-ceil range.
+    Auto Grade on: hold printed midtone contrast partially constant, damping the
+    floor_ceil/textural ratio toward the nominal frame:
+    effective = target * (nominal + strength * (ratio - nominal)).
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -469,6 +434,13 @@ def normalize_refs(
     return (out[0], out[1], out[2])
 
 
+def normalized_shadow_refs(bounds: Any, refs: Optional[Tuple[float, float, float]]) -> Optional[Tuple[float, float, float]]:
+    """Shadow refs normalized against `bounds`, or None if either is missing."""
+    if bounds is None or refs is None:
+        return None
+    return normalize_refs(refs, bounds.floors, bounds.ceils)
+
+
 def per_channel_curve_params(
     grade: float,
     density: float,
@@ -481,29 +453,16 @@ def per_channel_curve_params(
     anchor: Optional[float] = None,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
     """
-    Per-channel (slope, pivot) for the characteristic curve — the single source
-    of truth shared by the CPU processor, the GPU uniform packer, and the chart,
-    so the three can never drift apart.
+    Per-channel (slope, pivot) — single source of truth for CPU/GPU/chart.
 
-    Cast Removal off (or no shadow refs — E6/B&W): all three channels get the
-    same base slope/pivot, identical to the legacy single-curve path.
-
-    Cast Removal on: a research-correct two-point per-channel gray balance.
-    Each layer of a colour negative has its own gamma, so balancing only the
-    midtone leaves the rest of the scale tinted (colour cast/crossover). We pin
-    TWO neutrals per channel: the midtone anchor (via compute_pivot, prints at
-    anchor_target_density) and the measured shadow reference (must print at the
-    reference/green channel's shadow density). With the Richards core
-    slope*(x - pivot) = g(D) and g() channel-independent, eliminating the pivot
-    gives a closed form:
-
+    Cast Removal off (or no shadow refs, e.g. E6/B&W): one shared base curve.
+    On: two-point per-channel gray balance. Each channel keeps the midtone anchor
+    neutral (compute_pivot) and is solved so its shadow ref prints at green's
+    shadow density. With the Richards core slope*(x-pivot)=g(D), g() channel-
+    independent, the pivot cancels:
         slope_ch = slope_green * (anchor - r_green) / (anchor - r_ch)
-
-    where r_* are the normalized shadow refs. Green keeps the grade-derived slope.
-    Both neutrals then read equal-RGB, so the channels are parallel through the
-    neutral axis -> grays stay neutral across the range. The per-channel shadow
-    cast (r_green - r_ch) is clamped to cast_removal_max_offset so a chromatic or
-    mis-measured shadow reference can't tilt a channel's contrast too far.
+    Both neutrals then read equal-RGB. The shadow cast is clamped to
+    cast_removal_max_offset so a bad shadow ref can't over-tilt a channel.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -526,8 +485,7 @@ def per_channel_curve_params(
     slopes = []
     pivots = []
     for ch in range(3):
-        # Clamp the normalized shadow cast (how far this channel's shadow sits
-        # from green's) before solving, bounding the correction.
+        # Clamp the shadow cast before solving, bounding the correction.
         cast = min(max(r_green - float(shadow_refs_norm[ch]), -limit), limit)
         denom = anchor_val - (r_green - cast)
         if ch == 1 or abs(denom) < epsilon:

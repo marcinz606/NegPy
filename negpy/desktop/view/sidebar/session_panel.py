@@ -211,36 +211,22 @@ class SessionPanel(QWidget):
             if buffer is not None:
                 self.hist_widget.update_data(buffer)
 
-        from negpy.features.exposure.logic import (
-            compute_pivot,
-            effective_grade_range,
-            grade_to_slope,
-            normalize_refs,
-            per_channel_curve_params,
-        )
+        from negpy.features.exposure.logic import effective_grade_range, normalized_shadow_refs, per_channel_curve_params
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         config = self.controller.session.state.config.exposure
-        # Mirror PhotometricProcessor so the plotted curve matches the render
-        # under the Auto Grade / Auto Density toggles.
+        # Mirror PhotometricProcessor so the plotted curve matches the render under
+        # the Auto Grade / Auto Density / Cast Removal toggles. CPU stores
+        # "final_bounds", GPU stores "log_bounds".
         density_range = effective_grade_range(
             config.auto_normalize_contrast,
             metrics.get("norm_density_range"),
             metrics.get("textural_range"),
         )
-        slope = grade_to_slope(config.grade, density_range)
         d_min = EXPOSURE_CONSTANTS["d_min"] if config.paper_dmin else 0.0
         anchor = metrics.get("metered_anchor") if config.auto_exposure else None
-        pivot = compute_pivot(slope, config.density, d_min=d_min, anchor=anchor)
-
-        # Per-channel slope/pivot via the shared helper, so the plotted R/G/B
-        # traces match the render exactly (collapse to one when density balance off).
-        # CPU pipeline stores "final_bounds"; the GPU pipeline stores "log_bounds".
         bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
-        shadow_refs = metrics.get("shadow_log_refs")
-        shadow_refs_norm = None
-        if bounds is not None and shadow_refs is not None:
-            shadow_refs_norm = normalize_refs(shadow_refs, bounds.floors, bounds.ceils)
+        shadow_refs_norm = normalized_shadow_refs(bounds, metrics.get("shadow_log_refs"))
         slopes, pivots = per_channel_curve_params(
             config.grade,
             config.density,
@@ -252,6 +238,8 @@ class SessionPanel(QWidget):
             d_min=d_min,
             anchor=anchor,
         )
+        # Green channel is the base curve (white reference + stats slope).
+        slope, pivot = slopes[1], pivots[1]
         self.curve_widget.update_curve(config, slope=slope, pivot=pivot, slopes=slopes, pivots=pivots)
 
         from negpy.features.exposure.stats import negative_statistics
