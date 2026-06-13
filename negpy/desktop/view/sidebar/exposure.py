@@ -43,14 +43,6 @@ class ExposureSidebar(BaseSidebar):
         self.region_btn_group.addButton(self.region_highlight_btn, 2)
         self.layout.addLayout(region_row)
 
-        # Pick WB — single wide button above the color sliders.
-        self.pick_wb_btn = QPushButton(" Pick WB")
-        self.pick_wb_btn.setCheckable(True)
-        self.pick_wb_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
-        self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
-        self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
-        self.layout.addWidget(self.pick_wb_btn)
-
         self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
         self.cyan_slider.setToolTip("Cyan–Red white balance shift; applies to the selected region (Global/Shadows/Highlights)")
@@ -67,6 +59,11 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.yellow_slider)
 
         # Tone-control toggles, paired two per row (equal width).
+        self.pick_wb_btn = QPushButton(" Pick WB")
+        self.pick_wb_btn.setCheckable(True)
+        self.pick_wb_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
+        self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
         self.linear_raw_btn = QPushButton(" Linear RAW")
         self.linear_raw_btn.setCheckable(True)
         self.linear_raw_btn.setChecked(conf.linear_raw)
@@ -94,10 +91,13 @@ class ExposureSidebar(BaseSidebar):
         )
 
         tone_row1 = QHBoxLayout()
+        tone_row1.addWidget(self.pick_wb_btn, 1)
         tone_row1.addWidget(self.linear_raw_btn, 1)
-        tone_row1.addWidget(self.surround_btn, 1)
         self.layout.addLayout(tone_row1)
-        self.layout.addWidget(self.cast_removal_btn)
+        tone_row2 = QHBoxLayout()
+        tone_row2.addWidget(self.cast_removal_btn, 1)
+        tone_row2.addWidget(self.surround_btn, 1)
+        self.layout.addLayout(tone_row2)
 
         self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
         self.density_slider.setToolTip(tooltip_with_shortcut("Overall exposure — higher values darken the print", "density_up"))
