@@ -43,6 +43,14 @@ class ExposureSidebar(BaseSidebar):
         self.region_btn_group.addButton(self.region_highlight_btn, 2)
         self.layout.addLayout(region_row)
 
+        # Pick WB — single wide button above the color sliders.
+        self.pick_wb_btn = QPushButton(" Pick WB")
+        self.pick_wb_btn.setCheckable(True)
+        self.pick_wb_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
+        self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
+        self.layout.addWidget(self.pick_wb_btn)
+
         self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
         self.cyan_slider.setToolTip("Cyan–Red white balance shift; applies to the selected region (Global/Shadows/Highlights)")
@@ -58,23 +66,7 @@ class ExposureSidebar(BaseSidebar):
         self.layout.addWidget(self.magenta_slider)
         self.layout.addWidget(self.yellow_slider)
 
-        wb_btn_row = QHBoxLayout()
-        self.pick_wb_btn = QPushButton(" Pick WB")
-        self.pick_wb_btn.setCheckable(True)
-        self.pick_wb_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
-        self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
-        self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
-
-        self.auto_neutral_btn = QPushButton(" Neutral")
-        self.auto_neutral_btn.setCheckable(True)
-        self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
-        self.auto_neutral_btn.setIcon(qta.icon("fa5s.adjust", color=THEME.text_primary))
-        self.auto_neutral_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
-        self.auto_neutral_btn.setToolTip(
-            "Shadow Neutral: neutralize the residual color cast in the deepest print shadows — like "
-            "filtration printing film base+fog to a neutral black (C-41 only)"
-        )
-
+        # Tone-control toggles, paired two per row (equal width).
         self.linear_raw_btn = QPushButton(" Linear RAW")
         self.linear_raw_btn.setCheckable(True)
         self.linear_raw_btn.setChecked(conf.linear_raw)
@@ -83,11 +75,27 @@ class ExposureSidebar(BaseSidebar):
         self.linear_raw_btn.setToolTip(
             "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
         )
+        self.surround_btn = self._labeled_toggle(
+            "fa5s.bolt",
+            " Print Punch",
+            conf.surround,
+            "Print Punch: adds the bit of extra midtone contrast a real paper print has over a flat "
+            "backlit scan, so the image gets some snap when viewed in a normal room.",
+        )
+        self.cast_removal_btn = self._labeled_toggle(
+            "fa5s.palette",
+            " Cast Removal",
+            conf.cast_removal,
+            "Cast Removal: automatically neutralizes the color cast a negative leaves in the print — "
+            "balances each color layer so grays stay neutral from the deep shadows through the "
+            "highlights (C-41).",
+        )
 
-        wb_btn_row.addWidget(self.pick_wb_btn, 1)
-        wb_btn_row.addWidget(self.auto_neutral_btn, 1)
-        wb_btn_row.addWidget(self.linear_raw_btn, 1)
-        self.layout.addLayout(wb_btn_row)
+        tone_row1 = QHBoxLayout()
+        tone_row1.addWidget(self.linear_raw_btn, 1)
+        tone_row1.addWidget(self.surround_btn, 1)
+        self.layout.addLayout(tone_row1)
+        self.layout.addWidget(self.cast_removal_btn)
 
         self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
         self.density_slider.setToolTip(tooltip_with_shortcut("Overall exposure — higher values darken the print", "density_up"))
@@ -127,20 +135,12 @@ class ExposureSidebar(BaseSidebar):
             "Flare: veiling-glare floor that lifts the deepest print blacks and softens the toe "
             "(film look) while leaving paper white fixed",
         )
-        self.density_balance_btn = self._icon_toggle(
-            "fa5s.palette",
-            conf.density_balance,
-            "Density Balance: per-channel gray balance from two measured neutrals (midtone + "
-            "shadow), so grays stay neutral across the whole range — removes per-layer color "
-            "crossover instead of adding it",
-        )
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_slider.setToolTip("Width of the shadow toe transition zone")
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.toe_slider.setToolTip("Shadow toe lift: positive raises shadows, negative deepens blacks")
         toe_row.addWidget(self.flare_btn)
-        toe_row.addWidget(self.density_balance_btn)
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         self.layout.addLayout(toe_row)
@@ -150,19 +150,12 @@ class ExposureSidebar(BaseSidebar):
             conf.paper_dmin,
             "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
         )
-        self.surround_btn = self._icon_toggle(
-            "fa5s.eye",
-            conf.surround,
-            "Surround Gamma: gentle Bartleson-Breneman contrast lift about paper white for dim-surround "
-            "viewing — darkens midtones slightly and adds punch, uniformly on every frame",
-        )
         sh_row = QHBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_slider.setToolTip("Highlight shoulder roll: positive compresses highlights, negative extends them")
         self.sh_w_slider = CompactSlider("Width", 0.1, 5.0, conf.shoulder_width)
         self.sh_w_slider.setToolTip("Width of the highlight shoulder transition zone")
         sh_row.addWidget(self.paper_dmin_btn)
-        sh_row.addWidget(self.surround_btn)
         sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
         self.layout.addLayout(sh_row)
@@ -177,6 +170,16 @@ class ExposureSidebar(BaseSidebar):
         btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
         btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 6px;")
         btn.setFixedWidth(36)
+        btn.setToolTip(tooltip)
+        return btn
+
+    def _labeled_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
+        """Labeled checkable button (icon + text), styled like Pick WB / Linear RAW."""
+        btn = QPushButton(label)
+        btn.setCheckable(True)
+        btn.setChecked(checked)
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
+        btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
         btn.setToolTip(tooltip)
         return btn
 
@@ -214,18 +217,13 @@ class ExposureSidebar(BaseSidebar):
         self.paper_dmin_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_dmin=checked)
         )
-        self.auto_neutral_btn.toggled.connect(
+        self.cast_removal_btn.toggled.connect(
             lambda checked: self.update_config_section(
-                "exposure", render=True, persist=True, readback_metrics=True, auto_shadow_neutral=checked
+                "exposure", render=True, persist=True, readback_metrics=True, cast_removal=checked
             )
         )
         self.flare_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, flare=checked)
-        )
-        self.density_balance_btn.toggled.connect(
-            lambda checked: self.update_config_section(
-                "exposure", render=True, persist=True, readback_metrics=True, density_balance=checked
-            )
         )
         self.surround_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, surround=checked)
@@ -359,9 +357,8 @@ class ExposureSidebar(BaseSidebar):
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.flare_btn.setChecked(conf.flare)
-            self.density_balance_btn.setChecked(conf.density_balance)
+            self.cast_removal_btn.setChecked(conf.cast_removal)
             self.surround_btn.setChecked(conf.surround)
-            self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
             self.auto_density_btn.setChecked(conf.auto_exposure)
             self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
         finally:
@@ -388,9 +385,8 @@ class ExposureSidebar(BaseSidebar):
             self.sh_w_slider,
             self.paper_dmin_btn,
             self.flare_btn,
-            self.density_balance_btn,
+            self.cast_removal_btn,
             self.surround_btn,
-            self.auto_neutral_btn,
             self.auto_density_btn,
             self.auto_grade_btn,
         ]

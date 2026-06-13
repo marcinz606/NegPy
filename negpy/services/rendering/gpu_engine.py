@@ -350,7 +350,7 @@ class GPUEngine:
         needs_refs = (
             shadow_refs_override is None
             and not tiling_mode
-            and settings.exposure.auto_shadow_neutral
+            and settings.exposure.cast_removal
             and settings.process.process_mode == ProcessMode.C41
         )
         needs_bounds_analysis = not (
@@ -795,7 +795,6 @@ class GPUEngine:
         from negpy.features.exposure.logic import (
             normalize_refs,
             per_channel_curve_params,
-            shadow_neutral_offsets,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import luminance_density_range
@@ -807,7 +806,7 @@ class GPUEngine:
         render_anchor = metered_anchor if exp.auto_exposure else None
         lum_range = luminance_density_range(bounds)
         # Final bounds the shader normalizes with (after WP/BP offsets); shared by
-        # the density-balance shadow refs and auto shadow-neutral, mirroring the CPU path.
+        # the Cast Removal shadow refs, mirroring the CPU path.
         wp = offset_sign * settings.process.white_point_offset
         bp = offset_sign * settings.process.black_point_offset
         adj_floors = (f[0] + wp, f[1] + wp, f[2] + wp)
@@ -819,7 +818,7 @@ class GPUEngine:
             exp.grade,
             exp.density,
             exp.auto_normalize_contrast,
-            exp.density_balance,
+            exp.cast_removal,
             lum_range,
             shadow_refs_norm,
             textural_range,
@@ -827,10 +826,6 @@ class GPUEngine:
             anchor=render_anchor,
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
-
-        auto_sn = (0.0, 0.0, 0.0)
-        if shadow_refs is not None:
-            auto_sn = shadow_neutral_offsets(shadow_refs, adj_floors, adj_ceils)
 
         e_data = (
             struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)
@@ -844,9 +839,9 @@ class GPUEngine:
             )
             + struct.pack(
                 "ffff",
-                exp.shadow_cyan * cmy_m + auto_sn[0],
-                exp.shadow_magenta * cmy_m + auto_sn[1],
-                exp.shadow_yellow * cmy_m + auto_sn[2],
+                exp.shadow_cyan * cmy_m,
+                exp.shadow_magenta * cmy_m,
+                exp.shadow_yellow * cmy_m,
                 0.0,
             )
             + struct.pack(
@@ -1382,7 +1377,7 @@ class GPUEngine:
             )
 
         global_shadow_refs = None
-        if settings.exposure.auto_shadow_neutral and settings.process.process_mode == ProcessMode.C41:
+        if settings.exposure.cast_removal and settings.process.process_mode == ProcessMode.C41:
             # Tiles must share one global measurement, like global_bounds.
             ah, aw = img_rot.shape[:2]
             a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))

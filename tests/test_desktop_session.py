@@ -55,14 +55,14 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_export_config": {},
             "last_auto_exposure": True,
             "last_auto_normalize_contrast": True,
-            "last_auto_shadow_neutral": False,
+            "last_cast_removal": False,
             "last_paper_dmin": True,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertTrue(config.exposure.auto_exposure)
         self.assertTrue(config.exposure.auto_normalize_contrast)
-        self.assertFalse(config.exposure.auto_shadow_neutral)
+        self.assertFalse(config.exposure.cast_removal)
         self.assertTrue(config.exposure.paper_dmin)
 
     def test_processing_toggles_not_applied_to_edited_files(self):

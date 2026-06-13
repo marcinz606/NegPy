@@ -26,9 +26,8 @@ class ExposureConfig:
     shoulder_width: float = 2.5
     paper_dmin: bool = True
     flare: bool = False
-    density_balance: bool = False
+    cast_removal: bool = True
     surround: bool = False
-    auto_shadow_neutral: bool = True
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
 
@@ -62,7 +61,10 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "analysis_grid": 1024,
     "base_drange_clip": 0.01,
     "shadow_neutral_percentile": 97.5,
-    "shadow_neutral_max_offset": 0.125,
+    # Cast Removal safety clamp: max normalized shadow cast (green - channel) the
+    # per-channel gray balance will correct, so a chromatic/bad shadow reference
+    # can't tilt a channel's contrast too far.
+    "cast_removal_max_offset": 0.125,
     "anchor_meter_percentile": 50.0,
     "anchor_meter_band": 0.12,
     # Auto Density partial metering: the anchor moves only this fraction from the

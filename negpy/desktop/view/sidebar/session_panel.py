@@ -245,7 +245,7 @@ class SessionPanel(QWidget):
             config.grade,
             config.density,
             config.auto_normalize_contrast,
-            config.density_balance,
+            config.cast_removal,
             metrics.get("norm_density_range"),
             shadow_refs_norm,
             metrics.get("textural_range"),

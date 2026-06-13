@@ -364,7 +364,7 @@ class DesktopSessionManager(QObject):
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
-            ("last_auto_shadow_neutral", "auto_shadow_neutral"),
+            ("last_cast_removal", "cast_removal"),
             ("last_paper_dmin", "paper_dmin"),
         ):
             val = self.repo.get_global_setting(key)
@@ -401,7 +401,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_linear_raw", config.exposure.linear_raw)
         self.repo.save_global_setting("last_auto_exposure", config.exposure.auto_exposure)
         self.repo.save_global_setting("last_auto_normalize_contrast", config.exposure.auto_normalize_contrast)
-        self.repo.save_global_setting("last_auto_shadow_neutral", config.exposure.auto_shadow_neutral)
+        self.repo.save_global_setting("last_cast_removal", config.exposure.cast_removal)
         self.repo.save_global_setting("last_paper_dmin", config.exposure.paper_dmin)
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)

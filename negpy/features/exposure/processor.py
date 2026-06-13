@@ -6,7 +6,6 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     normalize_refs,
     per_channel_curve_params,
-    shadow_neutral_offsets,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
@@ -147,7 +146,7 @@ class PhotometricProcessor:
             self.config.grade,
             self.config.density,
             self.config.auto_normalize_contrast,
-            self.config.density_balance,
+            self.config.cast_removal,
             lum_range,
             shadow_refs_norm,
             context.metrics.get("textural_range"),
@@ -161,21 +160,13 @@ class PhotometricProcessor:
             self.config.wb_magenta * cmy_max,
             self.config.wb_yellow * cmy_max,
         )
+        # Manual shadow CMY only; the automatic neutralization is now handled by
+        # Cast Removal as a per-channel slope balance (per_channel_curve_params).
         shadow_cmy = (
             self.config.shadow_cyan * cmy_max,
             self.config.shadow_magenta * cmy_max,
             self.config.shadow_yellow * cmy_max,
         )
-        if self.config.auto_shadow_neutral and context.process_mode == ProcessMode.C41:
-            refs = context.metrics.get("shadow_log_refs")
-            final_bounds = context.metrics.get("final_bounds")
-            if refs is not None and final_bounds is not None:
-                auto = shadow_neutral_offsets(refs, final_bounds.floors, final_bounds.ceils)
-                shadow_cmy = (
-                    shadow_cmy[0] + auto[0],
-                    shadow_cmy[1] + auto[1],
-                    shadow_cmy[2] + auto[2],
-                )
         highlight_cmy = (
             self.config.highlight_cyan * cmy_max,
             self.config.highlight_magenta * cmy_max,

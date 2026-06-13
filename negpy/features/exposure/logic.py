@@ -456,8 +456,8 @@ def normalize_refs(
 ) -> Tuple[float, float, float]:
     """
     Per-channel reference densities -> normalized [0, 1] position in the same
-    floor->ceil stretch the image is normalized with (matches shadow_neutral_offsets'
-    normalization). Shared by the CPU/GPU/chart call sites so they can't drift.
+    floor->ceil stretch the image is normalized with. Shared by the CPU/GPU/chart
+    call sites (Cast Removal shadow refs) so they can't drift.
     """
     epsilon = 1e-6
     out = []
@@ -473,7 +473,7 @@ def per_channel_curve_params(
     grade: float,
     density: float,
     auto_normalize_contrast: bool,
-    density_balance: bool,
+    cast_removal: bool,
     lum_range: Optional[float],
     shadow_refs_norm: Optional[Tuple[float, float, float]],
     textural_range: Optional[float],
@@ -485,13 +485,13 @@ def per_channel_curve_params(
     of truth shared by the CPU processor, the GPU uniform packer, and the chart,
     so the three can never drift apart.
 
-    Density balance off (or no shadow refs — E6/B&W): all three channels get the
+    Cast Removal off (or no shadow refs — E6/B&W): all three channels get the
     same base slope/pivot, identical to the legacy single-curve path.
 
-    Density balance on: a research-correct two-point per-channel gray balance.
+    Cast Removal on: a research-correct two-point per-channel gray balance.
     Each layer of a colour negative has its own gamma, so balancing only the
-    midtone leaves the rest of the scale tinted (colour crossover). We pin TWO
-    neutrals per channel: the midtone anchor (via compute_pivot, prints at
+    midtone leaves the rest of the scale tinted (colour cast/crossover). We pin
+    TWO neutrals per channel: the midtone anchor (via compute_pivot, prints at
     anchor_target_density) and the measured shadow reference (must print at the
     reference/green channel's shadow density). With the Richards core
     slope*(x - pivot) = g(D) and g() channel-independent, eliminating the pivot
@@ -501,7 +501,9 @@ def per_channel_curve_params(
 
     where r_* are the normalized shadow refs. Green keeps the grade-derived slope.
     Both neutrals then read equal-RGB, so the channels are parallel through the
-    neutral axis -> grays stay neutral across the range (crossover removed).
+    neutral axis -> grays stay neutral across the range. The per-channel shadow
+    cast (r_green - r_ch) is clamped to cast_removal_max_offset so a chromatic or
+    mis-measured shadow reference can't tilt a channel's contrast too far.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -509,7 +511,7 @@ def per_channel_curve_params(
     r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
     base_slope = grade_to_slope(grade, r_eff)
 
-    if not density_balance or shadow_refs_norm is None:
+    if not cast_removal or shadow_refs_norm is None:
         base_pivot = compute_pivot(base_slope, density, d_min=d_min, anchor=anchor)
         return (base_slope, base_slope, base_slope), (base_pivot, base_pivot, base_pivot)
 
@@ -517,13 +519,17 @@ def per_channel_curve_params(
     anchor_val = float(c["assumed_anchor"]) if anchor is None else float(anchor)
     slope_min = float(c["slope_min"])
     slope_max = float(c["slope_max"])
+    limit = float(c["cast_removal_max_offset"])
     r_green = float(shadow_refs_norm[1])
     numer = anchor_val - r_green
 
     slopes = []
     pivots = []
     for ch in range(3):
-        denom = anchor_val - float(shadow_refs_norm[ch])
+        # Clamp the normalized shadow cast (how far this channel's shadow sits
+        # from green's) before solving, bounding the correction.
+        cast = min(max(r_green - float(shadow_refs_norm[ch]), -limit), limit)
+        denom = anchor_val - (r_green - cast)
         if ch == 1 or abs(denom) < epsilon:
             slope_ch = base_slope
         else:
@@ -532,32 +538,6 @@ def per_channel_curve_params(
         slopes.append(slope_ch)
         pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor))
     return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
-
-
-def shadow_neutral_offsets(
-    refs: Tuple[float, float, float],
-    floors: Tuple[float, float, float],
-    ceils: Tuple[float, float, float],
-) -> Tuple[float, float, float]:
-    """
-    Normalized-space shadow CMY offsets that print the measured shadow
-    reference tone neutral — like filtration printing film base+fog to a
-    neutral black. Green-referenced (consistent with the green-referenced
-    density range), clamped to shadow_neutral_max_offset.
-    """
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-    epsilon = 1e-6
-    limit = float(EXPOSURE_CONSTANTS["shadow_neutral_max_offset"])
-    n = []
-    for ch in range(3):
-        denom = ceils[ch] - floors[ch]
-        if abs(denom) < epsilon:
-            denom = epsilon if denom >= 0 else -epsilon
-        n.append((refs[ch] - floors[ch]) / denom)
-    offsets = [min(max(n[1] - n[ch], -limit), limit) for ch in range(3)]
-    offsets[1] = 0.0
-    return (offsets[0], offsets[1], offsets[2])
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:

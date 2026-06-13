@@ -21,7 +21,10 @@ logger = get_logger("domain.models")
 MIGRATIONS: Dict[str, str] = {
     "export_border_size": "border_size",
     "export_border_color": "border_color",
-    "crossover": "density_balance",
+    # Shadow-neutral + density-balance consolidated into Cast Removal. Preserve a
+    # user's saved on/off; the unpublished "crossover"/"density_balance" keys are
+    # just dropped as unknown (default cast_removal=True).
+    "auto_shadow_neutral": "cast_removal",
 }
 
 
