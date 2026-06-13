@@ -65,11 +65,14 @@ class ExposureSidebar(BaseSidebar):
         self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
         self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
 
-        self.auto_neutral_btn = self._icon_toggle(
-            "fa5s.adjust",
-            conf.auto_shadow_neutral,
+        self.auto_neutral_btn = QPushButton(" Neutral")
+        self.auto_neutral_btn.setCheckable(True)
+        self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
+        self.auto_neutral_btn.setIcon(qta.icon("fa5s.adjust", color=THEME.text_primary))
+        self.auto_neutral_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        self.auto_neutral_btn.setToolTip(
             "Shadow Neutral: neutralize the residual color cast in the deepest print shadows — like "
-            "filtration printing film base+fog to a neutral black (C-41 only)",
+            "filtration printing film base+fog to a neutral black (C-41 only)"
         )
 
         self.linear_raw_btn = QPushButton(" Linear RAW")
@@ -81,9 +84,9 @@ class ExposureSidebar(BaseSidebar):
             "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
         )
 
-        wb_btn_row.addWidget(self.pick_wb_btn)
-        wb_btn_row.addWidget(self.auto_neutral_btn)
-        wb_btn_row.addWidget(self.linear_raw_btn)
+        wb_btn_row.addWidget(self.pick_wb_btn, 1)
+        wb_btn_row.addWidget(self.auto_neutral_btn, 1)
+        wb_btn_row.addWidget(self.linear_raw_btn, 1)
         self.layout.addLayout(wb_btn_row)
 
         self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
