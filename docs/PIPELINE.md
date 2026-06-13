@@ -27,7 +27,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **D-Range Clip**: Tunes how aggressively the percentile window is set. **Positive** values symmetrically tighten the window before bounds detection — useful for very dense or fogged negatives where a few outlier pixels would otherwise pull the white or black point to an extreme. **Zero** uses robust extremes (a block-median prefilter rejects dust and speculars, and a small base clip excludes tiny outlier populations). **Negative** values push the bounds *outward* beyond the extremes, leaving lifted blacks and unclipped highlights as headroom.
     *   **White & Black Point Offsets**: Fine-tunes the detected bounds after statistical analysis. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running the analysis.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range. The result is **not clamped**: tones outside the detected bounds are kept and rolled off later by the soft toe/shoulder of the print curve, rather than being truncated here.
-*   **Per-frame metering**: Normalization also measures a few statistics used later by the Print stage's automatic helpers — per-channel **shadow references** ($P_{97.5}$, for Cast Removal) and a per-frame **exposure anchor** ($P_{50}$ luminance) and **textural range** ($P_{10}$–$P_{90}$, for Auto Density / Auto Grade). See §3.
+*   **Per-frame metering**: Normalization also measures a few statistics used later by the Print stage's automatic helpers — per-channel **shadow references** ($P_{97.5}$, for Cast Removal) and a per-frame **exposure anchor** ($P_{50}$ luminance) and **textural range** ($P_{10}\text{–}P_{90}$, for Auto Density / Auto Grade). See §3.
 
 ---
 
@@ -43,7 +43,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   $\nu = 3.0$: Paper-toe sharpness.
     *   $k$: Per-channel slope (contrast), derived from **Grade**.
     *   $x_{adj}$: Adjusted input log-exposure (after toe, shoulder, and CMY offsets).
-*   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default $115$, range $50$–$180$ (R110 ≈ classic paper grade 2; higher R = softer). Edits saved under the old $0$–$5$ paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
+*   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default 115, range 50–180 (R110 ≈ classic paper grade 2; higher R = softer). Edits saved under the old 0–5 paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
 *   **Toe & Shoulder**: Two independent levers, both anchored so the rest of the tone scale stays put (slider values are scaled by $0.85$ internally):
     *   **Shoulder** — an integrated-sigmoid term on the *input* axis that modulates highlight local contrast, leaving the pivot tone invariant.
     *   **Toe** — a *density-domain* shadow lever that begins at an onset density of $1.2$, with its tangent removed so highlights remain invariant at any width. Lifts blacks or deepens shadows without touching the upper scale.
@@ -58,7 +58,7 @@ The defaults are tuned to look right straight out of the box; these helpers do p
 *   **Auto Density** (`auto_exposure`, **on**): Meters each frame's median tone and sets a sensible brightness. The exposure anchor is a partial move from an assumed key toward the measured median:
     $$\text{anchor} = 0.46 + 0.25 \cdot (P_{50} - 0.46), \quad \text{clamped to } \pm 0.12$$
     The $0.25$ blend (and $\pm 0.12$ band) means a deliberately low-key or high-key shot keeps its mood instead of being flattened to neutral grey.
-*   **Auto Grade** (`auto_normalize_contrast`, **on**): Chooses contrast to suit each scene from the textural density range ($P_{10}$–$P_{90}$). Letting $r$ be the ratio of the full bounded range to the textural range, the effective contrast target is:
+*   **Auto Grade** (`auto_normalize_contrast`, **on**): Chooses contrast to suit each scene from the textural density range ($P_{10}\text{–}P_{90}$). Letting $r$ be the ratio of the full bounded range to the textural range, the effective contrast target is:
     $$0.6 \cdot \big(2.0 + 0.4 \cdot (r - 2.0)\big)$$
     The $0.4$ adaptation strength dampens contrast swings gently — a flat scene gets a small lift, a punchy scene stays punchy, nothing is pushed to a harsh extreme.
 *   **Cast Removal** (`cast_removal`, **on**): Neutralizes the colour cast a negative leaves in the print, balancing each layer so greys read neutral from deep shadows through highlights — not just at the midtone (the usual cause of shadows/highlights drifting off-colour after a C-41 midtone white balance). Using the per-channel shadow refs ($P_{97.5}$), each non-green channel gets its own slope so its shadow ref lines up with green's, while the pivot (midtone) stays neutral:
