@@ -234,13 +234,14 @@ class SessionPanel(QWidget):
 
         # Per-channel slope/pivot via the shared helper, so the plotted R/G/B
         # traces match the render exactly (and collapse to one when crossover off).
-        final_bounds = metrics.get("final_bounds")
+        # CPU pipeline stores "final_bounds"; the GPU pipeline stores "log_bounds".
+        bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
         channel_ranges = None
-        if final_bounds is not None:
+        if bounds is not None:
             channel_ranges = (
-                final_bounds.ceils[0] - final_bounds.floors[0],
-                final_bounds.ceils[1] - final_bounds.floors[1],
-                final_bounds.ceils[2] - final_bounds.floors[2],
+                bounds.ceils[0] - bounds.floors[0],
+                bounds.ceils[1] - bounds.floors[1],
+                bounds.ceils[2] - bounds.floors[2],
             )
         slopes, pivots = per_channel_curve_params(
             config.grade,
