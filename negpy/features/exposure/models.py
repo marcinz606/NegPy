@@ -58,7 +58,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "toe_onset_density": 1.2,
     "toe_shoulder_strength": 0.85,
     "analysis_grid": 1024,
-    "base_drange_clip": 0.001,
+    "base_drange_clip": 0.01,
     "shadow_neutral_percentile": 97.5,
     "shadow_neutral_max_offset": 0.125,
     "anchor_meter_percentile": 50.0,
@@ -70,7 +70,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "anchor_meter_strength": 0.25,
     # Auto Grade base contrast: the effective grade range for a nominal frame is
     # auto_grade_target * auto_grade_nominal_ratio. Larger = punchier overall.
-    "auto_grade_target": 0.8,
+    "auto_grade_target": 0.6,
     # Adaptation strength of Auto Grade (partial normalization, like an
     # auto-printer's slope control). 0 = fixed contrast (ignore the scene),
     # 1 = fully hold printed textural contrast constant — which overcorrects
@@ -95,5 +95,5 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Lifts the deepest blacks and softens the toe (film look) while leaving
     # paper white fixed. The amount applied when the Flare toggle is on
     # (ExposureConfig.flare); classic order ~0.005-0.02.
-    "flare_fraction": 0.01,
+    "flare_fraction": 0.005,
 }
