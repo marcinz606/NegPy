@@ -258,5 +258,70 @@ class TestBatchExportFiltering(unittest.TestCase):
             self.assertEqual(t.params.export.export_path, "/tmp/out")
 
 
+class TestBatchAnalysisFiltering(unittest.TestCase):
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+
+        self.mock_session_manager.state.uploaded_files = [
+            {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
+            {"name": "IMG_0002.cr2", "path": "/tmp/IMG_0002.cr2", "hash": "h2"},
+            {"name": "scan.tif", "path": "/tmp/scan.tif", "hash": "h3"},
+        ]
+
+        self.visible_indices = [0, 1, 2]
+        self.mock_session_manager.asset_model = MagicMock()
+        self.mock_session_manager.asset_model.visible_actual_indices_ordered.side_effect = lambda: list(self.visible_indices)
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+
+        self.emitted = []
+        self.controller.normalization_requested.connect(self.emitted.append)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_analysis_respects_filter(self):
+        self.visible_indices = [0, 1]  # only IMG_*
+        with patch("negpy.desktop.controller.QMessageBox") as mock_box:
+            mock_box.StandardButton.Yes = 1
+            mock_box.question.return_value = 1
+            self.controller.request_batch_normalization()
+        self.assertEqual(len(self.emitted), 1)
+        self.assertEqual([f["name"] for f in self.emitted[0].files], ["IMG_0001.cr2", "IMG_0002.cr2"])
+
+    def test_analysis_zero_matches_does_not_dispatch(self):
+        self.visible_indices = []
+        with patch("negpy.desktop.controller.QMessageBox") as mock_box:
+            mock_box.StandardButton.Yes = 1
+            mock_box.question.return_value = 1
+            self.controller.request_batch_normalization()
+        self.assertEqual(self.emitted, [])
+
+
 if __name__ == "__main__":
     unittest.main()

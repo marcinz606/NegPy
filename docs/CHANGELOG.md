@@ -17,6 +17,7 @@
 - **Hideable side panels**: the left Session panel and right Controls panel can now be collapsed for a focused, canvas-only view. New toggle buttons sit at the outer edges of the bottom toolbar (and `Ctrl+[` / `Ctrl+]` shortcuts) — the button reflects each panel's current state and hidden/shown state is remembered across restarts.
 - Fix: **colour adjustments now use the correct working colour space** — Saturation, Vibrance, Chroma Denoise and Split Toning compute their CIELAB in Adobe RGB (the pipeline's working space) instead of assuming sRGB, so colours — greens and cyans especially — shift more accurately and predictably. Neutral greys are unaffected.
 - Fix: export no longer drops metadata when the source EXIF carries an out-of-range tag.
+- Fix: **Batch Analysis** now respects the file browser filter — with a filter active, only the visible files are analyzed, matching Batch Export's behaviour (instead of always running on every file in the folder). (#237)
 
 ## 0.24.0
 

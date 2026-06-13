@@ -673,12 +673,16 @@ class AppController(QObject):
         """
         Initiates background analysis for batch normalization.
         """
-        if not self.state.uploaded_files:
+        visible_files = [
+            self.state.uploaded_files[i]
+            for i in self.session.asset_model.visible_actual_indices_ordered()
+        ]
+        if not visible_files:
             return
 
-        total = len(self.state.uploaded_files)
+        total = len(visible_files)
         cropped = 0
-        for f in self.state.uploaded_files:
+        for f in visible_files:
             p = self.session.repo.load_file_settings(f["hash"])
             if p and (p.geometry.manual_crop_rect or p.geometry.auto_crop_enabled):
                 cropped += 1
@@ -725,7 +729,7 @@ class AppController(QObject):
 
         self.set_status("Starting Batch Normalization...")
         task = NormalizationTask(
-            files=self.state.uploaded_files.copy(),
+            files=visible_files,
             workspace_color_space=self.state.workspace_color_space,
             override_analysis_buffer=self.state.config.process.analysis_buffer,
             override_drange_clip=self.state.config.process.drange_clip,
