@@ -62,14 +62,20 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "shadow_neutral_max_offset": 0.125,
     "anchor_meter_percentile": 50.0,
     "anchor_meter_band": 0.12,
-    "anchor_meter_strength": 0.4,
-    # Auto Grade target: hold the printed contrast of the detail-bearing
-    # midtones constant on every frame instead of blending density ranges.
-    # effective_range = auto_grade_target * floor_ceil_range / textural_range,
-    # so the slope re-expands midtones that normalization compressed (speculars
-    # inflate floor_ceil) and a normal frame's ~2:1 ratio lands at a consistent,
-    # pleasing gamma. The single contrast knob; larger = punchier overall.
+    # Auto Density partial metering: the anchor moves only this fraction from the
+    # assumed key toward the measured median. Full re-centering forces every frame
+    # to mid-key (dark negs print too bright, bright negs too dark), so it is kept
+    # gentle to preserve the scene's intended key.
+    "anchor_meter_strength": 0.25,
+    # Auto Grade base contrast: the effective grade range for a nominal frame is
+    # auto_grade_target * auto_grade_nominal_ratio. Larger = punchier overall.
     "auto_grade_target": 0.8,
+    # Adaptation strength of Auto Grade (partial normalization, like an
+    # auto-printer's slope control). 0 = fixed contrast (ignore the scene),
+    # 1 = fully hold printed textural contrast constant — which overcorrects
+    # (flat scenes go harsh, contrasty scenes go muddy). ~0.4 leans contrast
+    # toward the scene without printing to a hard extreme.
+    "auto_grade_strength": 0.4,
     # Nominal floor_ceil / textural ratio of a well-exposed frame: pure
     # percentile geometry of a roughly-normal tone distribution (P10-P90 =
     # 2.56 sigma, P0.5-P99.5 = 5.15 sigma -> ~2.0). Used to derive the default

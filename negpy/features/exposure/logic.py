@@ -370,15 +370,19 @@ def effective_grade_range(
 
     - Auto Grade off (physical): the floor-to-ceil range — contrast fully tracks
       the negative's measured density range.
-    - Auto Grade on: hold the *printed* contrast of the detail-bearing midtones
-      constant rather than blend density ranges. Normalization stretches the
-      floor->ceil span to [0, 1], so the textural midtones occupy a fraction
-      textural_range / floor_ceil_range of the input axis; feeding grade_to_slope
-      effective = K * floor_ceil_range / textural_range makes the slope re-expand
-      exactly that fraction to a fixed print-density span (K = auto_grade_target).
-      A normal frame's ~2:1 ratio lands at a consistent, pleasing gamma; speculars
-      that inflate floor_ceil are compensated by the ratio instead of softening the
-      print; genuinely flat scenes are bounded by grade_to_slope's slope clamp.
+    - Auto Grade on: lean contrast toward holding the *printed* contrast of the
+      detail-bearing midtones constant, but only partially (like an auto-printer's
+      slope control). Normalization stretches floor->ceil to [0, 1], so the
+      textural midtones occupy a fraction textural/floor_ceil of the input axis;
+      the floor_ceil/textural ratio is how much the slope would need to re-expand
+      them to a fixed print-density span. Fully tracking that ratio (strength 1)
+      overcorrects — flat scenes go harsh, contrasty scenes muddy — so the ratio
+      is damped toward the nominal frame by auto_grade_strength:
+
+          effective = K * (nominal + strength * (ratio - nominal))
+
+      K = auto_grade_target (base contrast), nominal = auto_grade_nominal_ratio.
+      strength 0 = fixed grade, 1 = full constant-printed-contrast.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -392,7 +396,10 @@ def effective_grade_range(
         # Degenerate (near-flat) frame: let grade_to_slope's clamp cap the boost.
         return 3.5
     k = float(c["auto_grade_target"])
-    return k * abs(float(floor_ceil_range)) / measured
+    nominal = float(c["auto_grade_nominal_ratio"])
+    strength = float(c["auto_grade_strength"])
+    ratio = abs(float(floor_ceil_range)) / measured
+    return k * (nominal + strength * (ratio - nominal))
 
 
 def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Optional[float] = None) -> float:

@@ -60,10 +60,25 @@ class TestEffectiveGradeRange(unittest.TestCase):
         self.assertEqual(effective_grade_range(False, 1.7, 0.9), 1.7)
         self.assertIsNone(effective_grade_range(False, None, 0.9))
 
-    def test_auto_holds_printed_contrast(self):
-        # effective = K * floor_ceil / textural (the printed-contrast rule).
+    def test_auto_damped_printed_contrast(self):
+        # effective = K * (nominal + strength * (ratio - nominal)).
         k = EXPOSURE_CONSTANTS["auto_grade_target"]
-        self.assertAlmostEqual(effective_grade_range(True, 1.6, 0.8), k * 1.6 / 0.8, places=6)
+        nominal = EXPOSURE_CONSTANTS["auto_grade_nominal_ratio"]
+        strength = EXPOSURE_CONSTANTS["auto_grade_strength"]
+        ratio = 1.6 / 0.8
+        expected = k * (nominal + strength * (ratio - nominal))
+        self.assertAlmostEqual(effective_grade_range(True, 1.6, 0.8), expected, places=6)
+
+    def test_auto_strength_zero_is_fixed(self):
+        # strength 0 collapses to the nominal default regardless of ratio.
+        import negpy.features.exposure.logic as logic_mod
+
+        orig = EXPOSURE_CONSTANTS["auto_grade_strength"]
+        EXPOSURE_CONSTANTS["auto_grade_strength"] = 0.0
+        try:
+            self.assertAlmostEqual(effective_grade_range(True, 2.4, 0.6), logic_mod.default_grade_range(), places=6)
+        finally:
+            EXPOSURE_CONSTANTS["auto_grade_strength"] = orig
 
     def test_auto_constant_for_constant_ratio(self):
         # A normal frame's floor_ceil/textural ratio is what sets contrast, not
@@ -139,9 +154,13 @@ class TestMeasureAnchor(unittest.TestCase):
     def test_clamped_to_band(self):
         band = EXPOSURE_CONSTANTS["anchor_meter_band"]
         assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
-        # A frame dominated by a very bright/dark tone can't push past the band.
-        self.assertAlmostEqual(self._measure(-0.2), assumed + band, places=4)  # norm 0.9 -> clamp
-        self.assertAlmostEqual(self._measure(-1.8), assumed - band, places=4)  # norm 0.1 -> clamp
+        # Extreme frames stay within assumed +/- band (hard safety clamp), and a
+        # near-white frame is pushed to the upper band edge.
+        hi = self._measure(-0.02)  # norm ~0.99
+        lo = self._measure(-1.98)  # norm ~0.01
+        self.assertAlmostEqual(hi, assumed + band, places=4)
+        self.assertGreaterEqual(lo, assumed - band - 1e-6)
+        self.assertLessEqual(hi, assumed + band + 1e-6)
 
     def test_e6_reversed_bounds(self):
         # E6 normalizes with floors > ceils; anchor must stay finite and in band.
