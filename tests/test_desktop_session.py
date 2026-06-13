@@ -49,6 +49,30 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.set_autodetect_enabled(False)
         self.mock_repo.save_global_setting.assert_not_called()
 
+    def test_processing_toggles_carry_to_new_files(self):
+        # Globally remembered toggles must be applied to a fresh (sidecar-less) file.
+        sticky = {
+            "last_export_config": {},
+            "last_auto_exposure": True,
+            "last_auto_normalize_contrast": True,
+            "last_auto_shadow_neutral": False,
+            "last_paper_dmin": True,
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertTrue(config.exposure.auto_exposure)
+        self.assertTrue(config.exposure.auto_normalize_contrast)
+        self.assertFalse(config.exposure.auto_shadow_neutral)
+        self.assertTrue(config.exposure.paper_dmin)
+
+    def test_processing_toggles_not_applied_to_edited_files(self):
+        # only_global=True (file has a sidecar) must not override per-file toggles.
+        sticky = {"last_export_config": {}, "last_auto_exposure": True}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, auto_exposure=False))
+        config = self.session._apply_sticky_settings(base, only_global=True)
+        self.assertFalse(config.exposure.auto_exposure)
+
     def test_sync_selected_settings_exclusions(self):
         source_config = WorkspaceConfig(
             exposure=replace(WorkspaceConfig().exposure, density=1.5),

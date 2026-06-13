@@ -88,50 +88,71 @@ class ExposureSidebar(BaseSidebar):
             )
         )
 
-        self.layout.addWidget(self.density_slider)
-        self.layout.addWidget(self.grade_slider)
+        self.auto_density_btn = self._icon_toggle(
+            "fa5s.magic",
+            conf.auto_exposure,
+            "Auto Density: meter each frame's midtone and anchor the print exposure there, so dense "
+            "and flat negatives land at a consistent brightness instead of needing per-frame trimming",
+        )
+        density_row = QHBoxLayout()
+        density_row.addWidget(self.auto_density_btn)
+        density_row.addWidget(self.density_slider)
+        self.layout.addLayout(density_row)
 
+        self.auto_grade_btn = self._icon_toggle(
+            "fa5s.balance-scale",
+            conf.auto_normalize_contrast,
+            "Auto Grade: normalize contrast across the roll — render every negative through the same "
+            "curve so dense negatives stop printing over-contrasty and flat ones stop printing muddy",
+        )
+        grade_row = QHBoxLayout()
+        grade_row.addWidget(self.auto_grade_btn)
+        grade_row.addWidget(self.grade_slider)
+        self.layout.addLayout(grade_row)
+
+        self.auto_neutral_btn = self._icon_toggle(
+            "fa5s.adjust",
+            conf.auto_shadow_neutral,
+            "Shadow Neutral: neutralize the residual color cast in the deepest print shadows — like "
+            "filtration printing film base+fog to a neutral black (C-41 only)",
+        )
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_slider.setToolTip("Width of the shadow toe transition zone")
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.toe_slider.setToolTip("Shadow toe lift: positive raises shadows, negative deepens blacks")
+        toe_row.addWidget(self.auto_neutral_btn)
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         self.layout.addLayout(toe_row)
 
+        self.paper_dmin_btn = self._icon_toggle(
+            "fa5s.file",
+            conf.paper_dmin,
+            "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
+        )
         sh_row = QHBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_slider.setToolTip("Highlight shoulder roll: positive compresses highlights, negative extends them")
         self.sh_w_slider = CompactSlider("Width", 0.1, 5.0, conf.shoulder_width)
         self.sh_w_slider.setToolTip("Width of the highlight shoulder transition zone")
+        sh_row.addWidget(self.paper_dmin_btn)
         sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
         self.layout.addLayout(sh_row)
 
-        paper_row = QHBoxLayout()
-        self.paper_dmin_btn = QPushButton(" Paper White")
-        self.paper_dmin_btn.setCheckable(True)
-        self.paper_dmin_btn.setChecked(conf.paper_dmin)
-        self.paper_dmin_btn.setIcon(qta.icon("fa5s.file", color=THEME.text_primary))
-        self.paper_dmin_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
-        self.paper_dmin_btn.setToolTip(
-            "Simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print"
-        )
-        self.auto_neutral_btn = QPushButton(" Shadow Neutral")
-        self.auto_neutral_btn.setCheckable(True)
-        self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
-        self.auto_neutral_btn.setIcon(qta.icon("fa5s.adjust", color=THEME.text_primary))
-        self.auto_neutral_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
-        self.auto_neutral_btn.setToolTip(
-            "Neutralize the residual color cast in the deepest print shadows — like filtration "
-            "printing film base+fog to a neutral black (C-41 only)"
-        )
-        paper_row.addWidget(self.paper_dmin_btn)
-        paper_row.addWidget(self.auto_neutral_btn)
-        self.layout.addLayout(paper_row)
-
         self.layout.addStretch()
+
+    def _icon_toggle(self, icon_name: str, checked: bool, tooltip: str) -> QPushButton:
+        """Compact icon-only checkable button placed beside a slider."""
+        btn = QPushButton()
+        btn.setCheckable(True)
+        btn.setChecked(checked)
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
+        btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 6px;")
+        btn.setFixedWidth(36)
+        btn.setToolTip(tooltip)
+        return btn
 
     def _region_index(self) -> int:
         return self.region_btn_group.checkedId()
@@ -170,6 +191,14 @@ class ExposureSidebar(BaseSidebar):
         self.auto_neutral_btn.toggled.connect(
             lambda checked: self.update_config_section(
                 "exposure", render=True, persist=True, readback_metrics=True, auto_shadow_neutral=checked
+            )
+        )
+        self.auto_density_btn.toggled.connect(
+            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, auto_exposure=checked)
+        )
+        self.auto_grade_btn.toggled.connect(
+            lambda checked: self.update_config_section(
+                "exposure", render=True, persist=True, readback_metrics=True, auto_normalize_contrast=checked
             )
         )
 
@@ -293,6 +322,8 @@ class ExposureSidebar(BaseSidebar):
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
+            self.auto_density_btn.setChecked(conf.auto_exposure)
+            self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
         finally:
             self.block_signals(False)
 
@@ -317,6 +348,8 @@ class ExposureSidebar(BaseSidebar):
             self.sh_w_slider,
             self.paper_dmin_btn,
             self.auto_neutral_btn,
+            self.auto_density_btn,
+            self.auto_grade_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)

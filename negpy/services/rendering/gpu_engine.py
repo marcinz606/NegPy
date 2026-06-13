@@ -11,7 +11,10 @@ from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConf
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    luminance_density_range,
+    measure_anchor,
     measure_shadow_log_refs,
+    measure_textural_range,
 )
 from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
@@ -269,6 +272,8 @@ class GPUEngine:
         full_dims: Optional[Tuple[int, int]] = None,
         clahe_cdf_override: Optional[np.ndarray] = None,
         shadow_refs_override: Optional[Tuple[float, float, float]] = None,
+        metered_anchor_override: Optional[float] = None,
+        textural_range_override: Optional[float] = None,
         apply_layout: bool = True,
         render_size_ref: Optional[float] = None,
         source_hash: Optional[str] = None,
@@ -353,10 +358,15 @@ class GPUEngine:
             or (settings.process.use_roll_average and settings.process.is_locked_initialized)
             or settings.process.is_local_initialized
         )
+        # Measure the anchor for the render when Auto Density is on, and for the
+        # Analysis-panel stats on every preview (readback) regardless of toggle —
+        # it's only *used* in the render when auto_exposure (see uniforms).
+        needs_anchor = metered_anchor_override is None and not tiling_mode and (settings.exposure.auto_exposure or readback_metrics)
+        needs_textural = textural_range_override is None and not tiling_mode and settings.exposure.auto_normalize_contrast
 
         analysis_source = None
         analysis_roi = None
-        if needs_bounds_analysis or needs_refs:
+        if needs_bounds_analysis or needs_refs or needs_anchor or needs_textural:
             # Use views to avoid copying the full-res image; crop to ROI first.
             analysis_source = img
             if settings.geometry.rotation != 0:
@@ -405,6 +415,23 @@ class GPUEngine:
                 settings.process.analysis_buffer,
             )
 
+        metered_anchor = metered_anchor_override
+        if needs_anchor and analysis_source is not None:
+            metered_anchor = measure_anchor(
+                analysis_source,
+                bounds,
+                analysis_roi,
+                settings.process.analysis_buffer,
+            )
+
+        textural_range = textural_range_override
+        if needs_textural and analysis_source is not None:
+            textural_range = measure_textural_range(
+                analysis_source,
+                analysis_roi,
+                settings.process.analysis_buffer,
+            )
+
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
 
         self._upload_unified_uniforms(
@@ -420,6 +447,8 @@ class GPUEngine:
             scale_factor,
             vignette_full_crop=vignette_full_crop,
             shadow_refs=shadow_refs,
+            metered_anchor=metered_anchor,
+            textural_range=textural_range,
         )
         self._update_retouch_storage(
             settings.retouch,
@@ -678,7 +707,9 @@ class GPUEngine:
             "normalized_log": tex_norm,
             "content_rect": content_rect,
             "log_bounds": bounds,
-            "norm_density_range": abs(bounds.ceils[1] - bounds.floors[1]),
+            "norm_density_range": luminance_density_range(bounds),
+            "metered_anchor": metered_anchor,
+            "textural_range": textural_range,
         }
 
         if not tiling_mode and readback_metrics:
@@ -715,6 +746,8 @@ class GPUEngine:
         scale_factor: float,
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
         shadow_refs: Optional[Tuple[float, float, float]] = None,
+        metered_anchor: Optional[float] = None,
+        textural_range: Optional[float] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         g_data = (
@@ -759,13 +792,23 @@ class GPUEngine:
             + b"\x00" * 32
         )
 
-        from negpy.features.exposure.logic import compute_pivot, grade_to_slope, shadow_neutral_offsets
+        from negpy.features.exposure.logic import (
+            compute_pivot,
+            effective_grade_range,
+            grade_to_slope,
+            shadow_neutral_offsets,
+        )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+        from negpy.features.exposure.normalization import luminance_density_range
 
         exp = settings.exposure
-        slope = grade_to_slope(exp.grade, bounds.ceils[1] - bounds.floors[1])
+        density_range = effective_grade_range(exp.auto_normalize_contrast, luminance_density_range(bounds), textural_range)
+        slope = grade_to_slope(exp.grade, density_range)
         d_min = EXPOSURE_CONSTANTS["d_min"] if exp.paper_dmin else 0.0
-        pivot = compute_pivot(slope, exp.density, d_min=d_min)
+        # metered_anchor may be measured for stats even when auto_exposure is off;
+        # only let it move the render when the toggle is on.
+        render_anchor = metered_anchor if exp.auto_exposure else None
+        pivot = compute_pivot(slope, exp.density, d_min=d_min, anchor=render_anchor)
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
 
         auto_sn = (0.0, 0.0, 0.0)
@@ -1338,6 +1381,31 @@ class GPUEngine:
                 analysis_buffer=settings.process.analysis_buffer,
             )
 
+        global_metered_anchor = None
+        if settings.exposure.auto_exposure:
+            # Tiles must share one global anchor, like global_bounds/shadow_refs.
+            ah, aw = img_rot.shape[:2]
+            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
+            analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
+            global_metered_anchor = measure_anchor(
+                _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
+                global_bounds,
+                roi=analysis_roi,
+                analysis_buffer=settings.process.analysis_buffer,
+            )
+
+        global_textural_range = None
+        if settings.exposure.auto_normalize_contrast:
+            # Tiles must share one global textural range, like global_bounds.
+            ah, aw = img_rot.shape[:2]
+            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
+            analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
+            global_textural_range = measure_textural_range(
+                _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
+                roi=analysis_roi,
+                analysis_buffer=settings.process.analysis_buffer,
+            )
+
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
@@ -1358,6 +1426,8 @@ class GPUEngine:
                     tiling_mode=True,
                     bounds_override=global_bounds,
                     shadow_refs_override=global_shadow_refs,
+                    metered_anchor_override=global_metered_anchor,
+                    textural_range_override=global_textural_range,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,

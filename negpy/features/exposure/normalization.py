@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 import numpy as np
 from numba import njit  # type: ignore
 
-from negpy.domain.types import ImageBuffer
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.image.validation import ensure_image
 
@@ -118,6 +118,122 @@ def measure_shadow_log_refs(
     epsilon = 1e-6
     img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
     return measure_shadow_refs_from_log(img_log, roi, analysis_buffer)
+
+
+def luminance_density_range(bounds: LogNegativeBounds) -> float:
+    """
+    Single global density range as a Rec.709 luminance weighting of the
+    per-channel ranges. Replaces the green-only range so frames with a strong
+    single-channel cast don't swing the slope as hard, while green still
+    dominates so calibrated grade behaviour barely shifts. abs() keeps it
+    sign-safe for E6's reversed (f > c) bounds.
+    """
+    rr = abs(bounds.ceils[0] - bounds.floors[0])
+    rg = abs(bounds.ceils[1] - bounds.floors[1])
+    rb = abs(bounds.ceils[2] - bounds.floors[2])
+    return float(LUMA_R * rr + LUMA_G * rg + LUMA_B * rb)
+
+
+def measure_anchor_from_log(
+    img_log: ImageBuffer,
+    bounds: LogNegativeBounds,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """
+    Per-frame exposure anchor: where this negative's midtone sits in [0, 1],
+    replacing the fixed assumed_anchor. Block-median prefiltered (speculars/dust
+    rejected).
+
+    Partial metering: the anchor moves only anchor_meter_strength of the way from
+    assumed_anchor toward the metered median, so a deliberately low-key (dark) or
+    high-key (bright) scene keeps most of its intended key instead of being
+    forced to mid-gray, while gross mis-exposure is still pulled toward correct.
+    Finally clamped to assumed_anchor +/- anchor_meter_band as a hard safety guard.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    epsilon = 1e-6
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+
+    img_log = _block_median_grid(img_log)
+
+    norm = np.empty_like(img_log)
+    for ch in range(3):
+        f = bounds.floors[ch]
+        denom = bounds.ceils[ch] - f
+        if abs(denom) < epsilon:
+            denom = epsilon if denom >= 0 else -epsilon
+        norm[:, :, ch] = (img_log[:, :, ch] - f) / denom
+
+    lum = LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2]
+    p = float(EXPOSURE_CONSTANTS["anchor_meter_percentile"])
+    measured = float(np.percentile(lum, p))
+
+    assumed = float(EXPOSURE_CONSTANTS["assumed_anchor"])
+    strength = float(EXPOSURE_CONSTANTS["anchor_meter_strength"])
+    anchor = assumed + strength * (measured - assumed)
+    band = float(EXPOSURE_CONSTANTS["anchor_meter_band"])
+    return float(min(max(anchor, assumed - band), assumed + band))
+
+
+def measure_anchor(
+    image: ImageBuffer,
+    bounds: LogNegativeBounds,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """
+    Linear-image wrapper around measure_anchor_from_log.
+    """
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    return measure_anchor_from_log(img_log, bounds, roi, analysis_buffer)
+
+
+def measure_textural_range_from_log(
+    img_log: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """
+    Per-frame textural density range: the P10-P90 luminance spread of the
+    prefiltered log image, in log10-density units. This is the *useful* scene
+    range that grade selection fits to paper — block-median prefiltering and the
+    inner percentiles reject speculars / film-base / dust, so it is far more
+    outlier-robust than the floor-to-ceil extreme range.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+
+    img_log = _block_median_grid(img_log)
+
+    lum = LUMA_R * img_log[:, :, 0] + LUMA_G * img_log[:, :, 1] + LUMA_B * img_log[:, :, 2]
+    clip = float(EXPOSURE_CONSTANTS["textural_range_clip"])
+    lo, hi = np.percentile(lum, [clip, 100.0 - clip])
+    return float(abs(hi - lo))
+
+
+def measure_textural_range(
+    image: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> float:
+    """
+    Linear-image wrapper around measure_textural_range_from_log.
+    """
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    return measure_textural_range_from_log(img_log, roi, analysis_buffer)
 
 
 def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> ImageBuffer:

@@ -181,6 +181,21 @@ class TestExposureParity:
         )
         self._run_and_compare(s)
 
+    def test_auto_exposure(self):
+        s = replace(_make_base_settings(), exposure=ExposureConfig(auto_exposure=True))
+        self._run_and_compare(s)
+
+    def test_auto_contrast(self):
+        s = replace(_make_base_settings(), exposure=ExposureConfig(auto_normalize_contrast=True))
+        self._run_and_compare(s)
+
+    def test_auto_both(self):
+        s = replace(
+            _make_base_settings(),
+            exposure=ExposureConfig(auto_exposure=True, auto_normalize_contrast=True),
+        )
+        self._run_and_compare(s)
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab colour/sharpening shader."""

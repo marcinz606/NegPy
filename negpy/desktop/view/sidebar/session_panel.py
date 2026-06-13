@@ -16,6 +16,7 @@ import qtawesome as qta
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
+from negpy.desktop.view.widgets.stats import NegativeStatsWidget
 from negpy.desktop.view.sidebar.header import SidebarHeader
 from negpy.desktop.view.sidebar.files import FileBrowser
 from negpy.desktop.view.sidebar.export import ExportSidebar
@@ -133,9 +134,11 @@ class SessionPanel(QWidget):
 
         self.hist_widget = HistogramWidget()
         self.curve_widget = PhotometricCurveWidget()
+        self.stats_widget = NegativeStatsWidget()
 
         analysis_layout.addWidget(self.hist_widget, 1)
         analysis_layout.addWidget(self.curve_widget, 1)
+        analysis_layout.addWidget(self.stats_widget, 0)
 
         self.stack.addWidget(wrap_scroll(self.analysis_group))
 
@@ -208,14 +211,36 @@ class SessionPanel(QWidget):
             if buffer is not None:
                 self.hist_widget.update_data(buffer)
 
-        from negpy.features.exposure.logic import compute_pivot, grade_to_slope
+        from negpy.features.exposure.logic import compute_pivot, effective_grade_range, grade_to_slope
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         config = self.controller.session.state.config.exposure
-        slope = grade_to_slope(config.grade, metrics.get("norm_density_range"))
+        # Mirror PhotometricProcessor so the plotted curve matches the render
+        # under the Auto Grade / Auto Density toggles.
+        density_range = effective_grade_range(
+            config.auto_normalize_contrast,
+            metrics.get("norm_density_range"),
+            metrics.get("textural_range"),
+        )
+        slope = grade_to_slope(config.grade, density_range)
         d_min = EXPOSURE_CONSTANTS["d_min"] if config.paper_dmin else 0.0
-        pivot = compute_pivot(slope, config.density, d_min=d_min)
+        anchor = metrics.get("metered_anchor") if config.auto_exposure else None
+        pivot = compute_pivot(slope, config.density, d_min=d_min, anchor=anchor)
         self.curve_widget.update_curve(config, slope=slope, pivot=pivot)
+
+        from negpy.features.exposure.stats import negative_statistics
+
+        clip_low, clip_high = self.hist_widget.clip_fractions()
+        self.stats_widget.update_stats(
+            negative_statistics(
+                metrics.get("norm_density_range"),
+                metrics.get("metered_anchor"),
+                slope,
+                clip_low,
+                clip_high,
+                effective_range=density_range,
+            )
+        )
 
     def _on_update_found(self, version: str) -> None:
         self.update_label.setText(f"Update Available: v{version}")

@@ -34,6 +34,12 @@ class HistogramWidget(QWidget):
         self._data_l: list = []
         self._clip_low: dict[str, bool] = {}
         self._clip_high: dict[str, bool] = {}
+        self._clip_low_frac: float = 0.0
+        self._clip_high_frac: float = 0.0
+
+    def clip_fractions(self) -> tuple[float, float]:
+        """Worst-channel shadow / highlight clipped fraction (0..1) of the last frame."""
+        return self._clip_low_frac, self._clip_high_frac
 
     def update_data(self, buffer: Any) -> None:
         """Calculates histograms and triggers repaint."""
@@ -44,6 +50,8 @@ class HistogramWidget(QWidget):
             self._data_l = []
             self._clip_low = {}
             self._clip_high = {}
+            self._clip_low_frac = 0.0
+            self._clip_high_frac = 0.0
             self.update()
             return
 
@@ -63,6 +71,8 @@ class HistogramWidget(QWidget):
                 "g": buffer[1][255] / totals[1] > _CLIP_THRESH,
                 "b": buffer[2][255] / totals[2] > _CLIP_THRESH,
             }
+            self._clip_low_frac = max(float(buffer[c][0]) / totals[c] for c in range(3))
+            self._clip_high_frac = max(float(buffer[c][255]) / totals[c] for c in range(3))
             self.update()
             return
 
@@ -89,6 +99,8 @@ class HistogramWidget(QWidget):
             "g": float(np.sum(buffer[..., 1] >= 0.998)) / n > _CLIP_THRESH,
             "b": float(np.sum(buffer[..., 2] >= 0.998)) / n > _CLIP_THRESH,
         }
+        self._clip_low_frac = max(float(np.sum(buffer[..., c] <= 0.002)) / n for c in range(3))
+        self._clip_high_frac = max(float(np.sum(buffer[..., c] >= 0.998)) / n for c in range(3))
         self.update()
 
     def _normalize(self, counts: np.ndarray) -> list:

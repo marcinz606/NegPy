@@ -12,19 +12,18 @@ from negpy.features.exposure.processor import NormalizationProcessor, Photometri
 
 class TestGradeToSlope(unittest.TestCase):
     def test_iso_r_exposure_range(self):
-        # ISO R110 -> exposure range 1.1; typical negative range 1.3, scaled to
-        # the textural range (ISO 6846 grades against detail-to-detail range,
-        # not the robust extreme-to-extreme range the analysis measures).
+        # ISO R110 -> exposure range 1.1; contrast = negative density range /
+        # paper exposure range, so slope = span * rng / er.
         span = sigmoid_span(EXPOSURE_CONSTANTS["paper_toe_nu"])
-        rng = 1.3 * EXPOSURE_CONSTANTS["textural_range_factor"]
-        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), span * rng / 1.1, places=5)
+        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), span * 1.3 / 1.1, places=5)
 
     def test_span_generalizes_ln81(self):
         # nu = 1 must reduce to the plain logistic's 10-90% span.
         self.assertAlmostEqual(sigmoid_span(1.0), np.log(81.0), places=9)
 
     def test_missing_range_uses_typical(self):
-        self.assertAlmostEqual(grade_to_slope(110.0, None), grade_to_slope(110.0, 1.3), places=6)
+        ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
+        self.assertAlmostEqual(grade_to_slope(110.0, None), grade_to_slope(110.0, ref), places=6)
 
     def test_lower_r_is_steeper(self):
         self.assertGreater(grade_to_slope(70.0, 1.3), grade_to_slope(130.0, 1.3))
@@ -73,7 +72,9 @@ class TestDensityRangeMetric(unittest.TestCase):
         ctx = self._context()
         img = np.full((10, 10, 3), 0.5, dtype=np.float32)
         NormalizationProcessor(process).process(img, ctx)
-        self.assertAlmostEqual(ctx.metrics["norm_density_range"], 1.2, places=5)
+        # Luminance-weighted (Rec.709) over per-channel ranges 1.9, 1.2, 0.5.
+        expected = 0.2126 * 1.9 + 0.7152 * 1.2 + 0.0722 * 0.5
+        self.assertAlmostEqual(ctx.metrics["norm_density_range"], expected, places=5)
 
     def test_metric_set_on_locked_bounds(self):
         process = replace(
@@ -97,7 +98,8 @@ class TestDensityRangeMetric(unittest.TestCase):
 
 class TestCalibratedGradeOutput(unittest.TestCase):
     def setUp(self):
-        self.config = WorkspaceConfig()
+        # Physical (range-coupled) mode: auto contrast/exposure off.
+        self.config = WorkspaceConfig(exposure=ExposureConfig(auto_normalize_contrast=False, auto_exposure=False))
 
     def _run(self, density_range):
         ctx = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="C41")
@@ -107,7 +109,7 @@ class TestCalibratedGradeOutput(unittest.TestCase):
         return PhotometricProcessor(self.config.exposure).process(img, ctx)
 
     def test_typical_range_matches_no_metric_baseline(self):
-        np.testing.assert_array_almost_equal(self._run(1.3), self._run(None))
+        np.testing.assert_array_almost_equal(self._run(EXPOSURE_CONSTANTS["auto_grade_ref_range"]), self._run(None))
 
     def test_flat_negative_renders_flatter(self):
         res_flat = self._run(0.9)

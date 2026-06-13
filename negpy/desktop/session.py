@@ -357,6 +357,21 @@ class DesktopSessionManager(QObject):
         if sticky_linear_raw is not None:
             config = replace(config, exposure=replace(config.exposure, linear_raw=bool(sticky_linear_raw)))
 
+        # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
+        # White) are workflow preferences, not per-image looks: carry them to
+        # fresh files unless explicitly changed per file.
+        new_exp = config.exposure
+        for key, attr in (
+            ("last_auto_exposure", "auto_exposure"),
+            ("last_auto_normalize_contrast", "auto_normalize_contrast"),
+            ("last_auto_shadow_neutral", "auto_shadow_neutral"),
+            ("last_paper_dmin", "paper_dmin"),
+        ):
+            val = self.repo.get_global_setting(key)
+            if val is not None:
+                new_exp = replace(new_exp, **{attr: bool(val)})
+        config = replace(config, exposure=new_exp)
+
         # Exception: dust_remove is a workflow preference, not an image-specific look.
         sticky_dust = self.repo.get_global_setting("last_dust_remove")
         if sticky_dust is not None:
@@ -384,6 +399,10 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_wb_magenta", config.exposure.wb_magenta)
         self.repo.save_global_setting("last_wb_yellow", config.exposure.wb_yellow)
         self.repo.save_global_setting("last_linear_raw", config.exposure.linear_raw)
+        self.repo.save_global_setting("last_auto_exposure", config.exposure.auto_exposure)
+        self.repo.save_global_setting("last_auto_normalize_contrast", config.exposure.auto_normalize_contrast)
+        self.repo.save_global_setting("last_auto_shadow_neutral", config.exposure.auto_shadow_neutral)
+        self.repo.save_global_setting("last_paper_dmin", config.exposure.paper_dmin)
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)
         self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)

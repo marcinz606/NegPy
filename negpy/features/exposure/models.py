@@ -24,8 +24,10 @@ class ExposureConfig:
     toe_width: float = 2.5
     shoulder: float = 0.0
     shoulder_width: float = 2.5
-    paper_dmin: bool = False
+    paper_dmin: bool = True
     auto_shadow_neutral: bool = True
+    auto_exposure: bool = True
+    auto_normalize_contrast: bool = True
 
     def __post_init__(self) -> None:
         """
@@ -41,22 +43,28 @@ class ExposureConfig:
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "cmy_max_density": 0.2,
     "density_multiplier": 0.2,
-    "anchor_target_density": 0.75,
+    "anchor_target_density": 0.74,
+    "assumed_anchor": 0.46,
     "iso_r_min": 50.0,
     "iso_r_max": 180.0,
     "slope_min": 2.0,
     "slope_max": 11.0,
     "d_max": 2.3,
     "d_min": 0.06,
-    "assumed_anchor": 0.46,
     "curve_asymptote": 2.7,
     "dmax_shoulder": 5.0,
     "paper_toe_nu": 3.0,
-    "textural_range_factor": 0.79,
     "toe_onset_density": 1.2,
     "toe_shoulder_strength": 0.85,
     "analysis_grid": 1024,
-    "base_drange_clip": 0.01,
-    "shadow_neutral_percentile": 98.0,
-    "shadow_neutral_max_offset": 0.1,
+    "base_drange_clip": 0.001,
+    "shadow_neutral_percentile": 97.5,
+    "shadow_neutral_max_offset": 0.125,
+    "anchor_meter_percentile": 50.0,
+    "anchor_meter_band": 0.12,
+    "anchor_meter_strength": 0.4,
+    "auto_grade_ref_range": 1.7,
+    "auto_grade_adapt": 0.4,
+    "textural_range_clip": 10.0,
+    "auto_density_target_offset": 0.0,
 }

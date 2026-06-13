@@ -5,6 +5,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     compute_pivot,
+    effective_grade_range,
     grade_to_slope,
     shadow_neutral_offsets,
 )
@@ -12,7 +13,10 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    luminance_density_range,
+    measure_anchor_from_log,
     measure_shadow_refs_from_log,
+    measure_textural_range_from_log,
     normalize_log_image,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
@@ -74,7 +78,7 @@ class NormalizationProcessor:
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
                 context.metrics["log_bounds_mode_val"] = context.process_mode
 
-        context.metrics["norm_density_range"] = abs(bounds.ceils[1] - bounds.floors[1])
+        context.metrics["norm_density_range"] = luminance_density_range(bounds)
 
         if context.process_mode == ProcessMode.C41:
             cached_ref_buffer = context.metrics.get("shadow_refs_buffer_val")
@@ -112,6 +116,12 @@ class NormalizationProcessor:
 
         res = normalize_log_image(img_log, bounds)
 
+        # Per-frame exposure anchor, measured against the same final bounds the
+        # image is normalized with. Stored unconditionally (cheap, block-grid);
+        # PhotometricProcessor uses it only when auto_exposure is on.
+        context.metrics["metered_anchor"] = measure_anchor_from_log(img_log, bounds, context.active_roi, self.config.analysis_buffer)
+        context.metrics["textural_range"] = measure_textural_range_from_log(img_log, context.active_roi, self.config.analysis_buffer)
+
         context.metrics["final_bounds"] = bounds
         context.metrics["normalized_log"] = res
         return res
@@ -126,9 +136,15 @@ class PhotometricProcessor:
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        slope = grade_to_slope(self.config.grade, context.metrics.get("norm_density_range"))
+        density_range = effective_grade_range(
+            self.config.auto_normalize_contrast,
+            context.metrics.get("norm_density_range"),
+            context.metrics.get("textural_range"),
+        )
+        slope = grade_to_slope(self.config.grade, density_range)
         d_min = EXPOSURE_CONSTANTS["d_min"] if self.config.paper_dmin else 0.0
-        pivot = compute_pivot(slope, self.config.density, d_min=d_min)
+        anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
+        pivot = compute_pivot(slope, self.config.density, d_min=d_min, anchor=anchor)
         pivots = [pivot] * 3
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]

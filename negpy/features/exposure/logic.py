@@ -298,35 +298,81 @@ def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
-    if density_range is None:
-        density_range = 1.3  # typical C41 green-channel range
+    rng_in = c["auto_grade_ref_range"] if density_range is None else density_range
     er = min(max(grade, c["iso_r_min"]), c["iso_r_max"]) / 100.0
-    # The analysis measures the robust extreme-to-extreme range; ISO 6846
-    # grades against the smaller textural (detail-to-detail) range.
-    rng = min(max(abs(density_range), 0.3), 3.5) * float(c["textural_range_factor"])
+    rng = min(max(abs(float(rng_in)), 0.3), 3.5)
     k = sigmoid_span(float(c["paper_toe_nu"])) * rng / er
     return float(min(max(k, c["slope_min"]), c["slope_max"]))
 
 
-def compute_pivot(slope: float, density: float, d_min: float = 0.0) -> float:
+def slope_to_grade(slope: float, density_range: Optional[float]) -> float:
     """
-    Fixed calibrated exposure: solve the curve pivot so the assumed reference
-    tone (assumed_anchor, a typical negative's normalized median) prints at
-    anchor_target_density for the current effective slope — grade changes
-    rotate around that reference tone instead of shifting brightness. The
-    density slider offsets exposure around it.
+    Inverse of grade_to_slope: the ISO R paper grade equivalent to an effective
+    slope, given the density range that produced it. Used to display the contrast
+    the conversion is actually applying (including Auto Grade), on the same ISO R
+    scale as the Grade slider. Clamped to the slider's R range.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    rng_in = c["auto_grade_ref_range"] if density_range is None else density_range
+    rng = min(max(abs(float(rng_in)), 0.3), 3.5)
+    if slope <= 0:
+        return float(c["iso_r_max"])
+    er = sigmoid_span(float(c["paper_toe_nu"])) * rng / float(slope)
+    return float(min(max(er * 100.0, c["iso_r_min"]), c["iso_r_max"]))
+
+
+def effective_grade_range(
+    auto_normalize_contrast: bool,
+    floor_ceil_range: Optional[float],
+    textural_range: Optional[float],
+) -> Optional[float]:
+    """
+    Range fed to grade_to_slope for the contrast (grade) decision.
+
+    - Auto Grade off (physical): the floor-to-ceil range — contrast fully tracks
+      the negative's measured density range.
+    - Auto Grade on: a damped blend between a pleasing reference and the per-frame
+      textural range, so contrast leans gently with the scene without printing to
+      a hard extreme. strength = auto_grade_adapt (0 = constant, 1 = full track).
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    if not auto_normalize_contrast:
+        return floor_ceil_range
+    ref = float(c["auto_grade_ref_range"])
+    if textural_range is None:
+        return ref
+    s = float(c["auto_grade_adapt"])
+    return (1.0 - s) * ref + s * abs(float(textural_range))
+
+
+def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Optional[float] = None) -> float:
+    """
+    Fixed calibrated exposure: solve the curve pivot so the reference tone
+    prints at anchor_target_density for the current effective slope — grade
+    changes rotate around that reference tone instead of shifting brightness.
+    The density slider offsets exposure around it. The reference tone defaults
+    to assumed_anchor (a typical negative's normalized median); pass `anchor`
+    to use a per-frame metered median (auto-exposure) instead.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
     t = c["anchor_target_density"]
+    if anchor is not None:
+        # Auto Density prints a touch bright; nudge the metered tone darker.
+        t = t + c["auto_density_target_offset"]
     nu = float(c["paper_toe_nu"])
+    ref = c["assumed_anchor"] if anchor is None else anchor
     # Solve against the projected asymptote (the target sits well below the
     # Dmax saturation shoulder, so the soft clamp doesn't shift it):
     # sigmoid(slope*(anchor - pivot))^nu == s  =>  pivot = anchor - logit(s^(1/nu))/slope.
     s = (t - d_min) / (c["curve_asymptote"] - d_min)
     root = s ** (1.0 / nu)
-    base = c["assumed_anchor"] - float(np.log(root / (1.0 - root))) / slope
+    base = ref - float(np.log(root / (1.0 - root))) / slope
     return base + (1.0 - density) * c["density_multiplier"]
 
 
