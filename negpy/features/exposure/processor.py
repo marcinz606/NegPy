@@ -4,9 +4,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
-    compute_pivot,
-    effective_grade_range,
-    grade_to_slope,
+    per_channel_curve_params,
     shadow_neutral_offsets,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
@@ -136,16 +134,28 @@ class PhotometricProcessor:
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        density_range = effective_grade_range(
-            self.config.auto_normalize_contrast,
-            context.metrics.get("norm_density_range"),
-            context.metrics.get("textural_range"),
-        )
-        slope = grade_to_slope(self.config.grade, density_range)
         d_min = EXPOSURE_CONSTANTS["d_min"] if self.config.paper_dmin else 0.0
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
-        pivot = compute_pivot(slope, self.config.density, d_min=d_min, anchor=anchor)
-        pivots = [pivot] * 3
+        lum_range = context.metrics.get("norm_density_range")
+        final_bounds = context.metrics.get("final_bounds")
+        channel_ranges = None
+        if final_bounds is not None:
+            channel_ranges = (
+                final_bounds.ceils[0] - final_bounds.floors[0],
+                final_bounds.ceils[1] - final_bounds.floors[1],
+                final_bounds.ceils[2] - final_bounds.floors[2],
+            )
+        slopes, pivots = per_channel_curve_params(
+            self.config.grade,
+            self.config.density,
+            self.config.auto_normalize_contrast,
+            self.config.crossover,
+            lum_range,
+            channel_ranges,
+            context.metrics.get("textural_range"),
+            d_min=d_min,
+            anchor=anchor,
+        )
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = (
@@ -188,9 +198,9 @@ class PhotometricProcessor:
 
         img_pos = apply_characteristic_curve(
             image,
-            params_r=(pivots[0], slope),
-            params_g=(pivots[1], slope),
-            params_b=(pivots[2], slope),
+            params_r=(pivots[0], slopes[0]),
+            params_g=(pivots[1], slopes[1]),
+            params_b=(pivots[2], slopes[2]),
             toe=self.config.toe,
             toe_width=self.config.toe_width,
             shoulder=self.config.shoulder,
@@ -200,6 +210,7 @@ class PhotometricProcessor:
             cmy_offsets=cmy_offsets,
             d_min=d_min,
             flare=EXPOSURE_CONSTANTS["flare_fraction"] if self.config.flare else 0.0,
+            surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
             mode=mode_val,
         )
 

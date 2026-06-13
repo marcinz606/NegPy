@@ -236,6 +236,9 @@ class PhotometricCurveWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(40)
         self._curve_pts: list[tuple[float, float]] = []
+        # Per-channel (color, points) traces, populated only when crossover
+        # diverges the channels; empty → the single white curve is drawn.
+        self._channel_curves: list[tuple[QColor, list[tuple[float, float]]]] = []
         self._pivot_pt: tuple[float, float] | None = None
         self._toe_mask: list[float] = []
         self._shoulder_mask: list[float] = []
@@ -252,7 +255,14 @@ class PhotometricCurveWidget(QWidget):
 
     # ── data update ──────────────────────────────────────────────────────────
 
-    def update_curve(self, params, slope: float | None = None, pivot: float | None = None) -> None:
+    def update_curve(
+        self,
+        params,
+        slope: float | None = None,
+        pivot: float | None = None,
+        slopes: tuple[float, float, float] | None = None,
+        pivots: tuple[float, float, float] | None = None,
+    ) -> None:
         from negpy.features.exposure.logic import LogisticSigmoid, _expit, compute_pivot, grade_to_slope
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.kernel.image.validation import ensure_image
@@ -266,27 +276,45 @@ class PhotometricCurveWidget(QWidget):
         if pivot is None:
             pivot = compute_pivot(slope, params.density, d_min=d_min)
 
-        # d_max/d_min from constants so the chart matches the render exactly.
-        curve = LogisticSigmoid(
-            contrast=slope,
-            pivot=pivot,
-            d_min=d_min,
-            toe=params.toe,
-            toe_width=params.toe_width,
-            shoulder=params.shoulder,
-            shoulder_width=params.shoulder_width,
-            flare=EXPOSURE_CONSTANTS["flare_fraction"] if params.flare else 0.0,
-        )
+        flare = EXPOSURE_CONSTANTS["flare_fraction"] if params.flare else 0.0
+        surround_gamma = EXPOSURE_CONSTANTS["target_system_gamma"] if params.surround else None
 
         n = 300
         plt_x = np.linspace(self._X_MIN, self._X_MAX, n)
         x_log_exp = 1.0 - plt_x
 
-        d = curve(ensure_image(x_log_exp))
-        t = np.power(10.0, -d)
-        # sRGB OETF — must match the exposure kernel's output encode.
-        y = np.where(t <= 0.0031308, 12.92 * t, 1.055 * np.power(t, 1.0 / 2.4) - 0.055)
-        self._curve_pts = list(zip(plt_x.tolist(), y.tolist()))
+        def _curve_points(s: float, p: float) -> list[tuple[float, float]]:
+            # d_max/d_min from constants so the chart matches the render exactly.
+            curve = LogisticSigmoid(
+                contrast=s,
+                pivot=p,
+                d_min=d_min,
+                toe=params.toe,
+                toe_width=params.toe_width,
+                shoulder=params.shoulder,
+                shoulder_width=params.shoulder_width,
+                flare=flare,
+                surround_gamma=surround_gamma,
+            )
+            d = curve(ensure_image(x_log_exp))
+            t = np.power(10.0, -d)
+            # sRGB OETF — must match the exposure kernel's output encode.
+            yv = np.where(t <= 0.0031308, 12.92 * t, 1.055 * np.power(t, 1.0 / 2.4) - 0.055)
+            return list(zip(plt_x.tolist(), yv.tolist()))
+
+        # Base (white) reference curve — also the fill/pivot/zone geometry.
+        self._curve_pts = _curve_points(slope, pivot)
+
+        # Per-channel traces only when crossover actually diverges the channels;
+        # otherwise the single white curve preserves the current look.
+        self._channel_curves = []
+        if slopes is not None and pivots is not None:
+            diverged = (max(slopes) - min(slopes) > 1e-9) or (max(pivots) - min(pivots) > 1e-9)
+            if diverged:
+                ch_colors = (QColor(255, 90, 90), QColor(90, 220, 120), QColor(95, 150, 255))
+                self._channel_curves = [
+                    (ch_colors[ch], _curve_points(slopes[ch], pivots[ch])) for ch in range(3)
+                ]
 
         # Toe/shoulder masks for zone shading (same formula as LogisticSigmoid)
         diff = x_log_exp - pivot
@@ -372,10 +400,21 @@ class PhotometricCurveWidget(QWidget):
             zx = int(self._wx(i * 0.1, w))
             painter.drawLine(zx, h - 5, zx, h - 1)
 
-        # Curve line (drawn after fills so it sits on top)
+        # Curve line (drawn after fills so it sits on top). With crossover the
+        # three per-channel traces replace the single white line; they converge
+        # at the pivot and fan apart in the toe/shoulder.
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#FFFFFF"), 1.5))
-        painter.drawPath(curve_path)
+        if self._channel_curves:
+            for color, pts in self._channel_curves:
+                ch_path = QPainterPath()
+                ch_path.moveTo(self._wx(pts[0][0], w), self._wy(pts[0][1], h))
+                for px, py in pts[1:]:
+                    ch_path.lineTo(self._wx(px, w), self._wy(py, h))
+                painter.setPen(QPen(color, 1.5))
+                painter.drawPath(ch_path)
+        else:
+            painter.setPen(QPen(QColor("#FFFFFF"), 1.5))
+            painter.drawPath(curve_path)
 
         # P3: Pivot crosshairs + dot
         if self._pivot_pt:

@@ -16,7 +16,7 @@ struct ExposureUniforms {
     shoulder_beta: f32,
     nu: f32,
     flare: f32,
-    pad_b: f32,
+    surround_gamma: f32,
     pad_c: f32,
 };
 
@@ -105,6 +105,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             let sp_0 = softplus(b_t * (0.0 - d_onset)) / b_t;
             let sig_0 = fast_sigmoid(b_t * (0.0 - d_onset));
             density = density - params.toe * (sp_d - sp_0 - sig_0 * density);
+        }
+
+        // Surround system gamma (Bartleson-Breneman): fixed contrast expansion
+        // about paper white, before the Dmax clamp so physical black is capped.
+        if (params.surround_gamma != 1.0) {
+            density = params.d_min + params.surround_gamma * (density - params.d_min);
         }
 
         // Abrupt smooth saturation shoulder at paper Dmax.

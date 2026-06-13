@@ -127,12 +127,19 @@ class ExposureSidebar(BaseSidebar):
             "Flare: veiling-glare floor that lifts the deepest print blacks and softens the toe "
             "(film look) while leaving paper white fixed",
         )
+        self.crossover_btn = self._icon_toggle(
+            "fa5s.palette",
+            conf.crossover,
+            "Color Crossover: give each layer its own measured contrast, so shadows and highlights "
+            "drift in complementary hues (the signature film look) while the midtone stays neutral",
+        )
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_slider.setToolTip("Width of the shadow toe transition zone")
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.toe_slider.setToolTip("Shadow toe lift: positive raises shadows, negative deepens blacks")
         toe_row.addWidget(self.flare_btn)
+        toe_row.addWidget(self.crossover_btn)
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         self.layout.addLayout(toe_row)
@@ -142,12 +149,19 @@ class ExposureSidebar(BaseSidebar):
             conf.paper_dmin,
             "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
         )
+        self.surround_btn = self._icon_toggle(
+            "fa5s.eye",
+            conf.surround,
+            "Surround Gamma: gentle Bartleson-Breneman contrast lift about paper white for dim-surround "
+            "viewing — darkens midtones slightly and adds punch, uniformly on every frame",
+        )
         sh_row = QHBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_slider.setToolTip("Highlight shoulder roll: positive compresses highlights, negative extends them")
         self.sh_w_slider = CompactSlider("Width", 0.1, 5.0, conf.shoulder_width)
         self.sh_w_slider.setToolTip("Width of the highlight shoulder transition zone")
         sh_row.addWidget(self.paper_dmin_btn)
+        sh_row.addWidget(self.surround_btn)
         sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
         self.layout.addLayout(sh_row)
@@ -206,6 +220,12 @@ class ExposureSidebar(BaseSidebar):
         )
         self.flare_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, flare=checked)
+        )
+        self.crossover_btn.toggled.connect(
+            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, crossover=checked)
+        )
+        self.surround_btn.toggled.connect(
+            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, surround=checked)
         )
         self.auto_density_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, auto_exposure=checked)
@@ -336,6 +356,8 @@ class ExposureSidebar(BaseSidebar):
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.flare_btn.setChecked(conf.flare)
+            self.crossover_btn.setChecked(conf.crossover)
+            self.surround_btn.setChecked(conf.surround)
             self.auto_neutral_btn.setChecked(conf.auto_shadow_neutral)
             self.auto_density_btn.setChecked(conf.auto_exposure)
             self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
@@ -363,6 +385,8 @@ class ExposureSidebar(BaseSidebar):
             self.sh_w_slider,
             self.paper_dmin_btn,
             self.flare_btn,
+            self.crossover_btn,
+            self.surround_btn,
             self.auto_neutral_btn,
             self.auto_density_btn,
             self.auto_grade_btn,

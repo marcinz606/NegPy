@@ -211,7 +211,12 @@ class SessionPanel(QWidget):
             if buffer is not None:
                 self.hist_widget.update_data(buffer)
 
-        from negpy.features.exposure.logic import compute_pivot, effective_grade_range, grade_to_slope
+        from negpy.features.exposure.logic import (
+            compute_pivot,
+            effective_grade_range,
+            grade_to_slope,
+            per_channel_curve_params,
+        )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         config = self.controller.session.state.config.exposure
@@ -226,7 +231,29 @@ class SessionPanel(QWidget):
         d_min = EXPOSURE_CONSTANTS["d_min"] if config.paper_dmin else 0.0
         anchor = metrics.get("metered_anchor") if config.auto_exposure else None
         pivot = compute_pivot(slope, config.density, d_min=d_min, anchor=anchor)
-        self.curve_widget.update_curve(config, slope=slope, pivot=pivot)
+
+        # Per-channel slope/pivot via the shared helper, so the plotted R/G/B
+        # traces match the render exactly (and collapse to one when crossover off).
+        final_bounds = metrics.get("final_bounds")
+        channel_ranges = None
+        if final_bounds is not None:
+            channel_ranges = (
+                final_bounds.ceils[0] - final_bounds.floors[0],
+                final_bounds.ceils[1] - final_bounds.floors[1],
+                final_bounds.ceils[2] - final_bounds.floors[2],
+            )
+        slopes, pivots = per_channel_curve_params(
+            config.grade,
+            config.density,
+            config.auto_normalize_contrast,
+            config.crossover,
+            metrics.get("norm_density_range"),
+            channel_ranges,
+            metrics.get("textural_range"),
+            d_min=d_min,
+            anchor=anchor,
+        )
+        self.curve_widget.update_curve(config, slope=slope, pivot=pivot, slopes=slopes, pivots=pivots)
 
         from negpy.features.exposure.stats import negative_statistics
 

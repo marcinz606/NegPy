@@ -793,22 +793,34 @@ class GPUEngine:
         )
 
         from negpy.features.exposure.logic import (
-            compute_pivot,
-            effective_grade_range,
-            grade_to_slope,
+            per_channel_curve_params,
             shadow_neutral_offsets,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import luminance_density_range
 
         exp = settings.exposure
-        density_range = effective_grade_range(exp.auto_normalize_contrast, luminance_density_range(bounds), textural_range)
-        slope = grade_to_slope(exp.grade, density_range)
         d_min = EXPOSURE_CONSTANTS["d_min"] if exp.paper_dmin else 0.0
         # metered_anchor may be measured for stats even when auto_exposure is off;
         # only let it move the render when the toggle is on.
         render_anchor = metered_anchor if exp.auto_exposure else None
-        pivot = compute_pivot(slope, exp.density, d_min=d_min, anchor=render_anchor)
+        lum_range = luminance_density_range(bounds)
+        channel_ranges = (
+            bounds.ceils[0] - bounds.floors[0],
+            bounds.ceils[1] - bounds.floors[1],
+            bounds.ceils[2] - bounds.floors[2],
+        )
+        slopes, pivots = per_channel_curve_params(
+            exp.grade,
+            exp.density,
+            exp.auto_normalize_contrast,
+            exp.crossover,
+            lum_range,
+            channel_ranges,
+            textural_range,
+            d_min=d_min,
+            anchor=render_anchor,
+        )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
 
         auto_sn = (0.0, 0.0, 0.0)
@@ -824,8 +836,8 @@ class GPUEngine:
             )
 
         e_data = (
-            struct.pack("ffff", pivot, pivot, pivot, 0.0)
-            + struct.pack("ffff", slope, slope, slope, 0.0)
+            struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)
+            + struct.pack("ffff", slopes[0], slopes[1], slopes[2], 0.0)
             + struct.pack(
                 "ffff",
                 exp.wb_cyan * cmy_m,
@@ -864,9 +876,10 @@ class GPUEngine:
                 EXPOSURE_CONSTANTS["dmax_shoulder"],
                 EXPOSURE_CONSTANTS["paper_toe_nu"],
             )
-            # flare (veiling-glare floor) + 2 pad floats; mirrors the CPU kernel.
+            # flare (veiling-glare floor) + surround gamma + 1 pad float; mirrors the CPU kernel.
             + struct.pack("f", float(EXPOSURE_CONSTANTS["flare_fraction"]) if exp.flare else 0.0)
-            + b"\x00" * 8
+            + struct.pack("f", float(EXPOSURE_CONSTANTS["target_system_gamma"]) if exp.surround else 1.0)
+            + b"\x00" * 4
         )
 
         cls = float(settings.lab.clahe_strength)

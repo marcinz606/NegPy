@@ -69,6 +69,7 @@ def _apply_photometric_fused_kernel(
     shoulder_beta: float = 8.0,
     nu: float = 1.0,
     flare: float = 0.0,
+    surround_gamma: float = 1.0,
     mode: int = 0,
 ) -> np.ndarray:
     """
@@ -140,6 +141,12 @@ def _apply_photometric_fused_kernel(
                     sp_d = _softplus(b_t * (density - d_onset)) / b_t
                     density = density - toe * (sp_d - sp_toe0 - sig_toe0 * density)
 
+                # Surround system gamma (Bartleson-Breneman): a fixed contrast
+                # expansion about paper white for dim-surround viewing, applied
+                # before the Dmax clamp so physical black is still capped.
+                if surround_gamma != 1.0:
+                    density = d_min + surround_gamma * (density - d_min)
+
                 # Abrupt smooth saturation shoulder at paper Dmax.
                 density = density - _softplus(shoulder_beta * (density - d_max)) / shoulder_beta
 
@@ -182,12 +189,15 @@ class LogisticSigmoid:
         shadow_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
         highlight_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
         flare: Optional[float] = None,
+        surround_gamma: Optional[float] = None,
     ):
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
         # Off by default; gated callers pass EXPOSURE_CONSTANTS["flare_fraction"].
         self.flare = 0.0 if flare is None else float(flare)
+        # Identity by default; gated callers pass EXPOSURE_CONSTANTS["target_system_gamma"].
+        self.surround_gamma = 1.0 if surround_gamma is None else float(surround_gamma)
         self.k = contrast
         self.x0 = pivot
         # L is the projected (virtual) asymptote; d_max is the physical paper
@@ -232,6 +242,11 @@ class LogisticSigmoid:
             sig_0 = _expit(b_t * (0.0 - d_onset))
             res = res - self.toe * (sp_d - sp_0 - sig_0 * res)
 
+        # Surround system gamma (Bartleson-Breneman): fixed contrast expansion
+        # about paper white, before the Dmax clamp (matches the render kernel).
+        if self.surround_gamma != 1.0:
+            res = self.d_min + self.surround_gamma * (res - self.d_min)
+
         # Abrupt smooth saturation shoulder at paper Dmax.
         res = res - np.logaddexp(0.0, self.shoulder_beta * (res - self.d_max)) / self.shoulder_beta
 
@@ -260,6 +275,7 @@ def apply_characteristic_curve(
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     d_min: float = 0.0,
     flare: Optional[float] = None,
+    surround_gamma: Optional[float] = None,
     mode: int = 0,
 ) -> ImageBuffer:
     """
@@ -293,6 +309,8 @@ def apply_characteristic_curve(
         nu=float(EXPOSURE_CONSTANTS["paper_toe_nu"]),
         # Off by default; gated callers pass EXPOSURE_CONSTANTS["flare_fraction"].
         flare=0.0 if flare is None else float(flare),
+        # Identity by default; gated callers pass EXPOSURE_CONSTANTS["target_system_gamma"].
+        surround_gamma=1.0 if surround_gamma is None else float(surround_gamma),
         mode=mode,
     )
 
@@ -429,6 +447,60 @@ def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Opti
     root = s ** (1.0 / nu)
     base = ref - float(np.log(root / (1.0 - root))) / slope
     return base + (1.0 - density) * c["density_multiplier"]
+
+
+def per_channel_curve_params(
+    grade: float,
+    density: float,
+    auto_normalize_contrast: bool,
+    crossover: bool,
+    lum_range: Optional[float],
+    channel_ranges: Optional[Tuple[float, float, float]],
+    textural_range: Optional[float],
+    d_min: float = 0.0,
+    anchor: Optional[float] = None,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Per-channel (slope, pivot) for the characteristic curve — the single source
+    of truth shared by the CPU processor, the GPU uniform packer, and the chart,
+    so the three can never drift apart.
+
+    Crossover off (or no measured ranges): all three channels get the same base
+    slope/pivot — identical to the legacy single-curve path. Crossover on: each
+    channel's effective grade range is scaled toward its own measured negative
+    density range (the physical per-layer gamma of this scan) by
+    crossover_strength, and its pivot is solved independently so the metered
+    anchor still prints at anchor_target_density on every channel — the midtone
+    stays neutral and the layers diverge only in the toe/shoulder (the crossover).
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
+    base_slope = grade_to_slope(grade, r_eff)
+
+    use_crossover = (
+        crossover
+        and r_eff is not None
+        and lum_range is not None
+        and channel_ranges is not None
+        and abs(float(lum_range)) > 1e-6
+    )
+    if not use_crossover:
+        base_pivot = compute_pivot(base_slope, density, d_min=d_min, anchor=anchor)
+        return (base_slope, base_slope, base_slope), (base_pivot, base_pivot, base_pivot)
+
+    strength = float(EXPOSURE_CONSTANTS["crossover_strength"])
+    r_eff_f = float(r_eff)
+    lum = abs(float(lum_range))
+    slopes = []
+    pivots = []
+    for ch in range(3):
+        ratio = abs(float(channel_ranges[ch])) / lum
+        r_ch = r_eff_f * (1.0 + strength * (ratio - 1.0))
+        slope_ch = grade_to_slope(grade, r_ch)
+        slopes.append(slope_ch)
+        pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor))
+    return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
 
 
 def shadow_neutral_offsets(
