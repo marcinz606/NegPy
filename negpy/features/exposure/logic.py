@@ -68,6 +68,7 @@ def _apply_photometric_fused_kernel(
     asymptote: float = 3.2,
     shoulder_beta: float = 8.0,
     nu: float = 1.0,
+    flare: float = 0.0,
     mode: int = 0,
 ) -> np.ndarray:
     """
@@ -86,6 +87,9 @@ def _apply_photometric_fused_kernel(
     h, w, c = img.shape
     res = np.empty_like(img)
     epsilon = 1e-6
+
+    # Paper white reflectance for the veiling-glare floor (out = (r+f)/(1+f)).
+    flare_white = 10.0 ** (-d_min)
 
     # Density-domain toe geometry: onset where print shadows begin
     # (d_onset = 1.2 D, ~0.28 sRGB), so the slider works as a shadow
@@ -140,6 +144,13 @@ def _apply_photometric_fused_kernel(
                 density = density - _softplus(shoulder_beta * (density - d_max)) / shoulder_beta
 
                 transmittance = 10.0 ** (-density)
+
+                # Veiling-glare / print-flare floor: a uniform light added in
+                # linear reflectance, normalized so paper white is invariant.
+                # Lifts the deepest blacks and softens the toe (film look).
+                if flare != 0.0:
+                    transmittance = (transmittance + flare * flare_white) / (1.0 + flare)
+
                 final_val = _srgb_oetf(transmittance)
 
                 if final_val < 0.0:
@@ -170,10 +181,12 @@ class LogisticSigmoid:
         shoulder_width: float = 3.0,
         shadow_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
         highlight_cmy: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        flare: Optional[float] = None,
     ):
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
         ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
+        self.flare = float(EXPOSURE_CONSTANTS["flare_fraction"]) if flare is None else float(flare)
         self.k = contrast
         self.x0 = pivot
         # L is the projected (virtual) asymptote; d_max is the physical paper
@@ -221,6 +234,14 @@ class LogisticSigmoid:
         # Abrupt smooth saturation shoulder at paper Dmax.
         res = res - np.logaddexp(0.0, self.shoulder_beta * (res - self.d_max)) / self.shoulder_beta
 
+        # Veiling-glare / print-flare floor in linear reflectance (matches the
+        # render kernel), converted back to density so the chart stays identical.
+        if self.flare != 0.0:
+            white = 10.0 ** (-self.d_min)
+            t = 10.0 ** (-res)
+            t = (t + self.flare * white) / (1.0 + self.flare)
+            res = -np.log10(np.maximum(t, 1e-12))
+
         return ensure_image(res)
 
 
@@ -237,6 +258,7 @@ def apply_characteristic_curve(
     highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     d_min: float = 0.0,
+    flare: Optional[float] = None,
     mode: int = 0,
 ) -> ImageBuffer:
     """
@@ -268,6 +290,7 @@ def apply_characteristic_curve(
         asymptote=float(EXPOSURE_CONSTANTS["curve_asymptote"]),
         shoulder_beta=float(EXPOSURE_CONSTANTS["dmax_shoulder"]),
         nu=float(EXPOSURE_CONSTANTS["paper_toe_nu"]),
+        flare=float(EXPOSURE_CONSTANTS["flare_fraction"]) if flare is None else float(flare),
         mode=mode,
     )
 
@@ -333,9 +356,12 @@ def effective_grade_range(
 
     - Auto Grade off (physical): the floor-to-ceil range — contrast fully tracks
       the negative's measured density range.
-    - Auto Grade on: a damped blend between a pleasing reference and the per-frame
-      textural range, so contrast leans gently with the scene without printing to
-      a hard extreme. strength = auto_grade_adapt (0 = constant, 1 = full track).
+    - Auto Grade on: the per-frame textural range is compressed toward a pleasing
+      reference with a bounded tanh, so contrast leans 1:1 with the scene near
+      normal but saturates at +/- auto_grade_spread. This stops a flat scene from
+      snapping contrasty or a wide scene from going mushy, while staying smooth
+      and monotone (vs. the old symmetric linear lerp that under-corrected the
+      extremes and over-touched normal frames).
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -345,8 +371,11 @@ def effective_grade_range(
     ref = float(c["auto_grade_ref_range"])
     if textural_range is None:
         return ref
-    s = float(c["auto_grade_adapt"])
-    return (1.0 - s) * ref + s * abs(float(textural_range))
+    spread = float(c["auto_grade_spread"])
+    if spread <= 0.0:
+        return ref
+    measured = abs(float(textural_range))
+    return ref + spread * float(np.tanh((measured - ref) / spread))
 
 
 def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Optional[float] = None) -> float:

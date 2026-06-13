@@ -62,10 +62,20 @@ class TestEffectiveGradeRange(unittest.TestCase):
 
     def test_auto_blends_textural_toward_ref(self):
         ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
-        s = EXPOSURE_CONSTANTS["auto_grade_adapt"]
+        spread = EXPOSURE_CONSTANTS["auto_grade_spread"]
         textural = 1.6
-        expected = (1.0 - s) * ref + s * textural
+        expected = ref + spread * np.tanh((textural - ref) / spread)
         self.assertAlmostEqual(effective_grade_range(True, 2.4, textural), expected, places=6)
+
+    def test_auto_range_is_bounded(self):
+        # tanh compression keeps the effective range within ref +/- spread even
+        # for an extreme textural range (flat scene can't snap contrasty).
+        ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
+        spread = EXPOSURE_CONSTANTS["auto_grade_spread"]
+        wide = effective_grade_range(True, None, 99.0)
+        flat = effective_grade_range(True, None, 0.0)
+        self.assertLessEqual(wide, ref + spread + 1e-6)
+        self.assertGreaterEqual(flat, ref - spread - 1e-6)
 
     def test_auto_no_textural_falls_back_to_ref(self):
         ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]

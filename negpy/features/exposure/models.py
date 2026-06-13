@@ -63,8 +63,25 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "anchor_meter_percentile": 50.0,
     "anchor_meter_band": 0.12,
     "anchor_meter_strength": 0.4,
+    # Negative density range that prints at the preferred system gamma at the
+    # nominal grade (R110 ~ grade 2). This is the auto-grade anchor; per-frame
+    # range is compressed toward it (see effective_grade_range).
     "auto_grade_ref_range": 1.7,
-    "auto_grade_adapt": 0.4,
+    # Half-width (in density-range units) of the bounded tanh compression around
+    # the reference: effective range stays within ref +/- spread. Larger = tracks
+    # the scene more; smaller = leans harder on the reference. Replaces the old
+    # linear auto_grade_adapt lerp so flat scenes can't snap contrasty nor wide
+    # scenes go mushy.
+    "auto_grade_spread": 1.0,
+    # Preferred midtone print gamma for an average viewing surround
+    # (Bartleson-Breneman: ~1.05-1.15, not 1:1). auto_grade_ref_range is the
+    # negative range that lands on this gamma at the nominal grade.
+    "target_system_gamma": 1.10,
     "textural_range_clip": 10.0,
     "auto_density_target_offset": 0.0,
+    # Veiling-glare / print-flare floor: a uniform light added to print
+    # reflectance, out = (r + f) / (1 + f) with r normalized to paper white.
+    # Lifts the deepest blacks and softens the toe (film look) while leaving
+    # paper white fixed; 0.0 = off (no change). Classic order ~0.005-0.02.
+    "flare_fraction": 0.0,
 }

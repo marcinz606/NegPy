@@ -864,7 +864,9 @@ class GPUEngine:
                 EXPOSURE_CONSTANTS["dmax_shoulder"],
                 EXPOSURE_CONSTANTS["paper_toe_nu"],
             )
-            + b"\x00" * 12
+            # flare (veiling-glare floor) + 2 pad floats; mirrors the CPU kernel.
+            + struct.pack("f", float(EXPOSURE_CONSTANTS["flare_fraction"]))
+            + b"\x00" * 8
         )
 
         cls = float(settings.lab.clahe_strength)

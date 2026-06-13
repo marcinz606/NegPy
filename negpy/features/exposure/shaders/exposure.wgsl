@@ -15,7 +15,7 @@ struct ExposureUniforms {
     asymptote: f32,
     shoulder_beta: f32,
     nu: f32,
-    pad_a: f32,
+    flare: f32,
     pad_b: f32,
     pad_c: f32,
 };
@@ -110,7 +110,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // Abrupt smooth saturation shoulder at paper Dmax.
         density = density - softplus(params.shoulder_beta * (density - params.d_max)) / params.shoulder_beta;
 
-        let transmittance = pow(10.0, -density);
+        var transmittance = pow(10.0, -density);
+
+        // Veiling-glare / print-flare floor in linear reflectance, normalized so
+        // paper white is invariant. Lifts the deepest blacks and softens the toe.
+        if (params.flare != 0.0) {
+            let white = pow(10.0, -params.d_min);
+            transmittance = (transmittance + params.flare * white) / (1.0 + params.flare);
+        }
+
         res[ch] = srgb_oetf(max(transmittance, 0.0));
     }
 
