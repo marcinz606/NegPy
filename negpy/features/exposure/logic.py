@@ -356,26 +356,29 @@ def effective_grade_range(
 
     - Auto Grade off (physical): the floor-to-ceil range — contrast fully tracks
       the negative's measured density range.
-    - Auto Grade on: the per-frame textural range is compressed toward a pleasing
-      reference with a bounded tanh, so contrast leans 1:1 with the scene near
-      normal but saturates at +/- auto_grade_spread. This stops a flat scene from
-      snapping contrasty or a wide scene from going mushy, while staying smooth
-      and monotone (vs. the old symmetric linear lerp that under-corrected the
-      extremes and over-touched normal frames).
+    - Auto Grade on: hold the *printed* contrast of the detail-bearing midtones
+      constant rather than blend density ranges. Normalization stretches the
+      floor->ceil span to [0, 1], so the textural midtones occupy a fraction
+      textural_range / floor_ceil_range of the input axis; feeding grade_to_slope
+      effective = K * floor_ceil_range / textural_range makes the slope re-expand
+      exactly that fraction to a fixed print-density span (K = auto_grade_target).
+      A normal frame's ~2:1 ratio lands at a consistent, pleasing gamma; speculars
+      that inflate floor_ceil are compensated by the ratio instead of softening the
+      print; genuinely flat scenes are bounded by grade_to_slope's slope clamp.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
     if not auto_normalize_contrast:
         return floor_ceil_range
-    ref = float(c["auto_grade_ref_range"])
-    if textural_range is None:
-        return ref
-    spread = float(c["auto_grade_spread"])
-    if spread <= 0.0:
-        return ref
+    if textural_range is None or floor_ceil_range is None:
+        return float(c["auto_grade_ref_range"])
     measured = abs(float(textural_range))
-    return ref + spread * float(np.tanh((measured - ref) / spread))
+    if measured < 1e-6:
+        # Degenerate (near-flat) frame: let grade_to_slope's clamp cap the boost.
+        return 3.5
+    k = float(c["auto_grade_target"])
+    return k * abs(float(floor_ceil_range)) / measured
 
 
 def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Optional[float] = None) -> float:

@@ -63,19 +63,19 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "anchor_meter_percentile": 50.0,
     "anchor_meter_band": 0.12,
     "anchor_meter_strength": 0.4,
-    # Negative density range that prints at the preferred system gamma at the
-    # nominal grade (R110 ~ grade 2). This is the auto-grade anchor; per-frame
-    # range is compressed toward it (see effective_grade_range).
+    # Auto Grade target: hold the printed contrast of the detail-bearing
+    # midtones constant on every frame instead of blending density ranges.
+    # effective_range = auto_grade_target * floor_ceil_range / textural_range,
+    # so the slope re-expands midtones that normalization compressed (speculars
+    # inflate floor_ceil) and a normal frame's ~2:1 ratio lands at a consistent,
+    # pleasing gamma. The single contrast knob; larger = punchier overall.
+    "auto_grade_target": 0.8,
+    # Fallback range when no per-frame textural range is available (used by
+    # effective_grade_range when textural_range is None).
     "auto_grade_ref_range": 1.7,
-    # Half-width (in density-range units) of the bounded tanh compression around
-    # the reference: effective range stays within ref +/- spread. Larger = tracks
-    # the scene more; smaller = leans harder on the reference. Replaces the old
-    # linear auto_grade_adapt lerp so flat scenes can't snap contrasty nor wide
-    # scenes go mushy.
-    "auto_grade_spread": 1.0,
     # Preferred midtone print gamma for an average viewing surround
-    # (Bartleson-Breneman: ~1.05-1.15, not 1:1). auto_grade_ref_range is the
-    # negative range that lands on this gamma at the nominal grade.
+    # (Bartleson-Breneman: ~1.05-1.15, not 1:1). The design intent that
+    # auto_grade_target is calibrated against; documentation only.
     "target_system_gamma": 1.10,
     "textural_range_clip": 10.0,
     "auto_density_target_offset": 0.0,

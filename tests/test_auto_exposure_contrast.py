@@ -60,34 +60,32 @@ class TestEffectiveGradeRange(unittest.TestCase):
         self.assertEqual(effective_grade_range(False, 1.7, 0.9), 1.7)
         self.assertIsNone(effective_grade_range(False, None, 0.9))
 
-    def test_auto_blends_textural_toward_ref(self):
-        ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
-        spread = EXPOSURE_CONSTANTS["auto_grade_spread"]
-        textural = 1.6
-        expected = ref + spread * np.tanh((textural - ref) / spread)
-        self.assertAlmostEqual(effective_grade_range(True, 2.4, textural), expected, places=6)
+    def test_auto_holds_printed_contrast(self):
+        # effective = K * floor_ceil / textural (the printed-contrast rule).
+        k = EXPOSURE_CONSTANTS["auto_grade_target"]
+        self.assertAlmostEqual(effective_grade_range(True, 1.6, 0.8), k * 1.6 / 0.8, places=6)
 
-    def test_auto_range_is_bounded(self):
-        # tanh compression keeps the effective range within ref +/- spread even
-        # for an extreme textural range (flat scene can't snap contrasty).
-        ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
-        spread = EXPOSURE_CONSTANTS["auto_grade_spread"]
-        wide = effective_grade_range(True, None, 99.0)
-        flat = effective_grade_range(True, None, 0.0)
-        self.assertLessEqual(wide, ref + spread + 1e-6)
-        self.assertGreaterEqual(flat, ref - spread - 1e-6)
+    def test_auto_constant_for_constant_ratio(self):
+        # A normal frame's floor_ceil/textural ratio is what sets contrast, not
+        # the absolute range: same ratio -> same effective range (no swing).
+        a = effective_grade_range(True, 1.6, 0.8)  # ratio 2.0
+        b = effective_grade_range(True, 2.4, 1.2)  # ratio 2.0
+        self.assertAlmostEqual(a, b, places=6)
+
+    def test_auto_speculars_boost_not_soften(self):
+        # Speculars inflate floor_ceil while textural stays put -> higher effective
+        # range (more slope), recovering compressed midtones instead of softening.
+        clean = effective_grade_range(True, 1.6, 0.8)
+        specular = effective_grade_range(True, 2.4, 0.8)
+        self.assertGreater(specular, clean)
+
+    def test_auto_degenerate_flat_is_capped(self):
+        # Near-zero textural can't divide to infinity; capped for the slope clamp.
+        self.assertLessEqual(effective_grade_range(True, 1.6, 0.0), 3.5 + 1e-6)
 
     def test_auto_no_textural_falls_back_to_ref(self):
         ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
         self.assertAlmostEqual(effective_grade_range(True, 2.4, None), ref, places=6)
-
-    def test_auto_blend_between_constant_and_physical(self):
-        # Blend must sit strictly between the constant (ref) and full textural.
-        ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
-        textural = 1.8
-        blended = effective_grade_range(True, None, textural)
-        self.assertGreater(blended, min(ref, textural))
-        self.assertLess(blended, max(ref, textural))
 
 
 class TestMeasureTexturalRange(unittest.TestCase):
