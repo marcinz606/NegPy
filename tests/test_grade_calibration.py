@@ -22,8 +22,9 @@ class TestGradeToSlope(unittest.TestCase):
         self.assertAlmostEqual(sigmoid_span(1.0), np.log(81.0), places=9)
 
     def test_missing_range_uses_typical(self):
-        ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
-        self.assertAlmostEqual(grade_to_slope(110.0, None), grade_to_slope(110.0, ref), places=6)
+        from negpy.features.exposure.logic import default_grade_range
+
+        self.assertAlmostEqual(grade_to_slope(110.0, None), grade_to_slope(110.0, default_grade_range()), places=6)
 
     def test_lower_r_is_steeper(self):
         self.assertGreater(grade_to_slope(70.0, 1.3), grade_to_slope(130.0, 1.3))
@@ -109,7 +110,9 @@ class TestCalibratedGradeOutput(unittest.TestCase):
         return PhotometricProcessor(self.config.exposure).process(img, ctx)
 
     def test_typical_range_matches_no_metric_baseline(self):
-        np.testing.assert_array_almost_equal(self._run(EXPOSURE_CONSTANTS["auto_grade_ref_range"]), self._run(None))
+        from negpy.features.exposure.logic import default_grade_range
+
+        np.testing.assert_array_almost_equal(self._run(default_grade_range()), self._run(None))
 
     def test_flat_negative_renders_flatter(self):
         res_flat = self._run(0.9)

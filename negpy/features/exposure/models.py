@@ -70,9 +70,13 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # inflate floor_ceil) and a normal frame's ~2:1 ratio lands at a consistent,
     # pleasing gamma. The single contrast knob; larger = punchier overall.
     "auto_grade_target": 0.8,
-    # Fallback range when no per-frame textural range is available (used by
-    # effective_grade_range when textural_range is None).
-    "auto_grade_ref_range": 1.7,
+    # Nominal floor_ceil / textural ratio of a well-exposed frame: pure
+    # percentile geometry of a roughly-normal tone distribution (P10-P90 =
+    # 2.56 sigma, P0.5-P99.5 = 5.15 sigma -> ~2.0). Used to derive the default
+    # grade range (auto_grade_target * this) when no per-frame textural range is
+    # measured, so the fallback obeys the same printed-contrast rule instead of a
+    # standalone magic number.
+    "auto_grade_nominal_ratio": 2.0,
     # Preferred midtone print gamma for an average viewing surround
     # (Bartleson-Breneman: ~1.05-1.15, not 1:1). The design intent that
     # auto_grade_target is calibrated against; documentation only.

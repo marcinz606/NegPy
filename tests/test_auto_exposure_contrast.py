@@ -83,9 +83,10 @@ class TestEffectiveGradeRange(unittest.TestCase):
         # Near-zero textural can't divide to infinity; capped for the slope clamp.
         self.assertLessEqual(effective_grade_range(True, 1.6, 0.0), 3.5 + 1e-6)
 
-    def test_auto_no_textural_falls_back_to_ref(self):
-        ref = EXPOSURE_CONSTANTS["auto_grade_ref_range"]
-        self.assertAlmostEqual(effective_grade_range(True, 2.4, None), ref, places=6)
+    def test_auto_no_textural_falls_back_to_default(self):
+        from negpy.features.exposure.logic import default_grade_range
+
+        self.assertAlmostEqual(effective_grade_range(True, 2.4, None), default_grade_range(), places=6)
 
 
 class TestMeasureTexturalRange(unittest.TestCase):

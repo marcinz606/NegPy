@@ -310,6 +310,20 @@ def sigmoid_span(nu: float) -> float:
     return _logit(0.9 ** (1.0 / nu)) - _logit(0.1 ** (1.0 / nu))
 
 
+def default_grade_range() -> float:
+    """
+    Density range for a nominal frame when none is measured: the printed-contrast
+    rule (auto_grade_target * floor_ceil/textural) evaluated at the canonical
+    floor_ceil/textural ratio of a roughly-normal tone distribution
+    (auto_grade_nominal_ratio ~ 2.0). Keeps the fallback on the same rule as the
+    measured path instead of a standalone reference number.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    return float(c["auto_grade_target"]) * float(c["auto_grade_nominal_ratio"])
+
+
 def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     """
     Slope from the grade given as an ISO R paper exposure range
@@ -321,7 +335,7 @@ def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
-    rng_in = c["auto_grade_ref_range"] if density_range is None else density_range
+    rng_in = default_grade_range() if density_range is None else density_range
     er = min(max(grade, c["iso_r_min"]), c["iso_r_max"]) / 100.0
     rng = min(max(abs(float(rng_in)), 0.3), 3.5)
     k = sigmoid_span(float(c["paper_toe_nu"])) * rng / er
@@ -338,7 +352,7 @@ def slope_to_grade(slope: float, density_range: Optional[float]) -> float:
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
-    rng_in = c["auto_grade_ref_range"] if density_range is None else density_range
+    rng_in = default_grade_range() if density_range is None else density_range
     rng = min(max(abs(float(rng_in)), 0.3), 3.5)
     if slope <= 0:
         return float(c["iso_r_max"])
@@ -372,7 +386,7 @@ def effective_grade_range(
     if not auto_normalize_contrast:
         return floor_ceil_range
     if textural_range is None or floor_ceil_range is None:
-        return float(c["auto_grade_ref_range"])
+        return default_grade_range()
     measured = abs(float(textural_range))
     if measured < 1e-6:
         # Degenerate (near-flat) frame: let grade_to_slope's clamp cap the boost.
