@@ -1,5 +1,5 @@
 import os
-from typing import Callable
+from typing import Callable, Optional
 
 import numpy as np
 from PIL import Image
@@ -32,6 +32,28 @@ from negpy.kernel.system.logging import get_logger
 from negpy.services.export.print import PrintService
 
 logger = get_logger(__name__)
+
+
+def _read_screen_icc(screen: object) -> Optional[bytes]:
+    """Monitor ICC profile bytes for a QScreen, or None (treat the display as sRGB).
+
+    Prefers Qt's reported color space; falls back to PIL's OS display profile.
+    """
+    try:
+        data = bytes(screen.colorSpace().iccProfile())  # type: ignore[attr-defined]
+        if data:
+            return data
+    except Exception as e:
+        logger.debug("QScreen color space unavailable: %s", e)
+    try:
+        from PIL import ImageCms
+
+        prof = ImageCms.get_display_profile()
+        if prof is not None:
+            return prof.tobytes()
+    except Exception as e:
+        logger.debug("PIL display profile unavailable: %s", e)
+    return None
 
 
 def _display_buffer_for_canvas(buffer: object) -> object:
@@ -108,6 +130,28 @@ class MainWindow(QMainWindow):
         repo = self.controller.session.repo
         if not repo.get_global_setting("tutorial_seen", False):
             QTimer.singleShot(600, self.show_tutorial)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # The window handle (and thus its screen) only exists once shown. Wire
+        # monitor-profile detection once, then track screen changes.
+        if not getattr(self, "_monitor_wired", False):
+            self._monitor_wired = True
+            handle = self.windowHandle()
+            if handle is not None:
+                handle.screenChanged.connect(lambda _screen: self._refresh_monitor_profile())
+            # force=True so a persisted override is resolved even when detection is None.
+            self._refresh_monitor_profile(force=True)
+
+    def _refresh_monitor_profile(self, force: bool = False) -> None:
+        """Detect the active screen's ICC profile and hand it to the controller, which
+        resolves it against any manual override and pushes it to the display paths."""
+        handle = self.windowHandle()
+        screen = handle.screen() if handle is not None else self.screen()
+        data = _read_screen_icc(screen) if screen is not None else None
+        if not force and data == self.state.monitor_icc_detected_bytes:
+            return
+        self.controller.set_monitor_detected(data)
 
     def _init_ui(self) -> None:
         """Setup widgets and layout."""
@@ -299,11 +343,14 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.error(f"Border preview failure: {e}")
 
-        # With a proof active the render worker already baked it into the buffer, so
-        # show it raw instead of re-applying the working→sRGB display transform.
-        icc_active = self.state.icc_input_path or self.controller.effective_output_icc()
+        # With a proof active the render worker already baked the full
+        # source→output→monitor transform into the buffer, so the display step must be
+        # a no-op (pass no monitor profile) to avoid converting to the monitor twice.
+        # Otherwise the buffer is in the assumed source space and needs source→monitor.
+        icc_active = self.controller.proof_active()
         display_cs = ColorSpace.SRGB.value if icc_active else self.state.workspace_color_space
-        self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect)
+        monitor_bytes = None if icc_active else self.state.monitor_icc_bytes
+        self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes)
 
     def _refresh_image_info(self) -> None:
         """Updates the persistent metadata panels."""

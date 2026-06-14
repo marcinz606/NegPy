@@ -291,6 +291,13 @@ class ImageProcessor:
         path_dst = ColorSpaceRegistry.get_icc_path(color_space)
         return ImageCms.getOpenProfile(path_dst) if path_dst and os.path.exists(path_dst) else None
 
+    @staticmethod
+    def _is_print_profile(profile: Any) -> bool:
+        """True for a paper/printer output profile (gets a paper-white soft proof)."""
+        device_class = (getattr(profile.profile, "device_class", "") or "").strip()
+        color_space = (getattr(profile.profile, "xcolor_space", "") or "").strip()
+        return device_class == "prtr" or color_space == "CMYK"
+
     def _apply_color_management_u16_rgb(
         self,
         img_u16: np.ndarray,
@@ -384,13 +391,21 @@ class ImageProcessor:
         working_color_space: str,
         input_icc_path: Optional[str],
         output_icc_path: Optional[str],
+        monitor_icc_bytes: Optional[bytes] = None,
     ) -> Image.Image:
-        """Convert the working-space preview into the output space and show it raw.
+        """Soft-proof the preview into display space.
 
-        input → working → output, displayed without a further sRGB transform, so the
-        preview matches the exported file in a non-color-managed viewer.
+        For a paper/printer output profile, simulate the print on screen (paper white +
+        ink) via a proof transform. For an export color space, do a gamut-only proof
+        (relative colorimetric + BPC) ending at the display. ``display`` is the monitor
+        profile when detected (``monitor_icc_bytes``), else sRGB. The output always
+        lands in display space — otherwise it would leak output-space numbers to the
+        screen and shift per output space (issue #243). The caller shows the result raw
+        (no further display transform).
         """
         try:
+            from negpy.infrastructure.display.color_mgmt import open_profile_from_bytes
+
             # littleCMS needs RGB against the RGB working/output profiles.
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
@@ -399,7 +414,29 @@ class ImageProcessor:
             p_dst = self._resolve_dst_profile(working_color_space, output_icc_path)
             if p_dst is None:
                 return pil_img
-            # GRAY destinations need an "L" intermediate.
+            # Display the proof lands on: the monitor profile when detected, else sRGB.
+            p_display = open_profile_from_bytes(monitor_icc_bytes) if monitor_icc_bytes else ImageCms.createProfile("sRGB")
+
+            if self._is_print_profile(p_dst):
+                # Paper/printer profile: simulate the print on screen (paper white + ink)
+                # via a proof transform — relative-colorimetric source→paper, then
+                # absolute-colorimetric paper→display so the paper white/Dmax show.
+                # Handles RGB and CMYK paper profiles (proof space is internal).
+                proof = ImageCms.buildProofTransform(
+                    p_src,
+                    p_display,
+                    p_dst,
+                    "RGB",
+                    "RGB",
+                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                    proofRenderingIntent=ImageCms.Intent.ABSOLUTE_COLORIMETRIC,
+                    flags=ImageCms.Flags.SOFTPROOFING,
+                )
+                result = ImageCms.applyTransform(pil_img, proof)
+                return result if result is not None else pil_img
+
+            # Export color space / display-class profile: gamut-only proof. GRAY
+            # destinations need an "L" intermediate.
             dst_space = (getattr(p_dst.profile, "xcolor_space", "RGB ") or "RGB ").strip()
             out_mode = "L" if dst_space == "GRAY" else "RGB"
             result = ImageCms.profileToProfile(
@@ -412,7 +449,24 @@ class ImageProcessor:
             )
             if result is None:
                 return pil_img
-            return result if result.mode == "RGB" else result.convert("RGB")
+            result = result if result.mode == "RGB" else result.convert("RGB")
+            # Final output → display transform so the proof is shown in display space
+            # rather than reinterpreted by the viewer. Always runs (not just when a
+            # monitor profile is known): without it the proof would leak output-space
+            # numbers to the screen and shift per output space (issue #243). Skipped for
+            # GRAY outputs, whose `result` is no longer in `p_dst`'s space after RGB-ising.
+            if out_mode == "RGB":
+                proofed = ImageCms.profileToProfile(
+                    result,
+                    p_dst,
+                    p_display,
+                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                    outputMode="RGB",
+                    flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
+                )
+                if proofed is not None:
+                    result = proofed
+            return result
         except Exception as e:
             logger.error(f"Soft-proof preview failed: {e}")
             return pil_img

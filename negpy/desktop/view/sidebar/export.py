@@ -29,6 +29,13 @@ class ExportSidebar(BaseSidebar):
     Panel for export settings and batch processing.
     """
 
+    @staticmethod
+    def _icc_row_label(text: str) -> QLabel:
+        """Fixed-width row label so the ICC-section dropdowns line up."""
+        label = QLabel(text)
+        label.setFixedWidth(52)
+        return label
+
     def _init_ui(self) -> None:
         self.layout.setSpacing(10)
         conf = self.state.config.export
@@ -39,6 +46,13 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
         self.layout.addWidget(section_subheader("ICC"))
+
+        # Soft proof: when off, Output/Input ICC affect export only (preview = the edit
+        # on the monitor); when on, the preview simulates the Output profile.
+        self.soft_proof_checkbox = QCheckBox("Soft proof")
+        self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
+        self.soft_proof_checkbox.setToolTip("Simulate the Output profile (incl. paper/printer) in the preview")
+        self.layout.addWidget(self.soft_proof_checkbox)
 
         # Drop bundled profiles that already back a color-space enum (e.g.
         # AdobeCompat-v4.icc ↔ "Adobe RGB") so the Output list isn't duplicated.
@@ -54,7 +68,7 @@ class ExportSidebar(BaseSidebar):
         in_path = self.state.icc_input_path
         self.input_combo.setCurrentText(os.path.basename(in_path) if in_path else "None")
         in_row = QHBoxLayout()
-        in_row.addWidget(QLabel("Input"))
+        in_row.addWidget(self._icc_row_label("Input"))
         in_row.addWidget(self.input_combo)
         self.layout.addLayout(in_row)
 
@@ -69,9 +83,35 @@ class ExportSidebar(BaseSidebar):
         out_path = self.state.icc_output_path
         self.output_combo.setCurrentText(os.path.basename(out_path) if out_path else conf.export_color_space)
         out_row = QHBoxLayout()
-        out_row.addWidget(QLabel("Output"))
+        out_row.addWidget(self._icc_row_label("Output"))
         out_row.addWidget(self.output_combo)
         self.layout.addLayout(out_row)
+
+        # Display: monitor profile the preview is shown on (preview only, not export).
+        # "As detected" uses the OS-reported profile; the rest override it for
+        # wide-gamut monitors the OS does not report (common on Linux).
+        self.display_spaces = [
+            ColorSpace.SRGB.value,
+            ColorSpace.P3_D65.value,
+            ColorSpace.ADOBE_RGB.value,
+            ColorSpace.REC2020.value,
+            ColorSpace.PROPHOTO.value,
+        ]
+        self.display_map = [None] + self.display_spaces
+        self.display_combo = QComboBox()
+        self.display_combo.addItems(["As detected"] + self.display_spaces)
+        self.display_combo.setToolTip("Monitor profile the preview is displayed on (affects preview only, not export)")
+        override = self.state.monitor_profile_override
+        self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
+        disp_row = QHBoxLayout()
+        disp_row.addWidget(self._icc_row_label("Display"))
+        disp_row.addWidget(self.display_combo)
+        self.layout.addLayout(disp_row)
+
+        self.display_detected_label = QLabel()
+        self.display_detected_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
+        self.layout.addWidget(self.display_detected_label)
+        self._refresh_display_info()
 
         self.layout.addWidget(section_subheader("FORMAT"))
 
@@ -210,8 +250,11 @@ class ExportSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.fmt_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
+        self.soft_proof_checkbox.toggled.connect(self.controller.set_soft_proof)
         self.input_combo.currentIndexChanged.connect(self._on_input_changed)
         self.output_combo.currentIndexChanged.connect(self._on_output_changed)
+        self.display_combo.currentIndexChanged.connect(self._on_display_changed)
+        self.controller.monitor_profile_changed.connect(self._refresh_display_info)
         self.ratio_combo.currentTextChanged.connect(lambda _: self.update_timer.start())
         self.mode_btn_group.idToggled.connect(self._on_mode_toggled)
 
@@ -285,6 +328,17 @@ class ExportSidebar(BaseSidebar):
             self.controller.session.save_icc_prefs()
             self.controller.request_render()
 
+    def _on_display_changed(self, index: int) -> None:
+        self.controller.set_monitor_override(self.display_map[index])
+
+    def _refresh_display_info(self) -> None:
+        """Update the 'As detected' label with the live detected monitor profile."""
+        from negpy.infrastructure.display.color_mgmt import profile_description
+
+        desc = profile_description(self.state.monitor_icc_detected_bytes)
+        self.display_detected_label.setText(f"Detected: {desc}")
+        self.display_combo.setItemText(0, f"As detected ({desc})")
+
     def _current_export_color_space(self) -> str:
         """Output dropdown value when a standard space is selected; else keep prior."""
         idx = self.output_combo.currentIndex()
@@ -335,11 +389,15 @@ class ExportSidebar(BaseSidebar):
         conf = self.state.config.export
         self.block_signals(True)
         try:
+            self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
             self.fmt_combo.setCurrentText(conf.export_fmt)
             in_path = self.state.icc_input_path
             self.input_combo.setCurrentText(os.path.basename(in_path) if in_path else "None")
             out_path = self.state.icc_output_path
             self.output_combo.setCurrentText(os.path.basename(out_path) if out_path else conf.export_color_space)
+            override = self.state.monitor_profile_override
+            self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
+            self._refresh_display_info()
             self.ratio_combo.setCurrentText(conf.paper_aspect_ratio)
             self._select_mode_button(conf.export_resolution_mode)
             self._update_mode_visibility(conf.export_resolution_mode)
@@ -357,9 +415,11 @@ class ExportSidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         widgets = [
+            self.soft_proof_checkbox,
             self.fmt_combo,
             self.input_combo,
             self.output_combo,
+            self.display_combo,
             self.ratio_combo,
             self.mode_original_btn,
             self.mode_print_btn,

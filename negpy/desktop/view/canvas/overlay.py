@@ -98,10 +98,11 @@ class CanvasOverlay(QWidget):
         color_space: str,
         content_rect: Optional[Tuple[int, int, int, int]] = None,
         gpu_size: Optional[Tuple[int, int]] = None,
+        monitor_icc_bytes: Optional[bytes] = None,
     ) -> None:
         self._content_rect = content_rect
         if buffer is not None:
-            self._qimage = ImageConverter.to_qimage(buffer, color_space)
+            self._qimage = ImageConverter.to_qimage(buffer, color_space, monitor_icc_bytes)
             self._current_size = (self._qimage.width(), self._qimage.height())
         else:
             self._qimage = None

@@ -39,9 +39,12 @@ class GPUCanvasWidget(QWidget):
         self.image_size: Tuple[int, int] = (1, 1)
         self.format: str = ""
 
-        # Working-space → sRGB display LUT (3D texture + linear sampler), uploaded once.
+        # Working-space → display-profile LUT (3D texture + linear sampler).
+        # Re-uploaded when the monitor profile changes (e.g. window moved to another
+        # screen). None monitor bytes = sRGB display (legacy behaviour).
         self.lut_view: Optional[Any] = None
         self.lut_sampler: Optional[Any] = None
+        self._monitor_icc_bytes: Optional[bytes] = None
 
         self.zoom: float = 1.0
         self.pan_x: float = 0.0
@@ -90,16 +93,30 @@ class GPUCanvasWidget(QWidget):
         # Initial clear
         self.canvas.request_draw(self._draw_frame)
 
-    def _upload_display_lut(self) -> None:
-        """Build and upload the working-space → sRGB 3D LUT used at display time.
+    def set_monitor_profile(self, monitor_icc_bytes: Optional[bytes]) -> None:
+        """Update the display profile and re-upload the working→display LUT.
 
-        The LUT is fixed for the session (working space is constant). On any failure
-        an identity LUT is uploaded so the binding always exists and display is a
-        pass-through.
+        Called when the monitor profile is first detected or changes (screen move).
+        No-op until the GPU device exists; `initialize_gpu` builds the first LUT.
+        """
+        if monitor_icc_bytes == self._monitor_icc_bytes:
+            return
+        self._monitor_icc_bytes = monitor_icc_bytes
+        if self.device is not None:
+            self._upload_display_lut()
+            self.canvas.request_draw(self._draw_frame)
+
+    def _upload_display_lut(self) -> None:
+        """Build and upload the working-space → display-profile 3D LUT used at
+        display time.
+
+        The destination is the monitor profile (`self._monitor_icc_bytes`, or sRGB
+        when None). On any failure an identity LUT is uploaded so the binding always
+        exists and display is a pass-through.
         """
         n = DEFAULT_LUT_SIZE
         try:
-            lut = get_display_lut(WORKING_COLOR_SPACE)
+            lut = get_display_lut(WORKING_COLOR_SPACE, self._monitor_icc_bytes)
         except Exception as e:
             logger.warning("Display LUT build failed, using identity: %s", e)
             lut = None
@@ -223,7 +240,7 @@ class GPUCanvasWidget(QWidget):
         @group(0) @binding(2) var lut_tex: texture_3d<f32>;
         @group(0) @binding(3) var lut_samp: sampler;
 
-        // Working-space → sRGB display LUT size (must match DEFAULT_LUT_SIZE).
+        // Working-space → display-profile LUT size (must match DEFAULT_LUT_SIZE).
         const LUT_N: f32 = 33.0;
 
         fn lut_coord(v: f32) -> f32 {

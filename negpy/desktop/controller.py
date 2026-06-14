@@ -87,6 +87,7 @@ class AppController(QObject):
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
+    monitor_profile_changed = pyqtSignal()
     compare_changed = pyqtSignal(bool)
     zoom_requested = pyqtSignal(float)
     zoom_changed = pyqtSignal(float)
@@ -861,6 +862,43 @@ class AppController(QObject):
         profile for the selected export color space. None means no proof (Same as Source)."""
         return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
 
+    def proof_active(self) -> bool:
+        """True when the preview should soft-proof: the toggle is on and an input or
+        output profile is available. Off → preview is the edit on the monitor."""
+        return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_output_icc())
+
+    def set_soft_proof(self, enabled: bool) -> None:
+        """Toggle preview soft-proofing through the Output/Input ICC (preview only)."""
+        if self.state.soft_proof_enabled == enabled:
+            return
+        self.state.soft_proof_enabled = enabled
+        self.session.save_icc_prefs()
+        self.request_render()
+
+    def _apply_monitor_profile(self) -> None:
+        """Resolve the effective display profile (override else detected), push it to
+        every preview path, and re-render. Display-only; export is unaffected."""
+        from negpy.infrastructure.display.color_mgmt import icc_bytes_for_space
+
+        override = self.state.monitor_profile_override
+        effective = icc_bytes_for_space(override) if override else self.state.monitor_icc_detected_bytes
+        self.state.monitor_icc_bytes = effective
+        if self.canvas is not None:
+            self.canvas.set_monitor_profile(effective)
+        self.request_render()
+        self.monitor_profile_changed.emit()
+
+    def set_monitor_detected(self, detected_bytes: Optional[bytes]) -> None:
+        """Record the auto-detected screen profile and re-resolve the effective one."""
+        self.state.monitor_icc_detected_bytes = detected_bytes
+        self._apply_monitor_profile()
+
+    def set_monitor_override(self, cs_name: Optional[str]) -> None:
+        """Set the manual display-profile override (None = use detected) and persist it."""
+        self.state.monitor_profile_override = cs_name
+        self.session.save_icc_prefs()
+        self._apply_monitor_profile()
+
     def request_render(self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None) -> None:
         """
         Dispatches a render task to the worker thread.
@@ -890,19 +928,24 @@ class AppController(QObject):
         if self.state.hq_preview:
             target_size = float(max(preview_raw.shape[:2]))
 
-        effective_output = self.effective_output_icc()
+        # Soft-proof gating: Output/Input ICC only touch the preview when the toggle is
+        # on; otherwise the preview is the edit shown on the monitor (export unaffected).
+        proofing = self.state.soft_proof_enabled
+        icc_input = self.state.icc_input_path if proofing else None
+        effective_output = self.effective_output_icc() if proofing else None
 
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
             source_hash=self.state.current_file_hash or "preview",
             preview_size=target_size,
-            icc_input_path=self.state.icc_input_path,
+            icc_input_path=icc_input,
             icc_output_path=effective_output,
             color_space=self.state.workspace_color_space,
             gpu_enabled=self.state.gpu_enabled,
             readback_metrics=readback_metrics,
             ir_buffer=self.state.preview_ir,
+            monitor_icc_bytes=self.state.monitor_icc_bytes,
         )
 
         if self._is_rendering:

@@ -50,6 +50,16 @@ class AppState:
     # ICC Management
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
+    # Effective monitor ICC profile bytes used by every preview → display transform;
+    # None = treat the display as sRGB. Resolved from the override (if any) else the
+    # auto-detected profile below.
+    monitor_icc_bytes: Optional[bytes] = None
+    # Raw profile auto-detected from the active screen (drives the "As detected" option).
+    monitor_icc_detected_bytes: Optional[bytes] = None
+    # User override: a ColorSpace value (e.g. "Display P3") or None = use detected.
+    monitor_profile_override: Optional[str] = None
+    # Soft-proof toggle: when off, Output/Input ICC affect export only, not the preview.
+    soft_proof_enabled: bool = False
 
     # Hardware Acceleration
     gpu_enabled: bool = True
@@ -251,6 +261,12 @@ class DesktopSessionManager(QObject):
         saved_icc_out = self.repo.get_global_setting("icc_output_path")
         if saved_icc_out and os.path.exists(saved_icc_out):
             self.state.icc_output_path = saved_icc_out
+        saved_monitor_override = self.repo.get_global_setting("monitor_profile_override")
+        if saved_monitor_override:
+            self.state.monitor_profile_override = saved_monitor_override
+        saved_soft_proof = self.repo.get_global_setting("soft_proof_enabled")
+        if saved_soft_proof is not None:
+            self.state.soft_proof_enabled = bool(saved_soft_proof)
 
     def set_gpu_enabled(self, enabled: bool) -> None:
         """Updates and persists the hardware acceleration preference."""
@@ -283,6 +299,8 @@ class DesktopSessionManager(QObject):
         """Persists current ICC profile settings."""
         self.repo.save_global_setting("icc_input_path", self.state.icc_input_path)
         self.repo.save_global_setting("icc_output_path", self.state.icc_output_path)
+        self.repo.save_global_setting("monitor_profile_override", self.state.monitor_profile_override)
+        self.repo.save_global_setting("soft_proof_enabled", self.state.soft_proof_enabled)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """

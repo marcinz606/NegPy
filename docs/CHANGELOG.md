@@ -14,6 +14,10 @@
 - **`Shift+A` triggers Autocrop** — new keyboard shortcut for the Auto crop button.
 - **UI scaling** — a **UI Scale** entry in the toolbar ⋯ menu scales the whole interface from 80% to 120% (applied on next launch).
 - Fix: a freshly selected thumbnail could briefly show a wrong (blue) colour cast until you re-selected the file — rendered thumbnails are now colour-managed to match the canvas and captured only once the render has settled.
+- Fix: **preview is now colour-managed to your monitor** — the preview previously assumed an sRGB display, so on a wide-gamut screen (e.g. Display P3) it looked over-saturated or washed out and shifted when you changed the Output ICC. The final preview is now converted to the monitor's ICC profile, auto-detected from the screen the window is on (and re-detected when you move it to another display). Falls back to sRGB when the OS reports no profile. (#243)
+- **Display profile selector** (Export → ICC): a new **Display** dropdown shows the auto-detected monitor profile ("As detected — …") and lets you override it with a common space (sRGB, Display P3, Adobe RGB, Rec 2020, ProPhoto). Use the override on wide-gamut monitors whose profile the OS doesn't report (common on Linux). Affects the preview only, not the export.
+- **Soft proof toggle** (Export → ICC, off by default): like Photoshop's *Proof Colors*. Off, the preview is simply your edit shown correctly on your monitor and the Output/Input ICC affect the exported file only. On, the preview simulates the Output profile. Defaulting off keeps the preview stable when you change export color space.
+- **Paper/printer soft proofing**: with Soft proof on, selecting a paper/printer ICC (RGB or CMYK) as Output now simulates the print on screen — paper white, reduced black, and gamut compression (absolute-colorimetric proofing). Previously paper profiles changed nothing in the preview (and CMYK profiles silently did nothing).
 
 ## 0.25.0
 

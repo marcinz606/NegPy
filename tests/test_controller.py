@@ -58,6 +58,15 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_called_once_with(1.0)
         self.assertFalse(self.controller.state.hq_preview)
 
+    def test_proof_active_gated_by_toggle(self):
+        """proof_active() is False unless the soft-proof toggle is on, even with an
+        export color space set (which always resolves an output profile)."""
+        self.controller.state.soft_proof_enabled = False
+        self.assertFalse(self.controller.proof_active())
+        self.controller.state.soft_proof_enabled = True
+        # An export color space resolves an effective output profile → proof active.
+        self.assertTrue(self.controller.proof_active())
+
     def test_load_file_preserve_zoom(self):
         """Test that load_file with preserve_zoom=True skips resetting zoom."""
         mock_slot = MagicMock()

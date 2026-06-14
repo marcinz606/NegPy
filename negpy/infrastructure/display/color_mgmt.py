@@ -1,3 +1,4 @@
+import io
 import os
 from functools import lru_cache
 from typing import Any, Optional
@@ -14,21 +15,61 @@ logger = get_logger(__name__)
 
 
 @lru_cache(maxsize=8)
-def get_display_lut(working_color_space: str) -> Optional[np.ndarray]:
-    """3D LUT converting the working space to sRGB for monitor display.
+def open_profile_from_bytes(data: bytes) -> Any:
+    """Open an ICC profile from raw bytes (e.g. a monitor profile from Qt)."""
+    return ImageCms.getOpenProfile(io.BytesIO(data))
 
-    Cached per working space. Returns ``None`` when the working space is already
-    sRGB (the transform is identity, so callers can skip it). Used by both the CPU
-    (`ImageConverter.to_qimage`) and GPU display paths so the preview shows the
-    true working-space appearance — matching a color-managed view of the export.
+
+def icc_bytes_for_space(cs_name: str) -> Optional[bytes]:
+    """Raw ICC bytes for a named color space's bundled profile, or None if missing.
+
+    Used to back a manual display-profile override with a common space.
     """
-    if working_color_space == ColorSpace.SRGB.value:
+    path = ColorSpaceRegistry.get_icc_path(cs_name)
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError as e:
+        logger.warning("Failed to read ICC profile for %s", cs_name, exc_info=e)
+        return None
+
+
+def profile_description(data: Optional[bytes]) -> str:
+    """Human-readable description of a monitor ICC profile, for the UI.
+
+    ``None`` (no profile detected → sRGB assumed) returns a labelled fallback.
+    """
+    if not data:
+        return "sRGB (assumed)"
+    try:
+        return ImageCms.getProfileDescription(open_profile_from_bytes(data)).strip()
+    except Exception as e:
+        logger.debug("Could not read profile description: %s", e)
+        return "Unknown profile"
+
+
+@lru_cache(maxsize=16)
+def get_display_lut(working_color_space: str, dst_bytes: Optional[bytes] = None) -> Optional[np.ndarray]:
+    """3D LUT converting the assumed source space (`WORKING_COLOR_SPACE`) to the
+    display profile.
+
+    ``working_color_space`` is the profile the camera-native pipeline numbers are
+    *assumed* to be in (see `color_spaces.WORKING_COLOR_SPACE`), not a real working
+    space. When ``dst_bytes`` is ``None`` the destination is sRGB (legacy behaviour,
+    i.e. the display is assumed to be sRGB); otherwise it is the monitor's ICC
+    profile. Returns ``None`` only when the transform is a no-op (source is sRGB and
+    the display is sRGB), so callers can skip it. Cached per (source, display
+    profile). Used by both the CPU (`ImageConverter.to_qimage`) and GPU display paths.
+    """
+    if working_color_space == ColorSpace.SRGB.value and dst_bytes is None:
         return None
     try:
         from negpy.infrastructure.display.icc_lut import build_3d_lut
 
         src = ColorService._get_profile(working_color_space)
-        dst: Any = ImageCms.createProfile("sRGB")
+        dst: Any = open_profile_from_bytes(dst_bytes) if dst_bytes else ImageCms.createProfile("sRGB")
         return build_3d_lut(
             src,
             dst,
@@ -40,15 +81,17 @@ def get_display_lut(working_color_space: str) -> Optional[np.ndarray]:
         return None
 
 
-def apply_display_transform(buffer: np.ndarray, working_color_space: str) -> np.ndarray:
-    """Convert a float32 RGB buffer from the working space to sRGB for display.
+def apply_display_transform(buffer: np.ndarray, working_color_space: str, dst_bytes: Optional[bytes] = None) -> np.ndarray:
+    """Convert a float32 RGB buffer from the working space to the display profile.
 
-    No-op for non-RGB buffers (greyscale display stays neutral) or when the working
-    space is sRGB. Used on the CPU display path before quantizing to 8-bit.
+    No-op for non-RGB buffers (greyscale display stays neutral) or when the
+    transform is identity (sRGB working space on an sRGB display). ``dst_bytes`` is
+    the monitor's ICC profile; ``None`` falls back to sRGB. Used on the CPU display
+    path before quantizing to 8-bit.
     """
     if buffer.dtype != np.float32 or buffer.ndim != 3 or buffer.shape[2] != 3:
         return buffer
-    lut = get_display_lut(working_color_space)
+    lut = get_display_lut(working_color_space, dst_bytes)
     if lut is None:
         return buffer
     from negpy.infrastructure.display.icc_lut import apply_lut_f32

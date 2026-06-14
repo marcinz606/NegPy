@@ -28,6 +28,9 @@ class RenderTask:
     gpu_enabled: bool = True
     readback_metrics: bool = True
     ir_buffer: Optional[np.ndarray] = None
+    # Monitor ICC profile bytes (detected on the UI thread); soft proof is shown on
+    # this display. None = sRGB display.
+    monitor_icc_bytes: Optional[bytes] = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,7 @@ class RenderWorker(QObject):
                     task.color_space,
                     task.icc_input_path,
                     task.icc_output_path,
+                    task.monitor_icc_bytes,
                 )
                 arr = np.array(pil_proof)
                 result = arr.astype(np.float32) / (65535.0 if arr.dtype == np.uint16 else 255.0)

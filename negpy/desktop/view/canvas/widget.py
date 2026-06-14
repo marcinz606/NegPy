@@ -172,6 +172,10 @@ class ImageCanvas(QWidget):
         self.pan_offset = QPointF(0, 0)
         self._sync_transform()
 
+    def set_monitor_profile(self, monitor_icc_bytes: Optional[bytes]) -> None:
+        """Forward the detected monitor ICC profile to the GPU display path."""
+        self.gpu_widget.set_monitor_profile(monitor_icc_bytes)
+
     def set_background_color(self, r: float, g: float, b: float) -> None:
         """Update canvas background color (0–1 linear values)."""
         hex_color = "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
@@ -387,9 +391,14 @@ class ImageCanvas(QWidget):
         buffer: Any,
         color_space: str,
         content_rect: Optional[Tuple[int, int, int, int]] = None,
+        monitor_icc_bytes: Optional[bytes] = None,
     ) -> None:
         """
         Switches between CPU and GPU rendering paths.
+
+        ``monitor_icc_bytes`` drives the CPU display transform (working→monitor); it
+        must be None when ``buffer`` is already in display space (e.g. a baked soft
+        proof) to avoid a double conversion. The GPU path manages its own display LUT.
         """
         self._last_buffer = buffer
         if self.state.gpu_enabled and isinstance(buffer, GPUTexture):
@@ -401,7 +410,7 @@ class ImageCanvas(QWidget):
             self.overlay.update()
         else:
             self.gpu_widget.hide()
-            self.overlay.update_buffer(buffer, color_space, content_rect)
+            self.overlay.update_buffer(buffer, color_space, content_rect, monitor_icc_bytes=monitor_icc_bytes)
             self.overlay.show()
             self.overlay.raise_()
 
