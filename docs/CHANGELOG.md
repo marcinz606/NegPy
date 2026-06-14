@@ -1,5 +1,19 @@
 # Change Log
 
+## 0.26.0
+
+**Reworked interface** — the panels have been reorganised around the editing workflow.
+
+- **Editing tools split into workflow tabs** — the single long Controls list is now four icon tabs that follow the pipeline: **Setup** (Presets, Geometry, Process), **Exposure**, **Color** (Lab, Toning) and **Finish** (Retouch, Finishing), alongside **Export**, **Metadata** and **Scan**. The tab bar is icon-only with hover tooltips, and each tab scrolls on its own. Jump straight to a tab with `Ctrl+1`–`Ctrl+7` (rebindable, shown in the `?` overlay).
+- **Analysis pinned to the top** — the histogram, photometric curve and stats now sit in a sticky, collapsible **Analysis** section at the top of the right panel (instead of a left-panel tab), and a draggable divider lets you resize Analysis vs. the controls below it. Its size and open/closed state persist across restarts.
+- **Left panel is now just the filmstrip** — Export, Metadata, Scan and Analysis moved to the right panel, leaving the left side a clean contact sheet.
+- **Contact-sheet thumbnails** — the filmstrip is now a justified grid: thumbnails scale to fill the panel width and add/remove a column as you resize, with a subtle border hugging each image (no boxy cell). The current image is shown full-brightness with a gold frame while the rest are dimmed. Labels are dropped for a denser sheet (filename still on hover).
+- **Compact filmstrip toolbar** — file actions (Add files / folder, Clear, Hot Folder, Sync Edits, Sync Crop) are now a single row of icon buttons, with Sort folded into a dropdown.
+- **GPU acceleration moved to the bottom toolbar** — a single ⚡ toggle (with a tooltip showing on/off and the active backend) replaces the checkbox + badge in the side panel.
+- **`Esc` cancels the active tool** — deselect WB Pick / Manual Crop / Move Crop / Heal without clicking its button again.
+- **`Shift+A` triggers Autocrop** — new keyboard shortcut for the Auto crop button.
+- Fix: a freshly selected thumbnail could briefly show a wrong (blue) colour cast until you re-selected the file — rendered thumbnails are now colour-managed to match the canvas and captured only once the render has settled.
+
 ## 0.25.0
 
 - **Reworked negative conversion** — the default conversion now behaves much more like a real darkroom print: paper-like highlight roll-off, true deep blacks, and a paper-white base. Out-of-the-box results should look more natural and respond more predictably as you adjust Density and Grade.

@@ -98,14 +98,20 @@ def get_thumbnail_worker(file_path: str, file_hash: str, asset_store: Any = None
         return None
 
 
-def get_rendered_thumbnail(buffer: Any, file_hash: str, asset_store: Any = None) -> Optional[Image.Image]:
+def get_rendered_thumbnail(buffer: Any, file_hash: str, asset_store: Any = None, color_space: str = "sRGB") -> Optional[Image.Image]:
     """
-    Creates a thumbnail from a rendered float32 buffer.
+    Creates a thumbnail from a rendered float32 buffer, color-managing the working
+    space to sRGB so it matches the canvas (mirrors ImageConverter.to_qimage).
     """
     try:
+        from negpy.infrastructure.display.color_mgmt import apply_display_transform
         from negpy.kernel.image.logic import float_to_uint8
 
         ts = APP_CONFIG.thumbnail_size
+        if isinstance(buffer, np.ndarray) and buffer.ndim == 3 and buffer.shape[2] == 4:
+            buffer = buffer[:, :, :3]
+        if isinstance(buffer, np.ndarray) and buffer.dtype == np.float32:
+            buffer = apply_display_transform(buffer, color_space)
         u8_arr = float_to_uint8(buffer)
         img = Image.fromarray(u8_arr)
 

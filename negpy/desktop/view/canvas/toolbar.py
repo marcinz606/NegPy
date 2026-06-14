@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.templates import swatch_qss
 from negpy.desktop.view.styles.theme import THEME
+from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.system.config import APP_CONFIG
 
 CANVAS_COLORS = [
@@ -130,6 +131,18 @@ class ActionToolbar(QWidget):
         self.btn_compare.setIcon(qta.icon("fa5s.adjust", color=icon_color))
         self.btn_compare.setToolTip("Before / After — show the auto baseline  \\")
 
+        # GPU acceleration toggle (details surfaced via tooltip, refreshed by the dashboard)
+        self.btn_gpu = QToolButton()
+        self.btn_gpu.setCheckable(True)
+        self.btn_gpu.setIcon(qta.icon("fa5s.bolt", color=icon_color))
+        self._gpu_available = GPUDevice.get().is_available
+        if self._gpu_available:
+            self.btn_gpu.setChecked(self.session.state.gpu_enabled)
+        else:
+            self.btn_gpu.setEnabled(False)
+            self.btn_gpu.setChecked(False)
+        self.btn_gpu.setToolTip("GPU Acceleration")
+
         # 4. Canvas background swatches
         self.canvas_color_btns: list[QToolButton] = []
         self.canvas_color_group = QButtonGroup(self)
@@ -222,6 +235,7 @@ class ActionToolbar(QWidget):
             self.btn_save,
             self.btn_hq,
             self.btn_compare,
+            self.btn_gpu,
             self.btn_overflow,
         ]
         for btn in standard_buttons:
@@ -254,6 +268,7 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_save)
         row_layout.addWidget(self.btn_export)
         row_layout.addWidget(self.btn_compare)
+        row_layout.addWidget(self.btn_gpu)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
 
@@ -282,6 +297,7 @@ class ActionToolbar(QWidget):
         self.btn_hq.clicked.connect(self.controller.toggle_hq_preview)
         self.btn_compare.clicked.connect(self.controller.toggle_compare)
         self.controller.compare_changed.connect(self.btn_compare.setChecked)
+        self.btn_gpu.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
@@ -294,6 +310,32 @@ class ActionToolbar(QWidget):
         self._ov_rot_r_action.triggered.connect(lambda: self.rotate(-1))
         self._ov_flip_h_action.triggered.connect(lambda: self.flip("horizontal"))
         self._ov_flip_v_action.triggered.connect(lambda: self.flip("vertical"))
+
+    def _on_gpu_toggled(self, checked: bool) -> None:
+        if checked != self.session.state.gpu_enabled:
+            self.session.set_gpu_enabled(checked)
+
+    def refresh_gpu_status(self) -> None:
+        """Reflect current GPU on/off state and active backend in the toolbar button."""
+        enabled = self.session.state.gpu_enabled
+
+        self.btn_gpu.blockSignals(True)
+        self.btn_gpu.setChecked(enabled and self._gpu_available)
+        self.btn_gpu.blockSignals(False)
+
+        icon_color = THEME.accent_primary if (enabled and self._gpu_available) else THEME.text_primary
+        self.btn_gpu.setIcon(qta.icon("fa5s.bolt", color=icon_color))
+
+        if not self._gpu_available:
+            self.btn_gpu.setToolTip("GPU not available on this hardware")
+        elif enabled:
+            try:
+                backend = self.controller.render_worker.processor.backend_name
+            except Exception:
+                backend = "GPU"
+            self.btn_gpu.setToolTip(f"GPU Acceleration: ON — {backend}\nClick to force the CPU pipeline.")
+        else:
+            self.btn_gpu.setToolTip("GPU Acceleration: OFF — CPU pipeline\nClick to enable WebGPU for near-instant previews.")
 
     def _on_canvas_color_changed(self, idx: int, checked: bool) -> None:
         if checked:

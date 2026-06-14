@@ -32,6 +32,7 @@ class ShortcutManager:
         controller = self.window.controller
         toolbar = self.window.toolbar
         controls = self.window.controls_panel
+        right = self.window.right_panel
 
         actions: dict[str, Callable[[], None]] = {
             "prev_file": controller.session.prev_file,
@@ -44,9 +45,18 @@ class ShortcutManager:
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
             "pick_wb": lambda: controls.exposure_sidebar.pick_wb_btn.toggle(),
             "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
+            "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),
             "pick_dust": lambda: controls.retouch_sidebar.pick_dust_btn.toggle(),
+            "cancel_tool": controller.cancel_active_tool,
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
+            "tab_setup": lambda: right.show_tab_by_key("setup"),
+            "tab_tone": lambda: right.show_tab_by_key("tone"),
+            "tab_color": lambda: right.show_tab_by_key("color"),
+            "tab_finish": lambda: right.show_tab_by_key("finish"),
+            "tab_export": lambda: right.show_tab_by_key("export"),
+            "tab_metadata": lambda: right.show_tab_by_key("metadata"),
+            "tab_scan": lambda: right.show_tab_by_key("scan"),
             "fit_view": self.window.canvas.fit_to_window,
             "zoom_100": lambda: controller.zoom_requested.emit(1.0),
             "zoom_200": lambda: controller.zoom_requested.emit(2.0),
@@ -152,6 +162,7 @@ class ShortcutManager:
             self._shortcuts.append(shortcut)
 
         self.window.controls_panel.apply_shortcut_tooltips()
+        self.window.right_panel.apply_shortcut_tooltips()
 
     def update_bindings(self, bindings: dict[str, str]) -> None:
         save_bindings(self.window.controller.session.repo, bindings)

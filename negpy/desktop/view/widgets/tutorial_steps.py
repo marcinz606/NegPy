@@ -32,7 +32,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.retouch_sidebar
 
     def _export(w: "MainWindow") -> Optional[QWidget]:
-        return w.session_panel.export_sidebar
+        return w.right_panel.export_sidebar
 
     return [
         TutorialStep(
@@ -138,14 +138,14 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Export",
             body=(
-                "The <b>Export</b> tab (bottom-left, now active) is where you save your results.<br><br>"
+                "The <b>Export</b> tab (right panel, now active) is where you save your results.<br><br>"
                 "Choose <b>JPEG</b> or high-bit-depth <b>TIFF</b>, pick a colour space "
                 "(sRGB, Adobe RGB, Greyscale, and others), and set resolution or print size.<br><br>"
                 "Export always runs at full RAW resolution through the complete pipeline. "
                 "<b>Batch Export</b> processes all loaded files at once."
             ),
             target=_export,
-            pre_hook=lambda w: w.session_panel._switch_tab(1),
+            pre_hook=lambda w: w.right_panel.show_tab_by_key("export"),
         ),
         TutorialStep(
             title="You're all set!",
@@ -159,6 +159,6 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "• Edits auto-save to a local database — no manual save needed between files."
             ),
             target=lambda w: None,
-            pre_hook=lambda w: w.session_panel._switch_tab(0),
+            pre_hook=lambda w: w.right_panel.show_tab_by_key("setup"),
         ),
     ]

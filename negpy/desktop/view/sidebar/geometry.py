@@ -60,7 +60,7 @@ class GeometrySidebar(BaseSidebar):
         self.reset_crop_btn = QPushButton(" Auto")
         self.reset_crop_btn.setCheckable(True)
         self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
-        self.reset_crop_btn.setToolTip("Apply automatic crop using the current ratio and offset")
+        self.reset_crop_btn.setToolTip(tooltip_with_shortcut("Apply automatic crop using the current ratio and offset", "auto_crop"))
         btn_row.addWidget(self.manual_crop_btn)
         btn_row.addWidget(self.move_crop_btn)
         self.layout.addLayout(btn_row)

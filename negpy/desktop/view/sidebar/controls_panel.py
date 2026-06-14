@@ -40,15 +40,10 @@ class ControlsPanel(QWidget):
         self._connect_signals()
 
     def _init_ui(self) -> None:
-        self.layout = QVBoxLayout(self)
-        self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(8)
-
         icon_color = "#aaa"
 
         self.presets_sidebar = PresetsSidebar(self.controller)
-        self._add_sidebar_section(
+        self.presets_section = self._make_section(
             "Presets",
             "presets",
             self.presets_sidebar,
@@ -56,7 +51,7 @@ class ControlsPanel(QWidget):
         )
 
         self.geometry_sidebar = GeometrySidebar(self.controller)
-        self.geometry_section = self._add_sidebar_section(
+        self.geometry_section = self._make_section(
             "Geometry",
             "geometry",
             self.geometry_sidebar,
@@ -64,7 +59,7 @@ class ControlsPanel(QWidget):
         )
 
         self.process_sidebar = ProcessSidebar(self.controller)
-        self.process_section = self._add_sidebar_section(
+        self.process_section = self._make_section(
             "Process",
             "process",
             self.process_sidebar,
@@ -73,7 +68,7 @@ class ControlsPanel(QWidget):
 
         self.exposure_sidebar = ExposureSidebar(self.controller)
         self.exposure_histogram = MiniHistogramWidget()
-        self.exposure_section = self._add_sidebar_section(
+        self.exposure_section = self._make_section(
             "Exposure",
             "exposure",
             self.exposure_sidebar,
@@ -82,7 +77,7 @@ class ControlsPanel(QWidget):
         )
 
         self.lab_sidebar = LabSidebar(self.controller)
-        self.lab_section = self._add_sidebar_section(
+        self.lab_section = self._make_section(
             "Lab",
             "lab",
             self.lab_sidebar,
@@ -90,7 +85,7 @@ class ControlsPanel(QWidget):
         )
 
         self.toning_sidebar = ToningSidebar(self.controller)
-        self.toning_section = self._add_sidebar_section(
+        self.toning_section = self._make_section(
             "Toning",
             "toning",
             self.toning_sidebar,
@@ -98,7 +93,7 @@ class ControlsPanel(QWidget):
         )
 
         self.retouch_sidebar = RetouchSidebar(self.controller)
-        self.retouch_section = self._add_sidebar_section(
+        self.retouch_section = self._make_section(
             "Retouch",
             "retouch",
             self.retouch_sidebar,
@@ -106,14 +101,53 @@ class ControlsPanel(QWidget):
         )
 
         self.finish_sidebar = FinishSidebar(self.controller)
-        self.finish_section = self._add_sidebar_section(
+        self.finish_section = self._make_section(
             "Finishing",
             "finish",
             self.finish_sidebar,
             icon=qta.icon("fa5s.paint-brush", color=icon_color),
         )
 
-    def _add_sidebar_section(
+        # Group the sections into workflow pages (each becomes an icon tab in RightPanel).
+        groups = [
+            (
+                "setup",
+                "fa5s.crop",
+                "Setup — Presets, Geometry, Process",
+                [self.presets_section, self.geometry_section, self.process_section],
+                ["geometry_section", "process_section"],
+            ),
+            ("tone", "fa5s.sun", "Exposure", [self.exposure_section], ["exposure_section"]),
+            ("color", "fa5s.palette", "Color — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
+            (
+                "finish",
+                "fa5s.brush",
+                "Finish — Retouch, Finishing",
+                [self.retouch_section, self.finish_section],
+                ["retouch_section", "finish_section"],
+            ),
+        ]
+
+        self.pages = []
+        for key, icon_name, tooltip, sections, section_attrs in groups:
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+            page_layout.setSpacing(8)
+            for section in sections:
+                page_layout.addWidget(section)
+            self.pages.append(
+                {
+                    "key": key,
+                    "icon_name": icon_name,
+                    "tooltip": tooltip,
+                    "widget": page,
+                    "sections": section_attrs,
+                }
+            )
+
+    def _make_section(
         self,
         title: str,
         key: str,
@@ -121,19 +155,18 @@ class ControlsPanel(QWidget):
         icon=None,
         background_widget=None,
     ) -> CollapsibleSection:
-        """Helper to create and add a collapsible section. Returns the section widget."""
+        """Create a collapsible section (persisting its expanded state). Returns the section."""
         repo = self.controller.session.repo
         persisted = repo.get_global_setting(f"section_expanded_{key}")
         if persisted is not None:
             is_expanded = bool(persisted)
         else:
             is_expanded = THEME.sidebar_expanded_defaults.get(key, False)
-            if key in ["process", "exposure", "geometry", "lab", "retouch", "export", "analysis"]:
+            if key in ["process", "exposure", "geometry", "lab", "retouch", "export", "analysis", "toning"]:
                 is_expanded = THEME.sidebar_expanded_defaults.get(key, True)
 
         section = CollapsibleSection(title, expanded=is_expanded, icon=icon, background_widget=background_widget)
         section.set_content(widget)
-        self.layout.addWidget(section)
 
         section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
         return section

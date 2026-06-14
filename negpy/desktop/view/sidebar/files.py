@@ -1,19 +1,20 @@
 import os
 
 import qtawesome as qta
-from PyQt6.QtCore import QItemSelectionModel, QModelIndex, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, QRect, QSize, QTimer, pyqtSignal
+from PyQt6.QtGui import QActionGroup, QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QButtonGroup,
     QFileDialog,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QListView,
+    QMenu,
     QPushButton,
+    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -24,23 +25,98 @@ from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
 
-class _DirtyUnderlineDelegate(QStyledItemDelegate):
-    """Draws a 1px accent line under the selected item when the file is dirty."""
+class _ThumbnailDelegate(QStyledItemDelegate):
+    """Contact-sheet rendering: scales each cached ~120px thumbnail into its cell and
+    draws a subtle 1px border hugging the image outline (no cell box). The selected
+    image is shown full-brightness with a white frame while the others are dimmed; a
+    dirty active file gets an accent line along the image's bottom edge."""
 
-    def _is_active_dirty(self, index: QModelIndex) -> bool:
-        model = index.model()
-        if model is None or not hasattr(model, "_state"):
-            return False
-        state = model._state
-        actual_idx = model.display_to_actual(index.row())
-        return actual_idx == state.selected_file_idx and state.is_dirty
+    _MARGIN = 3
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
-        super().paint(painter, option, index)
-        if self._is_active_dirty(index):
-            pen = QPen(QColor(THEME.accent_primary), 1)
-            painter.setPen(pen)
-            painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        if icon is None or icon.isNull():
+            return
+        base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
+        if base.isNull():
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+        area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+        scaled = base.scaled(
+            area.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        x = area.x() + (area.width() - scaled.width()) // 2
+        y = area.y() + (area.height() - scaled.height()) // 2
+        img_rect = QRect(x, y, scaled.width(), scaled.height())
+
+        # Selected image full-brightness with a white frame; others dimmed.
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+
+        painter.setOpacity(1.0 if (selected or hover) else 0.5)
+        painter.drawPixmap(img_rect.topLeft(), scaled)
+        painter.setOpacity(1.0)
+
+        if selected:
+            pen = QPen(QColor(THEME.accent_edited), 2)
+        elif hover:
+            pen = QPen(QColor(THEME.text_muted), 1)
+        else:
+            pen = QPen(QColor(THEME.border_color), 1)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(img_rect.adjusted(0, 0, -1, -1))
+
+        painter.restore()
+
+
+class ThumbnailGridView(QListView):
+    """
+    Icon-mode grid that justifies thumbnails to the panel width. It fits as many
+    MIN_CELL-wide columns as possible, then scales the cell up (to MAX_CELL) to fill
+    the width; once there's room for another MIN_CELL column it adds one and the cells
+    snap back down. e.g. with MIN 120 / MAX 180: 2 columns grow 120→180, and at ~3×120
+    of width a 3rd column appears.
+    """
+
+    MIN_CELL = 120
+    MAX_CELL = 180
+    SPACING = 2
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._last_cell = -1
+        # Reserve the vertical scrollbar permanently so the viewport width is stable —
+        # otherwise scaling toggles the scrollbar, which changes the width and flips the
+        # column count back, causing flicker.
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSpacing(self.SPACING)
+        self._apply_cell(self.MIN_CELL)
+
+    def _apply_cell(self, cell: int) -> None:
+        if cell == self._last_cell:
+            return
+        self._last_cell = cell
+        self.setGridSize(QSize(cell + self.SPACING, cell + self.SPACING))
+        self.setIconSize(QSize(cell, cell))
+
+    def _relayout(self) -> None:
+        vw = self.viewport().width()
+        columns = max(1, (vw - self.SPACING) // (self.MIN_CELL + self.SPACING))
+        cell = (vw - (columns + 1) * self.SPACING) // columns
+        cell = max(self.MIN_CELL, min(self.MAX_CELL, cell))
+        self._apply_cell(cell)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._relayout()
 
 
 class FileBrowser(QWidget):
@@ -72,89 +148,106 @@ class FileBrowser(QWidget):
         self._init_ui()
         self._connect_signals()
 
+    def _create_separator(self) -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Plain)
+        line.setObjectName("toolbar_separator")
+        line.setFixedWidth(1)
+        return line
+
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
 
-        action_group = QGroupBox("")
-        action_layout = QVBoxLayout(action_group)
+        icon_size = QSize(16, 16)
+        btn_height = 28
 
-        btns_row = QHBoxLayout()
-        self.add_files_btn = QPushButton(" File")
+        toolbar_row = QHBoxLayout()
+        toolbar_row.setSpacing(4)
+
+        self.add_files_btn = QToolButton()
         self.add_files_btn.setIcon(qta.icon("fa5s.file-import", color=THEME.text_primary))
-        self.add_folder_btn = QPushButton(" Folder")
+        self.add_files_btn.setToolTip("Add files")
+        self.add_folder_btn = QToolButton()
         self.add_folder_btn.setIcon(qta.icon("fa5s.folder-plus", color=THEME.text_primary))
-        self.unload_btn = QPushButton(" Clear")
+        self.add_folder_btn.setToolTip("Add folder")
+        self.unload_btn = QToolButton()
         self.unload_btn.setIcon(qta.icon("fa5s.times-circle", color=THEME.text_primary))
+        self.unload_btn.setToolTip("Clear all")
 
-        btns_row.addWidget(self.add_files_btn)
-        btns_row.addWidget(self.add_folder_btn)
-        btns_row.addWidget(self.unload_btn)
-        action_layout.addLayout(btns_row)
-
-        hot_sync_row = QHBoxLayout()
-        self.hot_folder_btn = QPushButton(" Hot Folder")
+        self.hot_folder_btn = QToolButton()
         self.hot_folder_btn.setCheckable(True)
         self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=THEME.text_primary))
-        self.hot_folder_btn.setToolTip("Automatically load new images from the current folder")
+        self.hot_folder_btn.setToolTip("Hot Folder — automatically load new images from the current folder")
         self._update_hot_folder_style(False)
 
-        self.sync_btn = QPushButton(" Sync Edits")
+        self.sync_btn = QToolButton()
         self.sync_btn.setIcon(qta.icon("fa5s.sync", color=THEME.text_primary))
-        self.sync_btn.setToolTip("Apply exposure / lab / toning to selected images (preserves their crop and rotation)")
+        self.sync_btn.setToolTip("Sync Edits — apply exposure / lab / toning to selected images (preserves their crop and rotation)")
 
-        self.sync_crop_btn = QPushButton(" Sync Crop")
+        self.sync_crop_btn = QToolButton()
         self.sync_crop_btn.setIcon(qta.icon("fa5s.crop", color=THEME.text_primary))
-        self.sync_crop_btn.setToolTip("Apply current crop and rotation to selected images")
+        self.sync_crop_btn.setToolTip("Sync Crop — apply current crop and rotation to selected images")
 
-        hot_sync_row.addWidget(self.hot_folder_btn, 1)
-        hot_sync_row.addWidget(self.sync_btn, 1)
-        hot_sync_row.addWidget(self.sync_crop_btn, 1)
-        action_layout.addLayout(hot_sync_row)
+        # Sort dropdown
+        self.sort_btn = QToolButton()
+        self.sort_btn.setIcon(qta.icon("fa5s.sort", color=THEME.text_primary))
+        self.sort_btn.setToolTip("Sort")
+        self.sort_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
-        sort_row = QHBoxLayout()
-        sort_label = QLabel("Sort:")
-        sort_label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary};")
-        self.sort_name_btn = QPushButton("Name")
-        self.sort_name_btn.setCheckable(True)
-        self.sort_name_btn.setChecked(True)
-        self.sort_date_btn = QPushButton("Date")
-        self.sort_date_btn.setCheckable(True)
-
-        self.sort_asc_btn = QPushButton("↑ Ascending")
-        self.sort_asc_btn.setCheckable(True)
-        self.sort_asc_btn.setChecked(True)
-        self.sort_desc_btn = QPushButton("↓ Descending")
-        self.sort_desc_btn.setCheckable(True)
-
-        for btn in (self.sort_name_btn, self.sort_date_btn, self.sort_asc_btn, self.sort_desc_btn):
-            btn.setFixedHeight(28)
-
-        self._sort_group = QButtonGroup(self)
-        self._sort_group.setExclusive(True)
-        self._sort_group.addButton(self.sort_name_btn, 0)
-        self._sort_group.addButton(self.sort_date_btn, 1)
-
-        self._dir_group = QButtonGroup(self)
+        sort_menu = QMenu(self.sort_btn)
+        self._order_group = QActionGroup(self)
+        self._order_group.setExclusive(True)
+        self.act_sort_name = sort_menu.addAction("Name")
+        self.act_sort_date = sort_menu.addAction("Date")
+        for act in (self.act_sort_name, self.act_sort_date):
+            act.setCheckable(True)
+            self._order_group.addAction(act)
+        sort_menu.addSeparator()
+        self._dir_group = QActionGroup(self)
         self._dir_group.setExclusive(True)
-        self._dir_group.addButton(self.sort_asc_btn, 0)
-        self._dir_group.addButton(self.sort_desc_btn, 1)
+        self.act_sort_asc = sort_menu.addAction("Ascending")
+        self.act_sort_desc = sort_menu.addAction("Descending")
+        for act in (self.act_sort_asc, self.act_sort_desc):
+            act.setCheckable(True)
+            self._dir_group.addAction(act)
+        self.act_sort_name.triggered.connect(lambda: self._apply_sort_order("name"))
+        self.act_sort_date.triggered.connect(lambda: self._apply_sort_order("date"))
+        self.act_sort_asc.triggered.connect(lambda: self._apply_sort_direction(False))
+        self.act_sort_desc.triggered.connect(lambda: self._apply_sort_direction(True))
+        self.sort_btn.setMenu(sort_menu)
 
-        sort_row.addWidget(sort_label)
-        sort_row.addWidget(self.sort_name_btn)
-        sort_row.addWidget(self.sort_date_btn)
-        sort_row.addStretch()
-        sort_row.addWidget(self.sort_asc_btn)
-        sort_row.addWidget(self.sort_desc_btn)
-        action_layout.addLayout(sort_row)
+        for btn in (
+            self.add_files_btn,
+            self.add_folder_btn,
+            self.unload_btn,
+            self.hot_folder_btn,
+            self.sync_btn,
+            self.sync_crop_btn,
+            self.sort_btn,
+        ):
+            btn.setIconSize(icon_size)
+            btn.setFixedHeight(btn_height)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        toolbar_row.addWidget(self.add_files_btn)
+        toolbar_row.addWidget(self.add_folder_btn)
+        toolbar_row.addWidget(self.unload_btn)
+        toolbar_row.addWidget(self._create_separator())
+        toolbar_row.addWidget(self.hot_folder_btn)
+        toolbar_row.addWidget(self.sync_btn)
+        toolbar_row.addWidget(self.sync_crop_btn)
+        toolbar_row.addStretch()
+        toolbar_row.addWidget(self._create_separator())
+        toolbar_row.addWidget(self.sort_btn)
+        layout.addLayout(toolbar_row)
 
         saved_sort = self.session.repo.get_global_setting("file_sort_order") or "name"
         saved_desc = self.session.repo.get_global_setting("file_sort_descending") or False
         self._apply_sort_order(str(saved_sort), save=False)
         self._apply_sort_direction(bool(saved_desc), save=False)
-
-        layout.addWidget(action_group)
 
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
@@ -172,16 +265,12 @@ class FileBrowser(QWidget):
         search_row.addWidget(self.regex_btn)
         layout.addLayout(search_row)
 
-        self.list_view = QListView()
+        self.list_view = ThumbnailGridView()
         self.list_view.setModel(self.session.asset_model)
-        self.list_view.setItemDelegate(_DirtyUnderlineDelegate(self.list_view))
+        self.list_view.setItemDelegate(_ThumbnailDelegate(self.list_view))
         self.list_view.setViewMode(QListView.ViewMode.IconMode)
         self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
         self.list_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
-        self.list_view.setIconSize(QSize(100, 100))
-        self.list_view.setGridSize(QSize(120, 130))
-        self.list_view.setSpacing(10)
-        self.list_view.setWordWrap(True)
         self.list_view.setAlternatingRowColors(False)
 
         layout.addWidget(self.list_view)
@@ -197,10 +286,6 @@ class FileBrowser(QWidget):
         self.sync_crop_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("geometry_only"))
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self.sync_ui)
-        self.sort_name_btn.clicked.connect(lambda: self._apply_sort_order("name"))
-        self.sort_date_btn.clicked.connect(lambda: self._apply_sort_order("date"))
-        self.sort_asc_btn.clicked.connect(lambda: self._apply_sort_direction(False))
-        self.sort_desc_btn.clicked.connect(lambda: self._apply_sort_direction(True))
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
 
@@ -289,15 +374,15 @@ class FileBrowser(QWidget):
             self.session.state_changed.emit()
 
     def _apply_sort_order(self, order: str, save: bool = True) -> None:
-        self.sort_name_btn.setChecked(order == "name")
-        self.sort_date_btn.setChecked(order == "date")
+        self.act_sort_name.setChecked(order == "name")
+        self.act_sort_date.setChecked(order == "date")
         self.session.asset_model.set_sort_order(order)
         if save:
             self.session.repo.save_global_setting("file_sort_order", order)
 
     def _apply_sort_direction(self, descending: bool, save: bool = True) -> None:
-        self.sort_asc_btn.setChecked(not descending)
-        self.sort_desc_btn.setChecked(descending)
+        self.act_sort_asc.setChecked(not descending)
+        self.act_sort_desc.setChecked(descending)
         self.session.asset_model.set_sort_descending(descending)
         if save:
             self.session.repo.save_global_setting("file_sort_descending", descending)

@@ -3,7 +3,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QCheckBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
@@ -12,18 +11,15 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.paths import get_resource_path
 from negpy.kernel.system.version import get_app_version
-from negpy.infrastructure.gpu.device import GPUDevice
 
 
 class SidebarHeader(QWidget):
     """
-    Top header for the sidebar containing logo, version and hardware settings.
+    Top header for the sidebar containing the logo and version.
     """
 
     def __init__(self, controller: AppController):
         super().__init__()
-        self.controller = controller
-        self.session = controller.session
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -57,36 +53,3 @@ class SidebarHeader(QWidget):
         self.ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.ver_label.setStyleSheet(f"font-size: 14px; color: {THEME.text_secondary}; font-weight: bold;")
         layout.addWidget(self.ver_label)
-
-        gpu_available = GPUDevice.get().is_available
-
-        gpu_container = QHBoxLayout()
-        gpu_container.setContentsMargins(10, 5, 10, 5)
-        gpu_container.setSpacing(10)
-
-        self.gpu_checkbox = QCheckBox("GPU Acceleration")
-        self.gpu_checkbox.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 12px; font-weight: bold;")
-
-        if gpu_available:
-            self.gpu_checkbox.setChecked(self.session.state.gpu_enabled)
-            self.gpu_checkbox.setToolTip(
-                "Use WebGPU for near-instant previews. Turn off to force CPU pipeline if you suspect a driver issue."
-            )
-        else:
-            self.gpu_checkbox.setEnabled(False)
-            self.gpu_checkbox.setChecked(False)
-            self.gpu_checkbox.setToolTip("GPU not available on this hardware")
-
-        self.gpu_checkbox.toggled.connect(self._on_gpu_toggled)
-
-        self.gpu_badge = QLabel("CPU")
-        self.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 11px; font-weight: bold; text-transform: uppercase;")
-
-        gpu_container.addWidget(self.gpu_checkbox)
-        gpu_container.addStretch()
-        gpu_container.addWidget(self.gpu_badge)
-        layout.addLayout(gpu_container)
-
-    def _on_gpu_toggled(self, checked: bool) -> None:
-        if checked != self.session.state.gpu_enabled:
-            self.session.set_gpu_enabled(checked)

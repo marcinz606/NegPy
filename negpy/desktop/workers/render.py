@@ -37,6 +37,7 @@ class ThumbnailUpdateTask:
     filename: str
     file_hash: str
     buffer: np.ndarray
+    color_space: str = "sRGB"
 
 
 @dataclass(frozen=True)
@@ -190,7 +191,7 @@ class ThumbnailWorker(QObject):
 
         try:
             buf = task.buffer.copy()
-            thumb = get_rendered_thumbnail(buf, task.file_hash, self._store)
+            thumb = get_rendered_thumbnail(buf, task.file_hash, self._store, color_space=task.color_space)
             if thumb:
                 self.finished.emit({task.filename: thumb})
         except Exception as e:

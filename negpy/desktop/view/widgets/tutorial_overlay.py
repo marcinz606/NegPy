@@ -181,6 +181,7 @@ class TutorialOverlay(QWidget):
             step.pre_hook(self._win)
 
         if step.section_attr:
+            self._win.right_panel.reveal_section(step.section_attr)
             section = getattr(self._win.controls_panel, step.section_attr, None)
             if section is not None and not section.toggle_button.isChecked():
                 if step.section_attr not in self._expanded:
@@ -189,7 +190,7 @@ class TutorialOverlay(QWidget):
 
         target = step.target(self._win)
         if target is not None:
-            self._win.scroll.ensureWidgetVisible(target)  # type: ignore[union-attr]
+            self._win.right_panel.scroll_to(target)
 
         total = len(self._steps)
         self._counter.setText(f"Step {idx + 1} of {total}")

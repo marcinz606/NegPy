@@ -7,7 +7,6 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDockWidget,
     QMainWindow,
-    QScrollArea,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -19,7 +18,7 @@ from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.desktop.view.canvas.toolbar import ActionToolbar
 from negpy.desktop.view.canvas.widget import ImageCanvas
 from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
-from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
+from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
@@ -147,14 +146,11 @@ class MainWindow(QMainWindow):
         self.drawer = QDockWidget("Controls", self)
         self.drawer.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setStyleSheet("QScrollArea { border: none; }")
+        self.right_panel = RightPanel(self.controller)
+        # Back-compat alias: tutorial, keyboard shortcuts, and _sync_tool_buttons reach feature sidebars here.
+        self.controls_panel = self.right_panel.controls_panel
 
-        self.controls_panel = ControlsPanel(self.controller)
-
-        self.scroll.setWidget(self.controls_panel)
-        self.drawer.setWidget(self.scroll)
+        self.drawer.setWidget(self.right_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.drawer)
 
         self.session_dock = QDockWidget("Session", self)
@@ -252,16 +248,7 @@ class MainWindow(QMainWindow):
         self._refresh_dashboard()
 
     def _refresh_dashboard(self) -> None:
-        from negpy.desktop.view.styles.theme import THEME
-
-        header = self.session_panel.header
-        if self.state.gpu_enabled:
-            backend = self.controller.render_worker.processor.backend_name
-            header.gpu_badge.setText(backend.upper())
-            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: bold;")
-        else:
-            header.gpu_badge.setText("CPU")
-            header.gpu_badge.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: bold;")
+        self.toolbar.refresh_gpu_status()
 
     def _display_buffer_for_canvas(self, buffer):
         if isinstance(buffer, GPUTexture):

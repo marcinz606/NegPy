@@ -461,6 +461,10 @@ class AppController(QObject):
         self.state.active_tool = mode
         self.tool_sync_requested.emit()
 
+    def cancel_active_tool(self) -> None:
+        if self.state.active_tool != ToolMode.NONE:
+            self.set_active_tool(ToolMode.NONE)
+
     def handle_crop_completed(self, nx1: float, ny1: float, nx2: float, ny2: float) -> None:
         if self.state.active_tool != ToolMode.CROP_MANUAL:
             return
@@ -673,10 +677,7 @@ class AppController(QObject):
         """
         Initiates background analysis for batch normalization.
         """
-        visible_files = [
-            self.state.uploaded_files[i]
-            for i in self.session.asset_model.visible_actual_indices_ordered()
-        ]
+        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
         if not visible_files:
             return
 
@@ -1049,8 +1050,9 @@ class AppController(QObject):
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
 
-        should_update_thumb = not self._first_render_done
-        self._first_render_done = True
+        # Snapshot the thumbnail once the render has converged (no newer render queued),
+        # so we don't capture a premature/unconverted frame.
+        should_update_thumb = not self._first_render_done and self._pending_render_task is None
 
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
@@ -1064,6 +1066,7 @@ class AppController(QObject):
         self.image_updated.emit()
 
         if should_update_thumb:
+            self._first_render_done = True
             self._update_thumbnail_from_state(force_readback=True)
 
         if self._pending_render_task:
@@ -1137,6 +1140,7 @@ class AppController(QObject):
                 filename=os.path.basename(self.state.current_file_path),
                 file_hash=self.state.current_file_hash,
                 buffer=buffer,
+                color_space=self.state.workspace_color_space,
             )
         )
 
