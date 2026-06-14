@@ -12,6 +12,7 @@
 - **GPU acceleration moved to the bottom toolbar** — a single ⚡ toggle (with a tooltip showing on/off and the active backend) replaces the checkbox + badge in the side panel.
 - **`Esc` cancels the active tool** — deselect WB Pick / Manual Crop / Move Crop / Heal without clicking its button again.
 - **`Shift+A` triggers Autocrop** — new keyboard shortcut for the Auto crop button.
+- **UI scaling** — a **UI Scale** entry in the toolbar ⋯ menu scales the whole interface from 80% to 120% (applied on next launch).
 - Fix: a freshly selected thumbnail could briefly show a wrong (blue) colour cast until you re-selected the file — rendered thumbnails are now colour-managed to match the canvas and captured only once the render has settled.
 
 ## 0.25.0

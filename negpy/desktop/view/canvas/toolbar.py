@@ -1,11 +1,13 @@
 import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSlider,
     QToolButton,
@@ -219,6 +221,19 @@ class ActionToolbar(QWidget):
         overflow_menu.addSeparator()
         overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self.session.remove_current_file)
         overflow_menu.addSeparator()
+        scale_menu = overflow_menu.addMenu(qta.icon("fa5s.search-plus", color=icon_color), "UI Scale")
+        self._ui_scale_group = QActionGroup(self)
+        self._ui_scale_group.setExclusive(True)
+        current_scale = float(self.session.repo.get_global_setting("ui_scale", 1.0) or 1.0)
+        for pct in (80, 90, 100, 110, 120):
+            val = pct / 100.0
+            act = scale_menu.addAction(f"{pct}%")
+            act.setCheckable(True)
+            act.setChecked(abs(val - current_scale) < 0.001)
+            self._ui_scale_group.addAction(act)
+            act.triggered.connect(lambda _checked=False, v=val, p=pct: self._on_ui_scale_selected(v, p))
+        overflow_menu.addSeparator()
+
         overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the tour", self._show_tour)
         overflow_menu.addAction(qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts  ?", self._show_shortcuts)
         self.btn_overflow.setMenu(overflow_menu)
@@ -336,6 +351,14 @@ class ActionToolbar(QWidget):
             self.btn_gpu.setToolTip(f"GPU Acceleration: ON — {backend}\nClick to force the CPU pipeline.")
         else:
             self.btn_gpu.setToolTip("GPU Acceleration: OFF — CPU pipeline\nClick to enable WebGPU for near-instant previews.")
+
+    def _on_ui_scale_selected(self, value: float, pct: int) -> None:
+        self.session.repo.save_global_setting("ui_scale", value)
+        QMessageBox.information(
+            self,
+            "UI Scale",
+            f"UI scale set to {pct}%.\n\nRestart NegPy to apply the change.",
+        )
 
     def _on_canvas_color_changed(self, idx: int, checked: bool) -> None:
         if checked:

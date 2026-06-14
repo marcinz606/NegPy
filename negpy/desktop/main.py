@@ -53,6 +53,16 @@ def main() -> None:
 
         _bootstrap_environment()
 
+        # Storage (sqlite, no Qt dependency) — created before QApplication so the saved
+        # UI scale can be applied via QT_SCALE_FACTOR, which Qt only reads at startup.
+        repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
+        repo.initialize()
+
+        scale = float(repo.get_global_setting("ui_scale", 1.0) or 1.0)
+        scale = max(0.8, min(1.2, scale))
+        if scale != 1.0 and "QT_SCALE_FACTOR" not in os.environ:
+            os.environ["QT_SCALE_FACTOR"] = f"{scale:.2f}"
+
         # Global attributes for Windows stability
         if sys.platform == "win32":
             QCoreApplication = getattr(sys.modules["PyQt6.QtCore"], "QCoreApplication")
@@ -70,9 +80,6 @@ def main() -> None:
         if os.path.exists(qss_path):
             with open(qss_path, "r", encoding="utf-8") as f:
                 app.setStyleSheet(f.read())
-
-        repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
-        repo.initialize()
 
         session_manager = DesktopSessionManager(repo)
         controller = AppController(session_manager)
