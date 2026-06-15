@@ -278,7 +278,7 @@ class FileBrowser(QWidget):
     def _connect_signals(self) -> None:
         self.add_files_btn.clicked.connect(self._on_add_files)
         self.add_folder_btn.clicked.connect(self._on_add_folder)
-        self.unload_btn.clicked.connect(self.session.clear_files)
+        self.unload_btn.clicked.connect(self._on_unload_clicked)
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
@@ -289,10 +289,23 @@ class FileBrowser(QWidget):
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
 
+    def _on_unload_clicked(self) -> None:
+        if len(self.session.state.selected_indices) > 1:
+            self.session.remove_selected_files()
+        else:
+            self.session.clear_files()
+
+    def _update_unload_button(self) -> None:
+        if len(self.session.state.selected_indices) > 1:
+            self.unload_btn.setToolTip("Clear selected")
+        else:
+            self.unload_btn.setToolTip("Clear all")
+
     def sync_ui(self) -> None:
         """Updates list selection to match session state."""
         model = self.session.asset_model
         selection_model = self.list_view.selectionModel()
+        self._update_unload_button()
 
         current_actual = {
             model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes() if model.display_to_actual(idx.row()) >= 0

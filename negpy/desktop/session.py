@@ -738,3 +738,32 @@ class DesktopSessionManager(QObject):
 
             self.asset_model.refresh()
             self.state_changed.emit()
+
+    def remove_selected_files(self) -> None:
+        """
+        Removes all currently selected files from the session.
+        """
+        indices = sorted(set(self.state.selected_indices), reverse=True)
+        if not indices:
+            return
+
+        for idx in indices:
+            if 0 <= idx < len(self.state.uploaded_files):
+                file_info = self.state.uploaded_files.pop(idx)
+                self.state.thumbnails.pop(file_info["name"], None)
+
+        if not self.state.uploaded_files:
+            self.state.selected_file_idx = -1
+            self.state.selected_indices = []
+            self.state.current_file_path = None
+            self.state.current_file_hash = None
+            self.state.preview_raw = None
+            self.state.preview_ir = None
+            self.state.has_ir = False
+            self.state.config = WorkspaceConfig()
+        else:
+            new_idx = min(min(indices), len(self.state.uploaded_files) - 1)
+            self.select_file(new_idx)
+
+        self.asset_model.refresh()
+        self.state_changed.emit()
