@@ -321,8 +321,16 @@ class DesktopSessionManager(QObject):
             filtered = {k: v for k, v in sticky_export.items() if k in valid_keys}
             config = replace(config, export=ExportConfig(**filtered))
 
+        # Flat-field reference is global: its path always overrides the per-file value.
+        # New files default to enabled when a profile is active; saved files keep their toggle.
+        active_ff = self.repo.get_global_setting("flatfield_active_profile")
+        ff_path = (self.repo.get_flatfield_profile(active_ff) or "") if active_ff else ""
+        config = replace(config, flatfield=replace(config.flatfield, reference_path=ff_path))
+
         if only_global:
             return config
+
+        config = replace(config, flatfield=replace(config.flatfield, enabled=bool(ff_path)))
 
         # Workflow settings — safe to carry across all files on a roll
         sticky_mode = self.repo.get_global_setting("last_process_mode")

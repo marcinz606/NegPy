@@ -43,6 +43,13 @@ class StorageRepository(IRepository):
                 pass
 
             conn.execute("""
+                CREATE TABLE IF NOT EXISTS flatfield_profiles (
+                    name TEXT PRIMARY KEY,
+                    path TEXT
+                )
+            """)
+
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS edit_history (
                     file_hash TEXT,
                     step_index INTEGER,
@@ -99,6 +106,34 @@ class StorageRepository(IRepository):
         """
         with sqlite3.connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM normalization_rolls WHERE name = ?", (name,))
+
+    def save_flatfield_profile(self, name: str, path: str) -> None:
+        """Persists a named flat-field reference profile."""
+        with sqlite3.connect(self.edits_db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO flatfield_profiles (name, path) VALUES (?, ?)",
+                (name, path),
+            )
+
+    def get_flatfield_profile(self, name: str) -> Optional[str]:
+        """Returns the reference path for a named flat-field profile."""
+        with sqlite3.connect(self.edits_db_path) as conn:
+            cursor = conn.execute("SELECT path FROM flatfield_profiles WHERE name = ?", (name,))
+            row = cursor.fetchone()
+            if row:
+                return str(row[0])
+        return None
+
+    def list_flatfield_profiles(self) -> list[str]:
+        """Returns names of all saved flat-field profiles."""
+        with sqlite3.connect(self.edits_db_path) as conn:
+            cursor = conn.execute("SELECT name FROM flatfield_profiles ORDER BY name")
+            return [row[0] for row in cursor.fetchall()]
+
+    def delete_flatfield_profile(self, name: str) -> None:
+        """Deletes a named flat-field profile."""
+        with sqlite3.connect(self.edits_db_path) as conn:
+            conn.execute("DELETE FROM flatfield_profiles WHERE name = ?", (name,))
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None:
         with sqlite3.connect(self.edits_db_path) as conn:

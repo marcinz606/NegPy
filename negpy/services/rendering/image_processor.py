@@ -15,6 +15,7 @@ from negpy.domain.models import (
     ColorSpace,
 )
 from negpy.features.process.models import ProcessMode
+from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
 from negpy.services.rendering.gpu_engine import GPUEngine
@@ -74,6 +75,11 @@ class ImageProcessor:
         """
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
         """
+        # Flat-field is a source pre-correction (before geometry/crop); folding its token
+        # into source_hash invalidates the engine cache when it changes.
+        img = apply_flatfield(img, settings.flatfield)
+        source_hash = source_hash + flatfield_token(settings.flatfield)
+
         h_orig, w_cols = img.shape[:2]
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
 
@@ -171,6 +177,7 @@ class ImageProcessor:
 
             orientation = metadata.get("orientation", 1)
             f32_buffer = apply_exif_orientation(f32_buffer, orientation)
+            f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
             if ir_full is not None:
                 ir_full = apply_exif_orientation(ir_full, orientation)
             h_raw, w_raw = f32_buffer.shape[:2]

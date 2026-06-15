@@ -18,6 +18,7 @@ from negpy.features.process.models import ProcessConfig
 
 # Sidebar Components
 from negpy.desktop.view.sidebar.presets import PresetsSidebar
+from negpy.desktop.view.sidebar.flatfield import FlatFieldSidebar
 from negpy.desktop.view.sidebar.process import ProcessSidebar
 from negpy.desktop.view.sidebar.exposure import ExposureSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
@@ -48,6 +49,14 @@ class ControlsPanel(QWidget):
             "presets",
             self.presets_sidebar,
             icon=qta.icon("fa5s.magic", color=icon_color),
+        )
+
+        self.flatfield_sidebar = FlatFieldSidebar(self.controller)
+        self.flatfield_section = self._make_section(
+            "Flat Field",
+            "flatfield",
+            self.flatfield_sidebar,
+            icon=qta.icon("fa5s.adjust", color=icon_color),
         )
 
         self.geometry_sidebar = GeometrySidebar(self.controller)
@@ -113,9 +122,9 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.crop",
-                "Setup — Presets, Geometry, Process",
-                [self.presets_section, self.geometry_section, self.process_section],
-                ["geometry_section", "process_section"],
+                "Setup — Presets, Flat Field, Geometry, Process",
+                [self.presets_section, self.flatfield_section, self.geometry_section, self.process_section],
+                ["flatfield_section", "geometry_section", "process_section"],
             ),
             ("tone", "fa5s.sun", "Exposure", [self.exposure_section], ["exposure_section"]),
             ("color", "fa5s.palette", "Color — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
@@ -447,6 +456,7 @@ class ControlsPanel(QWidget):
         self.retouch_sidebar.sync_ui()
         self.finish_sidebar.sync_ui()
         self.presets_sidebar.sync_ui()
+        self.flatfield_sidebar.sync_ui()
         self._sync_modified_dots()
         buf = self.controller.state.last_metrics.get("histogram_raw")
         self.exposure_histogram.update_data(buf)

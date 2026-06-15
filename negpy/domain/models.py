@@ -10,6 +10,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
+from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.kernel.system.logging import get_logger
 import negpy.kernel.system.paths as paths
@@ -104,6 +105,7 @@ class WorkspaceConfig:
 
     process: ProcessConfig = field(default_factory=ProcessConfig)
     exposure: ExposureConfig = field(default_factory=ExposureConfig)
+    flatfield: FlatFieldConfig = field(default_factory=FlatFieldConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     lab: LabConfig = field(default_factory=LabConfig)
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
@@ -119,6 +121,7 @@ class WorkspaceConfig:
         res = {}
         res.update(asdict(self.process))
         res.update(asdict(self.exposure))
+        res.update(asdict(self.flatfield))
         res.update(asdict(self.geometry))
         res.update(asdict(self.lab))
         res.update(asdict(self.retouch))
@@ -149,6 +152,7 @@ class WorkspaceConfig:
         config_classes = [
             ProcessConfig,
             ExposureConfig,
+            FlatFieldConfig,
             GeometryConfig,
             LabConfig,
             RetouchConfig,
@@ -172,6 +176,7 @@ class WorkspaceConfig:
         return cls(
             process=ProcessConfig(**filter_keys(ProcessConfig, data)),
             exposure=ExposureConfig(**filter_keys(ExposureConfig, data)),
+            flatfield=FlatFieldConfig(**filter_keys(FlatFieldConfig, data)),
             geometry=GeometryConfig(**filter_keys(GeometryConfig, data)),
             lab=LabConfig(**filter_keys(LabConfig, data)),
             retouch=RetouchConfig(**filter_keys(RetouchConfig, data)),

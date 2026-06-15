@@ -830,6 +830,43 @@ class AppController(QObject):
         self.session.update_config(replace(self.state.config, process=new_process))
         self.request_render()
 
+    def set_active_flatfield_profile(self, name: str) -> None:
+        """
+        Selects the globally active flat-field reference profile (or clears it when
+        ``name`` is empty). Applies its path to the current image and re-renders.
+        """
+        self.session.repo.save_global_setting("flatfield_active_profile", name or "")
+        path = self.session.repo.get_flatfield_profile(name) if name else None
+        new_ff = replace(self.state.config.flatfield, reference_path=path or "", enabled=bool(path))
+        self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
+        self.request_render()
+
+    def save_flatfield_profile(self, name: str, path: str) -> None:
+        """
+        Saves a reference image as a named flat-field profile and makes it active.
+        """
+        self.session.repo.save_flatfield_profile(name, path)
+        self.set_active_flatfield_profile(name)
+        self.set_status(f"Flat-field profile '{name}' saved", 2000)
+
+    def delete_flatfield_profile(self, name: str) -> None:
+        """
+        Removes a flat-field profile; clears the active correction if it was selected.
+        """
+        if not name:
+            return
+        self.session.repo.delete_flatfield_profile(name)
+        if self.session.repo.get_global_setting("flatfield_active_profile") == name:
+            self.set_active_flatfield_profile("")
+
+    def set_flatfield_enabled(self, enabled: bool) -> None:
+        """
+        Per-image toggle to enable/disable flat-field correction for the current frame.
+        """
+        new_ff = replace(self.state.config.flatfield, enabled=enabled)
+        self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
+        self.request_render()
+
     # ── Scanner integration ───────────────────────────────────────────
 
     def request_scan_devices(self) -> None:
