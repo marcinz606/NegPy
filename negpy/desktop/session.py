@@ -520,11 +520,7 @@ class DesktopSessionManager(QObject):
                     if mode == "edits_with_geometry":
                         merged_geo = source_config.geometry
                     else:
-                        merged_geo = replace(
-                            source_config.geometry,
-                            manual_crop_rect=target_config.geometry.manual_crop_rect,
-                            fine_rotation=target_config.geometry.fine_rotation,
-                        )
+                        merged_geo = target_config.geometry
 
                     merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
 

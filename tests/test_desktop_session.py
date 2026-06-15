@@ -102,13 +102,14 @@ class TestDesktopSessionSync(unittest.TestCase):
         saved_config = args[1]
 
         self.assertEqual(saved_config.exposure.density, 1.5)
-        self.assertEqual(saved_config.geometry.rotation, 1)
         self.assertEqual(saved_config.process.process_mode, "E-6")
         self.assertTrue(saved_config.process.e6_normalize)
 
-        # Excluded fields
+        # Geometry entirely preserved from target
+        self.assertEqual(saved_config.geometry.rotation, 0)
         self.assertEqual(saved_config.geometry.fine_rotation, 0.0)
         self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        # Per-file retouch fields preserved from target
         self.assertEqual(saved_config.retouch.manual_dust_spots, [])
         self.assertTrue(saved_config.retouch.dust_remove)
 
