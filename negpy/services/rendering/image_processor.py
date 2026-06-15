@@ -131,6 +131,39 @@ class ImageProcessor:
             return Image.fromarray(float_to_uint8(buffer))
         raise ValueError(f"Unsupported bit depth: {bit_depth}")
 
+    def _load_source_f32(self, file_path: str, params: WorkspaceConfig) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
+        """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
+
+        Returns (f32_buffer, ir_buffer, source_color_space).
+        """
+        ctx_mgr, metadata = loader_factory.get_loader(file_path)
+        source_cs = str(metadata.get("color_space", ColorSpace.ADOBE_RGB.value))
+        ir_full = metadata.get("ir")
+
+        with ctx_mgr as raw:
+            algo = get_best_demosaic_algorithm(raw)
+            linear_raw = params.exposure.linear_raw
+            user_wb = [1, 1, 1, 1] if linear_raw else None
+            rgb = raw.postprocess(
+                gamma=(1, 1),
+                no_auto_bright=True,
+                use_camera_wb=not linear_raw,
+                user_wb=user_wb,
+                output_bps=16,
+                output_color=rawpy.ColorSpace.raw,
+                demosaic_algorithm=algo,
+                user_flip=0,
+            )
+            rgb = ensure_rgb(rgb)
+
+        f32_buffer = uint16_to_float32(rgb)
+        orientation = metadata.get("orientation", 1)
+        f32_buffer = apply_exif_orientation(f32_buffer, orientation)
+        f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
+        if ir_full is not None:
+            ir_full = apply_exif_orientation(ir_full, orientation)
+        return f32_buffer, ir_full, source_cs
+
     def process_export(
         self,
         file_path: str,
@@ -149,37 +182,12 @@ class ImageProcessor:
             # Ensure both GPU and CPU paths use the same export settings.
             params = dc_replace(params, export=export_settings)
 
-            ctx_mgr, metadata = loader_factory.get_loader(file_path)
-            source_cs = metadata.get("color_space", ColorSpace.ADOBE_RGB.value)
-            ir_full = metadata.get("ir")
+            f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params)
             target_cs = export_settings.export_color_space
             if target_cs == ColorSpace.SAME_AS_SOURCE.value:
                 target_cs = source_cs
             color_space = str(target_cs)
 
-            with ctx_mgr as raw:
-                algo = get_best_demosaic_algorithm(raw)
-                linear_raw = params.exposure.linear_raw
-                user_wb = [1, 1, 1, 1] if linear_raw else None
-                rgb = raw.postprocess(
-                    gamma=(1, 1),
-                    no_auto_bright=True,
-                    use_camera_wb=not linear_raw,
-                    user_wb=user_wb,
-                    output_bps=16,
-                    output_color=rawpy.ColorSpace.raw,
-                    demosaic_algorithm=algo,
-                    user_flip=0,
-                )
-                rgb = ensure_rgb(rgb)
-
-            f32_buffer = uint16_to_float32(rgb)
-
-            orientation = metadata.get("orientation", 1)
-            f32_buffer = apply_exif_orientation(f32_buffer, orientation)
-            f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
-            if ir_full is not None:
-                ir_full = apply_exif_orientation(ir_full, orientation)
             h_raw, w_raw = f32_buffer.shape[:2]
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 
@@ -258,6 +266,49 @@ class ImageProcessor:
         except Exception as e:
             logger.error(f"Export pipeline failed: {e}")
             return None, str(e)
+
+    def render_display_array(
+        self,
+        file_path: str,
+        params: WorkspaceConfig,
+        source_hash: str,
+        target_long_px: int,
+        prefer_gpu: bool = True,
+        working_color_space: str = WORKING_COLOR_SPACE,
+    ) -> Optional[np.ndarray]:
+        """Render a file (with its edits) to a small sRGB uint8 RGB array for tiling.
+
+        Mirrors the export render path but at small resolution and in display space,
+        so a contact-sheet tile matches the on-canvas look. Returns None on failure.
+        """
+        try:
+            from negpy.infrastructure.display.color_mgmt import apply_display_transform
+
+            f32_buffer, ir_full, _ = self._load_source_f32(file_path, params)
+            h_raw, w_raw = f32_buffer.shape[:2]
+            scale_factor = max(1.0, max(h_raw, w_raw) / float(target_long_px))
+
+            if prefer_gpu and self.engine_gpu:
+                buffer, _ = self.engine_gpu.process(f32_buffer, params, scale_factor=scale_factor, ir_buffer=ir_full)
+            else:
+                buffer, _ = self.run_pipeline(
+                    f32_buffer,
+                    params,
+                    source_hash,
+                    render_size_ref=float(target_long_px),
+                    prefer_gpu=False,
+                    ir_buffer=ir_full,
+                )
+                buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
+                self.engine_cpu.cache.clear()
+
+            if isinstance(buffer, np.ndarray) and buffer.ndim == 3 and buffer.shape[2] == 4:
+                buffer = buffer[:, :, :3]
+            buffer = apply_display_transform(buffer, working_color_space)
+            return float_to_uint8(buffer)
+        except Exception as e:
+            logger.error(f"Contact-sheet tile render failed for {file_path}: {e}")
+            return None
 
     def _apply_scaling_and_border_f32(self, img: np.ndarray, params: WorkspaceConfig, export_settings: ExportConfig) -> np.ndarray:
         """CPU fallback for layout application."""

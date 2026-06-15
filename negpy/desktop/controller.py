@@ -1118,6 +1118,42 @@ class AppController(QObject):
         if tasks:
             self._run_export_tasks(tasks)
 
+    def request_contact_sheet(self) -> None:
+        """Renders all visible files small and writes darkroom contact sheet(s)."""
+        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        if not visible_files:
+            return
+
+        if self.state.config.export.same_as_source:
+            out_dir = os.path.dirname(visible_files[0]["path"])
+        else:
+            resolved = self._ensure_valid_export_path()
+            if not resolved:
+                return
+            out_dir = resolved
+
+        tasks = []
+        for f in visible_files:
+            params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
+            tasks.append(
+                ExportTask(
+                    file_info=f,
+                    params=params,
+                    export_settings=params.export,
+                    gpu_enabled=self.state.gpu_enabled,
+                    working_color_space=self.state.workspace_color_space,
+                )
+            )
+
+        self._export_start_time = time.time()
+        QMetaObject.invokeMethod(
+            self.export_worker,
+            "run_contact_sheet",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(list, tasks),
+            Q_ARG(str, out_dir),
+        )
+
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
         self._export_start_time = time.time()
         QMetaObject.invokeMethod(

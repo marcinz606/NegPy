@@ -9,6 +9,7 @@ from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.services.export.templating import render_export_filename
+from negpy.services.export.contact_sheet import ContactSheetService, CELL_PX
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,54 @@ class ExportWorker(QObject):
 
                 # Aggressive VRAM evacuation between files
                 self._processor.cleanup()
+
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+
+    @pyqtSlot(list, str)
+    def run_contact_sheet(self, tasks: List[ExportTask], out_dir: str) -> None:
+        """Renders each task small and composites darkroom contact sheet(s) on black."""
+        total = len(tasks)
+        try:
+            tiles = []
+            for i, task in enumerate(tasks):
+                name = os.path.splitext(task.file_info["name"])[0]
+                self.progress.emit(i + 1, total, name)
+
+                tile = self._processor.render_display_array(
+                    task.file_info["path"],
+                    task.params,
+                    task.file_info["hash"],
+                    target_long_px=CELL_PX * 2,
+                    prefer_gpu=task.gpu_enabled,
+                    working_color_space=task.working_color_space,
+                )
+                if tile is not None:
+                    tiles.append(tile)
+                self._processor.cleanup()
+
+            sheets = ContactSheetService.build_sheets(tiles)
+            os.makedirs(out_dir, exist_ok=True)
+
+            for idx, sheet in enumerate(sheets):
+                suffix = "" if idx == 0 else f"_{idx + 1}"
+                path = os.path.join(out_dir, f"contact_sheet{suffix}.jpg")
+                counter = 2
+                while os.path.exists(path):
+                    path = os.path.join(out_dir, f"contact_sheet{suffix}_{counter}.jpg")
+                    counter += 1
+
+                tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(dir=out_dir, delete=False, suffix=".part") as tmp:
+                        tmp_path = tmp.name
+                        sheet.save(tmp, format="JPEG", quality=95, subsampling=0)
+                    os.replace(tmp_path, path)
+                except Exception as write_err:
+                    if tmp_path is not None and os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+                    self.error.emit(str(write_err))
 
             self.finished.emit()
         except Exception as e:

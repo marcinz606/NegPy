@@ -229,12 +229,13 @@ class ExportSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("BATCH"))
 
-        batch_row = QHBoxLayout()
         self.batch_export_btn = QPushButton(" Export All")
         self.batch_export_btn.setObjectName("batch_export_btn")
         self.batch_export_btn.setFixedHeight(40)
         self.batch_export_btn.setIcon(qta.icon("fa5s.images", color=THEME.text_primary))
+        self.layout.addWidget(self.batch_export_btn)
 
+        batch_row = QHBoxLayout()
         self.apply_all_btn = QPushButton(" Sync export settings")
         self.apply_all_btn.setFixedHeight(40)
         self.apply_all_btn.setCheckable(True)
@@ -242,8 +243,14 @@ class ExportSidebar(BaseSidebar):
         self.apply_all_btn.setToolTip("Apply current export settings (Size, DPI, Border) to all files")
         self._update_apply_all_style(True)
 
-        batch_row.addWidget(self.batch_export_btn)
+        self.contact_sheet_btn = QPushButton(" Contact Sheet")
+        self.contact_sheet_btn.setObjectName("contact_sheet_btn")
+        self.contact_sheet_btn.setFixedHeight(40)
+        self.contact_sheet_btn.setIcon(qta.icon("fa5s.th", color=THEME.text_primary))
+        self.contact_sheet_btn.setToolTip("Render all visible frames into a contact sheet (max 38 per sheet)")
+
         batch_row.addWidget(self.apply_all_btn)
+        batch_row.addWidget(self.contact_sheet_btn)
         self.layout.addLayout(batch_row)
 
         self.layout.addStretch()
@@ -272,6 +279,7 @@ class ExportSidebar(BaseSidebar):
         self.batch_export_btn.clicked.connect(
             lambda: self.controller.request_batch_export(override_settings=self.apply_all_btn.isChecked())
         )
+        self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
 
     def _update_apply_all_style(self, checked: bool) -> None:
         """Toggle checked appearance for the Sync export settings button."""
