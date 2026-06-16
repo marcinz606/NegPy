@@ -3,7 +3,7 @@ from typing import List, Optional, Any
 import os
 import tempfile
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
-from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat
+from negpy.domain.models import WorkspaceConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
 from negpy.features.metadata.writer import embed_metadata
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
@@ -17,7 +17,7 @@ class ExportTask:
 
     file_info: dict
     params: WorkspaceConfig
-    export_settings: ExportConfig
+    export_settings: ExportPreset
     gpu_enabled: bool = True
     bounds_override: Optional[Any] = None
     source_exif: Optional[dict] = None
@@ -64,12 +64,19 @@ class ExportWorker(QObject):
                     if task.metadata_config is not None:
                         bits = embed_metadata(bits, task.metadata_config, task.source_exif)
 
-                    out_dir = (
-                        os.path.dirname(task.file_info["path"]) if task.export_settings.same_as_source else task.export_settings.export_path
-                    )
+                    source_dir = os.path.dirname(task.file_info["path"])
+                    output_mode = task.export_settings.output_mode
+                    if output_mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE:
+                        subfolder = task.export_settings.output_subfolder or ""
+                        out_dir = os.path.join(source_dir, subfolder) if subfolder else source_dir
+                    elif output_mode == ExportPresetOutputMode.ABSOLUTE:
+                        out_dir = task.export_settings.output_path or source_dir
+                    else:
+                        out_dir = source_dir
                     os.makedirs(out_dir, exist_ok=True)
 
-                    ext = "jpg" if task.export_settings.export_fmt == ExportFormat.JPEG else "tiff"
+                    _EXT = {ExportFormat.JPEG: "jpg", ExportFormat.TIFF: "tiff", ExportFormat.PNG: "png"}
+                    ext = _EXT.get(task.export_settings.export_fmt, "jpg")
 
                     filename = render_export_filename(
                         task.file_info["path"], task.export_settings, border_size=task.params.finish.border_size

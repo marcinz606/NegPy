@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
-from negpy.domain.models import WorkspaceConfig
+from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -85,6 +85,9 @@ class AppState:
 
     # True while the before/after view shows the un-graded auto baseline instead of edits
     compare_mode: bool = False
+
+    # Export presets (globally managed, not per-file)
+    export_presets: List[ExportPreset] = field(default_factory=list)
 
 
 class AssetListModel(QAbstractListModel):
@@ -268,6 +271,8 @@ class DesktopSessionManager(QObject):
         if saved_soft_proof is not None:
             self.state.soft_proof_enabled = bool(saved_soft_proof)
 
+        self.state.export_presets = self.repo.load_export_presets()
+
     def set_gpu_enabled(self, enabled: bool) -> None:
         """Updates and persists the hardware acceleration preference."""
         if self.state.gpu_enabled != enabled:
@@ -301,6 +306,10 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("icc_output_path", self.state.icc_output_path)
         self.repo.save_global_setting("monitor_profile_override", self.state.monitor_profile_override)
         self.repo.save_global_setting("soft_proof_enabled", self.state.soft_proof_enabled)
+
+    def save_export_presets(self) -> None:
+        """Persists current export presets."""
+        self.repo.save_export_presets(self.state.export_presets)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """
