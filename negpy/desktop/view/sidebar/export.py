@@ -331,9 +331,7 @@ class ExportSidebar(BaseSidebar):
 
         repo = self.controller.session.repo
         expanded = bool(repo.get_global_setting("section_expanded_export_presets", default=True))
-        section = CollapsibleSection(
-            "Presets", expanded=expanded, icon=qta.icon("fa5s.layer-group", color="#aaa")
-        )
+        section = CollapsibleSection("Presets", expanded=expanded, icon=qta.icon("fa5s.layer-group", color="#aaa"))
         section.set_content(content)
         section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
         self.layout.addWidget(section)

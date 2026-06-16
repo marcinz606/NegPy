@@ -130,6 +130,34 @@ class TestEmbedMetadata:
         assert exif["0th"].get(piexif.ImageIFD.Orientation) == 1
         assert piexif.ImageIFD.Orientation not in exif["1st"]
 
+    def test_embeds_into_png_and_preserves_icc(self) -> None:
+        """PNG export must not be routed through the TIFF path (it raised
+        'not a TIFF file: header=\\x89PNG'). EXIF goes into an eXIf chunk and the
+        embedded ICC profile survives the re-save."""
+        from PIL import Image
+
+        arr = np.random.randint(0, 255, (16, 16, 3), dtype=np.uint8)
+        png = io.BytesIO()
+        icc = b"fake-icc-profile-bytes"
+        Image.fromarray(arr).save(png, format="PNG", icc_profile=icc)
+        source_exif = {
+            "0th": {piexif.ImageIFD.Make: b"Plustek", piexif.ImageIFD.Orientation: 6},
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+
+        out = embed_metadata(png.getvalue(), MetadataConfig(film="Portra 400"), source_exif)
+
+        assert out != png.getvalue(), "embed fell back to input"
+        assert out[:8] == b"\x89PNG\r\n\x1a\n"
+        with Image.open(io.BytesIO(out)) as im:
+            assert im.info.get("icc_profile") == icc
+            exif = im.getexif()
+            assert exif.get(piexif.ImageIFD.Make) == "Plustek"
+            assert exif.get(piexif.ImageIFD.Orientation) == 1
+
     def test_normalizes_orientation_tag_tiff(self) -> None:
         source_exif = {
             "0th": {piexif.ImageIFD.Orientation: 8, piexif.ImageIFD.Make: b"Plustek"},

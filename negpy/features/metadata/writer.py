@@ -8,6 +8,7 @@ from typing import Optional
 
 import piexif
 import tifffile
+from PIL import Image
 
 from negpy.features.metadata.models import MetadataConfig
 
@@ -180,6 +181,10 @@ def embed_metadata(
             # JPEG APP1 (EXIF) must fit in a single 64 KB segment.
             exif_bytes = _dump_exif_within_app1_limit(merged, config)
             piexif.insert(exif_bytes, image_bytes, output)
+        elif image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            # PNG stores EXIF in an eXIf chunk (no 64 KB cap); Pillow writes it.
+            exif_bytes = piexif.dump(_sanitize_exif(merged))
+            _rewrite_png_with_metadata(image_bytes, exif_bytes, output)
         else:
             # TIFF has no 64 KB EXIF cap (tifffile writes a separate IFD).
             exif_bytes = piexif.dump(_sanitize_exif(merged))
@@ -324,6 +329,22 @@ def _build_extratag(tag: int, ttype: int, value: object) -> tuple | None:
         return None
 
     return None
+
+
+def _rewrite_png_with_metadata(image_bytes: bytes, exif_bytes: bytes, output: io.BytesIO) -> None:
+    """Re-save a PNG with EXIF stored in an eXIf chunk, preserving the ICC profile.
+
+    piexif has no PNG support, so Pillow writes the eXIf chunk. The embedded ICC
+    profile is read back from the source bytes and re-attached so it survives the
+    round-trip.
+    """
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        im.load()
+        icc = im.info.get("icc_profile")
+        save_kwargs = {"format": "PNG", "compress_level": 6, "exif": exif_bytes}
+        if icc:
+            save_kwargs["icc_profile"] = icc
+        im.save(output, **save_kwargs)
 
 
 def _rewrite_tiff_with_metadata(image_bytes: bytes, exif_bytes: bytes, output: io.BytesIO) -> None:
