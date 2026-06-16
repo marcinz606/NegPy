@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.domain.models import AspectRatio, ColorSpace, ExportFormat, ExportResolutionMode
 from negpy.infrastructure.display.color_mgmt import ColorService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
@@ -45,6 +46,8 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.setSingleShot(True)
         self.update_timer.setInterval(500)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
+
+        self._add_presets_section()
 
         self.layout.addWidget(section_subheader("ICC"))
 
@@ -227,41 +230,6 @@ class ExportSidebar(BaseSidebar):
         path_layout.addWidget(self.browse_btn)
         self.layout.addLayout(path_layout)
 
-        # Presets: additional, named output configurations exported on top of the
-        # current settings above.
-        self.layout.addWidget(section_subheader("PRESETS"))
-
-        self._presets_scroll = QScrollArea()
-        self._presets_scroll.setWidgetResizable(True)
-        self._presets_scroll.setMaximumHeight(140)
-        self._presets_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._presets_scroll.setStyleSheet(f"QScrollArea {{ border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark}; }}")
-        self._presets_container = QWidget()
-        self._presets_container.setStyleSheet(f"background: {THEME.bg_dark};")
-        self._presets_inner = QVBoxLayout(self._presets_container)
-        self._presets_inner.setContentsMargins(4, 4, 4, 4)
-        self._presets_inner.setSpacing(2)
-        self._presets_scroll.setWidget(self._presets_container)
-        self.layout.addWidget(self._presets_scroll)
-
-        self._no_presets_label = QLabel("No presets — click Manage to add some.")
-        self._no_presets_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
-        self._no_presets_label.setWordWrap(True)
-        self._presets_inner.addWidget(self._no_presets_label)
-        self._preset_checkboxes: list[QCheckBox] = []
-
-        preset_btn_row = QHBoxLayout()
-        self.manage_presets_btn = QPushButton(" Manage")
-        self.manage_presets_btn.setObjectName("manage_presets_btn")
-        self.manage_presets_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
-        self.export_presets_btn = QPushButton(" Export Presets")
-        self.export_presets_btn.setObjectName("export_presets_btn")
-        self.export_presets_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary))
-        self.export_presets_btn.setToolTip("Export the current file with every enabled preset")
-        preset_btn_row.addWidget(self.manage_presets_btn)
-        preset_btn_row.addWidget(self.export_presets_btn)
-        self.layout.addLayout(preset_btn_row)
-
         self.layout.addWidget(section_subheader("BATCH"))
 
         self.batch_export_btn = QPushButton(" Export All")
@@ -322,6 +290,53 @@ class ExportSidebar(BaseSidebar):
         self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
 
     # --- Presets -------------------------------------------------------------
+
+    def _add_presets_section(self) -> None:
+        """Collapsible PRESETS section pinned to the top of the panel."""
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(6)
+
+        self._presets_scroll = QScrollArea()
+        self._presets_scroll.setWidgetResizable(True)
+        self._presets_scroll.setMaximumHeight(140)
+        self._presets_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._presets_scroll.setStyleSheet(f"QScrollArea {{ border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark}; }}")
+        self._presets_container = QWidget()
+        self._presets_container.setStyleSheet(f"background: {THEME.bg_dark};")
+        self._presets_inner = QVBoxLayout(self._presets_container)
+        self._presets_inner.setContentsMargins(4, 4, 4, 4)
+        self._presets_inner.setSpacing(2)
+        self._presets_scroll.setWidget(self._presets_container)
+        content_layout.addWidget(self._presets_scroll)
+
+        self._no_presets_label = QLabel("No presets — click Manage to add some.")
+        self._no_presets_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
+        self._no_presets_label.setWordWrap(True)
+        self._presets_inner.addWidget(self._no_presets_label)
+        self._preset_checkboxes: list[QCheckBox] = []
+
+        preset_btn_row = QHBoxLayout()
+        self.manage_presets_btn = QPushButton(" Manage")
+        self.manage_presets_btn.setObjectName("manage_presets_btn")
+        self.manage_presets_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
+        self.export_presets_btn = QPushButton(" Export Presets")
+        self.export_presets_btn.setObjectName("export_presets_btn")
+        self.export_presets_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary))
+        self.export_presets_btn.setToolTip("Export the current file with every enabled preset")
+        preset_btn_row.addWidget(self.manage_presets_btn)
+        preset_btn_row.addWidget(self.export_presets_btn)
+        content_layout.addLayout(preset_btn_row)
+
+        repo = self.controller.session.repo
+        expanded = bool(repo.get_global_setting("section_expanded_export_presets", default=True))
+        section = CollapsibleSection(
+            "Presets", expanded=expanded, icon=qta.icon("fa5s.layer-group", color="#aaa")
+        )
+        section.set_content(content)
+        section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
+        self.layout.addWidget(section)
 
     def _rebuild_preset_rows(self) -> None:
         """Rebuild the preset checkbox list from state."""
