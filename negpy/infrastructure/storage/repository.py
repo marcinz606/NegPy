@@ -1,8 +1,8 @@
 import sqlite3
 import json
 import os
-from typing import Any, Optional
-from negpy.domain.models import WorkspaceConfig
+from typing import Any, List, Optional
+from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.domain.interfaces import IRepository
 
 
@@ -222,3 +222,27 @@ class StorageRepository(IRepository):
             if row:
                 return json.loads(row[0])
         return default
+
+    def save_export_presets(self, presets: List[ExportPreset]) -> None:
+        self.save_global_setting("export_presets", [p.to_dict() for p in presets])
+
+    def load_export_presets(self) -> List[ExportPreset]:
+        from negpy.domain.models import ExportFormat, ExportResolutionMode
+
+        raw = self.get_global_setting("export_presets", default=None)
+        if raw is None:
+            return [
+                ExportPreset(name="JPEG", enabled=True, export_fmt=ExportFormat.JPEG, jpeg_quality=90,
+                             export_resolution_mode=ExportResolutionMode.ORIGINAL.value),
+                ExportPreset(name="TIFF", enabled=False, export_fmt=ExportFormat.TIFF,
+                             export_resolution_mode=ExportResolutionMode.ORIGINAL.value),
+                ExportPreset(name="PNG", enabled=False, export_fmt=ExportFormat.PNG,
+                             export_resolution_mode=ExportResolutionMode.ORIGINAL.value),
+            ]
+        result = []
+        for d in raw:
+            try:
+                result.append(ExportPreset.from_dict(d))
+            except Exception:
+                pass
+        return result

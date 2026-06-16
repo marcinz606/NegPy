@@ -1,13 +1,14 @@
 import os
 import re
 from datetime import datetime
+from typing import Union
 from jinja2 import Template
-from negpy.domain.models import ExportConfig, ExportResolutionMode
+from negpy.domain.models import ExportConfig, ExportPreset, ExportResolutionMode
 
 
 def render_export_filename(
     original_path: str,
-    export_settings: ExportConfig,
+    export_settings: Union[ExportConfig, ExportPreset],
     border_size: float = 0.0,
 ) -> str:
     """
