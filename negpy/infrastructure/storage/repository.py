@@ -232,12 +232,19 @@ class StorageRepository(IRepository):
         raw = self.get_global_setting("export_presets", default=None)
         if raw is None:
             return [
-                ExportPreset(name="JPEG", enabled=True, export_fmt=ExportFormat.JPEG, jpeg_quality=90,
-                             export_resolution_mode=ExportResolutionMode.ORIGINAL.value),
-                ExportPreset(name="TIFF", enabled=False, export_fmt=ExportFormat.TIFF,
-                             export_resolution_mode=ExportResolutionMode.ORIGINAL.value),
-                ExportPreset(name="PNG", enabled=False, export_fmt=ExportFormat.PNG,
-                             export_resolution_mode=ExportResolutionMode.ORIGINAL.value),
+                ExportPreset(
+                    name="JPEG",
+                    enabled=True,
+                    export_fmt=ExportFormat.JPEG,
+                    jpeg_quality=90,
+                    export_resolution_mode=ExportResolutionMode.ORIGINAL.value,
+                ),
+                ExportPreset(
+                    name="TIFF", enabled=False, export_fmt=ExportFormat.TIFF, export_resolution_mode=ExportResolutionMode.ORIGINAL.value
+                ),
+                ExportPreset(
+                    name="PNG", enabled=False, export_fmt=ExportFormat.PNG, export_resolution_mode=ExportResolutionMode.ORIGINAL.value
+                ),
             ]
         result = []
         for d in raw:

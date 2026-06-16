@@ -1,7 +1,13 @@
-"""Tests for export preset serialization, persistence, and worker path resolution."""
+"""Tests for export preset serialization, persistence, and format encoding."""
+
+import io
 import os
 import uuid
+
+import numpy as np
 import pytest
+import tifffile
+from PIL import Image
 
 from negpy.domain.models import (
     ExportFormat,
@@ -11,12 +17,15 @@ from negpy.domain.models import (
     AspectRatio,
     ColorSpace,
 )
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.services.rendering.image_processor import ImageProcessor
 
 
 # ---------------------------------------------------------------------------
 # ExportPreset serialization
 # ---------------------------------------------------------------------------
+
 
 def _make_preset(**kwargs) -> ExportPreset:
     defaults = dict(
@@ -95,6 +104,7 @@ def test_preset_unknown_keys_dropped():
 # ExportFormat enum
 # ---------------------------------------------------------------------------
 
+
 def test_export_format_png_exists():
     assert ExportFormat.PNG == "PNG"
     assert ExportFormat.TIFF == "TIFF"
@@ -104,6 +114,7 @@ def test_export_format_png_exists():
 # ---------------------------------------------------------------------------
 # Output path resolution (mirroring worker logic)
 # ---------------------------------------------------------------------------
+
 
 def _resolve_output_dir(preset: ExportPreset, source_path: str) -> str:
     source_dir = os.path.dirname(source_path)
@@ -172,6 +183,7 @@ def test_extension_png():
 # Repository persistence
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def repo(tmp_path):
     edits_db = str(tmp_path / "edits.db")
@@ -195,8 +207,12 @@ def test_save_and_load_presets(repo):
     assert loaded[1].enabled is False
 
 
-def test_load_presets_empty(repo):
-    assert repo.load_export_presets() == []
+def test_load_presets_defaults_when_unset(repo):
+    # A fresh repo (never saved) ships starter JPEG/TIFF/PNG presets.
+    loaded = repo.load_export_presets()
+    assert [p.name for p in loaded] == ["JPEG", "TIFF", "PNG"]
+    assert [p.export_fmt for p in loaded] == [ExportFormat.JPEG, ExportFormat.TIFF, ExportFormat.PNG]
+    assert loaded[0].enabled is True
 
 
 def test_save_empty_presets_clears(repo):
@@ -210,3 +226,61 @@ def test_preset_order_preserved(repo):
     repo.save_export_presets(presets)
     loaded = repo.load_export_presets()
     assert [p.name for p in loaded] == [f"Preset {i}" for i in range(5)]
+
+
+# ---------------------------------------------------------------------------
+# Format encoding (real bytes for every format) — guards the PNG RGB crash
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def proc():
+    return ImageProcessor()
+
+
+def _rgb_buffer(h=8, w=12):
+    # A simple gradient well inside every gamut so color management never clips.
+    x = np.linspace(0.2, 0.8, w, dtype=np.float32)
+    buf = np.stack([np.tile(x, (h, 1))] * 3, axis=-1)
+    return np.ascontiguousarray(buf)
+
+
+def test_encode_png_rgb_produces_valid_image(proc):
+    """PNG export of a color image must not crash and must round-trip as RGB."""
+    buf = _rgb_buffer()
+    preset = _make_preset(export_fmt=ExportFormat.PNG)
+    data, ext = proc._encode_export(buf, preset, ColorSpace.ADOBE_RGB.value, WORKING_COLOR_SPACE)
+    assert ext == "png"
+    img = Image.open(io.BytesIO(data))
+    assert img.mode == "RGB"
+    assert img.size == (buf.shape[1], buf.shape[0])
+
+
+def test_encode_png_greyscale_keeps_16bit(proc):
+    buf = _rgb_buffer()
+    preset = _make_preset(export_fmt=ExportFormat.PNG)
+    data, ext = proc._encode_export(buf, preset, ColorSpace.GREYSCALE.value, WORKING_COLOR_SPACE)
+    assert ext == "png"
+    img = Image.open(io.BytesIO(data))
+    assert img.mode.startswith("I")  # 16-bit greyscale
+    assert img.size == (buf.shape[1], buf.shape[0])
+
+
+def test_encode_tiff_rgb_is_16bit(proc):
+    buf = _rgb_buffer()
+    preset = _make_preset(export_fmt=ExportFormat.TIFF)
+    data, ext = proc._encode_export(buf, preset, ColorSpace.ADOBE_RGB.value, WORKING_COLOR_SPACE)
+    assert ext == "tiff"
+    arr = tifffile.imread(io.BytesIO(data))
+    assert arr.dtype == np.uint16
+    assert arr.shape == (buf.shape[0], buf.shape[1], 3)
+
+
+def test_encode_jpeg_rgb(proc):
+    buf = _rgb_buffer()
+    preset = _make_preset(export_fmt=ExportFormat.JPEG)
+    data, ext = proc._encode_export(buf, preset, ColorSpace.ADOBE_RGB.value, WORKING_COLOR_SPACE)
+    assert ext == "jpg"
+    img = Image.open(io.BytesIO(data))
+    assert img.format == "JPEG"
+    assert img.size == (buf.shape[1], buf.shape[0])

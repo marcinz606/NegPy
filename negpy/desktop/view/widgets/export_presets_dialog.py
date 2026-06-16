@@ -469,9 +469,7 @@ class ExportPresetsDialog(QDialog):
         item = self.preset_list.item(self._selected_idx)
         if item:
             item.setText(self._presets[self._selected_idx].name)
-            item.setCheckState(
-                Qt.CheckState.Checked if self._presets[self._selected_idx].enabled else Qt.CheckState.Unchecked
-            )
+            item.setCheckState(Qt.CheckState.Checked if self._presets[self._selected_idx].enabled else Qt.CheckState.Unchecked)
         self._emit_changed()
 
     def _write_form_to_preset(self, preset: ExportPreset) -> None:

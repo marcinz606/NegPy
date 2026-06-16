@@ -167,6 +167,34 @@ class ExportPreset:
         return cls(**{k: v for k, v in d.items() if k in known})
 
 
+def preset_from_export_config(conf: ExportConfig, name: str = "Current settings") -> ExportPreset:
+    """Builds an ephemeral preset from the current export settings so the export
+    pipeline (which is preset-driven) can run a one-off 'export as currently seen'."""
+    if conf.same_as_source:
+        output_mode = ExportPresetOutputMode.SAME_AS_SOURCE
+        output_path = ""
+    else:
+        output_mode = ExportPresetOutputMode.ABSOLUTE
+        output_path = conf.export_path
+    return ExportPreset(
+        name=name,
+        enabled=True,
+        export_fmt=conf.export_fmt,
+        export_resolution_mode=conf.export_resolution_mode,
+        paper_aspect_ratio=conf.paper_aspect_ratio,
+        export_print_size=conf.export_print_size,
+        export_dpi=conf.export_dpi,
+        export_target_long_edge_px=conf.export_target_long_edge_px,
+        output_mode=output_mode,
+        output_path=output_path,
+        overwrite=conf.overwrite,
+        filename_pattern=conf.filename_pattern,
+        export_color_space=conf.export_color_space,
+        icc_input_path=conf.icc_input_path,
+        icc_output_path=conf.icc_output_path,
+    )
+
+
 @dataclass(frozen=True)
 class WorkspaceConfig:
     """

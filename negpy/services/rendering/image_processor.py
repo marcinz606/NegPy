@@ -209,82 +209,81 @@ class ImageProcessor:
                 # Release full-res arrays pinned in the CPU stage cache.
                 self.engine_cpu.cache.clear()
 
-            is_greyscale = color_space == ColorSpace.GREYSCALE.value
-            fmt = export_settings.export_fmt
-
-            # Input ICC overrides the source, output ICC the destination; both always
-            # applied so the file matches the preview.
-            icc_input = export_settings.icc_input_path
-            icc_output = export_settings.icc_output_path
-
-            if fmt == ExportFormat.TIFF:
-                img_out_f32 = buffer
-                img_int = (
-                    float_to_uint_luma(np.ascontiguousarray(img_out_f32), bit_depth=16) if is_greyscale else float_to_uint16(img_out_f32)
-                )
-
-                if is_greyscale:
-                    img_out, icc_bytes = self._apply_color_management_u16_greyscale(
-                        img_int,
-                        working_color_space,
-                        color_space,
-                        icc_output,
-                        icc_input,
-                    )
-                else:
-                    img_out, icc_bytes = self._apply_color_management_u16_rgb(
-                        img_int,
-                        working_color_space,
-                        color_space,
-                        icc_output,
-                        icc_input,
-                    )
-
-                output_buf = io.BytesIO()
-                tifffile.imwrite(
-                    output_buf,
-                    img_out,
-                    photometric="rgb" if img_out.ndim == 3 else "minisblack",
-                    iccprofile=icc_bytes,
-                    compression="lzw",
-                )
-                return output_buf.getvalue(), "tiff"
-            elif fmt == ExportFormat.PNG:
-                img_int = (
-                    float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16) if is_greyscale else float_to_uint16(buffer)
-                )
-                if is_greyscale:
-                    img_out, icc_bytes = self._apply_color_management_u16_greyscale(
-                        img_int, working_color_space, color_space, icc_output, icc_input
-                    )
-                else:
-                    img_out, icc_bytes = self._apply_color_management_u16_rgb(
-                        img_int, working_color_space, color_space, icc_output, icc_input
-                    )
-                pil_img = Image.fromarray(img_out)
-                output_buf = io.BytesIO()
-                save_kwargs: Dict[str, Any] = {"format": "PNG", "compress_level": 6}
-                if icc_bytes:
-                    save_kwargs["icc_profile"] = icc_bytes
-                pil_img.save(output_buf, **save_kwargs)
-                return output_buf.getvalue(), "png"
-            else:
-                img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
-
-                pil_img, icc_bytes = self.apply_color_management(
-                    Image.fromarray(img_int),
-                    working_color_space,
-                    color_space,
-                    icc_output,
-                    icc_input,
-                )
-                output_buf = io.BytesIO()
-                self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
-                return output_buf.getvalue(), "jpg"
+            return self._encode_export(buffer, export_settings, color_space, working_color_space)
 
         except Exception as e:
             logger.error(f"Export pipeline failed: {e}")
             return None, str(e)
+
+    def _encode_export(
+        self,
+        buffer: np.ndarray,
+        export_settings,
+        color_space: str,
+        working_color_space: str = WORKING_COLOR_SPACE,
+    ) -> Tuple[bytes, str]:
+        """Encodes a processed float buffer to the target format's file bytes.
+
+        Input ICC overrides the source, output ICC the destination; both are always
+        applied so the file matches the preview.
+        """
+        is_greyscale = color_space == ColorSpace.GREYSCALE.value
+        fmt = export_settings.export_fmt
+        icc_input = export_settings.icc_input_path
+        icc_output = export_settings.icc_output_path
+
+        if fmt == ExportFormat.TIFF:
+            img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16) if is_greyscale else float_to_uint16(buffer)
+            if is_greyscale:
+                img_out, icc_bytes = self._apply_color_management_u16_greyscale(
+                    img_int, working_color_space, color_space, icc_output, icc_input
+                )
+            else:
+                img_out, icc_bytes = self._apply_color_management_u16_rgb(img_int, working_color_space, color_space, icc_output, icc_input)
+
+            output_buf = io.BytesIO()
+            tifffile.imwrite(
+                output_buf,
+                img_out,
+                photometric="rgb" if img_out.ndim == 3 else "minisblack",
+                iccprofile=icc_bytes,
+                compression="lzw",
+            )
+            return output_buf.getvalue(), "tiff"
+        elif fmt == ExportFormat.PNG:
+            if is_greyscale:
+                # PIL "I;16" supports 16-bit greyscale, so keep full bit depth here.
+                img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
+                img_out, icc_bytes = self._apply_color_management_u16_greyscale(
+                    img_int, working_color_space, color_space, icc_output, icc_input
+                )
+                pil_img = Image.fromarray(img_out)
+            else:
+                # PIL has no 16-bit RGB mode, so RGB PNG is 8-bit (TIFF is the 16-bit
+                # lossless path). Mirror the JPEG branch for color management.
+                img_int = float_to_uint8(buffer)
+                pil_img, icc_bytes = self.apply_color_management(
+                    Image.fromarray(img_int), working_color_space, color_space, icc_output, icc_input
+                )
+            output_buf = io.BytesIO()
+            save_kwargs: Dict[str, Any] = {"format": "PNG", "compress_level": 6}
+            if icc_bytes:
+                save_kwargs["icc_profile"] = icc_bytes
+            pil_img.save(output_buf, **save_kwargs)
+            return output_buf.getvalue(), "png"
+        else:
+            img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
+
+            pil_img, icc_bytes = self.apply_color_management(
+                Image.fromarray(img_int),
+                working_color_space,
+                color_space,
+                icc_output,
+                icc_input,
+            )
+            output_buf = io.BytesIO()
+            self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
+            return output_buf.getvalue(), "jpg"
 
     def render_display_array(
         self,

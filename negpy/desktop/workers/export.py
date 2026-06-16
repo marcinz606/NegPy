@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 import os
 import tempfile
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
-from negpy.domain.models import WorkspaceConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
+from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
 from negpy.features.metadata.writer import embed_metadata
 from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
@@ -18,7 +18,7 @@ class ExportTask:
 
     file_info: dict
     params: WorkspaceConfig
-    export_settings: ExportPreset
+    export_settings: Union[ExportConfig, ExportPreset]
     gpu_enabled: bool = True
     bounds_override: Optional[Any] = None
     source_exif: Optional[dict] = None
