@@ -542,12 +542,18 @@ class DesktopSessionManager(QObject):
         self.settings_saved.emit()
 
     def next_file(self) -> None:
-        if self.state.selected_file_idx < len(self.state.uploaded_files) - 1:
-            self.select_file(self.state.selected_file_idx + 1)
+        display_idx = self.asset_model.actual_to_display(self.state.selected_file_idx)
+        if display_idx == -1:
+            return
+        if display_idx < self.asset_model.rowCount() - 1:
+            self.select_file(self.asset_model.display_to_actual(display_idx + 1))
 
     def prev_file(self) -> None:
-        if self.state.selected_file_idx > 0:
-            self.select_file(self.state.selected_file_idx - 1)
+        display_idx = self.asset_model.actual_to_display(self.state.selected_file_idx)
+        if display_idx == -1:
+            return
+        if display_idx > 0:
+            self.select_file(self.asset_model.display_to_actual(display_idx - 1))
 
     def update_config(self, config: WorkspaceConfig, persist: bool = False, render: bool = True, record_history: bool = True) -> None:
         """
