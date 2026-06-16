@@ -118,6 +118,14 @@ class ThumbnailGridView(QListView):
         super().resizeEvent(event)
         self._relayout()
 
+    def wheelEvent(self, event) -> None:
+        pixel = event.pixelDelta()
+        if not pixel.isNull() and pixel.y() != 0:
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - pixel.y())
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
 
 class FileBrowser(QWidget):
     """
