@@ -9,7 +9,7 @@ from negpy.features.metadata.models import MetadataConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.services.export.templating import render_export_filename
-from negpy.services.export.contact_sheet import ContactSheetService, CELL_PX
+from negpy.services.export.contact_sheet import ContactSheetService
 
 
 @dataclass(frozen=True)
@@ -109,8 +109,8 @@ class ExportWorker(QObject):
         except Exception as e:
             self.error.emit(str(e))
 
-    @pyqtSlot(list, str)
-    def run_contact_sheet(self, tasks: List[ExportTask], out_dir: str) -> None:
+    @pyqtSlot(list, str, int, int, int, int)
+    def run_contact_sheet(self, tasks: List[ExportTask], out_dir: str, cell_px: int, gap: int, margin: int, max_tiles: int) -> None:
         """Renders each task small and composites darkroom contact sheet(s) on black."""
         total = len(tasks)
         try:
@@ -123,7 +123,7 @@ class ExportWorker(QObject):
                     task.file_info["path"],
                     task.params,
                     task.file_info["hash"],
-                    target_long_px=CELL_PX * 2,
+                    target_long_px=cell_px * 2,
                     prefer_gpu=task.gpu_enabled,
                     working_color_space=task.working_color_space,
                 )
@@ -131,7 +131,7 @@ class ExportWorker(QObject):
                     tiles.append(tile)
                 self._processor.cleanup()
 
-            sheets = ContactSheetService.build_sheets(tiles)
+            sheets = ContactSheetService.build_sheets(tiles, max_tiles=max_tiles, cell_px=cell_px, gap=gap, margin=margin)
             os.makedirs(out_dir, exist_ok=True)
 
             for idx, sheet in enumerate(sheets):

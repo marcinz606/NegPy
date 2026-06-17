@@ -60,6 +60,20 @@ class TestContactSheetService(unittest.TestCase):
         self.assertEqual(len(sheets), 1)
         self.assertIsInstance(sheets[0], Image.Image)
 
+    def test_custom_max_tiles_paginates(self):
+        sheets = ContactSheetService.build_sheets([_tile(100, 150) for _ in range(5)], max_tiles=2)
+        self.assertEqual(len(sheets), 3)
+
+    def test_custom_layout_dimensions(self):
+        # 4 tiles -> 2x2 grid; sheet size derives from cell_px/gap/margin.
+        sheets = ContactSheetService.build_sheets([_tile(200, 200) for _ in range(4)], cell_px=200, gap=4, margin=8)
+        arr = np.asarray(sheets[0])
+        cols = rows = 2
+        expected_w = 8 * 2 + cols * 200 + (cols - 1) * 4
+        expected_h = 8 * 2 + rows * 200 + (rows - 1) * 4
+        self.assertEqual(arr.shape[1], expected_w)
+        self.assertEqual(arr.shape[0], expected_h)
+
 
 if __name__ == "__main__":
     unittest.main()

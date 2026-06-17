@@ -48,6 +48,7 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
         self._add_presets_section()
+        self._add_contact_sheet_section()
 
         self.layout.addWidget(section_subheader("ICC"))
 
@@ -232,29 +233,19 @@ class ExportSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("BATCH"))
 
-        self.batch_export_btn = QPushButton(" Export All")
-        self.batch_export_btn.setObjectName("batch_export_btn")
-        self.batch_export_btn.setFixedHeight(40)
-        self.batch_export_btn.setIcon(qta.icon("fa5s.images", color=THEME.text_primary))
-        self.layout.addWidget(self.batch_export_btn)
-
-        batch_row = QHBoxLayout()
         self.apply_all_btn = QPushButton(" Sync export settings")
         self.apply_all_btn.setFixedHeight(40)
         self.apply_all_btn.setCheckable(True)
         self.apply_all_btn.setChecked(True)
         self.apply_all_btn.setToolTip("Apply current export settings (Size, DPI, Border) to all files")
         self._update_apply_all_style(True)
+        self.layout.addWidget(self.apply_all_btn)
 
-        self.contact_sheet_btn = QPushButton(" Contact Sheet")
-        self.contact_sheet_btn.setObjectName("contact_sheet_btn")
-        self.contact_sheet_btn.setFixedHeight(40)
-        self.contact_sheet_btn.setIcon(qta.icon("fa5s.th", color=THEME.text_primary))
-        self.contact_sheet_btn.setToolTip("Render all visible frames into a contact sheet (max 38 per sheet)")
-
-        batch_row.addWidget(self.apply_all_btn)
-        batch_row.addWidget(self.contact_sheet_btn)
-        self.layout.addLayout(batch_row)
+        self.batch_export_btn = QPushButton(" Export All")
+        self.batch_export_btn.setObjectName("batch_export_btn")
+        self.batch_export_btn.setFixedHeight(40)
+        self.batch_export_btn.setIcon(qta.icon("fa5s.images", color=THEME.text_primary))
+        self.layout.addWidget(self.batch_export_btn)
 
         self.layout.addStretch()
 
@@ -336,6 +327,47 @@ class ExportSidebar(BaseSidebar):
         section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
         self.layout.addWidget(section)
 
+    # --- Contact sheet -------------------------------------------------------
+
+    def _add_contact_sheet_section(self) -> None:
+        """Collapsible CONTACT SHEET section: layout settings + the render button."""
+        conf = self.state.config.export
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(6)
+
+        def _labeled_spinbox(label: str, value: int, lo: int, hi: int) -> QSpinBox:
+            row = QHBoxLayout()
+            row.addWidget(QLabel(label))
+            spin = QSpinBox()
+            spin.setRange(lo, hi)
+            spin.setValue(value)
+            spin.valueChanged.connect(lambda _: self.update_timer.start())
+            row.addWidget(spin)
+            content_layout.addLayout(row)
+            return spin
+
+        self.cs_cell_px_input = _labeled_spinbox("Cell px", conf.contact_sheet_cell_px, 100, 4000)
+        self.cs_gap_input = _labeled_spinbox("Gap px", conf.contact_sheet_gap, 0, 200)
+        self.cs_margin_input = _labeled_spinbox("Margin px", conf.contact_sheet_margin, 0, 500)
+        self.cs_max_tiles_input = _labeled_spinbox("Max tiles", conf.contact_sheet_max_tiles, 1, 200)
+
+        self.contact_sheet_btn = QPushButton(" Export contact sheet")
+        self.contact_sheet_btn.setObjectName("contact_sheet_btn")
+        self.contact_sheet_btn.setFixedHeight(40)
+        self.contact_sheet_btn.setIcon(qta.icon("fa5s.th", color=THEME.text_primary))
+        self.contact_sheet_btn.setToolTip("Render all visible frames into a contact sheet")
+        content_layout.addWidget(self.contact_sheet_btn)
+
+        repo = self.controller.session.repo
+        expanded = bool(repo.get_global_setting("section_expanded_contact_sheet", default=False))
+        section = CollapsibleSection("Contact Sheet", expanded=expanded, icon=qta.icon("fa5s.th", color="#aaa"))
+        section.set_content(content)
+        section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_contact_sheet", checked))
+        self.layout.addWidget(section)
+
     def _rebuild_preset_rows(self) -> None:
         """Rebuild the preset checkbox list from state."""
         for cb in self._preset_checkboxes:
@@ -410,6 +442,10 @@ class ExportSidebar(BaseSidebar):
             export_path=self.path_input.text(),
             overwrite=self.overwrite_checkbox.isChecked(),
             same_as_source=self.same_as_source_checkbox.isChecked(),
+            contact_sheet_cell_px=self.cs_cell_px_input.value(),
+            contact_sheet_gap=self.cs_gap_input.value(),
+            contact_sheet_margin=self.cs_margin_input.value(),
+            contact_sheet_max_tiles=self.cs_max_tiles_input.value(),
         )
 
     def _on_input_changed(self, index: int) -> None:
@@ -513,6 +549,10 @@ class ExportSidebar(BaseSidebar):
             self.same_as_source_checkbox.setChecked(conf.same_as_source)
             self.path_input.setDisabled(conf.same_as_source)
             self.browse_btn.setDisabled(conf.same_as_source)
+            self.cs_cell_px_input.setValue(conf.contact_sheet_cell_px)
+            self.cs_gap_input.setValue(conf.contact_sheet_gap)
+            self.cs_margin_input.setValue(conf.contact_sheet_margin)
+            self.cs_max_tiles_input.setValue(conf.contact_sheet_max_tiles)
         finally:
             self.block_signals(False)
 
@@ -536,6 +576,10 @@ class ExportSidebar(BaseSidebar):
             self.path_input,
             self.overwrite_checkbox,
             self.same_as_source_checkbox,
+            self.cs_cell_px_input,
+            self.cs_gap_input,
+            self.cs_margin_input,
+            self.cs_max_tiles_input,
         ]
         for w in widgets:
             w.blockSignals(blocked)

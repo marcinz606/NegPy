@@ -1257,6 +1257,7 @@ class AppController(QObject):
                 )
             )
 
+        cs = self.state.config.export
         self._export_start_time = time.time()
         QMetaObject.invokeMethod(
             self.export_worker,
@@ -1264,6 +1265,10 @@ class AppController(QObject):
             Qt.ConnectionType.QueuedConnection,
             Q_ARG(list, tasks),
             Q_ARG(str, out_dir),
+            Q_ARG(int, cs.contact_sheet_cell_px),
+            Q_ARG(int, cs.contact_sheet_gap),
+            Q_ARG(int, cs.contact_sheet_margin),
+            Q_ARG(int, cs.contact_sheet_max_tiles),
         )
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
