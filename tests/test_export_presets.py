@@ -10,12 +10,15 @@ import tifffile
 from PIL import Image
 
 from negpy.domain.models import (
+    ExportConfig,
     ExportFormat,
     ExportPreset,
     ExportPresetOutputMode,
     ExportResolutionMode,
     AspectRatio,
     ColorSpace,
+    WorkspaceConfig,
+    preset_from_export_config,
 )
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -98,6 +101,56 @@ def test_preset_unknown_keys_dropped():
     d["unknown_future_field"] = "should be ignored"
     p = ExportPreset.from_dict(d)
     assert not hasattr(p, "unknown_future_field")
+
+
+# ---------------------------------------------------------------------------
+# ExportConfig -> ExportPreset passthrough
+# ---------------------------------------------------------------------------
+
+
+def test_preset_from_export_config_passthrough():
+    conf = ExportConfig(
+        export_fmt=ExportFormat.JPEG,
+        jpeg_quality=72,
+        output_mode=ExportPresetOutputMode.SUBFOLDER_OF_SOURCE,
+        output_subfolder="web",
+        export_path="/abs/out",
+    )
+    preset = preset_from_export_config(conf)
+    assert preset.jpeg_quality == 72
+    assert preset.output_mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE
+    assert preset.output_subfolder == "web"
+    # ExportConfig's absolute path maps to the preset's output_path.
+    assert preset.output_path == "/abs/out"
+
+
+# ---------------------------------------------------------------------------
+# from_flat_dict back-compat: same_as_source -> output_mode
+# ---------------------------------------------------------------------------
+
+
+def test_from_flat_dict_same_as_source_true_maps_to_same():
+    data = WorkspaceConfig().to_dict()
+    data.pop("output_mode", None)
+    data["same_as_source"] = True
+    cfg = WorkspaceConfig.from_flat_dict(data)
+    assert cfg.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE
+
+
+def test_from_flat_dict_same_as_source_false_maps_to_absolute():
+    data = WorkspaceConfig().to_dict()
+    data.pop("output_mode", None)
+    data["same_as_source"] = False
+    cfg = WorkspaceConfig.from_flat_dict(data)
+    assert cfg.export.output_mode == ExportPresetOutputMode.ABSOLUTE
+
+
+def test_from_flat_dict_output_mode_wins_over_legacy_flag():
+    data = WorkspaceConfig().to_dict()
+    data["output_mode"] = ExportPresetOutputMode.SUBFOLDER_OF_SOURCE
+    data["same_as_source"] = True  # legacy flag ignored when output_mode present
+    cfg = WorkspaceConfig.from_flat_dict(data)
+    assert cfg.export.output_mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE
 
 
 # ---------------------------------------------------------------------------

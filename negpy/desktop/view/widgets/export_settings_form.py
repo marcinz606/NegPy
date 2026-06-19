@@ -1,0 +1,358 @@
+import os
+from typing import Any, Dict
+
+import qtawesome as qta
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.theme import THEME
+from negpy.domain.models import (
+    AspectRatio,
+    ColorSpace,
+    ExportFormat,
+    ExportPresetOutputMode,
+    ExportResolutionMode,
+)
+from negpy.infrastructure.display.color_mgmt import ColorService
+from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+
+_LABEL_WIDTH = 90
+
+
+class ExportSettingsForm(QWidget):
+    """Shared FORMAT / SIZE / COLOR / DESTINATION rows for the export sidebar and
+    the presets dialog. Emits ``changed`` on any edit; the parent owns persistence.
+    Read/write the rows via ``values()`` / ``load()`` keyed by the shared field
+    names used by both ExportConfig and ExportPreset."""
+
+    changed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._loading = False
+        self._init_ui()
+
+    @staticmethod
+    def _row_label(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setFixedWidth(_LABEL_WIDTH)
+        return label
+
+    def _init_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
+
+        self._build_format(root)
+        self._build_size(root)
+        self._build_color(root)
+        self._build_destination(root)
+
+    # --- FORMAT --------------------------------------------------------------
+
+    def _build_format(self, root: QVBoxLayout) -> None:
+        root.addWidget(section_subheader("FORMAT"))
+
+        fmt_row = QHBoxLayout()
+        fmt_row.addWidget(self._row_label("Format"))
+        self.fmt_combo = QComboBox()
+        self.fmt_combo.addItems([f.value for f in ExportFormat])
+        self.fmt_combo.currentTextChanged.connect(self._on_fmt_changed)
+        fmt_row.addWidget(self.fmt_combo)
+        root.addLayout(fmt_row)
+
+        self._quality_container = QWidget()
+        quality_row = QHBoxLayout(self._quality_container)
+        quality_row.setContentsMargins(0, 0, 0, 0)
+        quality_row.addWidget(self._row_label("JPEG Quality"))
+        self.quality_spin = QSpinBox()
+        self.quality_spin.setRange(1, 100)
+        self.quality_spin.setValue(90)
+        self.quality_spin.valueChanged.connect(self._on_changed)
+        quality_row.addWidget(self.quality_spin)
+        root.addWidget(self._quality_container)
+
+    # --- SIZE ----------------------------------------------------------------
+
+    def _build_size(self, root: QVBoxLayout) -> None:
+        root.addWidget(section_subheader("SIZE"))
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(4)
+        self.mode_original_btn = QPushButton("Original")
+        self.mode_print_btn = QPushButton("Print")
+        self.mode_target_px_btn = QPushButton("Pixels")
+        btn_style = f"font-size: {THEME.font_size_base}px; padding: 8px;"
+        for btn in (self.mode_original_btn, self.mode_print_btn, self.mode_target_px_btn):
+            btn.setCheckable(True)
+            btn.setStyleSheet(btn_style)
+            mode_row.addWidget(btn)
+        self.mode_btn_group = QButtonGroup(self)
+        self.mode_btn_group.setExclusive(True)
+        self.mode_btn_group.addButton(self.mode_original_btn, 0)
+        self.mode_btn_group.addButton(self.mode_print_btn, 1)
+        self.mode_btn_group.addButton(self.mode_target_px_btn, 2)
+        self.mode_btn_group.idToggled.connect(self._on_mode_toggled)
+        root.addLayout(mode_row)
+
+        # PRINT mode: cm + DPI
+        self._print_container = QWidget()
+        print_inner = QHBoxLayout(self._print_container)
+        print_inner.setContentsMargins(0, 0, 0, 0)
+        vbox_size = QVBoxLayout()
+        vbox_size.addWidget(QLabel('Size <span style="color: #666666; font-size: 10px;">cm</span>'))
+        self.size_input = QDoubleSpinBox()
+        self.size_input.setRange(1.0, 500.0)
+        self.size_input.setValue(30.0)
+        self.size_input.valueChanged.connect(self._on_changed)
+        vbox_size.addWidget(self.size_input)
+        vbox_dpi = QVBoxLayout()
+        vbox_dpi.addWidget(QLabel("DPI"))
+        self.dpi_input = QSpinBox()
+        self.dpi_input.setRange(72, 4800)
+        self.dpi_input.setValue(300)
+        self.dpi_input.valueChanged.connect(self._on_changed)
+        vbox_dpi.addWidget(self.dpi_input)
+        print_inner.addLayout(vbox_size)
+        print_inner.addLayout(vbox_dpi)
+        root.addWidget(self._print_container)
+
+        # TARGET_PX mode: long edge in pixels
+        self._target_px_container = QWidget()
+        target_px_inner = QVBoxLayout(self._target_px_container)
+        target_px_inner.setContentsMargins(0, 0, 0, 0)
+        target_px_inner.addWidget(QLabel('Long edge <span style="color: #666666; font-size: 10px;">px</span>'))
+        self.target_px_input = QSpinBox()
+        self.target_px_input.setRange(256, 32768)
+        self.target_px_input.setValue(2000)
+        self.target_px_input.valueChanged.connect(self._on_changed)
+        target_px_inner.addWidget(self.target_px_input)
+        root.addWidget(self._target_px_container)
+
+        ratio_row = QHBoxLayout()
+        ratio_row.addWidget(self._row_label("Paper ratio"))
+        self.ratio_combo = QComboBox()
+        ratios = [AspectRatio.ORIGINAL] + [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
+        self.ratio_combo.addItems(ratios)
+        self.ratio_combo.currentTextChanged.connect(self._on_changed)
+        ratio_row.addWidget(self.ratio_combo)
+        root.addLayout(ratio_row)
+
+    # --- COLOR ---------------------------------------------------------------
+
+    def _build_color(self, root: QVBoxLayout) -> None:
+        root.addWidget(section_subheader("COLOR"))
+
+        # Drop bundled profiles already backed by a color-space enum so the ICC
+        # lists don't duplicate the color-space selector.
+        enum_mapped = {ColorSpaceRegistry.get_icc_path(cs.value) for cs in ColorSpace}
+        enum_mapped.discard(None)
+        custom_profiles = [p for p in ColorService.get_available_profiles() if p not in enum_mapped]
+
+        self._icc_input_profiles = ["None"] + custom_profiles
+        input_row = QHBoxLayout()
+        input_row.addWidget(self._row_label("Input ICC"))
+        self.input_combo = QComboBox()
+        self.input_combo.addItems([os.path.basename(p) for p in self._icc_input_profiles])
+        self.input_combo.setToolTip("Source/input ICC profile")
+        self.input_combo.currentIndexChanged.connect(self._on_changed)
+        input_row.addWidget(self.input_combo)
+        root.addLayout(input_row)
+
+        cs_row = QHBoxLayout()
+        cs_row.addWidget(self._row_label("Color space"))
+        self.color_space_combo = QComboBox()
+        self.color_space_combo.addItems([cs.value for cs in ColorSpace])
+        self.color_space_combo.currentTextChanged.connect(self._on_changed)
+        cs_row.addWidget(self.color_space_combo)
+        root.addLayout(cs_row)
+
+        self._icc_output_profiles = ["None"] + custom_profiles
+        output_row = QHBoxLayout()
+        output_row.addWidget(self._row_label("Output ICC"))
+        self.icc_output_combo = QComboBox()
+        self.icc_output_combo.addItems([os.path.basename(p) for p in self._icc_output_profiles])
+        self.icc_output_combo.setToolTip("Custom output ICC profile (overrides color space)")
+        self.icc_output_combo.currentIndexChanged.connect(self._on_changed)
+        output_row.addWidget(self.icc_output_combo)
+        root.addLayout(output_row)
+
+    # --- DESTINATION ---------------------------------------------------------
+
+    def _build_destination(self, root: QVBoxLayout) -> None:
+        root.addWidget(section_subheader("DESTINATION"))
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(self._row_label("Folder"))
+        self.output_mode_combo = QComboBox()
+        self.output_mode_combo.addItem("Subfolder of source", ExportPresetOutputMode.SUBFOLDER_OF_SOURCE)
+        self.output_mode_combo.addItem("Same as source", ExportPresetOutputMode.SAME_AS_SOURCE)
+        self.output_mode_combo.addItem("Absolute path", ExportPresetOutputMode.ABSOLUTE)
+        self.output_mode_combo.currentIndexChanged.connect(self._on_output_mode_changed)
+        mode_row.addWidget(self.output_mode_combo)
+        root.addLayout(mode_row)
+
+        self._subfolder_container = QWidget()
+        sf_inner = QHBoxLayout(self._subfolder_container)
+        sf_inner.setContentsMargins(0, 0, 0, 0)
+        sf_inner.addWidget(self._row_label("Subfolder"))
+        self.subfolder_edit = QLineEdit()
+        self.subfolder_edit.setPlaceholderText("e.g. TIFF")
+        self.subfolder_edit.textChanged.connect(self._on_changed)
+        sf_inner.addWidget(self.subfolder_edit)
+        root.addWidget(self._subfolder_container)
+
+        self._abspath_container = QWidget()
+        ap_inner = QHBoxLayout(self._abspath_container)
+        ap_inner.setContentsMargins(0, 0, 0, 0)
+        ap_inner.addWidget(self._row_label("Path"))
+        self.abspath_edit = QLineEdit()
+        self.abspath_edit.setToolTip("Export folder")
+        self.abspath_edit.textChanged.connect(self._on_changed)
+        self.abspath_browse_btn = QPushButton()
+        self.abspath_browse_btn.setIcon(qta.icon("fa5s.folder-open", color=THEME.text_primary))
+        self.abspath_browse_btn.setFixedWidth(40)
+        self.abspath_browse_btn.setToolTip("Choose export folder")
+        self.abspath_browse_btn.clicked.connect(self._browse_output_path)
+        ap_inner.addWidget(self.abspath_edit)
+        ap_inner.addWidget(self.abspath_browse_btn)
+        root.addWidget(self._abspath_container)
+
+        filename_row = QHBoxLayout()
+        filename_row.addWidget(self._row_label("Filename"))
+        self.filename_edit = QLineEdit()
+        self.filename_edit.setPlaceholderText("Filename Pattern...")
+        self.filename_edit.setToolTip(
+            "Jinja2 template. Variables:\n"
+            "{{ original_name }}, {{ colorspace }}, {{ format }},\n"
+            "{{ paper_ratio }}, {{ size }}, {{ dpi }}, {{ target_px }},\n"
+            "{{ border }}, {{ date }}"
+        )
+        self.filename_edit.textChanged.connect(self._on_changed)
+        filename_row.addWidget(self.filename_edit)
+        root.addLayout(filename_row)
+
+        self.overwrite_check = QCheckBox("Overwrite existing files")
+        self.overwrite_check.stateChanged.connect(self._on_changed)
+        root.addWidget(self.overwrite_check)
+
+    # --- Change handling -----------------------------------------------------
+
+    def _on_changed(self, *_) -> None:
+        if not self._loading:
+            self.changed.emit()
+
+    def _on_fmt_changed(self, fmt: str) -> None:
+        self._quality_container.setVisible(fmt == ExportFormat.JPEG)
+        self._on_changed()
+
+    def _on_mode_toggled(self, _id: int, checked: bool) -> None:
+        if not checked:
+            return
+        self._update_mode_visibility(self._current_mode_value())
+        self._on_changed()
+
+    def _on_output_mode_changed(self, _idx: int) -> None:
+        self._update_output_mode_visibility(self.output_mode_combo.currentData())
+        self._on_changed()
+
+    def _browse_output_path(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Select Export Directory", self.abspath_edit.text())
+        if path:
+            self.abspath_edit.setText(path)
+
+    # --- Mode helpers --------------------------------------------------------
+
+    _MODE_BY_ID = {
+        0: ExportResolutionMode.ORIGINAL.value,
+        1: ExportResolutionMode.PRINT.value,
+        2: ExportResolutionMode.TARGET_PX.value,
+    }
+    _ID_BY_MODE = {v: k for k, v in _MODE_BY_ID.items()}
+
+    def _current_mode_value(self) -> str:
+        return self._MODE_BY_ID.get(self.mode_btn_group.checkedId(), ExportResolutionMode.PRINT.value)
+
+    def _select_mode_button(self, mode_value: str) -> None:
+        btn = self.mode_btn_group.button(self._ID_BY_MODE.get(mode_value, 1))
+        if btn is not None:
+            btn.setChecked(True)
+
+    def _update_mode_visibility(self, mode_value: str) -> None:
+        self._print_container.setVisible(mode_value == ExportResolutionMode.PRINT.value)
+        self._target_px_container.setVisible(mode_value == ExportResolutionMode.TARGET_PX.value)
+
+    def _update_output_mode_visibility(self, mode) -> None:
+        self._subfolder_container.setVisible(mode == ExportPresetOutputMode.SUBFOLDER_OF_SOURCE)
+        self._abspath_container.setVisible(mode == ExportPresetOutputMode.ABSOLUTE)
+
+    # --- Load / read ---------------------------------------------------------
+
+    def load(self, v: Dict[str, Any]) -> None:
+        """Populate all rows from a dict of shared field values."""
+        self._loading = True
+        try:
+            self.fmt_combo.setCurrentText(v["export_fmt"])
+            self.quality_spin.setValue(v.get("jpeg_quality", 90))
+            self._quality_container.setVisible(v["export_fmt"] == ExportFormat.JPEG)
+
+            self._select_mode_button(v["export_resolution_mode"])
+            self._update_mode_visibility(v["export_resolution_mode"])
+            self.size_input.setValue(v["export_print_size"])
+            self.dpi_input.setValue(v["export_dpi"])
+            self.target_px_input.setValue(v["export_target_long_edge_px"])
+            self.ratio_combo.setCurrentText(v["paper_aspect_ratio"])
+
+            in_path = v.get("icc_input_path")
+            self.input_combo.setCurrentText(os.path.basename(in_path) if in_path else "None")
+            self.color_space_combo.setCurrentText(v["export_color_space"])
+            out_path = v.get("icc_output_path")
+            self.icc_output_combo.setCurrentText(os.path.basename(out_path) if out_path else "None")
+
+            mode = v.get("output_mode", ExportPresetOutputMode.ABSOLUTE)
+            idx = self.output_mode_combo.findData(mode)
+            if idx >= 0:
+                self.output_mode_combo.setCurrentIndex(idx)
+            self._update_output_mode_visibility(mode)
+            self.subfolder_edit.setText(v.get("output_subfolder", ""))
+            self.abspath_edit.setText(v.get("output_path", ""))
+            self.filename_edit.setText(v["filename_pattern"])
+            self.overwrite_check.setChecked(v["overwrite"])
+        finally:
+            self._loading = False
+
+    def values(self) -> Dict[str, Any]:
+        """Read all rows back into a dict of shared field values."""
+        in_idx = self.input_combo.currentIndex()
+        out_idx = self.icc_output_combo.currentIndex()
+        return {
+            "export_fmt": self.fmt_combo.currentText(),
+            "jpeg_quality": self.quality_spin.value(),
+            "export_resolution_mode": self._current_mode_value(),
+            "paper_aspect_ratio": self.ratio_combo.currentText(),
+            "export_print_size": self.size_input.value(),
+            "export_dpi": self.dpi_input.value(),
+            "export_target_long_edge_px": self.target_px_input.value(),
+            "output_mode": self.output_mode_combo.currentData() or ExportPresetOutputMode.ABSOLUTE,
+            "output_subfolder": self.subfolder_edit.text(),
+            "output_path": self.abspath_edit.text(),
+            "filename_pattern": self.filename_edit.text(),
+            "overwrite": self.overwrite_check.isChecked(),
+            "export_color_space": self.color_space_combo.currentText(),
+            "icc_input_path": self._icc_input_profiles[in_idx] if in_idx > 0 else None,
+            "icc_output_path": self._icc_output_profiles[out_idx] if out_idx > 0 else None,
+        }

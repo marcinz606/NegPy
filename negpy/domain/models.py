@@ -92,6 +92,7 @@ class ExportConfig:
 
     export_path: str = field(default_factory=lambda: os.path.join(paths.get_default_user_dir(), "export"))
     export_fmt: str = ExportFormat.JPEG
+    jpeg_quality: int = 90
     export_color_space: str = ColorSpace.ADOBE_RGB.value
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
@@ -100,7 +101,8 @@ class ExportConfig:
     export_target_long_edge_px: int = 2000
     filename_pattern: str = "{{ original_name }}"
     overwrite: bool = True
-    same_as_source: bool = False
+    output_mode: str = ExportPresetOutputMode.ABSOLUTE
+    output_subfolder: str = ""
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
 
@@ -175,23 +177,19 @@ class ExportPreset:
 def preset_from_export_config(conf: ExportConfig, name: str = "Current settings") -> ExportPreset:
     """Builds an ephemeral preset from the current export settings so the export
     pipeline (which is preset-driven) can run a one-off 'export as currently seen'."""
-    if conf.same_as_source:
-        output_mode = ExportPresetOutputMode.SAME_AS_SOURCE
-        output_path = ""
-    else:
-        output_mode = ExportPresetOutputMode.ABSOLUTE
-        output_path = conf.export_path
     return ExportPreset(
         name=name,
         enabled=True,
         export_fmt=conf.export_fmt,
+        jpeg_quality=conf.jpeg_quality,
         export_resolution_mode=conf.export_resolution_mode,
         paper_aspect_ratio=conf.paper_aspect_ratio,
         export_print_size=conf.export_print_size,
         export_dpi=conf.export_dpi,
         export_target_long_edge_px=conf.export_target_long_edge_px,
-        output_mode=output_mode,
-        output_path=output_path,
+        output_mode=conf.output_mode,
+        output_subfolder=conf.output_subfolder,
+        output_path=conf.export_path,
         overwrite=conf.overwrite,
         filename_pattern=conf.filename_pattern,
         export_color_space=conf.export_color_space,
@@ -251,6 +249,13 @@ class WorkspaceConfig:
             )
         else:
             data.pop("use_original_res", None)
+
+        if "same_as_source" in data and "output_mode" not in data:
+            data["output_mode"] = (
+                ExportPresetOutputMode.SAME_AS_SOURCE if data.pop("same_as_source") else ExportPresetOutputMode.ABSOLUTE
+            )
+        else:
+            data.pop("same_as_source", None)
 
         config_classes = [
             ProcessConfig,

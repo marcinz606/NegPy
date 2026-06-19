@@ -1064,7 +1064,7 @@ class AppController(QObject):
         Returns the valid path or None if the user cancelled.
         """
         export_path = self.state.config.export.export_path
-        if self.state.config.export.same_as_source:
+        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
             return export_path  # path irrelevant when exporting to source folder
         if export_path.strip().lower() in ["export", "/export", ""]:
             from PyQt6.QtWidgets import QFileDialog
@@ -1236,7 +1236,7 @@ class AppController(QObject):
         if not visible_files:
             return
 
-        if self.state.config.export.same_as_source:
+        if self.state.config.export.output_mode == ExportPresetOutputMode.SAME_AS_SOURCE:
             out_dir = os.path.dirname(visible_files[0]["path"])
         else:
             resolved = self._ensure_valid_export_path()
