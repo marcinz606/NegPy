@@ -1,3 +1,4 @@
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -337,12 +338,19 @@ class NormalizationWorker(QObject):
 
     progress = pyqtSignal(int, int, str, bool)
     finished = pyqtSignal(tuple, tuple)
+    cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
     def __init__(self, preview_service, repo) -> None:
         super().__init__()
         self._preview_service = preview_service
         self._repo = repo
+        self._cancel = threading.Event()
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        """Requests the running analysis stop; no baseline is applied."""
+        self._cancel.set()
 
     @pyqtSlot(NormalizationTask)
     def process(self, task: NormalizationTask) -> None:
@@ -357,6 +365,7 @@ class NormalizationWorker(QObject):
         from negpy.features.exposure.normalization import analyze_log_exposure_bounds
         from negpy.features.geometry.processor import GeometryProcessor
 
+        self._cancel.clear()
         total = len(task.files)
         limit = max(1, APP_CONFIG.max_workers // 2)
         semaphore = asyncio.Semaphore(limit)
@@ -366,6 +375,8 @@ class NormalizationWorker(QObject):
         async def _analyze_file(f_info: dict):
             nonlocal completed
             async with semaphore:
+                if self._cancel.is_set():
+                    return None
                 try:
                     params = self._repo.load_file_settings(f_info["hash"])
                     # Roll-wide buffer / d-range from the current image — applied to every
@@ -434,6 +445,10 @@ class NormalizationWorker(QObject):
                 loop.close()
             finally:
                 asyncio.set_event_loop(None)
+
+            if self._cancel.is_set():
+                self.cancelled.emit()
+                return
 
             valid_results = [r for r in batch_results if r is not None]
             if not valid_results:

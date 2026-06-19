@@ -99,6 +99,9 @@ class AppController(QObject):
     _render_cleanup_requested = pyqtSignal()
     status_message_requested = pyqtSignal(str, int)
     status_progress_requested = pyqtSignal(int, int)
+    batch_started = pyqtSignal(str, bool)  # title, abortable
+    batch_progress = pyqtSignal(int, int, str)  # current, total, label
+    batch_finished = pyqtSignal()
     pixel_readout = pyqtSignal(str, str)
     scan_devices_requested = pyqtSignal()
     scan_requested = pyqtSignal(ScanRequest)
@@ -118,6 +121,7 @@ class AppController(QObject):
         self._auto_open_after_discovery = False
         self._gpu_fallback_notified = False
         self._cleaned_up = False
+        self._active_batch: Optional[str] = None
 
         self.preview_service = PreviewManager()
         self.watcher = FolderWatchService()
@@ -242,7 +246,9 @@ class AppController(QObject):
         self.render_worker.error.connect(self._on_render_error)
 
         self.export_worker.progress.connect(self.export_progress.emit)
+        self.export_worker.progress.connect(self._on_batch_progress)
         self.export_worker.finished.connect(self._on_export_finished)
+        self.export_worker.cancelled.connect(self._on_batch_cancelled)
         self.export_worker.error.connect(self._on_render_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
@@ -254,7 +260,9 @@ class AppController(QObject):
         self.normalization_requested.connect(self.norm_worker.process)
         self.norm_worker.progress.connect(self._on_normalization_progress)
         self.norm_worker.finished.connect(self._on_normalization_finished)
+        self.norm_worker.cancelled.connect(self._on_batch_cancelled)
         self.norm_worker.error.connect(self._on_render_error)
+        self.norm_worker.error.connect(self._on_batch_error)
 
         self.asset_discovery_requested.connect(self.discovery_worker.process)
         self.discovery_worker.progress.connect(self._on_discovery_progress)
@@ -282,20 +290,50 @@ class AppController(QObject):
         missing = [f for f in self.state.uploaded_files if f["name"] not in self.state.thumbnails]
         if missing:
             self.set_status("GENERATING THUMBNAILS...")
+            self._begin_batch("Generating thumbnails", abortable=False)
             self.thumbnail_requested.emit(missing)
 
     def _on_thumbnail_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"THUMBNAIL {current}/{total}: {name}")
         self.status_progress_requested.emit(current, total)
+        self.batch_progress.emit(current, total, name)
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
         self.set_status("GALLERIES UPDATED", 3000)
         self.status_progress_requested.emit(0, 0)
+        self._end_batch()
         for name, pil_img in new_thumbs.items():
             if pil_img:
                 u8_arr = np.array(pil_img.convert("RGB"))
                 self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
         self.session.asset_model.refresh()
+
+    # --- Batch progress popup -------------------------------------------------
+
+    def _begin_batch(self, title: str, abortable: bool) -> None:
+        self._active_batch = title if abortable else None
+        self.batch_started.emit(title, abortable)
+
+    def _end_batch(self) -> None:
+        self._active_batch = None
+        self.batch_finished.emit()
+
+    def _on_batch_progress(self, current: int, total: int, name: str) -> None:
+        self.batch_progress.emit(current, total, name)
+
+    def _on_batch_cancelled(self) -> None:
+        self.set_status("Aborted", 3000)
+        self._end_batch()
+
+    def _on_batch_error(self, _message: str) -> None:
+        self._end_batch()
+
+    def abort_active_batch(self) -> None:
+        """Requests cancellation of the running abortable batch (export or analysis)."""
+        if self._active_batch in ("Exporting", "Contact sheet"):
+            self.export_worker.cancel()
+        elif self._active_batch == "Analyzing roll":
+            self.norm_worker.cancel()
 
     def request_asset_discovery(self, paths: List[str], auto_open: bool = False) -> None:
         """
@@ -735,6 +773,7 @@ class AppController(QObject):
             return
 
         self.set_status("Starting Batch Normalization...")
+        self._begin_batch("Analyzing roll", abortable=True)
         task = NormalizationTask(
             files=visible_files,
             workspace_color_space=self.state.workspace_color_space,
@@ -750,11 +789,13 @@ class AppController(QObject):
         marker = "cropped" if has_crop else "full frame"
         self.set_status(f"Analyzing {current}/{total}: {name} [{marker}]...")
         self.status_progress_requested.emit(current, total)
+        self.batch_progress.emit(current, total, f"{name} [{marker}]")
 
     def _on_normalization_finished(self, locked_floors: tuple, locked_ceils: tuple) -> None:
         """
         Applies averaged normalization baseline to all files.
         """
+        self._end_batch()
         for f_info in self.state.uploaded_files:
             p = self.session.repo.load_file_settings(f_info["hash"]) or replace(self.state.config)
             new_process = replace(
@@ -1265,6 +1306,7 @@ class AppController(QObject):
 
         cs = self.state.config.export
         self._export_start_time = time.time()
+        self._begin_batch("Contact sheet", abortable=True)
         QMetaObject.invokeMethod(
             self.export_worker,
             "run_contact_sheet",
@@ -1279,6 +1321,7 @@ class AppController(QObject):
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
         self._export_start_time = time.time()
+        self._begin_batch("Exporting", abortable=True)
         QMetaObject.invokeMethod(
             self.export_worker,
             "run_batch",
@@ -1356,6 +1399,7 @@ class AppController(QObject):
 
     def _on_export_finished(self) -> None:
         elapsed = time.time() - self._export_start_time
+        self._end_batch()
         self.export_finished.emit(elapsed)
         self._update_thumbnail_from_state(force_readback=True)
 

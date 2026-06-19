@@ -23,6 +23,7 @@ from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
+from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
 from negpy.desktop.view.widgets.status_bar import TopStatusBar
 from negpy.domain.models import AspectRatio, ColorSpace
 from negpy.infrastructure.gpu.resources import GPUTexture
@@ -284,6 +285,12 @@ class MainWindow(QMainWindow):
 
         self.controller.status_message_requested.connect(self.top_status.showMessage)
         self.controller.status_progress_requested.connect(self.top_status.set_progress)
+
+        self.progress_dialog = ProgressDialog(self)
+        self.controller.batch_started.connect(self.progress_dialog.start)
+        self.controller.batch_progress.connect(self.progress_dialog.set_progress)
+        self.controller.batch_finished.connect(self.progress_dialog.finish)
+        self.progress_dialog.abort_requested.connect(self.controller.abort_active_batch)
         self.controller.pixel_readout.connect(self.canvas.pixel_readout_overlay.set_values)
 
         self.dash_timer = QTimer(self)

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Any, Union
 import os
 import tempfile
+import threading
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
 from negpy.features.metadata.writer import embed_metadata
@@ -34,18 +35,29 @@ class ExportWorker(QObject):
 
     progress = pyqtSignal(int, int, str)  # current, total, filename
     finished = pyqtSignal()
+    cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
         self._processor = ImageProcessor()
+        self._cancel = threading.Event()
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        """Requests the running batch stop after the current file (keeps partial output)."""
+        self._cancel.set()
 
     @pyqtSlot(list)
     def run_batch(self, tasks: List[ExportTask]) -> None:
         """Processes an ordered list of export tasks."""
+        self._cancel.clear()
         total = len(tasks)
         try:
             for i, task in enumerate(tasks):
+                if self._cancel.is_set():
+                    self.cancelled.emit()
+                    return
                 full_name = task.file_info["name"]
                 name = os.path.splitext(full_name)[0]
                 self.progress.emit(i + 1, total, name)
@@ -112,10 +124,14 @@ class ExportWorker(QObject):
     @pyqtSlot(list, str, int, int, int, int)
     def run_contact_sheet(self, tasks: List[ExportTask], out_dir: str, cell_px: int, gap: int, margin: int, max_tiles: int) -> None:
         """Renders each task small and composites darkroom contact sheet(s) on black."""
+        self._cancel.clear()
         total = len(tasks)
         try:
             tiles = []
             for i, task in enumerate(tasks):
+                if self._cancel.is_set():
+                    self.cancelled.emit()
+                    return
                 name = os.path.splitext(task.file_info["name"])[0]
                 self.progress.emit(i + 1, total, name)
 
