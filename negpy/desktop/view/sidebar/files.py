@@ -280,6 +280,7 @@ class FileBrowser(QWidget):
         self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
         self.list_view.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
         self.list_view.setAlternatingRowColors(False)
+        self.list_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         layout.addWidget(self.list_view)
 
@@ -288,6 +289,7 @@ class FileBrowser(QWidget):
         self.add_folder_btn.clicked.connect(self._on_add_folder)
         self.unload_btn.clicked.connect(self._on_unload_clicked)
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
+        self.list_view.customContextMenuRequested.connect(self._show_context_menu)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.sync_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("edits"))
@@ -451,3 +453,52 @@ class FileBrowser(QWidget):
         actual = self.session.asset_model.display_to_actual(index.row())
         if actual >= 0:
             self.session.select_file(actual)
+
+    def _show_context_menu(self, pos) -> None:
+        index = self.list_view.indexAt(pos)
+        if not index.isValid():
+            return
+        actual = self.session.asset_model.display_to_actual(index.row())
+        if actual < 0:
+            return
+
+        # Right-clicking outside the current selection re-selects just that file;
+        # within a multi-selection, keep the selection and make the clicked file active.
+        state = self.session.state
+        if actual not in state.selected_indices:
+            self.session.select_file(actual)
+        elif actual != state.selected_file_idx:
+            self.session.select_file(actual, selection_override=list(state.selected_indices))
+
+        menu = self._build_context_menu()
+        menu.exec(self.list_view.viewport().mapToGlobal(pos))
+
+    def _build_context_menu(self) -> QMenu:
+        state = self.session.state
+        multi = len(state.selected_indices) > 1
+
+        menu = QMenu(self)
+        if multi:
+            menu.addAction("Export Selected").triggered.connect(lambda: self.controller.request_export_selected())
+        else:
+            menu.addAction("Export").triggered.connect(lambda: self.controller.request_export())
+        menu.addSeparator()
+        menu.addAction("Copy Settings  Ctrl+C").triggered.connect(self.session.copy_settings)
+        menu.addAction("Copy Settings + Bounds  Ctrl+Shift+C").triggered.connect(self.session.copy_settings_with_bounds)
+        act_paste = menu.addAction("Paste Settings  Ctrl+V")
+        act_paste.triggered.connect(self.session.paste_settings)
+        act_paste.setEnabled(state.clipboard is not None)
+        menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
+        if multi:
+            menu.addSeparator()
+            menu.addAction("Sync Edits to Selection").triggered.connect(lambda: self.session.sync_selected_settings("edits"))
+        menu.addSeparator()
+        unload_label = "Unload Selected" if multi else "Unload"
+        menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
+        return menu
+
+    def _on_remove_from_menu(self) -> None:
+        if len(self.session.state.selected_indices) > 1:
+            self.session.remove_selected_files()
+        else:
+            self.session.remove_current_file()

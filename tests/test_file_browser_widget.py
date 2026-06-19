@@ -99,6 +99,66 @@ def test_active_file_preserved_when_still_visible(browser, session):
     assert set(session.state.selected_indices) == {0, 1}
 
 
+def _action_labels(menu):
+    return [a.text() for a in menu.actions() if not a.isSeparator()]
+
+
+def test_context_menu_single_selection_items(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    labels = _action_labels(browser._build_context_menu())
+    assert "Export" in labels
+    assert "Export Selected" not in labels
+    assert "Reset Settings" in labels
+    assert "Unload" in labels
+    assert "Sync Edits to Selection" not in labels
+
+
+def test_context_menu_multi_selection_uses_export_selected(browser, session):
+    session.state.selected_indices = [0, 1]
+    session.state.selected_file_idx = 0
+    labels = _action_labels(browser._build_context_menu())
+    assert "Export Selected" in labels
+    assert "Export" not in labels
+
+
+def test_context_menu_multi_selection_adds_sync_and_remove_selected(browser, session):
+    session.state.selected_indices = [0, 1]
+    session.state.selected_file_idx = 0
+    labels = _action_labels(browser._build_context_menu())
+    assert "Sync Edits to Selection" in labels
+    assert "Unload Selected" in labels
+    assert "Unload" not in labels
+
+
+def test_context_menu_paste_disabled_without_clipboard(browser, session):
+    session.state.clipboard = None
+    paste = next(a for a in browser._build_context_menu().actions() if a.text().startswith("Paste"))
+    assert not paste.isEnabled()
+
+
+def test_context_menu_paste_enabled_with_clipboard(browser, session):
+    session.state.clipboard = object()
+    paste = next(a for a in browser._build_context_menu().actions() if a.text().startswith("Paste"))
+    assert paste.isEnabled()
+
+
+def test_remove_from_menu_routes_single_vs_multi(browser, session):
+    session.remove_current_file = MagicMock()
+    session.remove_selected_files = MagicMock()
+
+    session.state.selected_indices = [1]
+    browser._on_remove_from_menu()
+    session.remove_current_file.assert_called_once()
+    session.remove_selected_files.assert_not_called()
+
+    session.remove_current_file.reset_mock()
+    session.state.selected_indices = [0, 1]
+    browser._on_remove_from_menu()
+    session.remove_selected_files.assert_called_once()
+    session.remove_current_file.assert_not_called()
+
+
 def test_clearing_filter_clears_error_stylesheet(browser):
     browser.regex_btn.setChecked(True)
     browser.search_input.setText("[")

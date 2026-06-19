@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.27.0
+
+- **Flat-field correction** (new, off by default) — corrects illumination falloff/vignetting from your light source or scanner using a reference scan of the bare light. New **Flat Field** section in the Setup tab: save named reference profiles, pick the active one, and toggle correction per image.
+- **Contact-sheet export** — render all visible frames into a single darkroom-style contact sheet. New **Contact Sheet** section in the Export panel with cell size, gap, margin and max-tiles controls.
+- **Thumbnail right-click menu** — right-click a frame in the filmstrip for quick access to Export, Copy / Paste / Reset Settings and Unload, without leaving the contact sheet. Right-clicking an unselected frame selects it first; with multiple frames selected the menu acts on the whole selection and adds **Export Selected** and **Sync Edits to Selection**.
+- **Export presets** — save named export configurations (format, sizing, output destination, color space) and run them in one click. A new **Manage** dialog lets you add, duplicate, reorder and delete presets; each preset has an enable toggle. Presets are stored globally and pinned to the top of the Export panel in a collapsible section. The **Export Presets** button exports the current file through every enabled preset at once, while the normal Export / Export All buttons keep exporting with the settings shown in the panel. New installs ship with **JPEG** (enabled), **TIFF** and **PNG** (disabled) starter presets. @reederphill
+- Fix: **Sync Edits** no longer overwrites the target's crop, rotation and flips — it now carries over only the manual-crop rectangle and fine rotation, leaving the target's geometry otherwise untouched. @reederphill
+- Fix: the **Unload** button now clears just the selected files when more than one is selected (falling back to clearing all), with a tooltip that reflects the action. @reederphill
+- Fix: next/previous navigation now follows the displayed (sorted/filtered) order. @reederphill
+- Fix: **trackpad scrolling** in the filmstrip now uses pixel-precise deltas with native momentum instead of feeling much faster than the rest of the OS. @reederphill
+
 ## 0.26.0
 
 **Reworked interface** — the panels have been reorganised around the editing workflow.

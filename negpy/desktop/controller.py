@@ -1112,8 +1112,13 @@ class AppController(QObject):
             ]
         )
 
-    def request_batch_export(self, override_settings: bool = False) -> None:
-        """Batch-exports all visible files using current settings, optionally applied to all."""
+    def request_export_selected(self) -> None:
+        """Batch-exports the currently selected files using each file's own saved settings."""
+        selected = [self.state.uploaded_files[i] for i in self.state.selected_indices if 0 <= i < len(self.state.uploaded_files)]
+        self.request_batch_export(files=selected)
+
+    def request_batch_export(self, override_settings: bool = False, files: list[dict] | None = None) -> None:
+        """Batch-exports the given files (all visible by default) using current settings, optionally applied to all."""
         export_path = self._ensure_valid_export_path()
         if not export_path:
             return
@@ -1123,10 +1128,11 @@ class AppController(QObject):
         icc_output = self.state.icc_output_path
         sync_metadata = self.state.config.metadata.sync_to_batch
 
-        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        if files is None:
+            files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
 
         tasks = []
-        for f in visible_files:
+        for f in files:
             params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
 
             if override_settings:
