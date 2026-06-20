@@ -56,6 +56,11 @@ class CanvasOverlay(QWidget):
         self._buffer_hide_timer.setSingleShot(True)
         self._buffer_hide_timer.timeout.connect(self._hide_buffer_overlay)
 
+        self._rotation_grid_visible: bool = False
+        self._rotation_grid_timer = QTimer(self)
+        self._rotation_grid_timer.setSingleShot(True)
+        self._rotation_grid_timer.timeout.connect(self._hide_rotation_grid)
+
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -77,6 +82,16 @@ class CanvasOverlay(QWidget):
 
     def _hide_buffer_overlay(self) -> None:
         self._buffer_overlay_visible = False
+        self.update()
+
+    def show_rotation_grid(self) -> None:
+        """Show the rule-of-thirds alignment grid while Fine Rot is adjusted; lingers 1s."""
+        self._rotation_grid_visible = True
+        self._rotation_grid_timer.start(1000)
+        self.update()
+
+    def _hide_rotation_grid(self) -> None:
+        self._rotation_grid_visible = False
         self.update()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
@@ -225,8 +240,23 @@ class CanvasOverlay(QWidget):
                 painter.drawLine(QPointF(visible_rect.x(), self._mouse_pos.y()), QPointF(visible_rect.right(), self._mouse_pos.y()))
                 painter.drawLine(QPointF(self._mouse_pos.x(), visible_rect.top()), QPointF(self._mouse_pos.x(), visible_rect.bottom()))
 
+        if self._rotation_grid_visible:
+            self._draw_rotation_grid(painter, visible_rect)
+
         if getattr(self.state, "compare_mode", False):
             self._draw_compare_badge(painter, visible_rect)
+
+    def _draw_rotation_grid(self, painter: QPainter, visible_rect: QRectF) -> None:
+        """Rule-of-thirds grid: 2 horizontal + 2 vertical screen-aligned reference lines."""
+        pen = QPen(QColor(255, 255, 255, 90), 1, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        for i in (1, 2):
+            x = visible_rect.left() + visible_rect.width() * i / 3.0
+            y = visible_rect.top() + visible_rect.height() * i / 3.0
+            painter.drawLine(QPointF(x, visible_rect.top()), QPointF(x, visible_rect.bottom()))
+            painter.drawLine(QPointF(visible_rect.left(), y), QPointF(visible_rect.right(), y))
 
     def _draw_compare_badge(self, painter: QPainter, visible_rect: QRectF) -> None:
         badge = QRectF(visible_rect.x() + 12, visible_rect.y() + 12, 78, 22)

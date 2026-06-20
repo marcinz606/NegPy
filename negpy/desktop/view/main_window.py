@@ -283,6 +283,7 @@ class MainWindow(QMainWindow):
         self.controller.config_updated.connect(self.canvas.overlay.update)
         self.controller.compare_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.analysis_buffer_preview_requested.connect(self.canvas.overlay.show_analysis_buffer)
+        self.controller.rotation_guide_requested.connect(self.canvas.overlay.show_rotation_grid)
 
         self.controller.status_message_requested.connect(self.top_status.showMessage)
         self.controller.status_progress_requested.connect(self.top_status.set_progress)

@@ -87,6 +87,7 @@ class AppController(QObject):
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
     analysis_buffer_preview_requested = pyqtSignal(float)
+    rotation_guide_requested = pyqtSignal()
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -508,6 +509,10 @@ class AppController(QObject):
     def cancel_active_tool(self) -> None:
         if self.state.active_tool != ToolMode.NONE:
             self.set_active_tool(ToolMode.NONE)
+
+    def show_rotation_guide(self) -> None:
+        """Request the canvas show the fine-rotation alignment grid."""
+        self.rotation_guide_requested.emit()
 
     def handle_crop_completed(self, nx1: float, ny1: float, nx2: float, ny2: float) -> None:
         if self.state.active_tool != ToolMode.CROP_MANUAL:
