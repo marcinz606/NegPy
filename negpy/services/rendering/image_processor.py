@@ -92,7 +92,7 @@ class ImageProcessor:
         if metrics:
             context.metrics.update(metrics)
 
-        if prefer_gpu and self.engine_gpu:
+        if prefer_gpu and self.engine_gpu and not settings.local.masks:
             try:
                 processed, gpu_metrics = self.engine_gpu.process_to_texture(
                     img,

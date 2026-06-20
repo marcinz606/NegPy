@@ -8,6 +8,7 @@ from negpy.features.process.models import ProcessConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.lab.models import LabConfig
+from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
@@ -209,6 +210,7 @@ class WorkspaceConfig:
     flatfield: FlatFieldConfig = field(default_factory=FlatFieldConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     lab: LabConfig = field(default_factory=LabConfig)
+    local: LocalAdjustmentsConfig = field(default_factory=LocalAdjustmentsConfig)
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
     finish: FinishConfig = field(default_factory=FinishConfig)
@@ -225,6 +227,7 @@ class WorkspaceConfig:
         res.update(asdict(self.flatfield))
         res.update(asdict(self.geometry))
         res.update(asdict(self.lab))
+        res["local_masks"] = asdict(self.local)
         res.update(asdict(self.retouch))
         res.update(asdict(self.toning))
         res.update(asdict(self.finish))
@@ -237,6 +240,8 @@ class WorkspaceConfig:
         """
         from DB/JSON.
         """
+
+        local_data = data.pop("local_masks", {})
 
         # Apply field renames for backward compatibility.
         for old_key, new_key in MIGRATIONS.items():
@@ -279,12 +284,26 @@ class WorkspaceConfig:
             valid = config_cls.__dataclass_fields__.keys()
             return {k: v for k, v in d.items() if k in valid}
 
+        def _build_local(d: Dict[str, Any]) -> LocalAdjustmentsConfig:
+            masks = []
+            for m in d.get("masks", []):
+                verts = tuple(tuple(v) for v in m.get("vertices", []))
+                masks.append(
+                    PolygonMask(
+                        vertices=verts,
+                        strength=float(m.get("strength", 0.3)),
+                        feather=float(m.get("feather", 0.02)),
+                    )
+                )
+            return LocalAdjustmentsConfig(masks=tuple(masks))
+
         return cls(
             process=ProcessConfig(**filter_keys(ProcessConfig, data)),
             exposure=ExposureConfig(**filter_keys(ExposureConfig, data)),
             flatfield=FlatFieldConfig(**filter_keys(FlatFieldConfig, data)),
             geometry=GeometryConfig(**filter_keys(GeometryConfig, data)),
             lab=LabConfig(**filter_keys(LabConfig, data)),
+            local=_build_local(local_data),
             retouch=RetouchConfig(**filter_keys(RetouchConfig, data)),
             toning=ToningConfig(**filter_keys(ToningConfig, data)),
             finish=FinishConfig(**filter_keys(FinishConfig, data)),

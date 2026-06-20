@@ -25,6 +25,7 @@ from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.desktop.view.sidebar.lab import LabSidebar
 from negpy.desktop.view.sidebar.toning import ToningSidebar
 from negpy.desktop.view.sidebar.retouch import RetouchSidebar
+from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
 
@@ -109,6 +110,14 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.brush", color=icon_color),
         )
 
+        self.local_sidebar = LocalSidebar(self.controller)
+        self.local_section = self._make_section(
+            "Dodge & Burn",
+            "local",
+            self.local_sidebar,
+            icon=qta.icon("fa5s.adjust", color=icon_color),
+        )
+
         self.finish_sidebar = FinishSidebar(self.controller)
         self.finish_section = self._make_section(
             "Finishing",
@@ -131,9 +140,9 @@ class ControlsPanel(QWidget):
             (
                 "finish",
                 "fa5s.brush",
-                "Finish — Retouch, Finishing",
-                [self.retouch_section, self.finish_section],
-                ["retouch_section", "finish_section"],
+                "Finish — Retouch, Dodge & Burn, Finishing",
+                [self.retouch_section, self.local_section, self.finish_section],
+                ["retouch_section", "local_section", "finish_section"],
             ),
         ]
 
@@ -194,7 +203,10 @@ class ControlsPanel(QWidget):
         self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
         self.process_section.reset_requested.connect(lambda: self.controller.session.reset_section("process"))
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
+        self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
+
+        self.local_section.expanded_changed.connect(self._on_local_section_expanded)
 
     def apply_shortcut_tooltips(self) -> None:
         exp = self.exposure_sidebar
@@ -446,6 +458,11 @@ class ControlsPanel(QWidget):
             )
         )
 
+    def _on_local_section_expanded(self, expanded: bool) -> None:
+        self.controller.state.show_local_overlay = expanded
+        if self.controller.canvas:
+            self.controller.canvas.overlay.update()
+
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
         self.process_sidebar.sync_ui()
@@ -454,6 +471,7 @@ class ControlsPanel(QWidget):
         self.lab_sidebar.sync_ui()
         self.toning_sidebar.sync_ui()
         self.retouch_sidebar.sync_ui()
+        self.local_sidebar.sync_ui()
         self.finish_sidebar.sync_ui()
         self.presets_sidebar.sync_ui()
         self.flatfield_sidebar.sync_ui()
@@ -565,8 +583,10 @@ class ControlsPanel(QWidget):
         self.geometry_section.set_modified(geometry_count)
         self.process_section.set_modified(process_count)
         self.retouch_section.set_modified(retouch_count)
+        self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)
 
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""
         self.geometry_sidebar.sync_ui()
+        self.local_sidebar.sync_ui()

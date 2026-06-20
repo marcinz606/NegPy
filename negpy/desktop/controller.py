@@ -38,6 +38,7 @@ from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
 from negpy.features.lab.models import LabConfig
+from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
@@ -64,6 +65,7 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
         config,
         exposure=ExposureConfig(),
         lab=LabConfig(),
+        local=LocalAdjustmentsConfig(),
         toning=ToningConfig(),
         finish=FinishConfig(),
         retouch=RetouchConfig(),
@@ -652,6 +654,59 @@ class AppController(QObject):
                 retouch=replace(self.state.config.retouch, manual_dust_spots=new_spots),
             )
         )
+        self.request_render()
+
+    def handle_lasso_completed(self, viewport_vertices: list) -> None:
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None or len(viewport_vertices) < 3:
+            return
+
+        raw_vertices = tuple(CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_vertices)
+
+        from negpy.features.local.models import PolygonMask
+
+        mask = PolygonMask(vertices=raw_vertices, strength=0.3, feather=0.02)
+        local = self.state.config.local
+        new_masks = local.masks + (mask,)
+        new_local = replace(local, masks=new_masks)
+        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
+        self.state.local_selected_mask = len(new_masks) - 1
+        self.config_updated.emit()
+        self.request_render()
+
+    def select_local_mask(self, index: int) -> None:
+        self.state.local_selected_mask = index
+        self.config_updated.emit()
+
+    def delete_selected_local_mask(self) -> None:
+        local = self.state.config.local
+        idx = self.state.local_selected_mask
+        if not (0 <= idx < len(local.masks)):
+            return
+        new_masks = local.masks[:idx] + local.masks[idx + 1 :]
+        new_local = replace(local, masks=new_masks)
+        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
+        self.state.local_selected_mask = -1
+        self.config_updated.emit()
+        self.request_render()
+
+    def clear_local(self) -> None:
+        new_local = replace(self.state.config.local, masks=())
+        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
+        self.state.local_selected_mask = -1
+        self.config_updated.emit()
+        self.request_render()
+
+    def update_selected_local_mask(self, **changes) -> None:
+        local = self.state.config.local
+        idx = self.state.local_selected_mask
+        if not (0 <= idx < len(local.masks)):
+            return
+        masks = list(local.masks)
+        masks[idx] = replace(masks[idx], **changes)
+        new_local = replace(local, masks=tuple(masks))
+        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
         self.request_render()
 
     def _handle_wb_pick(self, nx: float, ny: float) -> None:

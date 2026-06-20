@@ -274,6 +274,8 @@ class MainWindow(QMainWindow):
         self.canvas.clicked.connect(self.controller.handle_canvas_clicked)
         self.canvas.crop_completed.connect(self.controller.handle_crop_completed)
         self.canvas.crop_translated.connect(self.controller.handle_crop_translated)
+        self.canvas.lasso_completed.connect(self.controller.handle_lasso_completed)
+        self.canvas.local_mask_selected.connect(self.controller.select_local_mask)
 
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)

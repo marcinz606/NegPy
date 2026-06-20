@@ -1,17 +1,19 @@
 import sys
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen
+from PyQt6.QtGui import QColor, QImage, QKeySequence, QMouseEvent, QPainter, QPainterPath, QPen, QPolygonF, QShortcut
 from PyQt6.QtWidgets import QWidget
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.geometry.logic import translate_manual_crop_rect
+from negpy.features.geometry.logic import map_coords_to_geometry, translate_manual_crop_rect
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.view.coordinate_mapping import CoordinateMapping
+
+_LASSO_SNAP_PX = 12.0
 
 
 class CanvasOverlay(QWidget):
@@ -24,6 +26,8 @@ class CanvasOverlay(QWidget):
     crop_translated = pyqtSignal(float, float, float, float)
     cursor_moved = pyqtSignal(float, float)
     cursor_left = pyqtSignal()
+    lasso_completed = pyqtSignal(list)
+    local_mask_selected = pyqtSignal(int)
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -44,6 +48,11 @@ class CanvasOverlay(QWidget):
         self._tool_mode: ToolMode = ToolMode.NONE
         self._mouse_pos: QPointF = QPointF()
 
+        # Lasso (polygon mask) interaction state
+        self._lasso_pts: List[QPointF] = []
+        self._lasso_drawing: bool = False
+        self._local_mask_screen_polys: List[List[QPointF]] = []
+
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
@@ -63,6 +72,10 @@ class CanvasOverlay(QWidget):
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        self._escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self._escape_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self._escape_shortcut.activated.connect(self._cancel_lasso)
 
         if sys.platform == "win32":
             self.setAttribute(Qt.WidgetAttribute.WA_StaticContents, False)
@@ -105,7 +118,16 @@ class CanvasOverlay(QWidget):
             self._move_orig_rect = None
             self._move_last_emitted = None
             self._move_uv_grid = None
+        if mode != ToolMode.LOCAL_DRAW:
+            self._lasso_pts = []
+            self._lasso_drawing = False
         self.update()
+
+    def _cancel_lasso(self) -> None:
+        if self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing:
+            self._lasso_pts = []
+            self._lasso_drawing = False
+            self.update()
 
     def update_buffer(
         self,
@@ -233,12 +255,18 @@ class CanvasOverlay(QWidget):
         if self._tool_mode != ToolMode.NONE and visible_rect.contains(self._mouse_pos):
             if self._tool_mode == ToolMode.DUST_PICK:
                 self._draw_brush(painter)
-            else:
+            elif self._tool_mode != ToolMode.LOCAL_DRAW:
                 pen = QPen(QColor(255, 255, 255, 80), 1, Qt.PenStyle.DotLine)
                 pen.setCosmetic(True)
                 painter.setPen(pen)
                 painter.drawLine(QPointF(visible_rect.x(), self._mouse_pos.y()), QPointF(visible_rect.right(), self._mouse_pos.y()))
                 painter.drawLine(QPointF(self._mouse_pos.x(), visible_rect.top()), QPointF(self._mouse_pos.x(), visible_rect.bottom()))
+
+        show_masks = getattr(self.state, "show_local_overlay", False) or self._tool_mode == ToolMode.LOCAL_DRAW
+        if show_masks:
+            self._draw_local_masks(painter)
+        if self._tool_mode == ToolMode.LOCAL_DRAW:
+            self._draw_lasso_in_progress(painter)
 
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
@@ -283,6 +311,89 @@ class CanvasOverlay(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(self._mouse_pos, radius, radius)
 
+    def _raw_to_screen(self, rx: float, ry: float, uv_grid: np.ndarray) -> QPointF:
+        """
+        Inverse UV-grid lookup: raw-normalised (0-1) -> screen position.
+
+        Downsamples the grid before the nearest-neighbour search so this stays
+        fast even for large preview buffers; precision loss is sub-pixel at
+        screen scale.
+        """
+        h_uv, w_uv = uv_grid.shape[:2]
+        step = max(1, h_uv // 100)
+        small = uv_grid[::step, ::step]
+        dist = (small[..., 0] - rx) ** 2 + (small[..., 1] - ry) ** 2
+        idx = int(np.argmin(dist))
+        h_s, w_s = small.shape[:2]
+        vy, vx = divmod(idx, w_s)
+        nx = min((vx * step + step // 2) / w_uv, 1.0)
+        ny = min((vy * step + step // 2) / h_uv, 1.0)
+        return QPointF(
+            self._view_rect.x() + nx * self._view_rect.width(),
+            self._view_rect.y() + ny * self._view_rect.height(),
+        )
+
+    def _draw_local_masks(self, painter: QPainter) -> None:
+        if self._view_rect.isEmpty():
+            return
+        masks = self.state.config.local.masks
+        self._local_mask_screen_polys = []
+        if not masks:
+            return
+
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None:
+            return
+
+        selected = getattr(self.state, "local_selected_mask", -1)
+        for i, mask in enumerate(masks):
+            if len(mask.vertices) < 3:
+                self._local_mask_screen_polys.append([])
+                continue
+            screen_pts = [self._raw_to_screen(rx, ry, uv_grid) for rx, ry in mask.vertices]
+            self._local_mask_screen_polys.append(screen_pts)
+
+            is_selected = i == selected
+            outline = QColor(232, 200, 74) if mask.strength >= 0 else QColor(74, 143, 232)
+            poly = QPolygonF(screen_pts)
+
+            if is_selected:
+                fill = QColor(outline)
+                fill.setAlpha(60)
+                painter.setBrush(fill)
+                pen = QPen(outline, 2.0, Qt.PenStyle.SolidLine)
+            else:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                pen = QPen(QColor(255, 255, 255, 140), 1.0, Qt.PenStyle.SolidLine)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawPolygon(poly)
+
+    def _draw_lasso_in_progress(self, painter: QPainter) -> None:
+        if not self._lasso_drawing or not self._lasso_pts:
+            return
+
+        pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        path = QPainterPath(self._lasso_pts[0])
+        for pt in self._lasso_pts[1:]:
+            path.lineTo(pt)
+        if self._view_rect.contains(self._mouse_pos):
+            path.lineTo(self._mouse_pos)
+        painter.drawPath(path)
+
+        first = self._lasso_pts[0]
+        near_close = len(self._lasso_pts) >= 3 and (self._mouse_pos - first).manhattanLength() < _LASSO_SNAP_PX * 2
+        accent = QColor(THEME.accent_primary) if near_close else QColor(255, 255, 255, 180)
+        painter.setBrush(accent)
+        painter.setPen(Qt.PenStyle.NoPen)
+        r = 5.0 if near_close else 3.0
+        painter.drawEllipse(first, r, r)
+
     def _map_to_image_coords(self, screen_pos: QPointF) -> Optional[Tuple[float, float]]:
         if self._view_rect.isEmpty() or not self._view_rect.contains(screen_pos):
             return None
@@ -306,6 +417,11 @@ class CanvasOverlay(QWidget):
             self.parent()._is_panning = True
             self.parent()._last_mouse_pos = event.position()
             self.parent().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+
+        if self._tool_mode == ToolMode.LOCAL_DRAW:
+            self._handle_lasso_press(event.position())
             event.accept()
             return
 
@@ -390,6 +506,54 @@ class CanvasOverlay(QWidget):
             self.update()
         else:
             self.update()
+
+    def _handle_lasso_press(self, pos: QPointF) -> None:
+        if not self._view_rect.contains(pos):
+            return
+
+        if not self._lasso_drawing:
+            for i, poly_pts in enumerate(self._local_mask_screen_polys):
+                if len(poly_pts) < 3:
+                    continue
+                if QPolygonF(poly_pts).containsPoint(pos, Qt.FillRule.OddEvenFill):
+                    self.local_mask_selected.emit(i)
+                    return
+            self._lasso_drawing = True
+            self._lasso_pts = [pos]
+            self.update()
+            return
+
+        first = self._lasso_pts[0]
+        if len(self._lasso_pts) >= 3 and (pos - first).manhattanLength() < _LASSO_SNAP_PX * 2:
+            self._finish_lasso()
+            return
+
+        self._lasso_pts.append(pos)
+        self.update()
+
+    def _finish_lasso(self) -> None:
+        pts = self._lasso_pts
+        self._lasso_pts = []
+        self._lasso_drawing = False
+        if len(pts) < 3:
+            self.update()
+            return
+        vertices = []
+        for pt in pts:
+            coords = self._map_to_image_coords(pt)
+            if coords is None:
+                self.update()
+                return
+            vertices.append(coords)
+        self.lasso_completed.emit(vertices)
+        self.update()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing:
+            self._finish_lasso()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self.parent()._is_panning:

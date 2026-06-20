@@ -15,10 +15,12 @@ class PipelineCache:
     exposure: Optional[CacheEntry] = None
     retouch: Optional[CacheEntry] = None
     lab: Optional[CacheEntry] = None
+    local: Optional[CacheEntry] = None
 
     def clear(self) -> None:
         self.base = None
         self.exposure = None
         self.retouch = None
         self.lab = None
+        self.local = None
         self.source_hash = ""
