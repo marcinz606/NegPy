@@ -54,6 +54,7 @@ def _read_screen_icc(screen: object) -> Optional[bytes]:
             return prof.tobytes()
     except Exception as e:
         logger.debug("PIL display profile unavailable: %s", e)
+    logger.warning("No monitor ICC profile detected from Qt or PIL; preview will assume sRGB")
     return None
 
 

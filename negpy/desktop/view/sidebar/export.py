@@ -50,8 +50,10 @@ class ExportSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.form.changed.connect(self.update_timer.start)
+        self.form.changed.connect(self._refresh_proof_mismatch_warning)
 
         self.soft_proof_checkbox.toggled.connect(self.controller.set_soft_proof)
+        self.soft_proof_checkbox.toggled.connect(self._refresh_proof_mismatch_warning)
         self.display_combo.currentIndexChanged.connect(self._on_display_changed)
         self.controller.monitor_profile_changed.connect(self._refresh_display_info)
 
@@ -157,11 +159,16 @@ class ExportSidebar(BaseSidebar):
     def _add_preview_section(self) -> None:
         self.layout.addWidget(section_subheader("PREVIEW"))
 
-        # Soft proof: when on, the preview simulates the Output profile (incl.
-        # paper/printer); when off, Output/Input ICC affect export only.
-        self.soft_proof_checkbox = QCheckBox("Soft proof")
+        # Soft proof: on by default so the preview is true to export. When off,
+        # Output/Input ICC and the export color space affect export only, not
+        # the preview — i.e. exported colors may differ from what's shown.
+        self.soft_proof_checkbox = QCheckBox("Soft proof (preview matches export)")
         self.soft_proof_checkbox.setChecked(self.state.soft_proof_enabled)
-        self.soft_proof_checkbox.setToolTip("Simulate the Output profile (incl. paper/printer) in the preview")
+        self.soft_proof_checkbox.setToolTip(
+            "Simulate the export color space and Output profile (incl. paper/printer) in the "
+            "preview, so what you see matches what you'll get. Turn off only to preview at full "
+            "gamut regardless of the export target."
+        )
         self.layout.addWidget(self.soft_proof_checkbox)
 
         # Display: monitor profile the preview is shown on (preview only, not export).
@@ -189,6 +196,14 @@ class ExportSidebar(BaseSidebar):
         self.display_detected_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
         self.layout.addWidget(self.display_detected_label)
         self._refresh_display_info()
+
+        # Warns when the preview won't reflect the export's gamut clamp (soft
+        # proof off + export space narrower than the working space).
+        self.proof_mismatch_label = QLabel("Soft proof is off — preview won't show the export's color clipping")
+        self.proof_mismatch_label.setWordWrap(True)
+        self.proof_mismatch_label.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
+        self.layout.addWidget(self.proof_mismatch_label)
+        self._refresh_proof_mismatch_warning()
 
     # --- Batch ---------------------------------------------------------------
 
@@ -330,6 +345,18 @@ class ExportSidebar(BaseSidebar):
         self.display_detected_label.setText(f"Detected: {desc}")
         self.display_combo.setItemText(0, f"As detected ({desc})")
 
+    def _refresh_proof_mismatch_warning(self) -> None:
+        """Show a hint when soft proof is off and export will clamp to a
+        narrower/different color space than the preview is shown in, so the
+        preview can't be trusted to predict the exported colors."""
+        from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
+
+        export_cs = self.form.values()["export_color_space"]
+        mismatch = (
+            not self.soft_proof_checkbox.isChecked() and export_cs != ColorSpace.SAME_AS_SOURCE.value and export_cs != WORKING_COLOR_SPACE
+        )
+        self.proof_mismatch_label.setVisible(mismatch)
+
     def sync_ui(self) -> None:
         conf = self.state.config.export
         self.block_signals(True)
@@ -346,6 +373,7 @@ class ExportSidebar(BaseSidebar):
         finally:
             self.block_signals(False)
 
+        self._refresh_proof_mismatch_warning()
         self._rebuild_preset_rows()
 
     def block_signals(self, blocked: bool) -> None:

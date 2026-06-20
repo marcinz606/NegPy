@@ -59,7 +59,8 @@ class AppState:
     # User override: a ColorSpace value (e.g. "Display P3") or None = use detected.
     monitor_profile_override: Optional[str] = None
     # Soft-proof toggle: when off, Output/Input ICC affect export only, not the preview.
-    soft_proof_enabled: bool = False
+    # Defaults on so the preview is true to export by default.
+    soft_proof_enabled: bool = True
 
     # Hardware Acceleration
     gpu_enabled: bool = True

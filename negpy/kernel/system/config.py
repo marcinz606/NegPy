@@ -77,7 +77,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     ),
     export=ExportConfig(
         export_fmt=ExportFormat.JPEG,
-        export_color_space=ColorSpace.ADOBE_RGB.value,
+        export_color_space=ColorSpace.SRGB.value,
         export_print_size=30.0,
         export_dpi=300,
         export_path=APP_CONFIG.default_export_dir,

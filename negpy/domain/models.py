@@ -93,7 +93,7 @@ class ExportConfig:
     export_path: str = field(default_factory=lambda: os.path.join(paths.get_default_user_dir(), "export"))
     export_fmt: str = ExportFormat.JPEG
     jpeg_quality: int = 90
-    export_color_space: str = ColorSpace.ADOBE_RGB.value
+    export_color_space: str = ColorSpace.SRGB.value
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
     export_dpi: int = 300
@@ -142,7 +142,7 @@ class ExportPreset:
     filename_pattern: str = "{{ original_name }}"
 
     # Color
-    export_color_space: str = ColorSpace.ADOBE_RGB.value
+    export_color_space: str = ColorSpace.SRGB.value
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
 
@@ -251,9 +251,7 @@ class WorkspaceConfig:
             data.pop("use_original_res", None)
 
         if "same_as_source" in data and "output_mode" not in data:
-            data["output_mode"] = (
-                ExportPresetOutputMode.SAME_AS_SOURCE if data.pop("same_as_source") else ExportPresetOutputMode.ABSOLUTE
-            )
+            data["output_mode"] = ExportPresetOutputMode.SAME_AS_SOURCE if data.pop("same_as_source") else ExportPresetOutputMode.ABSOLUTE
         else:
             data.pop("same_as_source", None)
 
