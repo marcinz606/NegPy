@@ -4,6 +4,7 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSizePolicy,
 )
@@ -16,6 +17,29 @@ from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
 from negpy.features.geometry.models import AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
+
+
+class CropToolButton(QPushButton):
+    """Checkable button with a small corner dot indicating an active crop."""
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__(text)
+        self._dot = QLabel(self)
+        self._dot.setFixedSize(8, 8)
+        self._dot.setStyleSheet(f"background-color: {THEME.channel_red}; border-radius: 4px;")
+        self._dot.hide()
+
+    def set_crop_active(self, active: bool) -> None:
+        self._dot.setVisible(active)
+        self._position_dot()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_dot()
+
+    def _position_dot(self) -> None:
+        margin = 4
+        self._dot.move(self.width() - self._dot.width() - margin, margin)
 
 
 class GeometrySidebar(BaseSidebar):
@@ -47,7 +71,7 @@ class GeometrySidebar(BaseSidebar):
 
         # Buttons side by side
         btn_row = QHBoxLayout()
-        self.manual_crop_btn = QPushButton(" Manual")
+        self.manual_crop_btn = CropToolButton(" Manual")
         self.manual_crop_btn.setCheckable(True)
         self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary))
         self.manual_crop_btn.setToolTip(tooltip_with_shortcut("Manual crop", "manual_crop"))
@@ -57,7 +81,7 @@ class GeometrySidebar(BaseSidebar):
         self.move_crop_btn.setIcon(qta.icon("fa5s.arrows-alt", color=THEME.text_primary))
         self.move_crop_btn.setToolTip("Translate the existing crop rectangle (preserves size)")
 
-        self.reset_crop_btn = QPushButton(" Auto")
+        self.reset_crop_btn = CropToolButton(" Auto")
         self.reset_crop_btn.setCheckable(True)
         self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
         self.reset_crop_btn.setToolTip(tooltip_with_shortcut("Apply automatic crop using the current ratio and offset", "auto_crop"))
@@ -145,6 +169,8 @@ class GeometrySidebar(BaseSidebar):
         self.controller.request_render()
 
     def _on_manual_crop_toggled(self, checked: bool) -> None:
+        if checked:
+            self.controller.reset_crop()
         self.controller.set_active_tool(ToolMode.CROP_MANUAL if checked else ToolMode.NONE)
 
     def _on_move_crop_toggled(self, checked: bool) -> None:
@@ -171,6 +197,8 @@ class GeometrySidebar(BaseSidebar):
             self.move_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MOVE)
             self.move_crop_btn.setEnabled(conf.manual_crop_rect is not None)
             self.reset_crop_btn.setChecked(conf.auto_crop_enabled)
+            self.manual_crop_btn.set_crop_active(conf.manual_crop_rect is not None)
+            self.reset_crop_btn.set_crop_active(conf.auto_crop_enabled)
         finally:
             self.block_signals(False)
 
