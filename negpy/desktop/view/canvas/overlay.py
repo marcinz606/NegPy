@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QWidget
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.geometry.logic import map_coords_to_geometry, translate_manual_crop_rect
+from negpy.features.geometry.logic import translate_manual_crop_rect
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
