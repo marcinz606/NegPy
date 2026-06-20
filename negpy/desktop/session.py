@@ -18,6 +18,7 @@ class ToolMode(Enum):
     CROP_MANUAL = auto()
     CROP_MOVE = auto()
     DUST_PICK = auto()
+    LOCAL_DRAW = auto()
 
 
 @dataclass
@@ -72,6 +73,10 @@ class AppState:
 
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
+
+    # Local adjustments UI state (not persisted in workspace config)
+    local_selected_mask: int = -1
+    show_local_overlay: bool = False
 
     # History tracking
     undo_index: int = 0
@@ -623,6 +628,7 @@ class DesktopSessionManager(QObject):
         """Reset a single feature section to its default config."""
         from negpy.features.exposure.models import ExposureConfig
         from negpy.features.lab.models import LabConfig
+        from negpy.features.local.models import LocalAdjustmentsConfig
         from negpy.features.toning.models import ToningConfig
         from negpy.features.geometry.models import GeometryConfig
         from negpy.features.process.models import ProcessConfig
@@ -632,6 +638,7 @@ class DesktopSessionManager(QObject):
         defaults = {
             "exposure": ExposureConfig(),
             "lab": LabConfig(),
+            "local": LocalAdjustmentsConfig(),
             "toning": ToningConfig(),
             "geometry": GeometryConfig(),
             "process": ProcessConfig(),
@@ -641,6 +648,8 @@ class DesktopSessionManager(QObject):
         if section not in defaults:
             return
         new_config = replace(self.state.config, **{section: defaults[section]})
+        if section == "local":
+            self.state.local_selected_mask = -1
         self.update_config(new_config, persist=True)
 
     def copy_settings(self, include_bounds: bool = False) -> None:

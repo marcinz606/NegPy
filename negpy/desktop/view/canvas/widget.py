@@ -35,6 +35,7 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.CROP_MANUAL: Qt.CursorShape.CrossCursor,
     ToolMode.CROP_MOVE: Qt.CursorShape.OpenHandCursor,
     ToolMode.DUST_PICK: Qt.CursorShape.BlankCursor,
+    ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
 }
 # Do not apply more than this many notch-equivalents in a single event (huge flings).
 _WHEEL_MAX_NOTCHES = 4.0
@@ -79,6 +80,8 @@ class ImageCanvas(QWidget):
     zoom_changed = pyqtSignal(float)
     cursor_position_changed = pyqtSignal(float, float)
     cursor_left_canvas = pyqtSignal()
+    lasso_completed = pyqtSignal(list)
+    local_mask_selected = pyqtSignal(int)
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -123,6 +126,8 @@ class ImageCanvas(QWidget):
         self.overlay.crop_translated.connect(self.crop_translated.emit)
         self.overlay.cursor_moved.connect(self.cursor_position_changed.emit)
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
+        self.overlay.lasso_completed.connect(self.lasso_completed.emit)
+        self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
 
         # Pixel readout overlay — absolute child, not in layout
         self.pixel_readout_overlay = PixelReadoutOverlay(self)
