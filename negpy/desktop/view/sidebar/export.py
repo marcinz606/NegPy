@@ -331,12 +331,21 @@ class ExportSidebar(BaseSidebar):
         self.controller.set_monitor_override(self.display_map[index])
 
     def _refresh_display_info(self) -> None:
-        """Update the 'As detected' label with the live detected monitor profile."""
+        """Update the 'As detected' label with the live detected monitor profile.
+
+        When detection fails (no profile), warn in red prompting a manual pick.
+        """
         from negpy.infrastructure.display.color_mgmt import profile_description
 
-        desc = profile_description(self.state.monitor_icc_detected_bytes)
-        self.display_detected_label.setText(f"Detected: {desc}")
+        detected = self.state.monitor_icc_detected_bytes
+        desc = profile_description(detected)
         self.display_combo.setItemText(0, f"As detected ({desc})")
+        if detected is None:
+            self.display_detected_label.setText("Auto-detection failed — select your monitor's color space above.")
+            self.display_detected_label.setStyleSheet(f"color: {THEME.channel_red}; font-size: 10px;")
+        else:
+            self.display_detected_label.setText(f"Detected: {desc}")
+            self.display_detected_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
 
     def _refresh_proof_mismatch_warning(self) -> None:
         """Show a hint when soft proof is off and export will clamp to a

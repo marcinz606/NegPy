@@ -42,7 +42,7 @@ def profile_description(data: Optional[bytes]) -> str:
     ``None`` (no profile detected → sRGB assumed) returns a labelled fallback.
     """
     if not data:
-        return "sRGB (assumed)"
+        return "sRGB fallback"
     try:
         return ImageCms.getProfileDescription(open_profile_from_bytes(data)).strip()
     except Exception as e:

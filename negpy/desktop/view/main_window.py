@@ -39,24 +39,14 @@ logger = get_logger(__name__)
 def _read_screen_icc(screen: object) -> Optional[bytes]:
     """Monitor ICC profile bytes for a QScreen, or None (treat the display as sRGB).
 
-    Prefers Qt's reported color space; falls back to PIL's OS display profile.
+    Detection is per-OS (colord / ColorSync / PIL); see ``detect_monitor_icc``.
     """
-    try:
-        data = bytes(screen.colorSpace().iccProfile())  # type: ignore[attr-defined]
-        if data:
-            return data
-    except Exception as e:
-        logger.debug("QScreen color space unavailable: %s", e)
-    try:
-        from PIL import ImageCms
+    from negpy.infrastructure.display.monitor_profile import detect_monitor_icc
 
-        prof = ImageCms.get_display_profile()
-        if prof is not None:
-            return prof.tobytes()
-    except Exception as e:
-        logger.debug("PIL display profile unavailable: %s", e)
-    logger.warning("No monitor ICC profile detected from Qt or PIL; preview will assume sRGB")
-    return None
+    data = detect_monitor_icc(screen)
+    if not data:
+        logger.warning("No monitor ICC profile detected; preview will assume sRGB")
+    return data
 
 
 def _display_buffer_for_canvas(buffer: object) -> object:

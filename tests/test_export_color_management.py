@@ -141,11 +141,11 @@ class TestDisplayProfileOverrideHelpers(unittest.TestCase):
         self.assertIsNone(icc_bytes_for_space("NotARealSpace"))
 
     def test_profile_description_none_is_srgb_fallback(self):
-        self.assertEqual(profile_description(None), "sRGB (assumed)")
+        self.assertEqual(profile_description(None), "sRGB fallback")
 
     def test_profile_description_reads_name(self):
         desc = profile_description(icc_bytes_for_space(ColorSpace.P3_D65.value))
-        self.assertTrue(desc and desc != "sRGB (assumed)")
+        self.assertTrue(desc and desc != "sRGB fallback")
 
     def test_override_bytes_match_apply_transform(self):
         # An override to Display P3 must produce the same display LUT as feeding those
