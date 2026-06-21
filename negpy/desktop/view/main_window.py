@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDockWidget,
     QMainWindow,
+    QMessageBox,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -144,6 +145,23 @@ class MainWindow(QMainWindow):
                 handle.screenChanged.connect(lambda _screen: self._refresh_monitor_profile())
             # force=True so a persisted override is resolved even when detection is None.
             self._refresh_monitor_profile(force=True)
+
+        if not getattr(self, "_session_restore_checked", False):
+            self._session_restore_checked = True
+            QTimer.singleShot(0, self._maybe_restore_session)
+
+    def _maybe_restore_session(self) -> None:
+        """Offers to reopen the previous session's files on first show."""
+        paths = self.controller.saved_session_paths()
+        if not paths:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Restore Session",
+            f"Reopen your last session ({len(paths)} file(s))?",
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.controller.restore_session()
 
     def _refresh_monitor_profile(self, force: bool = False) -> None:
         """Detect the active screen's ICC profile and hand it to the controller, which

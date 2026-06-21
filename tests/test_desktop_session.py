@@ -229,6 +229,23 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(self.session.state.undo_index, 5)
         self.assertEqual(self.session.state.max_history_index, 5)
 
+    def _last_session_manifest(self):
+        """Returns (paths, active_path) from the most recent _persist_session calls."""
+        saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_global_setting.call_args_list}
+        return saved.get("session_files"), saved.get("session_active_path")
+
+    def test_select_file_persists_manifest(self):
+        self.session.select_file(1)
+        paths, active = self._last_session_manifest()
+        self.assertEqual(paths, ["path1", "path2"])
+        self.assertEqual(active, "path2")
+
+    def test_clear_files_persists_empty_manifest(self):
+        self.session.clear_files()
+        paths, active = self._last_session_manifest()
+        self.assertEqual(paths, [])
+        self.assertIsNone(active)
+
 
 class TestAssetListModelFilter(unittest.TestCase):
     def setUp(self):

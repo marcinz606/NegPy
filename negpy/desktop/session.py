@@ -503,6 +503,7 @@ class DesktopSessionManager(QObject):
 
             self.file_selected.emit(file_info["path"])
             self.state_changed.emit()
+            self._persist_session()
 
     def update_selection(self, indices: List[int]) -> None:
         """Updates the list of currently selected indices."""
@@ -700,6 +701,12 @@ class DesktopSessionManager(QObject):
             self.update_config(copy.deepcopy(self.state.clipboard), persist=True)
             self.settings_pasted.emit()
 
+    def _persist_session(self) -> None:
+        """Saves the open-file manifest (paths + active) for restore on next launch."""
+        paths = [f["path"] for f in self.state.uploaded_files]
+        self.repo.save_global_setting("session_files", paths)
+        self.repo.save_global_setting("session_active_path", self.state.current_file_path)
+
     def add_files(self, file_paths: List[str], validated_info: Optional[List[Dict]] = None) -> None:
         """
         Adds new files to the session.
@@ -731,6 +738,7 @@ class DesktopSessionManager(QObject):
 
         self.asset_model.refresh()
         self.files_changed.emit()
+        self._persist_session()
 
     def clear_files(self) -> None:
         """
@@ -746,6 +754,7 @@ class DesktopSessionManager(QObject):
 
         self.asset_model.refresh()
         self.state_changed.emit()
+        self._persist_session()
 
     def remove_current_file(self) -> None:
         """
@@ -771,6 +780,7 @@ class DesktopSessionManager(QObject):
 
             self.asset_model.refresh()
             self.state_changed.emit()
+            self._persist_session()
 
     def remove_selected_files(self) -> None:
         """
@@ -800,3 +810,4 @@ class DesktopSessionManager(QObject):
 
         self.asset_model.refresh()
         self.state_changed.emit()
+        self._persist_session()

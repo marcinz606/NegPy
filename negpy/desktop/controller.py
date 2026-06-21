@@ -338,6 +338,20 @@ class AppController(QObject):
         elif self._active_batch == "Analyzing roll":
             self.norm_worker.cancel()
 
+    def saved_session_paths(self) -> List[str]:
+        """Returns last session's file paths that still exist on disk."""
+        paths = self.session.repo.get_global_setting("session_files", []) or []
+        return [p for p in paths if os.path.exists(p)]
+
+    def restore_session(self) -> None:
+        """Re-loads the previous session's files and reselects the active one."""
+        paths = self.saved_session_paths()
+        if not paths:
+            return
+        active = self.session.repo.get_global_setting("session_active_path")
+        self._pending_scanned_file = active if active in paths else paths[0]
+        self.request_asset_discovery(paths, auto_open=True)
+
     def request_asset_discovery(self, paths: List[str], auto_open: bool = False) -> None:
         """
         Starts asynchronous discovery of supported assets.

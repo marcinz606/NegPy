@@ -290,6 +290,69 @@ class TestBatchExportFiltering(unittest.TestCase):
             self.assertEqual(t.params.export.export_path, "/tmp/out")
 
 
+class TestSessionRestore(unittest.TestCase):
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.request_asset_discovery = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def _mock_settings(self, files, active):
+        def get(key, default=None):
+            return {"session_files": files, "session_active_path": active}.get(key, default)
+
+        self.mock_session_manager.repo.get_global_setting.side_effect = get
+
+    def test_saved_session_paths_filters_missing(self):
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".dng") as tf:
+            self._mock_settings([tf.name, "/does/not/exist.dng"], tf.name)
+            self.assertEqual(self.controller.saved_session_paths(), [tf.name])
+            self.assertFalse(os.path.exists("/does/not/exist.dng"))
+
+    def test_restore_session_selects_active_and_discovers(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".dng") as a, tempfile.NamedTemporaryFile(suffix=".dng") as b:
+            self._mock_settings([a.name, b.name], b.name)
+            self.controller.restore_session()
+            self.assertEqual(self.controller._pending_scanned_file, b.name)
+            self.controller.request_asset_discovery.assert_called_once_with([a.name, b.name], auto_open=True)
+
+    def test_restore_session_no_saved_files_is_noop(self):
+        self._mock_settings([], None)
+        self.controller.restore_session()
+        self.controller.request_asset_discovery.assert_not_called()
+
+
 class TestBatchAnalysisFiltering(unittest.TestCase):
     def setUp(self):
         self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
