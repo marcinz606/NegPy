@@ -1,6 +1,7 @@
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -34,13 +35,13 @@ class ExportSidebar(BaseSidebar):
 
         self._add_presets_section()
         self._add_contact_sheet_section()
+        self._add_flat_master_section()
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.
         self.form = ExportSettingsForm()
         self.form.load(self._config_to_form_values())
         self.layout.addWidget(self.form)
 
-        self._add_flat_master_section()
         self._add_preview_section()
         self._add_batch_section()
 
@@ -60,7 +61,7 @@ class ExportSidebar(BaseSidebar):
         self.manage_presets_btn.clicked.connect(self._open_presets_dialog)
         self.export_presets_btn.clicked.connect(self.controller.request_preset_export)
 
-        self.flat_output_checkbox.toggled.connect(self._on_flat_output_toggled)
+        self.intent_btn_group.idToggled.connect(self._on_flat_output_toggled)
         self.flat_format_combo.currentIndexChanged.connect(self._on_flat_format_changed)
         self.flat_peek_btn.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.flat_bake_btn.clicked.connect(self.controller.request_batch_normalization)
@@ -158,21 +159,37 @@ class ExportSidebar(BaseSidebar):
     # --- Flat master ("for editing elsewhere") -------------------------------
 
     def _add_flat_master_section(self) -> None:
-        """Output-intent override producing a flat, neutral digital intermediate
-        for editing in Lightroom/Darktable/Photoshop."""
+        """Output-intent override: Print (default) or Flat digital intermediate."""
         self.layout.addWidget(section_subheader("OUTPUT INTENT"))
 
-        self.flat_output_checkbox = QCheckBox("Flat — for editing elsewhere")
-        self.flat_output_checkbox.setChecked(self.state.flat_output)
-        self.flat_output_checkbox.setToolTip(
+        intent_row = QHBoxLayout()
+        intent_row.setSpacing(4)
+        btn_style = f"font-size: {THEME.font_size_base}px; padding: 8px;"
+        self.intent_print_btn = QPushButton("Print")
+        self.intent_flat_btn = QPushButton("Flat")
+        self.intent_flat_btn.setToolTip(
             "Export a flat, neutral, low-contrast master that keeps maximum tonal and colour "
             "information for editing in Lightroom, Darktable or Photoshop. Skips the creative "
             "print look (auto density/grade, cast removal, lab effects, toning, vignette) and "
             "writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected."
         )
-        self.layout.addWidget(self.flat_output_checkbox)
+        for btn in (self.intent_print_btn, self.intent_flat_btn):
+            btn.setCheckable(True)
+            btn.setStyleSheet(btn_style)
+            intent_row.addWidget(btn)
+        self.intent_btn_group = QButtonGroup(self)
+        self.intent_btn_group.setExclusive(True)
+        self.intent_btn_group.addButton(self.intent_print_btn, 0)
+        self.intent_btn_group.addButton(self.intent_flat_btn, 1)
+        if self.state.flat_output:
+            self.intent_flat_btn.setChecked(True)
+        else:
+            self.intent_print_btn.setChecked(True)
+        self.layout.addLayout(intent_row)
 
-        fmt_row = QHBoxLayout()
+        self.flat_format_row_widget = QWidget()
+        fmt_row = QHBoxLayout(self.flat_format_row_widget)
+        fmt_row.setContentsMargins(0, 0, 0, 0)
         fmt_label = QLabel("Master")
         fmt_label.setFixedWidth(52)
         fmt_row.addWidget(fmt_label)
@@ -186,14 +203,24 @@ class ExportSidebar(BaseSidebar):
             "Linear DNG: a linear digital negative (requires the optional 'pidng' package)."
         )
         fmt_row.addWidget(self.flat_format_combo)
-        self.layout.addLayout(fmt_row)
+        self.layout.addWidget(self.flat_format_row_widget)
 
-        self.flat_peek_btn = QPushButton(" Preview flat")
+        peek_bake_row = QHBoxLayout()
+        peek_bake_row.setSpacing(4)
+        self.flat_peek_btn = QPushButton(" Preview Flat")
         self.flat_peek_btn.setCheckable(True)
         self.flat_peek_btn.setChecked(self.state.flat_peek)
         self.flat_peek_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
         self.flat_peek_btn.setToolTip("Temporarily show the flat master in the canvas (does not change your edit)")
-        self.layout.addWidget(self.flat_peek_btn)
+        self.flat_bake_btn = QPushButton(" Roll Baseline")
+        self.flat_bake_btn.setIcon(qta.icon("fa5s.link", color=THEME.text_primary))
+        self.flat_bake_btn.setToolTip(
+            "Measure every visible frame's exposure bounds and apply their shared average, so flat "
+            "masters render consistently across the roll."
+        )
+        peek_bake_row.addWidget(self.flat_peek_btn)
+        peek_bake_row.addWidget(self.flat_bake_btn)
+        self.layout.addLayout(peek_bake_row)
 
         self.flat_hint_label = QLabel("Exports a flat ProPhoto master. Size/colour rows above are overridden for this output.")
         self.flat_hint_label.setWordWrap(True)
@@ -208,42 +235,39 @@ class ExportSidebar(BaseSidebar):
         self.flat_roll_warning.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
         self.layout.addWidget(self.flat_roll_warning)
 
-        self.flat_bake_btn = QPushButton(" Bake roll baseline")
-        self.flat_bake_btn.setIcon(qta.icon("fa5s.link", color=THEME.text_primary))
-        self.flat_bake_btn.setToolTip(
-            "Measure every visible frame's exposure bounds and apply their shared average, so flat "
-            "masters render consistently across the roll."
-        )
-        self.layout.addWidget(self.flat_bake_btn)
-
         self._sync_flat_enabled()
 
     def _sync_flat_enabled(self) -> None:
-        on = self.flat_output_checkbox.isChecked()
-        self.flat_format_combo.setEnabled(on)
+        on = self.intent_flat_btn.isChecked()
+        self.flat_format_row_widget.setVisible(on)
         self.flat_hint_label.setVisible(on)
+        self.flat_peek_btn.setVisible(on)
         self._sync_flat_roll_warning()
 
     def _sync_flat_roll_warning(self) -> None:
         """Show the roll-baseline nudge only when flat output is on and the roll
         doesn't yet share a locked normalization baseline."""
-        on = self.flat_output_checkbox.isChecked()
+        on = self.intent_flat_btn.isChecked()
         locked = self.state.config.process.use_roll_average and self.state.config.process.is_locked_initialized
         show = on and not locked
         self.flat_roll_warning.setVisible(show)
         self.flat_bake_btn.setVisible(show)
 
-    def _on_flat_output_toggled(self, checked: bool) -> None:
-        self.controller.set_flat_output(checked)
-        self._sync_flat_enabled()
+    def _on_flat_output_toggled(self, btn_id: int, checked: bool) -> None:
+        if checked:
+            self.controller.set_flat_output(btn_id == 1)
+            self._sync_flat_enabled()
 
     def _on_flat_format_changed(self, _index: int) -> None:
         self.controller.set_flat_format(self.flat_format_combo.currentData())
 
     def _on_flat_output_changed(self, enabled: bool) -> None:
-        self.flat_output_checkbox.blockSignals(True)
-        self.flat_output_checkbox.setChecked(enabled)
-        self.flat_output_checkbox.blockSignals(False)
+        self.intent_btn_group.blockSignals(True)
+        if enabled:
+            self.intent_flat_btn.setChecked(True)
+        else:
+            self.intent_print_btn.setChecked(True)
+        self.intent_btn_group.blockSignals(False)
         self._sync_flat_enabled()
 
     def _on_flat_peek_changed(self, active: bool) -> None:
@@ -476,7 +500,10 @@ class ExportSidebar(BaseSidebar):
             self.cs_gap_input.setValue(conf.contact_sheet_gap)
             self.cs_margin_input.setValue(conf.contact_sheet_margin)
             self.cs_max_tiles_input.setValue(conf.contact_sheet_max_tiles)
-            self.flat_output_checkbox.setChecked(self.state.flat_output)
+            if self.state.flat_output:
+                self.intent_flat_btn.setChecked(True)
+            else:
+                self.intent_print_btn.setChecked(True)
             fmt_idx = self.flat_format_combo.findData(self.state.flat_format)
             self.flat_format_combo.setCurrentIndex(fmt_idx if fmt_idx >= 0 else 0)
             self.flat_peek_btn.setChecked(self.state.flat_peek)
@@ -496,9 +523,9 @@ class ExportSidebar(BaseSidebar):
             self.cs_gap_input,
             self.cs_margin_input,
             self.cs_max_tiles_input,
-            self.flat_output_checkbox,
             self.flat_format_combo,
             self.flat_peek_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)
+        self.intent_btn_group.blockSignals(blocked)
