@@ -104,3 +104,30 @@ def test_colord_device_without_profile_returns_none(monkeypatch) -> None:
     _patch_manager(monkeypatch, ["/dev/display0"])
     monkeypatch.setattr(mp, "_get_property", lambda *a: None)
     assert mp._detect_colord(_Screen()) is None
+
+
+# --- macOS P3 fallback -------------------------------------------------------
+
+
+def test_macos_uses_colorsync_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(mp, "_colorsync_icc", lambda: b"REAL-DISPLAY-ICC")
+    assert mp._detect_macos() == b"REAL-DISPLAY-ICC"
+
+
+def test_macos_falls_back_to_p3(monkeypatch) -> None:
+    from negpy.domain.models import ColorSpace
+    from negpy.infrastructure.display.color_mgmt import icc_bytes_for_space
+
+    monkeypatch.setattr(mp, "_colorsync_icc", lambda: None)
+    assert mp._detect_macos() == icc_bytes_for_space(ColorSpace.P3_D65.value)
+
+
+def test_macos_falls_back_to_p3_on_error(monkeypatch) -> None:
+    from negpy.domain.models import ColorSpace
+    from negpy.infrastructure.display.color_mgmt import icc_bytes_for_space
+
+    def boom():
+        raise RuntimeError("no CoreGraphics")
+
+    monkeypatch.setattr(mp, "_colorsync_icc", boom)
+    assert mp._detect_macos() == icc_bytes_for_space(ColorSpace.P3_D65.value)

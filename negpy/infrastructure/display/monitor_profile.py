@@ -106,7 +106,27 @@ def _match_device(bus: "QDBusConnection", device_paths: list, screen: object) ->
 
 
 def _detect_macos() -> Optional[bytes]:
-    """Read the main display's ColorSync profile via CoreGraphics (ctypes)."""
+    """ColorSync profile for the main display, else assume Display P3.
+
+    Modern Macs ship P3 panels, so P3 is a closer fallback than sRGB when the
+    OS read fails.
+    """
+    try:
+        data = _colorsync_icc()
+    except Exception as e:
+        logger.debug("ColorSync read failed: %s", e)
+        data = None
+    if data:
+        return data
+
+    from negpy.domain.models import ColorSpace
+    from negpy.infrastructure.display.color_mgmt import icc_bytes_for_space
+
+    return icc_bytes_for_space(ColorSpace.P3_D65.value)
+
+
+def _colorsync_icc() -> Optional[bytes]:
+    """Read the main display's ColorSync ICC data via CoreGraphics (ctypes)."""
     import ctypes
     import ctypes.util
 
