@@ -27,6 +27,52 @@ def _rasterise_mask(
     return mask_f
 
 
+def compute_local_factor_map(
+    config: LocalAdjustmentsConfig,
+    h: int,
+    w: int,
+    orig_shape: Tuple[int, int],
+    rotation: int = 0,
+    fine_rotation: float = 0.0,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
+) -> np.ndarray:
+    """
+    Build the per-pixel multiplicative dodge/burn factor map [h, w] float32.
+
+    factor = prod over masks of 2^(strength * alpha), where alpha is the
+    feathered polygon mask. All-ones when there are no masks. The image is
+    adjusted by multiplying each channel by this map.
+    """
+    factor = np.ones((h, w), dtype=np.float32)
+    if not config.masks:
+        return factor
+
+    short_side = float(min(h, w))
+    for mask in config.masks:
+        if len(mask.vertices) < 3:
+            continue
+
+        transformed = [
+            map_coords_to_geometry(
+                rx,
+                ry,
+                orig_shape,
+                rotation,
+                fine_rotation,
+                flip_horizontal,
+                flip_vertical,
+            )
+            for rx, ry in mask.vertices
+        ]
+
+        sigma_px = mask.feather * short_side
+        alpha = _rasterise_mask(transformed, h, w, sigma_px)
+        factor *= np.power(2.0, mask.strength * alpha, dtype=np.float32)
+
+    return factor
+
+
 def apply_local_adjustments(
     img: np.ndarray,
     config: LocalAdjustmentsConfig,
@@ -48,29 +94,6 @@ def apply_local_adjustments(
         return img
 
     h, w = img.shape[:2]
-    short_side = float(min(h, w))
-    result = img.astype(np.float32, copy=True)
-
-    for mask in config.masks:
-        if len(mask.vertices) < 3:
-            continue
-
-        transformed = [
-            map_coords_to_geometry(
-                rx,
-                ry,
-                orig_shape,
-                rotation,
-                fine_rotation,
-                flip_horizontal,
-                flip_vertical,
-            )
-            for rx, ry in mask.vertices
-        ]
-
-        sigma_px = mask.feather * short_side
-        alpha = _rasterise_mask(transformed, h, w, sigma_px)
-        factor = np.power(2.0, mask.strength * alpha, dtype=np.float32)
-        result *= factor[..., np.newaxis]
-
+    factor = compute_local_factor_map(config, h, w, orig_shape, rotation, fine_rotation, flip_horizontal, flip_vertical)
+    result = img.astype(np.float32, copy=True) * factor[..., np.newaxis]
     return np.clip(result, 0.0, 1.0)

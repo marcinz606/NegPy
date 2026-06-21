@@ -77,7 +77,7 @@ class AppState:
 
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
-    show_local_overlay: bool = False
+    show_local_overlay: bool = True
 
     # History tracking
     undo_index: int = 0

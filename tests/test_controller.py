@@ -180,6 +180,16 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(self.controller.state.active_tool, ToolMode.CROP_MOVE)
 
+    def test_local_overlay_visible_default_on(self):
+        self.assertTrue(AppState().show_local_overlay)
+
+    def test_set_local_overlay_visible_toggles_flag(self):
+        self.controller.canvas = None  # tolerate no registered canvas
+        self.controller.set_local_overlay_visible(False)
+        self.assertFalse(self.controller.state.show_local_overlay)
+        self.controller.set_local_overlay_visible(True)
+        self.assertTrue(self.controller.state.show_local_overlay)
+
 
 class TestBatchExportFiltering(unittest.TestCase):
     def setUp(self):

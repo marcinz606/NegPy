@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.local.logic import apply_local_adjustments
+from negpy.features.local.logic import apply_local_adjustments, compute_local_factor_map
 from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
 
 
@@ -60,6 +60,29 @@ class TestApplyLocalAdjustments(unittest.TestCase):
         self.assertEqual(res.shape, self.img.shape)
         self.assertGreaterEqual(float(res.min()), 0.0)
         self.assertLessEqual(float(res.max()), 1.0)
+
+
+class TestComputeFactorMap(unittest.TestCase):
+    """The factor map is the shared CPU/GPU primitive — multiply the image by it."""
+
+    def test_all_ones_when_empty(self) -> None:
+        factor = compute_local_factor_map(LocalAdjustmentsConfig(), 100, 100, (100, 100))
+        np.testing.assert_array_equal(factor, np.ones((100, 100), dtype=np.float32))
+
+    def test_interior_equals_two_pow_strength(self) -> None:
+        cfg = LocalAdjustmentsConfig(masks=(_center_square_mask(1.0),))
+        factor = compute_local_factor_map(cfg, 100, 100, (100, 100))
+        self.assertAlmostEqual(float(factor[50, 50]), 2.0, places=5)
+        self.assertAlmostEqual(float(factor[5, 5]), 1.0, places=5)
+
+    def test_matches_apply_local_adjustments(self) -> None:
+        """apply_local_adjustments must equal clip(img * factor_map)."""
+        img = np.full((100, 100, 3), 0.5, dtype=np.float32)
+        cfg = LocalAdjustmentsConfig(masks=(_center_square_mask(-1.0, feather=0.04),))
+        factor = compute_local_factor_map(cfg, 100, 100, (100, 100))
+        expected = np.clip(img * factor[..., np.newaxis], 0.0, 1.0)
+        got = apply_local_adjustments(img, cfg, (100, 100))
+        np.testing.assert_allclose(got, expected, rtol=0, atol=0)
 
 
 class TestLocalSerialization(unittest.TestCase):

@@ -22,15 +22,26 @@ class LocalSidebar(BaseSidebar):
             "Click to place vertices, double-click or click near the start to close. "
             "Click inside an existing mask to select it. Esc cancels the current shape."
         )
-        self.layout.addWidget(self.draw_btn)
+        self.show_btn = QPushButton(" Show Masks")
+        self.show_btn.setCheckable(True)
+        self.show_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
+        self.show_btn.setToolTip("Show or hide the mask outlines on the canvas")
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.draw_btn)
+        button_row.addWidget(self.show_btn)
+        self.layout.addLayout(button_row)
 
         self.strength_slider = CompactSlider("Strength", -1.0, 1.0, 0.3, step=0.05, precision=100, has_neutral=True, unit=" EV")
         self.strength_slider.setToolTip("EV adjustment for the selected mask — positive brightens (dodge), negative darkens (burn)")
-        self.layout.addWidget(self.strength_slider)
 
         self.feather_slider = CompactSlider("Feather", 0.0, 0.15, 0.02, step=0.005, precision=1000)
         self.feather_slider.setToolTip("Edge softness for the selected mask")
-        self.layout.addWidget(self.feather_slider)
+
+        slider_row = QHBoxLayout()
+        slider_row.addWidget(self.strength_slider)
+        slider_row.addWidget(self.feather_slider)
+        self.layout.addLayout(slider_row)
 
         status_row = QHBoxLayout()
         self.mask_count_label = QLabel("0 masks")
@@ -52,6 +63,7 @@ class LocalSidebar(BaseSidebar):
 
     def _connect_signals(self) -> None:
         self.draw_btn.toggled.connect(self._on_draw_toggled)
+        self.show_btn.toggled.connect(self.controller.set_local_overlay_visible)
         self.strength_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(strength=float(v)))
         self.feather_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(feather=float(v)))
         self.delete_btn.clicked.connect(self.controller.delete_selected_local_mask)
@@ -65,6 +77,7 @@ class LocalSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.draw_btn.setChecked(self.state.active_tool == ToolMode.LOCAL_DRAW)
+            self.show_btn.setChecked(self.state.show_local_overlay)
 
             n = len(conf.masks)
             self.mask_count_label.setText(f"{n} mask{'s' if n != 1 else ''}")
@@ -83,5 +96,5 @@ class LocalSidebar(BaseSidebar):
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        for w in [self.draw_btn, self.strength_slider, self.feather_slider]:
+        for w in [self.draw_btn, self.show_btn, self.strength_slider, self.feather_slider]:
             w.blockSignals(blocked)

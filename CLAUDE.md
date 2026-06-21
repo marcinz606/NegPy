@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Keep this file current.** When a change alters something documented here — pipeline stage order, the feature pattern, the data model, build/packaging steps, or the dev commands — update the relevant section in the same change. After adding a pipeline stage, a feature, or a shader, re-check the "CPU pipeline" stage list and the "Adding a new feature" checklist.
+
 ## Commands
 
 ```bash
@@ -37,7 +39,7 @@ Every feature under `negpy/features/<name>/` follows this structure:
 
 ### CPU pipeline (`negpy/services/rendering/engine.py`)
 
-`DarkroomEngine.process()` runs stages in order: base (geometry + normalization) → exposure → retouch → lab → toning → crop → finish. The cached stages (base, exposure, retouch, lab) go through `_run_stage()`, which hashes the stage config and skips re-execution if the hash matches the cached `CacheEntry`; toning/crop/finish run unconditionally. Source image change clears the whole cache; a process-mode change invalidates only base/exposure/retouch/lab. Note `settings.geometry` drives both the early geometry transform and the late crop stage.
+`DarkroomEngine.process()` runs stages in order: base (geometry + normalization) → exposure → retouch → lab → local (dodge/burn) → toning → crop → finish. The cached stages (base, exposure, retouch, lab, local) go through `_run_stage()`, which hashes the stage config and skips re-execution if the hash matches the cached `CacheEntry`; toning/crop/finish run unconditionally. Source image change clears the whole cache; a process-mode change invalidates only base/exposure/retouch/lab. Note `settings.geometry` drives both the early geometry transform and the late crop stage.
 
 ### GPU pipeline (`negpy/services/rendering/gpu_engine.py`)
 
@@ -63,5 +65,5 @@ Passed through every stage. Carries `scale_factor` (preview downsample ratio), `
 1. Create `negpy/features/<name>/` with `models.py`, `logic.py`, `processor.py`
 2. Add a field to `WorkspaceConfig` and update `to_dict` / `from_flat_dict`
 3. Insert a `_run_stage(...)` call in `DarkroomEngine.process()`
-4. For GPU: add a WGSL shader and wire it into `GPUEngine`
+4. For GPU: add a WGSL shader, wire it into `GPUEngine` (shader path + stage index/change-detection), and add the feature's `shaders/` dir to `build.py` (`--add-data`) so it ships in the packaged app
 5. Add a sidebar and register it in `ControlsPanel`

@@ -24,6 +24,7 @@ from negpy.features.geometry.logic import (
     get_manual_rect_coords,
     map_coords_to_geometry,
 )
+from negpy.features.local.logic import compute_local_factor_map
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -111,6 +112,7 @@ class GPUEngine:
             "clahe_apply": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_apply.wgsl")),
             "retouch": get_resource_path(os.path.join("negpy", "features", "retouch", "shaders", "retouch.wgsl")),
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
+            "local": get_resource_path(os.path.join("negpy", "features", "local", "shaders", "local.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
@@ -153,8 +155,10 @@ class GPUEngine:
         2: CLAHE (Adaptive Hist)
         3: Retouch (Healing)
         4: Lab (Color/Sharpen)
-        5: Toning (Paper/Split)
-        6: Layout (Final compositing)
+        5: Local (Dodge/Burn)
+        6: Toning (Paper/Split)
+        7: Finish (Vignette)
+        8: Layout (Final compositing)
         """
         if (
             self._last_settings is None
@@ -174,14 +178,16 @@ class GPUEngine:
             return 3
         if last.lab != settings.lab:
             return 4
-        if last.toning != settings.toning:
+        if last.local != settings.local:
             return 5
-        if last.finish != settings.finish:
+        if last.toning != settings.toning:
             return 6
-        if last.export != settings.export:
+        if last.finish != settings.finish:
             return 7
+        if last.export != settings.export:
+            return 8
 
-        return 8  # Nothing changed
+        return 9  # Nothing changed
 
     def _get_intermediate_texture(self, w: int, h: int, usage: int, label: str) -> GPUTexture:
         """Retrieves or creates a texture from the pool.
@@ -280,9 +286,14 @@ class GPUEngine:
         readback_metrics: bool = True,
         ir_buffer: Optional[np.ndarray] = None,
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
+        local_factor: Optional[np.ndarray] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
+
+        ``local_factor`` is a pre-rasterised dodge/burn factor map already in the
+        post-geometry frame; tiled export passes a per-tile slice. When None and
+        masks are present, it is computed here from ``settings.local``.
         """
         if not self.gpu.is_available:
             raise RuntimeError("GPU not available")
@@ -315,6 +326,7 @@ class GPUEngine:
             x1, y1 = 0, 0
             crop_w, crop_h = w, h
             actual_full_dims = full_dims
+            orig_shape = (h, w)
             roi = (0, h, 0, w)
         else:
             rot = settings.geometry.rotation % 4
@@ -504,6 +516,18 @@ class GPUEngine:
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "lab",
         )
+        tex_local = self._get_intermediate_texture(
+            w_rot,
+            h_rot,
+            wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
+            "local",
+        )
+        tex_local_factor = self._get_intermediate_texture(
+            w_rot,
+            h_rot,
+            wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+            "local_factor",
+        )
         tex_toning = self._get_intermediate_texture(
             crop_w,
             crop_h,
@@ -628,12 +652,42 @@ class GPUEngine:
                 h_rot,
             )
 
-        if start_stage <= 5:
+        # --- Local (Dodge/Burn) --- runs at full pre-crop resolution, before toning.
+        if settings.local.masks:
+            if start_stage <= 5:
+                if local_factor is None:
+                    local_factor = compute_local_factor_map(
+                        settings.local,
+                        h_rot,
+                        w_rot,
+                        orig_shape,
+                        rotation=settings.geometry.rotation,
+                        fine_rotation=settings.geometry.fine_rotation,
+                        flip_horizontal=settings.geometry.flip_horizontal,
+                        flip_vertical=settings.geometry.flip_vertical,
+                    )
+                tex_local_factor.upload(np.stack([local_factor] * 3, axis=-1))
+                self._dispatch_pass(
+                    enc,
+                    "local",
+                    [
+                        (0, tex_lab.view),
+                        (1, tex_local.view),
+                        (2, tex_local_factor.view),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
+            tex_pre_toning = tex_local
+        else:
+            tex_pre_toning = tex_lab
+
+        if start_stage <= 6:
             self._dispatch_pass(
                 enc,
                 "toning",
                 [
-                    (0, tex_lab.view),
+                    (0, tex_pre_toning.view),
                     (1, tex_toning.view),
                     (2, self._get_uniform_binding("toning")),
                 ],
@@ -648,7 +702,7 @@ class GPUEngine:
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
             "finish_tex",
         )
-        if start_stage <= 6:
+        if start_stage <= 7:
             self._dispatch_pass(
                 enc,
                 "finish",
@@ -672,7 +726,7 @@ class GPUEngine:
                 wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
                 "final",
             )
-            if start_stage <= 7:
+            if start_stage <= 8:
                 self._dispatch_pass(
                     enc,
                     "layout",
@@ -1302,6 +1356,22 @@ class GPUEngine:
                 logger.warning(f"IR pre-transform failed for tiled export; skipping IR dust removal: {e}")
                 ir_rot = None
 
+        # Rasterise the dodge/burn factor map once at full post-geometry resolution;
+        # tiles slice it directly (same pattern as IR above).
+        local_factor_rot: Optional[np.ndarray] = None
+        if settings.local.masks:
+            h_rot_full, w_rot_full = img_rot.shape[:2]
+            local_factor_rot = compute_local_factor_map(
+                settings.local,
+                h_rot_full,
+                w_rot_full,
+                (h, w),
+                rotation=settings.geometry.rotation,
+                fine_rotation=settings.geometry.fine_rotation,
+                flip_horizontal=settings.geometry.flip_horizontal,
+                flip_vertical=settings.geometry.flip_vertical,
+            )
+
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
         img_small = cv2.resize(img, (int(w * preview_scale), int(h * preview_scale)))
 
@@ -1416,6 +1486,7 @@ class GPUEngine:
                     min(h_rot, y1 + ty + th + TILE_HALO),
                 )
                 ir_tile = np.ascontiguousarray(ir_rot[iy1:iy2, ix1:ix2]) if ir_rot is not None else None
+                factor_tile = np.ascontiguousarray(local_factor_rot[iy1:iy2, ix1:ix2]) if local_factor_rot is not None else None
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 tile_res, _ = self.process_to_texture(
                     img_rot[iy1:iy2, ix1:ix2],
@@ -1432,6 +1503,7 @@ class GPUEngine:
                     apply_layout=False,
                     ir_buffer=ir_tile,
                     vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
+                    local_factor=factor_tile,
                 )
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 

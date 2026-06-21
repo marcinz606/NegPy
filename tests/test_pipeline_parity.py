@@ -20,6 +20,7 @@ from dataclasses import replace
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
+from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
@@ -371,4 +372,78 @@ class TestToningParity:
                 highlight_tint_strength=0.4,
             ),
         )
+        self._run_and_compare(s)
+
+
+class TestLocalParity:
+    """CPU vs GPU parity for the dodge/burn local shader.
+
+    The factor map is rasterised on the CPU and shared by both paths, so parity
+    is tight — only the final GPU multiply/clamp differs from numpy.
+    """
+
+    @classmethod
+    def setup_class(cls):
+        if not _gpu_available():
+            import pytest
+
+            pytest.skip("GPU not available — cannot run parity tests")
+        cls.cpu = DarkroomEngine()
+        cls.gpu = GPUEngine()
+        cls.img = _make_synthetic_image()
+
+    @classmethod
+    def teardown_class(cls):
+        if hasattr(cls, "gpu"):
+            cls.gpu.destroy_all()
+
+    def _run_and_compare(self, settings: WorkspaceConfig) -> None:
+        h, w = self.img.shape[:2]
+        scale = max(h, w) / 1024.0
+
+        cpu_result = self.cpu.process(self.img, settings, "parity_test")
+        gpu_tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=scale,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+
+        assert cpu_result.shape == gpu_result.shape, f"Shape mismatch: CPU {cpu_result.shape} vs GPU {gpu_result.shape}"
+        # Tolerance matches the other parity classes; the shared CPU-rasterised
+        # factor map adds no divergence beyond the existing pipeline baseline
+        # (verified by test_no_masks), bar a few mask-edge resampling outliers.
+        _assert_mostly_close(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1, max_violation_frac=0.01)
+
+    @staticmethod
+    def _mask(strength: float, feather: float = 0.0) -> PolygonMask:
+        return PolygonMask(
+            vertices=((0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75)),
+            strength=strength,
+            feather=feather,
+        )
+
+    def test_no_masks(self):
+        self._run_and_compare(_make_base_settings())
+
+    def test_dodge(self):
+        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=(self._mask(1.0),)))
+        self._run_and_compare(s)
+
+    def test_burn(self):
+        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=(self._mask(-1.0),)))
+        self._run_and_compare(s)
+
+    def test_feathered(self):
+        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=(self._mask(0.8, feather=0.06),)))
+        self._run_and_compare(s)
+
+    def test_multiple_masks(self):
+        masks = (
+            PolygonMask(vertices=((0.1, 0.1), (0.45, 0.1), (0.45, 0.45), (0.1, 0.45)), strength=1.0),
+            PolygonMask(vertices=((0.55, 0.55), (0.9, 0.55), (0.9, 0.9), (0.55, 0.9)), strength=-1.0),
+        )
+        s = replace(_make_base_settings(), local=LocalAdjustmentsConfig(masks=masks))
         self._run_and_compare(s)

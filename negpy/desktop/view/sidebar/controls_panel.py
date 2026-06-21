@@ -206,8 +206,6 @@ class ControlsPanel(QWidget):
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
 
-        self.local_section.expanded_changed.connect(self._on_local_section_expanded)
-
     def apply_shortcut_tooltips(self) -> None:
         exp = self.exposure_sidebar
         geo = self.geometry_sidebar
@@ -457,11 +455,6 @@ class ControlsPanel(QWidget):
                 ["border_size_inc", "border_size_dec"],
             )
         )
-
-    def _on_local_section_expanded(self, expanded: bool) -> None:
-        self.controller.state.show_local_overlay = expanded
-        if self.controller.canvas:
-            self.controller.canvas.overlay.update()
 
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""

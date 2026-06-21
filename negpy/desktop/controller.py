@@ -1114,6 +1114,12 @@ class AppController(QObject):
             self.compare_changed.emit(True)
             self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
 
+    def set_local_overlay_visible(self, visible: bool) -> None:
+        """Show/hide the dodge/burn mask overlay (view-only; no re-render)."""
+        self.state.show_local_overlay = visible
+        if self.canvas:
+            self.canvas.overlay.update()
+
     def _enabled_presets(self) -> List[ExportPreset]:
         return [p for p in self.state.export_presets if p.enabled]
 
