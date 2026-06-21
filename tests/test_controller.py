@@ -190,6 +190,19 @@ class TestAppController(unittest.TestCase):
         self.controller.set_local_overlay_visible(True)
         self.assertTrue(self.controller.state.show_local_overlay)
 
+    def test_lasso_completion_adds_mask_and_exits_draw_mode(self):
+        import numpy as np
+
+        self.controller.state.active_tool = ToolMode.LOCAL_DRAW
+        self.controller.state.last_metrics["uv_grid"] = np.zeros((2, 2, 2), dtype=np.float32)
+        self.controller.request_render = MagicMock()
+
+        self.controller.handle_lasso_completed([(0.1, 0.1), (0.9, 0.1), (0.5, 0.9)])
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(len(saved_config.local.masks), 1)
+        self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+
 
 class TestBatchExportFiltering(unittest.TestCase):
     def setUp(self):

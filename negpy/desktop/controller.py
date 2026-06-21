@@ -672,6 +672,7 @@ class AppController(QObject):
         new_local = replace(local, masks=new_masks)
         self.session.update_config(replace(self.state.config, local=new_local), persist=True)
         self.state.local_selected_mask = len(new_masks) - 1
+        self.set_active_tool(ToolMode.NONE)  # auto-exit draw mode once the polygon closes
         self.config_updated.emit()
         self.request_render()
 
