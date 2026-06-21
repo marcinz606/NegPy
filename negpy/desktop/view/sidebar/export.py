@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -75,18 +74,12 @@ class ExportSidebar(BaseSidebar):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(6)
 
-        self._presets_scroll = QScrollArea()
-        self._presets_scroll.setWidgetResizable(True)
-        self._presets_scroll.setMaximumHeight(140)
-        self._presets_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._presets_scroll.setStyleSheet(f"QScrollArea {{ border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark}; }}")
         self._presets_container = QWidget()
-        self._presets_container.setStyleSheet(f"background: {THEME.bg_dark};")
+        self._presets_container.setStyleSheet(f"border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark};")
         self._presets_inner = QVBoxLayout(self._presets_container)
         self._presets_inner.setContentsMargins(4, 4, 4, 4)
         self._presets_inner.setSpacing(2)
-        self._presets_scroll.setWidget(self._presets_container)
-        content_layout.addWidget(self._presets_scroll)
+        content_layout.addWidget(self._presets_container)
 
         self._no_presets_label = QLabel("No presets — click Manage to add some.")
         self._no_presets_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
