@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -157,6 +157,39 @@ def test_remove_from_menu_routes_single_vs_multi(browser, session):
     browser._on_remove_from_menu()
     session.remove_selected_files.assert_called_once()
     session.remove_current_file.assert_not_called()
+
+
+def test_add_files_uses_and_saves_last_folder(browser, session):
+    session.repo.get_global_setting.return_value = "/photos/scans"
+    with patch(
+        "negpy.desktop.view.sidebar.files.QFileDialog.getOpenFileNames",
+        return_value=(["/photos/scans/2024/x.cr2"], ""),
+    ) as dlg:
+        browser._on_add_files()
+    assert dlg.call_args.args[2] == "/photos/scans"
+    session.repo.save_global_setting.assert_called_with("last_open_folder", "/photos/scans/2024")
+
+
+def test_add_folder_uses_and_saves_parent_of_last_folder(browser, session):
+    session.repo.get_global_setting.return_value = "/photos/scans"
+    with patch(
+        "negpy.desktop.view.sidebar.files.QFileDialog.getExistingDirectory",
+        return_value="/photos/scans/2024",
+    ) as dlg:
+        browser._on_add_folder()
+    assert dlg.call_args.args[2] == "/photos/scans"
+    session.repo.save_global_setting.assert_called_with("last_open_folder", "/photos/scans")
+
+
+def test_add_files_falls_back_to_empty_dir_when_unset(browser, session):
+    session.repo.get_global_setting.return_value = None
+    with patch(
+        "negpy.desktop.view.sidebar.files.QFileDialog.getOpenFileNames",
+        return_value=([], ""),
+    ) as dlg:
+        browser._on_add_files()
+    assert dlg.call_args.args[2] == ""
+    assert not any(c.args and c.args[0] == "last_open_folder" for c in session.repo.save_global_setting.call_args_list)
 
 
 def test_clearing_filter_clears_error_stylesheet(browser):

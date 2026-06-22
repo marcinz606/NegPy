@@ -435,18 +435,22 @@ class FileBrowser(QWidget):
 
     def _on_add_files(self) -> None:
         wildcards = get_supported_raw_wildcards()
+        start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Images",
-            "",
+            start_dir,
             f"Supported Images ({wildcards})",
         )
         if files:
+            self.session.repo.save_global_setting("last_open_folder", os.path.dirname(files[0]))
             self.controller.request_asset_discovery(files, auto_open=True)
 
     def _on_add_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        start_dir = self.session.repo.get_global_setting("last_open_folder", "") or ""
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder", start_dir)
         if folder:
+            self.session.repo.save_global_setting("last_open_folder", os.path.dirname(folder))
             self.controller.request_asset_discovery([folder], auto_open=True)
 
     def _on_item_double_clicked(self, index) -> None:
