@@ -166,8 +166,11 @@ def get_best_demosaic_algorithm(raw: Any, for_preview: bool = False) -> Any:
 
             if cfa_block_size == 6:
                 # 6x6 block means it's a Fujifilm X-Trans sensor.
-                # LINEAR is ~4.6x faster than VNG; artifacts are invisible at preview scale.
-                selected_algo = rawpy.DemosaicAlgorithm.LINEAR if for_preview else rawpy.DemosaicAlgorithm.VNG
+                # LINEAR is ~4.6x faster than DHT; artifacts are invisible at preview scale.
+                # VNG was used previously, but it produces dot/maze artifacts on X-Trans's
+                # 6x6 pattern in high-contrast regions (see #272). DHT was added to dcraw/
+                # LibRaw specifically to handle X-Trans correctly and is also LGPL-clean.
+                selected_algo = rawpy.DemosaicAlgorithm.LINEAR if for_preview else rawpy.DemosaicAlgorithm.DHT
 
             elif cfa_block_size == 2:
                 # 2x2 block means it's a standard Bayer sensor (Canon, Nikon, Sony, etc.)

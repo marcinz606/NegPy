@@ -129,7 +129,7 @@ def test_load_linear_preview_hq_uses_best_demosaic_no_half() -> None:
 
 @pytest.mark.parametrize("cfa_block", [2, 6])
 def test_load_linear_preview_hq_demosaic_xtrans_vs_bayer(cfa_block: int) -> None:
-    """HQ: X-Trans (6) uses VNG; Bayer (2) uses AHD."""
+    """HQ: X-Trans (6) uses DHT; Bayer (2) uses AHD."""
     rgb_u16 = np.ones((32, 32, 3), dtype=np.uint16) * 128
 
     raw = MagicMock()
@@ -150,7 +150,7 @@ def test_load_linear_preview_hq_demosaic_xtrans_vs_bayer(cfa_block: int) -> None
         PreviewManager().load_linear_preview("/fake/path.dng", full_resolution=True)
 
     _, kwargs = raw.postprocess.call_args
-    expected = rawpy.DemosaicAlgorithm.VNG if cfa_block == 6 else rawpy.DemosaicAlgorithm.AHD
+    expected = rawpy.DemosaicAlgorithm.DHT if cfa_block == 6 else rawpy.DemosaicAlgorithm.AHD
     assert kwargs["demosaic_algorithm"] == expected
 
 
