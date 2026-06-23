@@ -100,12 +100,14 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     "kodak_endura": PaperProfile(
         label="Kodak Endura Premier",
         kind="ra4",
-        # Neutral, deep blacks (Dmax ~2.55), punchy midtone S. Vividness is
-        # spectral, not in the curve, so no colour bias.
+        # Neutral, deep blacks (Dmax ~2.55), punchy midtone S. Datasheet R/G/B
+        # diverge only at Dmax (R densest) → cool deep shadows; approximated with a
+        # small channel_gamma.
         d_max=2.55,
         d_min=0.06,
         toe_sharpness_base=3.5,
         paper_midtone_gamma=0.22,
+        channel_gamma=(1.04, 1.0, 0.98),
     ),
     "fuji_crystal": PaperProfile(
         label="Fujicolor Crystal Archive",
