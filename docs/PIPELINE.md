@@ -23,11 +23,12 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Negative (C-41/B&W)**: Raw low-signal (Film Base) maps to Floor ($0.0$). Raw high-signal (Highlights) maps to Ceiling ($1.0$). Range: 0.5% to 99.5%.
     *   **Positive (E-6)**: Raw high-signal (Highlights) maps to Floor ($0.0$). Raw low-signal (Shadows) maps to Ceiling ($1.0$). Range: 99.9% to 0.01%.
     
-    The bounds are customizable via two controls:
-    *   **D-Range Clip**: Tunes how aggressively the percentile window is set. **Positive** values symmetrically tighten the window before bounds detection — useful for very dense or fogged negatives where a few outlier pixels would otherwise pull the white or black point to an extreme. **Zero** uses robust extremes (a block-median prefilter rejects dust and speculars, and a small base clip excludes tiny outlier populations). **Negative** values push the bounds *outward* beyond the extremes, leaving lifted blacks and unclipped highlights as headroom.
+    Bounds are sampled on **two independent axes** (`_sample_log_bounds`): a **luma** pass fixes the floor/ceil mean (centre + span), and a **colour** pass fixes each channel's deviation from that mean. The two are recombined, so colour balance is tunable without compressing the luminance range. Identical channels (mono) give zero deviation at any clip. The controls:
+    *   **D-Range Clip** (`luma_range_clip`): Tunes how aggressively the *luminance* percentile window is set — the black/white-point span (dynamic range). **Positive** values symmetrically tighten the window before bounds detection — useful for very dense or fogged negatives where a few outlier pixels would otherwise pull the white or black point to an extreme. **Zero** uses robust extremes (a block-median prefilter rejects dust and speculars, and a small base clip excludes tiny outlier populations). **Negative** values push the bounds *outward* beyond the extremes, leaving lifted blacks and unclipped highlights as headroom.
+    *   **Colour Clip** (`color_range_clip`): The absolute per-tail clip percentile for the per-channel colour deviation (white balance / orange-mask cast), independent of the luma span. A **tighter** (larger) clip gives a more robust, outlier-resistant channel balance; a **gentler** (smaller) clip samples nearer the extremes. The default neutral is `base_color_clip` ($5.0$).
     *   **White & Black Point Offsets**: Fine-tunes the detected bounds after statistical analysis. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running the analysis.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range. The result is **not clamped**: tones outside the detected bounds are kept and rolled off later by the soft toe/shoulder of the print curve, rather than being truncated here.
-*   **Per-frame metering**: Normalization also measures a few statistics used later by the Print stage's automatic helpers — per-channel **shadow references** ($P_{97.5}$, for Cast Removal) and a per-frame **exposure anchor** ($P_{50}$ luminance) and **textural range** ($P_{10}\text{–}P_{90}$, for Auto Density / Auto Grade). See §3.
+*   **Per-frame metering**: Normalization also measures a few statistics used later by the Print stage's automatic helpers — per-channel **shadow references** ($P_{98}$, for Cast Removal) and a per-frame **exposure anchor** ($P_{50}$ luminance) and **textural range** ($P_{10}\text{–}P_{90}$, for Auto Density / Auto Grade). See §3.
 
 ---
 
@@ -35,18 +36,21 @@ Here is what actually happens to your image. We apply these steps in order, pass
 **Code**: `negpy.features.exposure`
 
 *   **Virtual Darkroom**: Simulates shining light through the normalized log-signal onto paper.
-*   **Color Timing**: Applies subtractive filtration (CMY) in log-space. This mimics a dichroic head on an enlarger. Adjustments can be targeted to **Global**, **Shadows**, or **Highlights** regions; the shadow/highlight offsets are weighted by the toe/shoulder tonal masks (below).
-*   **The H&D Curve**: Models paper response using a **Richards curve** (generalized logistic). The plain sigmoid is raised to a power $\nu$, which gives an asymmetric, paper-like toe while keeping a smooth shoulder. The curve lives in **density** space:
-    $$D = D_{min} + (D_{asym} - D_{min}) \cdot \sigma(k \cdot x_{adj})^{\nu}$$
+*   **Color Timing**: Applies subtractive filtration (CMY) in log-space. This mimics a dichroic head on an enlarger. Adjustments can be targeted to **Global**, **Shadows**, or **Highlights** regions; the shadow/highlight offsets are weighted by a smooth sigmoid about the midtone — $w_{sh} = \sigma(3 \cdot (v - z))$, where $z$ is the midtone zone centre (`anchor_target_density`) — so shadow weight rises with density and highlight weight falls.
+*   **The H&D Curve**: Models paper response as an **asymmetric toe-linear-shoulder** curve in **density** space. A straight line of slope $k$ through the exposure pivot is smoothly bounded above by the **toe** (shadows rolling into paper black) and below by the **shoulder** (highlights rolling into paper white). Both bounds are independent **softplus** knees, so each slider shapes only its own end of the scale (film/print convention). With $v = k \cdot (x_{adj} - x_0)$:
+    $$v_1 = D_{min} + \frac{\text{softplus}\big(a_{hl} (v - D_{min})\big)}{a_{hl}} \qquad \text{(shoulder → paper white)}$$
+    $$D = D_{max} - \frac{\text{softplus}\big(a_{sh} (D_{max} - v_1)\big)}{a_{sh}} \qquad \text{(toe → paper black)}$$
     *   $D_{min} = 0.06$: Paper white (the base isn't pure black). Toggle with **Paper White Base** (`paper_dmin`); off uses $D_{min} = 0$.
-    *   $D_{asym} = 2.7$: The curve's *virtual* asymptote. The actual deepest black is the physical **D-max** $= 2.3$, enforced by a soft-saturation shoulder so density rolls into the floor instead of clipping.
-    *   $\nu = 3.0$: Paper-toe sharpness.
+    *   $D_{max} = 2.3$: Physical deepest black (paper D-max). There is no separate virtual asymptote — the softplus toe rolls density into $D_{max}$ directly.
+    *   $a_{sh}, a_{hl}$: Toe / shoulder knee sharpness, from `toe_sharpness_base` ($4.0$) and `shoulder_sharpness_base` ($3.0$) scaled by `toeshoulder_width_ref`$/$width.
     *   $k$: Per-channel slope (contrast), derived from **Grade**.
-    *   $x_{adj}$: Adjusted input log-exposure (after toe, shoulder, and CMY offsets).
-*   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default 115, range 50–180 (R110 ≈ classic paper grade 2; higher R = softer). Edits saved under the old 0–5 paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
-*   **Toe & Shoulder**: Two independent levers, both anchored so the rest of the tone scale stays put (slider values are scaled by $0.85$ internally):
-    *   **Shoulder** — an integrated-sigmoid term on the *input* axis that modulates highlight local contrast, leaving the pivot tone invariant.
-    *   **Toe** — a *density-domain* shadow lever that begins at an onset density of $1.2$, with its tangent removed so highlights remain invariant at any width. Lifts blacks or deepens shadows without touching the upper scale.
+    *   $x_{adj}$: Adjusted input log-exposure (after CMY offsets); $x_0$ is the pivot.
+*   **Variable-gamma paper S-curve**: Before the bounds, a midtone gamma boost adds an anchor-preserving S-shape — $v \mathrel{+}= \gamma \cdot w \cdot \tanh\big((v - v^\*)/w\big)$ (`paper_midtone_gamma` $= 0.15$, `paper_gamma_width` $= 0.5$). Centred on the reference tone $v^\*$ so the anchor is preserved, easing to zero toward toe and shoulder — a real paper's continuously varying gamma.
+*   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default 115, range 50–180 (R110 ≈ classic paper grade 2; higher R = softer). The straight-line slope is $k = \text{`grade\_contrast\_scale`} \cdot \text{range} / (R/100)$ (`grade_contrast_scale` $= 2.9$), clamped to $[2.0, 10.0]$ — the literal H&D gamma (negative density range over paper exposure range). Edits saved under the old 0–5 paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
+*   **Toe & Shoulder**: Two independent levers (slider values scaled by $0.85$ internally). The slider sets roll-off **height**; **sharpness** comes from the width control:
+    *   **Toe** — shadows. Lifts the paper-black ceiling: $D_{max,eff} = D_{max} - \text{toe} \cdot 0.35$ (`toe_height`). Negative toe instead *sharpens* the shadow knee (extending past $D_{max}$ has near-zero perceptual effect).
+    *   **Shoulder** — highlights. Lifts the paper-white floor (compresses/greys highlights): $D_{min,eff} = D_{min} + \text{shoulder} \cdot 0.35$ (`shoulder_height`).
+    *   **Grade-coupled baseline**: hard grades (high slope) physically have snappier toes and compressed shoulders, so a slope-proportional amount is added automatically (`toe_grade_strength` $= 0.15$, `shoulder_grade_strength` $= 0.12$, scaled by the normalized slope).
 *   **Output**: Converts print density back to light (Transmittance), then encodes:
     $$I_{out} = 10^{-D}$$
     *   **Note**: The sRGB transfer (display gamma) is applied as the final encode.
@@ -55,21 +59,28 @@ Here is what actually happens to your image. We apply these steps in order, pass
 
 The defaults are tuned to look right straight out of the box; these helpers do per-frame work so you don't have to. All correct **partially** — they nudge toward a good result while preserving the photograph's intent. Turn them off to let the conversion follow the negative honestly (a dense negative prints dense, a flat one prints flat).
 
-*   **Auto Density** (`auto_exposure`, **on**): Meters each frame's median tone and sets a sensible brightness. The exposure anchor is a partial move from an assumed key toward the measured median:
-    $$\text{anchor} = 0.46 + 0.25 \cdot (P_{50} - 0.46), \quad \text{clamped to } \pm 0.12$$
-    The $0.25$ blend (and $\pm 0.12$ band) means a deliberately low-key or high-key shot keeps its mood instead of being flattened to neutral grey.
+*   **Auto Density** (`auto_exposure`, **on**): Meters each frame's median tone and sets a sensible brightness. The exposure anchor is a linear partial pull from the assumed key toward the measured median:
+    $$\text{anchor} = \text{assumed} + 0.2 \cdot (P_{50} - \text{assumed}), \quad \text{clamped to } \pm 0.12$$
+    The $0.2$ blend (and $\pm 0.12$ band) means a deliberately low-key or high-key shot keeps its mood instead of being flattened to neutral grey.
 *   **Auto Grade** (`auto_normalize_contrast`, **on**): Chooses contrast to suit each scene from the textural density range ($P_{10}\text{–}P_{90}$). Letting $r$ be the ratio of the full bounded range to the textural range, the effective contrast target is:
-    $$0.6 \cdot \big(2.0 + 0.4 \cdot (r - 2.0)\big)$$
-    The $0.4$ adaptation strength dampens contrast swings gently — a flat scene gets a small lift, a punchy scene stays punchy, nothing is pushed to a harsh extreme.
-*   **Cast Removal** (`cast_removal`, **on**): Neutralizes the colour cast a negative leaves in the print, balancing each layer so greys read neutral from deep shadows through highlights — not just at the midtone (the usual cause of shadows/highlights drifting off-colour after a C-41 midtone white balance). Using the per-channel shadow refs ($P_{97.5}$), each non-green channel gets its own slope so its shadow ref lines up with green's, while the pivot (midtone) stays neutral:
+    $$0.6 \cdot \big(2.0 + 0.3 \cdot (r - 2.0)\big)$$
+    The $0.3$ adaptation strength dampens contrast swings gently — a flat scene gets a small lift, a punchy scene stays punchy, nothing is pushed to a harsh extreme.
+*   **Cast Removal** (`cast_removal`, **off**): Neutralizes the colour cast a negative leaves in the print, balancing each layer so greys read neutral from deep shadows through highlights — not just at the midtone (the usual cause of shadows/highlights drifting off-colour after a C-41 midtone white balance). Using the per-channel shadow refs ($P_{98}$), each non-green channel gets its own slope so its shadow ref lines up with green's, while the pivot (midtone) stays neutral:
     $$k_{ch} = k \cdot \frac{\text{anchor} - r_{green}}{\text{anchor} - (r_{green} - \text{cast}_{ch})}$$
-    The per-channel cast is bounded ($\pm 0.125$) so the tilt can't run away.
+    The per-channel cast is bounded ($\pm 0.1$) so the tilt can't run away.
 *   **Contrast Lift / Surround** (`surround`, off): A gentle Bartleson–Breneman dim-surround correction. Prints viewed in a normal room want slightly more midtone contrast than a 1:1 reproduction, so this expands contrast about paper white:
     $$D = D_{min} + 1.10 \cdot (D - D_{min})$$
 *   **Flare** (`flare`, off): A darkroom-style veiling-glare floor that lifts the deepest blacks and softens the toe for a more film-like look, while leaving paper white fixed. Applied in linear reflectance:
     $$I_{out} = \frac{I + f \cdot I_{white}}{1 + f}, \quad f = 0.005,\ I_{white} = 10^{-D_{min}}$$
 
 With the helpers off, the conversion **shows you your photography** — exactly how the frame was exposed and developed. The defaults should be neutral, but you can (and should) use the sliders to match the curve shape (your "print") to your liking.
+
+### Paper profiles
+**Code**: `negpy.features.exposure.papers`
+
+A **paper profile** (`paper_profile`, default *Neutral*) overrides the print *character* — the H&D curve shape — without touching contrast or exposure. Each profile sets the paper's $D_{max}$/$D_{min}$, toe/shoulder knee sharpness and height, and midtone gamma; colour papers add a per-channel slope crossover (`channel_gamma`, the dye-layer divergence at the extremes) and a paper-base tint (`base_tint_cmy`). Grade still owns contrast and the Density/toe/shoulder sliders still trim on top — the *Neutral* profile reproduces the defaults exactly.
+
+Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the tonal-only B&W papers (paper tone is a Toning job, so B&W profiles carry no colour terms), and E-6 gets only *Neutral*. An incompatible stored value collapses to *Neutral* so it can never leak into a render. Bundled papers: **Neutral**; *B&W* — Ilford Multigrade RC, Ilford Multigrade FB Classic, Foma Fomatone, Foma Fomabrom; *RA4* — Kodak Endura Premier, Fujicolor Crystal Archive. Values are loosely mapped from datasheets (mainly $D_{max}$ is grounded; the knee/midtone tweaks are light character touches).
 
 ---
 
