@@ -44,7 +44,7 @@ class ExposureConfig:
     shoulder_width: float = 2.5
     paper_dmin: bool = True
     flare: bool = False
-    cast_removal: bool = False
+    cast_removal: bool = True
     surround: bool = False
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
