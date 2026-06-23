@@ -149,7 +149,8 @@ def measure_anchor_from_log(
     assumed_anchor toward the metered median, so a deliberately low-key (dark) or
     high-key (bright) scene keeps most of its intended key instead of being
     forced to mid-gray, while gross mis-exposure is still pulled toward correct.
-    Finally clamped to assumed_anchor +/- anchor_meter_band as a hard safety guard.
+    A linear pull (no key-dependent amplification) keeps it predictable. Finally
+    clamped to assumed_anchor +/- anchor_meter_band as a hard safety guard.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -176,8 +177,8 @@ def measure_anchor_from_log(
 
     assumed = float(EXPOSURE_CONSTANTS["assumed_anchor"])
     strength = float(EXPOSURE_CONSTANTS["anchor_meter_strength"])
-    anchor = assumed + strength * (measured - assumed)
     band = float(EXPOSURE_CONSTANTS["anchor_meter_band"])
+    anchor = assumed + strength * (measured - assumed)
     return float(min(max(anchor, assumed - band), assumed + band))
 
 
@@ -246,6 +247,56 @@ def normalize_log_image(img_log: ImageBuffer, bounds: LogNegativeBounds) -> Imag
     return ensure_image(_normalize_log_image_jit(np.ascontiguousarray(img_log.astype(np.float32)), floors, ceils))
 
 
+def _sample_log_bounds(
+    img_log: np.ndarray,
+    percentile_clip: float,
+    base: float,
+    process_mode: str,
+    e6_normalize: bool,
+) -> tuple[list, list]:
+    """
+    Per-channel (floors, ceils) at one clip level. `base` is the robust baseline
+    clip added on top of the slider value; negative slider values expand outward
+    by a log-density margin instead.
+    """
+    if percentile_clip >= 0:
+        clip = max(0.00001, min(50.0, percentile_clip + base))
+        margin = 0.0
+    else:
+        # Margin mode expands from the same robust basis so the slider stays
+        # continuous through its neutral position.
+        clip = base
+        margin = -percentile_clip
+    p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
+    fixed_range = 3.0
+
+    if process_mode == ProcessMode.E6:
+        p_low, p_high = p_high, p_low
+        fixed_range = -3.0
+
+    floors = [float(np.percentile(img_log[:, :, ch], p_low)) for ch in range(3)]
+
+    ceils = []
+    for ch in range(3):
+        data = img_log[:, :, ch]
+        if process_mode != ProcessMode.E6 or e6_normalize:
+            ceils.append(float(np.percentile(data, p_high)))
+        else:
+            ceils.append(float(floors[ch] + fixed_range))
+
+    if margin > 0.0:
+        # Expand outward; per-channel sign handles both f < c and f > c (E6).
+        for ch in range(3):
+            if ceils[ch] >= floors[ch]:
+                floors[ch] -= margin
+                ceils[ch] += margin
+            else:
+                floors[ch] += margin
+                ceils[ch] -= margin
+
+    return floors, ceils
+
+
 def analyze_log_exposure_bounds(
     image: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
@@ -253,16 +304,25 @@ def analyze_log_exposure_bounds(
     process_mode: str = ProcessMode.C41,
     e6_normalize: bool = True,
     percentile_clip: float = 0.0,
+    color_clip: float = 0.0,
 ) -> LogNegativeBounds:
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
-    percentile_clip controls how the bounds are sampled:
-      > 0  clips the histogram tails (e.g. 0.0001 = nearly no clipping; 1.0 = clip 1% per tail),
-           added on top of the robust baseline clip.
-      = 0  robust extremes: a block-median prefilter rejects isolated outliers (speculars,
-           dust) and base_drange_clip excludes small coherent extreme populations.
-      < 0  outward headroom: bounds are pushed BEYOND the robust extremes by margin = -percentile_clip
-           (in log-density units), leaving lifted blacks / unclipped highlights (gentler than 0).
+
+    Two independent axes are sampled and recombined:
+      - percentile_clip (luma): drives the overall black/white-point luminance and
+        span (ceil-floor) — i.e. dynamic range / highlight headroom. Sampled at the
+        gentle base_drange_clip baseline; slider semantics are:
+          > 0  clips the histogram tails (added on top of the baseline clip).
+          = 0  robust extremes (block-median prefilter + baseline clip).
+          < 0  outward headroom: bounds pushed BEYOND the robust extremes by the margin.
+      - color_clip (colour): the absolute per-tail clip percentile for the per-channel
+        colour deviation (white balance / orange-mask cast). A tighter (larger) clip
+        gives a more robust channel balance; a gentler (smaller) clip samples nearer
+        the extremes. Default neutral is base_color_clip.
+    The luminance centre+span comes from the luma sampling, the per-channel colour
+    offsets from the colour sampling, so the cast clip is tunable without compressing
+    highlights. Identical channels (mono) give zero deviation at any clip.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -278,44 +338,18 @@ def analyze_log_exposure_bounds(
 
     img_log = _block_median_grid(img_log)
 
-    base = float(EXPOSURE_CONSTANTS["base_drange_clip"])
-    if percentile_clip >= 0:
-        clip = max(0.00001, min(1.0, percentile_clip + base))
-        margin = 0.0
-    else:
-        # Margin mode expands from the same robust basis so the slider stays
-        # continuous through its neutral position.
-        clip = base
-        margin = -percentile_clip
-    p_low, p_high = np.float64(clip), np.float64(100.0 - clip)
-    fixed_range = 3.0
+    base_luma = float(EXPOSURE_CONSTANTS["base_drange_clip"])
 
-    if process_mode == ProcessMode.E6:
-        p_low, p_high = p_high, p_low
-        fixed_range = -3.0
+    floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize)
 
-    floors = []
-    for ch in range(3):
-        floors.append(float(np.percentile(img_log[:, :, ch], p_low)))
-
-    ceils = []
-    for ch in range(3):
-        data = img_log[:, :, ch]
-        if process_mode != ProcessMode.E6 or e6_normalize:
-            c = np.percentile(data, p_high)
-            ceils.append(float(c))
-        else:
-            ceils.append(float(floors[ch] + fixed_range))
-
-    if margin > 0.0:
-        # Expand outward; per-channel sign handles both f < c and f > c (E6).
-        for ch in range(3):
-            if ceils[ch] >= floors[ch]:
-                floors[ch] -= margin
-                ceils[ch] += margin
-            else:
-                floors[ch] += margin
-                ceils[ch] -= margin
+    # Colour pass: per-channel deviation sampled at its own absolute clip percentile
+    # (color_clip), recombined onto the luma mean centre+span. Tightening the colour
+    # clip tightens channel balance / cast removal without touching the luma span.
+    c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, process_mode, e6_normalize)
+    mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
+    mean_cf, mean_cc = sum(c_floors) / 3.0, sum(c_ceils) / 3.0
+    floors = [mean_lf + (c_floors[ch] - mean_cf) for ch in range(3)]
+    ceils = [mean_lc + (c_ceils[ch] - mean_cc) for ch in range(3)]
 
     return LogNegativeBounds(
         (floors[0], floors[1], floors[2]),

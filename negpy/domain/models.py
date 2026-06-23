@@ -28,6 +28,9 @@ MIGRATIONS: Dict[str, str] = {
     # user's saved on/off; the unpublished "crossover"/"density_balance" keys are
     # just dropped as unknown (default cast_removal=True).
     "auto_shadow_neutral": "cast_removal",
+    # D-Range Clip split into independent luma + colour range clips; the old single
+    # slider maps to the luma axis (colour defaults to its aggressive baseline).
+    "drange_clip": "luma_range_clip",
 }
 
 

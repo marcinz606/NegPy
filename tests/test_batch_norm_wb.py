@@ -48,7 +48,8 @@ def test_batch_analysis_decodes_in_render_wb(qapp):
         ],
         workspace_color_space="sRGB",
         override_analysis_buffer=base.process.analysis_buffer,
-        override_drange_clip=base.process.drange_clip,
+        override_luma_range_clip=base.process.luma_range_clip,
+        override_color_range_clip=base.process.color_range_clip,
     )
 
     captured: list[tuple] = []
@@ -86,8 +87,8 @@ def test_batch_analysis_applies_roll_wide_buffer_and_drange(qapp, monkeypatch):
     base = WorkspaceConfig()
     # Files carry DIFFERENT saved buffer/d-range — must be ignored in favor of override.
     settings = {
-        "h1": replace(base, process=replace(base.process, analysis_buffer=0.20, drange_clip=5.0)),
-        "h2": replace(base, process=replace(base.process, analysis_buffer=0.01, drange_clip=-2.0)),
+        "h1": replace(base, process=replace(base.process, analysis_buffer=0.20, luma_range_clip=5.0)),
+        "h2": replace(base, process=replace(base.process, analysis_buffer=0.01, luma_range_clip=-2.0)),
     }
     worker = NormalizationWorker(_FakePreviewService(), _FakeRepo(settings))
 
@@ -98,7 +99,8 @@ def test_batch_analysis_applies_roll_wide_buffer_and_drange(qapp, monkeypatch):
         ],
         workspace_color_space="sRGB",
         override_analysis_buffer=0.12,
-        override_drange_clip=3.5,
+        override_luma_range_clip=3.5,
+        override_color_range_clip=0.0,
     )
 
     worker.process(task)

@@ -94,7 +94,7 @@ class TestConfigDeserialization(unittest.TestCase):
             reloaded.process.e6_normalize,
             reloaded.geometry,
             reloaded.process.analysis_buffer,
-            reloaded.process.drange_clip,
+            reloaded.process.luma_range_clip,
         )
         self.assertIsInstance(calculate_config_hash(base_key), str)
 

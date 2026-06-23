@@ -5,21 +5,21 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.logic import grade_to_slope, sigmoid_span
+from negpy.features.exposure.logic import grade_to_slope
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.processor import NormalizationProcessor, PhotometricProcessor
 
 
 class TestGradeToSlope(unittest.TestCase):
     def test_iso_r_exposure_range(self):
-        # ISO R110 -> exposure range 1.1; contrast = negative density range /
-        # paper exposure range, so slope = span * rng / er.
-        span = sigmoid_span(EXPOSURE_CONSTANTS["paper_toe_nu"])
-        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), span * 1.3 / 1.1, places=5)
+        # ISO R110 -> exposure range 1.1; the straight-line slope is the H&D gamma
+        # = grade_contrast_scale * negative density range / paper exposure range.
+        scale = EXPOSURE_CONSTANTS["grade_contrast_scale"]
+        self.assertAlmostEqual(grade_to_slope(110.0, 1.3), scale * 1.3 / 1.1, places=5)
 
-    def test_span_generalizes_ln81(self):
-        # nu = 1 must reduce to the plain logistic's 10-90% span.
-        self.assertAlmostEqual(sigmoid_span(1.0), np.log(81.0), places=9)
+    def test_slope_scales_linearly_with_range(self):
+        # Contrast is proportional to the negative density range at fixed grade.
+        self.assertAlmostEqual(grade_to_slope(110.0, 2.0) / grade_to_slope(110.0, 1.0), 2.0, places=5)
 
     def test_missing_range_uses_typical(self):
         from negpy.features.exposure.logic import default_grade_range

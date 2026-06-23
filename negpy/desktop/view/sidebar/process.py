@@ -12,6 +12,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
 # D-Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
@@ -33,6 +34,28 @@ def _drange_value_to_slider(v: float) -> float:
         return 20 * (math.log10(max(v, 1e-5)) + 5)
     lo, hi = math.log10(_DRANGE_MARGIN_MIN), math.log10(_DRANGE_MARGIN_MAX)
     return -100.0 * (math.log10(-v) - lo) / (hi - lo)
+
+
+# Colour Clip slider: the absolute per-channel-balance clip percentile, log-interpolated
+# around the neutral (pos 0 = base_color_clip). The ends reach _COLOR_CLIP_MIN (gentlest,
+# near-extreme bounds) and _COLOR_CLIP_MAX (tightest channel balance).
+_COLOR_CLIP_NEUTRAL = float(EXPOSURE_CONSTANTS["base_color_clip"])
+_COLOR_CLIP_MIN = 0.01
+_COLOR_CLIP_MAX = 10.0
+
+
+def _color_slider_to_value(pos: float) -> float:
+    ln = math.log10(_COLOR_CLIP_NEUTRAL)
+    end = math.log10(_COLOR_CLIP_MAX if pos >= 0 else _COLOR_CLIP_MIN)
+    return math.pow(10, ln + (abs(pos) / 100.0) * (end - ln))
+
+
+def _color_value_to_slider(v: float) -> float:
+    ln = math.log10(_COLOR_CLIP_NEUTRAL)
+    lv = math.log10(min(max(v, _COLOR_CLIP_MIN), _COLOR_CLIP_MAX))
+    if v >= _COLOR_CLIP_NEUTRAL:
+        return 100.0 * (lv - ln) / (math.log10(_COLOR_CLIP_MAX) - ln)
+    return -100.0 * (lv - ln) / (math.log10(_COLOR_CLIP_MIN) - ln)
 
 
 class ProcessSidebar(BaseSidebar):
@@ -64,21 +87,36 @@ class ProcessSidebar(BaseSidebar):
         mode_row.addWidget(self.lock_bounds_btn)
         self.layout.addLayout(mode_row)
 
-        buf_clip_row = QHBoxLayout()
+        buf_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.analysis_buffer_slider.setToolTip(
             "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
         )
-        initial_drange_slider_val = _drange_value_to_slider(conf.drange_clip)
-        self.drange_clip_slider = CompactSlider("D-Range Clip", -100, 100, initial_drange_slider_val, precision=1, step=1, has_neutral=True)
-        self.drange_clip_slider.setToolTip(
-            "Tonal-range normalization. Neutral already applies a small robust clip (speculars and dust don't set the range). "
+        buf_row.addWidget(self.analysis_buffer_slider)
+        self.layout.addLayout(buf_row)
+
+        clip_row = QHBoxLayout()
+        initial_luma_slider_val = _drange_value_to_slider(conf.luma_range_clip)
+        self.luma_range_clip_slider = CompactSlider(
+            "Luma Range Clip", -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
+        )
+        self.luma_range_clip_slider.setToolTip(
+            "Tonal-range normalization (black/white-point span). Neutral already applies a small robust clip. "
             "Positive: clips the top/bottom for more aggressive highlight/shadow recovery. "
             "Negative: outward headroom — leaves lifted blacks / unclipped highlights for a gentler stretch (double-click to reset)"
         )
-        buf_clip_row.addWidget(self.analysis_buffer_slider)
-        buf_clip_row.addWidget(self.drange_clip_slider)
-        self.layout.addLayout(buf_clip_row)
+        initial_color_slider_val = _color_value_to_slider(conf.color_range_clip)
+        self.color_range_clip_slider = CompactSlider(
+            "Colour Clip", -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
+        )
+        self.color_range_clip_slider.setToolTip(
+            "Per-channel colour-balance clip percentile (orange-mask cast removal), independent of tonal range. "
+            "Neutral: robust P5 clip. "
+            "Negative: gentler, samples nearer the extremes. Positive: tighter channel balance (double-click to reset)"
+        )
+        clip_row.addWidget(self.luma_range_clip_slider)
+        clip_row.addWidget(self.color_range_clip_slider)
+        self.layout.addLayout(clip_row)
 
         wp_bp_row = QHBoxLayout()
         self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
@@ -148,8 +186,11 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
 
-        self.drange_clip_slider.valueChanged.connect(lambda v: self._on_drange_clip_changed(v, persist=False))
-        self.drange_clip_slider.valueCommitted.connect(lambda v: self._on_drange_clip_changed(v, persist=True))
+        self.luma_range_clip_slider.valueChanged.connect(lambda v: self._on_luma_range_clip_changed(v, persist=False))
+        self.luma_range_clip_slider.valueCommitted.connect(lambda v: self._on_luma_range_clip_changed(v, persist=True))
+
+        self.color_range_clip_slider.valueChanged.connect(lambda v: self._on_color_range_clip_changed(v, persist=False))
+        self.color_range_clip_slider.valueCommitted.connect(lambda v: self._on_color_range_clip_changed(v, persist=True))
 
         self.white_point_slider.valueChanged.connect(lambda v: self._on_white_point_changed(v, persist=False))
         self.white_point_slider.valueCommitted.connect(lambda v: self._on_white_point_changed(v, persist=True))
@@ -205,13 +246,21 @@ class ProcessSidebar(BaseSidebar):
         )
         self.controller.analysis_buffer_preview_requested.emit(val)
 
-    def _on_drange_clip_changed(self, val: float, persist: bool = True) -> None:
-        drange_clip = _drange_slider_to_value(val)
+    def _on_luma_range_clip_changed(self, val: float, persist: bool = True) -> None:
         self.update_config_section(
             "process",
             persist=persist,
             render=True,
-            drange_clip=drange_clip,
+            luma_range_clip=_drange_slider_to_value(val),
+            **invalidate_local_bounds(self.state.config.process),
+        )
+
+    def _on_color_range_clip_changed(self, val: float, persist: bool = True) -> None:
+        self.update_config_section(
+            "process",
+            persist=persist,
+            render=True,
+            color_range_clip=_color_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),
         )
 
@@ -280,8 +329,8 @@ class ProcessSidebar(BaseSidebar):
         try:
             self.mode_combo.setCurrentText(conf.process_mode)
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
-            drange_slider_val = _drange_value_to_slider(conf.drange_clip)
-            self.drange_clip_slider.setValue(drange_slider_val)
+            self.luma_range_clip_slider.setValue(_drange_value_to_slider(conf.luma_range_clip))
+            self.color_range_clip_slider.setValue(_color_value_to_slider(conf.color_range_clip))
             self.white_point_slider.setValue(conf.white_point_offset)
             self.black_point_slider.setValue(conf.black_point_offset)
 
@@ -294,7 +343,7 @@ class ProcessSidebar(BaseSidebar):
             self.use_roll_avg_btn.setChecked(conf.use_roll_average)
 
             locked = conf.lock_bounds
-            for w in (self.analysis_buffer_slider, self.drange_clip_slider):
+            for w in (self.analysis_buffer_slider, self.luma_range_clip_slider, self.color_range_clip_slider):
                 w.setEnabled(not locked and not conf.use_roll_average)
             for w in (self.white_point_slider, self.black_point_slider):
                 w.setEnabled(not locked)
@@ -314,7 +363,8 @@ class ProcessSidebar(BaseSidebar):
             self.autodetect_btn,
             self.lock_bounds_btn,
             self.analysis_buffer_slider,
-            self.drange_clip_slider,
+            self.luma_range_clip_slider,
+            self.color_range_clip_slider,
             self.white_point_slider,
             self.black_point_slider,
             self.normalize_e6_btn,

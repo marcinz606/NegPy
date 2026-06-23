@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
 
 class ProcessMode(StrEnum):
     C41 = "C41"
@@ -17,7 +19,11 @@ class ProcessConfig:
 
     process_mode: ProcessMode = ProcessMode.C41
     analysis_buffer: float = 0.05
-    drange_clip: float = 0.0
+    # Two independent normalization clip axes: luma drives black/white-point span
+    # (dynamic range), colour is the per-channel-balance clip percentile (orange-mask
+    # cast removal), defaulting to the robust base_color_clip neutral.
+    luma_range_clip: float = 0.0
+    color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
     e6_normalize: bool = True
     use_roll_average: bool = False
     locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)

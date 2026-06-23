@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from negpy.features.exposure.logic import LogisticSigmoid, compute_pivot, grade_to_slope
+from negpy.features.exposure.logic import CharacteristicCurve, compute_pivot, grade_to_slope
 
 
 def _c41_negative_densities(stops: np.ndarray, gamma: float = 0.55) -> np.ndarray:
@@ -31,7 +31,7 @@ class TestToneReproduction(unittest.TestCase):
         x = (dneg - floor) / (ceil - floor)
         slope = grade_to_slope(115.0, self.rng)
         pivot = compute_pivot(slope, density=1.0)
-        self.density = np.asarray(LogisticSigmoid(slope, pivot)(x.reshape(-1, 1, 1))).ravel()
+        self.density = np.asarray(CharacteristicCurve(slope, pivot)(x.reshape(-1, 1, 1))).ravel()
         self.i_mid = list(self.stops).index(0.0)
         self.i_white = list(self.stops).index(2.33)
 

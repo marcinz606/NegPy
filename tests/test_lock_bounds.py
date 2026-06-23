@@ -88,12 +88,12 @@ class TestCopySettingsBounds(unittest.TestCase):
     def test_copy_default_preserves_other_process_fields(self):
         self.session.state.config = replace(
             self.session.state.config,
-            process=replace(self.session.state.config.process, analysis_buffer=0.25, drange_clip=0.05),
+            process=replace(self.session.state.config.process, analysis_buffer=0.25, luma_range_clip=0.05),
         )
         self.session.copy_settings()
         proc = self.session.state.clipboard.process
         self.assertAlmostEqual(proc.analysis_buffer, 0.25)
-        self.assertAlmostEqual(proc.drange_clip, 0.05)
+        self.assertAlmostEqual(proc.luma_range_clip, 0.05)
 
     def test_copy_is_deep_copy(self):
         self.session.copy_settings_with_bounds()

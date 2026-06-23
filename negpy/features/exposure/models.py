@@ -44,7 +44,7 @@ class ExposureConfig:
     shoulder_width: float = 2.5
     paper_dmin: bool = True
     flare: bool = False
-    cast_removal: bool = True
+    cast_removal: bool = False
     surround: bool = False
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
@@ -62,51 +62,147 @@ class ExposureConfig:
 
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {
+    # Max absolute density offset applied by CMY white-balance sliders (slider ±1 → ±this density).
+    # ↑ widens colour-balance range per slider unit; ↓ narrows it.
     "cmy_max_density": 0.2,
+    # Scales the density slider's effect on the exposure pivot.
+    # ↑ density slider moves the midtone more aggressively; ↓ gentler response.
     "density_multiplier": 0.2,
-    "anchor_target_density": 0.74,
+    # Target density where the reference tone (assumed_anchor) should print on paper.
+    # ↑ reference tone prints darker; ↓ reference tone prints brighter.
+    "anchor_target_density": 0.7,
+    # Default normalized midtone reference in [0,1] log space (used when auto_exposure=False).
+    # ↑ curve pivots brighter (assumes denser negative); ↓ pivots darker.
     "assumed_anchor": 0.46,
+    # Minimum ISO R paper exposure range (hardest/highest-contrast grade allowed).
+    # ↑ raises the maximum achievable slope; ↓ allows even harder grades.
     "iso_r_min": 50.0,
+    # Maximum ISO R paper exposure range (softest/lowest-contrast grade allowed).
+    # ↑ lowers the minimum achievable slope; ↓ forces a higher contrast floor.
     "iso_r_max": 180.0,
+    # Hard floor on the per-channel straight-line slope k.
+    # ↑ prevents very flat curves; ↓ allows lower contrast.
     "slope_min": 2.0,
-    "slope_max": 11.0,
+    # Hard ceiling on the per-channel straight-line slope k.
+    # ↑ allows steeper (higher-contrast) curves; ↓ caps maximum contrast.
+    "slope_max": 10.0,
+    # Physical paper black density (maximum density, D_max).
+    # ↑ deeper blacks; ↓ lighter shadow floor.
     "d_max": 2.3,
+    # Physical paper white density (minimum density, D_min / paper base).
+    # ↑ denser paper white (slightly compressed highlights); ↓ purer paper white.
     "d_min": 0.06,
-    "curve_asymptote": 2.7,
-    "dmax_shoulder": 5.0,
-    "paper_toe_nu": 3.0,
-    "toe_onset_density": 1.2,
+    # Global multiplier applied to both toe and shoulder slider values before the curve.
+    # ↑ amplifies slider sensitivity (more roll-off per unit); ↓ dampens it.
     "toe_shoulder_strength": 0.85,
+    # ── Asymmetric H&D print curve (toe-linear-shoulder) ─────────────────────
+    # Straight-line midtone of slope k flanked by independently-tunable toe
+    # (shadow roll-off toward paper black d_max) and shoulder (highlight roll-off
+    # toward paper white d_min), each a smooth softplus bound — the film/print
+    # convention (toe = shadows, shoulder = highlights). Sharpness comes from the
+    # *_sharpness_base / width, the slider sets roll-off *height*.
+    # Softplus sharpness coefficient for the shadow (toe) knee: a_sh = this * width_ref / toe_width.
+    # ↑ snappier shadow transition; ↓ softer, more gradual roll-off to paper black.
+    "toe_sharpness_base": 4.0,
+    # Softplus sharpness coefficient for the highlight (shoulder) knee: a_hl = this * width_ref / shoulder_width.
+    # ↑ snappier highlight transition; ↓ softer roll-off to paper white.
+    "shoulder_sharpness_base": 3.0,
+    # Reference width used to normalise both sharpness coefficients (units match slider range).
+    # ↑ both knees sharpen for a given width slider value; ↓ both soften.
+    "toeshoulder_width_ref": 2.5,
+    # D the toe/shoulder slider lowers the black ceil / lifts the highlight floor
+    # per unit (pre-scaled by toe_shoulder_strength). +toe = lifted blacks;
+    # +shoulder = compressed (greyer) highlights.
+    # Density lift of the paper-black ceiling per positive toe unit: d_max_eff = d_max − toe·this.
+    # ↑ toe slider lifts blacks more aggressively; ↓ gentler shadow lift.
+    "toe_height": 0.35,
+    # Density lift of the paper-white floor per positive shoulder unit: d_min_eff = d_min + shoulder·this.
+    # ↑ shoulder slider compresses highlights more per unit; ↓ gentler compression.
+    "shoulder_height": 0.35,
+    # Grade -> straight-line slope k: k = grade_contrast_scale * density_range / er
+    # (er = ISO R / 100). Calibrated so R115 reproduces the legacy mid-curve slope.
+    # Calibration factor in k = this · density_range / (ISO_R/100).
+    # ↑ all grades produce higher slopes (more contrast); ↓ flatter curves system-wide.
+    "grade_contrast_scale": 2.9,
+    # Side length of the block-median pre-filter grid for robust exposure analysis.
+    # ↑ finer grid (less dust/specular rejection); ↓ coarser (stronger outlier rejection).
     "analysis_grid": 1024,
+    # Base percentile clip added to the density-range histogram analysis (robust floor/ceil detection).
+    # ↑ clips more histogram tails (tighter black/white points); ↓ uses fuller histogram range.
     "base_drange_clip": 0.01,
-    "shadow_neutral_percentile": 97.5,
+    # Colour Clip neutral/default percentile: robust per-tail clip for per-channel
+    # balance (orange-mask cast removal), independent of luma range. The slider spans
+    # log-interpolated percentiles around this neutral.
+    # Default neutral percentile for per-channel colour clip / cast-removal analysis.
+    # ↑ more outlier-resistant balance detection; ↓ more relaxed (includes more extreme tones).
+    "base_color_clip": 5.0,
+    # Percentile used to sample per-channel shadow references for cast detection.
+    # ↑ samples even darker shadow tones (closer to paper black); ↓ lighter reference tones.
+    "shadow_neutral_percentile": 98.0,
     # Cast Removal: max normalized shadow cast (green - channel) corrected, bounding the tilt.
-    "cast_removal_max_offset": 0.125,
+    # Hard clamp on automatic per-channel slope tilt during cast removal.
+    # ↑ allows stronger shadow neutralization; ↓ limits correction (less risk of overcorrection).
+    "cast_removal_max_offset": 0.1,
+    # Percentile of scene luminance sampled as the raw metered anchor.
+    # ↑ samples darker histogram tones as key; ↓ samples brighter tones.
     "anchor_meter_percentile": 50.0,
+    # Safety band around assumed_anchor that clamps the auto-metered result.
+    # ↑ allows wider exposure swing between frames; ↓ tighter, more conservative auto-exposure.
     "anchor_meter_band": 0.12,
     # Auto Density: fraction the anchor moves from the assumed key toward the measured median.
-    "anchor_meter_strength": 0.25,
+    # Fraction of the distance from assumed_anchor toward the metered anchor that is applied.
+    # ↑ auto-exposure responds more strongly to measured key; ↓ stays closer to assumed anchor.
+    "anchor_meter_strength": 0.2,
+    # Grade-coupled baseline toe/shoulder: hard grades (high slope) get more roll-off by default.
+    # Adds slope-proportional toe to hard grades: toe_eff += this · slope_norm.
+    # ↑ hard grades get more automatic shadow roll-off; ↓ decouples toe from grade.
+    "toe_grade_strength": 0.15,
+    # Adds slope-proportional shoulder to hard grades: shoulder_eff += this · slope_norm.
+    # ↑ hard grades compress highlights more automatically; ↓ decouples shoulder from grade.
+    "shoulder_grade_strength": 0.12,
     # Auto Grade nominal-frame contrast = auto_grade_target * auto_grade_nominal_ratio.
+    # Target contrast multiplier for Auto Grade: effective_range = this · blend(nominal, measured_ratio).
+    # ↑ aims for higher printed contrast across all frames; ↓ targets lower contrast.
     "auto_grade_target": 0.6,
     # Auto Grade adaptation strength (partial slope normalization): 0 = fixed, 1 = full.
-    "auto_grade_strength": 0.4,
+    # How strongly Auto Grade adapts slope to scene range (0 = ignore scene, 1 = fully normalize).
+    # ↑ grade changes more aggressively with scene contrast variation; ↓ closer to a fixed grade.
+    "auto_grade_strength": 0.3,
     # Canonical floor_ceil/textural ratio of a normal tone distribution (~2.0); default-range fallback.
+    # Reference floor_ceil/textural ratio for a "normal" negative (used as Auto Grade blend anchor).
+    # ↑ system treats denser negatives as normal (grades down harder frames); ↓ expects flatter negatives.
     "auto_grade_nominal_ratio": 2.0,
     # Preferred dim-surround print gamma (Bartleson-Breneman ~1.1); applied when surround is on.
+    # Contrast expansion about paper white when dim-surround is enabled: density = d_min + γ·(D − d_min).
+    # ↑ more midtone contrast boost in dim surround; ↓ less expansion (closer to flat).
     "target_system_gamma": 1.10,
+    # Percentile margin for measuring the "textural" scene range (rejects specular highlights and dust).
+    # ↑ includes more histogram (wider textural range); ↓ tighter (more robust to extreme outliers).
     "textural_range_clip": 10.0,
-    "auto_density_target_offset": 0.0,
     # Veiling-glare floor out=(r+f)/(1+f), r normalized to paper white; applied when flare is on.
+    # Veiling-glare fraction: transmittance = (t + f·white)/(1+f).
+    # ↑ stronger glare (lifts shadows, reduces shadow contrast, milky look); ↓ cleaner shadows.
     "flare_fraction": 0.005,
     # ── Flat / digital-intermediate master (RenderIntent.FLAT) ──────────────
-    # A deliberately low fixed slope and a compressed virtual asymptote give a
-    # low-contrast positive whose own H&D shoulder/toe provide the gentle
-    # highlight/shadow roll-off, while keeping every channel well inside [0, 1]
-    # (no clipping) with headroom for downstream editing. These are FIXED (no
-    # per-frame metering) so a roll of equally-exposed scans renders identically.
+    # Same asymmetric H&D softplus curve as PRINT, but with a fixed low slope and
+    # no per-frame metering so a roll of equally-exposed scans renders identically.
+    # With toe=0 and shoulder=0 the curve is linear in the midtone region, bounded
+    # by softplus roll-off at d_min and d_max. The low slope keeps output far below
+    # d_max, providing headroom for downstream editing without explicit clipping.
+    # Fixed scene-independent slope for the FLAT digital-intermediate master.
+    # ↑ more contrast in FLAT master (less editing headroom); ↓ flatter, more latitude.
     "flat_slope": 2.0,
-    "flat_asymptote": 1.5,
-    # Where the assumed midtone anchor lands, as a fraction of the flat asymptote
-    # (≈ mid grey). Keeps the master neutral and centred.
-    "flat_anchor_target": 0.42,
+    # Target density where assumed_anchor prints in FLAT master: pivot = anchor − target/slope.
+    # ↑ midtones print darker in FLAT master; ↓ midtones print brighter.
+    "flat_anchor_target": 0.63,
+    # ── Variable-gamma paper S-curve ─────────────────────────────────────────
+    # Extra local gamma added at the midtone centre (around the reference tone) via
+    # v += gamma·width·tanh((v − v_star)/width), easing to zero toward toe/shoulder —
+    # a real paper characteristic curve's continuously varying gamma. Anchor-preserving.
+    # Extra midtone gamma at the curve centre (0 disables the S-shape).
+    # ↑ snappier midtones (more contrast around the reference tone); ↓ closer to a straight line.
+    "paper_midtone_gamma": 0.15,
+    # Density half-width over which the midtone gamma boost eases to the tails.
+    # ↑ wider, more gradual S; ↓ tighter, more localized midtone boost.
+    "paper_gamma_width": 0.5,
 }

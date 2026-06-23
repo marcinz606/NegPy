@@ -38,7 +38,8 @@ class Presets:
             "use_roll_average",
             "roll_name",
             "analysis_buffer",
-            "drange_clip",
+            "luma_range_clip",
+            "color_range_clip",
             "flip_horizontal",
             "flip_vertical",
         }

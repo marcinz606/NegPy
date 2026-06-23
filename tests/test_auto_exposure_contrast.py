@@ -4,7 +4,7 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.exposure.logic import (
-    LogisticSigmoid,
+    CharacteristicCurve,
     compute_pivot,
     effective_grade_range,
     grade_to_slope,
@@ -131,8 +131,7 @@ class TestMeasureAnchor(unittest.TestCase):
         return measure_anchor_from_log(img_log, self.BOUNDS)
 
     def test_tracks_midtone_partial(self):
-        # normalized = (log - floor)/range = (log + 2)/2; the anchor moves only
-        # `strength` of the way from assumed toward that metered median.
+        # Linear partial metering: correction = strength * (norm - assumed).
         assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
         strength = EXPOSURE_CONSTANTS["anchor_meter_strength"]
 
@@ -144,23 +143,25 @@ class TestMeasureAnchor(unittest.TestCase):
         self.assertNotAlmostEqual(self._measure(-1.2), self._measure(-0.9), places=3)
 
     def test_partial_preserves_key(self):
-        # A low-key (dark) frame's anchor leans dark but is pulled toward assumed,
-        # not all the way to the raw median — preserving intent.
+        # A low-key (dark) frame's anchor leans dark but is pulled toward assumed
+        # (not all the way to the raw median), by a fixed fraction of the distance.
         assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
         strength = EXPOSURE_CONSTANTS["anchor_meter_strength"]
+        norm = 0.4
         low = self._measure(-1.2)  # raw norm 0.4 < assumed
-        self.assertAlmostEqual(low - assumed, strength * (0.4 - assumed), places=5)
+        self.assertAlmostEqual(low - assumed, strength * (norm - assumed), places=5)
 
     def test_clamped_to_band(self):
         band = EXPOSURE_CONSTANTS["anchor_meter_band"]
         assumed = EXPOSURE_CONSTANTS["assumed_anchor"]
-        # Extreme frames stay within assumed +/- band (hard safety clamp), and a
-        # near-white frame is pushed to the upper band edge.
+        # Extreme frames stay within assumed +/- band (hard safety clamp); the
+        # gentle linear pull keeps the common case well inside the band.
         hi = self._measure(-0.02)  # norm ~0.99
         lo = self._measure(-1.98)  # norm ~0.01
-        self.assertAlmostEqual(hi, assumed + band, places=4)
-        self.assertGreaterEqual(lo, assumed - band - 1e-6)
+        self.assertGreater(hi, assumed)
+        self.assertLess(lo, assumed)
         self.assertLessEqual(hi, assumed + band + 1e-6)
+        self.assertGreaterEqual(lo, assumed - band - 1e-6)
 
     def test_e6_reversed_bounds(self):
         # E6 normalizes with floors > ceils; anchor must stay finite and in band.
@@ -206,16 +207,12 @@ class TestAnchorPivotRoundTrip(unittest.TestCase):
     def test_metered_anchor_prints_at_target(self):
         # compute_pivot must place the curve so the anchor tone prints at
         # anchor_target_density (density slider neutral, no paper Dmin).
-        # Metered (anchor-provided) tone prints at the target plus the
-        # auto-density darkening offset.
-        target = EXPOSURE_CONSTANTS["anchor_target_density"] + EXPOSURE_CONSTANTS["auto_density_target_offset"]
+        target = EXPOSURE_CONSTANTS["anchor_target_density"]
         for anchor in (0.40, 0.46, 0.55):
             slope = grade_to_slope(115.0, 1.3)
             pivot = compute_pivot(slope, density=1.0, d_min=0.0, anchor=anchor)
-            curve = LogisticSigmoid(contrast=slope, pivot=pivot)
+            curve = CharacteristicCurve(contrast=slope, pivot=pivot)
             printed = float(curve(np.array([[anchor]], dtype=np.float32))[0, 0])
-            # ~1e-4 off the exact target: the Dmax soft-clamp shaves a sliver
-            # even well below Dmax, plus float32 rounding.
             self.assertAlmostEqual(printed, target, places=3)
 
 

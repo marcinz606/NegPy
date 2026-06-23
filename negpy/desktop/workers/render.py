@@ -53,7 +53,8 @@ class NormalizationTask:
     # Roll-wide overrides taken from the current image: applied to every file's
     # analysis before averaging so the whole roll shares one buffer / d-range.
     override_analysis_buffer: float
-    override_drange_clip: float
+    override_luma_range_clip: float
+    override_color_range_clip: float
 
 
 @dataclass(frozen=True)
@@ -382,7 +383,8 @@ class NormalizationWorker(QObject):
                     # Roll-wide buffer / d-range from the current image — applied to every
                     # file so one slider setting drives the whole batch baseline.
                     analysis_buffer = task.override_analysis_buffer
-                    drange_clip = task.override_drange_clip
+                    luma_range_clip = task.override_luma_range_clip
+                    color_range_clip = task.override_color_range_clip
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
                     geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
@@ -417,7 +419,8 @@ class NormalizationWorker(QObject):
                         analysis_buffer=analysis_buffer,
                         process_mode=process_mode,
                         e6_normalize=e6_normalize,
-                        percentile_clip=drange_clip,
+                        percentile_clip=luma_range_clip,
+                        color_clip=color_range_clip,
                     )
 
                     async with lock:

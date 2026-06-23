@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from negpy.features.exposure.logic import (
-    LogisticSigmoid,
+    CharacteristicCurve,
     apply_characteristic_curve,
     per_channel_curve_params,
 )
@@ -52,7 +52,7 @@ class TestDensityBalance(unittest.TestCase):
         anchor_d = []
         shadow_d = []
         for ch in range(3):
-            curve = LogisticSigmoid(contrast=s[ch], pivot=p[ch], d_min=0.06)
+            curve = CharacteristicCurve(contrast=s[ch], pivot=p[ch], d_min=0.06)
             anchor_d.append(float(curve(ensure_image(np.array([anchor])))[0]))
             shadow_d.append(float(curve(ensure_image(np.array([refs[ch]])))[0]))
         # Midtone neutral: every channel prints the anchor at anchor_target_density.
@@ -86,8 +86,8 @@ class TestSurroundGamma(unittest.TestCase):
     def test_midtone_darkens_and_monotone(self):
         gamma = EXPOSURE_CONSTANTS["target_system_gamma"]
         x = np.linspace(0.0, 1.0, 50).reshape(-1, 1, 1)
-        base = np.asarray(LogisticSigmoid(5.0, 0.3, d_min=0.06)(x)).ravel()
-        warp = np.asarray(LogisticSigmoid(5.0, 0.3, d_min=0.06, surround_gamma=gamma)(x)).ravel()
+        base = np.asarray(CharacteristicCurve(5.0, 0.3, d_min=0.06)(x)).ravel()
+        warp = np.asarray(CharacteristicCurve(5.0, 0.3, d_min=0.06, surround_gamma=gamma)(x)).ravel()
         # Midtone density increases (print darkens) where density is above d_min.
         mid = base > 0.2
         self.assertTrue(np.all(warp[mid] >= base[mid] - 1e-9))

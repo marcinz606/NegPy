@@ -369,7 +369,8 @@ class DesktopSessionManager(QObject):
         # Workflow settings — safe to carry across all files on a roll
         sticky_mode = self.repo.get_global_setting("last_process_mode")
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
-        sticky_drange_clip = self.repo.get_global_setting("last_drange_clip")
+        sticky_luma_range_clip = self.repo.get_global_setting("last_luma_range_clip")
+        sticky_color_range_clip = self.repo.get_global_setting("last_color_range_clip")
         sticky_roll_average = self.repo.get_global_setting("last_use_roll_average")
         sticky_floors = self.repo.get_global_setting("last_locked_floors")
         sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
@@ -380,8 +381,10 @@ class DesktopSessionManager(QObject):
             new_process = replace(new_process, process_mode=sticky_mode)
         if sticky_buffer is not None:
             new_process = replace(new_process, analysis_buffer=float(sticky_buffer))
-        if sticky_drange_clip is not None:
-            new_process = replace(new_process, drange_clip=float(sticky_drange_clip))
+        if sticky_luma_range_clip is not None:
+            new_process = replace(new_process, luma_range_clip=float(sticky_luma_range_clip))
+        if sticky_color_range_clip is not None:
+            new_process = replace(new_process, color_range_clip=float(sticky_color_range_clip))
         if sticky_roll_average is not None:
             new_process = replace(new_process, use_roll_average=bool(sticky_roll_average))
         if sticky_floors:
@@ -410,7 +413,14 @@ class DesktopSessionManager(QObject):
             new_geo = replace(new_geo, flip_vertical=bool(sticky_flip_v))
         config = replace(config, geometry=new_geo)
 
-        # Exposure, lab, toning, retouch are per-image look decisions and are
+        sticky_lab = self.repo.get_global_setting("last_lab_config")
+        if sticky_lab:
+            from negpy.features.lab.models import LabConfig
+
+            valid_keys = LabConfig.__dataclass_fields__.keys()
+            config = replace(config, lab=LabConfig(**{k: v for k, v in sticky_lab.items() if k in valid_keys}))
+
+        # Exposure, toning, retouch are per-image look decisions and are
         # deliberately excluded here — fresh files start from WorkspaceConfig defaults.
         # Exception: linear_raw and dust_remove are workflow preferences, not image-specific looks.
         sticky_linear_raw = self.repo.get_global_setting("last_linear_raw")
@@ -448,7 +458,8 @@ class DesktopSessionManager(QObject):
 
         self.repo.save_global_setting("last_process_mode", config.process.process_mode)
         self.repo.save_global_setting("last_analysis_buffer", config.process.analysis_buffer)
-        self.repo.save_global_setting("last_drange_clip", config.process.drange_clip)
+        self.repo.save_global_setting("last_luma_range_clip", config.process.luma_range_clip)
+        self.repo.save_global_setting("last_color_range_clip", config.process.color_range_clip)
         self.repo.save_global_setting("last_use_roll_average", config.process.use_roll_average)
         self.repo.save_global_setting("last_locked_floors", config.process.locked_floors)
         self.repo.save_global_setting("last_locked_ceils", config.process.locked_ceils)

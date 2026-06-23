@@ -50,12 +50,15 @@ class NormalizationProcessor:
             cached_mode = context.metrics.get("log_bounds_mode_val")
 
             cached_clip = context.metrics.get("log_bounds_clip_val")
+            cached_color_clip = context.metrics.get("log_bounds_color_clip_val")
             needs_reanalysis = (
                 "log_bounds" not in context.metrics
                 or cached_buffer is None
                 or abs(cached_buffer - self.config.analysis_buffer) > 1e-5
                 or cached_clip is None
-                or abs(cached_clip - self.config.drange_clip) > 1e-6
+                or abs(cached_clip - self.config.luma_range_clip) > 1e-6
+                or cached_color_clip is None
+                or abs(cached_color_clip - self.config.color_range_clip) > 1e-6
                 or cached_norm != self.config.e6_normalize
                 or cached_mode != context.process_mode
             )
@@ -69,11 +72,13 @@ class NormalizationProcessor:
                     self.config.analysis_buffer,
                     process_mode=context.process_mode,
                     e6_normalize=self.config.e6_normalize,
-                    percentile_clip=self.config.drange_clip,
+                    percentile_clip=self.config.luma_range_clip,
+                    color_clip=self.config.color_range_clip,
                 )
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
-                context.metrics["log_bounds_clip_val"] = self.config.drange_clip
+                context.metrics["log_bounds_clip_val"] = self.config.luma_range_clip
+                context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
                 context.metrics["log_bounds_mode_val"] = context.process_mode
 
@@ -141,7 +146,8 @@ class PhotometricProcessor:
         d_min = EXPOSURE_CONSTANTS["d_min"] if self.config.paper_dmin else 0.0
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
         lum_range = context.metrics.get("norm_density_range")
-        shadow_refs_norm = normalized_shadow_refs(context.metrics.get("final_bounds"), context.metrics.get("shadow_log_refs"))
+        final_bounds = context.metrics.get("final_bounds")
+        shadow_refs_norm = normalized_shadow_refs(final_bounds, context.metrics.get("shadow_log_refs"))
         slopes, pivots = per_channel_curve_params(
             self.config.grade,
             self.config.density,
@@ -154,7 +160,8 @@ class PhotometricProcessor:
             anchor=anchor,
         )
 
-        cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
+        c = EXPOSURE_CONSTANTS
+        cmy_max = c["cmy_max_density"]
         cmy_offsets = (
             self.config.wb_cyan * cmy_max,
             self.config.wb_magenta * cmy_max,
@@ -172,11 +179,12 @@ class PhotometricProcessor:
             self.config.highlight_yellow * cmy_max,
         )
 
-        mode_val = 0
-        if context.process_mode == ProcessMode.BW:
-            mode_val = 1
-        elif context.process_mode == ProcessMode.E6:
-            mode_val = 2
+        # Grade-coupled baseline: hard grades (VC paper) physically have snappier
+        # toes and compressed shoulders. slope_norm=0 at softest grade, 1 at hardest.
+        slope_norm = (slopes[1] - float(c["slope_min"])) / (float(c["slope_max"]) - float(c["slope_min"]))
+        slope_norm = min(max(slope_norm, 0.0), 1.0)
+        toe_eff = self.config.toe + float(c["toe_grade_strength"]) * slope_norm
+        shoulder_eff = self.config.shoulder + float(c["shoulder_grade_strength"]) * slope_norm
 
         if context.process_mode == ProcessMode.BW:
             # Panchromatic response: collapse to a single density BEFORE the
@@ -189,9 +197,9 @@ class PhotometricProcessor:
             params_r=(pivots[0], slopes[0]),
             params_g=(pivots[1], slopes[1]),
             params_b=(pivots[2], slopes[2]),
-            toe=self.config.toe,
+            toe=toe_eff,
             toe_width=self.config.toe_width,
-            shoulder=self.config.shoulder,
+            shoulder=shoulder_eff,
             shoulder_width=self.config.shoulder_width,
             shadow_cmy=shadow_cmy,
             highlight_cmy=highlight_cmy,
@@ -199,7 +207,6 @@ class PhotometricProcessor:
             d_min=d_min,
             flare=EXPOSURE_CONSTANTS["flare_fraction"] if self.config.flare else 0.0,
             surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
-            mode=mode_val,
         )
 
         if context.process_mode == ProcessMode.BW:
@@ -221,7 +228,7 @@ class PhotometricProcessor:
         because it is an explicit, per-roll-consistent user choice, not automatic
         grading.
         """
-        slope, pivot, asym = flat_curve_params(d_min=0.0)
+        slope, pivot = flat_curve_params()
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = (
@@ -231,7 +238,6 @@ class PhotometricProcessor:
         )
 
         is_bw = context.process_mode == ProcessMode.BW
-        mode_val = 1 if is_bw else (2 if context.process_mode == ProcessMode.E6 else 0)
 
         if is_bw:
             lum = get_luminance(image)
@@ -248,9 +254,7 @@ class PhotometricProcessor:
             d_min=0.0,
             flare=0.0,
             surround_gamma=1.0,
-            mode=mode_val,
-            asymptote=asym,
-            nu=1.0,
+            midtone_gamma=0.0,
         )
 
         if is_bw:

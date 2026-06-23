@@ -858,7 +858,8 @@ class AppController(QObject):
             files=visible_files,
             workspace_color_space=self.state.workspace_color_space,
             override_analysis_buffer=self.state.config.process.analysis_buffer,
-            override_drange_clip=self.state.config.process.drange_clip,
+            override_luma_range_clip=self.state.config.process.luma_range_clip,
+            override_color_range_clip=self.state.config.process.color_range_clip,
         )
         self.normalization_requested.emit(task)
 

@@ -25,7 +25,7 @@ class TestE6Mode(unittest.TestCase):
         img_norm = np.array([[[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]], dtype=np.float32)
 
         params = (0.0, 1.0)
-        res = apply_characteristic_curve(img_norm, params, params, params, mode=2)
+        res = apply_characteristic_curve(img_norm, params, params, params)
 
         self.assertGreater(res[0, 0, 0], res[0, 1, 0])
 

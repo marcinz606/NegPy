@@ -343,10 +343,8 @@ class PhotometricCurveWidget(QWidget):
         pivot: float | None = None,
         slopes: tuple[float, float, float] | None = None,
         pivots: tuple[float, float, float] | None = None,
-        asymptote: float | None = None,
-        nu: float | None = None,
     ) -> None:
-        from negpy.features.exposure.logic import LogisticSigmoid, _expit, compute_pivot, grade_to_slope
+        from negpy.features.exposure.logic import CharacteristicCurve, _expit, compute_pivot, grade_to_slope
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.kernel.image.validation import ensure_image
 
@@ -368,10 +366,9 @@ class PhotometricCurveWidget(QWidget):
 
         def _curve_points(s: float, p: float) -> list[tuple[float, float]]:
             # d_max/d_min from constants so the chart matches the render exactly.
-            curve = LogisticSigmoid(
+            curve = CharacteristicCurve(
                 contrast=s,
                 pivot=p,
-                d_max=asymptote,
                 d_min=d_min,
                 toe=params.toe,
                 toe_width=params.toe_width,
@@ -379,7 +376,6 @@ class PhotometricCurveWidget(QWidget):
                 shoulder_width=params.shoulder_width,
                 flare=flare,
                 surround_gamma=surround_gamma,
-                nu=nu,
             )
             d = curve(ensure_image(x_log_exp))
             t = np.power(10.0, -d)
@@ -398,13 +394,11 @@ class PhotometricCurveWidget(QWidget):
                 ch_colors = (QColor(255, 90, 90), QColor(90, 220, 120), QColor(95, 150, 255))
                 self._channel_curves = [(ch_colors[ch], _curve_points(slopes[ch], pivots[ch])) for ch in range(3)]
 
-        # Toe/shoulder masks for zone shading (same formula as LogisticSigmoid)
-        diff = x_log_exp - pivot
+        # Zone shading: toe rolls the shadows (input above the pivot), shoulder
+        # rolls the highlights (input below the pivot); smaller width = sharper split.
         epsilon = 1e-6
-        t_val = params.toe_width * (diff / max(1.0 - pivot, epsilon) - 0.5)
-        self._toe_mask = _expit(t_val).tolist()
-        s_val = -params.shoulder_width * (diff / max(pivot, epsilon) + 0.5)
-        self._shoulder_mask = _expit(s_val).tolist()
+        self._toe_mask = _expit((x_log_exp - pivot) * (10.0 / max(params.toe_width, epsilon))).tolist()
+        self._shoulder_mask = _expit((pivot - x_log_exp) * (10.0 / max(params.shoulder_width, epsilon))).tolist()
         self._toe_strength = params.toe
         self._shoulder_strength = params.shoulder
 

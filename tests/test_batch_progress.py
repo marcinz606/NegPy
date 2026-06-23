@@ -91,7 +91,8 @@ def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:
         files=[{"name": "a.cr2", "path": "/tmp/a.cr2", "hash": "a"}],
         workspace_color_space="sRGB",
         override_analysis_buffer=0.0,
-        override_drange_clip=0.0,
+        override_luma_range_clip=0.0,
+        override_color_range_clip=0.0,
     )
     worker.process(task)
 

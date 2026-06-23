@@ -307,10 +307,16 @@ class ControlsPanel(QWidget):
                 ["analysis_buffer_inc", "analysis_buffer_dec"],
             )
         )
-        proc.drange_clip_slider.setToolTip(
+        proc.luma_range_clip_slider.setToolTip(
             tooltip_with_shortcut(
-                "Statistical percentile clip before locating black/white points. Higher = discard more outlier pixels",
-                ["drange_clip_inc", "drange_clip_dec"],
+                "Luma range: percentile clip driving the black/white-point span (dynamic range). Higher = tighter, more highlight/shadow compression",
+                ["luma_range_clip_inc", "luma_range_clip_dec"],
+            )
+        )
+        proc.color_range_clip_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Colour range: per-channel balance clip for orange-mask cast removal, independent of tonal range. Higher = more aggressive cast removal",
+                ["color_range_clip_inc", "color_range_clip_dec"],
             )
         )
         proc.white_point_slider.setToolTip(
@@ -548,7 +554,8 @@ class ControlsPanel(QWidget):
             [
                 proc.process_mode != _proc.process_mode,
                 proc.analysis_buffer != _proc.analysis_buffer,
-                proc.drange_clip != _proc.drange_clip,
+                proc.luma_range_clip != _proc.luma_range_clip,
+                proc.color_range_clip != _proc.color_range_clip,
                 proc.white_point_offset != _proc.white_point_offset,
                 proc.black_point_offset != _proc.black_point_offset,
             ]
