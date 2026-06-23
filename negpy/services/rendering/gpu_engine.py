@@ -854,9 +854,12 @@ class GPUEngine:
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import luminance_density_range
+        from negpy.features.exposure.papers import effective_constants, effective_paper_profile
 
         exp = settings.exposure
-        d_min = EXPOSURE_CONSTANTS["d_min"] if exp.paper_dmin else 0.0
+        paper = effective_paper_profile(exp.paper_profile, settings.process.process_mode)
+        pc = effective_constants(paper)  # tonal overrides; non-paper keys == EXPOSURE_CONSTANTS
+        d_min = paper.d_min if exp.paper_dmin else 0.0
         # metered_anchor may be measured for stats even when auto_exposure is off;
         # only let it move the render when the toggle is on.
         render_anchor = metered_anchor if exp.auto_exposure else None
@@ -880,8 +883,10 @@ class GPUEngine:
             textural_range,
             d_min=d_min,
             anchor=render_anchor,
+            paper=paper,
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
+        tint = paper.base_tint_cmy
         # Grade-coupled baseline toe/shoulder: mirrors PhotometricProcessor._process_print.
         _slope_norm = min(
             max(
@@ -899,9 +904,9 @@ class GPUEngine:
             + struct.pack("ffff", slopes[0], slopes[1], slopes[2], 0.0)
             + struct.pack(
                 "ffff",
-                exp.wb_cyan * cmy_m,
-                exp.wb_magenta * cmy_m,
-                exp.wb_yellow * cmy_m,
+                exp.wb_cyan * cmy_m + tint[0],
+                exp.wb_magenta * cmy_m + tint[1],
+                exp.wb_yellow * cmy_m + tint[2],
                 0.0,
             )
             + struct.pack(
@@ -926,19 +931,19 @@ class GPUEngine:
                 exp.toe_width,
                 exp.shoulder_width,
                 d_min,
-                EXPOSURE_CONSTANTS["d_max"],
-                EXPOSURE_CONSTANTS["toe_sharpness_base"],
-                EXPOSURE_CONSTANTS["shoulder_sharpness_base"],
-                EXPOSURE_CONSTANTS["toeshoulder_width_ref"],
-                EXPOSURE_CONSTANTS["toe_height"],
-                EXPOSURE_CONSTANTS["shoulder_height"],
-                EXPOSURE_CONSTANTS["anchor_target_density"],
+                pc["d_max"],
+                pc["toe_sharpness_base"],
+                pc["shoulder_sharpness_base"],
+                pc["toeshoulder_width_ref"],
+                pc["toe_height"],
+                pc["shoulder_height"],
+                pc["anchor_target_density"],
                 float(EXPOSURE_CONSTANTS["flare_fraction"]) if exp.flare else 0.0,
                 float(EXPOSURE_CONSTANTS["target_system_gamma"]) if exp.surround else 1.0,
                 mode_val,
-                _reference_linear_value(d_min),
-                float(EXPOSURE_CONSTANTS["paper_midtone_gamma"]),
-                float(EXPOSURE_CONSTANTS["paper_gamma_width"]),
+                _reference_linear_value(d_min, paper),
+                float(pc["paper_midtone_gamma"]),
+                float(pc["paper_gamma_width"]),
                 0.0,
             )
         )

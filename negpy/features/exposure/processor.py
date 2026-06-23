@@ -9,6 +9,7 @@ from negpy.features.exposure.logic import (
     per_channel_curve_params,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
+from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
@@ -143,7 +144,8 @@ class PhotometricProcessor:
         if self.config.render_intent == RenderIntent.FLAT:
             return self._process_flat(image, context)
 
-        d_min = EXPOSURE_CONSTANTS["d_min"] if self.config.paper_dmin else 0.0
+        paper = effective_paper_profile(self.config.paper_profile, context.process_mode)
+        d_min = paper.d_min if self.config.paper_dmin else 0.0
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
         lum_range = context.metrics.get("norm_density_range")
         final_bounds = context.metrics.get("final_bounds")
@@ -158,14 +160,16 @@ class PhotometricProcessor:
             context.metrics.get("textural_range"),
             d_min=d_min,
             anchor=anchor,
+            paper=paper,
         )
 
         c = EXPOSURE_CONSTANTS
         cmy_max = c["cmy_max_density"]
+        tint = paper.base_tint_cmy
         cmy_offsets = (
-            self.config.wb_cyan * cmy_max,
-            self.config.wb_magenta * cmy_max,
-            self.config.wb_yellow * cmy_max,
+            self.config.wb_cyan * cmy_max + tint[0],
+            self.config.wb_magenta * cmy_max + tint[1],
+            self.config.wb_yellow * cmy_max + tint[2],
         )
         # Manual shadow CMY only; auto neutralization is Cast Removal (slope balance).
         shadow_cmy = (
@@ -207,6 +211,7 @@ class PhotometricProcessor:
             d_min=d_min,
             flare=EXPOSURE_CONSTANTS["flare_fraction"] if self.config.flare else 0.0,
             surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
+            paper=paper,
         )
 
         if context.process_mode == ProcessMode.BW:

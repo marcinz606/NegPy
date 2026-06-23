@@ -4,6 +4,7 @@ import numpy as np
 from numba import njit  # type: ignore
 
 from negpy.domain.types import ImageBuffer
+from negpy.features.exposure.papers import PaperProfile, effective_constants
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -172,15 +173,14 @@ class CharacteristicCurve:
         shoulder_width: float = 2.5,
         flare: float = 0.0,
         surround_gamma: float = 1.0,
+        paper: Optional[PaperProfile] = None,
     ):
-        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-        c = EXPOSURE_CONSTANTS
+        c = effective_constants(paper)
         ts = float(c["toe_shoulder_strength"])
         self.k = float(contrast)
         self.x0 = float(pivot)
         self.d_min = float(d_min)
-        self.v_star = _reference_linear_value(d_min)
+        self.v_star = _reference_linear_value(d_min, paper)
         self.midtone_gamma = float(c["paper_midtone_gamma"])
         self.gamma_width = float(c["paper_gamma_width"])
         self.d_max = float(c["d_max"])
@@ -236,15 +236,14 @@ def apply_characteristic_curve(
     flare: float = 0.0,
     surround_gamma: float = 1.0,
     midtone_gamma: Optional[float] = None,
+    paper: Optional[PaperProfile] = None,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space."""
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-    c = EXPOSURE_CONSTANTS
+    c = effective_constants(paper)
     ts = c["toe_shoulder_strength"]
     if midtone_gamma is None:
         midtone_gamma = float(c["paper_midtone_gamma"])
-    v_star = _reference_linear_value(d_min)
+    v_star = _reference_linear_value(d_min, paper)
     pivots = np.ascontiguousarray(np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32))
     slopes = np.ascontiguousarray(np.array([params_r[1], params_g[1], params_b[1]], dtype=np.float32))
     offsets = np.ascontiguousarray(np.array(cmy_offsets, dtype=np.float32))
@@ -369,16 +368,14 @@ def effective_grade_range(
     return k * (nominal + strength * (ratio - nominal))
 
 
-def _reference_linear_value(d_min: float = 0.0) -> float:
+def _reference_linear_value(d_min: float = 0.0, paper: Optional[PaperProfile] = None) -> float:
     """
     Straight-line density value v* that the base shoulder+toe bounds map onto the
     target density (anchor_target_density). The reference tone is placed here so it
     prints at target, and the paper S-curve is centred here so the anchor is
     preserved. Closed form via inverse softplus at the base toe/shoulder sharpness.
     """
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-    c = EXPOSURE_CONSTANTS
+    c = effective_constants(paper)
     t = float(c["anchor_target_density"])
     d_max = float(c["d_max"])
     a_hl = float(c["shoulder_sharpness_base"])  # highlight (lower) bound
@@ -387,7 +384,9 @@ def _reference_linear_value(d_min: float = 0.0) -> float:
     return float(d_min + _inv_softplus_np(a_hl * (v1 - d_min)) / a_hl)
 
 
-def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Optional[float] = None) -> float:
+def compute_pivot(
+    slope: float, density: float, d_min: float = 0.0, anchor: Optional[float] = None, paper: Optional[PaperProfile] = None
+) -> float:
     """
     Fixed calibrated exposure: solve the curve pivot so the reference tone
     prints at anchor_target_density for the current effective slope — grade
@@ -396,11 +395,9 @@ def compute_pivot(slope: float, density: float, d_min: float = 0.0, anchor: Opti
     to assumed_anchor (a typical negative's normalized median); pass `anchor`
     to use a per-frame metered median (auto-exposure) instead.
     """
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-    c = EXPOSURE_CONSTANTS
+    c = effective_constants(paper)
     ref = c["assumed_anchor"] if anchor is None else anchor
-    v_star = _reference_linear_value(d_min)
+    v_star = _reference_linear_value(d_min, paper)
     base = ref - v_star / slope
     return base + (1.0 - density) * c["density_multiplier"]
 
@@ -442,6 +439,7 @@ def per_channel_curve_params(
     textural_range: Optional[float],
     d_min: float = 0.0,
     anchor: Optional[float] = None,
+    paper: Optional[PaperProfile] = None,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
     """
     Per-channel (slope, pivot) — single source of truth for CPU/GPU/chart.
@@ -454,20 +452,27 @@ def per_channel_curve_params(
     so the neutral reads equal-RGB. The shadow cast is clamped to
     cast_removal_max_offset so a bad shadow ref can't over-tilt a channel.
     """
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-    c = EXPOSURE_CONSTANTS
+    c = effective_constants(paper)
+    # Per-channel slope multipliers (paper dye-layer contrast crossover). The
+    # pivot is re-solved per channel so neutrals stay neutral and colour diverges
+    # only away from the midtone.
+    cg = paper.channel_gamma if paper is not None else (1.0, 1.0, 1.0)
+    slope_min = float(c["slope_min"])
+    slope_max = float(c["slope_max"])
     r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
     base_slope = grade_to_slope(grade, r_eff)
 
     if not cast_removal or shadow_refs_norm is None:
-        base_pivot = compute_pivot(base_slope, density, d_min=d_min, anchor=anchor)
-        return (base_slope, base_slope, base_slope), (base_pivot, base_pivot, base_pivot)
+        s0 = min(max(base_slope * cg[0], slope_min), slope_max)
+        s1 = min(max(base_slope * cg[1], slope_min), slope_max)
+        s2 = min(max(base_slope * cg[2], slope_min), slope_max)
+        p0 = compute_pivot(s0, density, d_min=d_min, anchor=anchor, paper=paper)
+        p1 = compute_pivot(s1, density, d_min=d_min, anchor=anchor, paper=paper)
+        p2 = compute_pivot(s2, density, d_min=d_min, anchor=anchor, paper=paper)
+        return (s0, s1, s2), (p0, p1, p2)
 
     epsilon = 1e-6
     anchor_val = float(c["assumed_anchor"]) if anchor is None else float(anchor)
-    slope_min = float(c["slope_min"])
-    slope_max = float(c["slope_max"])
     limit = float(c["cast_removal_max_offset"])
     r_green = float(shadow_refs_norm[1])
     numer = anchor_val - r_green
@@ -483,8 +488,9 @@ def per_channel_curve_params(
         else:
             slope_ch = base_slope * numer / denom
             slope_ch = min(max(slope_ch, slope_min), slope_max)
+        slope_ch = min(max(slope_ch * cg[ch], slope_min), slope_max)
         slopes.append(slope_ch)
-        pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor))
+        pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor, paper=paper))
     return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
 
 

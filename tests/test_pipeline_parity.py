@@ -197,6 +197,15 @@ class TestExposureParity:
         )
         self._run_and_compare(s)
 
+    def test_paper_profile_ra4(self):
+        # A non-default RA4 profile changes per-channel slopes, tint, and the
+        # tonal curve constants — guards the new uniform/slope path's parity.
+        s = replace(
+            _make_base_settings(),
+            exposure=ExposureConfig(paper_profile="fuji_crystal", paper_dmin=True),
+        )
+        self._run_and_compare(s)
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab colour/sharpening shader."""

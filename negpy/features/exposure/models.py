@@ -49,6 +49,7 @@ class ExposureConfig:
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
     render_intent: str = RenderIntent.PRINT
+    paper_profile: str = "neutral"
 
     def __post_init__(self) -> None:
         """

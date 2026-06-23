@@ -1,7 +1,9 @@
 import qtawesome as qta
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
 )
 
@@ -162,7 +164,39 @@ class ExposureSidebar(BaseSidebar):
         sh_row.addWidget(self.sh_w_slider)
         self.layout.addLayout(sh_row)
 
+        paper_row = QHBoxLayout()
+        self.paper_label = QLabel("Paper Profile")
+        self.paper_label.setStyleSheet(f"font-size: {THEME.font_size_base}px;")
+        self.paper_combo = QComboBox()
+        self.paper_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
+        self.paper_combo.setToolTip(
+            "Darkroom paper profile — re-shapes the H&D curve (and colour, on RA4) to a classic "
+            "stock as a baseline; Grade / Density / toe / shoulder still trim on top."
+        )
+        self._populate_paper_combo(self.state.config.process.process_mode)
+        idx = self.paper_combo.findData(conf.paper_profile)
+        if idx >= 0:
+            self.paper_combo.setCurrentIndex(idx)
+        paper_row.addWidget(self.paper_label)
+        paper_row.addWidget(self.paper_combo, 1)
+        self.layout.addLayout(paper_row)
+
         self.layout.addStretch()
+
+    def _populate_paper_combo(self, process_mode: str) -> None:
+        """Fill the paper dropdown with the papers valid for the current process
+        mode (neutral default + the mode's kind)."""
+        from negpy.features.exposure.papers import profiles_for_mode
+
+        self.paper_combo.clear()
+        for key, prof in profiles_for_mode(process_mode):
+            self.paper_combo.addItem(prof.label, key)
+
+    def _on_paper_changed(self, _idx: int) -> None:
+        key = self.paper_combo.currentData()
+        if key is None:  # separator row
+            return
+        self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_profile=key)
 
     def _icon_toggle(self, icon_name: str, checked: bool, tooltip: str) -> QPushButton:
         """Compact icon-only checkable button placed beside a slider."""
@@ -189,6 +223,7 @@ class ExposureSidebar(BaseSidebar):
         return self.region_btn_group.checkedId()
 
     def _connect_signals(self) -> None:
+        self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)
         self.region_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
 
         self.cyan_slider.valueChanged.connect(self._on_cyan_changed)
@@ -328,6 +363,16 @@ class ExposureSidebar(BaseSidebar):
 
         self.block_signals(True)
         try:
+            from negpy.features.process.models import ProcessMode
+
+            mode = self.state.config.process.process_mode
+            self._populate_paper_combo(mode)
+            paper_idx = self.paper_combo.findData(conf.paper_profile)
+            self.paper_combo.setCurrentIndex(paper_idx if paper_idx >= 0 else 0)
+            hide_paper = mode == ProcessMode.E6
+            self.paper_combo.setVisible(not hide_paper)
+            self.paper_label.setVisible(not hide_paper)
+
             idx = self._region_index()
             self._update_cmy_label_colors(idx)
             if idx == 0:
@@ -369,6 +414,7 @@ class ExposureSidebar(BaseSidebar):
         Helper to block/unblock all sliders and buttons.
         """
         widgets = [
+            self.paper_combo,
             self.region_global_btn,
             self.region_shadow_btn,
             self.region_highlight_btn,

@@ -343,19 +343,23 @@ class PhotometricCurveWidget(QWidget):
         pivot: float | None = None,
         slopes: tuple[float, float, float] | None = None,
         pivots: tuple[float, float, float] | None = None,
+        process_mode: str | None = None,
     ) -> None:
         from negpy.features.exposure.logic import CharacteristicCurve, _expit, compute_pivot, grade_to_slope
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+        from negpy.features.exposure.papers import effective_paper_profile
         from negpy.kernel.image.validation import ensure_image
 
-        d_min = EXPOSURE_CONSTANTS["d_min"] if params.paper_dmin else 0.0
+        # process_mode None (e.g. flat-master peek) collapses to the neutral default.
+        paper = effective_paper_profile(params.paper_profile, process_mode)
+        d_min = paper.d_min if params.paper_dmin else 0.0
 
         # Slope/pivot come from the render path (session panel); fall back to
         # the same helpers with no metrics when called without them.
         if slope is None:
             slope = grade_to_slope(params.grade, None)
         if pivot is None:
-            pivot = compute_pivot(slope, params.density, d_min=d_min)
+            pivot = compute_pivot(slope, params.density, d_min=d_min, paper=paper)
 
         flare = EXPOSURE_CONSTANTS["flare_fraction"] if params.flare else 0.0
         surround_gamma = EXPOSURE_CONSTANTS["target_system_gamma"] if params.surround else 1.0

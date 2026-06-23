@@ -243,9 +243,11 @@ class RightPanel(QWidget):
                 self.hist_widget.update_data(buffer)
 
         from negpy.features.exposure.logic import effective_grade_range, normalized_shadow_refs, per_channel_curve_params
-        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+        from negpy.features.exposure.papers import effective_paper_profile
 
         config = self.controller.session.state.config.exposure
+        process_mode = self.controller.session.state.config.process.process_mode
+        paper = effective_paper_profile(config.paper_profile, process_mode)
 
         # While peeking the flat master, plot the flat curve so the chart matches
         # what the canvas is showing.
@@ -267,7 +269,7 @@ class RightPanel(QWidget):
                 metrics.get("norm_density_range"),
                 metrics.get("textural_range"),
             )
-            d_min = EXPOSURE_CONSTANTS["d_min"] if config.paper_dmin else 0.0
+            d_min = paper.d_min if config.paper_dmin else 0.0
             bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
             shadow_refs_norm = normalized_shadow_refs(bounds, metrics.get("shadow_log_refs"))
             slopes, pivots = per_channel_curve_params(
@@ -280,10 +282,11 @@ class RightPanel(QWidget):
                 metrics.get("textural_range"),
                 d_min=d_min,
                 anchor=anchor,
+                paper=paper,
             )
             # Green channel is the base curve (white reference + stats slope).
             slope, pivot = slopes[1], pivots[1]
-            self.curve_widget.update_curve(config, slope=slope, pivot=pivot, slopes=slopes, pivots=pivots)
+            self.curve_widget.update_curve(config, slope=slope, pivot=pivot, slopes=slopes, pivots=pivots, process_mode=process_mode)
 
         from negpy.features.exposure.stats import negative_statistics
 
