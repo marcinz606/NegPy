@@ -313,8 +313,29 @@ class ExportSettingsForm(QWidget):
     def _on_fmt_changed(self, fmt: str) -> None:
         self._quality_container.setVisible(fmt == ExportFormat.JPEG)
         self._jxl_container.setVisible(fmt == ExportFormat.JXL)
+        self._apply_jxl_constraints()
         self._refresh_jxl_warning()
         self._on_changed()
+
+    def _apply_jxl_constraints(self) -> None:
+        """JXL can only tag a subset of colour spaces, and a custom output ICC would
+        override the colour space into an un-enumerable profile while we still tag
+        enumeratively (a silent mistag). So when JXL is selected, grey out the
+        unrepresentable colour spaces and force/disable the output ICC override."""
+        is_jxl = self.fmt_combo.currentText() == ExportFormat.JXL
+
+        model = self.color_space_combo.model()
+        for i in range(self.color_space_combo.count()):
+            item = model.item(i)
+            if item is not None:
+                supported = self.color_space_combo.itemText(i) in _JXL_SUPPORTED
+                item.setEnabled(supported or not is_jxl)
+        if is_jxl and self.color_space_combo.currentText() not in _JXL_SUPPORTED:
+            self.color_space_combo.setCurrentText(ColorSpace.SRGB.value)
+
+        if is_jxl:
+            self.icc_output_combo.setCurrentIndex(0)  # None — no custom output profile
+        self.icc_output_combo.setEnabled(not is_jxl)
 
     def _on_jxl_lossless_toggled(self, lossless: bool) -> None:
         self.jxl_distance_spin.setEnabled(not lossless)
@@ -411,6 +432,7 @@ class ExportSettingsForm(QWidget):
             self.abspath_edit.setText(v.get("output_path", ""))
             self.filename_edit.setText(v["filename_pattern"])
             self.overwrite_check.setChecked(v["overwrite"])
+            self._apply_jxl_constraints()
             self._refresh_jxl_warning()
         finally:
             self._loading = False
