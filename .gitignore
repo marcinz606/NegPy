@@ -35,7 +35,8 @@ plans/
 .superpowers/
 *superpowers
 .serena/
-.claude/
+.claude/*
+!.claude/skills/
 
 # debug stuff
 samples/
