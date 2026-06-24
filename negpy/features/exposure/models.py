@@ -74,7 +74,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "anchor_target_density": 0.7,
     # Default normalized midtone reference in [0,1] log space (used when auto_exposure=False).
     # ↑ curve pivots brighter (assumes denser negative); ↓ pivots darker.
-    "assumed_anchor": 0.46,
+    "assumed_anchor": 0.45,
     # Minimum ISO R paper exposure range (hardest/highest-contrast grade allowed).
     # ↑ raises the maximum achievable slope; ↓ allows even harder grades.
     "iso_r_min": 50.0,
@@ -168,7 +168,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Auto Grade adaptation strength (partial slope normalization): 0 = fixed, 1 = full.
     # How strongly Auto Grade adapts slope to scene range (0 = ignore scene, 1 = fully normalize).
     # ↑ grade changes more aggressively with scene contrast variation; ↓ closer to a fixed grade.
-    "auto_grade_strength": 0.3,
+    "auto_grade_strength": 0.4,
     # Canonical floor_ceil/textural ratio of a normal tone distribution (~2.0); default-range fallback.
     # Reference floor_ceil/textural ratio for a "normal" negative (used as Auto Grade blend anchor).
     # ↑ system treats denser negatives as normal (grades down harder frames); ↓ expects flatter negatives.

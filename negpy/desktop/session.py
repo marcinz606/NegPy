@@ -443,6 +443,11 @@ class DesktopSessionManager(QObject):
                 new_exp = replace(new_exp, **{attr: bool(val)})
         config = replace(config, exposure=new_exp)
 
+        # Paper stock is roll-wide; render guards cross-mode leak.
+        sticky_paper = self.repo.get_global_setting("last_paper_profile")
+        if sticky_paper:
+            config = replace(config, exposure=replace(config.exposure, paper_profile=str(sticky_paper)))
+
         # Exception: dust_remove is a workflow preference, not an image-specific look.
         sticky_dust = self.repo.get_global_setting("last_dust_remove")
         if sticky_dust is not None:
@@ -476,6 +481,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_cast_removal", config.exposure.cast_removal)
         self.repo.save_global_setting("last_paper_dmin", config.exposure.paper_dmin)
         self.repo.save_global_setting("last_surround", config.exposure.surround)
+        self.repo.save_global_setting("last_paper_profile", config.exposure.paper_profile)
 
         self.repo.save_global_setting("last_toe", config.exposure.toe)
         self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)
