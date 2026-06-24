@@ -45,7 +45,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   $a_{sh}, a_{hl}$: Toe / shoulder knee sharpness, from `toe_sharpness_base` ($4.0$) and `shoulder_sharpness_base` ($3.0$) scaled by `toeshoulder_width_ref`$/$width.
     *   $k$: Per-channel slope (contrast), derived from **Grade**.
     *   $x_{adj}$: Adjusted input log-exposure (after CMY offsets); $x_0$ is the pivot.
-*   **Variable-gamma paper S-curve**: Before the bounds, a midtone gamma boost adds an anchor-preserving S-shape — $v \mathrel{+}= \gamma \cdot w \cdot \tanh\big((v - v^*)/w\big)$ (`paper_midtone_gamma` $= 0.15$, `paper_gamma_width` $= 0.5$). Centred on the reference tone $v^*$ so the anchor is preserved, easing to zero toward toe and shoulder — a real paper's continuously varying gamma.
+*   **Variable-gamma paper S-curve**: Before the bounds, a midtone gamma boost adds an anchor-preserving S-shape — $v \mathrel{+}= \gamma \cdot w \cdot \tanh\big((v - v^{\ast})/w\big)$ (`paper_midtone_gamma` $= 0.15$, `paper_gamma_width` $= 0.5$). Centred on the reference tone $v^{\ast}$ so the anchor is preserved, easing to zero toward toe and shoulder — a real paper's continuously varying gamma.
 *   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default 115, range 50–180 (R110 ≈ classic paper grade 2; higher R = softer). The straight-line slope is $k = \text{(grade contrast scale)} \cdot \text{range} / (R/100)$ (`grade_contrast_scale` $= 2.9$), clamped to $[2.0, 10.0]$ — the literal H&D gamma (negative density range over paper exposure range). Edits saved under the old 0–5 paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
 *   **Toe & Shoulder**: Two independent levers (slider values scaled by $0.85$ internally). The slider sets roll-off **height**; **sharpness** comes from the width control:
     *   **Toe** — shadows. Lifts the paper-black ceiling: $D_{max,eff} = D_{max} - \text{toe} \cdot 0.35$ (`toe_height`). Negative toe instead *sharpens* the shadow knee (extending past $D_{max}$ has near-zero perceptual effect).
@@ -185,7 +185,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     $$I_{out} = \frac{I - bp}{1 - bp}$$
     *   $bp$: $0.05$-percentile luminance.
 
-*   **Split Toning** (all modes): Additive tint in LAB ($a^*b^*$) space, so luminance — and therefore grain and detail — is preserved. Shadows and highlights are pushed toward independent hue angles. With $L$ the CIELAB lightness ($0$–$100$):
+*   **Split Toning** (all modes): Additive tint in LAB ($a^{\ast}b^{\ast}$) space, so luminance — and therefore grain and detail — is preserved. Shadows and highlights are pushed toward independent hue angles. With $L$ the CIELAB lightness ($0$–$100$):
     $$m_{shadow} = \text{clip}(1 - L/50,\ 0,\ 1), \qquad m_{highlight} = \text{clip}((L - 50)/50,\ 0,\ 1)$$
     For each region (using its hue $\theta$, strength $S$, and mask $m$):
-    $$a^* \mathrel{+}= \cos\theta \cdot 20 \cdot S \cdot m, \qquad b^* \mathrel{+}= \sin\theta \cdot 20 \cdot S \cdot m$$
+    $$a^{\ast} \mathrel{+}= \cos\theta \cdot 20 \cdot S \cdot m, \qquad b^{\ast} \mathrel{+}= \sin\theta \cdot 20 \cdot S \cdot m$$
