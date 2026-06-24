@@ -2,6 +2,7 @@ import os
 import io
 import rawpy
 import tifffile
+import imagecodecs
 import numpy as np
 from PIL import Image, ImageCms
 from typing import Tuple, Optional, Any, Dict
@@ -36,6 +37,19 @@ from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKIN
 from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
 
 logger = get_logger(__name__)
+
+# JPEG XL is tagged with libjxl's enumerated color encoding (white point D65 only),
+# never an embedded ICC. Only spaces whose pipeline ICC TRC/primaries are exactly
+# representable enumeratively are allowed; all others must hard-fail (no fallback).
+# (photometric, primaries, transfer) verified against the bundled icc/*.icc profiles:
+# Rec 2020 carries the Rec.709/BT.2020 OETF (-> BT709, not sRGB); GrayGamma2.2.icc
+# despite its name carries the sRGB TRC (-> SRGB, not gamma 2.2).
+_JXL_COLOR = {
+    ColorSpace.SRGB.value: ("RGB", "SRGB", "SRGB"),
+    ColorSpace.P3_D65.value: ("RGB", "P3", "SRGB"),
+    ColorSpace.REC2020.value: ("RGB", "BT2100", "BT709"),
+    ColorSpace.GREYSCALE.value: ("GRAY", None, "SRGB"),
+}
 
 
 class ImageProcessor:
@@ -321,6 +335,33 @@ class ImageProcessor:
                 save_kwargs["icc_profile"] = icc_bytes
             pil_img.save(output_buf, **save_kwargs)
             return output_buf.getvalue(), "png"
+        elif fmt == ExportFormat.JXL:
+            tag = _JXL_COLOR.get(color_space)
+            if tag is None:
+                raise ValueError(
+                    f"JPEG XL export does not support the {color_space} color space. "
+                    "Use sRGB, P3 D65, Rec 2020, or Greyscale, or pick another format."
+                )
+            photometric, primaries, transfer = tag
+            # True 16-bit samples, colour-managed into the target space; the returned
+            # ICC is discarded because libjxl tags enumeratively instead.
+            if is_greyscale:
+                img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
+                img_out, _icc = self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
+            else:
+                img_int = float_to_uint16(buffer)
+                img_out, _icc = self._apply_color_management_u16_rgb(img_int, working_color_space, color_space, icc_output, icc_input)
+            bits = imagecodecs.jpegxl_encode(
+                np.ascontiguousarray(img_out),
+                bitspersample=16,
+                photometric=photometric,
+                primaries=primaries,
+                transfer=transfer,
+                lossless=export_settings.jxl_lossless,
+                distance=None if export_settings.jxl_lossless else export_settings.jxl_distance,
+                effort=export_settings.jxl_effort,
+            )
+            return bytes(bits), "jxl"
         else:
             img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
 

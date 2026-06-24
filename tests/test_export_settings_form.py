@@ -14,6 +14,9 @@ def _values(**overrides) -> dict:
     base = {
         "export_fmt": ExportFormat.JPEG,
         "jpeg_quality": 88,
+        "jxl_lossless": False,
+        "jxl_distance": 2.0,
+        "jxl_effort": 5,
         "export_resolution_mode": ExportResolutionMode.PRINT.value,
         "paper_aspect_ratio": AspectRatio.ORIGINAL,
         "export_print_size": 24.0,
@@ -48,6 +51,28 @@ def test_jpeg_quality_hidden_for_non_jpeg(qapp):
     form.load(_values(export_fmt=ExportFormat.JPEG))
     # Visibility flag flips even though the widget isn't shown on screen.
     assert not form._quality_container.isHidden()
+
+
+def test_jxl_controls_visible_only_for_jxl(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.JPEG))
+    assert form._jxl_container.isHidden()
+    form.load(_values(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.SRGB.value))
+    assert not form._jxl_container.isHidden()
+
+
+def test_jxl_blocks_unsupported_color_space(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.ADOBE_RGB.value))
+    assert form.is_export_blocked()
+    assert form.jxl_cs_warning.isVisible() or not form.jxl_cs_warning.isHidden()
+
+    form.load(_values(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.REC2020.value))
+    assert not form.is_export_blocked()
+
+    # Non-JXL formats are never blocked by colour space.
+    form.load(_values(export_fmt=ExportFormat.TIFF, export_color_space=ColorSpace.ADOBE_RGB.value))
+    assert not form.is_export_blocked()
 
 
 def test_destination_subfields_track_output_mode(qapp):

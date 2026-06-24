@@ -56,6 +56,7 @@ class ExportFormat(StrEnum):
     TIFF = "TIFF"
     PNG = "PNG"
     DNG = "DNG"
+    JXL = "JXL"
 
 
 class ExportPresetOutputMode(StrEnum):
@@ -98,6 +99,9 @@ class ExportConfig:
     export_path: str = field(default_factory=lambda: os.path.join(paths.get_default_user_dir(), "export"))
     export_fmt: str = ExportFormat.JPEG
     jpeg_quality: int = 90
+    jxl_lossless: bool = True
+    jxl_distance: float = 1.0  # libjxl distance; only used when jxl_lossless is False
+    jxl_effort: int = 7
     export_color_space: str = ColorSpace.SRGB.value
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
@@ -131,6 +135,9 @@ class ExportPreset:
     # Format
     export_fmt: str = ExportFormat.JPEG
     jpeg_quality: int = 90
+    jxl_lossless: bool = True
+    jxl_distance: float = 1.0
+    jxl_effort: int = 7
 
     # Sizing (same field names as ExportConfig for PrintService compatibility)
     export_resolution_mode: str = ExportResolutionMode.ORIGINAL.value
@@ -158,6 +165,9 @@ class ExportPreset:
             "enabled": self.enabled,
             "export_fmt": self.export_fmt,
             "jpeg_quality": self.jpeg_quality,
+            "jxl_lossless": self.jxl_lossless,
+            "jxl_distance": self.jxl_distance,
+            "jxl_effort": self.jxl_effort,
             "export_resolution_mode": self.export_resolution_mode,
             "paper_aspect_ratio": self.paper_aspect_ratio,
             "export_print_size": self.export_print_size,
@@ -187,6 +197,9 @@ def preset_from_export_config(conf: ExportConfig, name: str = "Current settings"
         enabled=True,
         export_fmt=conf.export_fmt,
         jpeg_quality=conf.jpeg_quality,
+        jxl_lossless=conf.jxl_lossless,
+        jxl_distance=conf.jxl_distance,
+        jxl_effort=conf.jxl_effort,
         export_resolution_mode=conf.export_resolution_mode,
         paper_aspect_ratio=conf.paper_aspect_ratio,
         export_print_size=conf.export_print_size,

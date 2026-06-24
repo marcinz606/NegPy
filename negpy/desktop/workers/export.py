@@ -62,7 +62,7 @@ class ExportWorker(QObject):
                 name = os.path.splitext(full_name)[0]
                 self.progress.emit(i + 1, total, name)
 
-                bits, _ = self._processor.process_export(
+                bits, status = self._processor.process_export(
                     task.file_info["path"],
                     task.params,
                     task.export_settings,
@@ -72,11 +72,23 @@ class ExportWorker(QObject):
                     working_color_space=task.working_color_space,
                 )
 
+                if not bits:
+                    # On failure process_export returns (None, error); surface it
+                    # (e.g. JPEG XL rejecting an unsupported colour space) instead of
+                    # silently skipping the file.
+                    self.error.emit(status)
+                    continue
+
                 if bits:
                     # Embed metadata if config is provided. Skipped for DNG: it is a
                     # TIFF-based raw container and the EXIF re-write would strip its
                     # DNG tags and corrupt the file.
-                    if task.metadata_config is not None and task.export_settings.export_fmt != ExportFormat.DNG:
+                    # JXL is also skipped: embed_metadata operates on JPEG/TIFF/PNG
+                    # containers and would corrupt the .jxl bytestream.
+                    if task.metadata_config is not None and task.export_settings.export_fmt not in (
+                        ExportFormat.DNG,
+                        ExportFormat.JXL,
+                    ):
                         bits = embed_metadata(bits, task.metadata_config, task.source_exif)
 
                     source_dir = os.path.dirname(task.file_info["path"])
@@ -90,7 +102,13 @@ class ExportWorker(QObject):
                         out_dir = source_dir
                     os.makedirs(out_dir, exist_ok=True)
 
-                    _EXT = {ExportFormat.JPEG: "jpg", ExportFormat.TIFF: "tiff", ExportFormat.PNG: "png", ExportFormat.DNG: "dng"}
+                    _EXT = {
+                        ExportFormat.JPEG: "jpg",
+                        ExportFormat.TIFF: "tiff",
+                        ExportFormat.PNG: "png",
+                        ExportFormat.DNG: "dng",
+                        ExportFormat.JXL: "jxl",
+                    }
                     ext = _EXT.get(task.export_settings.export_fmt, "jpg")
 
                     filename = render_export_filename(

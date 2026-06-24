@@ -32,6 +32,17 @@ from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 _LABEL_WIDTH = 90
 
+# Colour spaces JPEG XL can tag enumeratively (must mirror _JXL_COLOR in
+# image_processor). "Same as Source" is allowed here; it's resolved at export time
+# and rejected by the encoder if it lands on an unsupported space.
+_JXL_SUPPORTED = {
+    ColorSpace.SRGB.value,
+    ColorSpace.P3_D65.value,
+    ColorSpace.REC2020.value,
+    ColorSpace.GREYSCALE.value,
+    ColorSpace.SAME_AS_SOURCE.value,
+}
+
 
 class ExportSettingsForm(QWidget):
     """Shared FORMAT / SIZE / COLOR / DESTINATION rows for the export sidebar and
@@ -85,6 +96,48 @@ class ExportSettingsForm(QWidget):
         self.quality_spin.valueChanged.connect(self._on_changed)
         quality_row.addWidget(self.quality_spin)
         root.addWidget(self._quality_container)
+
+        self._build_jxl(root)
+
+    def _build_jxl(self, root: QVBoxLayout) -> None:
+        self._jxl_container = QWidget()
+        jxl_box = QVBoxLayout(self._jxl_container)
+        jxl_box.setContentsMargins(0, 0, 0, 0)
+
+        self.jxl_lossless_check = QCheckBox("Lossless")
+        self.jxl_lossless_check.setChecked(True)
+        self.jxl_lossless_check.toggled.connect(self._on_jxl_lossless_toggled)
+        jxl_box.addWidget(self.jxl_lossless_check)
+
+        dist_row = QHBoxLayout()
+        dist_row.addWidget(self._row_label("Distance"))
+        self.jxl_distance_spin = QDoubleSpinBox()
+        self.jxl_distance_spin.setRange(0.0, 15.0)
+        self.jxl_distance_spin.setSingleStep(0.1)
+        self.jxl_distance_spin.setValue(1.0)
+        self.jxl_distance_spin.setToolTip("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss")
+        self.jxl_distance_spin.valueChanged.connect(self._on_changed)
+        dist_row.addWidget(self.jxl_distance_spin)
+        jxl_box.addLayout(dist_row)
+
+        effort_row = QHBoxLayout()
+        effort_row.addWidget(self._row_label("Effort"))
+        self.jxl_effort_spin = QSpinBox()
+        self.jxl_effort_spin.setRange(1, 9)
+        self.jxl_effort_spin.setValue(7)
+        self.jxl_effort_spin.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.jxl_effort_spin.valueChanged.connect(self._on_changed)
+        effort_row.addWidget(self.jxl_effort_spin)
+        jxl_box.addLayout(effort_row)
+
+        # JXL tags colour enumeratively (no embedded ICC), so only sRGB / P3 D65 /
+        # Rec 2020 / Greyscale are representable. Warn + block the rest before export.
+        self.jxl_cs_warning = QLabel()
+        self.jxl_cs_warning.setWordWrap(True)
+        self.jxl_cs_warning.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
+        jxl_box.addWidget(self.jxl_cs_warning)
+
+        root.addWidget(self._jxl_container)
 
     # --- SIZE ----------------------------------------------------------------
 
@@ -178,6 +231,7 @@ class ExportSettingsForm(QWidget):
         self.color_space_combo = QComboBox()
         self.color_space_combo.addItems([cs.value for cs in ColorSpace])
         self.color_space_combo.currentTextChanged.connect(self._on_changed)
+        self.color_space_combo.currentTextChanged.connect(self._refresh_jxl_warning)
         cs_row.addWidget(self.color_space_combo)
         root.addLayout(cs_row)
 
@@ -258,7 +312,26 @@ class ExportSettingsForm(QWidget):
 
     def _on_fmt_changed(self, fmt: str) -> None:
         self._quality_container.setVisible(fmt == ExportFormat.JPEG)
+        self._jxl_container.setVisible(fmt == ExportFormat.JXL)
+        self._refresh_jxl_warning()
         self._on_changed()
+
+    def _on_jxl_lossless_toggled(self, lossless: bool) -> None:
+        self.jxl_distance_spin.setEnabled(not lossless)
+        self._on_changed()
+
+    def is_export_blocked(self) -> bool:
+        """True when the current JXL + colour space pairing can't be tagged."""
+        return self.fmt_combo.currentText() == ExportFormat.JXL and self.color_space_combo.currentText() not in _JXL_SUPPORTED
+
+    def _refresh_jxl_warning(self) -> None:
+        blocked = self.is_export_blocked()
+        if blocked:
+            self.jxl_cs_warning.setText(
+                f"JPEG XL can't tag {self.color_space_combo.currentText()} — "
+                "choose sRGB, P3 D65, Rec 2020, or Greyscale, or a different format."
+            )
+        self.jxl_cs_warning.setVisible(blocked)
 
     def _on_mode_toggled(self, _id: int, checked: bool) -> None:
         if not checked:
@@ -310,6 +383,12 @@ class ExportSettingsForm(QWidget):
             self.quality_spin.setValue(v.get("jpeg_quality", 90))
             self._quality_container.setVisible(v["export_fmt"] == ExportFormat.JPEG)
 
+            self.jxl_lossless_check.setChecked(v.get("jxl_lossless", True))
+            self.jxl_distance_spin.setValue(v.get("jxl_distance", 1.0))
+            self.jxl_distance_spin.setEnabled(not v.get("jxl_lossless", True))
+            self.jxl_effort_spin.setValue(v.get("jxl_effort", 7))
+            self._jxl_container.setVisible(v["export_fmt"] == ExportFormat.JXL)
+
             self._select_mode_button(v["export_resolution_mode"])
             self._update_mode_visibility(v["export_resolution_mode"])
             self.size_input.setValue(v["export_print_size"])
@@ -332,6 +411,7 @@ class ExportSettingsForm(QWidget):
             self.abspath_edit.setText(v.get("output_path", ""))
             self.filename_edit.setText(v["filename_pattern"])
             self.overwrite_check.setChecked(v["overwrite"])
+            self._refresh_jxl_warning()
         finally:
             self._loading = False
 
@@ -342,6 +422,9 @@ class ExportSettingsForm(QWidget):
         return {
             "export_fmt": self.fmt_combo.currentText(),
             "jpeg_quality": self.quality_spin.value(),
+            "jxl_lossless": self.jxl_lossless_check.isChecked(),
+            "jxl_distance": self.jxl_distance_spin.value(),
+            "jxl_effort": self.jxl_effort_spin.value(),
             "export_resolution_mode": self._current_mode_value(),
             "paper_aspect_ratio": self.ratio_combo.currentText(),
             "export_print_size": self.size_input.value(),

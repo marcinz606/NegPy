@@ -12,7 +12,7 @@ requires-python = ">=3.13"
 dependencies = [
     "rawpy==0.26.1",
     "tifffile==2026.4.11",
-    "imagecodecs==2026.3.6",
+    "imagecodecs==2026.6.6",  # >=2026.5.10 for jpegxl_encode primaries/transfer (issue #137)
     "imageio==2.37.3",
     "jinja2==3.1.6",
     "numba==0.65.1",

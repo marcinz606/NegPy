@@ -136,27 +136,30 @@ wheels = [
 
 [[package]]
 name = "imagecodecs"
-version = "2026.3.6"
+version = "2026.6.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3b/8d/dc18623e5e926ad53c626e128c8baaf4ec42e41029cf0a07381cfef79289/imagecodecs-2026.3.6.tar.gz", hash = "sha256:471b8a4d1b3843cbf7179b45f7d7261f0c0b28809efc1ca6c47822477b143b85", size = 9565259, upload-time = "2026-03-07T01:26:41.183Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/d5/d653e9c636b606fae7f5d3813b5c9ed2df5f184547b7d5842cf64540bfb3/imagecodecs-2026.6.6.tar.gz", hash = "sha256:c7b014f5c0e73ff455700b1db271415d3c35a3bddedca6527cb2eefcd2fa8a10", size = 9710513, upload-time = "2026-06-06T15:02:10.48Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/db/873d063c99a726d772bf6f076288da59bb12e9f2af3518c2e4de5fde234d/imagecodecs-2026.3.6-cp311-abi3-macosx_10_15_x86_64.whl", hash = "sha256:44cfb3b609d941014f8ac7cf8611b15ccfd7119443bbb6b5e53916b242d31f9e", size = 13953250, upload-time = "2026-03-07T06:13:36.959Z" },
-    { url = "https://files.pythonhosted.org/packages/42/84/36c38a82f033ffbc9e706dad32be7148f130fc00e7bb417ab60e063897a0/imagecodecs-2026.3.6-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:e64037f22980a211b17bf6bdf03f14ff459a7432eec24f7a58c342f6992132fa", size = 11697496, upload-time = "2026-03-07T01:25:56.412Z" },
-    { url = "https://files.pythonhosted.org/packages/45/fa/f67c4e644fdf06503e120f9d1c8d8654b99066dea7093a674b67704fa4a4/imagecodecs-2026.3.6-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:30fa140bb1a112a889926af36977214ed52a22e4557356043259b5e2f79cfba5", size = 25604431, upload-time = "2026-03-07T01:26:00.703Z" },
-    { url = "https://files.pythonhosted.org/packages/8f/29/93ea9cbab7f57b4e60480c51fc51d8e138e399d11797c981d5f6e79f9832/imagecodecs-2026.3.6-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:e30a14aa2e1c6c90e00375292726486c1d90bf003b1414d608ea4d1f62fd8a79", size = 26468592, upload-time = "2026-03-07T01:26:04.933Z" },
-    { url = "https://files.pythonhosted.org/packages/e8/a7/e3a89b2c516eaca7446e8f1335daeec90764b50888af5e073a2b6a987fcf/imagecodecs-2026.3.6-cp311-abi3-win32.whl", hash = "sha256:c972a45dfee1befbac048ba3492607003e9a185811e8febdc1ed531d48c07e75", size = 15597722, upload-time = "2026-03-07T01:26:08.106Z" },
-    { url = "https://files.pythonhosted.org/packages/22/c7/2b37a7fe9a2eb21011e50f046d62e68ac4e0f8d6ad94d7a10e9f8e8d685f/imagecodecs-2026.3.6-cp311-abi3-win_amd64.whl", hash = "sha256:e8fba5b9ac7be109ed35070208bc1683fa17cc381ed9535a4eae200c6d883bd8", size = 19177403, upload-time = "2026-03-07T01:26:11.718Z" },
-    { url = "https://files.pythonhosted.org/packages/c0/c7/94e930cef9e0a29a2df5e3ba3bacd2c2f1e34ca373fe48624b64af8ae91c/imagecodecs-2026.3.6-cp311-abi3-win_arm64.whl", hash = "sha256:fc4856913be6c8b3861223158920d934a0ae203149a435f585622dbbff8ed696", size = 15193605, upload-time = "2026-03-07T01:26:15.016Z" },
-    { url = "https://files.pythonhosted.org/packages/a3/0b/ba7ca5a14cf2ff744c47898ab9e98b6b96b364bce1459afcab5f4e5ea2bb/imagecodecs-2026.3.6-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:ea2cd774854a3bfe1dc9508f98907edc877c02a78642ab371adbdec65a8865cc", size = 14335958, upload-time = "2026-03-07T06:13:39.726Z" },
-    { url = "https://files.pythonhosted.org/packages/18/d9/4750fb9739d474e399fa566b3a5c7033f2c9c0078bc869473b23d3e0d4b7/imagecodecs-2026.3.6-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:6efa104ce600f61fef03a43daab34fe2953c8adb4e4ee6eb9544825f5361e5ab", size = 12021474, upload-time = "2026-03-07T01:26:18.008Z" },
-    { url = "https://files.pythonhosted.org/packages/29/d3/f0a71c797f836021241500d4a459b0f93317f2b5c9bcc39fb1eaa50e01ea/imagecodecs-2026.3.6-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:16fd83dd25d9c888317bc8cbbc5d7490b78c84c58275d80fb71ea7b28645276a", size = 29606531, upload-time = "2026-03-07T01:26:22.058Z" },
-    { url = "https://files.pythonhosted.org/packages/0c/8c/a1b433418306636fc22a94b669d7ebbbde8e3b26aef7d693c08f9f8a65af/imagecodecs-2026.3.6-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:39fcf671537cc92dd24ba4dcba257d8aa47e6f58018e839a5216c626f03d4126", size = 30039276, upload-time = "2026-03-07T01:26:26.718Z" },
-    { url = "https://files.pythonhosted.org/packages/ac/96/1474c0e242fb11d68304f858298971370fdfcecc404dbd9993a3ea449b4f/imagecodecs-2026.3.6-cp314-cp314t-win32.whl", hash = "sha256:65110ff30723a6e0b79c6c74ff52909a34b131366c4f76b1b68084cca5fcd982", size = 16345843, upload-time = "2026-03-07T01:26:30.498Z" },
-    { url = "https://files.pythonhosted.org/packages/d5/13/d0e09d8aaafe6fac1aa1bd8c0dcc0f024998ea4a23477128db14a085b4cf/imagecodecs-2026.3.6-cp314-cp314t-win_amd64.whl", hash = "sha256:1b810efeeb06bdcca07ae410a81bdb5eb9fb38f91689baf0f0b75783f5119a40", size = 20230890, upload-time = "2026-03-07T01:26:33.78Z" },
-    { url = "https://files.pythonhosted.org/packages/9c/06/3a5fe853e4df9a3655f8be81c1eb48013aab282c1557341b8634dd718e32/imagecodecs-2026.3.6-cp314-cp314t-win_arm64.whl", hash = "sha256:a2363c64e346cee4136f02a207b1b645729142f5260d122ddc3d5ff9e32ac6b1", size = 15911854, upload-time = "2026-03-07T01:26:38.072Z" },
+    { url = "https://files.pythonhosted.org/packages/41/e0/0b17f51e1c9ee8d02270ed7a3d3c124eafeb0df3b4f007e8c1b4b1268676/imagecodecs-2026.6.6-cp312-abi3-macosx_10_15_x86_64.whl", hash = "sha256:f2d35d6771251d128556fe144b9f8492a7189c4525d5fd0d7c8318d6fcbfb390", size = 14943911, upload-time = "2026-06-06T15:01:17.687Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/2e/e10694fc6ba70d9188cc1ac86ce60a3c57208721280f011f0f9ac4e1c225/imagecodecs-2026.6.6-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:c3052aed81b3d348c77163b475ab00252964a5f7caf74ae9c62d4ca90e247fe8", size = 12540505, upload-time = "2026-06-06T15:01:20.628Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/23/70e01368c354448dd96b5781a77aeb4fde5eee50ecb9fcc2c5d41fbe25cb/imagecodecs-2026.6.6-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:907bb9b858c3dc1d5c4ff91385ea210ae90fa2fb00b44206643a24e20db742d2", size = 27148793, upload-time = "2026-06-06T18:12:15.003Z" },
+    { url = "https://files.pythonhosted.org/packages/30/65/66720d8f2745792b5653ae48327b57e99c54f8548fcff05f1a25ebd86d6c/imagecodecs-2026.6.6-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:bca94547db076322c606f37d501f6e7ab3fa3f9eee3fcd6f233854c67014e9fb", size = 28132122, upload-time = "2026-06-06T15:01:24.558Z" },
+    { url = "https://files.pythonhosted.org/packages/36/d3/2dba651d8d830b2823a3e750fe231cf183f1eb11f88d4ca280450efeab57/imagecodecs-2026.6.6-cp312-abi3-win32.whl", hash = "sha256:00596506fcea638063491db1baeef9a2445b3e0147bcbd76633561df702b1eb1", size = 16480894, upload-time = "2026-06-06T15:01:28.639Z" },
+    { url = "https://files.pythonhosted.org/packages/20/2a/62a84ce74794664c62d571266b1c8c13261e9dbe82dfc1f0fd1887b6c68b/imagecodecs-2026.6.6-cp312-abi3-win_amd64.whl", hash = "sha256:3ba2bcee53dabfb7d4dbd6f3c3ae731f3bfa43fa9c936d969886dff2f50e2160", size = 20220064, upload-time = "2026-06-06T15:01:32.128Z" },
+    { url = "https://files.pythonhosted.org/packages/89/fb/90daf65a4e9b6136fc36b59a0d23aac020707ae8f831de36eceba2a7241f/imagecodecs-2026.6.6-cp312-abi3-win_arm64.whl", hash = "sha256:031c5ea4d0c8bfacc87a5ca0ffdfee9a06b64265960d8b0b5d3f4a32434404c3", size = 16041147, upload-time = "2026-06-06T15:01:35.371Z" },
+    { url = "https://files.pythonhosted.org/packages/62/0d/d953120557150f31e879c6cdb977a89a1d987eb063048d9be83fbc62d1ce/imagecodecs-2026.6.6-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:5ee77053841dc7a8fbe59df774c0456fbe604edf2cd12c795c29deee1384ce8d", size = 15339668, upload-time = "2026-06-06T15:01:39.935Z" },
+    { url = "https://files.pythonhosted.org/packages/73/1b/cec19d0428188f85b78981087e837e9f30166f013cdf98227a1b20e2c38d/imagecodecs-2026.6.6-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:1fe0a7c8fb67bdd1bbb406c0e830dd1652acf6dce62620071a47e20f7d00619a", size = 12987803, upload-time = "2026-06-06T15:01:42.829Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/73/ad06b8b5944b063ad5f6f55253bb44b64673fd1a776567f7895ffc25d788/imagecodecs-2026.6.6-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:2673fc78fc6e2178b13957eccaa2e97c716ea03607af6a2a44a2f09d00919f3f", size = 32256108, upload-time = "2026-06-06T18:12:19.557Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/32/2e67ec87bbcd1c4055f97c3962f5f49598e9c63d2809711c88084959c7dd/imagecodecs-2026.6.6-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:ed0760b9d428408798c010593ef204f88d949a9f57fa037623544e811c462c67", size = 32630019, upload-time = "2026-06-06T15:01:47.239Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/13/4ebe5100ff4daf4acb2220481cb7a0d18e623eec7458b85c846b6ec850f0/imagecodecs-2026.6.6-cp314-cp314t-win32.whl", hash = "sha256:16540ed96854312d235bb86f885cb5f6ca2f4f1acde8e283d13a2bda2fb01e26", size = 17234217, upload-time = "2026-06-06T15:01:50.672Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/3a/4298fa62a5d94ce860e0d12082c96707f8b952b499f669daf9b3031716fc/imagecodecs-2026.6.6-cp314-cp314t-win_amd64.whl", hash = "sha256:325f72db99e2678c9ad0ccca8ac9f274b6ac7b4a1a5df71db0f96e23f964aeab", size = 21259530, upload-time = "2026-06-06T15:01:54.316Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/fb/b5eb0049b31558e439af0e06f3b206ac0b45930773d15abcb0236c0399a1/imagecodecs-2026.6.6-cp314-cp314t-win_arm64.whl", hash = "sha256:fcd8b838bbe10c6b312b8aa67add4bb375bd1537ae4d92815c1ea522bef43cbc", size = 16759012, upload-time = "2026-06-06T15:01:57.729Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/84/46857efdc71a8ddb6632858534a74625025824ca77285655a49c246a25bd/imagecodecs-2026.6.6-cp315-cp315t-win32.whl", hash = "sha256:b20be458a4d4a0283acaae17c94ad8128dfc6ce62fefdd55f1882c8e3a67850c", size = 17230579, upload-time = "2026-06-06T15:02:00.722Z" },
+    { url = "https://files.pythonhosted.org/packages/71/cc/91dca22a7bfd0905da6e82c2f6777087294ad07a8e87fdc8727bc6def326/imagecodecs-2026.6.6-cp315-cp315t-win_amd64.whl", hash = "sha256:51703586bb553d3b3ef9a0ab5c5b26432611c2bbb262f5f8fdeb19095c5e130f", size = 21253502, upload-time = "2026-06-06T15:02:04.283Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/95/cf1c29b96ba3d2b644e27eac92389876e286d28391b046b4f486cee6fde5/imagecodecs-2026.6.6-cp315-cp315t-win_arm64.whl", hash = "sha256:e4a059c2f57df75f99024bf9499b17b10d5a3916c5b5addba31317a523f120cd", size = 16757440, upload-time = "2026-06-06T15:02:07.924Z" },
 ]
 
 [[package]]
@@ -312,7 +315,7 @@ scanner = [
 
 [package.metadata]
 requires-dist = [
-    { name = "imagecodecs", specifier = "==2026.3.6" },
+    { name = "imagecodecs", specifier = "==2026.6.6" },
     { name = "imageio", specifier = "==2.37.3" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "numba", specifier = "==0.65.1" },

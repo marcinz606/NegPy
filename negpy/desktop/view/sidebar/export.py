@@ -48,10 +48,12 @@ class ExportSidebar(BaseSidebar):
         self.layout.addStretch()
 
         self._rebuild_preset_rows()
+        self._refresh_export_enabled()
 
     def _connect_signals(self) -> None:
         self.form.changed.connect(self.update_timer.start)
         self.form.changed.connect(self._refresh_proof_mismatch_warning)
+        self.form.changed.connect(self._refresh_export_enabled)
 
         self.soft_proof_checkbox.toggled.connect(self.controller.set_soft_proof)
         self.soft_proof_checkbox.toggled.connect(self._refresh_proof_mismatch_warning)
@@ -408,6 +410,9 @@ class ExportSidebar(BaseSidebar):
         return {
             "export_fmt": conf.export_fmt,
             "jpeg_quality": conf.jpeg_quality,
+            "jxl_lossless": conf.jxl_lossless,
+            "jxl_distance": conf.jxl_distance,
+            "jxl_effort": conf.jxl_effort,
             "export_resolution_mode": conf.export_resolution_mode,
             "paper_aspect_ratio": conf.paper_aspect_ratio,
             "export_print_size": conf.export_print_size,
@@ -438,6 +443,9 @@ class ExportSidebar(BaseSidebar):
             render=True,
             export_fmt=vals["export_fmt"],
             jpeg_quality=vals["jpeg_quality"],
+            jxl_lossless=vals["jxl_lossless"],
+            jxl_distance=vals["jxl_distance"],
+            jxl_effort=vals["jxl_effort"],
             export_color_space=vals["export_color_space"],
             paper_aspect_ratio=vals["paper_aspect_ratio"],
             export_resolution_mode=vals["export_resolution_mode"],
@@ -487,6 +495,11 @@ class ExportSidebar(BaseSidebar):
         )
         self.proof_mismatch_label.setVisible(mismatch)
 
+    def _refresh_export_enabled(self) -> None:
+        """Disable 'Export All' when the current format/colour-space pairing can't
+        be encoded (JPEG XL only tags a subset of colour spaces)."""
+        self.batch_export_btn.setEnabled(not self.form.is_export_blocked())
+
     def sync_ui(self) -> None:
         conf = self.state.config.export
         self.block_signals(True)
@@ -513,6 +526,7 @@ class ExportSidebar(BaseSidebar):
         self._sync_flat_enabled()
 
         self._refresh_proof_mismatch_warning()
+        self._refresh_export_enabled()
         self._rebuild_preset_rows()
 
     def block_signals(self, blocked: bool) -> None:
