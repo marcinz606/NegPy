@@ -45,8 +45,8 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   $a_{sh}, a_{hl}$: Toe / shoulder knee sharpness, from `toe_sharpness_base` ($4.0$) and `shoulder_sharpness_base` ($3.0$) scaled by `toeshoulder_width_ref`$/$width.
     *   $k$: Per-channel slope (contrast), derived from **Grade**.
     *   $x_{adj}$: Adjusted input log-exposure (after CMY offsets); $x_0$ is the pivot.
-*   **Variable-gamma paper S-curve**: Before the bounds, a midtone gamma boost adds an anchor-preserving S-shape — $v \mathrel{+}= \gamma \cdot w \cdot \tanh\big((v - v^\*)/w\big)$ (`paper_midtone_gamma` $= 0.15$, `paper_gamma_width` $= 0.5$). Centred on the reference tone $v^\*$ so the anchor is preserved, easing to zero toward toe and shoulder — a real paper's continuously varying gamma.
-*   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default 115, range 50–180 (R110 ≈ classic paper grade 2; higher R = softer). The straight-line slope is $k = \text{`grade\_contrast\_scale`} \cdot \text{range} / (R/100)$ (`grade_contrast_scale` $= 2.9$), clamped to $[2.0, 10.0]$ — the literal H&D gamma (negative density range over paper exposure range). Edits saved under the old 0–5 paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
+*   **Variable-gamma paper S-curve**: Before the bounds, a midtone gamma boost adds an anchor-preserving S-shape — $v \mathrel{+}= \gamma \cdot w \cdot \tanh\big((v - v^*)/w\big)$ (`paper_midtone_gamma` $= 0.15$, `paper_gamma_width` $= 0.5$). Centred on the reference tone $v^*$ so the anchor is preserved, easing to zero toward toe and shoulder — a real paper's continuously varying gamma.
+*   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default 115, range 50–180 (R110 ≈ classic paper grade 2; higher R = softer). The straight-line slope is $k = \text{grade\_contrast\_scale} \cdot \text{range} / (R/100)$ (`grade_contrast_scale` $= 2.9$), clamped to $[2.0, 10.0]$ — the literal H&D gamma (negative density range over paper exposure range). Edits saved under the old 0–5 paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
 *   **Toe & Shoulder**: Two independent levers (slider values scaled by $0.85$ internally). The slider sets roll-off **height**; **sharpness** comes from the width control:
     *   **Toe** — shadows. Lifts the paper-black ceiling: $D_{max,eff} = D_{max} - \text{toe} \cdot 0.35$ (`toe_height`). Negative toe instead *sharpens* the shadow knee (extending past $D_{max}$ has near-zero perceptual effect).
     *   **Shoulder** — highlights. Lifts the paper-white floor (compresses/greys highlights): $D_{min,eff} = D_{min} + \text{shoulder} \cdot 0.35$ (`shoulder_height`).
@@ -92,7 +92,7 @@ This stage removes physical artifacts like dust, hairs, and scratches from the n
 *   **Automatic Dust Removal**:
     A resolution-invariant impulse detector and patching engine.
     
-    1.  **Statistical Gating**: Uses dual-radius analysis. A local window ($3\times$ scaled) identifies luminance spikes, while a wide window ($4\times$ scaled) provides texture context. A cubic variance penalty ($w\_std^3$) aggressively raises detection thresholds in high-frequency regions (foliage, rocks) to minimize false positives.
+    1.  **Statistical Gating**: Uses dual-radius analysis. A local window ($3\times$ scaled) identifies luminance spikes, while a wide window ($4\times$ scaled) provides texture context. A cubic variance penalty ($w_{std}^3$) aggressively raises detection thresholds in high-frequency regions (foliage, rocks) to minimize false positives.
     2.  **Peak Integrity**: Validates candidates via a strict 3x3 Local Maximum check and a $Z > 3.0$ sigma outlier gate. A strong-signal bypass ensures saturation-limited artifacts (hairs/scratches) are captured even if they form plateaus.
     3.  **Annular Sampling (SPS)**: Background data is reconstructed via Stochastic Perimeter Sampling. Samples are fetched from a ring strictly exterior to the artifact footprint, ensuring zero contamination from the dust luminance itself.
     4.  **Soft Patching**: Healed regions are integrated using distance-weighted alpha blending with cubic falloff and procedural grain injection to match local noise characteristics.
@@ -102,8 +102,8 @@ This stage removes physical artifacts like dust, hairs, and scratches from the n
     
     1.  **Perimeter Characterization**: The tool identifies the cleanest background luminance at the edge of the brush circle. This sets a "Perimeter-Safe" floor to prevent dark artifacts in bright areas like skies.
     2.  **Stochastic Sampling**: For every pixel inside the brush, we sample the immediate boundary with small angular jitter:
-        $$I_{patch} = \frac{1}{3} \sum_{j=1}^{3} \text{min3x3}(P_{θ + Δ θ_j})$$
-        *   $P_{θ + Δ θ_j}$: Perimeter point at pixel's angle $θ$ with random jitter $Δ θ$.
+        $$I_{patch} = \frac{1}{3} \sum_{j=1}^{3} \text{min3x3}(P_{\theta + \Delta\theta_j})$$
+        *   $P_{\theta + \Delta\theta_j}$: Perimeter point at pixel's angle $\theta$ with random jitter $\Delta\theta$.
         *   This reconstructs the natural grain and texture of the surrounding area without using "synthetic" noise.
     3.  **Luminance Keying**: To preserve original details and grain within the brush, we only apply the patch to pixels that are significantly brighter than the reconstructed background:
         $$m_{luma} = \text{smoothstep}(0.04, 0.12, I_{curr} - I_{patch})$$
