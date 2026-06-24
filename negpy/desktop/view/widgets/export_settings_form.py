@@ -32,9 +32,8 @@ from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 _LABEL_WIDTH = 90
 
-# Colour spaces JPEG XL can tag enumeratively (must mirror _JXL_COLOR in
-# image_processor). "Same as Source" is allowed here; it's resolved at export time
-# and rejected by the encoder if it lands on an unsupported space.
+# Spaces JXL can tag (mirror _JXL_COLOR). Same as Source is allowed — resolved at
+# export time and rejected by the encoder if it lands on an unsupported space.
 _JXL_SUPPORTED = {
     ColorSpace.SRGB.value,
     ColorSpace.P3_D65.value,
@@ -130,8 +129,6 @@ class ExportSettingsForm(QWidget):
         effort_row.addWidget(self.jxl_effort_spin)
         jxl_box.addLayout(effort_row)
 
-        # JXL tags colour enumeratively (no embedded ICC), so only sRGB / P3 D65 /
-        # Rec 2020 / Greyscale are representable. Warn + block the rest before export.
         self.jxl_cs_warning = QLabel()
         self.jxl_cs_warning.setWordWrap(True)
         self.jxl_cs_warning.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
@@ -318,10 +315,9 @@ class ExportSettingsForm(QWidget):
         self._on_changed()
 
     def _apply_jxl_constraints(self) -> None:
-        """JXL can only tag a subset of colour spaces, and a custom output ICC would
-        override the colour space into an un-enumerable profile while we still tag
-        enumeratively (a silent mistag). So when JXL is selected, grey out the
-        unrepresentable colour spaces and force/disable the output ICC override."""
+        """For JXL, grey out colour spaces it can't tag and disable the output ICC
+        override (a custom profile would land pixels in an un-enumerable space while
+        we still tag enumeratively — a silent mistag)."""
         is_jxl = self.fmt_combo.currentText() == ExportFormat.JXL
 
         model = self.color_space_combo.model()

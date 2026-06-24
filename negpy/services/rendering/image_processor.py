@@ -38,12 +38,10 @@ from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
 
 logger = get_logger(__name__)
 
-# JPEG XL is tagged with libjxl's enumerated color encoding (white point D65 only),
-# never an embedded ICC. Only spaces whose pipeline ICC TRC/primaries are exactly
-# representable enumeratively are allowed; all others must hard-fail (no fallback).
-# (photometric, primaries, transfer) verified against the bundled icc/*.icc profiles:
-# Rec 2020 carries the Rec.709/BT.2020 OETF (-> BT709, not sRGB); GrayGamma2.2.icc
-# despite its name carries the sRGB TRC (-> SRGB, not gamma 2.2).
+# (photometric, primaries, transfer) for JXL's enumerated color encoding (D65 white
+# only, no ICC). Other spaces must hard-fail. Transfers verified against the bundled
+# icc/*.icc: Rec 2020 uses the Rec.709/BT.2020 OETF (BT709, not sRGB) and
+# GrayGamma2.2.icc holds the sRGB TRC despite its name (SRGB, not gamma 2.2).
 _JXL_COLOR = {
     ColorSpace.SRGB.value: ("RGB", "SRGB", "SRGB"),
     ColorSpace.P3_D65.value: ("RGB", "P3", "SRGB"),
@@ -343,8 +341,7 @@ class ImageProcessor:
                     "Use sRGB, P3 D65, Rec 2020, or Greyscale, or pick another format."
                 )
             photometric, primaries, transfer = tag
-            # True 16-bit samples, colour-managed into the target space; the returned
-            # ICC is discarded because libjxl tags enumeratively instead.
+            # 16-bit, colour-managed to target; ICC discarded (libjxl tags enumeratively).
             if is_greyscale:
                 img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
                 img_out, _icc = self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
@@ -360,6 +357,7 @@ class ImageProcessor:
                 lossless=export_settings.jxl_lossless,
                 distance=None if export_settings.jxl_lossless else export_settings.jxl_distance,
                 effort=export_settings.jxl_effort,
+                numthreads=0,  # all cores; single-threaded otherwise (~7x slower)
             )
             return bytes(bits), "jxl"
         else:

@@ -73,18 +73,14 @@ class ExportWorker(QObject):
                 )
 
                 if not bits:
-                    # On failure process_export returns (None, error); surface it
-                    # (e.g. JPEG XL rejecting an unsupported colour space) instead of
-                    # silently skipping the file.
+                    # process_export returns (None, error) on failure; surface it
+                    # rather than silently skipping the file.
                     self.error.emit(status)
                     continue
 
                 if bits:
-                    # Embed metadata if config is provided. Skipped for DNG: it is a
-                    # TIFF-based raw container and the EXIF re-write would strip its
-                    # DNG tags and corrupt the file.
-                    # JXL is also skipped: embed_metadata operates on JPEG/TIFF/PNG
-                    # containers and would corrupt the .jxl bytestream.
+                    # Skipped for DNG (EXIF re-write strips DNG tags) and JXL
+                    # (embed_metadata corrupts the .jxl stream).
                     if task.metadata_config is not None and task.export_settings.export_fmt not in (
                         ExportFormat.DNG,
                         ExportFormat.JXL,
