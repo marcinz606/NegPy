@@ -71,22 +71,16 @@ class GeometrySidebar(BaseSidebar):
 
         # Buttons side by side
         btn_row = QHBoxLayout()
-        self.manual_crop_btn = CropToolButton(" Manual")
+        self.manual_crop_btn = CropToolButton(" Crop")
         self.manual_crop_btn.setCheckable(True)
         self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary))
-        self.manual_crop_btn.setToolTip(tooltip_with_shortcut("Manual crop", "manual_crop"))
-
-        self.move_crop_btn = QPushButton(" Move")
-        self.move_crop_btn.setCheckable(True)
-        self.move_crop_btn.setIcon(qta.icon("fa5s.arrows-alt", color=THEME.text_primary))
-        self.move_crop_btn.setToolTip("Translate the existing crop rectangle (preserves size)")
+        self.manual_crop_btn.setToolTip(tooltip_with_shortcut("Crop: drag corners to resize, drag inside to move", "manual_crop"))
 
         self.reset_crop_btn = CropToolButton(" Auto")
         self.reset_crop_btn.setCheckable(True)
         self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
         self.reset_crop_btn.setToolTip(tooltip_with_shortcut("Apply automatic crop using the current ratio and offset", "auto_crop"))
         btn_row.addWidget(self.manual_crop_btn)
-        btn_row.addWidget(self.move_crop_btn)
         self.layout.addLayout(btn_row)
 
         # Auto crop toggle + mode: crop to exposed image, or keep full film incl. rebate
@@ -126,7 +120,6 @@ class GeometrySidebar(BaseSidebar):
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
-        self.move_crop_btn.toggled.connect(self._on_move_crop_toggled)
         self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
 
         self.offset_slider.valueChanged.connect(
@@ -170,12 +163,7 @@ class GeometrySidebar(BaseSidebar):
         self.controller.request_render()
 
     def _on_manual_crop_toggled(self, checked: bool) -> None:
-        if checked:
-            self.controller.reset_crop()
         self.controller.set_active_tool(ToolMode.CROP_MANUAL if checked else ToolMode.NONE)
-
-    def _on_move_crop_toggled(self, checked: bool) -> None:
-        self.controller.set_active_tool(ToolMode.CROP_MOVE if checked else ToolMode.NONE)
 
     def _on_auto_crop_toggled(self, checked: bool) -> None:
         if checked:
@@ -195,8 +183,6 @@ class GeometrySidebar(BaseSidebar):
             self.fine_rot_slider.setValue(conf.fine_rotation)
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
-            self.move_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MOVE)
-            self.move_crop_btn.setEnabled(conf.manual_crop_rect is not None)
             self.reset_crop_btn.setChecked(conf.auto_crop_enabled)
             self.manual_crop_btn.set_crop_active(conf.manual_crop_rect is not None)
             self.reset_crop_btn.set_crop_active(conf.auto_crop_enabled)
@@ -210,5 +196,4 @@ class GeometrySidebar(BaseSidebar):
         self.offset_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
-        self.move_crop_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)

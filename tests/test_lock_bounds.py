@@ -198,13 +198,11 @@ class TestCropPreservesBoundsWhenLocked(unittest.TestCase):
         self.assertEqual(proc.local_floors, _FLOORS)
         self.assertEqual(proc.local_ceils, _CEILS)
 
-    def test_handle_crop_completed_preserves_bounds(self):
+    def test_handle_crop_rect_changed_preserves_bounds(self):
         from negpy.desktop.session import ToolMode
 
         self.ctrl.state.active_tool = ToolMode.CROP_MANUAL
-        self.ctrl.state.last_metrics = {"uv_grid": (0.0, 1.0, 0.0, 1.0)}
-        with patch("negpy.desktop.controller.CoordinateMapping.map_click_to_raw", side_effect=[(0.1, 0.1), (0.9, 0.9)]):
-            self.ctrl.handle_crop_completed(0.1, 0.1, 0.9, 0.9)
+        self.ctrl.handle_crop_rect_changed(0.1, 0.1, 0.9, 0.9, True)
         proc = _saved_process(self.ctrl)
         self.assertEqual(proc.local_floors, _FLOORS)
         self.assertEqual(proc.local_ceils, _CEILS)

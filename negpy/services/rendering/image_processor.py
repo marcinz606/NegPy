@@ -90,6 +90,7 @@ class ImageProcessor:
         prefer_gpu: bool = True,
         readback_metrics: bool = True,
         ir_buffer: Optional[np.ndarray] = None,
+        crop_preview_full: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
@@ -107,11 +108,15 @@ class ImageProcessor:
             original_size=(h_orig, w_cols),
             process_mode=settings.process.process_mode,
             ir_buffer=ir_buffer,
+            crop_preview_full=crop_preview_full,
         )
         if metrics:
             context.metrics.update(metrics)
 
-        if self._is_flat(settings):
+        if self._is_flat(settings) or crop_preview_full:
+            # The crop tool's "show full uncropped frame" preview only needs a single
+            # CPU render per settings change (dragging only moves an overlay rect), so
+            # we sidestep the GPU engine's ROI-fused compute dispatch entirely here.
             prefer_gpu = False
 
         if prefer_gpu and self.engine_gpu:

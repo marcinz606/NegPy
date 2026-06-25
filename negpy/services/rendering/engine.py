@@ -95,10 +95,26 @@ class DarkroomEngine:
             img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
             return NormalizationProcessor(settings.process).process(img_in, ctx)
 
+        # While the crop tool shows the full uncropped frame, the crop-selection
+        # fields (manual_crop_rect, auto_crop_*) only feed context.active_roi, which
+        # is itself unused for output in that mode (CropProcessor and uv_grid ROI
+        # slicing are both bypassed) - keying on them would force a full base/
+        # exposure/retouch/lab/local recompute on every crop-rect drag step.
+        geometry_key = (
+            (
+                settings.geometry.rotation,
+                settings.geometry.fine_rotation,
+                settings.geometry.flip_horizontal,
+                settings.geometry.flip_vertical,
+            )
+            if context.crop_preview_full
+            else settings.geometry
+        )
+
         base_key = (
             settings.process.process_mode,
             settings.process.e6_normalize,
-            settings.geometry,
+            geometry_key,
             settings.process.analysis_buffer,
             settings.process.luma_range_clip,
             settings.process.color_range_clip,
@@ -159,7 +175,8 @@ class DarkroomEngine:
 
             current_img = ToningProcessor(settings.toning).process(current_img, context)
 
-        current_img = CropProcessor(settings.geometry).process(current_img, context)
+        if not context.crop_preview_full:
+            current_img = CropProcessor(settings.geometry).process(current_img, context)
 
         if not flat_intent:
             current_img = FinishProcessor(settings.finish).process(current_img, context)
@@ -173,7 +190,7 @@ class DarkroomEngine:
                 flip_h=settings.geometry.flip_horizontal,
                 flip_v=settings.geometry.flip_vertical,
                 autocrop=True,
-                autocrop_params={"roi": context.active_roi} if context.active_roi else None,
+                autocrop_params=({"roi": context.active_roi} if context.active_roi and not context.crop_preview_full else None),
             )
             context.metrics["uv_grid"] = uv_grid
         except Exception as e:

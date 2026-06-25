@@ -16,7 +16,6 @@ class ToolMode(Enum):
     NONE = auto()
     WB_PICK = auto()
     CROP_MANUAL = auto()
-    CROP_MOVE = auto()
     DUST_PICK = auto()
     LOCAL_DRAW = auto()
 

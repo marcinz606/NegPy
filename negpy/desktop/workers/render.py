@@ -32,6 +32,9 @@ class RenderTask:
     # Monitor ICC profile bytes (detected on the UI thread); soft proof is shown on
     # this display. None = sRGB display.
     monitor_icc_bytes: Optional[bytes] = None
+    # True while the crop tool is active: show the full uncropped frame instead of
+    # the final crop.
+    crop_preview_full: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,7 @@ class RenderWorker(QObject):
                 prefer_gpu=task.gpu_enabled,
                 readback_metrics=task.readback_metrics,
                 ir_buffer=task.ir_buffer,
+                crop_preview_full=task.crop_preview_full,
             )
 
             soft_proof = task.icc_input_path or task.icc_output_path

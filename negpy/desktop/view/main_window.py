@@ -280,8 +280,7 @@ class MainWindow(QMainWindow):
         self.controller.session.file_selected.connect(lambda _: self._refresh_image_info())
 
         self.canvas.clicked.connect(self.controller.handle_canvas_clicked)
-        self.canvas.crop_completed.connect(self.controller.handle_crop_completed)
-        self.canvas.crop_translated.connect(self.controller.handle_crop_translated)
+        self.canvas.crop_rect_changed.connect(self.controller.handle_crop_rect_changed)
         self.canvas.lasso_completed.connect(self.controller.handle_lasso_completed)
         self.canvas.local_mask_selected.connect(self.controller.select_local_mask)
 
