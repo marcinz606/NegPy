@@ -33,7 +33,6 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.NONE: Qt.CursorShape.ArrowCursor,
     ToolMode.WB_PICK: Qt.CursorShape.PointingHandCursor,
     ToolMode.CROP_MANUAL: Qt.CursorShape.CrossCursor,
-    ToolMode.CROP_MOVE: Qt.CursorShape.OpenHandCursor,
     ToolMode.DUST_PICK: Qt.CursorShape.BlankCursor,
     ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
 }
@@ -75,8 +74,7 @@ class ImageCanvas(QWidget):
     """
 
     clicked = pyqtSignal(float, float)
-    crop_completed = pyqtSignal(float, float, float, float)
-    crop_translated = pyqtSignal(float, float, float, float)
+    crop_rect_changed = pyqtSignal(float, float, float, float, bool)
     zoom_changed = pyqtSignal(float)
     cursor_position_changed = pyqtSignal(float, float)
     cursor_left_canvas = pyqtSignal()
@@ -122,8 +120,7 @@ class ImageCanvas(QWidget):
         self.root_layout.addWidget(self.overlay)
 
         self.overlay.clicked.connect(self.clicked.emit)
-        self.overlay.crop_completed.connect(self.crop_completed.emit)
-        self.overlay.crop_translated.connect(self.crop_translated.emit)
+        self.overlay.crop_rect_changed.connect(self.crop_rect_changed.emit)
         self.overlay.cursor_moved.connect(self.cursor_position_changed.emit)
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
         self.overlay.lasso_completed.connect(self.lasso_completed.emit)
