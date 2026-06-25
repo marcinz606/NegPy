@@ -76,11 +76,16 @@ class GeometrySidebar(BaseSidebar):
         self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary))
         self.manual_crop_btn.setToolTip(tooltip_with_shortcut("Crop: drag corners to resize, drag inside to move", "manual_crop"))
 
+        self.clear_crop_btn = QPushButton(" Reset")
+        self.clear_crop_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
+        self.clear_crop_btn.setToolTip("Reset crop: clear the manual crop and disable auto crop")
+
         self.reset_crop_btn = CropToolButton(" Auto")
         self.reset_crop_btn.setCheckable(True)
         self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
         self.reset_crop_btn.setToolTip(tooltip_with_shortcut("Apply automatic crop using the current ratio and offset", "auto_crop"))
-        btn_row.addWidget(self.manual_crop_btn)
+        btn_row.addWidget(self.manual_crop_btn, 1)
+        btn_row.addWidget(self.clear_crop_btn, 1)
         self.layout.addLayout(btn_row)
 
         # Auto crop toggle + mode: crop to exposed image, or keep full film incl. rebate
@@ -120,6 +125,7 @@ class GeometrySidebar(BaseSidebar):
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.detect_ratio_btn.clicked.connect(self.controller.detect_aspect_ratio)
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
+        self.clear_crop_btn.clicked.connect(self.controller.reset_crop)
         self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
 
         self.offset_slider.valueChanged.connect(

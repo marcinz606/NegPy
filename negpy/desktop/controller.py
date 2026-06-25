@@ -181,6 +181,10 @@ class AppController(QObject):
         self._render_debounce.setInterval(80)
         self._render_debounce.timeout.connect(self.request_render)
 
+        # Set while the crop rect is being adjusted; deferred bounds recompute fires
+        # once on closing the crop tool (avoids re-normalizing on every drag step).
+        self._crop_bounds_dirty = False
+
         self._cursor_readout_timer = QTimer()
         self._cursor_readout_timer.setSingleShot(True)
         self._cursor_readout_timer.setInterval(33)
@@ -525,8 +529,15 @@ class AppController(QObject):
 
     def set_active_tool(self, mode: ToolMode) -> None:
         crop_tool_changed = ToolMode.CROP_MANUAL in (self.state.active_tool, mode)
+        leaving_crop = self.state.active_tool == ToolMode.CROP_MANUAL and mode != ToolMode.CROP_MANUAL
         self.state.active_tool = mode
         self.tool_sync_requested.emit()
+        if leaving_crop and self._crop_bounds_dirty:
+            # Bounds were left stale during drag; recompute once now that the final
+            # crop is committed (the upcoming render applies active_roi).
+            new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
+            self.session.update_config(replace(self.state.config, process=new_proc), render=False)
+            self._crop_bounds_dirty = False
         if crop_tool_changed:
             # Entering/leaving the crop tool swaps between the full uncropped preview
             # and the normal cropped preview, so the canvas must re-render immediately.
@@ -556,14 +567,17 @@ class AppController(QObject):
             ),
             auto_crop_enabled=False,
         )
-        new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
-        self.session.update_config(replace(self.state.config, geometry=new_geo, process=new_proc), persist=persist)
+        # Defer the auto-exposure bounds recompute until the crop tool closes; clearing
+        # them here would invalidate the base cache and re-normalize on every drag step.
+        self._crop_bounds_dirty = True
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=persist)
         if persist:
             self.request_render()
         else:
             self._render_debounce.start()
 
     def reset_crop(self) -> None:
+        self._crop_bounds_dirty = False
         new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
         self.session.update_config(
             replace(
@@ -575,6 +589,12 @@ class AppController(QObject):
         self.request_render()
 
     def apply_auto_crop(self) -> None:
+        # Autocrop supersedes a manual crop in progress: leave the manual crop tool so
+        # the preview returns to the normal cropped view instead of the full frame.
+        if self.state.active_tool == ToolMode.CROP_MANUAL:
+            self.state.active_tool = ToolMode.NONE
+            self.tool_sync_requested.emit()
+        self._crop_bounds_dirty = False
         new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
         self.session.update_config(
             replace(

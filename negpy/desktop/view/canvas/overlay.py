@@ -112,7 +112,7 @@ class CanvasOverlay(QWidget):
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
         if mode == ToolMode.CROP_MANUAL:
-            self._crop_rect_raw = self.state.config.geometry.manual_crop_rect or (0.0, 0.0, 1.0, 1.0)
+            self._crop_rect_raw = self.state.config.geometry.manual_crop_rect
         else:
             self._crop_rect_raw = None
             self._end_crop_drag()
@@ -153,7 +153,7 @@ class CanvasOverlay(QWidget):
             self._current_size = gpu_size
 
         if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
-            self._crop_rect_raw = self.state.config.geometry.manual_crop_rect or (0.0, 0.0, 1.0, 1.0)
+            self._crop_rect_raw = self.state.config.geometry.manual_crop_rect
 
         self._recalc_view_rect()
         self.update()
@@ -557,7 +557,7 @@ class CanvasOverlay(QWidget):
     def _start_crop_drag(self, pos: QPointF) -> None:
         with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
-        if uv_grid is None or self._crop_rect_raw is None:
+        if uv_grid is None:
             return
 
         corners = self._crop_corner_screen_points()
