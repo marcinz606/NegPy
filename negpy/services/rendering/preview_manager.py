@@ -68,16 +68,16 @@ class PreviewManager:
             return None
         try:
             thumb = raw.extract_thumb()
+            img: Optional[Image.Image] = None
+            if thumb.format == rawpy.ThumbFormat.JPEG:
+                img = Image.open(io.BytesIO(thumb.data))
+            elif thumb.format == rawpy.ThumbFormat.BITMAP:
+                img = Image.fromarray(ensure_rgb(thumb.data))
+            if img is None:
+                return None
+            img = img.convert("RGB")
         except Exception:
             return None
-        img: Optional[Image.Image] = None
-        if thumb.format == rawpy.ThumbFormat.JPEG:
-            img = Image.open(io.BytesIO(thumb.data))
-        elif thumb.format == rawpy.ThumbFormat.BITMAP:
-            img = Image.fromarray(thumb.data)
-        if img is None:
-            return None
-        img = img.convert("RGB")
         arr = np.ascontiguousarray(np.array(img, dtype=np.float32) / 255.0)
         h, w = arr.shape[:2]
         if max(h, w) > APP_CONFIG.preview_render_size:
