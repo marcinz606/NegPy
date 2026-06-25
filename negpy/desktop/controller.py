@@ -181,8 +181,6 @@ class AppController(QObject):
         self._render_debounce.setInterval(80)
         self._render_debounce.timeout.connect(self.request_render)
 
-        # Set while the crop rect is being adjusted; deferred bounds recompute fires
-        # once on closing the crop tool (avoids re-normalizing on every drag step).
         self._crop_bounds_dirty = False
 
         self._cursor_readout_timer = QTimer()
@@ -533,8 +531,7 @@ class AppController(QObject):
         self.state.active_tool = mode
         self.tool_sync_requested.emit()
         if leaving_crop and self._crop_bounds_dirty:
-            # Bounds were left stale during drag; recompute once now that the final
-            # crop is committed (the upcoming render applies active_roi).
+            # Recompute bounds once now the final crop is committed.
             new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
             self.session.update_config(replace(self.state.config, process=new_proc), render=False)
             self._crop_bounds_dirty = False
@@ -567,8 +564,7 @@ class AppController(QObject):
             ),
             auto_crop_enabled=False,
         )
-        # Defer the auto-exposure bounds recompute until the crop tool closes; clearing
-        # them here would invalidate the base cache and re-normalize on every drag step.
+        # Defer the bounds recompute to crop-tool close; clearing here re-normalizes every drag step.
         self._crop_bounds_dirty = True
         self.session.update_config(replace(self.state.config, geometry=new_geo), persist=persist)
         if persist:
@@ -589,8 +585,7 @@ class AppController(QObject):
         self.request_render()
 
     def apply_auto_crop(self) -> None:
-        # Autocrop supersedes a manual crop in progress: leave the manual crop tool so
-        # the preview returns to the normal cropped view instead of the full frame.
+        # Autocrop supersedes a manual crop in progress: leave the tool.
         if self.state.active_tool == ToolMode.CROP_MANUAL:
             self.state.active_tool = ToolMode.NONE
             self.tool_sync_requested.emit()
