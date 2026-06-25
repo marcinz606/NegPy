@@ -79,11 +79,13 @@ class ExportWorker(QObject):
                     continue
 
                 if bits:
-                    # Skipped for DNG (EXIF re-write strips DNG tags) and JXL
-                    # (embed_metadata corrupts the .jxl stream).
+                    # Skipped for DNG (EXIF re-write strips DNG tags), JXL
+                    # (embed_metadata corrupts the .jxl stream), and WebP
+                    # (embed_metadata has no WebP branch).
                     if task.metadata_config is not None and task.export_settings.export_fmt not in (
                         ExportFormat.DNG,
                         ExportFormat.JXL,
+                        ExportFormat.WEBP,
                     ):
                         bits = embed_metadata(bits, task.metadata_config, task.source_exif)
 
@@ -104,6 +106,7 @@ class ExportWorker(QObject):
                         ExportFormat.PNG: "png",
                         ExportFormat.DNG: "dng",
                         ExportFormat.JXL: "jxl",
+                        ExportFormat.WEBP: "webp",
                     }
                     ext = _EXT.get(task.export_settings.export_fmt, "jpg")
 

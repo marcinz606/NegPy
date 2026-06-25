@@ -236,6 +236,9 @@ class ExportPresetsDialog(QDialog):
         vals = self.form.values()
         preset.export_fmt = vals["export_fmt"]
         preset.jpeg_quality = vals["jpeg_quality"]
+        preset.webp_quality = vals["webp_quality"]
+        preset.webp_lossless = vals["webp_lossless"]
+        preset.webp_method = vals["webp_method"]
         preset.export_resolution_mode = vals["export_resolution_mode"]
         preset.export_print_size = vals["export_print_size"]
         preset.export_dpi = vals["export_dpi"]

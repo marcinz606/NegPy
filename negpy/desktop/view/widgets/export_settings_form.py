@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
     AspectRatio,
     ColorSpace,
@@ -86,17 +87,15 @@ class ExportSettingsForm(QWidget):
         root.addLayout(fmt_row)
 
         self._quality_container = QWidget()
-        quality_row = QHBoxLayout(self._quality_container)
-        quality_row.setContentsMargins(0, 0, 0, 0)
-        quality_row.addWidget(self._row_label("JPEG Quality"))
-        self.quality_spin = QSpinBox()
-        self.quality_spin.setRange(1, 100)
-        self.quality_spin.setValue(90)
+        quality_box = QVBoxLayout(self._quality_container)
+        quality_box.setContentsMargins(0, 0, 0, 0)
+        self.quality_spin = CompactSlider("JPEG Quality", 1, 100, 90, step=1, precision=1)
         self.quality_spin.valueChanged.connect(self._on_changed)
-        quality_row.addWidget(self.quality_spin)
+        quality_box.addWidget(self.quality_spin)
         root.addWidget(self._quality_container)
 
         self._build_jxl(root)
+        self._build_webp(root)
 
     def _build_jxl(self, root: QVBoxLayout) -> None:
         self._jxl_container = QWidget()
@@ -108,26 +107,15 @@ class ExportSettingsForm(QWidget):
         self.jxl_lossless_check.toggled.connect(self._on_jxl_lossless_toggled)
         jxl_box.addWidget(self.jxl_lossless_check)
 
-        dist_row = QHBoxLayout()
-        dist_row.addWidget(self._row_label("Distance"))
-        self.jxl_distance_spin = QDoubleSpinBox()
-        self.jxl_distance_spin.setRange(0.0, 15.0)
-        self.jxl_distance_spin.setSingleStep(0.1)
-        self.jxl_distance_spin.setValue(1.0)
-        self.jxl_distance_spin.setToolTip("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss")
+        self.jxl_distance_spin = CompactSlider("Distance", 0.0, 15.0, 1.0, step=0.1)
+        self.jxl_distance_spin.label.setToolTip("libjxl distance: ~1.0 ≈ visually lossless, higher = more loss")
         self.jxl_distance_spin.valueChanged.connect(self._on_changed)
-        dist_row.addWidget(self.jxl_distance_spin)
-        jxl_box.addLayout(dist_row)
+        jxl_box.addWidget(self.jxl_distance_spin)
 
-        effort_row = QHBoxLayout()
-        effort_row.addWidget(self._row_label("Effort"))
-        self.jxl_effort_spin = QSpinBox()
-        self.jxl_effort_spin.setRange(1, 9)
-        self.jxl_effort_spin.setValue(7)
-        self.jxl_effort_spin.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.jxl_effort_spin = CompactSlider("Effort", 1, 9, 7, step=1, precision=1)
+        self.jxl_effort_spin.label.setToolTip("Encoder effort: higher = slower, smaller file")
         self.jxl_effort_spin.valueChanged.connect(self._on_changed)
-        effort_row.addWidget(self.jxl_effort_spin)
-        jxl_box.addLayout(effort_row)
+        jxl_box.addWidget(self.jxl_effort_spin)
 
         self.jxl_cs_warning = QLabel()
         self.jxl_cs_warning.setWordWrap(True)
@@ -135,6 +123,28 @@ class ExportSettingsForm(QWidget):
         jxl_box.addWidget(self.jxl_cs_warning)
 
         root.addWidget(self._jxl_container)
+
+    def _build_webp(self, root: QVBoxLayout) -> None:
+        self._webp_container = QWidget()
+        webp_box = QVBoxLayout(self._webp_container)
+        webp_box.setContentsMargins(0, 0, 0, 0)
+
+        self.webp_lossless_check = QCheckBox("Lossless")
+        self.webp_lossless_check.setChecked(False)
+        self.webp_lossless_check.toggled.connect(self._on_changed)
+        webp_box.addWidget(self.webp_lossless_check)
+
+        self.webp_quality_spin = CompactSlider("Quality", 1, 100, 90, step=1, precision=1)
+        self.webp_quality_spin.label.setToolTip("Lossy: visual quality. Lossless: compression effort.")
+        self.webp_quality_spin.valueChanged.connect(self._on_changed)
+        webp_box.addWidget(self.webp_quality_spin)
+
+        self.webp_method_spin = CompactSlider("Method", 0, 6, 4, step=1, precision=1)
+        self.webp_method_spin.label.setToolTip("Encoder effort: higher = slower, smaller file")
+        self.webp_method_spin.valueChanged.connect(self._on_changed)
+        webp_box.addWidget(self.webp_method_spin)
+
+        root.addWidget(self._webp_container)
 
     # --- SIZE ----------------------------------------------------------------
 
@@ -310,6 +320,7 @@ class ExportSettingsForm(QWidget):
     def _on_fmt_changed(self, fmt: str) -> None:
         self._quality_container.setVisible(fmt == ExportFormat.JPEG)
         self._jxl_container.setVisible(fmt == ExportFormat.JXL)
+        self._webp_container.setVisible(fmt == ExportFormat.WEBP)
         self._apply_jxl_constraints()
         self._refresh_jxl_warning()
         self._on_changed()
@@ -406,6 +417,11 @@ class ExportSettingsForm(QWidget):
             self.jxl_effort_spin.setValue(v.get("jxl_effort", 7))
             self._jxl_container.setVisible(v["export_fmt"] == ExportFormat.JXL)
 
+            self.webp_quality_spin.setValue(v.get("webp_quality", 90))
+            self.webp_lossless_check.setChecked(v.get("webp_lossless", False))
+            self.webp_method_spin.setValue(v.get("webp_method", 4))
+            self._webp_container.setVisible(v["export_fmt"] == ExportFormat.WEBP)
+
             self._select_mode_button(v["export_resolution_mode"])
             self._update_mode_visibility(v["export_resolution_mode"])
             self.size_input.setValue(v["export_print_size"])
@@ -439,10 +455,13 @@ class ExportSettingsForm(QWidget):
         out_idx = self.icc_output_combo.currentIndex()
         return {
             "export_fmt": self.fmt_combo.currentText(),
-            "jpeg_quality": self.quality_spin.value(),
+            "jpeg_quality": int(self.quality_spin.value()),
             "jxl_lossless": self.jxl_lossless_check.isChecked(),
             "jxl_distance": self.jxl_distance_spin.value(),
-            "jxl_effort": self.jxl_effort_spin.value(),
+            "jxl_effort": int(self.jxl_effort_spin.value()),
+            "webp_quality": int(self.webp_quality_spin.value()),
+            "webp_lossless": self.webp_lossless_check.isChecked(),
+            "webp_method": int(self.webp_method_spin.value()),
             "export_resolution_mode": self._current_mode_value(),
             "paper_aspect_ratio": self.ratio_combo.currentText(),
             "export_print_size": self.size_input.value(),

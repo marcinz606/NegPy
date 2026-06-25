@@ -365,6 +365,26 @@ class ImageProcessor:
                 numthreads=0,  # all cores; single-threaded otherwise (~7x slower)
             )
             return bytes(bits), "jxl"
+        elif fmt == ExportFormat.WEBP:
+            # 8-bit only (WebP has no higher bit depth). Lossy or lossless via a
+            # flag; PIL embeds the ICC profile for any colour space.
+            img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
+            pil_img, icc_bytes = self.apply_color_management(
+                Image.fromarray(img_int), working_color_space, color_space, icc_output, icc_input
+            )
+            if max(pil_img.size) > 16383:
+                raise ValueError("WebP max dimension is 16383 px; use TIFF/PNG for larger exports.")
+            output_buf = io.BytesIO()
+            save_kwargs: Dict[str, Any] = {
+                "format": "WEBP",
+                "lossless": export_settings.webp_lossless,
+                "quality": export_settings.webp_quality,
+                "method": export_settings.webp_method,
+            }
+            if icc_bytes:
+                save_kwargs["icc_profile"] = icc_bytes
+            pil_img.save(output_buf, **save_kwargs)
+            return output_buf.getvalue(), "webp"
         else:
             img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
 
