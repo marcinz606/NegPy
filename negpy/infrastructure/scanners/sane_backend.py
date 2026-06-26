@@ -30,8 +30,10 @@ CANONICAL_DPI_STOPS = (75, 150, 300, 600, 1200, 2400, 3600, 4800, 6400, 7200, 96
 # SANE option py_names (underscored) that expose a dedicated infrared channel/scan.
 _IR_OPTION_NAMES = ("ir", "preview_ir")
 
+_PIEUSB_PREFIX = "pieusb:"
+
 # Backends for dedicated film scanners that expose no `source` option.
-_FILM_BACKEND_PREFIXES = ("pieusb:",)
+_FILM_BACKEND_PREFIXES = (_PIEUSB_PREFIX,)
 
 
 def _mode_has_rgbi(opt) -> bool:
@@ -254,7 +256,7 @@ class SaneBackend:
             dev.resolution = params.dpi
 
             # Apply hardware-specific optimizations
-            if device_id.startswith("pieusb:"):
+            if device_id.startswith(_PIEUSB_PREFIX):
                 self._set_pieusb_flags(dev, params.capture_ir)
 
             # Set scan area if specified
@@ -378,7 +380,7 @@ class SaneBackend:
         """How to capture IR for this device: 'rgbi' (4th channel), 'source' (Plustek
         second scan), 'internal' (applied by the Backend/Scanner itself) or None."""
         opt = dev.opt if hasattr(dev, "opt") else {}
-        if device_id.startswith("pieusb:"):
+        if device_id.startswith(_PIEUSB_PREFIX):
             return "internal"
         if _mode_has_rgbi(opt):
             return "rgbi"
