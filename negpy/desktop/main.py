@@ -1,7 +1,7 @@
 import os
 import sys
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, qInstallMessageHandler
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
@@ -17,6 +17,29 @@ from negpy.kernel.system.override import load_or_create as load_override
 from negpy.kernel.system.paths import get_resource_path
 
 logger = get_logger(__name__)
+
+# qtawesome paints toolbar icons into a null pixmap when a button is asked to
+# render before its first layout has given it valid geometry (e.g. while the
+# startup "Restore Session" dialog spins a modal loop). The paint is harmless
+# but Qt emits a fixed cascade of QPainter warnings. Drop exactly that cascade;
+# forward every other Qt message to stderr unchanged.
+_PAINTER_NOISE = (
+    "QPainter::begin: Paint device returned engine == 0",
+    "QPainter::save: Painter not active",
+    "QPainter::setPen: Painter not active",
+    "QPainter::setWorldTransform: Painter not active",
+    "QPainter::setOpacity: Painter not active",
+    "QPainter::setFont: Painter not active",
+    "QPainter::setBrush: Painter not active",
+    "QPainter::setClipRect: Painter not active",
+    "QPainter::restore: Unbalanced save/restore",
+)
+
+
+def _filter_qt_messages(mode, context, message: str) -> None:
+    if message.startswith(_PAINTER_NOISE):
+        return
+    sys.stderr.write(message + "\n")
 
 
 def _bootstrap_environment() -> None:
@@ -68,6 +91,7 @@ def main() -> None:
             QCoreApplication = getattr(sys.modules["PyQt6.QtCore"], "QCoreApplication")
             QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
 
+        qInstallMessageHandler(_filter_qt_messages)
         app = QApplication(sys.argv)
         app.setApplicationName("NegPy")
         app.setStyle("Fusion")
