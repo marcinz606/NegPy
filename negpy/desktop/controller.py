@@ -357,9 +357,12 @@ class AppController(QObject):
             return
         active = self.session.repo.get_global_setting("session_active_path")
         self._pending_scanned_file = active if active in paths else paths[0]
-        self.request_asset_discovery(paths, auto_open=True)
+        triplets = self.session.repo.get_global_setting("session_triplets", {}) or {}
+        self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets)
 
-    def request_asset_discovery(self, paths: List[str], auto_open: bool = False) -> None:
+    def request_asset_discovery(
+        self, paths: List[str], auto_open: bool = False, restore_triplets: Optional[dict] = None
+    ) -> None:
         """
         Starts asynchronous discovery of supported assets.
         Silently skips if a discovery task is already in progress.
@@ -372,8 +375,18 @@ class AppController(QObject):
         self._discovery_running = True
         self._auto_open_after_discovery = auto_open
         self.set_status("SCANNING FOR ASSETS...")
-        task = AssetDiscoveryTask(paths=paths, supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS))
+        rgb_scan = bool(self.session.repo.get_global_setting("rgbscan_mode", False))
+        task = AssetDiscoveryTask(
+            paths=paths,
+            supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS),
+            rgb_scan=rgb_scan,
+            restore_triplets=restore_triplets,
+        )
         self.asset_discovery_requested.emit(task)
+
+    def set_rgb_scan_mode(self, enabled: bool) -> None:
+        """Persist the RGB-scan toggle; it groups folders into R/G/B triplets on the next load."""
+        self.session.repo.save_global_setting("rgbscan_mode", bool(enabled))
 
     def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"HASHING {current}/{total}: {name}")
@@ -428,6 +441,7 @@ class AppController(QObject):
         self.state.has_ir = False
         self.state.original_res = (0, 0)
 
+        rgbscan = self.state.config.rgbscan
         self.preview_load_requested.emit(
             PreviewLoadTask(
                 file_path=file_path,
@@ -436,6 +450,8 @@ class AppController(QObject):
                 full_resolution=self.state.hq_preview,
                 file_hash=self._file_hash_for_path(file_path),
                 detect_mode=force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new),
+                green_path=rgbscan.green_path if rgbscan.enabled else "",
+                blue_path=rgbscan.blue_path if rgbscan.enabled else "",
             )
         )
 

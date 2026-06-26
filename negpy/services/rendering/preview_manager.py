@@ -278,6 +278,35 @@ class PreviewManager:
         )
         return out, dims, meta
 
+    def load_linear_preview_rgb(
+        self,
+        red_path: str,
+        green_path: str,
+        blue_path: str,
+        color_space: str | None = None,
+        use_camera_wb: bool = False,
+        full_resolution: bool = False,
+        file_hash: str | None = None,
+    ) -> Tuple[ImageBuffer, Dimensions, dict]:
+        """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
+        red shot, green from green, blue from blue. Each exposure is decoded (and cached)
+        through the normal preview path, then channels are combined."""
+        red_out, dims, meta = self.load_linear_preview(red_path, color_space, use_camera_wb, full_resolution, file_hash)
+        green_out, _, _ = self.load_linear_preview(green_path, color_space, use_camera_wb, full_resolution, None)
+        blue_out, _, _ = self.load_linear_preview(blue_path, color_space, use_camera_wb, full_resolution, None)
+
+        merged = np.array(red_out, dtype=np.float32, copy=True)
+
+        def _match(buf: ImageBuffer) -> np.ndarray:
+            arr = np.asarray(buf, dtype=np.float32)
+            if arr.shape[:2] != merged.shape[:2]:
+                arr = cv2.resize(arr, (merged.shape[1], merged.shape[0]), interpolation=cv2.INTER_AREA)
+            return arr
+
+        merged[..., 1] = _match(green_out)[..., 1]
+        merged[..., 2] = _match(blue_out)[..., 2]
+        return ensure_image(merged), dims, meta
+
     def load_splash_and_linear(
         self,
         file_path: str,

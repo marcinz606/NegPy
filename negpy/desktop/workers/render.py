@@ -66,6 +66,8 @@ class AssetDiscoveryTask:
 
     paths: list[str]
     supported_extensions: tuple[str, ...]
+    rgb_scan: bool = False  # Group discovered files into R/G/B triplets (one asset per frame).
+    restore_triplets: dict | None = None  # {red_path: [green, blue]} — rebuild known triplets (session restore).
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,8 @@ class PreviewLoadTask:
     use_splash: bool = True
     for_cache_warm: bool = False
     detect_mode: bool = False  # run process-mode autodetect (new files only)
+    green_path: str = ""  # RGB-scan triplet: green/blue exposures merged with file_path (red).
+    blue_path: str = ""
 
 
 class RenderWorker(QObject):
@@ -253,7 +257,57 @@ class AssetDiscoveryWorker(QObject):
             except Exception as e:
                 logger.error(f"Skipping invalid file {path}: {e}")
 
+        if task.restore_triplets:
+            valid_assets = self._attach_restored_triplets(valid_assets, task.restore_triplets)
+        elif task.rgb_scan and valid_assets:
+            valid_assets = self._group_rgb_triplets(valid_assets)
+
         self.finished.emit(valid_assets)
+
+    def _attach_restored_triplets(self, assets: list, triplets: dict) -> list:
+        """Re-attach saved green/blue exposures to restored red assets (no reclassification)."""
+        import os
+
+        out = []
+        for a in assets:
+            gb = triplets.get(a["path"])
+            if gb and gb[0] and gb[1] and os.path.exists(gb[0]) and os.path.exists(gb[1]):
+                base = os.path.splitext(a["name"])[0]
+                out.append({**a, "name": f"{base} (RGB)", "green_path": gb[0], "blue_path": gb[1]})
+            else:
+                out.append(a)
+        return out
+
+    def _group_rgb_triplets(self, assets: list) -> list:
+        """Classify each file by dominant channel and merge consecutive R/G/B triplets
+        into one asset (red is primary; green/blue ride along). Unmatched files stay individual."""
+        import os
+
+        from negpy.features.rgbscan.logic import classify_channel, group_triplets, probe_channel_means
+
+        by_path = {a["path"]: a for a in assets}
+        ordered = sorted(by_path, key=lambda p: os.path.basename(p).lower())
+
+        items = []
+        for i, p in enumerate(ordered):
+            self.progress.emit(i + 1, len(ordered), f"RGB {os.path.basename(p)}")
+            try:
+                items.append((p, classify_channel(probe_channel_means(p))))
+            except Exception as e:
+                logger.error(f"RGB-scan classification failed for {p}: {e}")
+
+        result = []
+        grouped = set()
+        for t in group_triplets(items):
+            if not t.ok:
+                continue
+            red = by_path[t.red]
+            base = os.path.splitext(red["name"])[0]
+            result.append({**red, "name": f"{base} (RGB)", "green_path": t.green, "blue_path": t.blue})
+            grouped.update({t.red, t.green, t.blue})
+
+        result.extend(by_path[p] for p in ordered if p not in grouped)
+        return result
 
 
 class PreviewLoadWorker(QObject):
@@ -287,6 +341,23 @@ class PreviewLoadWorker(QObject):
             return
         t0 = time.perf_counter()
         try:
+            if task.green_path and task.blue_path:
+                # RGB-scan triplet: assemble the frame from the three exposures.
+                # No splash — the red embedded JPEG would flash a red-cast preview.
+                raw, dims, metadata = self._preview_service.load_linear_preview_rgb(
+                    task.file_path,
+                    task.green_path,
+                    task.blue_path,
+                    task.workspace_color_space,
+                    use_camera_wb=task.use_camera_wb,
+                    full_resolution=task.full_resolution,
+                    file_hash=task.file_hash,
+                )
+                source_cs = metadata.get("color_space", "")
+                ir_preview = metadata.get("ir_preview")
+                detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+                self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
+                return
             if task.use_splash and not task.full_resolution:
                 # Open the file once; get splash + linear in a single pass.
                 sp, (raw, dims, metadata) = self._preview_service.load_splash_and_linear(

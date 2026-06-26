@@ -4,9 +4,12 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, QRect, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QActionGroup, QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListView,
     QMenu,
@@ -191,6 +194,13 @@ class FileBrowser(QWidget):
         self.hot_folder_btn.setToolTip("Hot Folder — automatically load new images from the current folder")
         self._update_hot_folder_style(False)
 
+        self.rgb_scan_btn = QToolButton()
+        self.rgb_scan_btn.setCheckable(True)
+        self.rgb_scan_btn.setIcon(qta.icon("mdi.google-circles-communities", color=THEME.text_primary))
+        self.rgb_scan_btn.setToolTip("RGB Scan — assemble each frame from red/green/blue exposures; groups a folder into triplets on load")
+        self.rgb_scan_btn.setChecked(bool(self.session.repo.get_global_setting("rgbscan_mode", False)))
+        self._update_rgb_scan_style(self.rgb_scan_btn.isChecked())
+
         self.sync_btn = QToolButton()
         self.sync_btn.setIcon(qta.icon("fa5s.sync", color=THEME.text_primary))
         self.sync_btn.setToolTip("Sync Edits — apply exposure / lab / toning to selected images (preserves their crop and rotation)")
@@ -232,6 +242,7 @@ class FileBrowser(QWidget):
             self.add_folder_btn,
             self.unload_btn,
             self.hot_folder_btn,
+            self.rgb_scan_btn,
             self.sync_btn,
             self.sync_crop_btn,
             self.sort_btn,
@@ -245,6 +256,7 @@ class FileBrowser(QWidget):
         toolbar_row.addWidget(self.unload_btn)
         toolbar_row.addWidget(self._create_separator())
         toolbar_row.addWidget(self.hot_folder_btn)
+        toolbar_row.addWidget(self.rgb_scan_btn)
         toolbar_row.addWidget(self.sync_btn)
         toolbar_row.addWidget(self.sync_crop_btn)
         toolbar_row.addStretch()
@@ -292,6 +304,7 @@ class FileBrowser(QWidget):
         self.list_view.customContextMenuRequested.connect(self._show_context_menu)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
+        self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
         self.sync_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("edits"))
         self.sync_crop_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("geometry_only"))
         self.session.state_changed.connect(self.sync_ui)
@@ -421,6 +434,14 @@ class FileBrowser(QWidget):
         icon_color = "white" if checked else THEME.text_primary
         self.hot_folder_btn.setIcon(qta.icon("fa5s.fire", color=icon_color))
 
+    def _update_rgb_scan_style(self, checked: bool) -> None:
+        icon_color = "white" if checked else THEME.text_primary
+        self.rgb_scan_btn.setIcon(qta.icon("mdi.google-circles-communities", color=icon_color))
+
+    def _on_rgb_scan_toggled(self, checked: bool) -> None:
+        self._update_rgb_scan_style(checked)
+        self.controller.set_rgb_scan_mode(checked)
+
     def _scan_folder(self) -> None:
         if not self.session.state.uploaded_files:
             return
@@ -496,13 +517,62 @@ class FileBrowser(QWidget):
         if multi:
             menu.addSeparator()
             menu.addAction("Sync Edits to Selection").triggered.connect(lambda: self.session.sync_selected_settings("edits"))
+        if not multi:
+            menu.addSeparator()
+            menu.addAction("Edit RGB Triplet…").triggered.connect(self._on_edit_triplet)
         menu.addSeparator()
         unload_label = "Unload Selected" if multi else "Unload"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
         return menu
+
+    def _on_edit_triplet(self) -> None:
+        idx = self.session.state.selected_file_idx
+        files = self.session.state.uploaded_files
+        if not (0 <= idx < len(files)):
+            return
+        info = files[idx]
+        dlg = _RgbTripletDialog(self, info["path"], info.get("green_path", ""), info.get("blue_path", ""))
+        if dlg.exec():
+            red, green, blue = dlg.paths()
+            if red and green and blue:
+                self.session.set_triplet(idx, red, green, blue)
 
     def _on_remove_from_menu(self) -> None:
         if len(self.session.state.selected_indices) > 1:
             self.session.remove_selected_files()
         else:
             self.session.remove_current_file()
+
+
+class _RgbTripletDialog(QDialog):
+    """Manually assign the red/green/blue exposure files for one RGB-scan frame."""
+
+    def __init__(self, parent, red: str, green: str, blue: str) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Edit RGB Triplet")
+        layout = QVBoxLayout(self)
+        self._edits: dict[str, QLineEdit] = {}
+        for label, path in (("Red", red), ("Green", green), ("Blue", blue)):
+            row = QHBoxLayout()
+            row.addWidget(QLabel(label, minimumWidth=48))
+            edit = QLineEdit(path)
+            row.addWidget(edit, 1)
+            browse = QPushButton("Browse…")
+            browse.clicked.connect(lambda _=False, e=edit: self._browse(e))
+            row.addWidget(browse)
+            layout.addLayout(row)
+            self._edits[label] = edit
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _browse(self, edit: QLineEdit) -> None:
+        start = os.path.dirname(edit.text()) if edit.text() else ""
+        path, _ = QFileDialog.getOpenFileName(self, "Select exposure", start, f"Supported Images ({get_supported_raw_wildcards()})")
+        if path:
+            edit.setText(path)
+
+    def paths(self) -> tuple[str, str, str]:
+        return (self._edits["Red"].text(), self._edits["Green"].text(), self._edits["Blue"].text())

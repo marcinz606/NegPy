@@ -536,6 +536,13 @@ class DesktopSessionManager(QObject):
             else:
                 self.state.config = self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
 
+            # RGB-scan triplet: the green/blue exposures travel with the asset entry.
+            green, blue = file_info.get("green_path"), file_info.get("blue_path")
+            if green and blue:
+                from negpy.features.rgbscan.models import RgbScanConfig
+
+                self.state.config = replace(self.state.config, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue))
+
             self.file_selected.emit(file_info["path"])
             self.state_changed.emit()
             self._persist_session()
@@ -741,6 +748,14 @@ class DesktopSessionManager(QObject):
         paths = [f["path"] for f in self.state.uploaded_files]
         self.repo.save_global_setting("session_files", paths)
         self.repo.save_global_setting("session_active_path", self.state.current_file_path)
+        # RGB-scan triplets keep their green/blue exposures here so restore can rebuild
+        # the merged asset (re-discovery from the red path alone cannot regroup it).
+        triplets = {
+            f["path"]: [f["green_path"], f["blue_path"]]
+            for f in self.state.uploaded_files
+            if f.get("green_path") and f.get("blue_path")
+        }
+        self.repo.save_global_setting("session_triplets", triplets)
 
     def add_files(self, file_paths: List[str], validated_info: Optional[List[Dict]] = None) -> None:
         """
@@ -774,6 +789,26 @@ class DesktopSessionManager(QObject):
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
+
+    def set_triplet(self, index: int, red_path: str, green_path: str, blue_path: str) -> None:
+        """Reassign the R/G/B exposures of an RGB-scan asset, then reload it."""
+        import os
+
+        from negpy.kernel.image.logic import calculate_file_hash
+
+        if not (0 <= index < len(self.state.uploaded_files)):
+            return
+        name = os.path.splitext(os.path.basename(red_path))[0] + " (RGB)"
+        self.state.uploaded_files[index] = {
+            "name": name,
+            "path": red_path,
+            "hash": calculate_file_hash(red_path),
+            "green_path": green_path,
+            "blue_path": blue_path,
+        }
+        self.asset_model.refresh()
+        self.files_changed.emit()
+        self.select_file(index)
 
     def clear_files(self) -> None:
         """

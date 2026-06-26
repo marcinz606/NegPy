@@ -18,6 +18,7 @@ from negpy.domain.models import (
 from negpy.features.process.models import ProcessMode
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
+from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
 from negpy.services.rendering.gpu_engine import GPUEngine
@@ -98,7 +99,7 @@ class ImageProcessor:
         # Flat-field is a source pre-correction (before geometry/crop); folding its token
         # into source_hash invalidates the engine cache when it changes.
         img = apply_flatfield(img, settings.flatfield)
-        source_hash = source_hash + flatfield_token(settings.flatfield)
+        source_hash = source_hash + flatfield_token(settings.flatfield) + rgbscan_token(settings.rgbscan)
 
         h_orig, w_cols = img.shape[:2]
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
@@ -158,27 +159,15 @@ class ImageProcessor:
             return Image.fromarray(float_to_uint8(buffer))
         raise ValueError(f"Unsupported bit depth: {bit_depth}")
 
-    def _load_source_f32(self, file_path: str, params: WorkspaceConfig) -> Tuple[np.ndarray, Optional[np.ndarray], str, Optional[str]]:
-        """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
+    def _decode_sensor_rgb(self, file_path: str, linear_raw: bool, want_flat_gamut: bool) -> Tuple[np.ndarray, Dict[str, Any], Any]:
+        """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
-        Returns (f32_buffer, ir_buffer, source_color_space, effective_working_space).
-
-        ``effective_working_space`` is non-None only for a flat (digital-intermediate)
-        render of a camera RAW: the camera's own colour matrix is applied to convert
-        sensor-native linear RGB into ProPhoto-linear *before* normalization/inversion,
-        and the value tells the export encoder to treat the buffer as ProPhoto. For the
-        print path it is always None, so that pipeline is completely unaffected.
+        Returns (rgb_uint16, loader_metadata, camera_xyz_matrix_or_None).
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
-        source_cs = str(metadata.get("color_space", ColorSpace.ADOBE_RGB.value))
-        ir_full = metadata.get("ir")
-
-        want_flat_gamut = self._is_flat(params)
         cam_matrix = None
-
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
-            linear_raw = params.exposure.linear_raw
             user_wb = [1, 1, 1, 1] if linear_raw else None
             rgb = raw.postprocess(
                 gamma=(1, 1),
@@ -194,6 +183,36 @@ class ImageProcessor:
             if want_flat_gamut:
                 # Non-camera sources (scanner TIFF, NegPy linear DNG) lack this.
                 cam_matrix = getattr(raw, "rgb_xyz_matrix", None)
+        return rgb, metadata, cam_matrix
+
+    def _load_source_f32(self, file_path: str, params: WorkspaceConfig) -> Tuple[np.ndarray, Optional[np.ndarray], str, Optional[str]]:
+        """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
+
+        Returns (f32_buffer, ir_buffer, source_color_space, effective_working_space).
+
+        ``effective_working_space`` is non-None only for a flat (digital-intermediate)
+        render of a camera RAW: the camera's own colour matrix is applied to convert
+        sensor-native linear RGB into ProPhoto-linear *before* normalization/inversion,
+        and the value tells the export encoder to treat the buffer as ProPhoto. For the
+        print path it is always None, so that pipeline is completely unaffected.
+        """
+        want_flat_gamut = self._is_flat(params)
+        linear_raw = params.exposure.linear_raw
+
+        rgb, metadata, cam_matrix = self._decode_sensor_rgb(file_path, linear_raw, want_flat_gamut)
+        source_cs = str(metadata.get("color_space", ColorSpace.ADOBE_RGB.value))
+        ir_full = metadata.get("ir")
+
+        rgbcfg = params.rgbscan
+        if rgbcfg.enabled and rgbcfg.green_path and rgbcfg.blue_path:
+            # Assemble one frame from the R/G/B exposures; the primary (red) file is
+            # already decoded above, so reuse it and decode only green/blue.
+            def _decode(path: str) -> np.ndarray:
+                if path == file_path:
+                    return rgb
+                return self._decode_sensor_rgb(path, linear_raw, want_flat_gamut)[0]
+
+            rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path)
 
         f32_buffer = uint16_to_float32(rgb)
 
