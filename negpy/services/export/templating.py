@@ -2,7 +2,7 @@ import os
 import re
 from datetime import datetime
 from typing import Union
-from jinja2 import Template
+from jinja2.sandbox import SandboxedEnvironment
 from negpy.domain.models import ExportConfig, ExportPreset, ExportResolutionMode
 
 
@@ -46,8 +46,10 @@ def render_export_filename(
         "date": datetime.now().strftime("%Y%m%d"),
     }
 
+    env = SandboxedEnvironment()
+
     try:
-        template = Template(export_settings.filename_pattern)
+        template = env.from_string(export_settings.filename_pattern)
         rendered = template.render(**context)
 
         # Clean up structural separators (spaces/dashes/underscores in the template
