@@ -246,12 +246,16 @@ class SaneBackend:
 
         try:
             # IR capture strategy decides the scan mode (RGBI yields a 4th channel inline).
-            ir_strategy = self._ir_strategy(dev) if params.capture_ir else None
+            ir_strategy = self._ir_strategy(dev, device_id) if params.capture_ir else None
 
             # Configure SANE parameters
             dev.mode = "RGBI" if ir_strategy == "rgbi" else "Color"
             dev.depth = params.depth
             dev.resolution = params.dpi
+
+            # Apply hardware-specific optimizations
+            if device_id.startswith("pieusb:"):
+                self._set_pieusb_flags(dev, params.capture_ir)
 
             # Set scan area if specified
             if params.area is not None:
@@ -345,16 +349,37 @@ class SaneBackend:
             except Exception:
                 pass
 
+    def _set_pieusb_flags(self, dev, capture_ir) -> None:
+        """Apply hardware-specific optimizations for pieusb scanners."""
+        opts = {
+            "sharpen": True,
+            "shading_analysis": True,
+            "advance": True,
+            "calibration": "from internal test",
+            "correct_shading": True,
+        }
+        if capture_ir:
+            opts["clean_image"] = True
+            opts["correct_infrared"] = True
+
+        for name, val in opts.items():
+            try:
+                setattr(dev, name, val)
+            except Exception as e:
+                logger.warning(f"Could not set SANE pieusb option {name}={val}: {e}")
+
     def _detect_caps(self, dev, device_id: str = "") -> ScannerCapabilities:
         """Read dev.opt to build ScannerCapabilities."""
         opt = dev.opt if hasattr(dev, "opt") else {}
         return _caps_from_options(opt, device_id)
 
     @staticmethod
-    def _ir_strategy(dev) -> str | None:
+    def _ir_strategy(dev, device_id) -> str | None:
         """How to capture IR for this device: 'rgbi' (4th channel), 'source' (Plustek
-        second scan), or None."""
+        second scan), 'internal' (applied by the Backend/Scanner itself) or None."""
         opt = dev.opt if hasattr(dev, "opt") else {}
+        if device_id.startswith("pieusb:"):
+            return "internal"
         if _mode_has_rgbi(opt):
             return "rgbi"
         if SaneBackend._get_ir_source(dev):
