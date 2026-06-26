@@ -84,6 +84,7 @@ class PreviewLoadTask:
     detect_mode: bool = False  # run process-mode autodetect (new files only)
     green_path: str = ""  # RGB-scan triplet: green/blue exposures merged with file_path (red).
     blue_path: str = ""
+    align: bool = True  # sub-pixel registration of the triplet
 
 
 class RenderWorker(QObject):
@@ -273,7 +274,8 @@ class AssetDiscoveryWorker(QObject):
             gb = triplets.get(a["path"])
             if gb and gb[0] and gb[1] and os.path.exists(gb[0]) and os.path.exists(gb[1]):
                 base = os.path.splitext(a["name"])[0]
-                out.append({**a, "name": f"{base} (RGB)", "green_path": gb[0], "blue_path": gb[1]})
+                align = bool(gb[2]) if len(gb) > 2 else True
+                out.append({**a, "name": f"{base} (RGB)", "green_path": gb[0], "blue_path": gb[1], "align": align})
             else:
                 out.append(a)
         return out
@@ -352,6 +354,7 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
+                    align=task.align,
                 )
                 source_cs = metadata.get("color_space", "")
                 ir_preview = metadata.get("ir_preview")

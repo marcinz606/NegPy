@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 
 from negpy.domain.models import WorkspaceConfig
+import cv2
+
 from negpy.features.rgbscan.logic import (
+    _estimate_shift,
+    assemble_rgb,
     classify_channel,
     group_triplets,
     merge_rgb_triplet,
@@ -31,7 +35,7 @@ def test_merge_picks_matching_channel():
     green[..., 1] = 2.0
     blue[..., 2] = 3.0
     decode = {"r": red, "g": green, "b": blue}.__getitem__
-    out = merge_rgb_triplet(decode, "r", "g", "b")
+    out = merge_rgb_triplet(decode, "r", "g", "b", align=False)
     assert np.all(out[..., 0] == 1.0)
     assert np.all(out[..., 1] == 2.0)
     assert np.all(out[..., 2] == 3.0)
@@ -40,7 +44,79 @@ def test_merge_picks_matching_channel():
 def test_merge_rejects_shape_mismatch():
     decode = {"r": np.zeros((2, 2, 3)), "g": np.zeros((3, 2, 3)), "b": np.zeros((2, 2, 3))}.__getitem__
     with pytest.raises(ValueError):
-        merge_rgb_triplet(decode, "r", "g", "b")
+        merge_rgb_triplet(decode, "r", "g", "b", align=False)
+
+
+def _texture(h=128, w=128, seed=0):
+    """Textured scene with enough edges for phase correlation to lock."""
+    rng = np.random.default_rng(seed)
+    base = rng.random((h, w), dtype=np.float32)
+    return cv2.GaussianBlur(base, (0, 0), 1.5)
+
+
+def _shift(img, dx, dy):
+    m = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+    return cv2.warpAffine(img, m, (img.shape[1], img.shape[0]), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
+
+
+def test_estimate_shift_recovers_subpixel_translation():
+    ref = _texture()
+    dx, dy = 2.5, -1.25
+    mov = _shift(ref, dx, dy)
+    est_dx, est_dy = _estimate_shift(ref, mov)
+    assert abs(est_dx - dx) < 0.3
+    assert abs(est_dy - dy) < 0.3
+
+
+def _scene_triplet(dx, dy):
+    base = _texture()
+    r = np.zeros((*base.shape, 3), np.float32)
+    g = np.zeros_like(r)
+    b = np.zeros_like(r)
+    r[..., 0] = base
+    g[..., 1] = _shift(base, dx, dy)  # green drifted relative to red
+    b[..., 2] = _shift(base, -dx, dy)
+    return base, r, g, b
+
+
+def test_assemble_rgb_alignment_reduces_misregistration():
+    base, r, g, b = _scene_triplet(3.0, 2.0)
+    aligned = assemble_rgb(r, g, b, align=True)
+    raw = assemble_rgb(r, g, b, align=False)
+    # Ignore the warp border where REPLICATE/REFLECT differ; compare the interior.
+    sl = (slice(8, -8), slice(8, -8))
+    err_aligned = np.abs(aligned[..., 1][sl] - base[sl]).mean()
+    err_raw = np.abs(raw[..., 1][sl] - base[sl]).mean()
+    assert err_aligned < err_raw * 0.5
+
+
+def test_assemble_rgb_no_align_is_plain_stack():
+    base, r, g, b = _scene_triplet(3.0, 2.0)
+    out = assemble_rgb(r, g, b, align=False)
+    assert np.array_equal(out[..., 0], r[..., 0])
+    assert np.array_equal(out[..., 1], g[..., 1])
+    assert np.array_equal(out[..., 2], b[..., 2])
+
+
+def test_align_skips_implausible_shift():
+    # max_shift guard: a wildly shifted exposure is left untouched rather than warped.
+    base = _texture()
+    r = np.zeros((*base.shape, 3), np.float32)
+    g = np.zeros_like(r)
+    r[..., 0] = base
+    g[..., 1] = _shift(base, 60.0, 0.0)  # > max_shift (0.02*128 -> floored to 16)
+    out = assemble_rgb(r, g, g, align=True)
+    assert np.array_equal(out[..., 1], g[..., 1])
+
+
+def test_rgbscan_token_changes_with_align(tmp_path):
+    g = tmp_path / "g.raw"
+    b = tmp_path / "b.raw"
+    g.write_bytes(b"g")
+    b.write_bytes(b"b")
+    on = rgbscan_token(RgbScanConfig(enabled=True, green_path=str(g), blue_path=str(b), align=True))
+    off = rgbscan_token(RgbScanConfig(enabled=True, green_path=str(g), blue_path=str(b), align=False))
+    assert on != off
 
 
 def test_group_triplets_scrambled_order():

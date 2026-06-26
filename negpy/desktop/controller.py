@@ -360,9 +360,7 @@ class AppController(QObject):
         triplets = self.session.repo.get_global_setting("session_triplets", {}) or {}
         self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets)
 
-    def request_asset_discovery(
-        self, paths: List[str], auto_open: bool = False, restore_triplets: Optional[dict] = None
-    ) -> None:
+    def request_asset_discovery(self, paths: List[str], auto_open: bool = False, restore_triplets: Optional[dict] = None) -> None:
         """
         Starts asynchronous discovery of supported assets.
         Silently skips if a discovery task is already in progress.
@@ -452,6 +450,7 @@ class AppController(QObject):
                 detect_mode=force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new),
                 green_path=rgbscan.green_path if rgbscan.enabled else "",
                 blue_path=rgbscan.blue_path if rgbscan.enabled else "",
+                align=rgbscan.align,
             )
         )
 

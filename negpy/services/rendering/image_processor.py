@@ -212,7 +212,7 @@ class ImageProcessor:
                     return rgb
                 return self._decode_sensor_rgb(path, linear_raw, want_flat_gamut)[0]
 
-            rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path)
+            rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
 
         f32_buffer = uint16_to_float32(rgb)
 

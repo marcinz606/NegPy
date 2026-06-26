@@ -4,6 +4,7 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, QRect, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QActionGroup, QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -531,11 +532,11 @@ class FileBrowser(QWidget):
         if not (0 <= idx < len(files)):
             return
         info = files[idx]
-        dlg = _RgbTripletDialog(self, info["path"], info.get("green_path", ""), info.get("blue_path", ""))
+        dlg = _RgbTripletDialog(self, info["path"], info.get("green_path", ""), info.get("blue_path", ""), info.get("align", True))
         if dlg.exec():
             red, green, blue = dlg.paths()
             if red and green and blue:
-                self.session.set_triplet(idx, red, green, blue)
+                self.session.set_triplet(idx, red, green, blue, dlg.align())
 
     def _on_remove_from_menu(self) -> None:
         if len(self.session.state.selected_indices) > 1:
@@ -547,7 +548,7 @@ class FileBrowser(QWidget):
 class _RgbTripletDialog(QDialog):
     """Manually assign the red/green/blue exposure files for one RGB-scan frame."""
 
-    def __init__(self, parent, red: str, green: str, blue: str) -> None:
+    def __init__(self, parent, red: str, green: str, blue: str, align: bool = True) -> None:
         super().__init__(parent)
         self.setWindowTitle("Edit RGB Triplet")
         layout = QVBoxLayout(self)
@@ -563,6 +564,11 @@ class _RgbTripletDialog(QDialog):
             layout.addLayout(row)
             self._edits[label] = edit
 
+        self._align = QCheckBox("Align channels (sub-pixel)")
+        self._align.setChecked(align)
+        self._align.setToolTip("Register green/blue to the red exposure to remove fringing from capture drift.")
+        layout.addWidget(self._align)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -576,3 +582,6 @@ class _RgbTripletDialog(QDialog):
 
     def paths(self) -> tuple[str, str, str]:
         return (self._edits["Red"].text(), self._edits["Green"].text(), self._edits["Blue"].text())
+
+    def align(self) -> bool:
+        return self._align.isChecked()

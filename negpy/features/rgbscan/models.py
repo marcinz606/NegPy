@@ -12,3 +12,4 @@ class RgbScanConfig:
     enabled: bool = False
     green_path: str = ""
     blue_path: str = ""
+    align: bool = True  # sub-pixel registration of green/blue to the red exposure

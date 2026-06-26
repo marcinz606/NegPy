@@ -541,7 +541,10 @@ class DesktopSessionManager(QObject):
             if green and blue:
                 from negpy.features.rgbscan.models import RgbScanConfig
 
-                self.state.config = replace(self.state.config, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue))
+                align = bool(file_info.get("align", self.state.config.rgbscan.align))
+                self.state.config = replace(
+                    self.state.config, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align)
+                )
 
             self.file_selected.emit(file_info["path"])
             self.state_changed.emit()
@@ -751,7 +754,7 @@ class DesktopSessionManager(QObject):
         # RGB-scan triplets keep their green/blue exposures here so restore can rebuild
         # the merged asset (re-discovery from the red path alone cannot regroup it).
         triplets = {
-            f["path"]: [f["green_path"], f["blue_path"]]
+            f["path"]: [f["green_path"], f["blue_path"], bool(f.get("align", True))]
             for f in self.state.uploaded_files
             if f.get("green_path") and f.get("blue_path")
         }
@@ -790,7 +793,7 @@ class DesktopSessionManager(QObject):
         self.files_changed.emit()
         self._persist_session()
 
-    def set_triplet(self, index: int, red_path: str, green_path: str, blue_path: str) -> None:
+    def set_triplet(self, index: int, red_path: str, green_path: str, blue_path: str, align: bool = True) -> None:
         """Reassign the R/G/B exposures of an RGB-scan asset, then reload it."""
         import os
 
@@ -805,6 +808,7 @@ class DesktopSessionManager(QObject):
             "hash": calculate_file_hash(red_path),
             "green_path": green_path,
             "blue_path": blue_path,
+            "align": align,
         }
         self.asset_model.refresh()
         self.files_changed.emit()

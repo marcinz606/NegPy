@@ -2,12 +2,16 @@ import os
 from dataclasses import dataclass
 from typing import Callable, List, Sequence, Tuple
 
+import cv2
 import numpy as np
 
 from negpy.features.rgbscan.models import RgbScanConfig
 
 # Channel indices, matching the demosaiced RGB axis order.
 RED, GREEN, BLUE = 0, 1, 2
+
+# Estimate translation at this width then scale up: cheaper and denoises the FFT peak.
+_EST_WIDTH = 1024
 
 
 @dataclass(frozen=True)
@@ -67,26 +71,63 @@ def group_triplets(items: Sequence[Tuple[str, int]]) -> List[Triplet]:
     return triplets
 
 
+def _estimate_shift(ref_gray: np.ndarray, mov_gray: np.ndarray) -> Tuple[float, float]:
+    """Sub-pixel translation of ``mov_gray`` relative to ``ref_gray`` (phase correlation)."""
+    h, w = ref_gray.shape[:2]
+    scale = 1.0
+    r, m = ref_gray, mov_gray
+    if w > _EST_WIDTH:
+        scale = w / _EST_WIDTH
+        sz = (_EST_WIDTH, max(1, round(h / scale)))
+        r = cv2.resize(ref_gray, sz, interpolation=cv2.INTER_AREA)
+        m = cv2.resize(mov_gray, sz, interpolation=cv2.INTER_AREA)
+    r = np.ascontiguousarray(r, dtype=np.float32)
+    m = np.ascontiguousarray(m, dtype=np.float32)
+    win = cv2.createHanningWindow((r.shape[1], r.shape[0]), cv2.CV_32F)
+    (dx, dy), _resp = cv2.phaseCorrelate(r, m, win)
+    return dx * scale, dy * scale
+
+
+def _align_to(ref_gray: np.ndarray, mov: np.ndarray, mov_ch: int, max_shift: float) -> np.ndarray:
+    """Shift ``mov`` so its scene content lines up with ``ref_gray``. No-op if the
+    estimate is implausibly large (correlation failed)."""
+    dx, dy = _estimate_shift(ref_gray, mov[..., mov_ch])
+    if max(abs(dx), abs(dy)) > max_shift:
+        return mov
+    h, w = mov.shape[:2]
+    matrix = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]], dtype=np.float32)
+    return cv2.warpAffine(mov, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+
+def assemble_rgb(r: np.ndarray, g: np.ndarray, b: np.ndarray, align: bool = True) -> np.ndarray:
+    """Assemble one HxWx3 image: red channel from the red shot, green from green, blue from blue.
+
+    With ``align``, green/blue are registered to the red exposure first (sub-pixel
+    translation) to remove fringing from frame-to-frame drift during capture.
+    """
+    if not (r.shape == g.shape == b.shape):
+        raise ValueError(f"RGB-scan exposures differ in shape: {r.shape}, {g.shape}, {b.shape}")
+    out = np.empty_like(r)
+    out[..., RED] = r[..., RED]
+    if align:
+        ref = r[..., RED].astype(np.float32)
+        max_shift = max(16.0, 0.02 * r.shape[1])
+        g = _align_to(ref, g, GREEN, max_shift)
+        b = _align_to(ref, b, BLUE, max_shift)
+    out[..., GREEN] = g[..., GREEN]
+    out[..., BLUE] = b[..., BLUE]
+    return out
+
+
 def merge_rgb_triplet(
     decode_fn: Callable[[str], np.ndarray],
     red_path: str,
     green_path: str,
     blue_path: str,
+    align: bool = True,
 ) -> np.ndarray:
-    """Assemble one HxWx3 image: red channel from the red shot, green from green, blue from blue.
-
-    ``decode_fn`` decodes a path to an HxWx3 array using the caller's normal RAW path.
-    """
-    r = decode_fn(red_path)
-    g = decode_fn(green_path)
-    b = decode_fn(blue_path)
-    if not (r.shape == g.shape == b.shape):
-        raise ValueError(f"RGB-scan exposures differ in shape: {r.shape}, {g.shape}, {b.shape}")
-    out = np.empty_like(r)
-    out[..., RED] = r[..., RED]
-    out[..., GREEN] = g[..., GREEN]
-    out[..., BLUE] = b[..., BLUE]
-    return out
+    """Decode the three exposures via ``decode_fn`` and assemble them into one frame."""
+    return assemble_rgb(decode_fn(red_path), decode_fn(green_path), decode_fn(blue_path), align=align)
 
 
 def rgbscan_token(config: RgbScanConfig) -> str:
@@ -98,4 +139,4 @@ def rgbscan_token(config: RgbScanConfig) -> str:
         b_mtime = os.path.getmtime(config.blue_path)
     except OSError:
         return ""
-    return f"|rgb:{config.green_path}:{g_mtime}:{config.blue_path}:{b_mtime}"
+    return f"|rgb:{config.green_path}:{g_mtime}:{config.blue_path}:{b_mtime}:a{int(config.align)}"
