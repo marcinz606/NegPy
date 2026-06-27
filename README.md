@@ -21,7 +21,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 **Conversion & Film Science**
 *   **No Camera Profiles**: No camera profiles, no border colour-picking. Math neutralizes the orange mask from channel sensitometry.
-*   **Film Physics**: Models the **H&D Characteristic Curve** (logistic sigmoid, independent toe/shoulder) instead of a linear inversion.
+*   **Film Physics**: Models the **H&D Characteristic Curve** in density space — an asymmetric toe-linear-shoulder response with independent softplus toe/shoulder knees and ISO-R paper grades — instead of a linear inversion.
 *   **Smart Auto Conversion**: Per-frame **Auto Density** and **Auto Grade** meter each negative for sensible brightness/contrast — usable out of the box, easy to fine-tune.
 *   **Darkroom Paper Profiles**: Per-paper curve shaping (tone, per-channel gamma, base tint) mapped from Ilford/Kodak/Foma/Fuji datasheets, selectable per roll.
 *   **Positive/Slide Support**: Dedicated **E-6 mode** with optional normalization to save expired or faded film.
@@ -53,7 +53,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 ### How it works
 
-[📖 Read about the math and the pipeline here](docs/PIPELINE.md)
+[Read about the math and the pipeline here](docs/PIPELINE.md)
 
 ---
 
