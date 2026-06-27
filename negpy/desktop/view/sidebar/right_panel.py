@@ -260,7 +260,8 @@ class RightPanel(QWidget):
 
             flat_cfg = flat_master_config(self.controller.session.state.config).exposure
             gain, lift = flat_curve_params()
-            density_range = None
+            # Flat log master has no print grade — the ISO-R contrast stat reads N/A.
+            slope, density_range = None, None
             self.curve_widget.update_curve(flat_cfg, slope=gain, pivot=lift, flat=True)
         else:
             # Mirror PhotometricProcessor so the plotted curve matches the render under
