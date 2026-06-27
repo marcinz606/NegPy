@@ -82,6 +82,21 @@ A **paper profile** (`paper_profile`, default *Neutral*) overrides the print *ch
 
 Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the tonal-only B&W papers (paper tone is a Toning job, so B&W profiles carry no colour terms), and E-6 gets only *Neutral*. An incompatible stored value collapses to *Neutral* so it can never leak into a render. Bundled papers: **Neutral**; *B&W* — Ilford Multigrade RC, Ilford Multigrade FB Classic, Foma Fomatone, Foma Fomabrom; *RA4* — Kodak Endura Premier, Fujicolor Crystal Archive. Values are loosely mapped from datasheets (mainly $D_{max}$ is grounded; the knee/midtone tweaks are light character touches).
 
+### Flat (log) master — "for editing elsewhere"
+**Code**: `negpy.features.exposure.processor.PhotometricProcessor._process_flat` → `apply_flat_curve`
+
+When the render intent is **Flat** (`RenderIntent.FLAT`), the Print stage is replaced by a **true log encoding** for use as a digital intermediate — flat, milky, low-contrast, like S-Log/LogC video before a LUT. It does **not** run the H&D curve at all.
+
+The key point: the normalized signal $\text{val} \in [0,1]$ from §2 is *already* a log measurement of the scene. The print path's $I_{out} = 10^{-D}$ is therefore a log→linear **decode** — it (with the sRGB encode) is exactly what turns the signal back into a normal-contrast positive. The flat master **skips both**, emitting the log signal **directly** as the code value (positive-oriented, $1 - \text{val}$):
+
+$$\text{code} = \text{clip}\big(\text{lift} + \text{gain} \cdot (1 - \text{val}),\ 0,\ 1\big)$$
+
+*   `flat_log_gain` $= 0.65$: contrast (range of code used); $<1$ keeps it flat.
+*   `flat_log_lift` $= 0.10$: the code the scene **shadow** lands on (black lift).
+*   Result: scene shadow → $0.10$, mid-grey → $\approx 0.46$, highlight → $0.75$ — headroom above white and below black, fully invertible for downstream grading.
+
+Both are **fixed** (no per-frame metering) so an evenly-exposed roll renders identically; manual white balance still rides as an additive per-channel shift in log space. The engine also **bypasses** the creative stages (Retouch, Lab, Local, Toning, Finish) for a flat intent; only Geometry → Normalization → this log map → Crop run. Export is full-resolution, wide-gamut **ProPhoto 16-bit TIFF** (camera RAWs mapped to ProPhoto-linear via the camera matrix before normalization); a Linear-DNG option also exists. CPU engine is forced (no GPU flat shader) for numerical exactness.
+
 ---
 
 ## 4. Retouching
