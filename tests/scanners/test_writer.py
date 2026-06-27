@@ -74,8 +74,7 @@ class TestDngWriter:
 
             with tifffile.TiffFile(path) as tf:
                 tags = tf.pages[0].tags
-                # LinearRaw photometric (34892) and a DNGVersion tag must be present.
-                assert int(tags["PhotometricInterpretation"].value) == 34892
+                assert int(tags["PhotometricInterpretation"].value) == 34892  # LinearRaw
                 assert tuple(tags["DNGVersion"].value) == (1, 4, 0, 0)
                 assert int(tags["SamplesPerPixel"].value) == 3
 

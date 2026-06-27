@@ -60,13 +60,10 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
 
 
 def write_dng_linear(result: ScanResult, path: str) -> str:
-    """Write ScanResult to an uncompressed 16-bit LinearRaw DNG.
+    """Write ScanResult to an uncompressed 16-bit LinearRaw DNG via tifffile.
 
-    If result.ir is present, it is stacked as an extra sample channel.
-    Uses atomic write (write to .tmp then rename). Returns final path.
-
-    A LinearRaw DNG is a single-IFD TIFF plus a few DNG tags, so this is
-    written with tifffile (no native deps) rather than a DNG-specific library.
+    A LinearRaw DNG is a single-IFD TIFF plus a few DNG tags. If result.ir is
+    present it is stacked as an extra sample. Atomic write; returns final path.
     """
     if not path.lower().endswith(".dng"):
         path = path + ".dng"
@@ -83,18 +80,16 @@ def write_dng_linear(result: ScanResult, path: str) -> str:
         full_array = np.ascontiguousarray(rgb)
 
     model = result.device_model
-    # extratags: (code, dtype, count, value, writeonce). dtype 1=BYTE, 2=ASCII, 3=SHORT, 4=LONG.
-    # NewSubfileType=0 marks the main IFD as the raw image — LibRaw rejects the DNG without it.
+    # (code, dtype, count, value, writeonce); NewSubfileType=0 is required or LibRaw rejects the DNG.
     extratags = [
-        (254, 4, 1, 0, True),  # NewSubfileType = primary image
-        (50706, 1, 4, (1, 4, 0, 0), True),  # DNGVersion 1.4.0.0
-        (50707, 1, 4, (1, 0, 0, 0), True),  # DNGBackwardVersion 1.0.0.0
-        (274, 3, 1, 1, True),  # Orientation = top-left
+        (254, 4, 1, 0, True),  # NewSubfileType
+        (50706, 1, 4, (1, 4, 0, 0), True),  # DNGVersion
+        (50707, 1, 4, (1, 0, 0, 0), True),  # DNGBackwardVersion
+        (274, 3, 1, 1, True),  # Orientation
         (271, 2, len(model) + 1, model, True),  # Make
         (272, 2, len(model) + 1, model, True),  # Model
     ]
-    # tifffile counts only the first sample for LINEAR_RAW; the rest (RGB, +IR) are
-    # declared as unspecified extra samples so SamplesPerPixel comes out 3 (or 4).
+    # tifffile counts one sample for LINEAR_RAW; declare the rest as extra so SamplesPerPixel is 3/4.
     extrasamples = (0,) * (full_array.shape[-1] - 1)
 
     fd, tmp_path = tempfile.mkstemp(suffix=".dng", dir=os.path.dirname(path) or ".")
@@ -105,7 +100,7 @@ def write_dng_linear(result: ScanResult, path: str) -> str:
             full_array,
             photometric=tifffile.PHOTOMETRIC.LINEAR_RAW,
             compression=None,
-            metadata=None,  # no ImageDescription JSON — keep the DNG IFD clean
+            metadata=None,
             extrasamples=extrasamples,
             extratags=extratags,
         )
