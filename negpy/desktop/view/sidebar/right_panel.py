@@ -17,6 +17,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.sidebar.export import ExportSidebar
+from negpy.desktop.view.sidebar.history import HistoryPanel
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
@@ -82,6 +83,7 @@ class RightPanel(QWidget):
         self.controls_panel = ControlsPanel(self.controller)
         self.export_sidebar = ExportSidebar(self.controller)
         self.metadata_sidebar = MetadataSidebar(self.controller)
+        self.history_panel = HistoryPanel(self.controller)
 
         from negpy.desktop.view.sidebar.scan import ScanSidebar, _ScanUnsupportedPlaceholder
 
@@ -98,6 +100,7 @@ class RightPanel(QWidget):
         tab_specs += [
             ("export", "fa5s.file-export", "Export", self.export_sidebar, []),
             ("metadata", "fa5s.tags", "Metadata", self.metadata_sidebar, []),
+            ("history", "fa5s.history", "History", self.history_panel, []),
             ("scan", "fa5s.camera-retro", "Scan", self.scan_sidebar, []),
         ]
 

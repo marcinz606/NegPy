@@ -175,6 +175,14 @@ class StorageRepository(IRepository):
                 return WorkspaceConfig.from_flat_dict(data)
         return None
 
+    def load_all_history(self, file_hash: str) -> List[tuple[int, WorkspaceConfig]]:
+        with sqlite3.connect(self.edits_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT step_index, settings_json FROM edit_history WHERE file_hash = ? ORDER BY step_index",
+                (file_hash,),
+            )
+            return [(int(idx), WorkspaceConfig.from_flat_dict(json.loads(js))) for idx, js in cursor.fetchall()]
+
     def get_max_history_index(self, file_hash: str) -> int:
         with sqlite3.connect(self.edits_db_path) as conn:
             cursor = conn.execute("SELECT MAX(step_index) FROM edit_history WHERE file_hash = ?", (file_hash,))

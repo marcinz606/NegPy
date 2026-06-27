@@ -676,6 +676,26 @@ class DesktopSessionManager(QObject):
                 self.state_changed.emit()
                 self.history_changed.emit()
 
+    def jump_to_step(self, index: int) -> None:
+        """Load an arbitrary history step (random-access undo/redo)."""
+        if not self.state.current_file_hash:
+            return
+        if index == self.state.undo_index or not (0 <= index <= self.state.max_history_index):
+            return
+
+        # Preserve the live top before stepping away (same guard as undo()).
+        if self.state.undo_index == self.state.max_history_index:
+            self.repo.save_history_step(self.state.current_file_hash, self.state.undo_index, self.state.config)
+
+        config = self.repo.load_history_step(self.state.current_file_hash, index)
+        if config is None:
+            return
+        self.state.undo_index = index
+        self.state.config = config
+        self._config_dirty = True
+        self.state_changed.emit()
+        self.history_changed.emit()
+
     def reset_settings(self) -> None:
         """
         Reverts current file to default configuration and clears history.

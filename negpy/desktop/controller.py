@@ -1,6 +1,6 @@
 import os
 import time
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -73,6 +73,14 @@ def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
         finish=FinishConfig(),
         retouch=RetouchConfig(),
     )
+
+
+def history_step_label(prev: Optional[WorkspaceConfig], config: WorkspaceConfig, index: int) -> str:
+    """List label for a history step: index + which config sections changed vs. the previous step."""
+    if prev is None:
+        return f"{index} · base"
+    changed = [f.name for f in fields(config) if getattr(prev, f.name) != getattr(config, f.name)]
+    return f"{index} · {', '.join(changed)}" if changed else f"{index} · —"
 
 
 class AppController(QObject):
@@ -1282,6 +1290,37 @@ class AppController(QObject):
                 return new_path
             return None
         return export_path
+
+    def history_steps(self) -> List[Dict[str, Any]]:
+        """Rows for the History panel: one dict {index, label, is_current} per edit step."""
+        file_hash = self.state.current_file_hash
+        if not file_hash:
+            return []
+        configs = dict(self.session.repo.load_all_history(file_hash))
+        # The live top step may not be persisted yet — it lives in state.config.
+        configs[self.state.undo_index] = self.state.config
+
+        rows: List[Dict[str, Any]] = []
+        for i in range(self.state.max_history_index + 1):
+            config = configs.get(i)
+            if config is None:
+                continue
+            rows.append(
+                {
+                    "index": i,
+                    "label": history_step_label(configs.get(i - 1), config, i),
+                    "is_current": i == self.state.undo_index,
+                }
+            )
+        return rows
+
+    def jump_to_history_step(self, index: int) -> None:
+        self.session.jump_to_step(index)
+
+    def export_history_step(self, index: int) -> None:
+        """Load a history step, then export it through the normal export path."""
+        self.session.jump_to_step(index)
+        self.request_export()
 
     def request_export(self) -> None:
         """Exports the current file using the settings currently shown in the Export panel."""
