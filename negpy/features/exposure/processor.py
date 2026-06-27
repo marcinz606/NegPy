@@ -4,6 +4,7 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
+    apply_flat_curve,
     flat_curve_params,
     normalized_shadow_refs,
     per_channel_curve_params,
@@ -248,19 +249,7 @@ class PhotometricProcessor:
             lum = get_luminance(image)
             image = np.stack([lum, lum, lum], axis=-1)
 
-        img_pos = apply_characteristic_curve(
-            image,
-            params_r=(pivot, slope),
-            params_g=(pivot, slope),
-            params_b=(pivot, slope),
-            toe=0.0,
-            shoulder=0.0,
-            cmy_offsets=cmy_offsets,
-            d_min=0.0,
-            flare=0.0,
-            surround_gamma=1.0,
-            midtone_gamma=0.0,
-        )
+        img_pos = apply_flat_curve(image, slope, pivot, d_min=0.0, cmy_offsets=cmy_offsets)
 
         if is_bw:
             res = get_luminance(img_pos)

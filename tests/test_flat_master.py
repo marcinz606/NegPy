@@ -25,6 +25,12 @@ def _ramp_image(n: int = 64) -> np.ndarray:
     return np.stack([x, x, x], axis=-1)[None, :, :]
 
 
+def _ramp_in_range(lo: float, hi: float, n: int = 64) -> np.ndarray:
+    """A 3-channel normalized-log ramp over a valid operating sub-range."""
+    x = np.linspace(lo, hi, n, dtype=np.float32)
+    return np.stack([x, x, x], axis=-1)[None, :, :]
+
+
 class TestFlatCurveParams(unittest.TestCase):
     def test_returns_low_contrast_neutral_curve(self):
         slope, pivot = flat_curve_params()
@@ -34,7 +40,7 @@ class TestFlatCurveParams(unittest.TestCase):
 
 
 class TestFlatPhotometric(unittest.TestCase):
-    def _render(self, exposure_overrides=None) -> np.ndarray:
+    def _render(self, exposure_overrides=None, image=None) -> np.ndarray:
         from negpy.domain.interfaces import PipelineContext
         from negpy.features.exposure.models import ExposureConfig
         from negpy.features.exposure.processor import PhotometricProcessor
@@ -43,10 +49,11 @@ class TestFlatPhotometric(unittest.TestCase):
         cfg = ExposureConfig(render_intent=RenderIntent.FLAT)
         if exposure_overrides:
             cfg = replace(cfg, **exposure_overrides)
-        ctx = PipelineContext(scale_factor=1.0, original_size=(1, 64), process_mode=ProcessMode.C41)
+        img = _ramp_image() if image is None else image
+        ctx = PipelineContext(scale_factor=1.0, original_size=(1, img.shape[1]), process_mode=ProcessMode.C41)
         # Provide metrics a print render would consume so we prove flat ignores them.
         ctx.metrics["metered_anchor"] = 0.9
-        return PhotometricProcessor(cfg).process(_ramp_image(), ctx)
+        return PhotometricProcessor(cfg).process(img, ctx)
 
     def test_monotonic_decreasing(self):
         out = self._render()[0, :, 1]
@@ -54,16 +61,25 @@ class TestFlatPhotometric(unittest.TestCase):
         self.assertTrue(np.all(diffs <= 1e-6), "flat positive must be monotonic (decreasing) in scene density")
 
     def test_no_clipping_with_headroom(self):
-        out = self._render()
+        # Tails clip by design; headroom holds across the textural operating range.
+        out = self._render(image=_ramp_in_range(0.15, 1.0))
         self.assertGreater(float(out.min()), 0.02, "flat master should keep shadows off the black point")
         self.assertLess(float(out.max()), 0.98, "flat master should keep highlights off the white point")
 
     def test_low_contrast(self):
-        out = self._render()[0, :, 1]
-        # Ramp [-0.3, 1.3] spans the full operating range: FLAT uses a low slope (2.0)
-        # but the asymmetric H&D curve is linear in the midtone, so output range is wide
-        # by design — more data for the downstream editor. Must stay below 1.0 (no hard clip).
+        out = self._render(image=_ramp_in_range(0.15, 1.0))[0, :, 1]
         self.assertLess(float(out.max() - out.min()), 0.97)
+
+    def test_flat_is_linear_in_log(self):
+        # Regression guard: density must be a straight line slope*(val - pivot).
+        from negpy.kernel.image.logic import srgb_to_linear
+
+        slope, pivot = flat_curve_params()
+        val = np.linspace(0.2, 0.95, 40, dtype=np.float32)
+        img = np.stack([val, val, val], axis=-1)[None, :, :]
+        out = self._render(image=img)[0, :, 1]
+        density = -np.log10(np.clip(srgb_to_linear(out), 1e-6, None))
+        np.testing.assert_allclose(density, slope * (val - pivot), atol=5e-3)
 
     def test_ignores_auto_and_creative_print_decisions(self):
         base = self._render()

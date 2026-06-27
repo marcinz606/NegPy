@@ -296,6 +296,30 @@ def flat_curve_params() -> Tuple[float, float]:
     return slope, pivot
 
 
+def apply_flat_curve(
+    image: ImageBuffer,
+    slope: float,
+    pivot: float,
+    d_min: float = 0.0,
+    cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> ImageBuffer:
+    """
+    Linear-in-log reflectance for the flat digital-intermediate master: a straight
+    line in density (no toe/shoulder/midtone gamma), hard-clipped at the paper
+    bounds, then 10^-D and sRGB-encoded. The straight line preserves maximal
+    editing latitude — the true flat/log master, unlike the asymmetric print curve.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    d_max = float(EXPOSURE_CONSTANTS["d_max"])
+    arr = np.asarray(image, dtype=np.float32)
+    off = np.asarray(cmy_offsets, dtype=np.float32)
+    density = np.clip(slope * (arr + off - pivot), d_min, d_max)
+    t = 10.0 ** (-density)
+    out = 1.055 * np.power(np.clip(t, 0.0, None), 1.0 / 2.4) - 0.055
+    return ensure_image(np.clip(out, 0.0, 1.0).astype(np.float32))
+
+
 def default_grade_range() -> float:
     """Fallback density range when none is measured: auto_grade_target * nominal ratio."""
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS

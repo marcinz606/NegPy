@@ -256,14 +256,12 @@ class RightPanel(QWidget):
         # what the canvas is showing.
         if self.controller.state.flat_peek:
             from negpy.domain.models import flat_master_config
-            from negpy.features.exposure.logic import flat_curve_bounds, flat_curve_params
+            from negpy.features.exposure.logic import flat_curve_params
 
             flat_cfg = flat_master_config(self.controller.session.state.config).exposure
             slope, f_pivot = flat_curve_params()
-            # Compressed bounds so the chart matches the flat render.
-            flat_dmin, flat_dmax = flat_curve_bounds()
             density_range = None
-            self.curve_widget.update_curve(flat_cfg, slope=slope, pivot=f_pivot, d_min_override=flat_dmin, d_max_override=flat_dmax)
+            self.curve_widget.update_curve(flat_cfg, slope=slope, pivot=f_pivot, flat=True)
         else:
             # Mirror PhotometricProcessor so the plotted curve matches the render under
             # the Auto Grade / Auto Density / Cast Removal toggles. CPU stores
