@@ -22,7 +22,6 @@ dependencies = [
     "pyqt6==6.11.0",
     "pyqt6-charts==6.11.0",
     "piexif==1.1.3",
-    "pidng==4.0.9",
     "qtawesome==1.4.2",
     "wgpu==0.31.1",
 ]

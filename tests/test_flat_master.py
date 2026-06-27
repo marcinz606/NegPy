@@ -257,15 +257,17 @@ class TestFlatWideGamut(unittest.TestCase):
 
 class TestFlatDngEncode(unittest.TestCase):
     def test_dng_bytes_roundtrip(self):
-        import importlib.util
+        import io
 
-        if importlib.util.find_spec("pidng") is None:
-            self.skipTest("pidng (scanner extra) not installed")
+        import tifffile
 
         rgb = (np.random.rand(16, 16, 3) * 65535).astype(np.uint16)
         data = ImageProcessor._encode_dng_bytes(rgb)
         self.assertIsInstance(data, bytes)
         self.assertGreater(len(data), 0)
+
+        readback = tifffile.imread(io.BytesIO(data))
+        np.testing.assert_array_equal(readback, rgb)
 
 
 if __name__ == "__main__":

@@ -4,20 +4,10 @@ import os
 import tempfile
 
 import numpy as np
-import pytest
 import tifffile
 
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.services.scanning.writer import write_dng_linear, write_tiff_16bit
-
-
-def _has_pidng() -> bool:
-    try:
-        import pidng  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
 
 
 class TestTiffWriter:
@@ -68,7 +58,6 @@ class TestTiffWriter:
 
 
 class TestDngWriter:
-    @pytest.mark.skipif(not _has_pidng(), reason="pidng not installed")
     def test_writes_linear_dng(self) -> None:
         rgb = np.random.randint(0, 65535, (200, 300, 3), dtype=np.uint16)
         result = ScanResult(rgb=rgb, ir=None, dpi=3600, device_model="TestScanner")
@@ -77,9 +66,19 @@ class TestDngWriter:
             path = write_dng_linear(result, os.path.join(tmpdir, "test_scan"))
             assert os.path.exists(path)
             assert path.endswith(".dng")
-            assert os.path.getsize(path) > 0
 
-    @pytest.mark.skipif(not _has_pidng(), reason="pidng not installed")
+            readback = tifffile.imread(path)
+            assert readback.shape == (200, 300, 3)
+            assert readback.dtype == np.uint16
+            np.testing.assert_array_equal(readback, rgb)
+
+            with tifffile.TiffFile(path) as tf:
+                tags = tf.pages[0].tags
+                # LinearRaw photometric (34892) and a DNGVersion tag must be present.
+                assert int(tags["PhotometricInterpretation"].value) == 34892
+                assert tuple(tags["DNGVersion"].value) == (1, 4, 0, 0)
+                assert int(tags["SamplesPerPixel"].value) == 3
+
     def test_writes_dng_with_ir(self) -> None:
         rgb = np.random.randint(0, 65535, (100, 150, 3), dtype=np.uint16)
         ir = np.random.randint(0, 65535, (100, 150), dtype=np.uint16)
@@ -88,9 +87,14 @@ class TestDngWriter:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = write_dng_linear(result, os.path.join(tmpdir, "test_ir"))
             assert os.path.exists(path)
-            assert os.path.getsize(path) > 0
 
-    @pytest.mark.skipif(not _has_pidng(), reason="pidng not installed")
+            readback = tifffile.imread(path)
+            assert readback.shape == (100, 150, 4)
+            np.testing.assert_array_equal(readback[:, :, :3], rgb)
+            np.testing.assert_array_equal(readback[:, :, 3], ir)
+            with tifffile.TiffFile(path) as tf:
+                assert int(tf.pages[0].tags["SamplesPerPixel"].value) == 4
+
     def test_adds_dng_extension(self) -> None:
         rgb = np.random.randint(0, 65535, (50, 50, 3), dtype=np.uint16)
         result = ScanResult(rgb=rgb, ir=None, dpi=300, device_model="T")

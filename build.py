@@ -60,7 +60,6 @@ params = [
     "--collect-all=rawpy",
     "--collect-all=imageio",
     "--collect-all=imagecodecs",
-    "--collect-all=pidng",
     # Data files
     "--add-data=negpy/features/exposure/shaders:negpy/features/exposure/shaders",
     "--add-data=negpy/features/geometry/shaders:negpy/features/geometry/shaders",

@@ -1,5 +1,4 @@
 import os
-import shutil
 import tempfile
 
 import numpy as np
@@ -61,17 +60,14 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
 
 
 def write_dng_linear(result: ScanResult, path: str) -> str:
-    """Write ScanResult to DNG LinearRaw format.
+    """Write ScanResult to an uncompressed 16-bit LinearRaw DNG.
 
     If result.ir is present, it is stacked as an extra sample channel.
-    Uses atomic write via tempdir + rename.
+    Uses atomic write (write to .tmp then rename). Returns final path.
 
-    Returns final path.
+    A LinearRaw DNG is a single-IFD TIFF plus a few DNG tags, so this is
+    written with tifffile (no native deps) rather than a DNG-specific library.
     """
-    from pidng.core import RAW2DNG, DNGTags
-    from pidng.defs import PhotometricInterpretation
-    from pidng.dng import Tag
-
     if not path.lower().endswith(".dng"):
         path = path + ".dng"
 
@@ -83,40 +79,40 @@ def write_dng_linear(result: ScanResult, path: str) -> str:
             ir = ir[:, :, np.newaxis]
         ir = _to_uint16(ir)
         full_array = np.dstack([rgb, ir])
-        samples_per_pixel = 4
     else:
-        full_array = rgb
-        samples_per_pixel = 3
+        full_array = np.ascontiguousarray(rgb)
 
-    h, w = full_array.shape[:2]
+    model = result.device_model
+    # extratags: (code, dtype, count, value, writeonce). dtype 1=BYTE, 2=ASCII, 3=SHORT, 4=LONG.
+    # NewSubfileType=0 marks the main IFD as the raw image — LibRaw rejects the DNG without it.
+    extratags = [
+        (254, 4, 1, 0, True),  # NewSubfileType = primary image
+        (50706, 1, 4, (1, 4, 0, 0), True),  # DNGVersion 1.4.0.0
+        (50707, 1, 4, (1, 0, 0, 0), True),  # DNGBackwardVersion 1.0.0.0
+        (274, 3, 1, 1, True),  # Orientation = top-left
+        (271, 2, len(model) + 1, model, True),  # Make
+        (272, 2, len(model) + 1, model, True),  # Model
+    ]
+    # tifffile counts only the first sample for LINEAR_RAW; the rest (RGB, +IR) are
+    # declared as unspecified extra samples so SamplesPerPixel comes out 3 (or 4).
+    extrasamples = (0,) * (full_array.shape[-1] - 1)
 
-    tags = DNGTags()
-    tags.set(Tag.ImageWidth, w)
-    tags.set(Tag.ImageLength, h)
-    tags.set(Tag.BitsPerSample, 16)
-    tags.set(Tag.SamplesPerPixel, samples_per_pixel)
-    tags.set(Tag.PhotometricInterpretation, PhotometricInterpretation.Linear_Raw)
-    tags.set(Tag.Orientation, 1)
-    tags.set(Tag.Make, result.device_model)
-    tags.set(Tag.Model, result.device_model)
-
-    converter = RAW2DNG()
-
-    # Write to temp dir, then atomic rename
-    target_dir = os.path.dirname(path) or "."
-    tmpdir = tempfile.mkdtemp(dir=target_dir)
-    tmp_basename = "tmp_" + os.path.basename(tmpdir)
+    fd, tmp_path = tempfile.mkstemp(suffix=".dng", dir=os.path.dirname(path) or ".")
+    os.close(fd)
     try:
-        converter.options(tags, path=tmpdir, compress=False)
-        written = converter.convert(full_array, filename=tmp_basename)
-        # pidng appends .dng if not present
-        if not os.path.exists(written) and not written.endswith(".dng"):
-            written = written + ".dng"
-        os.replace(written, path)
+        tifffile.imwrite(
+            tmp_path,
+            full_array,
+            photometric=tifffile.PHOTOMETRIC.LINEAR_RAW,
+            compression=None,
+            metadata=None,  # no ImageDescription JSON — keep the DNG IFD clean
+            extrasamples=extrasamples,
+            extratags=extratags,
+        )
+        os.replace(tmp_path, path)
     except Exception:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         raise
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
 
     return path
