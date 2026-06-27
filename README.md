@@ -12,41 +12,57 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 ---
 
-## 📖 New User Guide
+## User Guide
 **[Click here to read the USER_GUIDE.md](docs/USER_GUIDE.md)** — A complete walkthrough of the NegPy workflow, features, and controls.
 
 ---
 
-## ✨ Features
+## Features
 
-*   **No Camera Profiles**: It doesn't use camera profiles or ask you to color-pick the border. It uses math to neutralize the orange mask based on channel sensitometry.
-*   **Positive/Slide Support**: A dedicated **E-6 mode** for processing slide film with optional normalization to save expired or faded film.
-*   **Film Physics**: It models the **H&D Characteristic Curve** of photographic material using a Logistic Sigmoid function instead of doing simple linear inversion.
-*   **Batch Normalization**: Perform bounds analysis for all loaded files and apply averaged settings to all.
-*   **GPU Acceleration**: Real-time processing and export rendering using Vulkan/Metal.
-*   **Dust Removal**: Automatic and manual healing tools with grain synthesis to keep scans clean without looking plastic.
-*   **Scanner Support**: Supports direct interaction with SANE-compatible scanners. [supported devices](http://www.sane-project.org/sane-supported-devices.html)
-*   **File Support**: Supports standard RAWs/TIFFs, and specialized formats like Kodak Pakon scanner raw files.
-*   **Non-destructive**: original files are never touched; edits are stored as recipes.
+**Conversion & Film Science**
+*   **No Camera Profiles**: No camera profiles, no border colour-picking. Math neutralizes the orange mask from channel sensitometry.
+*   **Film Physics**: Models the **H&D Characteristic Curve** (logistic sigmoid, independent toe/shoulder) instead of a linear inversion.
+*   **Smart Auto Conversion**: Per-frame **Auto Density** and **Auto Grade** meter each negative for sensible brightness/contrast — usable out of the box, easy to fine-tune.
+*   **Darkroom Paper Profiles**: Per-paper curve shaping (tone, per-channel gamma, base tint) mapped from Ilford/Kodak/Foma/Fuji datasheets, selectable per roll.
+*   **Positive/Slide Support**: Dedicated **E-6 mode** with optional normalization to save expired or faded film.
+
+**Capture & Input**
+*   **Scanner Support**: Direct control of SANE-compatible scanners. [supported devices](http://www.sane-project.org/sane-supported-devices.html)
+*   **RGB Scan (Trichromatic Capture)**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise colour scan, with automatic sub-pixel alignment to kill fringing.
+*   **Flat-Field Correction**: Correct illumination falloff / vignetting from your light source or scanner via a reference scan of the bare light. Named profiles, toggle per image.
+*   **File Support**: Standard RAWs/TIFFs plus specialized formats like Kodak Pakon scanner raw files.
+
+**Editing**
+*   **Dodge & Burn**: Darkroom-style local lighten/darken with freehand polygon masks — each with its own EV strength and feather. GPU-accelerated with bit-for-bit CPU parity.
+*   **Dust Removal**: Automatic and manual healing with grain synthesis — clean scans that don't look plastic.
+*   **Batch Normalization**: Bounds analysis across all loaded files, averaged and applied to the roll.
+*   **GPU Acceleration**: Real-time processing and export rendering via Vulkan/Metal.
+
+**Colour & Output**
+*   **Colour Management**: Full ICC workflow — auto monitor-profile detection (Linux/macOS/Windows), soft proofing including paper/printer profiles, per-image input/output profiles.
+*   **Print Ready**: Export built for printing — border controls, ICC soft-proofing, [dynamic filename templating](docs/TEMPLATING.md), **export presets** (save + one-click), and **contact sheets**. Formats: JPEG, TIFF, PNG, WebP, JPEG XL, DNG.
+*   **Flat / Digital-Intermediate Export**: Flat, neutral, wide-gamut **16-bit TIFF** (or linear **DNG**) master for Lightroom/Darktable/Photoshop, mapping camera RAWs to ProPhoto via the camera's own matrix.
+
+**Workflow & Data**
+*   **Non-destructive**: Original files never touched; edits stored as recipes.
+*   **Database**: Edits in a local SQLite db keyed by file hash — move or rename files without losing work.
+*   **Persistent Undo/Redo & History**: Up to 100 edits per file. **History panel** lists every step — jump to any state, branch, or export an earlier version. Survives restarts.
 *   **Keyboard Shortcuts**: [see here](docs/KEYBOARD.md)
-*   **Database**: All edits live in a local SQLite database, keyed by file hash. You can move or rename files without losing your work.
-*   **Persistent Undo/Redo**: Up to 100 edits saved in local db. Persistent across sessions.
-*   **Print Ready**: Export module designed for printing, featuring border controls, ICC soft-proofing, and [dynamic filename templating](docs/TEMPLATING.md).
 
 ---
 
-### 🧪 How it works
+### How it works
 
 [📖 Read about the math and the pipeline here](docs/PIPELINE.md)
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Download
 Grab the latest release for your OS from the **[Releases Page](https://github.com/marcinz606/NegPy/releases)**.
 
-#### **🐧 Linux**
+#### Linux
 I provide an `.AppImage`. Make it executable using `chmod +x` and It should just work.
 
 **Scanner support** requires SANE to be installed on your system:
@@ -58,10 +74,10 @@ Or your distro's equivalent. The app launches fine without so you can ignore tha
 
 You can also clone the repo and build it yourself, instruction here: [CONTRIBUTING.md](CONTRIBUTING.md)
 
-#### **🛡️ Unsigned Software Warning**
+#### Unsigned Software Warning
 Since this is a free hobby project, I don't pay Apple or Microsoft ransom for their developer certificates. You'll get a scary warning the first time you run it.
 
-**🍎 MacOS**:
+**macOS**:
 1.  Double click `.dmg` file & drag the app to `/Applications`.
 2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app` (this gets rid of the warning).
 3.  Launch it.
@@ -72,13 +88,13 @@ brew install sane-backends
 ```
 The app launches fine without so you can ignore that if you don't plan to use a scanner.
 
-**🪟 Windows**:
+**Windows**:
 1. Run the installer (ignore the warnings)
 2. Start the app and click through the warnings.
 
 ---
 
-## 📂 Data Location
+## Data Location
 Everything lives in your `Documents/NegPy` folder:
 *   `edits.db`: Your edits.
 *   `settings.db`: Global settings like last used export settings or preview size.
@@ -89,7 +105,7 @@ Everything lives in your `Documents/NegPy` folder:
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 If NegPy crashes on startup or has rendering issues, edit `Documents/NegPy/override.toml`. It is created automatically on first run with sensible defaults for your OS.
 
@@ -139,7 +155,7 @@ Things I want to add later: [ROADMAP.md](docs/ROADMAP.md)
 
 Check [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-## ⚖️ License
+## License
 Copyleft under **[GPL-3](LICENSE)**.
 
 ## Support
