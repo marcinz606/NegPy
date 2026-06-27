@@ -224,17 +224,16 @@ class PhotometricProcessor:
 
     def _process_flat(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         """
-        Flat digital-intermediate render: a low-contrast, neutral positive that
-        keeps the mask-neutralized inversion but drops all creative print
-        decisions. No auto density/grade, no cast removal, no toe/shoulder, no
-        surround/flare — only a fixed low-slope curve with gentle roll-off so the
-        master is consistent across a roll and holds maximal editing latitude.
+        Flat log-master render: emits the normalized log signal directly (a flat,
+        milky log-video look), dropping all creative print decisions — no auto
+        density/grade, cast removal, toe/shoulder, surround/flare. A fixed gain/lift
+        keeps the master consistent across a roll and holds maximal editing latitude.
 
         Manual global white balance (the WB picker / CMY global) is still honoured
         because it is an explicit, per-roll-consistent user choice, not automatic
         grading.
         """
-        slope, pivot = flat_curve_params()
+        gain, lift = flat_curve_params()
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = (
@@ -249,7 +248,7 @@ class PhotometricProcessor:
             lum = get_luminance(image)
             image = np.stack([lum, lum, lum], axis=-1)
 
-        img_pos = apply_flat_curve(image, slope, pivot, d_min=0.0, cmy_offsets=cmy_offsets)
+        img_pos = apply_flat_curve(image, gain, lift, cmy_offsets=cmy_offsets)
 
         if is_bw:
             res = get_luminance(img_pos)

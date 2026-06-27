@@ -185,17 +185,17 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # ↑ stronger glare (lifts shadows, reduces shadow contrast, milky look); ↓ cleaner shadows.
     "flare_fraction": 0.005,
     # ── Flat / digital-intermediate master (RenderIntent.FLAT) ──────────────
-    # Same asymmetric H&D softplus curve as PRINT, but with a fixed low slope and
-    # no per-frame metering so a roll of equally-exposed scans renders identically.
-    # With toe=0 and shoulder=0 the curve is linear in the midtone region, bounded
-    # by softplus roll-off at d_min and d_max. The low slope keeps output far below
-    # d_max, providing headroom for downstream editing without explicit clipping.
-    # Fixed scene-independent slope for the FLAT digital-intermediate master.
-    # ↑ more contrast in FLAT master (less editing headroom); ↓ flatter, more latitude.
-    "flat_slope": 2.0,
-    # Target density where assumed_anchor prints in FLAT master: pivot = anchor − target/slope.
-    # ↑ midtones print darker in FLAT master; ↓ midtones print brighter.
-    "flat_anchor_target": 0.63,
+    # A true log-video master: the normalized log signal is emitted directly as the
+    # code value (positive-oriented 1 - val), with NO 10^-D decode and NO sRGB OETF,
+    # so the result is flat/milky and fully invertible for downstream editing.
+    # code = clip(flat_log_lift + flat_log_gain*(1 - val), 0, 1). Fixed (no per-frame
+    # metering) so a roll of equally-exposed scans renders identically.
+    # Log-master contrast (range of code values used); <1 keeps it flat.
+    # ↑ more contrast (less editing headroom); ↓ flatter, milkier, more latitude.
+    "flat_log_gain": 0.65,
+    # Code value the scene shadow (val=1) lands on; the black/shadow lift.
+    # ↑ greyer shadows (more lift); ↓ deeper shadows in the master.
+    "flat_log_lift": 0.10,
     # ── Variable-gamma paper S-curve ─────────────────────────────────────────
     # Extra local gamma added at the midtone centre (around the reference tone) via
     # v += gamma·width·tanh((v − v_star)/width), easing to zero toward toe/shoulder —

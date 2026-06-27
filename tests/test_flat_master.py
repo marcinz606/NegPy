@@ -33,10 +33,10 @@ def _ramp_in_range(lo: float, hi: float, n: int = 64) -> np.ndarray:
 
 class TestFlatCurveParams(unittest.TestCase):
     def test_returns_low_contrast_neutral_curve(self):
-        slope, pivot = flat_curve_params()
-        self.assertGreater(slope, 0.0)
-        # The flat slope is deliberately gentle (well below the print minimum of 2.0+).
-        self.assertLess(slope, 3.0)
+        gain, lift = flat_curve_params()
+        # Log master: gain < 1 keeps it flat; lift is the shadow code.
+        self.assertTrue(0.0 < gain < 1.0)
+        self.assertTrue(0.0 < lift < 1.0)
 
 
 class TestFlatPhotometric(unittest.TestCase):
@@ -61,25 +61,23 @@ class TestFlatPhotometric(unittest.TestCase):
         self.assertTrue(np.all(diffs <= 1e-6), "flat positive must be monotonic (decreasing) in scene density")
 
     def test_no_clipping_with_headroom(self):
-        # Tails clip by design; headroom holds across the textural operating range.
-        out = self._render(image=_ramp_in_range(0.15, 1.0))
+        # Over the valid operating range the log code stays well off both endpoints.
+        out = self._render(image=_ramp_in_range(0.0, 1.0))
         self.assertGreater(float(out.min()), 0.02, "flat master should keep shadows off the black point")
         self.assertLess(float(out.max()), 0.98, "flat master should keep highlights off the white point")
 
     def test_low_contrast(self):
-        out = self._render(image=_ramp_in_range(0.15, 1.0))[0, :, 1]
+        out = self._render(image=_ramp_in_range(0.0, 1.0))[0, :, 1]
         self.assertLess(float(out.max() - out.min()), 0.97)
 
-    def test_flat_is_linear_in_log(self):
-        # Regression guard: density must be a straight line slope*(val - pivot).
-        from negpy.kernel.image.logic import srgb_to_linear
-
-        slope, pivot = flat_curve_params()
-        val = np.linspace(0.2, 0.95, 40, dtype=np.float32)
+    def test_flat_is_log_linear(self):
+        # Regression guard: output IS the log code value — gamma-less and linear in
+        # the log signal: code == lift + gain*(1 - val). No 10^-D, no sRGB.
+        gain, lift = flat_curve_params()
+        val = np.linspace(0.05, 0.95, 40, dtype=np.float32)
         img = np.stack([val, val, val], axis=-1)[None, :, :]
         out = self._render(image=img)[0, :, 1]
-        density = -np.log10(np.clip(srgb_to_linear(out), 1e-6, None))
-        np.testing.assert_allclose(density, slope * (val - pivot), atol=5e-3)
+        np.testing.assert_allclose(out, lift + gain * (1.0 - val), atol=1e-4)
 
     def test_ignores_auto_and_creative_print_decisions(self):
         base = self._render()

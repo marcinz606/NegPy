@@ -280,44 +280,31 @@ def apply_characteristic_curve(
 
 def flat_curve_params() -> Tuple[float, float]:
     """
-    Fixed (slope, pivot) for the flat digital-intermediate master.
-
-    Uses a low, scene-independent slope. The pivot is solved so the assumed
-    midtone anchor lands at flat_anchor_target density — no per-frame metering
-    — so an evenly-exposed roll renders identically.
+    Fixed (gain, lift) for the flat log master — scene-independent (no per-frame
+    metering) so an evenly-exposed roll renders identically.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     c = EXPOSURE_CONSTANTS
-    slope = float(c["flat_slope"])
-    ref = float(c["assumed_anchor"])
-    target = float(c["flat_anchor_target"])
-    pivot = ref - target / slope
-    return slope, pivot
+    return float(c["flat_log_gain"]), float(c["flat_log_lift"])
 
 
 def apply_flat_curve(
     image: ImageBuffer,
-    slope: float,
-    pivot: float,
-    d_min: float = 0.0,
+    gain: float,
+    lift: float,
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """
-    Linear-in-log reflectance for the flat digital-intermediate master: a straight
-    line in density (no toe/shoulder/midtone gamma), hard-clipped at the paper
-    bounds, then 10^-D and sRGB-encoded. The straight line preserves maximal
-    editing latitude — the true flat/log master, unlike the asymmetric print curve.
+    True log master: emit the normalized log signal directly as the code value
+    (positive-oriented 1 - val), linearly remapped with headroom. No 10^-D decode
+    and no sRGB OETF — the flat, log-video look, fully invertible for downstream
+    editing. WB rides as an additive per-channel shift in log space.
     """
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
-    d_max = float(EXPOSURE_CONSTANTS["d_max"])
     arr = np.asarray(image, dtype=np.float32)
     off = np.asarray(cmy_offsets, dtype=np.float32)
-    density = np.clip(slope * (arr + off - pivot), d_min, d_max)
-    t = 10.0 ** (-density)
-    out = 1.055 * np.power(np.clip(t, 0.0, None), 1.0 / 2.4) - 0.055
-    return ensure_image(np.clip(out, 0.0, 1.0).astype(np.float32))
+    code = lift + gain * (1.0 - (arr + off))
+    return ensure_image(np.clip(code, 0.0, 1.0).astype(np.float32))
 
 
 def default_grade_range() -> float:

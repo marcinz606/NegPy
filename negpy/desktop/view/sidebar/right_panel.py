@@ -259,9 +259,9 @@ class RightPanel(QWidget):
             from negpy.features.exposure.logic import flat_curve_params
 
             flat_cfg = flat_master_config(self.controller.session.state.config).exposure
-            slope, f_pivot = flat_curve_params()
+            gain, lift = flat_curve_params()
             density_range = None
-            self.curve_widget.update_curve(flat_cfg, slope=slope, pivot=f_pivot, flat=True)
+            self.curve_widget.update_curve(flat_cfg, slope=gain, pivot=lift, flat=True)
         else:
             # Mirror PhotometricProcessor so the plotted curve matches the render under
             # the Auto Grade / Auto Density / Cast Removal toggles. CPU stores

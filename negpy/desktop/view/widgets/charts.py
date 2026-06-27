@@ -368,26 +368,26 @@ class PhotometricCurveWidget(QWidget):
         n = 300
         plt_x = np.linspace(self._X_MIN, self._X_MAX, n)
         x_log_exp = 1.0 - plt_x
-        d_max = float(EXPOSURE_CONSTANTS["d_max"])
 
         def _curve_points(s: float, p: float) -> list[tuple[float, float]]:
-            # d_max/d_min from constants so the chart matches the render exactly.
             if flat:
-                # Straight line in density, hard-clipped — mirrors apply_flat_curve.
-                d = np.clip(s * (x_log_exp - p), d_min, d_max)
-            else:
-                curve = CharacteristicCurve(
-                    contrast=s,
-                    pivot=p,
-                    d_min=d_min,
-                    toe=params.toe,
-                    toe_width=params.toe_width,
-                    shoulder=params.shoulder,
-                    shoulder_width=params.shoulder_width,
-                    flare=flare,
-                    surround_gamma=surround_gamma,
-                )
-                d = curve(ensure_image(x_log_exp))
+                # True log master: code value linear in the log signal (1 - val),
+                # emitted directly with no 10^-D/sRGB. s=gain, p=lift.
+                yv = np.clip(p + s * (1.0 - x_log_exp), 0.0, 1.0)
+                return list(zip(plt_x.tolist(), yv.tolist()))
+            # d_max/d_min from constants so the chart matches the render exactly.
+            curve = CharacteristicCurve(
+                contrast=s,
+                pivot=p,
+                d_min=d_min,
+                toe=params.toe,
+                toe_width=params.toe_width,
+                shoulder=params.shoulder,
+                shoulder_width=params.shoulder_width,
+                flare=flare,
+                surround_gamma=surround_gamma,
+            )
+            d = curve(ensure_image(x_log_exp))
             t = np.power(10.0, -d)
             # sRGB OETF — must match the exposure kernel's output encode.
             yv = np.where(t <= 0.0031308, 12.92 * t, 1.055 * np.power(t, 1.0 / 2.4) - 0.055)
