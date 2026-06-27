@@ -77,6 +77,9 @@ class TestDngWriter:
                 assert int(tags["PhotometricInterpretation"].value) == 34892  # LinearRaw
                 assert tuple(tags["DNGVersion"].value) == (1, 4, 0, 0)
                 assert int(tags["SamplesPerPixel"].value) == 3
+                # 3 plain colour samples, no ExtraSamples (matches pidng); marking colour
+                # planes as extra makes some raw processors mis-demosaic the file.
+                assert tags.get("ExtraSamples") is None
 
     def test_writes_dng_with_ir(self) -> None:
         rgb = np.random.randint(0, 65535, (100, 150, 3), dtype=np.uint16)
