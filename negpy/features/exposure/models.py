@@ -71,10 +71,10 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "density_multiplier": 0.2,
     # Target density where the reference tone (assumed_anchor) should print on paper.
     # ↑ reference tone prints darker; ↓ reference tone prints brighter.
-    "anchor_target_density": 0.7,
+    "anchor_target_density": 0.74,
     # Default normalized midtone reference in [0,1] log space (used when auto_exposure=False).
     # ↑ curve pivots brighter (assumes denser negative); ↓ pivots darker.
-    "assumed_anchor": 0.45,
+    "assumed_anchor": 0.46,
     # Minimum ISO R paper exposure range (hardest/highest-contrast grade allowed).
     # ↑ raises the maximum achievable slope; ↓ allows even harder grades.
     "iso_r_min": 50.0,
