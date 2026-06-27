@@ -242,6 +242,23 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(paths, ["path1", "path2"])
         self.assertEqual(active, "path2")
 
+    def test_active_file_changing_snapshots_outgoing_when_dirty(self):
+        # Fires before state mutates to the new file, carrying the outgoing identity.
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.is_dirty = True
+        seen = []
+        self.session.active_file_changing.connect(lambda: seen.append(self.session.state.current_file_hash))
+        self.session.select_file(1)
+        self.assertEqual(seen, ["hash1"])
+
+    def test_active_file_changing_not_emitted_when_clean(self):
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.is_dirty = False
+        fired = []
+        self.session.active_file_changing.connect(lambda: fired.append(True))
+        self.session.select_file(1)
+        self.assertEqual(fired, [])
+
     def test_clear_files_persists_empty_manifest(self):
         self.session.clear_files()
         paths, active = self._last_session_manifest()

@@ -15,6 +15,7 @@
 - **History panel (new)** — a **History** tab in the right panel lists every edit step for the current photo. Click any step to jump back to that intermediate state (the preview updates instantly), carry on editing from there, or right-click to **Export this version**. Surfaces the existing per-file undo history (last 100 steps) as a scrollable list.
 - **Expanded interactive tutorial** — the first-run walkthrough now covers the newer features too: RGB Scan, Flat-Field correction, the crop/straighten tools, paper profiles, toning, Dodge & Burn, the History panel and the Flat master export, alongside refreshed Exposure (ISO-R grade, H&D curve) and Process (Luma/Colour clip) steps.
 - File pickers now reopen at your last folder instead of the system root.
+- Fix: **thumbnails now update when you switch away** — editing a photo and moving to the next one refreshes the edited frame's thumbnail in the grid, instead of leaving it stale until you re-open or explicitly save it.
 - Fix: **X-Trans full-res demosaic** uses DHT instead of VNG, removing dot/maze artifacts on Fujifilm sensors. @reederphill
 
 ## 0.28.0

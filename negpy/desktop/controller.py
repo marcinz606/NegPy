@@ -299,6 +299,7 @@ class AppController(QObject):
         self.scan_worker.error.connect(self.scan_error.emit)
         self.scan_requested.connect(self.scan_worker.run_scan)
 
+        self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self._render_debounce.start)

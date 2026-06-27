@@ -232,6 +232,7 @@ class DesktopSessionManager(QObject):
     files_changed = pyqtSignal()  # File list additions only — does not trigger sidebar sync
     history_changed = pyqtSignal()  # Emitted when undo/redo/persist happens
     settings_saved = pyqtSignal()
+    active_file_changing = pyqtSignal()  # Outgoing file about to be replaced — last chance to snapshot it
     settings_copied = pyqtSignal()
     settings_pasted = pyqtSignal()
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
@@ -507,6 +508,7 @@ class DesktopSessionManager(QObject):
             if self.state.current_file_hash and self._config_dirty:
                 self.repo.save_file_settings(self.state.current_file_hash, self.state.config)
                 self.settings_saved.emit()
+                self.active_file_changing.emit()
             self._config_dirty = False
 
             file_info = self.state.uploaded_files[index]
