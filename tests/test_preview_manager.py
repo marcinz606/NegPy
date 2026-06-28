@@ -154,6 +154,44 @@ def test_load_linear_preview_hq_demosaic_xtrans_vs_bayer(cfa_block: int) -> None
     assert kwargs["demosaic_algorithm"] == expected
 
 
+@pytest.mark.parametrize(
+    "cfa_block,use_camera_wb,half_expected",
+    [
+        (6, False, False),  # X-Trans + linear: half_size aliases the 6x6 CFA → skip it
+        (6, True, True),  # X-Trans + camera WB: tolerated, keep the fast path
+        (2, False, True),  # Bayer: 2x2 averages cleanly → keep half_size
+    ],
+)
+def test_load_linear_preview_fast_half_size_gated_on_xtrans_linear(
+    cfa_block: int, use_camera_wb: bool, half_expected: bool
+) -> None:
+    """Fast preview always uses LINEAR; half_size is dropped only for linear X-Trans decodes."""
+    rgb_u16 = np.ones((32, 32, 3), dtype=np.uint16) * 128
+
+    raw = MagicMock()
+    raw.raw_type = rawpy.RawType.Flat
+    raw.raw_pattern = np.zeros((cfa_block, cfa_block), dtype=np.uint8)
+    raw.sizes = SimpleNamespace(raw_height=32, raw_width=32, iheight=32, iwidth=32)
+    raw.postprocess = MagicMock(return_value=rgb_u16)
+
+    class _Ctx:
+        def __enter__(self) -> MagicMock:
+            return raw
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+        lf.get_loader.return_value = (_Ctx(), {"color_space": "Adobe RGB"})
+        PreviewManager().load_linear_preview(
+            "/fake/path.dng", color_space="Adobe RGB", use_camera_wb=use_camera_wb, full_resolution=False
+        )
+
+    _, kwargs = raw.postprocess.call_args
+    assert kwargs["demosaic_algorithm"] == rawpy.DemosaicAlgorithm.LINEAR
+    assert (kwargs.get("half_size") is True) == half_expected
+
+
 def test_load_linear_preview_decodes_in_raw_colorspace() -> None:
     """Preview must decode in rawpy ColorSpace.raw — the pipeline assumes raw-space linear input.
 

@@ -10,7 +10,7 @@ import rawpy
 
 from negpy.domain.types import Dimensions, ImageBuffer
 from negpy.infrastructure.loaders.factory import loader_factory
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, is_xtrans
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
@@ -109,7 +109,10 @@ class PreviewManager:
         use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper))
         if use_fast:
             demosaic = rawpy.DemosaicAlgorithm.LINEAR
-            post_kw: dict = {"half_size": True}
+            # half_size aliases the X-Trans 6x6 CFA → channel-ratio cast that shows in linear
+            # decodes (RGB-scan). Bayer 2x2 averages cleanly; camera-WB previews tolerate it.
+            # So for linear X-Trans decode full-res and let the cv2 downsample below handle it.
+            post_kw: dict = {} if (is_xtrans(raw) and not use_camera_wb) else {"half_size": True}
         else:
             demosaic = get_best_demosaic_algorithm(raw)
             post_kw = {}

@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import rawpy
 from negpy.infrastructure.loaders.tiff_loader import NonStandardFileWrapper
-from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
+from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm, is_xtrans
 
 
 class _FakeRaw:
@@ -37,6 +37,11 @@ class TestRawHandlers(unittest.TestCase):
     def test_bayer_full_res_uses_ahd(self):
         raw = _FakeRaw(rawpy.RawType.Flat, block_size=2)
         self.assertEqual(get_best_demosaic_algorithm(raw, for_preview=False), rawpy.DemosaicAlgorithm.AHD)
+
+    def test_is_xtrans(self):
+        self.assertTrue(is_xtrans(_FakeRaw(rawpy.RawType.Flat, block_size=6)))
+        self.assertFalse(is_xtrans(_FakeRaw(rawpy.RawType.Flat, block_size=2)))
+        self.assertFalse(is_xtrans(object()))  # missing raw_pattern
 
 
 if __name__ == "__main__":

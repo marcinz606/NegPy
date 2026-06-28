@@ -184,6 +184,14 @@ def get_best_demosaic_algorithm(raw: Any, for_preview: bool = False) -> Any:
     return selected_algo
 
 
+def is_xtrans(raw: Any) -> bool:
+    """True for a Fuji X-Trans sensor (6x6 CFA). half_size aliases its mosaic."""
+    try:
+        return raw.raw_pattern.shape[0] == 6
+    except (AttributeError, ValueError):
+        return False
+
+
 def get_supported_raw_wildcards() -> str:
     """
     Returns raw formats as string for file dialogs.
