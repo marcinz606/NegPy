@@ -130,6 +130,7 @@ class ImageProcessor:
                     render_size_ref=render_size_ref,
                     readback_metrics=readback_metrics,
                     ir_buffer=ir_buffer,
+                    analysis_source_hash=source_hash,
                 )
                 context.metrics.update(gpu_metrics)
                 return processed, context.metrics

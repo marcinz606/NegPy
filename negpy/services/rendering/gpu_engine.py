@@ -94,6 +94,49 @@ def _downsample_for_analysis(img: np.ndarray, max_size: int) -> np.ndarray:
     return cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
 
+def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) -> tuple:
+    """Identity of the auto-exposure analysis for a frame. Mirrors the CPU base-stage
+    cache key (engine.py) plus the fields that gate refs/anchor/textural, so it survives
+    creative-slider drags but invalidates on anything the meter actually reads."""
+    e = settings.exposure
+    return (
+        analysis_source_hash,
+        settings.process,
+        settings.geometry,
+        e.cast_removal,
+        e.auto_exposure,
+        e.auto_normalize_contrast,
+    )
+
+
+def _fill_analysis_overrides(cache, key, bounds, refs, anchor, textural):
+    """Fill the None overrides from the cache when its key matches; caller overrides win."""
+    if cache is None or cache[0] != key:
+        return bounds, refs, anchor, textural
+    _, cb, cr, ca, ct = cache
+    return (
+        bounds if bounds is not None else cb,
+        refs if refs is not None else cr,
+        anchor if anchor is not None else ca,
+        textural if textural is not None else ct,
+    )
+
+
+def _update_analysis_cache(cache, key, bounds, refs, anchor, textural):
+    """Store the resolved analysis under key, merging (a frame may compute only a subset)."""
+    if cache is None or cache[0] != key:
+        cb = cr = ca = ct = None
+    else:
+        _, cb, cr, ca, ct = cache
+    return (
+        key,
+        bounds if bounds is not None else cb,
+        refs if refs is not None else cr,
+        anchor if anchor is not None else ca,
+        textural if textural is not None else ct,
+    )
+
+
 class GPUEngine:
     """
     Core GPU orchestration engine using WebGPU.
@@ -137,6 +180,9 @@ class GPUEngine:
         ]
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
         self._current_source_hash: Optional[str] = None
+        # (key, bounds, shadow_refs, metered_anchor, textural_range) — per-source meter
+        # cache so creative-slider previews don't re-run the analysis (see _analysis_*).
+        self._analysis_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_scale_factor: float = 1.0
         self._pending_ir_buffer: Optional[np.ndarray] = None
@@ -288,6 +334,7 @@ class GPUEngine:
         ir_buffer: Optional[np.ndarray] = None,
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
         local_factor: Optional[np.ndarray] = None,
+        analysis_source_hash: Optional[str] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
@@ -359,6 +406,20 @@ class GPUEngine:
                 roi = (0, h_rot, 0, w_rot)
             y1, y2, x1, x2 = roi
             crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
+
+        # Reuse the per-source meter across creative-slider previews: fill any missing
+        # override from the cache so the needs_* gates below skip the analysis entirely.
+        analysis_key = None
+        if analysis_source_hash is not None and not tiling_mode:
+            analysis_key = _analysis_cache_key(settings, analysis_source_hash)
+            bounds_override, shadow_refs_override, metered_anchor_override, textural_range_override = _fill_analysis_overrides(
+                self._analysis_cache,
+                analysis_key,
+                bounds_override,
+                shadow_refs_override,
+                metered_anchor_override,
+                textural_range_override,
+            )
 
         needs_refs = (
             shadow_refs_override is None
@@ -444,6 +505,11 @@ class GPUEngine:
                 analysis_source,
                 analysis_roi,
                 settings.process.analysis_buffer,
+            )
+
+        if analysis_key is not None:
+            self._analysis_cache = _update_analysis_cache(
+                self._analysis_cache, analysis_key, bounds, shadow_refs, metered_anchor, textural_range
             )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)

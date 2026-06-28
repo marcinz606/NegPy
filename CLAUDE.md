@@ -49,7 +49,7 @@ For **roll consistency**, flat masters only match across frames when the roll sh
 
 ### GPU pipeline (`negpy/services/rendering/gpu_engine.py`)
 
-`GPUEngine` runs the same logical pipeline as WGSL compute shaders via `wgpu`. It has its own change-detection logic (comparing previous vs. current `WorkspaceConfig` fields) to decide how far back to re-execute. Shader sources are loaded from `negpy/features/<name>/shaders/`.
+`GPUEngine` runs the same logical pipeline as WGSL compute shaders via `wgpu`. It has its own change-detection logic (comparing previous vs. current `WorkspaceConfig` fields) to decide how far back to re-execute. Shader sources are loaded from `negpy/features/<name>/shaders/`. The CPU-side **auto-exposure analysis** (`analyze_log_exposure_bounds` / anchor / textural / shadow-refs) is cached per source via `process_to_texture`'s `analysis_source_hash` (passed from `run_pipeline`'s augmented `source_hash`): the cache key (`_analysis_cache_key`) mirrors the CPU engine's base-stage key plus the refs/anchor/textural gating fields, so creative-slider previews reuse the meter instead of recomputing it every frame. Callers passing explicit `bounds_override` etc. (tiled export) bypass the cache.
 
 ### Orchestration (`negpy/services/rendering/image_processor.py`)
 
