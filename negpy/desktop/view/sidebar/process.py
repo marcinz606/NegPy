@@ -17,15 +17,15 @@ from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
 # D-Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
 # positions -100..0 map to an outward log-density margin (gentler-than-zero stretch).
-_DRANGE_MARGIN_MIN = 0.001
+_DRANGE_MARGIN_MIN = 1e-6
 _DRANGE_MARGIN_MAX = 1.0
 
 # Colour Clip slider: the absolute per-channel-balance clip percentile, log-interpolated
 # around the neutral (pos 0 = base_color_clip). The ends reach _COLOR_CLIP_MIN (gentlest,
 # near-extreme bounds) and _COLOR_CLIP_MAX (tightest channel balance).
 _COLOR_CLIP_NEUTRAL = float(EXPOSURE_CONSTANTS["base_color_clip"])
-_COLOR_CLIP_MIN = 0.01
-_COLOR_CLIP_MAX = 5.0
+_COLOR_CLIP_MIN = 1e-6
+_COLOR_CLIP_MAX = 1.0
 
 
 def _drange_slider_to_value(pos: float) -> float:
