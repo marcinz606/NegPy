@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.29.1
+
+- Fix: Previously RGB Scan mode only merged exposures if it was enabled BEFORE loading the files. Now toggling the mode after files are loaded forces the process. (#319)
+- Fix: Flat export having heavy colorcasts for some files (#321)
+- Fix: New crosstalk matrices not being correctly bundled with build in 0.29.0.
+
 ## 0.29.0
 
 - **RGB Scan (new)** — for negatives shot as three separate frames under red, green and blue light, combine them into one clean, low-noise colour scan. Turn on the **RGB Scan** button in the Files sidebar; folders of shots are grouped into triplets automatically, and an **Edit RGB Triplet…** menu lets you fix the grouping. The frames are aligned to each other to avoid colour fringing, then run through the normal conversion as usual.
