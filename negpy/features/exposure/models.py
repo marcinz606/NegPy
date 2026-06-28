@@ -28,7 +28,7 @@ class ExposureConfig:
 
     density: float = 1.0
     grade: float = 115.0
-    linear_raw: bool = False
+    linear_raw: bool = True
     wb_cyan: float = 0.0
     wb_magenta: float = 0.0
     wb_yellow: float = 0.0
@@ -136,7 +136,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # log-interpolated percentiles around this neutral.
     # Default neutral percentile for per-channel colour clip / cast-removal analysis.
     # ↑ more outlier-resistant balance detection; ↓ more relaxed (includes more extreme tones).
-    "base_color_clip": 0.001,
+    "base_color_clip": 0.1,
     # Percentile used to sample per-channel shadow references for cast detection.
     # ↑ samples even darker shadow tones (closer to paper black); ↓ lighter reference tones.
     "shadow_neutral_percentile": 98.0,

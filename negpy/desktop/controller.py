@@ -1156,7 +1156,9 @@ class AppController(QObject):
         self.session.save_icc_prefs()
         self._apply_monitor_profile()
 
-    def request_render(self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None, ephemeral: bool = False) -> None:
+    def request_render(
+        self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None, ephemeral: bool = False
+    ) -> None:
         """
         Dispatches a render task to the worker thread.
         Direct callers bypass the debounce; the timer is cancelled to avoid a duplicate.
