@@ -71,6 +71,7 @@ params = [
     "--add-data=negpy/desktop/view/styles:negpy/desktop/view/styles",
     "--add-data=icc:icc",
     "--add-data=media:media",
+    "--add-data=crosstalk:crosstalk",
     "--add-data=VERSION:.",
 ]
 
