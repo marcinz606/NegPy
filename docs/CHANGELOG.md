@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.30.0
+
+- **Scene-linear pipeline + ProPhoto RGB working space** — the whole conversion now runs in scene-linear light internally: the creative stages (Retouch, Lab, Local, Toning, Finishing) operate on linear light instead of gamma-encoded data, so their math is physically correct, and the working colour space is now the wide-gamut **ProPhoto RGB**. The output/display transform is applied only at the very end with the correct working-space curve, fixing a latent mismatch where the internal buffer was sRGB-encoded but tagged as a wider space. Dust retouching keeps the same (perceptual) detection but now heals in linear light, with the CPU and GPU paths unified. In practice: more headroom before saturated colours clip, and a more accurate, slightly more saturated default look — existing edits will look a touch different, so re-tune Saturation/Toning to taste.
+- **Faster auto-exposure analysis** — the block-median prefilter behind Auto Density/Grade and normalization is now multi-threaded with bit-for-bit identical results, roughly 2.5× faster on large frames, so opening files and batch analysis feel snappier.
+
 ## 0.29.1
 
 - Fix: Previously RGB Scan mode only merged exposures if it was enabled BEFORE loading the files. Now toggling the mode after files are loaded forces the process. (#319)

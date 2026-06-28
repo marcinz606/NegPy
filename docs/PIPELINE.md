@@ -87,7 +87,7 @@ Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the
 
 When the render intent is **Flat** (`RenderIntent.FLAT`), the Print stage is replaced by a **true log encoding** for use as a digital intermediate — flat, milky, low-contrast, like S-Log/LogC video before a LUT. It does **not** run the H&D curve at all.
 
-The key point: the normalized signal $\text{val} \in [0,1]$ from §2 is *already* a log measurement of the scene. The print path's $I_{out} = 10^{-D}$ is therefore a log→linear **decode** — it (with the sRGB encode) is exactly what turns the signal back into a normal-contrast positive. The flat master **skips both**, emitting the log signal **directly** as the output value (positive-oriented, $1 - \text{val}$):
+The key point: the normalized signal $\text{val} \in [0,1]$ from §2 is *already* a log measurement of the scene. The print path's $I_{out} = 10^{-D}$ is therefore a log→linear **decode** — it (with the working-space OETF) is exactly what turns the signal back into a normal-contrast positive. The flat master **skips both**, emitting the log signal **directly** as the output value (positive-oriented, $1 - \text{val}$):
 
 $$I_{out} = \text{clip}\big(\text{lift} + \text{gain} \cdot (1 - \text{val}),\ 0,\ 1\big)$$
 
