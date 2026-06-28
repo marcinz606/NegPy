@@ -408,6 +408,140 @@ class TestSessionRestore(unittest.TestCase):
         self.controller.request_asset_discovery.assert_not_called()
 
 
+class TestRgbScanModeReload(unittest.TestCase):
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.request_asset_discovery = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_toggle_with_no_files_only_saves_flag(self):
+        self.controller.set_rgb_scan_mode(True)
+        self.mock_session_manager.repo.save_global_setting.assert_called_once_with("rgbscan_mode", True)
+        self.controller.request_asset_discovery.assert_not_called()
+
+    def test_toggle_with_loaded_files_rediscovers_all_exposures(self):
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {"name": "a (RGB)", "path": "/r1.dng", "hash": "h1", "green_path": "/g1.dng", "blue_path": "/b1.dng"},
+            {"name": "c", "path": "/c.dng", "hash": "h2"},
+        ]
+        state.current_file_path = "/r1.dng"
+        self.controller.set_rgb_scan_mode(False)
+        self.controller.request_asset_discovery.assert_called_once_with(
+            ["/r1.dng", "/g1.dng", "/b1.dng", "/c.dng"], replace_existing=True, reselect_path="/r1.dng"
+        )
+
+    def test_discovery_finished_replace_rebuilds_and_reselects(self):
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {"name": "r", "path": "/r.dng", "hash": "h1"},
+            {"name": "g", "path": "/g.dng", "hash": "h2"},
+            {"name": "b", "path": "/b.dng", "hash": "h3"},
+        ]
+
+        def add_files(_paths, validated_info=None):
+            state.uploaded_files.extend(validated_info or [])
+
+        self.mock_session_manager.add_files.side_effect = add_files
+        self.controller.generate_missing_thumbnails = MagicMock()
+        self.controller._replace_after_discovery = True
+        self.controller._reselect_after_discovery = "/g.dng"  # was viewing the green exposure
+
+        merged = [{"name": "r (RGB)", "path": "/r.dng", "hash": "h1", "green_path": "/g.dng", "blue_path": "/b.dng"}]
+        self.controller._on_discovery_finished(merged)
+
+        self.assertEqual(state.uploaded_files, merged)
+        self.mock_session_manager.select_file.assert_called_once_with(0)
+
+
+class TestDiscoveryProgressPopup(unittest.TestCase):
+    """Folder-load hashing drives the shared batch progress popup."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        self.mock_session_manager.repo.get_global_setting.return_value = False
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            self.controller = AppController(self.mock_session_manager)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_request_discovery_opens_popup(self):
+        started = []
+        self.controller.batch_started.connect(lambda title, ab: started.append((title, ab)))
+        self.controller.request_asset_discovery(["/a.dng"])
+        self.assertEqual(started, [("Hashing files", False)])
+
+    def test_progress_feeds_popup(self):
+        progress = []
+        self.controller.batch_progress.connect(lambda c, t, n: progress.append((c, t, n)))
+        self.controller._on_discovery_progress(2, 5, "x")
+        self.assertEqual(progress, [(2, 5, "x")])
+
+    def test_finished_closes_popup_before_thumbnails(self):
+        order = []
+        self.controller.batch_finished.connect(lambda: order.append("finished"))
+        self.controller.generate_missing_thumbnails = MagicMock(side_effect=lambda: order.append("thumbs"))
+        self.controller._replace_after_discovery = True
+        self.controller._reselect_after_discovery = "/r.dng"
+        self.mock_session_manager.add_files.side_effect = lambda _p, validated_info=None: None
+        self.mock_session_manager.state.uploaded_files = [{"name": "r", "path": "/r.dng", "hash": "h1"}]
+
+        self.controller._on_discovery_finished([{"name": "r", "path": "/r.dng", "hash": "h1"}])
+
+        self.assertEqual(order, ["finished", "thumbs"])
+
+
 class TestBatchAnalysisFiltering(unittest.TestCase):
     def setUp(self):
         self.mock_session_manager = MagicMock(spec=DesktopSessionManager)

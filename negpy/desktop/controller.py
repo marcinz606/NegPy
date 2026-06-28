@@ -135,6 +135,8 @@ class AppController(QObject):
         self._export_start_time = 0.0
         self._discovery_running = False
         self._auto_open_after_discovery = False
+        self._replace_after_discovery = False
+        self._reselect_after_discovery: Optional[str] = None
         self._gpu_fallback_notified = False
         self._cleaned_up = False
         self._active_batch: Optional[str] = None
@@ -369,10 +371,21 @@ class AppController(QObject):
         triplets = self.session.repo.get_global_setting("session_triplets", {}) or {}
         self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets)
 
-    def request_asset_discovery(self, paths: List[str], auto_open: bool = False, restore_triplets: Optional[dict] = None) -> None:
+    def request_asset_discovery(
+        self,
+        paths: List[str],
+        auto_open: bool = False,
+        restore_triplets: Optional[dict] = None,
+        replace_existing: bool = False,
+        reselect_path: Optional[str] = None,
+    ) -> None:
         """
         Starts asynchronous discovery of supported assets.
         Silently skips if a discovery task is already in progress.
+
+        `replace_existing` rebuilds the asset list from the results (instead of
+        appending) and reselects `reselect_path` — used when re-running discovery
+        over already-loaded files (e.g. an RGB-scan mode toggle).
         """
         if self._discovery_running:
             return
@@ -381,7 +394,10 @@ class AppController(QObject):
 
         self._discovery_running = True
         self._auto_open_after_discovery = auto_open
+        self._replace_after_discovery = replace_existing
+        self._reselect_after_discovery = reselect_path
         self.set_status("SCANNING FOR ASSETS...")
+        self._begin_batch("Hashing files", abortable=False)
         rgb_scan = bool(self.session.repo.get_global_setting("rgbscan_mode", False))
         task = AssetDiscoveryTask(
             paths=paths,
@@ -392,20 +408,56 @@ class AppController(QObject):
         self.asset_discovery_requested.emit(task)
 
     def set_rgb_scan_mode(self, enabled: bool) -> None:
-        """Persist the RGB-scan toggle; it groups folders into R/G/B triplets on the next load."""
+        """Persist the RGB-scan toggle and re-discover already-loaded assets so the
+        mode regroups/ungroups triplets in place (not only on the next folder load)."""
         self.session.repo.save_global_setting("rgbscan_mode", bool(enabled))
+        files = self.session.state.uploaded_files
+        if not files:
+            return
+        paths: List[str] = []
+        for f in files:
+            paths.append(f["path"])
+            for k in ("green_path", "blue_path"):
+                if f.get(k):
+                    paths.append(f[k])
+        self.request_asset_discovery(paths, replace_existing=True, reselect_path=self.state.current_file_path)
 
     def _on_discovery_progress(self, current: int, total: int, name: str) -> None:
         self.set_status(f"HASHING {current}/{total}: {name}")
+        self.status_progress_requested.emit(current, total)
+        self.batch_progress.emit(current, total, name)
 
     def _on_discovery_finished(self, valid_assets: List[Dict]) -> None:
         """
         Adds discovered assets to the session and starts thumbnail generation.
         """
+        self._end_batch()
+        self.status_progress_requested.emit(0, 0)
         self._discovery_running = False
         auto_open = self._auto_open_after_discovery
         self._auto_open_after_discovery = False
+        replace_existing = self._replace_after_discovery
+        reselect_path = self._reselect_after_discovery
+        self._replace_after_discovery = False
+        self._reselect_after_discovery = None
         pending_scan = getattr(self, "_pending_scanned_file", None)
+
+        if replace_existing and valid_assets:
+            # Re-run over already-loaded files (e.g. RGB-scan toggle): rebuild the list
+            # so dedup-by-hash doesn't drop a regrouped red, then reselect the active frame.
+            self.session.state.uploaded_files.clear()
+            self.session.add_files([], validated_info=valid_assets)
+            self.generate_missing_thumbnails()
+            idx = next(
+                (
+                    i
+                    for i, f in enumerate(self.session.state.uploaded_files)
+                    if reselect_path in (f.get("path"), f.get("green_path"), f.get("blue_path"))
+                ),
+                0,
+            )
+            self.session.select_file(idx)
+            return
 
         if valid_assets:
             first_new_idx = len(self.session.state.uploaded_files)
