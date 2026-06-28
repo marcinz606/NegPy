@@ -1665,17 +1665,15 @@ class AppController(QObject):
         if src is not None and src != self.state.current_file_hash:
             return
 
-        # Persist fresh local bounds; skip only when both axes ride the roll baseline.
+        # Persist the per-frame *base* (not the final mix) — re-feeding a mix as the next
+        # base stacks edits. Skip only when both axes ride the roll baseline.
         proc = self.state.config.process
-        if "log_bounds" in metrics and not (proc.use_luma_average and proc.use_colour_average):
-            bounds = metrics.get("log_bounds")
-
+        bounds = metrics.get("log_bounds_base") or metrics.get("log_bounds")
+        if bounds and not (proc.use_luma_average and proc.use_colour_average):
             changes = {}
-            if bounds and not self.state.config.process.lock_bounds:
-                current = self.state.config.process
-                if bounds.floors != current.local_floors or bounds.ceils != current.local_ceils:
-                    changes["local_floors"] = bounds.floors
-                    changes["local_ceils"] = bounds.ceils
+            if not proc.lock_bounds and (bounds.floors != proc.local_floors or bounds.ceils != proc.local_ceils):
+                changes["local_floors"] = bounds.floors
+                changes["local_ceils"] = bounds.ceils
 
             if changes:
                 new_process = replace(self.state.config.process, **changes)

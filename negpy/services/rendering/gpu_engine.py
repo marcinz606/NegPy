@@ -16,6 +16,7 @@ from negpy.features.exposure.normalization import (
     measure_shadow_log_refs,
     measure_textural_range,
     resolve_bounds,
+    resolve_bounds_detailed,
 )
 from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
@@ -459,9 +460,9 @@ class GPUEngine:
             analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
 
         if bounds_override:
-            bounds = bounds_override
+            bounds = base_bounds = bounds_override
         else:
-            bounds = resolve_bounds(
+            bounds, base_bounds = resolve_bounds_detailed(
                 settings.process,
                 lambda: analyze_log_exposure_bounds(
                     analysis_source,
@@ -832,6 +833,7 @@ class GPUEngine:
             "normalized_log": tex_norm,
             "content_rect": content_rect,
             "log_bounds": bounds,
+            "log_bounds_base": base_bounds,
             "norm_density_range": luminance_density_range(bounds),
             "metered_anchor": metered_anchor,
             "textural_range": textural_range,

@@ -321,6 +321,21 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
         self.assertEqual(proc.local_floors, new_floors)
         self.assertEqual(proc.local_ceils, new_ceils)
 
+    def test_writeback_persists_base_not_mixed(self):
+        # Persist the per-frame base, never the final mix — persisting the mix and
+        # re-feeding it drifts (the colour-only-roll edit-stacking residual).
+        _set_process(self.ctrl, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0), lock_bounds=False)
+        base = ((0.05, 0.06, 0.07), (0.91, 0.92, 0.93))
+        self.ctrl._on_metrics_updated(
+            {
+                "log_bounds": FakeBounds((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),  # mixed — must be ignored
+                "log_bounds_base": FakeBounds(*base),
+            }
+        )
+        proc = _saved_process(self.ctrl)
+        self.assertEqual(proc.local_floors, base[0])
+        self.assertEqual(proc.local_ceils, base[1])
+
 
 if __name__ == "__main__":
     unittest.main()

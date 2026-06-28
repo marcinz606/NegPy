@@ -382,6 +382,10 @@ def mix_luma_colour_bounds(luma_src: LogNegativeBounds, colour_src: LogNegativeB
     Luma centre+span from one bounds, per-channel colour deviation from another.
     Identity when luma_src is colour_src — mirrors analyze_log_exposure_bounds' recombination.
     """
+    # Mean-vs-median centres make a self-mix drift by (mean - median); that gets
+    # persisted and re-fed each render, stacking edits. Short-circuit same source.
+    if luma_src == colour_src:
+        return luma_src
     mlf, mlc = sum(luma_src.floors) / 3.0, sum(luma_src.ceils) / 3.0
     mcf, mcc = sorted(colour_src.floors)[1], sorted(colour_src.ceils)[1]
     floors = tuple(mlf + (colour_src.floors[ch] - mcf) for ch in range(3))
@@ -390,15 +394,23 @@ def mix_luma_colour_bounds(luma_src: LogNegativeBounds, colour_src: LogNegativeB
 
 
 def resolve_bounds(process, analyze_fn) -> LogNegativeBounds:
+    """Final bounds for rendering. See resolve_bounds_detailed for the per-frame base."""
+    return resolve_bounds_detailed(process, analyze_fn)[0]
+
+
+def resolve_bounds_detailed(process, analyze_fn) -> tuple[LogNegativeBounds, LogNegativeBounds]:
     """
-    Pick luma + colour bounds from the roll baseline (locked) or the per-frame
-    local/analyzed base, then mix. analyze_fn() supplies the per-frame base and is
-    called only when it is actually needed.
+    Returns (final, base): the final mixed bounds to render with, and the per-frame
+    base (local/analyzed) to persist. Persist the base, not the mix — re-feeding a
+    mix as the next base stacks edits (mean-vs-median drift; colour-only roll).
+    Picks luma + colour from the roll baseline (locked) or the per-frame base, then
+    mixes. analyze_fn() supplies the base and is called only when actually needed.
     """
     roll_luma = process.use_luma_average and process.is_locked_initialized
     roll_colour = process.use_colour_average and process.is_locked_initialized
     locked = LogNegativeBounds(process.locked_floors, process.locked_ceils)
     if roll_luma and roll_colour:
-        return locked
+        return locked, locked
     base = LogNegativeBounds(process.local_floors, process.local_ceils) if process.is_local_initialized else analyze_fn()
-    return mix_luma_colour_bounds(locked if roll_luma else base, locked if roll_colour else base)
+    final = mix_luma_colour_bounds(locked if roll_luma else base, locked if roll_colour else base)
+    return final, base

@@ -19,7 +19,7 @@ from negpy.features.exposure.normalization import (
     measure_shadow_refs_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
-    resolve_bounds,
+    resolve_bounds_detailed,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.kernel.image.logic import get_luminance
@@ -76,7 +76,8 @@ class NormalizationProcessor:
             context.metrics["log_bounds_mode_val"] = context.process_mode
             return analyzed
 
-        bounds = resolve_bounds(self.config, analyze_base)
+        bounds, base_bounds = resolve_bounds_detailed(self.config, analyze_base)
+        context.metrics["log_bounds_base"] = base_bounds
 
         context.metrics["norm_density_range"] = luminance_density_range(bounds)
 
