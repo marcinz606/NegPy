@@ -122,10 +122,15 @@ class RenderWorker(QObject):
     def process(self, task: RenderTask) -> None:
         """Executes the rendering pipeline for a single frame."""
         try:
+            # The splash (ephemeral) first paint is the embedded JPEG, not the linear
+            # sensor decode — but it shares the file's source_hash. Give it an isolated
+            # cache identity so its analysis can't be reused by (nor leak via the engine
+            # caches into) the real linear render that follows under the same hash.
+            pipeline_source_hash = task.source_hash + ("\x00splash" if task.ephemeral else "")
             result, metrics = self._processor.run_pipeline(
                 task.buffer,
                 task.config,
-                task.source_hash,
+                pipeline_source_hash,
                 render_size_ref=task.preview_size,
                 prefer_gpu=task.gpu_enabled,
                 readback_metrics=task.readback_metrics,
