@@ -7,11 +7,12 @@ from negpy.domain.models import ColorSpace
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
 
-# Assumed source profile for color management — NOT a real working space. RAW is
-# decoded output_color=raw (camera-native linear RGB) and the pipeline operates on
-# those numbers directly; nothing ever converts *into* this space. AdobeRGB is only
-# the source profile assumed at the boundaries: export converts FROM it to the chosen
-# target (and embeds it), and the preview is color-managed FROM it to the display.
+# Working space: the pipeline is scene-linear internally (Adobe RGB primaries, linear
+# TRC). The working-space OETF (Adobe RGB gamma; kernel.image.logic.working_oetf_encode)
+# is applied only as the final engine step, so the encoded buffer composes with this
+# profile at the boundary — export converts FROM it to the target (and embeds it), the
+# preview is color-managed FROM it to the display. RAW is decoded output_color=raw,
+# so this is an assumed boundary profile, not an input characterisation.
 WORKING_COLOR_SPACE = ColorSpace.ADOBE_RGB.value
 
 

@@ -58,9 +58,9 @@ class TestLabLogic(unittest.TestCase):
         r, g, b = float(desat[0, 0, 0]), float(desat[0, 0, 1]), float(desat[0, 0, 2])
         self.assertAlmostEqual(r, g, delta=1e-3)
         self.assertAlmostEqual(g, b, delta=1e-3)
-        # Pure red is a midtone gray after desaturation, NOT white.
-        self.assertLess(r, 0.7)
-        self.assertGreater(r, 0.3)
+        # Midtone gray, not white. Linear output: pure red's Adobe Y≈0.30.
+        self.assertLess(r, 0.5)
+        self.assertGreater(r, 0.2)
         l_desat = rgb_to_lab_working(desat)[0, 0, 0]
         self.assertAlmostEqual(float(l_desat), float(l_input), delta=1.0)
 
@@ -88,9 +88,9 @@ class TestLabLogic(unittest.TestCase):
         boosted = apply_saturation(img, 1.5)
         l_out = float(rgb_to_lab_working(boosted)[0, 0, 0])
 
-        # L* must be preserved (or higher after gamut clip pushes toward pure red).
-        # HSV path would have dropped L* below input by clamping S=1 with V fixed.
-        self.assertGreaterEqual(l_out, l_in - 1.0)
+        # CIELAB preserves L* pre-clip; in linear this near-gamut red clips toward
+        # pure red (L*≈61), a few points down — far less than the HSV path.
+        self.assertGreaterEqual(l_out, l_in - 5.0)
 
     def test_vibrance(self) -> None:
         """Vibrance should increase saturation of pale colors more than vibrant ones."""

@@ -5,7 +5,7 @@ import numpy as np
 from numba import njit  # type: ignore
 
 from negpy.domain.types import ImageBuffer
-from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
+from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working, working_oetf_encode
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -163,7 +163,9 @@ def apply_glow_and_halation(
     if glow_amount == 0.0 and halation_strength == 0.0:
         return img
 
-    luma = img[:, :, 0] * 0.2126 + img[:, :, 1] * 0.7152 + img[:, :, 2] * 0.0722
+    # Highlight mask in the display domain (keeps the 0.5 threshold); bloom is linear.
+    enc = working_oetf_encode(img)
+    luma = enc[:, :, 0] * 0.2126 + enc[:, :, 1] * 0.7152 + enc[:, :, 2] * 0.0722
     threshold = 0.5
     highlight_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0) ** 2
 

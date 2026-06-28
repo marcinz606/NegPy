@@ -14,7 +14,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
-from negpy.kernel.image.logic import get_luminance
+from negpy.kernel.image.logic import get_luminance, working_oetf_encode
 
 _CLIP_THRESH = 0.005  # fraction of pixels considered "clipping"
 
@@ -389,8 +389,8 @@ class PhotometricCurveWidget(QWidget):
             )
             d = curve(ensure_image(x_log_exp))
             t = np.power(10.0, -d)
-            # sRGB OETF — must match the exposure kernel's output encode.
-            yv = np.where(t <= 0.0031308, 12.92 * t, 1.055 * np.power(t, 1.0 / 2.4) - 0.055)
+            # Working-space OETF — match the engine output encode.
+            yv = np.asarray(working_oetf_encode(t.astype(np.float32))).reshape(-1)
             return list(zip(plt_x.tolist(), yv.tolist()))
 
         # Base (white) reference curve — also the fill/pivot/zone geometry.

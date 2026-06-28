@@ -40,17 +40,6 @@ def _softplus(x: float) -> float:
     return float(np.log1p(np.exp(x)))
 
 
-@njit(inline="always")
-def _srgb_oetf(t: float) -> float:
-    """
-    sRGB opto-electronic transfer function (linear -> display encoding).
-    Matches the sRGB decode used by the downstream Lab stage.
-    """
-    if t <= 0.0031308:
-        return float(12.92 * t)
-    return float(1.055 * t ** (1.0 / 2.4) - 0.055)
-
-
 def _inv_softplus_np(y: Any) -> Any:
     """Inverse of softplus: log(exp(y) - 1), stable for y > 0 (pivot solve)."""
     return np.where(y > 20.0, y, np.log(np.expm1(np.maximum(y, 1e-12))))
@@ -90,8 +79,8 @@ def _apply_print_curve_kernel(
     shadows and `shoulder` only highlights (film/print convention). `toe`/`shoulder`
     arrive pre-scaled by toe_shoulder_strength.
 
-    Output is sRGB-encoded reflectance (transmittance = 10^-D), matching the Lab
-    stage's sRGB decode.
+    Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
+    applied at the engine output, not here.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -145,7 +134,7 @@ def _apply_print_curve_kernel(
                 if flare != 0.0:
                     transmittance = (transmittance + flare * flare_white) / (1.0 + flare)
 
-                final_val = _srgb_oetf(transmittance)
+                final_val = transmittance
                 if final_val < 0.0:
                     final_val = 0.0
                 elif final_val > 1.0:

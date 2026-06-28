@@ -10,17 +10,11 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.processor import PhotometricProcessor
 
 
-def _srgb_oetf(t: float) -> float:
-    if t <= 0.0031308:
-        return 12.92 * t
-    return 1.055 * t ** (1.0 / 2.4) - 0.055
-
-
 def _density_at(x_ref, slope, pivot, d_min):
     """Print density the curve produces for a neutral reference tone."""
     img = np.full((1, 1, 3), x_ref, dtype=np.float32)
-    out = float(apply_characteristic_curve(img, (pivot, slope), (pivot, slope), (pivot, slope), d_min=d_min)[0, 0, 0])
-    t = ((out + 0.055) / 1.055) ** 2.4
+    # Stage outputs linear reflectance (transmittance) now.
+    t = float(apply_characteristic_curve(img, (pivot, slope), (pivot, slope), (pivot, slope), d_min=d_min)[0, 0, 0])
     return -np.log10(max(t, 1e-12))
 
 
@@ -76,13 +70,14 @@ class TestEndToEndExposure(unittest.TestCase):
 
         x_ref = EXPOSURE_CONSTANTS["assumed_anchor"]
         img = np.full((8, 8, 3), x_ref, dtype=np.float32)
-        expected = _srgb_oetf(10.0 ** -EXPOSURE_CONSTANTS["anchor_target_density"])
+        # Linear reflectance: reference tone lands at transmittance 10^-target.
+        expected = 10.0 ** -EXPOSURE_CONSTANTS["anchor_target_density"]
 
         for grade in (130.0, 110.0, 70.0):
             res = PhotometricProcessor(replace(config, grade=grade)).process(img, ctx)
             # Grade-coupled baseline toe/shoulder compress d_max slightly at harder
-            # grades (VC paper behaviour). The pivot holds the reference tone within
-            # 0.002 sRGB of the target across the full grade range.
+            # grades (VC paper behaviour). The pivot holds the reference tone close to
+            # the target across the full grade range.
             self.assertAlmostEqual(float(res[0, 0, 0]), expected, delta=0.002, msg=f"grade={grade}")
 
     def test_skewed_negative_reaches_paper_black(self):
@@ -94,7 +89,8 @@ class TestEndToEndExposure(unittest.TestCase):
 
         img = np.full((8, 8, 3), 1.0, dtype=np.float32)  # deepest measured shadow
         res = PhotometricProcessor(config).process(img, ctx)
-        self.assertLessEqual(float(res[0, 0, 0]), 0.16)
+        # Linear: paper black ~10^-d_max (0.16 sRGB ≈ 0.022 linear).
+        self.assertLessEqual(float(res[0, 0, 0]), 0.025)
 
 
 if __name__ == "__main__":

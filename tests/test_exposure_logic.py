@@ -25,8 +25,10 @@ class TestExposureLogic(unittest.TestCase):
         d_max = EXPOSURE_CONSTANTS["d_max"]
         v1 = np.logaddexp(0.0, a_hl * 0.0) / a_hl
         d = d_max - np.logaddexp(0.0, a_sh * (d_max - v1)) / a_sh
+        # Exposure stage now outputs linear reflectance (transmittance = 10^-D);
+        # the OETF moved to the engine output.
         t = 10.0**-d
-        self.assertAlmostEqual(res[0, 0, 0], 1.055 * t ** (1 / 2.4) - 0.055, delta=0.01)
+        self.assertAlmostEqual(res[0, 0, 0], t, delta=0.01)
 
     def test_exposure_shift(self):
         """Check density shift direction."""

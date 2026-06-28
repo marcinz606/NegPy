@@ -16,6 +16,7 @@ from negpy.features.exposure.logic import (
     slope_to_grade,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
 
 
 def _ramp(n=257):
@@ -37,11 +38,13 @@ def _curve(toe=0.0, shoulder=0.0, grade=115.0, density=1.0, lum_range=1.3):
         shoulder=shoulder,
         d_min=d_min,
     )
-    return x, np.asarray(out)[0, :, 0].astype(np.float64)
+    # Stage outputs linear; compare in the displayed space where goldens are calibrated.
+    return x, np.asarray(working_oetf_encode(np.asarray(out)))[0, :, 0].astype(np.float64)
 
 
-def _srgb_to_density(s):
-    t = ((np.asarray(s) + 0.055) / 1.055) ** 2.4
+def _output_to_density(s):
+    # Decode the displayed curve value (working TRC) back to transmittance, then density.
+    t = np.asarray(working_oetf_decode(np.asarray(s, dtype=np.float32)))
     return -np.log10(np.clip(t, 1e-12, None))
 
 
@@ -55,7 +58,7 @@ class TestCurveShape(unittest.TestCase):
     def test_endpoints_reach_paper_white_and_black(self):
         """x->0 prints near paper white (D~d_min); x->1 near paper black (D~d_max)."""
         _, out = _curve()
-        d = _srgb_to_density(out)
+        d = _output_to_density(out)
         self.assertLess(abs(d[0] - EXPOSURE_CONSTANTS["d_min"]), 0.25, "highlight not near paper white")
         self.assertLess(abs(d[-1] - EXPOSURE_CONSTANTS["d_max"]), 0.4, "shadow not near paper black")
 
@@ -94,12 +97,13 @@ class TestToeShoulderIndependence(unittest.TestCase):
 
 
 class TestCalibration(unittest.TestCase):
-    def test_default_matches_legacy_look(self):
-        """Default curve stays close to the legacy (pre-rewrite) tone reproduction
-        so existing edits don't jump. Golden sRGB at x = 0, .25, .5, .75, 1."""
+    def test_default_curve_shape(self):
+        """Pin the default tone reproduction so edits don't drift. Golden is the
+        displayed curve in the working-space TRC (Adobe RGB gamma) at x = 0, .25,
+        .5, .75, 1."""
         x, out = _curve()
         idx = [0, 64, 128, 192, 256]
-        golden = [0.922, 0.780, 0.428, 0.175, 0.075]
+        golden = [0.921, 0.781, 0.401, 0.169, 0.098]
         for i, g in zip(idx, golden):
             self.assertAlmostEqual(out[i], g, delta=0.03, msg=f"x={x[i]:.2f}")
 
@@ -114,8 +118,10 @@ class TestPivotAndGrade(unittest.TestCase):
         for grade in (60.0, 115.0, 170.0):
             slope = grade_to_slope(grade, 1.3)
             pivot = compute_pivot(slope, density=1.0, d_min=d_min)
-            out = apply_characteristic_curve(ref_img, (pivot, slope), (pivot, slope), (pivot, slope), d_min=d_min)
-            d_out = float(_srgb_to_density(float(out[0, 0, 0])))
+            out = working_oetf_encode(
+                np.asarray(apply_characteristic_curve(ref_img, (pivot, slope), (pivot, slope), (pivot, slope), d_min=d_min))
+            )
+            d_out = float(_output_to_density(float(out[0, 0, 0])))
             self.assertAlmostEqual(d_out, target, places=3, msg=f"grade={grade}")
 
     def test_grade_slope_roundtrip(self):

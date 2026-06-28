@@ -15,10 +15,6 @@ def _ramp_image(n: int = 256) -> np.ndarray:
     return np.repeat(ramp, 3, axis=2)
 
 
-def _srgb_oetf(t: np.ndarray) -> np.ndarray:
-    return np.where(t <= 0.0031308, 12.92 * t, 1.055 * np.power(t, 1.0 / 2.4) - 0.055)
-
-
 class TestToeShoulderSmoothness(unittest.TestCase):
     def test_monotonic_over_full_slider_range(self):
         """
@@ -50,7 +46,8 @@ class TestToeShoulderSmoothness(unittest.TestCase):
         params = (0.5, 5.375)  # pivot pushes the pixel deep into paper black
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
         lifted = float(apply_characteristic_curve(img, params, params, params, toe=1.0, toe_width=2.5)[0, 0, 0])
-        self.assertGreater(lifted, base + 0.03)
+        # Linear: paper black ~0.005, toe lift ~0.0048 (was 0.03 in sRGB).
+        self.assertGreater(lifted, base + 0.004)
 
     def test_toe_leaves_highlights_invariant(self):
         """Toe shapes the shadow end: bright highlights stay put at any width."""
@@ -84,7 +81,8 @@ class TestToeShoulderSmoothness(unittest.TestCase):
                 contrast=slope, pivot=pivot, toe=toe, toe_width=toe_width, shoulder=shoulder, shoulder_width=shoulder_width
             )
             density = np.asarray(curve(img[0, :, 0].astype(np.float32)))
-            expected = np.clip(_srgb_oetf(10.0 ** (-density)), 0.0, 1.0)
+            # Kernel outputs linear reflectance (transmittance) now.
+            expected = np.clip(10.0 ** (-density), 0.0, 1.0)
             np.testing.assert_allclose(res_kernel[0, :, 0], expected, atol=1e-4)
 
 

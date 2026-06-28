@@ -9,12 +9,6 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.processor import PhotometricProcessor
 
 
-def _srgb_oetf(t: float) -> float:
-    if t <= 0.0031308:
-        return 12.92 * t
-    return 1.055 * t ** (1.0 / 2.4) - 0.055
-
-
 class TestPaperDmin(unittest.TestCase):
     def setUp(self):
         self.config = WorkspaceConfig().exposure
@@ -26,15 +20,14 @@ class TestPaperDmin(unittest.TestCase):
         return float(res[0, 0, 0])
 
     def test_whites_capped_at_paper_base(self):
-        # With the floor on, no tone can print brighter than 10^-d_min.
-        ceiling = _srgb_oetf(10.0 ** -EXPOSURE_CONSTANTS["d_min"])
+        # Floor on: nothing prints brighter than 10^-d_min (linear reflectance).
+        ceiling = 10.0 ** -EXPOSURE_CONSTANTS["d_min"]
         self.assertLessEqual(self._run(0.0, paper_dmin=True), ceiling + 1e-6)
         self.assertLess(self._run(0.0, paper_dmin=True), self._run(0.0, paper_dmin=False))
 
     def test_off_keeps_pure_white_reachable(self):
-        # Without the floor a very thin negative approaches pure white
-        # (residual density from the projected-asymptote curve stays small).
-        self.assertGreater(self._run(0.0, paper_dmin=False), 0.91)
+        # Thin negative approaches white; linear (0.91 sRGB ≈ 0.807 linear).
+        self.assertGreater(self._run(0.0, paper_dmin=False), 0.80)
 
     def test_shadows_unaffected_direction(self):
         # Deep blacks stay governed by d_max; the floor barely moves them.

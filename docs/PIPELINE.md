@@ -51,9 +51,9 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Toe** — shadows. Lifts the paper-black ceiling: $D_{max,eff} = D_{max} - \text{toe} \cdot 0.35$ (`toe_height`). Negative toe instead *sharpens* the shadow knee (extending past $D_{max}$ has near-zero perceptual effect).
     *   **Shoulder** — highlights. Lifts the paper-white floor (compresses/greys highlights): $D_{min,eff} = D_{min} + \text{shoulder} \cdot 0.35$ (`shoulder_height`).
     *   **Grade-coupled baseline**: hard grades (high slope) physically have snappier toes and compressed shoulders, so a slope-proportional amount is added automatically (`toe_grade_strength` $= 0.15$, `shoulder_grade_strength` $= 0.12$, scaled by the normalized slope).
-*   **Output**: Converts print density back to light (Transmittance), then encodes:
+*   **Output**: Converts print density back to **scene-linear** reflectance (transmittance):
     $$I_{out} = 10^{-D}$$
-    *   **Note**: The sRGB transfer (display gamma) is applied as the final encode.
+    *   **Note**: The pipeline is **scene-linear internally** — the exposure stage emits linear light and every creative stage (Lab, Local, Toning, Finish) operates on it. The working-space OETF (the Adobe RGB native gamma, $563/256$) is applied **only as the final engine step** (the output transform), so it composes correctly with the Adobe RGB ICC profile at the display/export boundary. Retouch is the one exception: it runs in the display-encoded domain (defect detection is inherently perceptual), bracketed by an encode after exposure and a decode before Lab.
 
 ### Automatic helpers
 

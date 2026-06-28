@@ -106,6 +106,7 @@ class GPUEngine:
             "geometry": get_resource_path(os.path.join("negpy", "features", "geometry", "shaders", "transform.wgsl")),
             "normalization": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "normalization.wgsl")),
             "exposure": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "exposure.wgsl")),
+            "output_encode": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "output_encode.wgsl")),
             "autocrop": get_resource_path(os.path.join("negpy", "features", "geometry", "shaders", "autocrop.wgsl")),
             "clahe_hist": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_hist.wgsl")),
             "clahe_cdf": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_cdf.wgsl")),
@@ -755,6 +756,17 @@ class GPUEngine:
                 crop_h,
             )
 
+        # Output transform: scene-linear -> display-encoded, so every consumer
+        # (readback, display LUT) reads encoded data.
+        tex_output = self._get_intermediate_texture(
+            tex_final.width,
+            tex_final.height,
+            wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
+            "output_encoded",
+        )
+        self._dispatch_pass(enc, "output_encode", [(0, tex_final.view), (1, tex_output.view)], tex_final.width, tex_final.height)
+        tex_final = tex_output
+
         device.queue.submit([enc.finish()])
         metrics: Dict[str, Any] = {
             "active_roi": roi,
@@ -1267,6 +1279,7 @@ class GPUEngine:
             raw = np.frombuffer(read_buf.read_mapped(), dtype=np.uint8).reshape((tex.height, prb))
             valid = raw[:, : tex.width * 16]
             result = valid.view(np.float32).reshape((tex.height, tex.width, 4))
+            # The texture is already display-encoded (output_encode pass).
             return result[:, :, :3]
         finally:
             read_buf.unmap()
