@@ -53,7 +53,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Grade-coupled baseline**: hard grades (high slope) physically have snappier toes and compressed shoulders, so a slope-proportional amount is added automatically (`toe_grade_strength` $= 0.15$, `shoulder_grade_strength` $= 0.12$, scaled by the normalized slope).
 *   **Output**: Converts print density back to **scene-linear** reflectance (transmittance):
     $$I_{out} = 10^{-D}$$
-    *   **Note**: The pipeline is **scene-linear internally** — the exposure stage emits linear light and every creative stage (Lab, Local, Toning, Finish) operates on it. The working-space OETF (the Adobe RGB native gamma, $563/256$) is applied **only as the final engine step** (the output transform), so it composes correctly with the Adobe RGB ICC profile at the display/export boundary. Retouch is the one exception: it runs in the display-encoded domain (defect detection is inherently perceptual), bracketed by an encode after exposure and a decode before Lab.
+    *   **Note**: The pipeline is **scene-linear internally** — the exposure stage emits linear light and every creative stage (Retouch, Lab, Local, Toning, Finish) operates on it. The working-space OETF (the **ProPhoto RGB ROMM TRC**, gamma $1.8$ with a linear toe below $1/512$) is applied **only as the final engine step** (the output transform), so it composes correctly with the ProPhoto ICC profile at the display/export boundary. Retouch's dust *detection* is perceptual, so on the CPU it computes its luma on a display-encoded copy while healing in linear; the GPU keeps a single encoded perceptual region (exposure → clahe/retouch encoded → lab decodes back to linear).
 
 ### Automatic helpers
 

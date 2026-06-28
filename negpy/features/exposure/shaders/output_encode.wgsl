@@ -1,11 +1,12 @@
-// Output transform: scene-linear -> display-encoded (Adobe RGB gamma 563/256).
+// Output transform: scene-linear -> display-encoded (ProPhoto ROMM: gamma 1.8 + linear toe).
 // Final GPU step; mirrors the CPU working_oetf_encode.
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 
 fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
-    return pow(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(0.45470693));
+    let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    return select(pow(x, vec3<f32>(0.55555556)), x * 16.0, x < vec3<f32>(0.001953125));
 }
 
 @compute @workgroup_size(8, 8)

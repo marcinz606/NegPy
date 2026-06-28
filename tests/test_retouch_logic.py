@@ -76,6 +76,25 @@ def test_auto_dust_removal_high_res():
     assert np.mean(res[98:103, 98:103]) < 0.5
 
 
+def test_auto_detection_uses_perceptual_luma():
+    """Retouch receives scene-linear data and detects on a display-encoded copy.
+    A dim speck whose LINEAR luma sits below the 0.15 bright-region floor but
+    whose ENCODED luma clears it must still be caught (heal runs in linear)."""
+    img = np.zeros((100, 100, 3), dtype=np.float32)
+    img[50, 50] = 0.10  # linear 0.10 < 0.15 floor; encoded ~0.28 > 0.15
+
+    res = apply_dust_removal(
+        img.copy(),
+        dust_remove=True,
+        dust_threshold=0.5,
+        dust_size=2,
+        manual_spots=[],
+        scale_factor=1.0,
+    )
+
+    assert res[50, 50, 0] < 0.04
+
+
 def test_auto_dust_removal_cloud_protection():
     # Soft gradients should NOT be treated as dust
     y, x = np.mgrid[0:100, 0:100]

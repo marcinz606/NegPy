@@ -4,7 +4,7 @@ from numba import njit  # type: ignore
 from typing import List, Optional, Tuple
 from negpy.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image
-from negpy.kernel.image.logic import get_luminance
+from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working_oetf_encode
 
 
 @njit(cache=True, fastmath=True)
@@ -78,7 +78,8 @@ def _heal_with_mask_jit(
 
 @njit(cache=True, fastmath=True)
 def _apply_auto_retouch_jit(
-    img: np.ndarray,
+    img_det: np.ndarray,
+    img_heal: np.ndarray,
     mean: np.ndarray,
     std: np.ndarray,
     w_std: np.ndarray,
@@ -86,13 +87,14 @@ def _apply_auto_retouch_jit(
     dust_size: float,
     scale_factor: float,
 ) -> np.ndarray:
-    h, w, _ = img.shape
+    """Detect on the display-encoded ``img_det`` (perceptual), heal ``img_heal`` (linear)."""
+    h, w, _ = img_det.shape
     hit_mask = np.zeros((h, w), dtype=np.float32)
 
     # 1. Detection Pass
     for y in range(h):
         for x in range(w):
-            l_curr = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
+            l_curr = LUMA_R * img_det[y, x, 0] + LUMA_G * img_det[y, x, 1] + LUMA_B * img_det[y, x, 2]
             l_mean = mean[y, x]
             local_s = max(0.005, std[y, x])
 
@@ -111,7 +113,11 @@ def _apply_auto_retouch_jit(
                         for dx in range(-1, 2):
                             if dy == 0 and dx == 0:
                                 continue
-                            nl = LUMA_R * img[y + dy, x + dx, 0] + LUMA_G * img[y + dy, x + dx, 1] + LUMA_B * img[y + dy, x + dx, 2]
+                            nl = (
+                                LUMA_R * img_det[y + dy, x + dx, 0]
+                                + LUMA_G * img_det[y + dy, x + dx, 1]
+                                + LUMA_B * img_det[y + dy, x + dx, 2]
+                            )
                             if nl >= l_curr:
                                 is_max = False
                                 break
@@ -127,7 +133,7 @@ def _apply_auto_retouch_jit(
         exp_rad = 16
     p_rad = exp_rad + int(3 * scale_factor)
 
-    return _heal_with_mask_jit(img, hit_mask, exp_rad, p_rad)
+    return _heal_with_mask_jit(img_heal, hit_mask, exp_rad, p_rad)
 
 
 @njit(cache=True, fastmath=True)
@@ -247,13 +253,16 @@ def apply_dust_removal(
         v_win = int(max(3, base_size * 3.0 * scale)) * 2 + 1
         w_win = int(max(7, base_size * 4.0 * scale)) * 2 + 1
 
-        gray = get_luminance(img)
+        # Detection is perceptual: run it on a display-encoded copy, heal in linear.
+        img_enc = ensure_image(working_oetf_encode(img))
+        gray = get_luminance(img_enc)
         mean_gray = cv2.blur(gray, (v_win, v_win))
         std_gray = np.sqrt(np.clip(cv2.blur(gray**2, (v_win, v_win)) - mean_gray**2, 0, None))
         w_mean_gray = cv2.blur(gray, (w_win, w_win))
         w_std_gray = np.sqrt(np.clip(cv2.blur(gray**2, (w_win, w_win)) - w_mean_gray**2, 0, None))
 
         img = _apply_auto_retouch_jit(
+            np.ascontiguousarray(img_enc.astype(np.float32)),
             np.ascontiguousarray(img.astype(np.float32)),
             np.ascontiguousarray(mean_gray.astype(np.float32)),
             np.ascontiguousarray(std_gray.astype(np.float32)),
@@ -281,6 +290,8 @@ def apply_dust_removal(
             cv2.circle(manual_mask_u8, (int(nx * w_img), int(ny * h_img)), radius, 255, -1)
 
         inpaint_rad = int(3 * scale_factor)
-        img = _inpaint_with_mask(img, manual_mask_u8, inpaint_rad)
+        # Telea inpaint + grain restoration are display-domain; bracket the linear buffer.
+        enc = _inpaint_with_mask(ensure_image(working_oetf_encode(img)), manual_mask_u8, inpaint_rad)
+        img = ensure_image(working_oetf_decode(enc))
 
     return ensure_image(img)

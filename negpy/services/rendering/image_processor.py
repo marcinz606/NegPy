@@ -30,6 +30,7 @@ from negpy.kernel.image.logic import (
     ensure_rgb,
     uint16_to_float32,
     float_to_uint_luma,
+    working_oetf_decode,
 )
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
@@ -546,12 +547,19 @@ class ImageProcessor:
         output_icc_path: Optional[str],
         input_icc_path: Optional[str] = None,
     ) -> Tuple[np.ndarray, Optional[bytes]]:
-        """Tag a (H,W) uint16 luma buffer with the target grey profile.
+        """Re-encode a (H,W) uint16 luma buffer to the target grey profile's gamma.
 
-        The buffer is already luma in the working gamma (matching GrayGamma2.2), so no
-        pixel transform is run — an RGB working profile can't drive a 1-channel transform.
+        The buffer is luma in the working TRC (ProPhoto ROMM 1.8); the grey profile
+        (GrayGamma2.2) expects a 2.2 gamma. Decode the working TRC to linear and
+        re-encode to 2.2 so the tagged output matches — an RGB working profile can't
+        drive a 1-channel ICC transform.
         """
-        return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
+        if working_color_space == color_space:
+            return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
+        lin = np.asarray(working_oetf_decode(img_u16.astype(np.float32) / 65535.0))
+        gray = np.clip(lin, 0.0, 1.0) ** (1.0 / 2.2)
+        out = np.clip(gray * 65535.0 + 0.5, 0.0, 65535.0).astype(np.uint16)
+        return out, self._get_target_icc_bytes(color_space, output_icc_path)
 
     def apply_color_management(
         self,

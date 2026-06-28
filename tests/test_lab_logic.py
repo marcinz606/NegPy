@@ -88,9 +88,9 @@ class TestLabLogic(unittest.TestCase):
         boosted = apply_saturation(img, 1.5)
         l_out = float(rgb_to_lab_working(boosted)[0, 0, 0])
 
-        # CIELAB preserves L* pre-clip; in linear this near-gamut red clips toward
-        # pure red (L*≈61), a few points down — far less than the HSV path.
-        self.assertGreaterEqual(l_out, l_in - 5.0)
+        # CIELAB preserves L* pre-clip; in linear ProPhoto this red (L*≈67) clips
+        # toward the gamut edge, ~6 points down — far less than the HSV path.
+        self.assertGreaterEqual(l_out, l_in - 8.0)
 
     def test_vibrance(self) -> None:
         """Vibrance should increase saturation of pale colors more than vibrant ones."""

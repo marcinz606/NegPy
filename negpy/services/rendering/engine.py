@@ -5,7 +5,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.kernel.caching.manager import PipelineCache
 from negpy.kernel.caching.logic import calculate_config_hash, CacheEntry
 from negpy.kernel.image.validation import ensure_image
-from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
+from negpy.kernel.image.logic import working_oetf_encode
 from negpy.kernel.system.logging import get_logger
 from negpy.features.geometry.processor import GeometryProcessor, CropProcessor
 from negpy.features.exposure.models import RenderIntent
@@ -151,8 +151,6 @@ class DarkroomEngine:
         flat_intent = settings.exposure.render_intent == RenderIntent.FLAT
 
         if not flat_intent:
-            # Retouch runs in the display domain (perceptual defect detection).
-            current_img = ensure_image(working_oetf_encode(current_img))
 
             def run_retouch(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
                 return RetouchProcessor(settings.retouch).process(img_in, ctx)
@@ -165,9 +163,6 @@ class DarkroomEngine:
                 context,
                 pipeline_changed,
             )
-
-            # Back to scene-linear for the creative stages.
-            current_img = ensure_image(working_oetf_decode(current_img))
 
             def run_lab(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
                 return PhotoLabProcessor(settings.lab).process(img_in, ctx)

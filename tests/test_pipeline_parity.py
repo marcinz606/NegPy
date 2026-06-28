@@ -21,6 +21,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
@@ -49,6 +50,16 @@ def _make_synthetic_image(seed: int = 42) -> np.ndarray:
     # Add small noise
     img += rng.normal(0, 0.005, img.shape).astype(np.float32)
     return np.clip(img, 0.0, 1.0).astype(np.float32)
+
+
+def _make_speck_image() -> np.ndarray:
+    """Uniform mid field with isolated dark specks (bright outliers once the
+    negative is inverted). Uniform surround makes the heal value identical on
+    both paths regardless of perimeter-sampling radius."""
+    img = np.full((64, 64, 3), 0.5, dtype=np.float32)
+    for y, x in ((12, 20), (30, 45), (50, 14), (40, 40)):
+        img[y, x] = 0.02
+    return img
 
 
 def _make_identity_geometry() -> GeometryConfig:
@@ -383,6 +394,49 @@ class TestToningParity:
                 highlight_tint_strength=0.4,
             ),
         )
+        self._run_and_compare(s)
+
+
+class TestRetouchParity:
+    """CPU vs GPU parity for the dust-removal shader (detect-encoded, heal-linear)."""
+
+    @classmethod
+    def setup_class(cls):
+        if not _gpu_available():
+            import pytest
+
+            pytest.skip("GPU not available — cannot run parity tests")
+        cls.cpu = DarkroomEngine()
+        cls.gpu = GPUEngine()
+        cls.img = _make_speck_image()
+
+    @classmethod
+    def teardown_class(cls):
+        if hasattr(cls, "gpu"):
+            cls.gpu.destroy_all()
+
+    def _run_and_compare(self, settings: WorkspaceConfig) -> None:
+        h, w = self.img.shape[:2]
+        scale = max(h, w) / 1024.0
+
+        cpu_result = self.cpu.process(self.img, settings, "parity_test")
+        gpu_tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=scale,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+
+        assert cpu_result.shape == gpu_result.shape, f"Shape mismatch: CPU {cpu_result.shape} vs GPU {gpu_result.shape}"
+        _assert_mostly_close(cpu_result, gpu_result, atol=1.5e-1, rtol=1.5e-1, max_violation_frac=0.01)
+
+    def test_no_dust(self):
+        self._run_and_compare(_make_base_settings())
+
+    def test_auto_dust(self):
+        s = replace(_make_base_settings(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=2))
         self._run_and_compare(s)
 
 

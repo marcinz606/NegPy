@@ -108,51 +108,54 @@ def srgb_to_linear(img: np.ndarray) -> np.ndarray:
     return np.where(img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
 
-# Working-space output transform: Adobe RGB native gamma (563/256). Applied at the
-# pipeline boundary; composes with the Adobe RGB ICC.
-WORKING_TRC_GAMMA = 256.0 / 563.0
+# Working-space output transform: ProPhoto RGB (ROMM) TRC — gamma 1.8 with a linear
+# toe (slope 16) below 1/512. Applied at the pipeline boundary; composes with the
+# ProPhoto ICC. Mirrored in WGSL oetf_encode/oetf_decode.
+_WORKING_GAMMA = 1.8
+_ROMM_LIN_BREAK = 1.0 / 512.0  # linear-domain toe break (encode)
+_ROMM_ENC_BREAK = 16.0 / 512.0  # encoded-domain toe break (decode) = 1/32
 
 
 def working_oetf_encode(img: np.ndarray) -> np.ndarray:
-    """Scene-linear -> display-encoded code values [0,1] (Adobe RGB TRC)."""
+    """Scene-linear -> display-encoded code values [0,1] (ProPhoto ROMM TRC)."""
     x = np.clip(img.astype(np.float32), 0.0, 1.0)
-    return (x**WORKING_TRC_GAMMA).astype(np.float32)
+    return np.where(x < _ROMM_LIN_BREAK, x * 16.0, x ** (1.0 / _WORKING_GAMMA)).astype(np.float32)
 
 
 def working_oetf_decode(img: np.ndarray) -> np.ndarray:
     """Inverse of working_oetf_encode."""
-    x = np.clip(img.astype(np.float32), 0.0, None)
-    return (x ** (1.0 / WORKING_TRC_GAMMA)).astype(np.float32)
+    e = np.clip(img.astype(np.float32), 0.0, None)
+    return np.where(e < _ROMM_ENC_BREAK, e / 16.0, e**_WORKING_GAMMA).astype(np.float32)
 
 
-# CIELAB in the working space (Adobe RGB 1998, D65): sRGB transfer (matches the encoding) +
-# Adobe RGB primaries. Mirrors the WGSL rgb_to_lab; OpenCV's float Lab scale (L 0-100).
-_ADOBE_RGB_TO_XYZ = np.array(
+# CIELAB in the working space (ProPhoto RGB / ROMM, D50): ProPhoto primaries.
+# Mirrors the WGSL rgb_to_lab; OpenCV's float Lab scale (L 0-100).
+_PROPHOTO_TO_XYZ = np.array(
     [
-        [0.5767309, 0.1855540, 0.1881852],
-        [0.2973769, 0.6273491, 0.0752741],
-        [0.0270343, 0.0706872, 0.9911085],
+        [0.7976749, 0.1351917, 0.0313534],
+        [0.2880402, 0.7118741, 0.0000857],
+        [0.0000000, 0.0000000, 0.8252100],
     ],
     dtype=np.float32,
 )
-_XYZ_TO_ADOBE_RGB = np.array(
+_XYZ_TO_PROPHOTO = np.array(
     [
-        [2.0413690, -0.5649464, -0.3446944],
-        [-0.9692660, 1.8760108, 0.0415560],
-        [0.0134474, -0.1183897, 1.0154096],
+        [1.3459433, -0.2556075, -0.0511118],
+        [-0.5445989, 1.5081673, 0.0205351],
+        [0.0000000, 0.0000000, 1.2118128],
     ],
     dtype=np.float32,
 )
-_D65_WHITE = np.array([0.95047, 1.00000, 1.08883], dtype=np.float32)
+_D50_WHITE = np.array([0.96422, 1.00000, 0.82521], dtype=np.float32)
 _LAB_EPS = 0.008856
 _LAB_KAPPA = 7.787
 
 
 def rgb_to_lab_working(img: np.ndarray) -> np.ndarray:
-    """Linear Adobe RGB -> CIELAB (D65). No sRGB decode — the working buffer is linear."""
+    """Linear ProPhoto RGB -> CIELAB (D50). No transfer decode — the buffer is linear."""
     lin = np.clip(img.astype(np.float32), 0.0, None)
-    xyz = lin @ _ADOBE_RGB_TO_XYZ.T
-    xyz = xyz / _D65_WHITE
+    xyz = lin @ _PROPHOTO_TO_XYZ.T
+    xyz = xyz / _D50_WHITE
     f = np.where(xyz > _LAB_EPS, np.cbrt(xyz), _LAB_KAPPA * xyz + 16.0 / 116.0).astype(np.float32)
     fx, fy, fz = f[..., 0], f[..., 1], f[..., 2]
     lab = np.empty_like(f)
@@ -163,7 +166,7 @@ def rgb_to_lab_working(img: np.ndarray) -> np.ndarray:
 
 
 def lab_to_rgb_working(lab: np.ndarray) -> np.ndarray:
-    """Inverse of rgb_to_lab_working: CIELAB (D65) -> linear Adobe RGB (no sRGB encode)."""
+    """Inverse of rgb_to_lab_working: CIELAB (D50) -> linear ProPhoto RGB (no encode)."""
     lab = lab.astype(np.float32)
     fy = (lab[..., 0] + 16.0) / 116.0
     fx = lab[..., 1] / 500.0 + fy
@@ -171,8 +174,8 @@ def lab_to_rgb_working(lab: np.ndarray) -> np.ndarray:
     f = np.stack([fx, fy, fz], axis=-1)
     f3 = f**3
     xyz = np.where(f3 > _LAB_EPS, f3, (f - 16.0 / 116.0) / _LAB_KAPPA).astype(np.float32)
-    xyz = xyz * _D65_WHITE
-    lin = xyz @ _XYZ_TO_ADOBE_RGB.T
+    xyz = xyz * _D50_WHITE
+    lin = xyz @ _XYZ_TO_PROPHOTO.T
     return np.clip(lin, 0.0, None).astype(np.float32)
 
 
