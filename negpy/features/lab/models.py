@@ -1,10 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-# ProPhoto working-space look compensation: pulled below 1.0 so the wide-gamut default
-# render lands near the old Adobe RGB look. Single knob — tune by eye in `make run`.
-DEFAULT_SATURATION = 0.85
-
 
 @dataclass(frozen=True)
 class LabConfig:
@@ -13,7 +9,7 @@ class LabConfig:
     """
 
     color_separation: float = 1.0
-    saturation: float = DEFAULT_SATURATION
+    saturation: float = 1.0
     vibrance: float = 1.0
     clahe_strength: float = 0.0
     sharpen: float = 0.25

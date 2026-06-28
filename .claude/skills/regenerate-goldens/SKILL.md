@@ -1,6 +1,6 @@
 ---
 name: regenerate-goldens
-description: "Use when a deliberate look/pipeline change has shifted NegPy's golden / characterization test values and they need updating — e.g. after changing DEFAULT_SATURATION, the working-space TRC or primaries, the print curve, or any default that alters rendered output, and a snapshot test now fails. Keywords: golden, goldens, characterization test, snapshot, regenerate, update expected values, test_scene_linear_relocation, test_characteristic_curve, _GOLDEN, look drift."
+description: "Use when a deliberate look/pipeline change has shifted NegPy's golden / characterization test values and they need updating — e.g. after changing the working-space TRC or primaries, the print curve, a lab/toning default (saturation, vibrance), or any default that alters rendered output, and a snapshot test now fails. Keywords: golden, goldens, characterization test, snapshot, regenerate, update expected values, test_scene_linear_relocation, test_characteristic_curve, _GOLDEN, look drift."
 ---
 
 # Regenerate goldens
@@ -20,8 +20,8 @@ surprise defeats the entire point of the test.
 
 - **`tests/test_scene_linear_relocation.py`** — `_GOLDEN`: full-engine output (6 pixels ×
   default / `expo_dark` / `expo_cmy`). Depends on the whole creative chain, so it shifts on
-  almost any look change: `DEFAULT_SATURATION`, working TRC/primaries, print curve, lab/
-  toning/finish defaults.
+  almost any look change: working TRC/primaries, print curve, lab/toning/finish defaults
+  (saturation, vibrance, etc.).
 - **`tests/test_characteristic_curve.py::test_default_curve_shape`** — `golden`: the default
   print curve sampled at x = 0, .25, .5, .75, 1 (exposure kernel only). Shifts on TRC or
   print-curve changes, **not** on lab/saturation.
