@@ -162,9 +162,7 @@ def test_load_linear_preview_hq_demosaic_xtrans_vs_bayer(cfa_block: int) -> None
         (2, False, True),  # Bayer: 2x2 averages cleanly → keep half_size
     ],
 )
-def test_load_linear_preview_fast_half_size_gated_on_xtrans_linear(
-    cfa_block: int, use_camera_wb: bool, half_expected: bool
-) -> None:
+def test_load_linear_preview_fast_half_size_gated_on_xtrans_linear(cfa_block: int, use_camera_wb: bool, half_expected: bool) -> None:
     """Fast preview always uses LINEAR; half_size is dropped only for linear X-Trans decodes."""
     rgb_u16 = np.ones((32, 32, 3), dtype=np.uint16) * 128
 
@@ -183,9 +181,7 @@ def test_load_linear_preview_fast_half_size_gated_on_xtrans_linear(
 
     with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
         lf.get_loader.return_value = (_Ctx(), {"color_space": "Adobe RGB"})
-        PreviewManager().load_linear_preview(
-            "/fake/path.dng", color_space="Adobe RGB", use_camera_wb=use_camera_wb, full_resolution=False
-        )
+        PreviewManager().load_linear_preview("/fake/path.dng", color_space="Adobe RGB", use_camera_wb=use_camera_wb, full_resolution=False)
 
     _, kwargs = raw.postprocess.call_args
     assert kwargs["demosaic_algorithm"] == rawpy.DemosaicAlgorithm.LINEAR

@@ -136,7 +136,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # log-interpolated percentiles around this neutral.
     # Default neutral percentile for per-channel colour clip / cast-removal analysis.
     # ↑ more outlier-resistant balance detection; ↓ more relaxed (includes more extreme tones).
-    "base_color_clip": 5.0,
+    "base_color_clip": 1.0,
     # Percentile used to sample per-channel shadow references for cast detection.
     # ↑ samples even darker shadow tones (closer to paper black); ↓ lighter reference tones.
     "shadow_neutral_percentile": 98.0,

@@ -20,6 +20,13 @@ from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 _DRANGE_MARGIN_MIN = 0.001
 _DRANGE_MARGIN_MAX = 1.0
 
+# Colour Clip slider: the absolute per-channel-balance clip percentile, log-interpolated
+# around the neutral (pos 0 = base_color_clip). The ends reach _COLOR_CLIP_MIN (gentlest,
+# near-extreme bounds) and _COLOR_CLIP_MAX (tightest channel balance).
+_COLOR_CLIP_NEUTRAL = float(EXPOSURE_CONSTANTS["base_color_clip"])
+_COLOR_CLIP_MIN = 0.01
+_COLOR_CLIP_MAX = 5.0
+
 
 def _drange_slider_to_value(pos: float) -> float:
     if pos >= 0:
@@ -34,14 +41,6 @@ def _drange_value_to_slider(v: float) -> float:
         return 20 * (math.log10(max(v, 1e-5)) + 5)
     lo, hi = math.log10(_DRANGE_MARGIN_MIN), math.log10(_DRANGE_MARGIN_MAX)
     return -100.0 * (math.log10(-v) - lo) / (hi - lo)
-
-
-# Colour Clip slider: the absolute per-channel-balance clip percentile, log-interpolated
-# around the neutral (pos 0 = base_color_clip). The ends reach _COLOR_CLIP_MIN (gentlest,
-# near-extreme bounds) and _COLOR_CLIP_MAX (tightest channel balance).
-_COLOR_CLIP_NEUTRAL = float(EXPOSURE_CONSTANTS["base_color_clip"])
-_COLOR_CLIP_MIN = 0.01
-_COLOR_CLIP_MAX = 10.0
 
 
 def _color_slider_to_value(pos: float) -> float:
