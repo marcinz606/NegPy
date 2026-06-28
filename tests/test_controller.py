@@ -96,6 +96,7 @@ class TestAppController(unittest.TestCase):
         mock_slot = MagicMock()
         self.controller.preview_loaded.connect(mock_slot)
         self.controller.request_render = MagicMock()
+        self.controller._requested_file_path = "dummy.dng"
 
         raw = object()
         dims = (1234, 5678)
@@ -109,6 +110,19 @@ class TestAppController(unittest.TestCase):
         self.assertIsNone(self.controller.state.preview_ir)
         mock_slot.assert_called_once_with()
         self.controller.request_render.assert_called_once_with()
+
+    def test_stale_preview_decode_is_dropped(self):
+        """A decode that lands after the user switched files must not be applied —
+        accepting it pairs the old buffer with the new file's hash and poisons the
+        per-source analysis cache (green/red cast on the new file)."""
+        self.controller.request_render = MagicMock()
+        self.controller._requested_file_path = "current.dng"
+        self.controller.state.preview_raw = None
+
+        self.controller._on_preview_loaded("stale.dng", object(), (10, 20), "", None, "")
+
+        self.assertIsNone(self.controller.state.preview_raw)
+        self.controller.request_render.assert_not_called()
 
     def test_apply_auto_crop_enables_auto_crop_and_clears_manual_rect(self):
         geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9), auto_crop_enabled=False)

@@ -45,8 +45,8 @@ from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
-from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
@@ -523,6 +523,8 @@ class AppController(QObject):
         self.request_render()
 
     def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
+        if self._requested_file_path != file_path:
+            return
         logger.debug(
             "preview e2e (load request to decoded buffer) %.3fs for %s",
             time.perf_counter() - self._preview_load_t0,
