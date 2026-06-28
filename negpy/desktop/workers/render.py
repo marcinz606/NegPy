@@ -35,6 +35,10 @@ class RenderTask:
     # True while the crop tool is active: show the full uncropped frame instead of
     # the final crop.
     crop_preview_full: bool = False
+    # True for display-only first-paint renders (the embedded-JPEG splash). Their
+    # analysis must NOT persist as the frame's local bounds — the splash buffer is
+    # not the linear sensor decode.
+    ephemeral: bool = False
 
 
 @dataclass(frozen=True)
@@ -148,6 +152,9 @@ class RenderWorker(QObject):
 
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result
+            # Render identity so the controller can reject stale/ephemeral bounds writeback.
+            metrics["source_hash"] = task.source_hash
+            metrics["ephemeral"] = task.ephemeral
 
             self.finished.emit(result, metrics)
             self.metrics_updated.emit(metrics)

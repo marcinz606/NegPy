@@ -520,7 +520,8 @@ class AppController(QObject):
             return
         self.state.preview_raw = raw
         self.state.original_res = dims
-        self.request_render()
+        # Display-only first paint from the embedded JPEG — must not persist its bounds.
+        self.request_render(ephemeral=True)
 
     def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
         if self._requested_file_path != file_path:
@@ -1154,7 +1155,7 @@ class AppController(QObject):
         self.session.save_icc_prefs()
         self._apply_monitor_profile()
 
-    def request_render(self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None) -> None:
+    def request_render(self, readback_metrics: bool = True, config_override: Optional[WorkspaceConfig] = None, ephemeral: bool = False) -> None:
         """
         Dispatches a render task to the worker thread.
         Direct callers bypass the debounce; the timer is cancelled to avoid a duplicate.
@@ -1207,6 +1208,7 @@ class AppController(QObject):
             ir_buffer=self.state.preview_ir,
             monitor_icc_bytes=self.state.monitor_icc_bytes,
             crop_preview_full=self.state.active_tool == ToolMode.CROP_MANUAL,
+            ephemeral=ephemeral,
         )
 
         if self._is_rendering:
@@ -1638,6 +1640,15 @@ class AppController(QObject):
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
         self.metrics_available.emit(metrics)
+
+        # Don't persist per-frame bounds from an ephemeral (splash / embedded-JPEG first
+        # paint) render, nor from a render of a different file (late metric after a fast
+        # switch) — those bounds aren't this frame's and would poison local_floors/ceils.
+        if metrics.get("ephemeral"):
+            return
+        src = metrics.get("source_hash")
+        if src is not None and src != self.state.current_file_hash:
+            return
 
         # If render produced fresh log bounds, persist them locally. Skip only when the
         # whole baseline rides the roll (both axes); a partial-roll mix is idempotent to
