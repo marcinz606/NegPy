@@ -135,6 +135,7 @@ class CollapsibleSection(QWidget):
 
     def set_modified(self, count: int) -> None:
         """Append count to title when non-zero; show reset button."""
+        self.modified_count = count
         visible = count > 0
         self.reset_btn.setVisible(visible)
         if visible:

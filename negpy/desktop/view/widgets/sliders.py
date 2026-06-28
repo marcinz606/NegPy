@@ -329,11 +329,10 @@ class HueSlider(CompactSlider):
         self._apply_hue(default_val)
 
     def _apply_hue(self, hue_deg: float) -> None:
-        """Update label color and slider handle to match the current hue."""
+        """Update slider handle to match the current hue; label stays grey (yellow when edited)."""
         h = int(hue_deg) % 360
         color = QColor.fromHsv(h, 200, 210)
-        edited = abs(self.spin.value() - self._default) > 1e-6
-        self.label.setStyleSheet(slider_label_qss(color.name(), edited))
+        self._update_edited_state()
         self.slider.setStyleSheet(hue_handle_qss(color.name()))
 
     def _on_slider_changed(self, value: int) -> None:

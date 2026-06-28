@@ -45,15 +45,15 @@ class ExposureSidebar(BaseSidebar):
         self.region_btn_group.addButton(self.region_highlight_btn, 2)
         self.layout.addLayout(region_row)
 
-        self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, color="#00b1b1", has_neutral=True)
+        self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
         self.cyan_slider.setToolTip("Cyan–Red white balance shift; applies to the selected region (Global/Shadows/Highlights)")
-        self.magenta_slider = CompactSlider("Magenta", -1.0, 1.0, conf.wb_magenta, color="#b100b1", has_neutral=True)
+        self.magenta_slider = CompactSlider("Magenta", -1.0, 1.0, conf.wb_magenta, has_neutral=True)
         self.magenta_slider.slider.setObjectName("magenta_slider")
         self.magenta_slider.setToolTip(
             tooltip_with_shortcut("Magenta–Green white balance shift; applies to the selected region  E/D", None)
         )
-        self.yellow_slider = CompactSlider("Yellow", -1.0, 1.0, conf.wb_yellow, color="#b1b100", has_neutral=True)
+        self.yellow_slider = CompactSlider("Yellow", -1.0, 1.0, conf.wb_yellow, has_neutral=True)
         self.yellow_slider.slider.setObjectName("yellow_slider")
         self.yellow_slider.setToolTip(tooltip_with_shortcut("Yellow–Blue white balance shift; applies to the selected region  R/F", None))
         self.layout.addWidget(self.cyan_slider)
@@ -343,21 +343,6 @@ class ExposureSidebar(BaseSidebar):
         if self.state.current_file_path:
             self.controller.load_file(self.state.current_file_path)
 
-    # Base hues per slider; varied by region for visual context
-    _CMY_COLORS = {
-        # region_index: (cyan_color, magenta_color, yellow_color)
-        0: ("#00b1b1", "#b100b1", "#b1b100"),  # Global — full saturation
-        1: ("#007a9c", "#7a009c", "#7a7a00"),  # Shadows — cooler/darker
-        2: ("#00d4c8", "#d400a0", "#d4c800"),  # Highlights — brighter/warmer
-    }
-
-    def _update_cmy_label_colors(self, idx: int) -> None:
-        c, m, y = self._CMY_COLORS.get(idx, self._CMY_COLORS[0])
-        fs = THEME.font_size_base
-        self.cyan_slider.label.setStyleSheet(f"font-size: {fs}px; color: {c};")
-        self.magenta_slider.label.setStyleSheet(f"font-size: {fs}px; color: {m};")
-        self.yellow_slider.label.setStyleSheet(f"font-size: {fs}px; color: {y};")
-
     def sync_ui(self) -> None:
         conf = self.state.config.exposure
 
@@ -374,7 +359,6 @@ class ExposureSidebar(BaseSidebar):
             self.paper_label.setVisible(not hide_paper)
 
             idx = self._region_index()
-            self._update_cmy_label_colors(idx)
             if idx == 0:
                 self.cyan_slider.setValue(conf.wb_cyan)
                 self.magenta_slider.setValue(conf.wb_magenta)

@@ -117,6 +117,9 @@ class RightPanel(QWidget):
         self._tab_icons: list[str] = []
         self._tab_tooltips: list[str] = []
         self._section_tab_index: dict[str, int] = {}
+        self._tab_sections: dict[int, list[str]] = {}
+        self._tab_edited: list[bool] = []
+        self._active_index = 0
         self._scan_index = -1
 
         tab_style = """
@@ -151,6 +154,9 @@ class RightPanel(QWidget):
             self._tab_keys.append(key)
             self._tab_icons.append(icon_name)
             self._tab_tooltips.append(tooltip)
+            self._tab_edited.append(False)
+            if section_attrs:
+                self._tab_sections[i] = section_attrs
             for attr in section_attrs:
                 self._section_tab_index[attr] = i
             if key == "scan":
@@ -196,13 +202,30 @@ class RightPanel(QWidget):
         self.controller.image_updated.connect(self._update_analysis)
         self.controller.metrics_available.connect(self._on_metrics_available)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
+        self.controls_panel.modified_synced.connect(self._sync_tab_edited)
+
+    def _sync_tab_edited(self) -> None:
+        """Mark control-group tabs whose sections have edits (yellow icon, like edited sliders)."""
+        for i, attrs in self._tab_sections.items():
+            self._tab_edited[i] = any(getattr(getattr(self.controls_panel, a), "modified_count", 0) for a in attrs)
+        self._refresh_tab_icons()
+
+    def _refresh_tab_icons(self) -> None:
+        for i, btn in enumerate(self._tab_buttons):
+            if i == self._active_index:
+                color = "white"
+            elif self._tab_edited[i]:
+                color = THEME.accent_edited
+            else:
+                color = THEME.text_secondary
+            btn.setIcon(qta.icon(self._tab_icons[i], color=color))
 
     def _switch_tab(self, index: int) -> None:
+        self._active_index = index
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self._tab_buttons):
-            active = i == index
-            btn.setChecked(active)
-            btn.setIcon(qta.icon(self._tab_icons[i], color="white" if active else THEME.text_secondary))
+            btn.setChecked(i == index)
+        self._refresh_tab_icons()
 
         # Trigger device detection when the Scan tab is selected
         if index == self._scan_index and hasattr(self.scan_sidebar, "on_activated"):

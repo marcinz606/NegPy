@@ -16,8 +16,8 @@ def section_subheader(text: str) -> QLabel:
 
 
 def slider_label_qss(color: str, edited: bool) -> str:
-    border = f"border-bottom: 1px solid {THEME.accent_edited};" if edited else ""
-    return f"font-size: {THEME.font_size_base}px; color: {color}; {border}"
+    label_color = THEME.accent_edited if edited else color
+    return f"font-size: {THEME.font_size_base}px; color: {label_color};"
 
 
 def hue_handle_qss(color: str) -> str:

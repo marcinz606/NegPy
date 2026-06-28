@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 import qtawesome as qta
 
 from negpy.desktop.controller import AppController
@@ -33,6 +33,8 @@ class ControlsPanel(QWidget):
     """
     Right sidebar panel aggregating all tool controls (Exposure, Geometry, etc.).
     """
+
+    modified_synced = pyqtSignal()
 
     def __init__(self, controller: AppController):
         super().__init__()
@@ -585,6 +587,7 @@ class ControlsPanel(QWidget):
         self.retouch_section.set_modified(retouch_count)
         self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)
+        self.modified_synced.emit()
 
     def _sync_tool_buttons(self) -> None:
         """Updates toggle button states to match active_tool."""
