@@ -367,7 +367,7 @@ def analyze_log_exposure_bounds(
     # clip tightens channel balance / cast removal without touching the luma span.
     c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, process_mode, e6_normalize)
     mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
-    mean_cf, mean_cc = sum(c_floors) / 3.0, sum(c_ceils) / 3.0
+    mean_cf, mean_cc = sorted(c_floors)[1], sorted(c_ceils)[1]
     floors = [mean_lf + (c_floors[ch] - mean_cf) for ch in range(3)]
     ceils = [mean_lc + (c_ceils[ch] - mean_cc) for ch in range(3)]
 
@@ -383,7 +383,7 @@ def mix_luma_colour_bounds(luma_src: LogNegativeBounds, colour_src: LogNegativeB
     Identity when luma_src is colour_src — mirrors analyze_log_exposure_bounds' recombination.
     """
     mlf, mlc = sum(luma_src.floors) / 3.0, sum(luma_src.ceils) / 3.0
-    mcf, mcc = sum(colour_src.floors) / 3.0, sum(colour_src.ceils) / 3.0
+    mcf, mcc = sorted(colour_src.floors)[1], sorted(colour_src.ceils)[1]
     floors = tuple(mlf + (colour_src.floors[ch] - mcf) for ch in range(3))
     ceils = tuple(mlc + (colour_src.ceils[ch] - mcc) for ch in range(3))
     return LogNegativeBounds(floors, ceils)

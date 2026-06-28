@@ -25,7 +25,7 @@ _LUMA_MARGIN_MAX = 1.0
 # near-extreme bounds) and _COLOR_CLIP_MAX (tightest channel balance).
 _COLOR_CLIP_NEUTRAL = float(EXPOSURE_CONSTANTS["base_color_clip"])
 _COLOR_CLIP_MIN = 1e-6
-_COLOR_CLIP_MAX = 1.0
+_COLOR_CLIP_MAX = 5.0
 
 
 def _luma_range_slider_to_value(pos: float) -> float:
@@ -110,7 +110,7 @@ class ProcessSidebar(BaseSidebar):
         )
         self.color_range_clip_slider.setToolTip(
             "Per-channel colour-balance clip percentile (orange-mask cast removal), independent of tonal range. "
-            "Neutral: robust P5 clip. "
+            "Neutral: P1 clip (1st percentile). "
             "Negative: gentler, samples nearer the extremes. Positive: tighter channel balance (double-click to reset)"
         )
         clip_row.addWidget(self.luma_range_clip_slider)
