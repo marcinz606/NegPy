@@ -159,13 +159,12 @@ class ImageProcessor:
             return Image.fromarray(float_to_uint8(buffer))
         raise ValueError(f"Unsupported bit depth: {bit_depth}")
 
-    def _decode_sensor_rgb(self, file_path: str, linear_raw: bool, want_flat_gamut: bool) -> Tuple[np.ndarray, Dict[str, Any], Any]:
+    def _decode_sensor_rgb(self, file_path: str, linear_raw: bool) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
-        Returns (rgb_uint16, loader_metadata, camera_xyz_matrix_or_None).
+        Returns (rgb_uint16, loader_metadata).
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
-        cam_matrix = None
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
             user_wb = [1, 1, 1, 1] if linear_raw else None
@@ -180,26 +179,16 @@ class ImageProcessor:
                 user_flip=0,
             )
             rgb = ensure_rgb(rgb)
-            if want_flat_gamut:
-                # Non-camera sources (scanner TIFF, NegPy linear DNG) lack this.
-                cam_matrix = getattr(raw, "rgb_xyz_matrix", None)
-        return rgb, metadata, cam_matrix
+        return rgb, metadata
 
-    def _load_source_f32(self, file_path: str, params: WorkspaceConfig) -> Tuple[np.ndarray, Optional[np.ndarray], str, Optional[str]]:
+    def _load_source_f32(self, file_path: str, params: WorkspaceConfig) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
         """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
 
-        Returns (f32_buffer, ir_buffer, source_color_space, effective_working_space).
-
-        ``effective_working_space`` is non-None only for a flat (digital-intermediate)
-        render of a camera RAW: the camera's own colour matrix is applied to convert
-        sensor-native linear RGB into ProPhoto-linear *before* normalization/inversion,
-        and the value tells the export encoder to treat the buffer as ProPhoto. For the
-        print path it is always None, so that pipeline is completely unaffected.
+        Returns (f32_buffer, ir_buffer, source_color_space).
         """
-        want_flat_gamut = self._is_flat(params)
         linear_raw = params.exposure.linear_raw
 
-        rgb, metadata, cam_matrix = self._decode_sensor_rgb(file_path, linear_raw, want_flat_gamut)
+        rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw)
         source_cs = str(metadata.get("color_space", ColorSpace.ADOBE_RGB.value))
         ir_full = metadata.get("ir")
 
@@ -210,27 +199,18 @@ class ImageProcessor:
             def _decode(path: str) -> np.ndarray:
                 if path == file_path:
                     return rgb
-                return self._decode_sensor_rgb(path, linear_raw, want_flat_gamut)[0]
+                return self._decode_sensor_rgb(path, linear_raw)[0]
 
             rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
 
         f32_buffer = uint16_to_float32(rgb)
-
-        effective_working_space: Optional[str] = None
-        if want_flat_gamut and cam_matrix is not None:
-            from negpy.infrastructure.display.camera_color import apply_camera_to_prophoto, camera_to_prophoto_matrix
-
-            mat = camera_to_prophoto_matrix(cam_matrix)
-            if mat is not None:
-                f32_buffer = apply_camera_to_prophoto(f32_buffer, mat)
-                effective_working_space = ColorSpace.PROPHOTO.value
 
         orientation = metadata.get("orientation", 1)
         f32_buffer = apply_exif_orientation(f32_buffer, orientation)
         f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
-        return f32_buffer, ir_full, source_cs, effective_working_space
+        return f32_buffer, ir_full, source_cs
 
     def process_export(
         self,
@@ -250,11 +230,7 @@ class ImageProcessor:
             # Ensure both GPU and CPU paths use the same export settings.
             params = dc_replace(params, export=export_settings)
 
-            f32_buffer, ir_full, source_cs, eff_working_cs = self._load_source_f32(file_path, params)
-            # Flat masters convert sensor RGB → ProPhoto-linear up front; tell the
-            # encoder the buffer is already ProPhoto so it doesn't re-interpret it.
-            if eff_working_cs is not None:
-                working_color_space = eff_working_cs
+            f32_buffer, ir_full, source_cs = self._load_source_f32(file_path, params)
             target_cs = export_settings.export_color_space
             if target_cs == ColorSpace.SAME_AS_SOURCE.value:
                 target_cs = source_cs
@@ -453,7 +429,7 @@ class ImageProcessor:
         try:
             from negpy.infrastructure.display.color_mgmt import apply_display_transform
 
-            f32_buffer, ir_full, _, _ = self._load_source_f32(file_path, params)
+            f32_buffer, ir_full, _ = self._load_source_f32(file_path, params)
             h_raw, w_raw = f32_buffer.shape[:2]
             scale_factor = max(1.0, max(h_raw, w_raw) / float(target_long_px))
 

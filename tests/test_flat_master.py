@@ -187,10 +187,16 @@ class TestFlatConfigHelpers(unittest.TestCase):
         self.assertEqual(cfg.geometry, src.geometry)
         self.assertEqual(cfg.process, src.process)
 
-    def test_flat_export_config_tiff_wide_gamut_full_res(self):
-        out = flat_export_config(ExportConfig(), fmt=ExportFormat.TIFF)
+    def test_flat_export_config_full_res_preserves_color_space(self):
+        # Color space follows the user's export selection; flat must not override it.
+        src = ExportConfig(export_color_space=ColorSpace.SRGB.value)
+        out = flat_export_config(src, fmt=ExportFormat.TIFF)
         self.assertEqual(out.export_fmt, ExportFormat.TIFF)
-        self.assertEqual(out.export_color_space, ColorSpace.PROPHOTO.value)
+        self.assertEqual(out.export_color_space, ColorSpace.SRGB.value)
+        self.assertEqual(
+            flat_export_config(ExportConfig(export_color_space=ColorSpace.PROPHOTO.value)).export_color_space,
+            ColorSpace.PROPHOTO.value,
+        )
         self.assertEqual(out.export_resolution_mode, ExportResolutionMode.ORIGINAL.value)
         self.assertEqual(out.paper_aspect_ratio, AspectRatio.ORIGINAL)
 
@@ -218,55 +224,6 @@ class TestImageProcessorFlatRouting(unittest.TestCase):
         flat = flat_master_config(WorkspaceConfig())
         self.assertTrue(ImageProcessor._is_flat(flat))
         self.assertFalse(ImageProcessor._is_flat(WorkspaceConfig()))
-
-
-class TestFlatWideGamut(unittest.TestCase):
-    """Camera-native → ProPhoto matrix for the flat master (req #6)."""
-
-    # A representative camera matrix (rawpy rgb_xyz_matrix == LibRaw cam_xyz, XYZ→cam),
-    # 4×3 with the conventional zero last row for an RGB sensor (from a Nikon NEF).
-    NIKON = [
-        [0.8828, -0.2406, -0.0694],
-        [-0.4874, 1.2603, 0.2541],
-        [-0.066, 0.1509, 0.7587],
-        [0.0, 0.0, 0.0],
-    ]
-
-    def test_matrix_is_3x3_and_neutral_preserving(self):
-        from negpy.infrastructure.display.camera_color import camera_to_prophoto_matrix
-
-        m = camera_to_prophoto_matrix(self.NIKON)
-        self.assertIsNotNone(m)
-        assert m is not None
-        self.assertEqual(m.shape, (3, 3))
-        # Row-normalised → a neutral camera value maps to a neutral ProPhoto value.
-        np.testing.assert_allclose(m.sum(axis=1), [1.0, 1.0, 1.0], atol=1e-5)
-
-    def test_apply_keeps_neutral_neutral(self):
-        from negpy.infrastructure.display.camera_color import apply_camera_to_prophoto, camera_to_prophoto_matrix
-
-        m = camera_to_prophoto_matrix(self.NIKON)
-        assert m is not None
-        gray = np.full((4, 4, 3), 0.5, dtype=np.float32)
-        out = apply_camera_to_prophoto(gray, m)
-        np.testing.assert_allclose(out, 0.5, atol=1e-5)
-
-    def test_apply_clamps_negatives(self):
-        from negpy.infrastructure.display.camera_color import apply_camera_to_prophoto, camera_to_prophoto_matrix
-
-        m = camera_to_prophoto_matrix(self.NIKON)
-        assert m is not None
-        sat = np.zeros((1, 1, 3), dtype=np.float32)
-        sat[0, 0] = [1.0, 0.0, 0.0]
-        out = apply_camera_to_prophoto(sat, m)
-        self.assertGreaterEqual(float(out.min()), 0.0)
-
-    def test_degenerate_inputs_return_none(self):
-        from negpy.infrastructure.display.camera_color import camera_to_prophoto_matrix
-
-        self.assertIsNone(camera_to_prophoto_matrix(None))
-        self.assertIsNone(camera_to_prophoto_matrix(np.zeros((4, 3))))  # singular
-        self.assertIsNone(camera_to_prophoto_matrix(np.zeros((2, 2))))  # wrong shape
 
 
 class TestFlatDngEncode(unittest.TestCase):

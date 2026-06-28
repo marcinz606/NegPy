@@ -347,11 +347,6 @@ class WorkspaceConfig:
         )
 
 
-# Wide-gamut working/output space for the flat digital-intermediate master, so the
-# 16-bit export preserves the widest practical colour range for downstream editing.
-FLAT_MASTER_COLOR_SPACE = ColorSpace.PROPHOTO.value
-
-
 def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
     """
     Derive a flat digital-intermediate ("Flat — for editing elsewhere") render
@@ -381,14 +376,14 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
 
 def flat_export_config(export: ExportConfig, fmt: str = ExportFormat.TIFF) -> ExportConfig:
     """
-    Override export settings for a flat master: a high-bit-depth, wide-gamut,
-    full-resolution file with no creative paper sizing. ``fmt`` selects TIFF
+    Override export settings for a flat master: a high-bit-depth, full-resolution
+    file with no creative paper sizing. The export color space follows the user's
+    selection (unchanged here), same as the print path. ``fmt`` selects TIFF
     (16-bit, default) or DNG (linear digital negative).
     """
     return replace(
         export,
         export_fmt=fmt,
-        export_color_space=FLAT_MASTER_COLOR_SPACE,
         export_resolution_mode=ExportResolutionMode.ORIGINAL.value,
         paper_aspect_ratio=AspectRatio.ORIGINAL,
     )

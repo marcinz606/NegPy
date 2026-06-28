@@ -200,9 +200,7 @@ class ExportSidebar(BaseSidebar):
         self.flat_format_combo.addItem("Linear DNG", "DNG")
         idx = self.flat_format_combo.findData(self.state.flat_format)
         self.flat_format_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self.flat_format_combo.setToolTip(
-            "16-bit TIFF: widely compatible, ProPhoto RGB, ready to edit.\nLinear DNG: a linear digital negative."
-        )
+        self.flat_format_combo.setToolTip("16-bit TIFF: widely compatible, ready to edit.\nLinear DNG: a linear digital negative.")
         fmt_row.addWidget(self.flat_format_combo)
         self.layout.addWidget(self.flat_format_row_widget)
 
@@ -223,7 +221,9 @@ class ExportSidebar(BaseSidebar):
         peek_bake_row.addWidget(self.flat_bake_btn)
         self.layout.addLayout(peek_bake_row)
 
-        self.flat_hint_label = QLabel("Exports a flat ProPhoto master. Size/colour rows above are overridden for this output.")
+        self.flat_hint_label = QLabel(
+            "Exports a flat master in the selected color space. The size row above is overridden for this output."
+        )
         self.flat_hint_label.setWordWrap(True)
         self.flat_hint_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
         self.layout.addWidget(self.flat_hint_label)
