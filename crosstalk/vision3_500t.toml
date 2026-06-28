@@ -1,0 +1,9 @@
+name = "Kodak VISION3 500T 5219/7219"
+
+# 3x3 row-major density unmixing matrix (out R/G/B × in R/G/B)
+# Derived analytically from spectral dye-density curves (datasheet H-1-5219)
+matrix = [
+  [ 1.000, -0.099, -0.006 ],
+  [-0.170,  1.000, -0.040 ],
+  [-0.090, -0.201,  1.000 ]
+]
