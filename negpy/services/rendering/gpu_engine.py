@@ -11,11 +11,11 @@ from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConf
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    luma_source_bounds,
     luminance_density_range,
     measure_anchor,
     measure_shadow_log_refs,
     measure_textural_range,
-    resolve_bounds,
     resolve_bounds_detailed,
 )
 from negpy.features.geometry.logic import (
@@ -460,7 +460,7 @@ class GPUEngine:
             analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
 
         if bounds_override:
-            bounds = base_bounds = bounds_override
+            bounds = base_bounds = anchor_bounds = bounds_override
         else:
             bounds, base_bounds = resolve_bounds_detailed(
                 settings.process,
@@ -474,6 +474,7 @@ class GPUEngine:
                     color_clip=settings.process.color_range_clip,
                 ),
             )
+            anchor_bounds = luma_source_bounds(settings.process, base_bounds)
 
         shadow_refs = shadow_refs_override
         if needs_refs and analysis_source is not None:
@@ -487,7 +488,7 @@ class GPUEngine:
         if needs_anchor and analysis_source is not None:
             metered_anchor = measure_anchor(
                 analysis_source,
-                bounds,
+                anchor_bounds,
                 analysis_roi,
                 settings.process.analysis_buffer,
             )
@@ -1520,9 +1521,10 @@ class GPUEngine:
             )
 
         if bounds_override:
-            global_bounds = bounds_override
+            global_bounds = global_anchor_bounds = bounds_override
         else:
-            global_bounds = resolve_bounds(settings.process, _analyze_global_bounds)
+            global_bounds, global_base_bounds = resolve_bounds_detailed(settings.process, _analyze_global_bounds)
+            global_anchor_bounds = luma_source_bounds(settings.process, global_base_bounds)
 
         global_shadow_refs = None
         if settings.exposure.cast_removal and settings.process.process_mode == ProcessMode.C41:
@@ -1545,7 +1547,7 @@ class GPUEngine:
             analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
             global_metered_anchor = measure_anchor(
                 _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
-                global_bounds,
+                global_anchor_bounds,
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
             )

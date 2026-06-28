@@ -165,6 +165,40 @@ class TestResolveBounds(unittest.TestCase):
         _, base2 = resolve_bounds_detailed(proc2, self._boom)
         self._assert_close(base, base2)
 
+    def test_colour_source_does_not_move_luma_range_or_centre(self):
+        """The user's bug: swapping the colour source must not change the
+        luma-weighted density range (H&D slope -> gamma) or centre (-> brightness),
+        which only the luma source may set."""
+        from negpy.features.exposure.normalization import LUMA_R, LUMA_G, LUMA_B, luminance_density_range
+
+        w = (LUMA_R, LUMA_G, LUMA_B)
+        centre = lambda b: sum(w[c] * (b.floors[c] + b.ceils[c]) / 2.0 for c in range(3))  # noqa: E731
+        for luma_src, colour_src in ((self.LOCAL, self.LOCKED), (self.LOCKED, self.LOCAL)):
+            mixed = mix_luma_colour_bounds(luma_src, colour_src)
+            self.assertAlmostEqual(luminance_density_range(mixed), luminance_density_range(luma_src), places=6)
+            self.assertAlmostEqual(centre(mixed), centre(luma_src), places=6)
+        # And the cast still differs from the luma source (colour actually applied).
+        self.assertNotAlmostEqual(
+            mix_luma_colour_bounds(self.LOCAL, self.LOCKED).floors[0],
+            self.LOCAL.floors[0],
+            places=4,
+        )
+
+    def test_luma_source_bounds_ignores_colour_average(self):
+        """The metered anchor (brightness) is read off these bounds, so they must
+        depend only on the luma axis — toggling colour-average never moves them."""
+        from negpy.features.exposure.normalization import luma_source_bounds
+
+        off = self._proc(use_luma_average=False, use_colour_average=False)
+        colour_on = self._proc(use_luma_average=False, use_colour_average=True)
+        self._assert_close(luma_source_bounds(off, self.LOCAL), self.LOCAL)
+        self._assert_close(luma_source_bounds(colour_on, self.LOCAL), self.LOCAL)
+        # Luma-average on -> roll baseline, still independent of the colour toggle.
+        luma_both = self._proc(use_luma_average=True, use_colour_average=True)
+        luma_only = self._proc(use_luma_average=True, use_colour_average=False)
+        self._assert_close(luma_source_bounds(luma_both, self.LOCAL), self.LOCKED)
+        self._assert_close(luma_source_bounds(luma_only, self.LOCAL), self.LOCKED)
+
     def test_falls_back_to_analyze_when_locked_uninitialized(self):
         """Flags on but no roll baseline -> the per-frame analyze_fn supplies the base."""
         analyzed = LogNegativeBounds((-1.5, -1.5, -1.5), (-0.4, -0.4, -0.4))

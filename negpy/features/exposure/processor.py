@@ -14,6 +14,7 @@ from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds,
+    luma_source_bounds,
     luminance_density_range,
     measure_anchor_from_log,
     measure_shadow_refs_from_log,
@@ -120,7 +121,8 @@ class NormalizationProcessor:
         # Per-frame exposure anchor, measured against the same final bounds the
         # image is normalized with. Stored unconditionally (cheap, block-grid);
         # PhotometricProcessor uses it only when auto_exposure is on.
-        context.metrics["metered_anchor"] = measure_anchor_from_log(img_log, bounds, context.active_roi, self.config.analysis_buffer)
+        anchor_bounds = luma_source_bounds(self.config, base_bounds)
+        context.metrics["metered_anchor"] = measure_anchor_from_log(img_log, anchor_bounds, context.active_roi, self.config.analysis_buffer)
         context.metrics["textural_range"] = measure_textural_range_from_log(img_log, context.active_roi, self.config.analysis_buffer)
 
         context.metrics["final_bounds"] = bounds
