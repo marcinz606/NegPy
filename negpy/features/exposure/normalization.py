@@ -1,3 +1,5 @@
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Tuple
 
 import numpy as np
@@ -6,6 +8,9 @@ from numba import njit  # type: ignore
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.image.validation import ensure_image
+
+# Above this size the block-median is threaded over row strips (np.median frees the GIL).
+_BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
 
 
 @njit(cache=True, fastmath=True)
@@ -75,11 +80,26 @@ def _block_median_grid(img_log: ImageBuffer) -> ImageBuffer:
     h, w = img_log.shape[:2]
     grid = int(EXPOSURE_CONSTANTS["analysis_grid"])
     b = int(np.ceil(max(h, w) / grid))
-    if b > 1 and h >= b and w >= b:
-        hb, wb = (h // b) * b, (w // b) * b
-        blocks = img_log[:hb, :wb].reshape(hb // b, b, wb // b, b, img_log.shape[2])
-        img_log = np.median(blocks, axis=(1, 3))
-    return img_log
+    if b <= 1 or h < b or w < b:
+        return img_log
+
+    hb, wb = (h // b) * b, (w // b) * b
+    arr = img_log[:hb, :wb]
+    grid_rows, c = hb // b, arr.shape[2]
+
+    def _median(rows: np.ndarray) -> np.ndarray:
+        return np.median(rows.reshape(rows.shape[0] // b, b, wb // b, b, c), axis=(1, 3))
+
+    workers = min(os.cpu_count() or 1, grid_rows)
+    if workers < 2 or hb * wb < _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS:
+        return _median(arr)
+
+    # Block-aligned strips -> per-cell median identical to the single pass.
+    rows_per = -(-grid_rows // workers)
+    strips = [arr[i * b : min(grid_rows, i + rows_per) * b] for i in range(0, grid_rows, rows_per)]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        parts = list(ex.map(_median, strips))
+    return np.concatenate(parts, axis=0)
 
 
 def measure_shadow_refs_from_log(

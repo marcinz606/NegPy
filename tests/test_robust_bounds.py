@@ -36,6 +36,21 @@ class TestRobustBounds(unittest.TestCase):
             self.assertAlmostEqual(clean.floors[ch], robust.floors[ch], delta=0.02)
             self.assertAlmostEqual(clean.ceils[ch], robust.ceils[ch], delta=0.02)
 
+    def test_block_median_grid_parallel_is_bit_exact(self):
+        """The threaded block-median (row strips) must equal the single-pass reshape-median."""
+        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+        from negpy.features.exposure.normalization import _block_median_grid
+
+        rng = np.random.default_rng(7)
+        img = rng.random((2048, 3000, 3), dtype=np.float32)  # >2M px -> parallel path
+
+        h, w = img.shape[:2]
+        b = int(np.ceil(max(h, w) / int(EXPOSURE_CONSTANTS["analysis_grid"])))
+        hb, wb = (h // b) * b, (w // b) * b
+        ref = np.median(img[:hb, :wb].reshape(hb // b, b, wb // b, b, 3), axis=(1, 3))
+
+        np.testing.assert_array_equal(_block_median_grid(img), ref)
+
     def test_resolution_invariance(self):
         """Same scene at different resolutions must yield near-identical bounds."""
         small = analyze_log_exposure_bounds(_gradient_image(1024, 768))
