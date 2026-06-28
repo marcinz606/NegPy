@@ -249,7 +249,9 @@ class ExportSidebar(BaseSidebar):
         """Show the roll-baseline nudge only when flat output is on and the roll
         doesn't yet share a locked normalization baseline."""
         on = self.intent_flat_btn.isChecked()
-        locked = self.state.config.process.use_roll_average and self.state.config.process.is_locked_initialized
+        proc = self.state.config.process
+        # Flat-master roll consistency needs both axes baselined across the roll.
+        locked = proc.use_luma_average and proc.use_colour_average and proc.is_locked_initialized
         show = on and not locked
         self.flat_roll_warning.setVisible(show)
         self.flat_bake_btn.setVisible(show)

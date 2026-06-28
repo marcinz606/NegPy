@@ -67,6 +67,20 @@ class TestConfigDeserialization(unittest.TestCase):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(data)
 
+    def test_legacy_use_roll_average_true_splits_to_both_axes(self):
+        config = WorkspaceConfig.from_flat_dict({"use_roll_average": True})
+        self.assertTrue(config.process.use_luma_average)
+        self.assertTrue(config.process.use_colour_average)
+
+    def test_legacy_use_roll_average_false_splits_to_both_axes(self):
+        config = WorkspaceConfig.from_flat_dict({"use_roll_average": False})
+        self.assertFalse(config.process.use_luma_average)
+        self.assertFalse(config.process.use_colour_average)
+
+    def test_legacy_use_roll_average_does_not_warn(self):
+        with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
+            WorkspaceConfig.from_flat_dict({"use_roll_average": True})
+
     def test_manual_crop_rect_survives_db_roundtrip_as_tuple(self):
         """Manual crop saved to JSON reloads as a list, making the frozen
         GeometryConfig unhashable and crashing the pipeline hash. The reloaded

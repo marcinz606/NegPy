@@ -14,7 +14,7 @@ class TestBatchNormalization(unittest.TestCase):
 
     def test_normalization_processor_uses_locked_values(self):
         """
-        Verify that NormalizationProcessor ignores local analysis when use_roll_average is ON.
+        Verify that NormalizationProcessor ignores local analysis when both roll averages are ON.
         """
         # Set specific locked values
         locked_floors = (-0.5, -0.5, -0.5)
@@ -22,7 +22,8 @@ class TestBatchNormalization(unittest.TestCase):
 
         new_process = replace(
             self.config.process,
-            use_roll_average=True,
+            use_luma_average=True,
+            use_colour_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
         )

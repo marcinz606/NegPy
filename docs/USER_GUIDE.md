@@ -31,7 +31,8 @@ The foundation of your edit — film type, exposure analysis, and roll-wide base
 *   **Mode**: Selects `C41`, `B&W`, or `E-6`. Changes the negative-to-positive math and invalidates the cache so the pipeline re-runs from scratch.
 *   **Lock Bounds**: Freezes the analyzed normalization bounds for this image. Cropping or moving sliders that would normally re-analyze the frame stop doing so, which is useful once you've dialed in good bounds and don't want them recomputed.
 *   **Analysis Buffer** (0.0–0.50): Insets the analysis window from the frame edge so film rebate, sprocket holes, and scanner borders don't skew the black/white-point detection. Raise it on scans with wide borders; lower it for tightly-cropped frames.
-*   **D-Range Clip** (0–100): Statistical percentile clip on the histogram before NegPy locates the black/white points. Higher values discard more outlier pixels, which helps with dense, fogged, or specular negatives where a few stray bright/dark pixels would otherwise pull the bounds toward the extremes.
+*   **Luma Range Clip** (-100–100): Percentile clip on the histogram for the tonal-range (black/white-point) span, independent of colour. Positive values discard more outlier pixels — helpful for dense, fogged, or specular negatives where a few stray bright/dark pixels would otherwise pull the bounds to the extremes; negative values push the bounds outward for lifted blacks / unclipped highlights.
+*   **Colour Clip** (-100–100): Per-channel colour-balance clip percentile (orange-mask cast removal), independent of the tonal range. Positive values tighten the channel balance; negative values sample nearer the extremes.
 *   **White Point** (-0.25–0.25): Manual offset applied on top of the auto-detected white point. Positive values brighten; negative values pull highlights back down. Centered (0) means "use auto exactly."
 *   **Black Point** (-0.25–0.25): Manual offset for the black point. Positive values lift the blacks; negative values deepen them.
 
@@ -42,7 +43,8 @@ The foundation of your edit — film type, exposure analysis, and roll-wide base
 ### BATCH
 
 *   **Batch Analysis**: Scans every loaded file and computes a "Roll Average" baseline — average per-channel density and color balance with outliers discarded. Run this once after importing a roll.
-*   **Use Roll Average**: Toggles between per-image local normalization and the roll-wide baseline computed by Batch Analysis. Local gives each frame its own auto-exposure; roll-wide produces a consistent look across the roll.
+*   **Use Luma Average**: Takes the roll-wide tonal-range (black/white-point) baseline from Batch Analysis for this frame, while colour balance still re-derives per frame.
+*   **Use Colour Average**: Takes the roll-wide per-channel colour-balance baseline from Batch Analysis, while the tonal range still re-derives per frame. Enable both for a fully consistent roll-wide look; leave both off for per-image local auto-exposure.
 
 ### ROLL
 

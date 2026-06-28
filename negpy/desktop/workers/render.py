@@ -54,7 +54,7 @@ class NormalizationTask:
     files: list[dict]
     workspace_color_space: str
     # Roll-wide overrides taken from the current image: applied to every file's
-    # analysis before averaging so the whole roll shares one buffer / d-range.
+    # analysis before averaging so the whole roll shares one buffer / luma bounds.
     override_analysis_buffer: float
     override_luma_range_clip: float
     override_color_range_clip: float
@@ -458,7 +458,7 @@ class NormalizationWorker(QObject):
                     return None
                 try:
                     params = self._repo.load_file_settings(f_info["hash"])
-                    # Roll-wide buffer / d-range from the current image — applied to every
+                    # Roll-wide buffer / luma bounds from the current image — applied to every
                     # file so one slider setting drives the whole batch baseline.
                     analysis_buffer = task.override_analysis_buffer
                     luma_range_clip = task.override_luma_range_clip

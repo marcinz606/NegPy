@@ -332,7 +332,7 @@ def analyze_log_exposure_bounds(
     Two independent axes are sampled and recombined:
       - percentile_clip (luma): drives the overall black/white-point luminance and
         span (ceil-floor) — i.e. dynamic range / highlight headroom. Sampled at the
-        gentle base_drange_clip baseline; slider semantics are:
+        gentle base_luma_clip baseline; slider semantics are:
           > 0  clips the histogram tails (added on top of the baseline clip).
           = 0  robust extremes (block-median prefilter + baseline clip).
           < 0  outward headroom: bounds pushed BEYOND the robust extremes by the margin.
@@ -358,7 +358,7 @@ def analyze_log_exposure_bounds(
 
     img_log = _block_median_grid(img_log)
 
-    base_luma = float(EXPOSURE_CONSTANTS["base_drange_clip"])
+    base_luma = float(EXPOSURE_CONSTANTS["base_luma_clip"])
 
     floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize)
 
@@ -375,3 +375,30 @@ def analyze_log_exposure_bounds(
         (floors[0], floors[1], floors[2]),
         (ceils[0], ceils[1], ceils[2]),
     )
+
+
+def mix_luma_colour_bounds(luma_src: LogNegativeBounds, colour_src: LogNegativeBounds) -> LogNegativeBounds:
+    """
+    Luma centre+span from one bounds, per-channel colour deviation from another.
+    Identity when luma_src is colour_src — mirrors analyze_log_exposure_bounds' recombination.
+    """
+    mlf, mlc = sum(luma_src.floors) / 3.0, sum(luma_src.ceils) / 3.0
+    mcf, mcc = sum(colour_src.floors) / 3.0, sum(colour_src.ceils) / 3.0
+    floors = tuple(mlf + (colour_src.floors[ch] - mcf) for ch in range(3))
+    ceils = tuple(mlc + (colour_src.ceils[ch] - mcc) for ch in range(3))
+    return LogNegativeBounds(floors, ceils)
+
+
+def resolve_bounds(process, analyze_fn) -> LogNegativeBounds:
+    """
+    Pick luma + colour bounds from the roll baseline (locked) or the per-frame
+    local/analyzed base, then mix. analyze_fn() supplies the per-frame base and is
+    called only when it is actually needed.
+    """
+    roll_luma = process.use_luma_average and process.is_locked_initialized
+    roll_colour = process.use_colour_average and process.is_locked_initialized
+    locked = LogNegativeBounds(process.locked_floors, process.locked_ceils)
+    if roll_luma and roll_colour:
+        return locked
+    base = LogNegativeBounds(process.local_floors, process.local_ceils) if process.is_local_initialized else analyze_fn()
+    return mix_luma_colour_bounds(locked if roll_luma else base, locked if roll_colour else base)

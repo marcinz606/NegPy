@@ -25,7 +25,9 @@ class ProcessConfig:
     luma_range_clip: float = 0.0
     color_range_clip: float = float(EXPOSURE_CONSTANTS["base_color_clip"])
     e6_normalize: bool = True
-    use_roll_average: bool = False
+    # Roll-wide baseline applied independently per axis: luma (span) and colour (cast).
+    use_luma_average: bool = False
+    use_colour_average: bool = False
     locked_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)
     locked_ceils: tuple[float, float, float] = (0.0, 0.0, 0.0)
     local_floors: tuple[float, float, float] = (0.0, 0.0, 0.0)

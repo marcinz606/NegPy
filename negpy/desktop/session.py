@@ -371,7 +371,14 @@ class DesktopSessionManager(QObject):
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
         sticky_luma_range_clip = self.repo.get_global_setting("last_luma_range_clip")
         sticky_color_range_clip = self.repo.get_global_setting("last_color_range_clip")
-        sticky_roll_average = self.repo.get_global_setting("last_use_roll_average")
+        sticky_legacy_average = self.repo.get_global_setting("last_use_roll_average")
+        sticky_luma_average = self.repo.get_global_setting("last_use_luma_average")
+        sticky_colour_average = self.repo.get_global_setting("last_use_colour_average")
+        # Legacy single roll-average sticky: apply to both axes if the split keys are absent.
+        if sticky_luma_average is None:
+            sticky_luma_average = sticky_legacy_average
+        if sticky_colour_average is None:
+            sticky_colour_average = sticky_legacy_average
         sticky_floors = self.repo.get_global_setting("last_locked_floors")
         sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
         sticky_roll_name = self.repo.get_global_setting("last_roll_name")
@@ -385,8 +392,10 @@ class DesktopSessionManager(QObject):
             new_process = replace(new_process, luma_range_clip=float(sticky_luma_range_clip))
         if sticky_color_range_clip is not None:
             new_process = replace(new_process, color_range_clip=float(sticky_color_range_clip))
-        if sticky_roll_average is not None:
-            new_process = replace(new_process, use_roll_average=bool(sticky_roll_average))
+        if sticky_luma_average is not None:
+            new_process = replace(new_process, use_luma_average=bool(sticky_luma_average))
+        if sticky_colour_average is not None:
+            new_process = replace(new_process, use_colour_average=bool(sticky_colour_average))
         if sticky_floors:
             new_process = replace(new_process, locked_floors=tuple(sticky_floors))
         if sticky_ceils:
@@ -465,7 +474,8 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_analysis_buffer", config.process.analysis_buffer)
         self.repo.save_global_setting("last_luma_range_clip", config.process.luma_range_clip)
         self.repo.save_global_setting("last_color_range_clip", config.process.color_range_clip)
-        self.repo.save_global_setting("last_use_roll_average", config.process.use_roll_average)
+        self.repo.save_global_setting("last_use_luma_average", config.process.use_luma_average)
+        self.repo.save_global_setting("last_use_colour_average", config.process.use_colour_average)
         self.repo.save_global_setting("last_locked_floors", config.process.locked_floors)
         self.repo.save_global_setting("last_locked_ceils", config.process.locked_ceils)
         self.repo.save_global_setting("last_roll_name", config.process.roll_name)

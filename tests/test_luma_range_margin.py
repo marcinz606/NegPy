@@ -12,7 +12,7 @@ def _gradient_image() -> np.ndarray:
     return np.stack([vals, vals, vals], axis=-1)
 
 
-class TestDRangeMargin(unittest.TestCase):
+class TestLumaRangeMargin(unittest.TestCase):
     def setUp(self):
         self.img = _gradient_image()
 
@@ -20,7 +20,7 @@ class TestDRangeMargin(unittest.TestCase):
         """clip == 0 maps the robust extremes: baseline-clipped percentiles."""
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
-        base = float(EXPOSURE_CONSTANTS["base_drange_clip"])
+        base = float(EXPOSURE_CONSTANTS["base_luma_clip"])
         bounds = analyze_log_exposure_bounds(self.img, percentile_clip=0.0)
         log = np.log10(np.clip(self.img, 1e-6, 1.0))
         for ch in range(3):

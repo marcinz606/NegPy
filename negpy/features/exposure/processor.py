@@ -19,6 +19,7 @@ from negpy.features.exposure.normalization import (
     measure_shadow_refs_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
+    resolve_bounds,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.kernel.image.logic import get_luminance
@@ -36,17 +37,7 @@ class NormalizationProcessor:
         epsilon = 1e-6
         img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
 
-        if self.config.use_roll_average and self.config.is_locked_initialized:
-            bounds = LogNegativeBounds(
-                floors=self.config.locked_floors,
-                ceils=self.config.locked_ceils,
-            )
-        elif self.config.is_local_initialized:
-            bounds = LogNegativeBounds(
-                floors=self.config.local_floors,
-                ceils=self.config.local_ceils,
-            )
-        else:
+        def analyze_base() -> LogNegativeBounds:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
             cached_norm = context.metrics.get("log_bounds_norm_val")
             cached_mode = context.metrics.get("log_bounds_mode_val")
@@ -66,23 +57,26 @@ class NormalizationProcessor:
             )
 
             if not needs_reanalysis:
-                bounds = context.metrics["log_bounds"]
-            else:
-                bounds = analyze_log_exposure_bounds(
-                    image,
-                    context.active_roi,
-                    self.config.analysis_buffer,
-                    process_mode=context.process_mode,
-                    e6_normalize=self.config.e6_normalize,
-                    percentile_clip=self.config.luma_range_clip,
-                    color_clip=self.config.color_range_clip,
-                )
-                context.metrics["log_bounds"] = bounds
-                context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
-                context.metrics["log_bounds_clip_val"] = self.config.luma_range_clip
-                context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
-                context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
-                context.metrics["log_bounds_mode_val"] = context.process_mode
+                return context.metrics["log_bounds"]
+
+            analyzed = analyze_log_exposure_bounds(
+                image,
+                context.active_roi,
+                self.config.analysis_buffer,
+                process_mode=context.process_mode,
+                e6_normalize=self.config.e6_normalize,
+                percentile_clip=self.config.luma_range_clip,
+                color_clip=self.config.color_range_clip,
+            )
+            context.metrics["log_bounds"] = analyzed
+            context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
+            context.metrics["log_bounds_clip_val"] = self.config.luma_range_clip
+            context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
+            context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
+            context.metrics["log_bounds_mode_val"] = context.process_mode
+            return analyzed
+
+        bounds = resolve_bounds(self.config, analyze_base)
 
         context.metrics["norm_density_range"] = luminance_density_range(bounds)
 

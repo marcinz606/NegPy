@@ -15,6 +15,7 @@ from negpy.features.exposure.normalization import (
     measure_anchor,
     measure_shadow_log_refs,
     measure_textural_range,
+    resolve_bounds,
 )
 from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
@@ -427,9 +428,11 @@ class GPUEngine:
             and settings.exposure.cast_removal
             and settings.process.process_mode == ProcessMode.C41
         )
+        _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
+        _roll_colour = settings.process.use_colour_average and settings.process.is_locked_initialized
         needs_bounds_analysis = not (
             bounds_override
-            or (settings.process.use_roll_average and settings.process.is_locked_initialized)
+            or (_roll_luma and _roll_colour)
             or settings.process.is_local_initialized
         )
         # Measure the anchor for the render when Auto Density is on, and for the
@@ -461,25 +464,18 @@ class GPUEngine:
 
         if bounds_override:
             bounds = bounds_override
-        elif settings.process.use_roll_average and settings.process.is_locked_initialized:
-            bounds = LogNegativeBounds(
-                floors=settings.process.locked_floors,
-                ceils=settings.process.locked_ceils,
-            )
-        elif settings.process.is_local_initialized:
-            bounds = LogNegativeBounds(
-                floors=settings.process.local_floors,
-                ceils=settings.process.local_ceils,
-            )
         else:
-            bounds = analyze_log_exposure_bounds(
-                analysis_source,
-                analysis_roi,
-                settings.process.analysis_buffer,
-                process_mode=settings.process.process_mode,
-                e6_normalize=settings.process.e6_normalize,
-                percentile_clip=settings.process.luma_range_clip,
-                color_clip=settings.process.color_range_clip,
+            bounds = resolve_bounds(
+                settings.process,
+                lambda: analyze_log_exposure_bounds(
+                    analysis_source,
+                    analysis_roi,
+                    settings.process.analysis_buffer,
+                    process_mode=settings.process.process_mode,
+                    e6_normalize=settings.process.e6_normalize,
+                    percentile_clip=settings.process.luma_range_clip,
+                    color_clip=settings.process.color_range_clip,
+                ),
             )
 
         shadow_refs = shadow_refs_override
@@ -1511,23 +1507,11 @@ class GPUEngine:
         y1, y2, x1, x2 = roi
         crop_w, crop_h = x2 - x1, y2 - y1
 
-        if bounds_override:
-            global_bounds = bounds_override
-        elif settings.process.use_roll_average and settings.process.is_locked_initialized:
-            global_bounds = LogNegativeBounds(
-                floors=settings.process.locked_floors,
-                ceils=settings.process.locked_ceils,
-            )
-        elif settings.process.is_local_initialized:
-            global_bounds = LogNegativeBounds(
-                floors=settings.process.local_floors,
-                ceils=settings.process.local_ceils,
-            )
-        else:
+        def _analyze_global_bounds() -> LogNegativeBounds:
             ah, aw = img_rot.shape[:2]
             a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
             analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
-            global_bounds = analyze_log_exposure_bounds(
+            return analyze_log_exposure_bounds(
                 _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
@@ -1536,6 +1520,11 @@ class GPUEngine:
                 percentile_clip=settings.process.luma_range_clip,
                 color_clip=settings.process.color_range_clip,
             )
+
+        if bounds_override:
+            global_bounds = bounds_override
+        else:
+            global_bounds = resolve_bounds(settings.process, _analyze_global_bounds)
 
         global_shadow_refs = None
         if settings.exposure.cast_removal and settings.process.process_mode == ProcessMode.C41:

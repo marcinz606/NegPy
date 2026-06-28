@@ -281,6 +281,12 @@ class WorkspaceConfig:
             if old_key in data:
                 data[new_key] = data.pop(old_key)
 
+        # Single roll-average toggle split into independent luma + colour axes.
+        if "use_roll_average" in data:
+            legacy = bool(data.pop("use_roll_average"))
+            data.setdefault("use_luma_average", legacy)
+            data.setdefault("use_colour_average", legacy)
+
         if "use_original_res" in data and "export_resolution_mode" not in data:
             data["export_resolution_mode"] = (
                 ExportResolutionMode.ORIGINAL.value if data.pop("use_original_res") else ExportResolutionMode.PRINT.value

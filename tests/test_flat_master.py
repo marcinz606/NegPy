@@ -144,7 +144,8 @@ class TestFlatRollConsistency(unittest.TestCase):
         base = flat_master_config(WorkspaceConfig())
         proc = replace(
             base.process,
-            use_roll_average=locked,
+            use_luma_average=locked,
+            use_colour_average=locked,
             locked_floors=(-2.0, -2.0, -2.0) if locked else (0.0, 0.0, 0.0),
             locked_ceils=(-0.1, -0.1, -0.1) if locked else (0.0, 0.0, 0.0),
         )

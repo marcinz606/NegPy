@@ -128,9 +128,9 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Side length of the block-median pre-filter grid for robust exposure analysis.
     # ↑ finer grid (less dust/specular rejection); ↓ coarser (stronger outlier rejection).
     "analysis_grid": 1024,
-    # Base percentile clip added to the density-range histogram analysis (robust floor/ceil detection).
+    # Base percentile clip added to the luma-range histogram analysis (robust floor/ceil detection).
     # ↑ clips more histogram tails (tighter black/white points); ↓ uses fuller histogram range.
-    "base_drange_clip": 0.01,
+    "base_luma_clip": 0.01,
     # Colour Clip neutral/default percentile: robust per-tail clip for per-channel
     # balance (orange-mask cast removal), independent of luma range. The slider spans
     # log-interpolated percentiles around this neutral.

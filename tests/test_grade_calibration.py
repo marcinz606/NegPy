@@ -80,7 +80,8 @@ class TestDensityRangeMetric(unittest.TestCase):
     def test_metric_set_on_locked_bounds(self):
         process = replace(
             self.config.process,
-            use_roll_average=True,
+            use_luma_average=True,
+            use_colour_average=True,
             locked_floors=(-2.2, -2.2, -2.2),
             locked_ceils=(-0.2, -0.2, -0.2),
         )

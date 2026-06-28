@@ -236,13 +236,14 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
     def tearDown(self):
         _teardown_controller(self.ctrl)
 
-    def _call_metrics(self, floors, ceils, lock_bounds, use_roll_average=False):
+    def _call_metrics(self, floors, ceils, lock_bounds, use_luma_average=False, use_colour_average=False):
         _set_process(
             self.ctrl,
             local_floors=(0.0, 0.0, 0.0),
             local_ceils=(0.0, 0.0, 0.0),
             lock_bounds=lock_bounds,
-            use_roll_average=use_roll_average,
+            use_luma_average=use_luma_average,
+            use_colour_average=use_colour_average,
         )
         self.ctrl._on_metrics_updated({"log_bounds": FakeBounds(floors, ceils)})
 
@@ -259,10 +260,34 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
         self.ctrl._on_metrics_updated({"log_bounds": FakeBounds((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))})
         self.ctrl.session.update_config.assert_not_called()
 
-    def test_writeback_skips_when_use_roll_average(self):
-        _set_process(self.ctrl, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0), lock_bounds=False, use_roll_average=True)
+    def test_writeback_skips_when_both_averages(self):
+        _set_process(
+            self.ctrl,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(0.0, 0.0, 0.0),
+            lock_bounds=False,
+            use_luma_average=True,
+            use_colour_average=True,
+        )
         self.ctrl._on_metrics_updated({"log_bounds": FakeBounds((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))})
         self.ctrl.session.update_config.assert_not_called()
+
+    def test_writeback_runs_under_partial_roll(self):
+        # Only one axis rides the roll — the per-frame component must still persist locally.
+        _set_process(
+            self.ctrl,
+            local_floors=(0.0, 0.0, 0.0),
+            local_ceils=(0.0, 0.0, 0.0),
+            lock_bounds=False,
+            use_luma_average=True,
+            use_colour_average=False,
+        )
+        new_floors = (0.05, 0.06, 0.07)
+        new_ceils = (0.91, 0.92, 0.93)
+        self.ctrl._on_metrics_updated({"log_bounds": FakeBounds(new_floors, new_ceils)})
+        proc = _saved_process(self.ctrl)
+        self.assertEqual(proc.local_floors, new_floors)
+        self.assertEqual(proc.local_ceils, new_ceils)
 
     def test_writeback_skips_when_bounds_unchanged(self):
         floors = (0.1, 0.1, 0.1)

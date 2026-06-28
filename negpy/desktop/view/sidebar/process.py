@@ -15,10 +15,10 @@ from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 
-# D-Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
+# Luma Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
 # positions -100..0 map to an outward log-density margin (gentler-than-zero stretch).
-_DRANGE_MARGIN_MIN = 1e-6
-_DRANGE_MARGIN_MAX = 1.0
+_LUMA_MARGIN_MIN = 1e-6
+_LUMA_MARGIN_MAX = 1.0
 
 # Colour Clip slider: the absolute per-channel-balance clip percentile, log-interpolated
 # around the neutral (pos 0 = base_color_clip). The ends reach _COLOR_CLIP_MIN (gentlest,
@@ -28,18 +28,18 @@ _COLOR_CLIP_MIN = 1e-6
 _COLOR_CLIP_MAX = 1.0
 
 
-def _drange_slider_to_value(pos: float) -> float:
+def _luma_range_slider_to_value(pos: float) -> float:
     if pos >= 0:
         return math.pow(10, 0.05 * pos - 5)
-    lo, hi = math.log10(_DRANGE_MARGIN_MIN), math.log10(_DRANGE_MARGIN_MAX)
+    lo, hi = math.log10(_LUMA_MARGIN_MIN), math.log10(_LUMA_MARGIN_MAX)
     margin = math.pow(10, lo + (-pos / 100.0) * (hi - lo))
     return -margin
 
 
-def _drange_value_to_slider(v: float) -> float:
+def _luma_range_value_to_slider(v: float) -> float:
     if v >= 0:
         return 20 * (math.log10(max(v, 1e-5)) + 5)
-    lo, hi = math.log10(_DRANGE_MARGIN_MIN), math.log10(_DRANGE_MARGIN_MAX)
+    lo, hi = math.log10(_LUMA_MARGIN_MIN), math.log10(_LUMA_MARGIN_MAX)
     return -100.0 * (math.log10(-v) - lo) / (hi - lo)
 
 
@@ -95,7 +95,7 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(buf_row)
 
         clip_row = QHBoxLayout()
-        initial_luma_slider_val = _drange_value_to_slider(conf.luma_range_clip)
+        initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
         self.luma_range_clip_slider = CompactSlider(
             "Luma Range Clip", -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
         )
@@ -140,14 +140,23 @@ class ProcessSidebar(BaseSidebar):
         self.analyze_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
         self.analyze_roll_btn.setToolTip("Scan every loaded file and compute a roll-wide average density and colour balance baseline")
 
-        self.use_roll_avg_btn = QPushButton(" Use Roll Average")
-        self.use_roll_avg_btn.setCheckable(True)
-        self.use_roll_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
-        self.use_roll_avg_btn.setToolTip("Toggle between per-image local normalization and the roll-wide baseline from Batch Analysis")
-
         btns_row.addWidget(self.analyze_roll_btn)
-        btns_row.addWidget(self.use_roll_avg_btn)
         self.layout.addLayout(btns_row)
+
+        avg_row = QHBoxLayout()
+        self.use_luma_avg_btn = QPushButton(" Use Luma Average")
+        self.use_luma_avg_btn.setCheckable(True)
+        self.use_luma_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
+        self.use_luma_avg_btn.setToolTip("Take the tonal-range (black/white-point) baseline from Batch Analysis; colour still re-derives per frame")
+
+        self.use_colour_avg_btn = QPushButton(" Use Colour Average")
+        self.use_colour_avg_btn.setCheckable(True)
+        self.use_colour_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
+        self.use_colour_avg_btn.setToolTip("Take the per-channel colour-balance baseline from Batch Analysis; luma range still re-derives per frame")
+
+        avg_row.addWidget(self.use_luma_avg_btn)
+        avg_row.addWidget(self.use_colour_avg_btn)
+        self.layout.addLayout(avg_row)
 
         self.layout.addWidget(section_subheader("ROLL"))
 
@@ -199,7 +208,8 @@ class ProcessSidebar(BaseSidebar):
 
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
         self.analyze_roll_btn.clicked.connect(self.controller.request_batch_normalization)
-        self.use_roll_avg_btn.toggled.connect(self._on_use_roll_average_toggled)
+        self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
+        self.use_colour_avg_btn.toggled.connect(self._on_use_colour_average_toggled)
 
         self.load_roll_btn.clicked.connect(self._on_load_roll)
         self.save_roll_btn.clicked.connect(self._on_save_roll)
@@ -250,7 +260,7 @@ class ProcessSidebar(BaseSidebar):
             "process",
             persist=persist,
             render=True,
-            luma_range_clip=_drange_slider_to_value(val),
+            luma_range_clip=_luma_range_slider_to_value(val),
             **invalidate_local_bounds(self.state.config.process),
         )
 
@@ -263,22 +273,29 @@ class ProcessSidebar(BaseSidebar):
             **invalidate_local_bounds(self.state.config.process),
         )
 
-    def _on_use_roll_average_toggled(self, checked: bool) -> None:
+    def _on_use_luma_average_toggled(self, checked: bool) -> None:
+        """Toggle the roll-wide luma (tonal-range) baseline for this axis only."""
+        self._toggle_roll_axis(use_luma_average=checked)
+
+    def _on_use_colour_average_toggled(self, checked: bool) -> None:
+        """Toggle the roll-wide colour-balance baseline for this axis only."""
+        self._toggle_roll_axis(use_colour_average=checked)
+
+    def _toggle_roll_axis(self, **axis: bool) -> None:
         """
-        Toggles between Roll-wide baseline and Local auto-exposure.
-        Forcing re-analysis when switching to Local.
+        Flip one roll-average axis. The other axis re-derives per frame, so we clear
+        the cached local bounds to force a fresh analysis, and drop roll_name (the
+        baseline is no longer applied as a named whole).
         """
-        if not checked:
-            self.update_config_section(
-                "process",
-                persist=True,
-                render=True,
-                use_roll_average=False,
-                **invalidate_local_bounds(self.state.config.process),
-                roll_name=None,
-            )
-        else:
-            self.update_config_section("process", persist=True, render=True, use_roll_average=True)
+        self.update_config_section(
+            "process",
+            persist=True,
+            render=True,
+            roll_name=None,
+            **axis,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+        self.sync_ui()
 
     def _refresh_rolls(self) -> None:
         """
@@ -328,7 +345,7 @@ class ProcessSidebar(BaseSidebar):
         try:
             self.mode_combo.setCurrentText(conf.process_mode)
             self.analysis_buffer_slider.setValue(conf.analysis_buffer)
-            self.luma_range_clip_slider.setValue(_drange_value_to_slider(conf.luma_range_clip))
+            self.luma_range_clip_slider.setValue(_luma_range_value_to_slider(conf.luma_range_clip))
             self.color_range_clip_slider.setValue(_color_value_to_slider(conf.color_range_clip))
             self.white_point_slider.setValue(conf.white_point_offset)
             self.black_point_slider.setValue(conf.black_point_offset)
@@ -339,11 +356,15 @@ class ProcessSidebar(BaseSidebar):
 
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
-            self.use_roll_avg_btn.setChecked(conf.use_roll_average)
+            self.use_luma_avg_btn.setChecked(conf.use_luma_average)
+            self.use_colour_avg_btn.setChecked(conf.use_colour_average)
 
             locked = conf.lock_bounds
-            for w in (self.analysis_buffer_slider, self.luma_range_clip_slider, self.color_range_clip_slider):
-                w.setEnabled(not locked and not conf.use_roll_average)
+            # Each clip slider is disabled when its axis rides the roll baseline; the
+            # analysis buffer only matters when at least one axis still analyzes locally.
+            self.analysis_buffer_slider.setEnabled(not locked and not (conf.use_luma_average and conf.use_colour_average))
+            self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average)
+            self.color_range_clip_slider.setEnabled(not locked and not conf.use_colour_average)
             for w in (self.white_point_slider, self.black_point_slider):
                 w.setEnabled(not locked)
 
@@ -368,7 +389,8 @@ class ProcessSidebar(BaseSidebar):
             self.black_point_slider,
             self.normalize_e6_btn,
             self.analyze_roll_btn,
-            self.use_roll_avg_btn,
+            self.use_luma_avg_btn,
+            self.use_colour_avg_btn,
             self.roll_combo,
             self.load_roll_btn,
             self.save_roll_btn,

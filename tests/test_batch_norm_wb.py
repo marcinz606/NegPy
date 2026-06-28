@@ -67,8 +67,8 @@ def test_batch_analysis_decodes_in_render_wb(qapp):
     assert len(floors) == 3 and len(ceils) == 3
 
 
-def test_batch_analysis_applies_roll_wide_buffer_and_drange(qapp, monkeypatch):
-    """The current image's analysis_buffer / drange_clip override every file's own
+def test_batch_analysis_applies_roll_wide_buffer_and_luma_range(qapp, monkeypatch):
+    """The current image's analysis_buffer / luma_range_clip override every file's own
     saved value, so the whole roll is analyzed with one setting before averaging."""
     import negpy.features.exposure.normalization as norm_mod
 
@@ -85,7 +85,7 @@ def test_batch_analysis_applies_roll_wide_buffer_and_drange(qapp, monkeypatch):
     monkeypatch.setattr(norm_mod, "analyze_log_exposure_bounds", _spy)
 
     base = WorkspaceConfig()
-    # Files carry DIFFERENT saved buffer/d-range — must be ignored in favor of override.
+    # Files carry DIFFERENT saved buffer/luma bounds — must be ignored in favor of override.
     settings = {
         "h1": replace(base, process=replace(base.process, analysis_buffer=0.20, luma_range_clip=5.0)),
         "h2": replace(base, process=replace(base.process, analysis_buffer=0.01, luma_range_clip=-2.0)),

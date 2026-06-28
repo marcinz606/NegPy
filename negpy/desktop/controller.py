@@ -928,7 +928,7 @@ class AppController(QObject):
             "file before averaging:\n"
             "  • Analysis Buffer — shrinks the analyzed region inward, excluding a "
             "margin around the edges (film borders, light leaks, the scanner mask).\n"
-            "  • D-Range Clip — how aggressively the highlight/shadow tails are "
+            "  • Luma Range Clip — how aggressively the highlight/shadow tails are "
             "clipped when setting each file's bounds.\n"
             "Set both on the current frame before running.\n\n"
             f"{crop_note}\n\n"
@@ -968,7 +968,8 @@ class AppController(QObject):
             p = self.session.repo.load_file_settings(f_info["hash"]) or replace(self.state.config)
             new_process = replace(
                 p.process,
-                use_roll_average=True,
+                use_luma_average=True,
+                use_colour_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
                 roll_name=None,
@@ -979,7 +980,8 @@ class AppController(QObject):
         # Update current state
         new_process = replace(
             self.state.config.process,
-            use_roll_average=True,
+            use_luma_average=True,
+            use_colour_average=True,
             locked_floors=locked_floors,
             locked_ceils=locked_ceils,
             roll_name=None,
@@ -1014,7 +1016,8 @@ class AppController(QObject):
                 p = self.session.repo.load_file_settings(f_info["hash"]) or replace(self.state.config)
                 new_process = replace(
                     p.process,
-                    use_roll_average=True,
+                    use_luma_average=True,
+                    use_colour_average=True,
                     locked_floors=locked_floors,
                     locked_ceils=locked_ceils,
                     roll_name=name,
@@ -1024,7 +1027,8 @@ class AppController(QObject):
 
             new_process = replace(
                 self.state.config.process,
-                use_roll_average=True,
+                use_luma_average=True,
+                use_colour_average=True,
                 locked_floors=locked_floors,
                 locked_ceils=locked_ceils,
                 roll_name=name,
@@ -1635,8 +1639,11 @@ class AppController(QObject):
             self.state.last_metrics.update(metrics)
         self.metrics_available.emit(metrics)
 
-        # If render produced fresh log bounds, persist them locally
-        if "log_bounds" in metrics and not self.state.config.process.use_roll_average:
+        # If render produced fresh log bounds, persist them locally. Skip only when the
+        # whole baseline rides the roll (both axes); a partial-roll mix is idempotent to
+        # persist (colour deviation / luma mean are mean-invariant), so it's safe to cache.
+        proc = self.state.config.process
+        if "log_bounds" in metrics and not (proc.use_luma_average and proc.use_colour_average):
             bounds = metrics.get("log_bounds")
 
             changes = {}
