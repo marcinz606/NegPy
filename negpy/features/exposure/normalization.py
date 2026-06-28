@@ -8,9 +8,6 @@ from numba import njit  # type: ignore
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.image.validation import ensure_image
-from negpy.kernel.system.logging import get_logger
-
-logger = get_logger(__name__)
 
 # Above this size the block-median is threaded over row strips (np.median frees the GIL).
 _BLOCK_MEDIAN_PARALLEL_MIN_PIXELS = 2_000_000
@@ -402,23 +399,6 @@ def resolve_bounds(process, analyze_fn) -> LogNegativeBounds:
     roll_colour = process.use_colour_average and process.is_locked_initialized
     locked = LogNegativeBounds(process.locked_floors, process.locked_ceils)
     if roll_luma and roll_colour:
-        logger.warning("🔶BOUNDS branch=locked-both floors=%s ceils=%s", locked.floors, locked.ceils)
         return locked
-    if process.is_local_initialized:
-        base = LogNegativeBounds(process.local_floors, process.local_ceils)
-        base_src = "local"
-    else:
-        base = analyze_fn()
-        base_src = "analyzed"
-    result = mix_luma_colour_bounds(locked if roll_luma else base, locked if roll_colour else base)
-    logger.warning(
-        "🔶BOUNDS base=%s luma=%s colour=%s local_init=%s locked_init=%s floors=%s ceils=%s",
-        base_src,
-        "roll" if roll_luma else base_src,
-        "roll" if roll_colour else base_src,
-        process.is_local_initialized,
-        process.is_locked_initialized,
-        tuple(round(f, 4) for f in result.floors),
-        tuple(round(c, 4) for c in result.ceils),
-    )
-    return result
+    base = LogNegativeBounds(process.local_floors, process.local_ceils) if process.is_local_initialized else analyze_fn()
+    return mix_luma_colour_bounds(locked if roll_luma else base, locked if roll_colour else base)

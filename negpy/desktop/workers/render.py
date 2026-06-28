@@ -35,9 +35,7 @@ class RenderTask:
     # True while the crop tool is active: show the full uncropped frame instead of
     # the final crop.
     crop_preview_full: bool = False
-    # True for display-only first-paint renders (the embedded-JPEG splash). Their
-    # analysis must NOT persist as the frame's local bounds — the splash buffer is
-    # not the linear sensor decode.
+    # Display-only first paint (embedded-JPEG splash): its analysis must not persist.
     ephemeral: bool = False
 
 
@@ -122,10 +120,8 @@ class RenderWorker(QObject):
     def process(self, task: RenderTask) -> None:
         """Executes the rendering pipeline for a single frame."""
         try:
-            # The splash (ephemeral) first paint is the embedded JPEG, not the linear
-            # sensor decode — but it shares the file's source_hash. Give it an isolated
-            # cache identity so its analysis can't be reused by (nor leak via the engine
-            # caches into) the real linear render that follows under the same hash.
+            # Splash shares the file's source_hash but is the embedded JPEG, not the linear
+            # decode — isolate its cache identity so it can't leak into the real render.
             pipeline_source_hash = task.source_hash + ("\x00splash" if task.ephemeral else "")
             result, metrics = self._processor.run_pipeline(
                 task.buffer,
@@ -157,7 +153,7 @@ class RenderWorker(QObject):
 
             # Ensure ground truth is stored in metrics for view consumption
             metrics["base_positive"] = result
-            # Render identity so the controller can reject stale/ephemeral bounds writeback.
+            # Render identity, so the controller can reject stale/ephemeral bounds writeback.
             metrics["source_hash"] = task.source_hash
             metrics["ephemeral"] = task.ephemeral
 

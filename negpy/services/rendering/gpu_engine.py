@@ -413,7 +413,6 @@ class GPUEngine:
         analysis_key = None
         if analysis_source_hash is not None and not tiling_mode:
             analysis_key = _analysis_cache_key(settings, analysis_source_hash)
-            _bo_before = bounds_override
             bounds_override, shadow_refs_override, metered_anchor_override, textural_range_override = _fill_analysis_overrides(
                 self._analysis_cache,
                 analysis_key,
@@ -421,13 +420,6 @@ class GPUEngine:
                 shadow_refs_override,
                 metered_anchor_override,
                 textural_range_override,
-            )
-            _cached = self._analysis_cache is not None and self._analysis_cache[0] == analysis_key
-            logger.warning(
-                "🔶GPU analysis_hash=%s cache_hit=%s bounds_override_from_cache=%s",
-                analysis_source_hash,
-                _cached,
-                (_bo_before is None and bounds_override is not None),
             )
 
         needs_refs = (

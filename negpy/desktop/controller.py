@@ -531,17 +531,6 @@ class AppController(QObject):
             time.perf_counter() - self._preview_load_t0,
             file_path,
         )
-        _p = self.state.config.process
-        logger.warning(
-            "🔶LOAD hash=%s local_init=%s locked_init=%s luma_avg=%s colour_avg=%s local_floors=%s locked_floors=%s",
-            self.state.current_file_hash,
-            _p.is_local_initialized,
-            _p.is_locked_initialized,
-            _p.use_luma_average,
-            _p.use_colour_average,
-            tuple(round(f, 4) for f in _p.local_floors),
-            tuple(round(f, 4) for f in _p.locked_floors),
-        )
         self.state.preview_raw = raw
         self.state.preview_ir = ir_preview
         self.state.has_ir = ir_preview is not None
@@ -1652,30 +1641,15 @@ class AppController(QObject):
             self.state.last_metrics.update(metrics)
         self.metrics_available.emit(metrics)
 
-        _lb = metrics.get("log_bounds")
-        logger.warning(
-            "🔶METRICS src=%s cur=%s ephemeral=%s has_log_bounds=%s floors=%s",
-            metrics.get("source_hash"),
-            self.state.current_file_hash,
-            metrics.get("ephemeral"),
-            _lb is not None,
-            tuple(round(f, 4) for f in _lb.floors) if _lb is not None else None,
-        )
-
-        # Don't persist per-frame bounds from an ephemeral (splash / embedded-JPEG first
-        # paint) render, nor from a render of a different file (late metric after a fast
-        # switch) — those bounds aren't this frame's and would poison local_floors/ceils.
+        # Don't persist bounds from an ephemeral (splash) render or a render of a different
+        # file (late metric after a fast switch) — they aren't this frame's bounds.
         if metrics.get("ephemeral"):
-            logger.warning("🔶METRICS skip-persist reason=ephemeral")
             return
         src = metrics.get("source_hash")
         if src is not None and src != self.state.current_file_hash:
-            logger.warning("🔶METRICS skip-persist reason=source-mismatch")
             return
 
-        # If render produced fresh log bounds, persist them locally. Skip only when the
-        # whole baseline rides the roll (both axes); a partial-roll mix is idempotent to
-        # persist (colour deviation / luma mean are mean-invariant), so it's safe to cache.
+        # Persist fresh local bounds; skip only when both axes ride the roll baseline.
         proc = self.state.config.process
         if "log_bounds" in metrics and not (proc.use_luma_average and proc.use_colour_average):
             bounds = metrics.get("log_bounds")
@@ -1688,7 +1662,6 @@ class AppController(QObject):
                     changes["local_ceils"] = bounds.ceils
 
             if changes:
-                logger.warning("🔶METRICS PERSIST local_floors=%s", tuple(round(f, 4) for f in changes["local_floors"]))
                 new_process = replace(self.state.config.process, **changes)
                 self.session.update_config(
                     replace(self.state.config, process=new_process),
