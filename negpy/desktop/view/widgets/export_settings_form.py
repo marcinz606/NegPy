@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -32,6 +33,14 @@ from negpy.infrastructure.display.color_mgmt import ColorService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 _LABEL_WIDTH = 90
+
+
+def constrain_combo(combo: QComboBox, min_chars: int = 6) -> None:
+    """Stop long item text from stretching the panel: size the combo to a small
+    minimum and elide overflow, filling its row via the layout's spare space."""
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(min_chars)
+    combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
 # Spaces JXL can tag (mirror _JXL_COLOR). Same as Source is allowed — resolved at
 # export time and rejected by the encoder if it lands on an unsupported space.
@@ -82,6 +91,7 @@ class ExportSettingsForm(QWidget):
         fmt_row.addWidget(self._row_label("Format"))
         self.fmt_combo = QComboBox()
         self.fmt_combo.addItems([f.value for f in ExportFormat])
+        constrain_combo(self.fmt_combo)
         self.fmt_combo.currentTextChanged.connect(self._on_fmt_changed)
         fmt_row.addWidget(self.fmt_combo)
         root.addLayout(fmt_row)
@@ -208,6 +218,7 @@ class ExportSettingsForm(QWidget):
         self.ratio_combo = QComboBox()
         ratios = [AspectRatio.ORIGINAL] + [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
         self.ratio_combo.addItems(ratios)
+        constrain_combo(self.ratio_combo)
         self.ratio_combo.currentTextChanged.connect(self._on_changed)
         ratio_row.addWidget(self.ratio_combo)
         root.addLayout(ratio_row)
@@ -228,6 +239,7 @@ class ExportSettingsForm(QWidget):
         input_row.addWidget(self._row_label("Input ICC"))
         self.input_combo = QComboBox()
         self.input_combo.addItems([os.path.basename(p) for p in self._icc_input_profiles])
+        constrain_combo(self.input_combo)
         self.input_combo.setToolTip("Source/input ICC profile")
         self.input_combo.currentIndexChanged.connect(self._on_changed)
         input_row.addWidget(self.input_combo)
@@ -237,6 +249,7 @@ class ExportSettingsForm(QWidget):
         cs_row.addWidget(self._row_label("Color space"))
         self.color_space_combo = QComboBox()
         self.color_space_combo.addItems([cs.value for cs in ColorSpace])
+        constrain_combo(self.color_space_combo)
         self.color_space_combo.currentTextChanged.connect(self._on_changed)
         self.color_space_combo.currentTextChanged.connect(self._refresh_jxl_warning)
         cs_row.addWidget(self.color_space_combo)
@@ -247,6 +260,7 @@ class ExportSettingsForm(QWidget):
         output_row.addWidget(self._row_label("Output ICC"))
         self.icc_output_combo = QComboBox()
         self.icc_output_combo.addItems([os.path.basename(p) for p in self._icc_output_profiles])
+        constrain_combo(self.icc_output_combo)
         self.icc_output_combo.setToolTip("Custom output ICC profile (overrides color space)")
         self.icc_output_combo.currentIndexChanged.connect(self._on_changed)
         output_row.addWidget(self.icc_output_combo)
@@ -263,6 +277,7 @@ class ExportSettingsForm(QWidget):
         self.output_mode_combo.addItem("Subfolder of source", ExportPresetOutputMode.SUBFOLDER_OF_SOURCE)
         self.output_mode_combo.addItem("Same as source", ExportPresetOutputMode.SAME_AS_SOURCE)
         self.output_mode_combo.addItem("Absolute path", ExportPresetOutputMode.ABSOLUTE)
+        constrain_combo(self.output_mode_combo)
         self.output_mode_combo.currentIndexChanged.connect(self._on_output_mode_changed)
         mode_row.addWidget(self.output_mode_combo)
         root.addLayout(mode_row)

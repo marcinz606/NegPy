@@ -2,10 +2,11 @@
 
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QComboBox, QLabel
+from PyQt6.QtWidgets import QComboBox, QLabel, QSizePolicy
 
 from negpy.desktop.view.sidebar.export import ExportSidebar
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.export_settings_form import constrain_combo
 
 
 def _stub(detected_bytes):
@@ -34,3 +35,20 @@ def test_detected_profile_shows_muted_label() -> None:
     assert s.display_detected_label.text().startswith("Detected:")
     assert THEME.text_muted in s.display_detected_label.styleSheet()
     assert THEME.channel_red not in s.display_detected_label.styleSheet()
+
+
+def test_constrain_combo_bounds_width_for_long_items() -> None:
+    """A long item (e.g. a verbose monitor profile / ICC filename) must not
+    blow up the combo's width and stretch the export panel (#325)."""
+    long_item = "As detected (sRGB IEC61966-2.1 Color Space Profile, very verbose)"
+
+    wide = QComboBox()
+    wide.addItem(long_item)
+
+    narrow = QComboBox()
+    narrow.addItem(long_item)
+    constrain_combo(narrow)
+
+    assert narrow.sizeHint().width() < wide.sizeHint().width()
+    assert narrow.sizeAdjustPolicy() == QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+    assert narrow.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding

@@ -16,7 +16,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
-from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
+from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
 from negpy.domain.models import ColorSpace
 
 
@@ -306,6 +306,7 @@ class ExportSidebar(BaseSidebar):
         self.display_map = [None] + self.display_spaces
         self.display_combo = QComboBox()
         self.display_combo.addItems(["As detected"] + self.display_spaces)
+        constrain_combo(self.display_combo)
         self.display_combo.setToolTip("Monitor profile the preview is displayed on (affects preview only, not export)")
         override = self.state.monitor_profile_override
         self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
@@ -317,6 +318,7 @@ class ExportSidebar(BaseSidebar):
         self.layout.addLayout(disp_row)
 
         self.display_detected_label = QLabel()
+        self.display_detected_label.setWordWrap(True)
         self.display_detected_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
         self.layout.addWidget(self.display_detected_label)
         self._refresh_display_info()
