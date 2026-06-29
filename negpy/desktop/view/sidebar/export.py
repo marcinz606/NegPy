@@ -40,8 +40,9 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.setInterval(500)
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
-        self._add_presets_section()
-        self._add_contact_sheet_section()
+        # Task-flow order: the Print/Flat decision reframes the whole form, so it
+        # comes first; the form and the primary Export action follow; occasional
+        # tools (presets, contact sheet, preview) sit collapsed at the bottom.
         self._add_flat_master_section()
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.
@@ -49,8 +50,11 @@ class ExportSidebar(BaseSidebar):
         self.form.load(self._config_to_form_values())
         self.layout.addWidget(self.form)
 
-        self._add_preview_section()
         self._add_batch_section()
+
+        self._add_presets_section()
+        self._add_contact_sheet_section()
+        self._add_preview_section()
         self._sync_flat_enabled()
 
         self.layout.addStretch()
@@ -121,7 +125,7 @@ class ExportSidebar(BaseSidebar):
         content_layout.addLayout(preset_btn_row)
 
         repo = self.controller.session.repo
-        expanded = bool(repo.get_global_setting("section_expanded_export_presets", default=True))
+        expanded = bool(repo.get_global_setting("section_expanded_export_presets", default=False))
         section = CollapsibleSection("Presets", expanded=expanded, icon=qta.icon("fa5s.layer-group", color="#aaa"))
         section.set_content(content)
         section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_presets", checked))
@@ -377,6 +381,17 @@ class ExportSidebar(BaseSidebar):
         """Output-intent override: Print (default) or Flat digital intermediate."""
         self.layout.addWidget(section_subheader("OUTPUT INTENT"))
 
+        # Contain the whole intent block (toggle + format + peek/bake + hints) so
+        # it reads as one unit. objectName-scoped so the border doesn't cascade.
+        container = QWidget()
+        container.setObjectName("flat_intent_box")
+        container.setStyleSheet(
+            f"#flat_intent_box {{ border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark}; }}"
+        )
+        box = QVBoxLayout(container)
+        box.setContentsMargins(6, 6, 6, 6)
+        box.setSpacing(6)
+
         intent_row = QHBoxLayout()
         intent_row.setSpacing(4)
         btn_style = f"font-size: {THEME.font_size_base}px; padding: 8px;"
@@ -400,13 +415,13 @@ class ExportSidebar(BaseSidebar):
             self.intent_flat_btn.setChecked(True)
         else:
             self.intent_print_btn.setChecked(True)
-        self.layout.addLayout(intent_row)
+        box.addLayout(intent_row)
 
         self.flat_format_row_widget = QWidget()
         fmt_row = QHBoxLayout(self.flat_format_row_widget)
         fmt_row.setContentsMargins(0, 0, 0, 0)
         fmt_label = QLabel("Format")
-        fmt_label.setFixedWidth(52)
+        fmt_label.setFixedWidth(90)
         fmt_row.addWidget(fmt_label)
         self.flat_format_combo = QComboBox()
         self.flat_format_combo.addItem("16-bit TIFF", "TIFF")
@@ -415,7 +430,7 @@ class ExportSidebar(BaseSidebar):
         self.flat_format_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self.flat_format_combo.setToolTip("16-bit TIFF: widely compatible, ready to edit.\nLinear DNG: a linear digital negative.")
         fmt_row.addWidget(self.flat_format_combo)
-        self.layout.addWidget(self.flat_format_row_widget)
+        box.addWidget(self.flat_format_row_widget)
 
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(4)
@@ -432,22 +447,24 @@ class ExportSidebar(BaseSidebar):
         )
         peek_bake_row.addWidget(self.flat_peek_btn)
         peek_bake_row.addWidget(self.flat_bake_btn)
-        self.layout.addLayout(peek_bake_row)
+        box.addLayout(peek_bake_row)
 
         self.flat_hint_label = QLabel(
             "Exports a flat master in the selected color space at full resolution by default. Choose Print or Pixels below to downscale."
         )
         self.flat_hint_label.setWordWrap(True)
-        self.flat_hint_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
-        self.layout.addWidget(self.flat_hint_label)
+        self.flat_hint_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px; border: none;")
+        box.addWidget(self.flat_hint_label)
 
         # Roll-consistency nudge: a flat master is only identical across frames
         # once the roll shares one normalization baseline (locked bounds). Until
         # then, per-frame auto bounds make each frame's tones drift.
         self.flat_roll_warning = QLabel("For consistent masters across a roll, lock one baseline for every frame.")
         self.flat_roll_warning.setWordWrap(True)
-        self.flat_roll_warning.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
-        self.layout.addWidget(self.flat_roll_warning)
+        self.flat_roll_warning.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px; border: none;")
+        box.addWidget(self.flat_roll_warning)
+
+        self.layout.addWidget(container)
 
     def _sync_flat_enabled(self) -> None:
         on = self.intent_flat_btn.isChecked()
@@ -498,7 +515,12 @@ class ExportSidebar(BaseSidebar):
     # --- Preview (soft proof + monitor profile, preview only) ----------------
 
     def _add_preview_section(self) -> None:
-        self.layout.addWidget(section_subheader("PREVIEW"))
+        # Preview-only controls (no effect on export). Collapsed by default and
+        # parked below the export action so it doesn't split the form from Export.
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(6)
 
         # Soft proof: on by default so the preview is true to export. When off,
         # Output/Input ICC and the export color space affect export only, not
@@ -510,7 +532,7 @@ class ExportSidebar(BaseSidebar):
             "preview, so what you see matches what you'll get. Turn off only to preview at full "
             "gamut regardless of the export target."
         )
-        self.layout.addWidget(self.soft_proof_checkbox)
+        content_layout.addWidget(self.soft_proof_checkbox)
 
         # Display: monitor profile the preview is shown on (preview only, not export).
         self.display_spaces = [
@@ -529,15 +551,15 @@ class ExportSidebar(BaseSidebar):
         self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
         disp_row = QHBoxLayout()
         disp_label = QLabel("Display")
-        disp_label.setFixedWidth(52)
+        disp_label.setFixedWidth(90)
         disp_row.addWidget(disp_label)
         disp_row.addWidget(self.display_combo)
-        self.layout.addLayout(disp_row)
+        content_layout.addLayout(disp_row)
 
         self.display_detected_label = QLabel()
         self.display_detected_label.setWordWrap(True)
         self.display_detected_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
-        self.layout.addWidget(self.display_detected_label)
+        content_layout.addWidget(self.display_detected_label)
         self._refresh_display_info()
 
         # Warns when the preview won't reflect the export's gamut clamp (soft
@@ -545,8 +567,15 @@ class ExportSidebar(BaseSidebar):
         self.proof_mismatch_label = QLabel("Soft proof is off — preview won't show the export's color clipping")
         self.proof_mismatch_label.setWordWrap(True)
         self.proof_mismatch_label.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
-        self.layout.addWidget(self.proof_mismatch_label)
+        content_layout.addWidget(self.proof_mismatch_label)
         self._refresh_proof_mismatch_warning()
+
+        repo = self.controller.session.repo
+        expanded = bool(repo.get_global_setting("section_expanded_export_preview", default=False))
+        section = CollapsibleSection("Preview", expanded=expanded, icon=qta.icon("fa5s.eye", color="#aaa"))
+        section.set_content(content)
+        section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_preview", checked))
+        self.layout.addWidget(section)
 
     # --- Batch ---------------------------------------------------------------
 
