@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.30.2
+
+- **Cast Removal — cleaner highlights** — the per-channel gray balance now anchors a third (highlight) reference, fitting a curve through highlight/midtone/shadow instead of a line. Fixes highlights occasionally overcorrecting past neutral (toward magenta) under 0.30.1.
+
 ## 0.30.1
 
 - **Improved Cast Removal** — neutral greys no longer drift slightly green. Cast Removal now balances each colour layer at the **midtone** as well as the shadows (a true two-point per-channel gray balance), measured only on near-neutral pixels so green-heavy scenes (foliage, skin) can't pull the balance. Previously the midtone leaned on a single luminance reading that is mostly green, leaving a faint green cast on many C-41 conversions. The default look shifts slightly toward neutral.

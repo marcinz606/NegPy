@@ -458,14 +458,13 @@ def per_channel_curve_params(
     neutral_axis_norm: Any = None,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
     """
-    Per-channel (slopes, pivots, curvatures) — single source of truth for CPU/GPU/chart.
-    The core is v = slope*(u - pivot) + curv*u² (curv 0 -> the original straight line).
+    Per-channel (slopes, pivots, curvatures); single source of truth for CPU/GPU/chart.
+    Core: v = slope*(u - pivot) + curv*u² (curv 0 = a straight line).
 
-    Cast Removal fits R/B onto green's neutral axis (green is the reference, so its pivot
-    keeps riding the luma anchor and exposure is unchanged). With a measured neutral_axis_norm
-    of (midtone, shadow, highlight) it's a quadratic per-channel fit through all three; with
-    only (midtone, shadow) a straight line; with only shadow_refs_norm a one-point shadow tie
-    (the legacy green cast). Off, or with no refs (E6/B&W): one shared linear curve.
+    Cast Removal fits R/B to green's neutral axis (green is the reference; its pivot rides the
+    luma anchor, so exposure is unchanged). neutral_axis_norm (midtone, shadow, highlight) ->
+    quadratic through all three; (midtone, shadow) -> line; shadow_refs_norm only -> one-point
+    shadow tie. Off / no refs (E6/B&W): one shared linear curve.
     """
     c = effective_constants(paper)
     # Per-channel slope multipliers (paper dye-layer contrast crossover). The
@@ -480,9 +479,8 @@ def per_channel_curve_params(
     epsilon = 1e-6
 
     if cast_removal and neutral_axis_norm is not None:
-        # Fit R/B onto green's axis: a line through the green-matched midtone+shadow, plus a
-        # curvature term from the highlight (when present) so the highlight doesn't extrapolate
-        # past neutral. Mid is pinned exactly by the pivot; curvature is clamped to stay monotonic.
+        # Line through the green-matched midtone+shadow, plus a highlight-driven curvature
+        # (when present) so highlights don't extrapolate past neutral. Clamped monotonic.
         mid_norm, sh_norm, hl_norm = neutral_axis_norm
         limit = float(c["midtone_cast_max_offset"])
         curv_lim = float(c["neutral_axis_curv_max_ratio"])

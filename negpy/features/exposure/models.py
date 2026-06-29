@@ -144,10 +144,9 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Hard clamp on automatic per-channel slope tilt during cast removal.
     # ↑ allows stronger shadow neutralization; ↓ limits correction (less risk of overcorrection).
     "cast_removal_max_offset": 0.1,
-    # Cast Removal neutral axis: per-channel reference sampled at a highlight, a midtone and a
-    # shadow luma band over each band's lowest-chroma pixels (relative quantile). R/B are fit
-    # to green's axis — a quadratic through all three (else a line through mid+shadow). The
-    # highlight anchor stops the line extrapolating past neutral there. Bands are normalized luma.
+    # Cast Removal neutral axis: per-channel refs at a highlight/midtone/shadow luma band, each
+    # over the band's lowest-chroma pixels (relative quantile). R/B fit green's axis — a quadratic
+    # through all three, else a line through mid+shadow. Bands are normalized luma.
     "neutral_axis_highlight_band": (0.10, 0.30),
     "neutral_axis_mid_band": (0.40, 0.60),
     "neutral_axis_shadow_band": (0.72, 0.92),
@@ -158,8 +157,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "neutral_axis_min_pixels": 64,
     # Clamp on each channel's deviation from green at any anchor (generous: refs are clean).
     "midtone_cast_max_offset": 0.2,
-    # Quadratic curvature clamp as a fraction of slope: keeps the per-channel core monotonic
-    # over [0,1] (curv in ±ratio*slope, ratio<0.5) and bounds the bend on noisy refs.
+    # Curvature clamp (fraction of slope, <0.5): keeps the per-channel core monotonic on [0,1].
     "neutral_axis_curv_max_ratio": 0.45,
     # Percentile of scene luminance sampled as the raw metered anchor.
     # ↑ samples darker histogram tones as key; ↓ samples brighter tones.
