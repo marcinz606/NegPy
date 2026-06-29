@@ -6,13 +6,12 @@
 - **Independent roll average for luma and colour** — the single **Use Roll Average** toggle is now two buttons, **Use Luma Average** and **Use Colour Average**. You can take the roll-wide tonal-range (black/white-point) baseline while letting each frame find its own colour balance, or vice-versa. With both on it behaves exactly like the old Use Roll Average; with both off, like per-image local.
 -  **Linear RAW on by default** — RAW files now decode with neutral (1,1,1,1) multipliers, bypassing the camera's as-shot white balance. You can still re-enable camera WB with the **Linear RAW** toggle in the Exposure sidebar (off = camera WB applied).
 - **Faster auto-exposure analysis** — the block-median prefilter behind Auto Density/Grade and normalization is now multi-threaded with bit-for-bit identical results, roughly 2.5× faster on large frames, so opening files and batch analysis feel snappier.
-- **Snappier live preview (GPU)** — the GPU preview no longer re-meters the negative on every frame. The auto-exposure analysis (bounds, anchor, contrast) is now cached per image and reused while you drag creative sliders (Density, Grade, Lab, Toning, Finishing), only re-measuring when something that actually affects the meter changes. Dragging sliders is dramatically smoother — on large frames the per-frame cost drops by an order of magnitude — with identical results.
+- **Snappier live preview (GPU)** — the GPU preview no longer re-meters the negative every frame (auto-exposure analysis is cached per image and reused while you drag creative sliders), and the engine caches bind groups, uses lighter preview decodes and a source cache. Dragging sliders is dramatically smoother and repeat exports are faster, with identical results.
 - **Contact-sheet output location & templates** — set an explicit output folder for the contact sheet, and save/recall named layout templates. @jboneng
 - **Flat output tidies the Export panel** — the Flat intent hides controls that don't apply, and honours your Print/Pixels sizing. @jboneng
 - **Rule-of-thirds grid on crop**, plus a denser 10×10 leveling grid while fine-rotating.
 - **Edited controls turn yellow** — changed sliders and the tabs holding them tint yellow, so you can see what you've touched.
 - **VISION3 500T crosstalk matrix** added to the bundled Lab Crosstalk profiles.
-- **Faster GPU rendering** — cached bind groups, lighter preview decodes and source caching cut per-frame and repeat-export work.
 - Fix: main window now fits small (1368×768) screens, and remembers its size/position.
 - Fix: long monitor ICC profile names no longer force a horizontal scrollbar in the Export panel.
 
