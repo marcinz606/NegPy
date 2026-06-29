@@ -6,6 +6,7 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
     flat_curve_params,
+    normalized_neutral_axis,
     normalized_shadow_refs,
     per_channel_curve_params,
 )
@@ -17,6 +18,7 @@ from negpy.features.exposure.normalization import (
     luma_source_bounds,
     luminance_density_range,
     measure_anchor_from_log,
+    measure_neutral_axis_from_log,
     measure_shadow_refs_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
@@ -118,6 +120,12 @@ class NormalizationProcessor:
 
         res = normalize_log_image(img_log, bounds)
 
+        # Neutral axis for the two-point Cast Removal gray balance (C-41 only).
+        if context.process_mode == ProcessMode.C41:
+            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(
+                img_log, bounds, context.active_roi, self.config.analysis_buffer
+            )
+
         # Per-frame exposure anchor, measured against the same final bounds the
         # image is normalized with. Stored unconditionally (cheap, block-grid);
         # PhotometricProcessor uses it only when auto_exposure is on.
@@ -148,6 +156,7 @@ class PhotometricProcessor:
         lum_range = context.metrics.get("norm_density_range")
         final_bounds = context.metrics.get("final_bounds")
         shadow_refs_norm = normalized_shadow_refs(final_bounds, context.metrics.get("shadow_log_refs"))
+        neutral_axis_norm = normalized_neutral_axis(final_bounds, context.metrics.get("neutral_axis_refs"))
         slopes, pivots = per_channel_curve_params(
             self.config.grade,
             self.config.density,
@@ -159,6 +168,7 @@ class PhotometricProcessor:
             d_min=d_min,
             anchor=anchor,
             paper=paper,
+            neutral_axis_norm=neutral_axis_norm,
         )
 
         c = EXPOSURE_CONSTANTS

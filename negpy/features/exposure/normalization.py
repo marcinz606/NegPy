@@ -140,6 +140,78 @@ def measure_shadow_log_refs(
     return measure_shadow_refs_from_log(img_log, roi, analysis_buffer)
 
 
+def measure_neutral_axis_from_log(
+    img_log: ImageBuffer,
+    bounds: "LogNegativeBounds",
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+    """
+    Per-channel neutral axis: median raw-log density at a midtone and a shadow luma
+    band, over each band's lowest-chroma pixels. The relative chroma quantile finds the
+    near-neutral population through the residual cast and rejects saturated content
+    (foliage/skin) that would otherwise pull the balance green. Returns (midtone_refs,
+    shadow_refs), or None when no trustworthy neutral set exists (callers fall back to
+    the shadow-only tie).
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+
+    img_log = _block_median_grid(img_log)
+    norm = normalize_log_image(img_log, bounds)
+    luma = LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2]
+    chroma = norm.max(axis=2) - norm.min(axis=2)
+
+    flat_log = img_log.reshape(-1, 3)
+    luma_f = luma.reshape(-1)
+    chroma_f = chroma.reshape(-1)
+
+    c = EXPOSURE_CONSTANTS
+    q = float(c["neutral_axis_chroma_quantile"])
+    cap = float(c["neutral_axis_chroma_cap"])
+    min_px = int(c["neutral_axis_min_pixels"])
+
+    def _band_refs(lo: float, hi: float) -> Optional[Tuple[float, float, float]]:
+        band = (luma_f >= lo) & (luma_f <= hi)
+        if int(band.sum()) < min_px:
+            return None
+        band_chroma = chroma_f[band]
+        thr = float(np.quantile(band_chroma, q))
+        idx = np.nonzero(band)[0][band_chroma <= thr]
+        if idx.size < min_px or float(np.median(chroma_f[idx])) > cap:
+            return None
+        return (
+            float(np.median(flat_log[idx, 0])),
+            float(np.median(flat_log[idx, 1])),
+            float(np.median(flat_log[idx, 2])),
+        )
+
+    mb = c["neutral_axis_mid_band"]
+    sb = c["neutral_axis_shadow_band"]
+    mid = _band_refs(float(mb[0]), float(mb[1]))
+    shadow = _band_refs(float(sb[0]), float(sb[1]))
+    if mid is None or shadow is None:
+        return None
+    return (mid, shadow)
+
+
+def measure_neutral_axis(
+    image: ImageBuffer,
+    bounds: "LogNegativeBounds",
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+    """Linear-image wrapper around measure_neutral_axis_from_log."""
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    return measure_neutral_axis_from_log(img_log, bounds, roi, analysis_buffer)
+
+
 def luminance_density_range(bounds: LogNegativeBounds) -> float:
     """
     Single global density range as a Rec.709 luminance weighting of the

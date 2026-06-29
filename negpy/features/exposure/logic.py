@@ -429,6 +429,17 @@ def normalized_shadow_refs(bounds: Any, refs: Optional[Tuple[float, float, float
     return normalize_refs(refs, bounds.floors, bounds.ceils)
 
 
+def normalized_neutral_axis(
+    bounds: Any,
+    refs: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]],
+) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+    """(midtone, shadow) neutral refs normalized against `bounds`, or None if either is missing."""
+    if bounds is None or refs is None:
+        return None
+    mid, shadow = refs
+    return (normalize_refs(mid, bounds.floors, bounds.ceils), normalize_refs(shadow, bounds.floors, bounds.ceils))
+
+
 def per_channel_curve_params(
     grade: float,
     density: float,
@@ -440,17 +451,16 @@ def per_channel_curve_params(
     d_min: float = 0.0,
     anchor: Optional[float] = None,
     paper: Optional[PaperProfile] = None,
+    neutral_axis_norm: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
     """
     Per-channel (slope, pivot) — single source of truth for CPU/GPU/chart.
 
-    Cast Removal off (or no shadow refs, e.g. E6/B&W): one shared base curve.
-    On: two-point per-channel gray balance. Each channel keeps the midtone anchor
-    neutral (compute_pivot) and is slope-tilted so its shadow ref lands on green's.
-    With the straight-line core slope*(x-pivot), the pivot cancels:
-        slope_ch = slope_green * (anchor - r_green) / (anchor - r_ch)
-    so the neutral reads equal-RGB. The shadow cast is clamped to
-    cast_removal_max_offset so a bad shadow ref can't over-tilt a channel.
+    Cast Removal tilts R/B onto green's neutral axis (green is the reference, so its
+    pivot keeps riding the luma anchor and exposure is unchanged). With a measured
+    neutral_axis_norm (low-chroma midtone + shadow) it's a two-point per-channel solve;
+    with only shadow_refs_norm it falls back to a one-point shadow tie that leaves the
+    midtone (the legacy green cast). Off, or with no refs (E6/B&W): one shared curve.
     """
     c = effective_constants(paper)
     # Per-channel slope multipliers (paper dye-layer contrast crossover). The
@@ -462,36 +472,67 @@ def per_channel_curve_params(
     r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)
     base_slope = grade_to_slope(grade, r_eff)
 
-    if not cast_removal or shadow_refs_norm is None:
-        s0 = min(max(base_slope * cg[0], slope_min), slope_max)
-        s1 = min(max(base_slope * cg[1], slope_min), slope_max)
-        s2 = min(max(base_slope * cg[2], slope_min), slope_max)
-        p0 = compute_pivot(s0, density, d_min=d_min, anchor=anchor, paper=paper)
-        p1 = compute_pivot(s1, density, d_min=d_min, anchor=anchor, paper=paper)
-        p2 = compute_pivot(s2, density, d_min=d_min, anchor=anchor, paper=paper)
-        return (s0, s1, s2), (p0, p1, p2)
-
     epsilon = 1e-6
-    anchor_val = float(c["assumed_anchor"]) if anchor is None else float(anchor)
-    limit = float(c["cast_removal_max_offset"])
-    r_green = float(shadow_refs_norm[1])
-    numer = anchor_val - r_green
 
-    slopes = []
-    pivots = []
-    for ch in range(3):
-        # Clamp the shadow cast before solving, bounding the correction.
-        cast = min(max(r_green - float(shadow_refs_norm[ch]), -limit), limit)
-        denom = anchor_val - (r_green - cast)
-        if ch == 1 or abs(denom) < epsilon:
-            slope_ch = base_slope
-        else:
-            slope_ch = base_slope * numer / denom
-            slope_ch = min(max(slope_ch, slope_min), slope_max)
-        slope_ch = min(max(slope_ch * cg[ch], slope_min), slope_max)
-        slopes.append(slope_ch)
-        pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor, paper=paper))
-    return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
+    if cast_removal and neutral_axis_norm is not None:
+        # R/B solve a line through two green-matched points (midtone, shadow); pivot is
+        # taken from the midtone match so it stays neutral even when cg != 1.
+        mid_norm, sh_norm = neutral_axis_norm
+        limit = float(c["midtone_cast_max_offset"])
+        m_g, s_g = float(mid_norm[1]), float(sh_norm[1])
+        slope_g = min(max(base_slope * cg[1], slope_min), slope_max)
+        pivot_g = compute_pivot(slope_g, density, d_min=d_min, anchor=anchor, paper=paper)
+        a_mid = slope_g * (m_g - pivot_g)
+        a_sh = slope_g * (s_g - pivot_g)
+        slopes = []
+        pivots = []
+        for ch in range(3):
+            if ch == 1:
+                slopes.append(slope_g)
+                pivots.append(pivot_g)
+                continue
+            m_ch = m_g + min(max(float(mid_norm[ch]) - m_g, -limit), limit)
+            s_ch = s_g + min(max(float(sh_norm[ch]) - s_g, -limit), limit)
+            denom = m_ch - s_ch
+            slope_ch = slope_g if abs(denom) < epsilon else (a_mid - a_sh) / denom
+            slope_ch = min(max(slope_ch * cg[ch], slope_min), slope_max)
+            pivot_ch = m_ch - a_mid / slope_ch if abs(slope_ch) > epsilon else pivot_g
+            slopes.append(slope_ch)
+            pivots.append(pivot_ch)
+        return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
+
+    if cast_removal and shadow_refs_norm is not None:
+        # Fallback one-point tie: slope-tilt each channel so its shadow ref lands on
+        # green's, with the luma anchor pinning the midtone (used when no neutral axis).
+        anchor_val = float(c["assumed_anchor"]) if anchor is None else float(anchor)
+        limit = float(c["cast_removal_max_offset"])
+        r_green = float(shadow_refs_norm[1])
+        numer = anchor_val - r_green
+
+        slopes = []
+        pivots = []
+        for ch in range(3):
+            # Clamp the shadow cast before solving, bounding the correction.
+            cast = min(max(r_green - float(shadow_refs_norm[ch]), -limit), limit)
+            denom = anchor_val - (r_green - cast)
+            if ch == 1 or abs(denom) < epsilon:
+                slope_ch = base_slope
+            else:
+                slope_ch = base_slope * numer / denom
+                slope_ch = min(max(slope_ch, slope_min), slope_max)
+            slope_ch = min(max(slope_ch * cg[ch], slope_min), slope_max)
+            slopes.append(slope_ch)
+            pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor, paper=paper))
+        return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
+
+    # Base curve: Cast Removal off, or on with no measured refs (E6/B&W/no neutrals).
+    s0 = min(max(base_slope * cg[0], slope_min), slope_max)
+    s1 = min(max(base_slope * cg[1], slope_min), slope_max)
+    s2 = min(max(base_slope * cg[2], slope_min), slope_max)
+    p0 = compute_pivot(s0, density, d_min=d_min, anchor=anchor, paper=paper)
+    p1 = compute_pivot(s1, density, d_min=d_min, anchor=anchor, paper=paper)
+    p2 = compute_pivot(s2, density, d_min=d_min, anchor=anchor, paper=paper)
+    return (s0, s1, s2), (p0, p1, p2)
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:

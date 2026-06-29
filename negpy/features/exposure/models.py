@@ -144,6 +144,19 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Hard clamp on automatic per-channel slope tilt during cast removal.
     # ↑ allows stronger shadow neutralization; ↓ limits correction (less risk of overcorrection).
     "cast_removal_max_offset": 0.1,
+    # Cast Removal neutral axis: per-channel reference sampled at a midtone and a shadow
+    # luma band over each band's lowest-chroma pixels (relative quantile), then R/B are
+    # tilted to match green's axis. Replaces the old shadow-only tie that left the midtone
+    # uncorrected (the green cast). Bands are normalized-luma windows.
+    "neutral_axis_mid_band": (0.40, 0.60),
+    "neutral_axis_shadow_band": (0.72, 0.92),
+    # Lowest-chroma fraction of each band kept as the near-neutral set.
+    "neutral_axis_chroma_quantile": 0.30,
+    # Above this median chroma the set isn't trustworthy -> fall back to the shadow-only tie.
+    "neutral_axis_chroma_cap": 0.35,
+    "neutral_axis_min_pixels": 64,
+    # Clamp on each channel's deviation from green at either point (generous: refs are clean).
+    "midtone_cast_max_offset": 0.2,
     # Percentile of scene luminance sampled as the raw metered anchor.
     # ↑ samples darker histogram tones as key; ↓ samples brighter tones.
     "anchor_meter_percentile": 50.0,

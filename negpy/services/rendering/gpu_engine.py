@@ -14,6 +14,7 @@ from negpy.features.exposure.normalization import (
     luma_source_bounds,
     luminance_density_range,
     measure_anchor,
+    measure_neutral_axis,
     measure_shadow_log_refs,
     measure_textural_range,
     resolve_bounds_detailed,
@@ -121,31 +122,33 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
     )
 
 
-def _fill_analysis_overrides(cache, key, bounds, refs, anchor, textural):
+def _fill_analysis_overrides(cache, key, bounds, refs, anchor, textural, neutral):
     """Fill the None overrides from the cache when its key matches; caller overrides win."""
     if cache is None or cache[0] != key:
-        return bounds, refs, anchor, textural
-    _, cb, cr, ca, ct = cache
+        return bounds, refs, anchor, textural, neutral
+    _, cb, cr, ca, ct, cn = cache
     return (
         bounds if bounds is not None else cb,
         refs if refs is not None else cr,
         anchor if anchor is not None else ca,
         textural if textural is not None else ct,
+        neutral if neutral is not None else cn,
     )
 
 
-def _update_analysis_cache(cache, key, bounds, refs, anchor, textural):
+def _update_analysis_cache(cache, key, bounds, refs, anchor, textural, neutral):
     """Store the resolved analysis under key, merging (a frame may compute only a subset)."""
     if cache is None or cache[0] != key:
-        cb = cr = ca = ct = None
+        cb = cr = ca = ct = cn = None
     else:
-        _, cb, cr, ca, ct = cache
+        _, cb, cr, ca, ct, cn = cache
     return (
         key,
         bounds if bounds is not None else cb,
         refs if refs is not None else cr,
         anchor if anchor is not None else ca,
         textural if textural is not None else ct,
+        neutral if neutral is not None else cn,
     )
 
 
@@ -192,8 +195,8 @@ class GPUEngine:
         ]
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
         self._current_source_hash: Optional[str] = None
-        # (key, bounds, shadow_refs, metered_anchor, textural_range) — per-source meter
-        # cache so creative-slider previews don't re-run the analysis (see _analysis_*).
+        # (key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis) — per-source
+        # meter cache so creative-slider previews don't re-run the analysis (see _analysis_*).
         self._analysis_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_scale_factor: float = 1.0
@@ -344,6 +347,7 @@ class GPUEngine:
         shadow_refs_override: Optional[Tuple[float, float, float]] = None,
         metered_anchor_override: Optional[float] = None,
         textural_range_override: Optional[float] = None,
+        neutral_axis_override: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
         apply_layout: bool = True,
         render_size_ref: Optional[float] = None,
         source_hash: Optional[str] = None,
@@ -429,13 +433,20 @@ class GPUEngine:
         analysis_key = None
         if analysis_source_hash is not None and not tiling_mode:
             analysis_key = _analysis_cache_key(settings, analysis_source_hash)
-            bounds_override, shadow_refs_override, metered_anchor_override, textural_range_override = _fill_analysis_overrides(
+            (
+                bounds_override,
+                shadow_refs_override,
+                metered_anchor_override,
+                textural_range_override,
+                neutral_axis_override,
+            ) = _fill_analysis_overrides(
                 self._analysis_cache,
                 analysis_key,
                 bounds_override,
                 shadow_refs_override,
                 metered_anchor_override,
                 textural_range_override,
+                neutral_axis_override,
             )
 
         needs_refs = (
@@ -499,6 +510,16 @@ class GPUEngine:
                 settings.process.analysis_buffer,
             )
 
+        # Neutral axis for the two-point Cast Removal; normalized at consumption.
+        neutral_axis_refs = neutral_axis_override
+        if needs_refs and analysis_source is not None:
+            neutral_axis_refs = measure_neutral_axis(
+                analysis_source,
+                bounds,
+                analysis_roi,
+                settings.process.analysis_buffer,
+            )
+
         metered_anchor = metered_anchor_override
         if needs_anchor and analysis_source is not None:
             metered_anchor = measure_anchor(
@@ -518,7 +539,7 @@ class GPUEngine:
 
         if analysis_key is not None:
             self._analysis_cache = _update_analysis_cache(
-                self._analysis_cache, analysis_key, bounds, shadow_refs, metered_anchor, textural_range
+                self._analysis_cache, analysis_key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis_refs
             )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
@@ -538,6 +559,7 @@ class GPUEngine:
             shadow_refs=shadow_refs,
             metered_anchor=metered_anchor,
             textural_range=textural_range,
+            neutral_axis_refs=neutral_axis_refs,
         )
         self._update_retouch_storage(
             settings.retouch,
@@ -891,6 +913,7 @@ class GPUEngine:
         shadow_refs: Optional[Tuple[float, float, float]] = None,
         metered_anchor: Optional[float] = None,
         textural_range: Optional[float] = None,
+        neutral_axis_refs: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         g_data = (
@@ -961,6 +984,13 @@ class GPUEngine:
         shadow_refs_norm = None
         if shadow_refs is not None:
             shadow_refs_norm = normalize_refs(shadow_refs, adj_floors, adj_ceils)
+        neutral_axis_norm = None
+        if neutral_axis_refs is not None:
+            mid_refs, sh_refs = neutral_axis_refs
+            neutral_axis_norm = (
+                normalize_refs(mid_refs, adj_floors, adj_ceils),
+                normalize_refs(sh_refs, adj_floors, adj_ceils),
+            )
         slopes, pivots = per_channel_curve_params(
             exp.grade,
             exp.density,
@@ -972,6 +1002,7 @@ class GPUEngine:
             d_min=d_min,
             anchor=render_anchor,
             paper=paper,
+            neutral_axis_norm=neutral_axis_norm,
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         tint = paper.base_tint_cmy
@@ -1551,6 +1582,7 @@ class GPUEngine:
             global_anchor_bounds = luma_source_bounds(settings.process, global_base_bounds)
 
         global_shadow_refs = None
+        global_neutral_axis = None
         if settings.exposure.cast_removal and settings.process.process_mode == ProcessMode.C41:
             # Tiles must share one global measurement, like global_bounds.
             ah, aw = img_rot.shape[:2]
@@ -1559,6 +1591,12 @@ class GPUEngine:
             analysis_img = _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size)
             global_shadow_refs = measure_shadow_log_refs(
                 analysis_img,
+                roi=analysis_roi,
+                analysis_buffer=settings.process.analysis_buffer,
+            )
+            global_neutral_axis = measure_neutral_axis(
+                analysis_img,
+                global_bounds,
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
             )
@@ -1611,6 +1649,7 @@ class GPUEngine:
                     shadow_refs_override=global_shadow_refs,
                     metered_anchor_override=global_metered_anchor,
                     textural_range_override=global_textural_range,
+                    neutral_axis_override=global_neutral_axis,
                     global_offset=(ix1, iy1),
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,
