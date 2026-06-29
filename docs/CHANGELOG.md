@@ -9,6 +9,7 @@
 - **Snappier live preview (GPU)** — the GPU preview no longer re-meters the negative every frame (auto-exposure analysis is cached per image and reused while you drag creative sliders), and the engine caches bind groups, uses lighter preview decodes and a source cache. Dragging sliders is dramatically smoother and repeat exports are faster, with identical results.
 - **Contact-sheet output location & templates** — set an explicit output folder for the contact sheet, and save/recall named layout templates. @jboneng
 - **Flat output tidies the Export panel** — the Flat intent hides controls that don't apply, and honours your Print/Pixels sizing. @jboneng
+- **Export panel reorganised** — the panel now reads top to bottom in the order you actually export: the Print/Flat output intent first, then format/size/colour/destination, then the Export buttons. Presets, the contact sheet and the preview/soft-proof controls are tucked into collapsible sections below, so the common path fits on screen without scrolling.
 - **Rule-of-thirds grid on crop**, plus a denser 10×10 leveling grid while fine-rotating.
 - **Edited controls turn yellow** — changed sliders and the tabs holding them tint yellow, so you can see what you've touched.
 - **VISION3 500T crosstalk matrix** added to the bundled Lab Crosstalk profiles.
