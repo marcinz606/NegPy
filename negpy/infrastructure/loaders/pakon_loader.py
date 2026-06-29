@@ -38,7 +38,10 @@ class PakonLoader(IImageLoader):
             h, w = spec["res"]
             expected_pixels = h * w * 3
 
+            # Skip optional 16-byte header by anchoring pixels to file end.
+            byte_offset = max(0, file_size - expected_pixels * 2)
             with open(file_path, "rb") as f:
+                f.seek(byte_offset)
                 data = np.fromfile(f, dtype="<u2", count=expected_pixels)
 
             if len(data) < expected_pixels:
