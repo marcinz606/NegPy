@@ -14,6 +14,7 @@
 - **VISION3 500T crosstalk matrix** added to the bundled Lab Crosstalk profiles.
 - Fix: main window now fits small (1368×768) screens, and remembers its size/position.
 - Fix: long monitor ICC profile names no longer force a horizontal scrollbar in the Export panel.
+- Fix: Pakon `.raw` files no longer show a thin strip of garbage pixels along the left edge (and process a touch darker) — the loader now skips the file's small header.
 
 ## 0.29.1
 
