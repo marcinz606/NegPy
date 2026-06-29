@@ -84,9 +84,7 @@ def test_default_layout_from_export_uses_stored_default():
         contact_sheet_default_margin=20,
         contact_sheet_default_max_tiles=24,
     )
-    assert ContactSheetTemplates.default_layout_from_export(export) == ContactSheetLayout(
-        cell_px=450, gap=10, margin=20, max_tiles=24
-    )
+    assert ContactSheetTemplates.default_layout_from_export(export) == ContactSheetLayout(cell_px=450, gap=10, margin=20, max_tiles=24)
 
 
 def test_default_layout_from_export_legacy_active_fields():
@@ -97,9 +95,7 @@ def test_default_layout_from_export_legacy_active_fields():
         contact_sheet_max_tiles=20,
         contact_sheet_template="",
     )
-    assert ContactSheetTemplates.default_layout_from_export(export) == ContactSheetLayout(
-        cell_px=650, gap=20, margin=40, max_tiles=20
-    )
+    assert ContactSheetTemplates.default_layout_from_export(export) == ContactSheetLayout(cell_px=650, gap=20, margin=40, max_tiles=20)
 
 
 def test_default_layout_from_export_named_template_ignores_active_fields():

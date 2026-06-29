@@ -193,8 +193,7 @@ class ExportSidebar(BaseSidebar):
         self.cs_output_path_edit = QLineEdit(conf.contact_sheet_output_path)
         self.cs_output_path_edit.setPlaceholderText("Uses export destination")
         self.cs_output_path_edit.setToolTip(
-            "Folder for contact sheet JPEGs. Leave empty to follow the export destination "
-            "(same as source or absolute export path)."
+            "Folder for contact sheet JPEGs. Leave empty to follow the export destination (same as source or absolute export path)."
         )
         self.cs_output_path_edit.textChanged.connect(lambda _: self.update_timer.start())
         self.cs_output_path_browse_btn = QPushButton()
@@ -216,11 +215,11 @@ class ExportSidebar(BaseSidebar):
         repo = self.controller.session.repo
         expanded = bool(repo.get_global_setting("section_expanded_contact_sheet", default=False))
         self.contact_sheet_section = CollapsibleSection("Contact Sheet", expanded=expanded, icon=qta.icon("fa5s.th", color="#aaa"))
-        self.contact_sheet_section.setToolTip(
-            "Render a contact sheet of display previews. Independent of flat master export."
-        )
+        self.contact_sheet_section.setToolTip("Render a contact sheet of display previews. Independent of flat master export.")
         self.contact_sheet_section.set_content(content)
-        self.contact_sheet_section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_contact_sheet", checked))
+        self.contact_sheet_section.expanded_changed.connect(
+            lambda checked: repo.save_global_setting("section_expanded_contact_sheet", checked)
+        )
         self.layout.addWidget(self.contact_sheet_section)
 
     def _browse_contact_sheet_output_path(self) -> None:
@@ -385,9 +384,7 @@ class ExportSidebar(BaseSidebar):
         # it reads as one unit. objectName-scoped so the border doesn't cascade.
         container = QWidget()
         container.setObjectName("flat_intent_box")
-        container.setStyleSheet(
-            f"#flat_intent_box {{ border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark}; }}"
-        )
+        container.setStyleSheet(f"#flat_intent_box {{ border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark}; }}")
         box = QVBoxLayout(container)
         box.setContentsMargins(6, 6, 6, 6)
         box.setSpacing(6)

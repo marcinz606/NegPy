@@ -42,6 +42,7 @@ def constrain_combo(combo: QComboBox, min_chars: int = 6) -> None:
     combo.setMinimumContentsLength(min_chars)
     combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+
 # Spaces JXL can tag (mirror _JXL_COLOR). Same as Source is allowed — resolved at
 # export time and rejected by the encoder if it lands on an unsupported space.
 _JXL_SUPPORTED = {
