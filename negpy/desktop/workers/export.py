@@ -164,7 +164,6 @@ class ExportWorker(QObject):
                 )
                 if tile is not None:
                     tiles.append(tile)
-                self._processor.cleanup()
 
             sheets = ContactSheetService.build_sheets(tiles, max_tiles=max_tiles, cell_px=cell_px, gap=gap, margin=margin)
             os.makedirs(out_dir, exist_ok=True)
@@ -191,3 +190,6 @@ class ExportWorker(QObject):
             self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            # Release GPU resources once per batch, not per tile (avoids pool rebuild each frame).
+            self._processor.cleanup()

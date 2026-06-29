@@ -62,6 +62,11 @@ class ImageProcessor:
         self.engine_cpu = DarkroomEngine()
         self.engine_gpu: Optional[GPUEngine] = None
 
+        # Last decoded full-res source (decode+flatfield) — skips re-decode on repeat export.
+        # One entry only (full-res buffers are large); treated read-only downstream.
+        self._source_cache_key: Optional[tuple] = None
+        self._source_cache_value: Optional[Tuple[np.ndarray, Optional[np.ndarray], str]] = None
+
         if APP_CONFIG.use_gpu:
             gpu = GPUDevice.get()
             if gpu.is_available:
@@ -190,6 +195,14 @@ class ImageProcessor:
         """
         linear_raw = params.exposure.linear_raw
 
+        try:
+            mtime = os.path.getmtime(file_path)
+        except OSError:
+            mtime = 0.0
+        cache_key = (file_path, mtime, linear_raw, rgbscan_token(params.rgbscan), flatfield_token(params.flatfield))
+        if cache_key == self._source_cache_key and self._source_cache_value is not None:
+            return self._source_cache_value
+
         rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw)
         source_cs = str(metadata.get("color_space", ColorSpace.ADOBE_RGB.value))
         ir_full = metadata.get("ir")
@@ -212,7 +225,10 @@ class ImageProcessor:
         f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
-        return f32_buffer, ir_full, source_cs
+        result = (f32_buffer, ir_full, source_cs)
+        self._source_cache_key = cache_key
+        self._source_cache_value = result
+        return result
 
     def process_export(
         self,
@@ -708,6 +724,8 @@ class ImageProcessor:
 
     def cleanup(self) -> None:
         """Evacuates transient GPU resources."""
+        self._source_cache_key = None
+        self._source_cache_value = None
         if self.engine_gpu:
             self.engine_gpu.cleanup()
 

@@ -15,6 +15,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
 from negpy.features.process.models import ProcessConfig
+from negpy.features.finish.models import FinishConfig
 
 # Sidebar Components
 from negpy.desktop.view.sidebar.presets import PresetsSidebar
@@ -28,6 +29,14 @@ from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
+# Constant frozen-dataclass defaults — build once, not per resync.
+_DEFAULT_EXPOSURE = ExposureConfig()
+_DEFAULT_LAB = LabConfig()
+_DEFAULT_TONING = ToningConfig()
+_DEFAULT_GEOMETRY = GeometryConfig()
+_DEFAULT_PROCESS = ProcessConfig()
+_DEFAULT_FINISH = FinishConfig()
+
 
 class ControlsPanel(QWidget):
     """
@@ -39,6 +48,7 @@ class ControlsPanel(QWidget):
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
+        self._last_histogram_buf = None
 
         self._init_ui()
         self._connect_signals()
@@ -198,6 +208,8 @@ class ControlsPanel(QWidget):
         self._sync_debounce.timeout.connect(self._sync_all_sidebars)
         self.controller.config_updated.connect(self._sync_debounce.start)
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
+        # Histogram only changes on render completion — refresh there, not on every resync.
+        self.controller.image_updated.connect(self._update_histogram)
 
         self.exposure_section.reset_requested.connect(lambda: self.controller.session.reset_section("exposure"))
         self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
@@ -477,17 +489,23 @@ class ControlsPanel(QWidget):
         self.presets_sidebar.sync_ui()
         self.flatfield_sidebar.sync_ui()
         self._sync_modified_dots()
+
+    def _update_histogram(self) -> None:
+        """Repaint only when the render produced a new buffer."""
         buf = self.controller.state.last_metrics.get("histogram_raw")
+        if buf is self._last_histogram_buf:
+            return
+        self._last_histogram_buf = buf
         self.exposure_histogram.update_data(buf)
 
     def _sync_modified_dots(self) -> None:
         """Update modified-indicator dots on collapsible section headers."""
         cfg = self.controller.state.config
-        _exp = ExposureConfig()
-        _lab = LabConfig()
-        _ton = ToningConfig()
-        _geo = GeometryConfig()
-        _proc = ProcessConfig()
+        _exp = _DEFAULT_EXPOSURE
+        _lab = _DEFAULT_LAB
+        _ton = _DEFAULT_TONING
+        _geo = _DEFAULT_GEOMETRY
+        _proc = _DEFAULT_PROCESS
 
         exp = cfg.exposure
         exposure_count = sum(
@@ -566,9 +584,7 @@ class ControlsPanel(QWidget):
         ret = cfg.retouch
         retouch_count = int(ret.dust_remove) + len(ret.manual_dust_spots)
 
-        from negpy.features.finish.models import FinishConfig
-
-        _fin = FinishConfig()
+        _fin = _DEFAULT_FINISH
         fin = cfg.finish
         finish_count = sum(
             [

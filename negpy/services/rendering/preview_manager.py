@@ -282,6 +282,35 @@ class PreviewManager:
         )
         return out, dims, meta
 
+    def decode_for_detection(self, file_path: str) -> Optional[ImageBuffer]:
+        """No-WB linear decode for autodetect only — skips the preview resize/orient/cache
+        (detect_process_mode downsamples), so it costs just the demosaic. Mirrors the fast path."""
+        try:
+            ctx_mgr, _meta = loader_factory.get_loader(file_path)
+            with ctx_mgr as raw:
+                if isinstance(raw, NonStandardFileWrapper):
+                    demosaic = get_best_demosaic_algorithm(raw)
+                    post_kw: dict = {}
+                else:
+                    demosaic = rawpy.DemosaicAlgorithm.LINEAR
+                    # half_size casts X-Trans channel ratios (skews detection); Bayer is fine.
+                    post_kw = {} if is_xtrans(raw) else {"half_size": True}
+                rgb = raw.postprocess(
+                    gamma=(1, 1),
+                    no_auto_bright=True,
+                    use_camera_wb=False,
+                    user_wb=[1, 1, 1, 1],
+                    output_bps=16,
+                    output_color=rawpy.ColorSpace.raw,
+                    demosaic_algorithm=demosaic,
+                    user_flip=0,
+                    **post_kw,
+                )
+            return uint16_to_float32(ensure_rgb(rgb))
+        except Exception:
+            logger.exception("detection decode failed: %s", file_path)
+            return None
+
     def load_linear_preview_rgb(
         self,
         red_path: str,
@@ -294,8 +323,20 @@ class PreviewManager:
         align: bool = True,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """Merge a narrowband R/G/B triplet into one linear preview: red channel from the
-        red shot, green from green, blue from blue. Each exposure is decoded (and cached)
-        through the normal preview path, then channels are combined."""
+        red shot, green from green, blue from blue. The merged result is cached, so re-visiting
+        a triplet skips the green/blue decode and the phase-correlate align."""
+        merged_key = None
+        if file_hash and color_space is not None:
+            merged_key = PreviewCacheKey(
+                file_hash=f"rgb|{file_hash}|{green_path}|{blue_path}|{align}",
+                use_camera_wb=use_camera_wb,
+                workspace_color_space=color_space,
+                full_resolution=full_resolution,
+            )
+            hit = self._cache.get(merged_key)
+            if hit is not None:
+                return hit  # cache hit — caller must not mutate this buffer
+
         red_out, dims, meta = self.load_linear_preview(red_path, color_space, use_camera_wb, full_resolution, file_hash)
         green_out, _, _ = self.load_linear_preview(green_path, color_space, use_camera_wb, full_resolution, None)
         blue_out, _, _ = self.load_linear_preview(blue_path, color_space, use_camera_wb, full_resolution, None)
@@ -309,7 +350,10 @@ class PreviewManager:
             return arr
 
         merged = assemble_rgb(red, _match(green_out), _match(blue_out), align=align)
-        return ensure_image(merged), dims, meta
+        out = ensure_image(merged)
+        if merged_key is not None:
+            self._cache.put(merged_key, out.copy(), dims, dict(meta))
+        return out, dims, meta
 
     def load_splash_and_linear(
         self,

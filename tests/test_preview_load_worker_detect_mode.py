@@ -5,8 +5,8 @@ The worker previously read task.linear_raw and passed linear_raw=True to
 load_linear_preview; both were renamed to use_camera_wb during the #210 merge.
 A wrong reference here is a silent runtime crash (not a merge conflict), so these
 tests pin the wiring:
-  - camera-WB preview (use_camera_wb=True): re-decode no-WB before classifying,
-    since the C41 orange mask is hidden by camera WB.
+  - camera-WB preview (use_camera_wb=True): a lean no-WB decode (decode_for_detection)
+    before classifying, since the C41 orange mask is hidden by camera WB.
   - no-WB preview (use_camera_wb=False): classify the buffer we already have.
 """
 
@@ -31,7 +31,7 @@ def test_detect_mode_camera_wb_redecodes_no_wb(qapp):
 
     service = MagicMock()
     rescan = np.zeros((4, 4, 3), dtype=np.float32)
-    service.load_linear_preview.return_value = (rescan, (4, 4), {})
+    service.decode_for_detection.return_value = rescan
     worker = PreviewLoadWorker(service)
 
     camera_wb_buf = np.ones((4, 4, 3), dtype=np.float32)
@@ -39,9 +39,9 @@ def test_detect_mode_camera_wb_redecodes_no_wb(qapp):
         result = worker._detect_mode(_task(use_camera_wb=True), camera_wb_buf)
 
     assert result == "c41"
-    service.load_linear_preview.assert_called_once()
-    _, kwargs = service.load_linear_preview.call_args
-    assert kwargs["use_camera_wb"] is False
+    # Camera WB hides the C41 mask → a lean no-WB decode is run for detection.
+    service.decode_for_detection.assert_called_once_with("/fake/path.dng")
+    service.load_linear_preview.assert_not_called()
     # Classified the freshly re-decoded no-WB buffer, not the camera-WB one.
     assert dpm.call_args[0][0] is rescan
 

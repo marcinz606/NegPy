@@ -406,11 +406,8 @@ class PreviewLoadWorker(QObject):
             if not task.use_camera_wb:
                 scan = raw
             else:
-                scan, _, _ = self._preview_service.load_linear_preview(
-                    task.file_path,
-                    task.workspace_color_space,
-                    use_camera_wb=False,
-                )
+                # Camera WB hides the C41 mask — re-decode no-WB (lean; detect downsamples).
+                scan = self._preview_service.decode_for_detection(task.file_path)
             return str(detect_process_mode(scan))
         except Exception:
             logger.exception(f"Process-mode detection failed: {task.file_path}")

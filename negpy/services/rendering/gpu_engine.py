@@ -96,6 +96,16 @@ def _downsample_for_analysis(img: np.ndarray, max_size: int) -> np.ndarray:
     return cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
 
+def _binding_identity(idx: int, res: Any) -> tuple:
+    """Hashable identity for the bind-group cache. Pooled views/persistent buffers keep the
+    same object across frames, so id() is stable."""
+    if isinstance(res, dict) and "buffer" in res:
+        return (idx, id(res["buffer"]), res.get("offset", 0), res.get("size"))
+    if isinstance(res, GPUBuffer):
+        return (idx, id(res.buffer))
+    return (idx, id(res))
+
+
 def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) -> tuple:
     """Identity of the auto-exposure analysis for a frame. Mirrors the CPU base-stage
     cache key (engine.py) plus the fields that gate refs/anchor/textural, so it survives
@@ -189,6 +199,11 @@ class GPUEngine:
         self._last_scale_factor: float = 1.0
         self._pending_ir_buffer: Optional[np.ndarray] = None
         self._ir_upload_key: Optional[Tuple[int, Any, int, int]] = None
+
+        # Bind groups reference resources, not contents, so they survive across frames;
+        # cache and reuse (cleared in cleanup()). Saves ~28 wgpu calls per frame.
+        self._bind_group_cache: Dict[Tuple, Any] = {}
+        self._bind_layout_cache: Dict[str, Any] = {}
 
         # Persistent staging buffers — avoid create_buffer() on every readback
         self._metrics_staging: Optional[Any] = None
@@ -1351,43 +1366,52 @@ class GPUEngine:
         if pipeline is None:
             raise RuntimeError(f"Pipeline not initialized: {pipeline_name}")
 
-        wg_x, wg_y = (16, 16) if pipeline_name in ["autocrop", "metrics", "clahe_hist"] else (8, 8)
-        entries = []
-        for idx, res in bindings:
-            if res is None:
-                raise ValueError(
-                    f"Binding {idx} in pipeline '{pipeline_name}' is None. "
-                    "This usually means a hardware resource was not properly initialized or has been destroyed."
-                )
-
-            if isinstance(res, dict) and "buffer" in res:
-                if res["buffer"] is None:
-                    raise ValueError(f"Buffer in binding {idx} ({pipeline_name}) is None")
-                entries.append({"binding": idx, "resource": res})
-            elif isinstance(res, GPUBuffer):
-                if res.buffer is None:
-                    raise ValueError(f"GPUBuffer in binding {idx} ({pipeline_name}) is None")
-                entries.append(
-                    {
-                        "binding": idx,
-                        "resource": {
-                            "buffer": res.buffer,
-                            "offset": 0,
-                            "size": res.buffer.size,
-                        },
-                    }
-                )
-            else:
-                entries.append({"binding": idx, "resource": res})
-
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
 
-        try:
-            bind_group = self.gpu.device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=entries)
-        except Exception as e:
-            logger.error(f"Failed to create bind group for {pipeline_name}: {e}")
-            raise
+        wg_x, wg_y = (16, 16) if pipeline_name in ["autocrop", "metrics", "clahe_hist"] else (8, 8)
+
+        cache_key = (pipeline_name, tuple(_binding_identity(idx, res) for idx, res in bindings))
+        bind_group = self._bind_group_cache.get(cache_key)
+        if bind_group is None:
+            entries = []
+            for idx, res in bindings:
+                if res is None:
+                    raise ValueError(
+                        f"Binding {idx} in pipeline '{pipeline_name}' is None. "
+                        "This usually means a hardware resource was not properly initialized or has been destroyed."
+                    )
+
+                if isinstance(res, dict) and "buffer" in res:
+                    if res["buffer"] is None:
+                        raise ValueError(f"Buffer in binding {idx} ({pipeline_name}) is None")
+                    entries.append({"binding": idx, "resource": res})
+                elif isinstance(res, GPUBuffer):
+                    if res.buffer is None:
+                        raise ValueError(f"GPUBuffer in binding {idx} ({pipeline_name}) is None")
+                    entries.append(
+                        {
+                            "binding": idx,
+                            "resource": {
+                                "buffer": res.buffer,
+                                "offset": 0,
+                                "size": res.buffer.size,
+                            },
+                        }
+                    )
+                else:
+                    entries.append({"binding": idx, "resource": res})
+
+            layout = self._bind_layout_cache.get(pipeline_name)
+            if layout is None:
+                layout = pipeline.get_bind_group_layout(0)
+                self._bind_layout_cache[pipeline_name] = layout
+            try:
+                bind_group = self.gpu.device.create_bind_group(layout=layout, entries=entries)
+            except Exception as e:
+                logger.error(f"Failed to create bind group for {pipeline_name}: {e}")
+                raise
+            self._bind_group_cache[cache_key] = bind_group
 
         pass_enc = encoder.begin_compute_pass()
         pass_enc.set_pipeline(pipeline)
@@ -1613,6 +1637,9 @@ class GPUEngine:
         for tex in self._tex_cache.values():
             tex.destroy()
         self._tex_cache.clear()
+        # Bind groups reference the destroyed views — drop them.
+        self._bind_group_cache.clear()
+        self._bind_layout_cache.clear()
         self._ir_upload_key = None
         gc.collect()
         logger.info("GPUEngine: VRAM resources released")
