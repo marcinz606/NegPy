@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QMainWindow,
     QMessageBox,
@@ -34,6 +35,29 @@ from negpy.kernel.system.logging import get_logger
 from negpy.services.export.print import PrintService
 
 logger = get_logger(__name__)
+
+_DEFAULT_W, _DEFAULT_H = 1400, 900
+
+
+def _clamp_geometry(
+    saved: Optional[tuple[int, int, int, int]],
+    avail: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    """Fit a window geometry inside the available screen rect.
+
+    ``saved`` is (x, y, w, h) or None (use the default size, centered).
+    ``avail`` is (x, y, w, h) of the screen work area. The result is sized no
+    larger than ``avail`` and positioned fully inside it.
+    """
+    ax, ay, aw, ah = avail
+    if saved is None:
+        w, h = min(_DEFAULT_W, aw), min(_DEFAULT_H, ah)
+        return ax + (aw - w) // 2, ay + (ah - h) // 2, w, h
+    sx, sy, sw, sh = saved
+    w, h = min(sw, aw), min(sh, ah)
+    x = min(max(sx, ax), ax + aw - w)
+    y = min(max(sy, ay), ay + ah - h)
+    return x, y, w, h
 
 
 def _read_screen_icc(screen: object) -> Optional[bytes]:
@@ -107,7 +131,7 @@ class MainWindow(QMainWindow):
         self.controller = controller
         self.state = controller.state
 
-        self.resize(1400, 900)
+        self._restore_window_geometry()
         self.setAcceptDrops(True)
 
         self._init_ui()
@@ -123,6 +147,28 @@ class MainWindow(QMainWindow):
         repo = self.controller.session.repo
         if not repo.get_global_setting("tutorial_seen", False):
             QTimer.singleShot(600, self.show_tutorial)
+
+    def _restore_window_geometry(self) -> None:
+        """Open clamped to the screen work area, restoring the saved size/position if any."""
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self.resize(_DEFAULT_W, _DEFAULT_H)
+            return
+        raw = self.controller.session.repo.get_global_setting("window_geometry")
+        saved = None
+        if isinstance(raw, list) and len(raw) == 4 and raw[2] > 0 and raw[3] > 0:
+            saved = tuple(int(v) for v in raw)
+        rect = screen.availableGeometry()
+        x, y, w, h = _clamp_geometry(saved, (rect.x(), rect.y(), rect.width(), rect.height()))
+        self.resize(w, h)
+        self.move(x, y)
+
+    def closeEvent(self, event) -> None:
+        try:
+            self.controller.session.repo.save_global_setting("window_geometry", [self.x(), self.y(), self.width(), self.height()])
+        except Exception:
+            logger.exception("Failed to persist window geometry")
+        super().closeEvent(event)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
