@@ -16,6 +16,13 @@ from negpy.services.view.coordinate_mapping import CoordinateMapping
 _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
 _CROP_MIN_SCREEN_PX = 24.0
+_ROTATION_GRID_DIVISIONS = 10
+_GRID_ALPHA = 70
+
+
+def grid_interior_fractions(divisions: int) -> List[float]:
+    """Interior division fractions, e.g. 3 -> [1/3, 2/3], 10 -> [.1 .. .9]."""
+    return [i / divisions for i in range(1, divisions)]
 
 
 class CanvasOverlay(QWidget):
@@ -263,17 +270,21 @@ class CanvasOverlay(QWidget):
         if getattr(self.state, "compare_mode", False):
             self._draw_compare_badge(painter, visible_rect)
 
-    def _draw_rotation_grid(self, painter: QPainter, visible_rect: QRectF) -> None:
-        """Rule-of-thirds grid: 2 horizontal + 2 vertical screen-aligned reference lines."""
-        pen = QPen(QColor(255, 255, 255, 90), 1, Qt.PenStyle.SolidLine)
+    def _draw_grid(self, painter: QPainter, rect: QRectF, divisions: int, alpha: int) -> None:
+        """Even N×N reference grid (interior lines only) across `rect`, screen-aligned."""
+        pen = QPen(QColor(255, 255, 255, alpha), 1, Qt.PenStyle.SolidLine)
         pen.setCosmetic(True)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(pen)
-        for i in (1, 2):
-            x = visible_rect.left() + visible_rect.width() * i / 3.0
-            y = visible_rect.top() + visible_rect.height() * i / 3.0
-            painter.drawLine(QPointF(x, visible_rect.top()), QPointF(x, visible_rect.bottom()))
-            painter.drawLine(QPointF(visible_rect.left(), y), QPointF(visible_rect.right(), y))
+        for f in grid_interior_fractions(divisions):
+            x = rect.left() + rect.width() * f
+            y = rect.top() + rect.height() * f
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+
+    def _draw_rotation_grid(self, painter: QPainter, visible_rect: QRectF) -> None:
+        """Dense leveling grid shown while Fine Rot is adjusted (Lightroom-style)."""
+        self._draw_grid(painter, visible_rect, _ROTATION_GRID_DIVISIONS, _GRID_ALPHA)
 
     def _draw_compare_badge(self, painter: QPainter, visible_rect: QRectF) -> None:
         badge = QRectF(visible_rect.x() + 12, visible_rect.y() + 12, 78, 22)
@@ -426,6 +437,7 @@ class CanvasOverlay(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(pen)
             painter.drawRect(rect)
+            self._draw_grid(painter, rect, 3, _GRID_ALPHA)
             return
 
         corners = self._crop_corner_screen_points()
@@ -447,6 +459,8 @@ class CanvasOverlay(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(pen)
         painter.drawPolygon(poly)
+
+        self._draw_grid(painter, QRectF(corners["tl"], corners["br"]), 3, _GRID_ALPHA)
 
         handle_pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
         handle_pen.setCosmetic(True)
