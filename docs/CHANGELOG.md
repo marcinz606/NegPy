@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.30.1
+
+- **Improved Cast Removal** — neutral greys no longer drift slightly green. Cast Removal now balances each colour layer at the **midtone** as well as the shadows (a true two-point per-channel gray balance), measured only on near-neutral pixels so green-heavy scenes (foliage, skin) can't pull the balance. Previously the midtone leaned on a single luminance reading that is mostly green, leaving a faint green cast on many C-41 conversions. The default look shifts slightly toward neutral.
+
 ## 0.30.0
 
 - **Scene-linear pipeline** — the whole conversion now runs in scene-linear light internally: the creative stages (Retouch, Lab, Local, Toning, Finishing) operate on linear light instead of gamma-encoded data, so their math is physically correct, and the "print" colour space is now the wide-gamut **ProPhoto RGB**. The output/display transform is applied **only at the very end** with the correct working-space curve, fixing a latent mismatch where the internal buffer was sRGB-encoded but tagged as a wider space. Dust retouching keeps the same (perceptual) detection but now heals in linear light, with the CPU and GPU paths unified. In practice: more headroom before saturated colours clip, and a more accurate, slightly more saturated default look — existing edits will look a touch different, so re-tune Saturation/Toning to taste.
