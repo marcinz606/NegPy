@@ -299,7 +299,7 @@ class RightPanel(QWidget):
             d_min = paper.d_min if config.paper_dmin else 0.0
             bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
             shadow_refs_norm = normalized_shadow_refs(bounds, metrics.get("shadow_log_refs"))
-            slopes, pivots = per_channel_curve_params(
+            slopes, pivots, _ = per_channel_curve_params(
                 config.grade,
                 config.density,
                 config.auto_normalize_contrast,

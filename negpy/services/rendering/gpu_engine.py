@@ -320,7 +320,7 @@ class GPUEngine:
         sizes = {
             "geometry": 32,
             "normalization": 112,
-            "exposure": 160,
+            "exposure": 176,
             "clahe_u": 32,
             "retouch_u": 64,
             "lab": 96,
@@ -347,7 +347,7 @@ class GPUEngine:
         shadow_refs_override: Optional[Tuple[float, float, float]] = None,
         metered_anchor_override: Optional[float] = None,
         textural_range_override: Optional[float] = None,
-        neutral_axis_override: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
+        neutral_axis_override: Optional[tuple] = None,
         apply_layout: bool = True,
         render_size_ref: Optional[float] = None,
         source_hash: Optional[str] = None,
@@ -986,12 +986,10 @@ class GPUEngine:
             shadow_refs_norm = normalize_refs(shadow_refs, adj_floors, adj_ceils)
         neutral_axis_norm = None
         if neutral_axis_refs is not None:
-            mid_refs, sh_refs = neutral_axis_refs
-            neutral_axis_norm = (
-                normalize_refs(mid_refs, adj_floors, adj_ceils),
-                normalize_refs(sh_refs, adj_floors, adj_ceils),
-            )
-        slopes, pivots = per_channel_curve_params(
+            mid_refs, sh_refs, hl_refs = neutral_axis_refs
+            nf = lambda r: normalize_refs(r, adj_floors, adj_ceils) if r is not None else None  # noqa: E731
+            neutral_axis_norm = (nf(mid_refs), nf(sh_refs), nf(hl_refs))
+        slopes, pivots, curvatures = per_channel_curve_params(
             exp.grade,
             exp.density,
             exp.auto_normalize_contrast,
@@ -1021,6 +1019,7 @@ class GPUEngine:
         e_data = (
             struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)
             + struct.pack("ffff", slopes[0], slopes[1], slopes[2], 0.0)
+            + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], 0.0)
             + struct.pack(
                 "ffff",
                 exp.wb_cyan * cmy_m + tint[0],

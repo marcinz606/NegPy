@@ -157,7 +157,7 @@ class PhotometricProcessor:
         final_bounds = context.metrics.get("final_bounds")
         shadow_refs_norm = normalized_shadow_refs(final_bounds, context.metrics.get("shadow_log_refs"))
         neutral_axis_norm = normalized_neutral_axis(final_bounds, context.metrics.get("neutral_axis_refs"))
-        slopes, pivots = per_channel_curve_params(
+        slopes, pivots, curvatures = per_channel_curve_params(
             self.config.grade,
             self.config.density,
             self.config.auto_normalize_contrast,
@@ -219,6 +219,7 @@ class PhotometricProcessor:
             d_min=d_min,
             flare=EXPOSURE_CONSTANTS["flare_fraction"] if self.config.flare else 0.0,
             surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
+            curvatures=curvatures,
             paper=paper,
         )
 

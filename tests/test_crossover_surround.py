@@ -21,7 +21,7 @@ class TestDensityBalance(unittest.TestCase):
     """
 
     def test_off_collapses_to_single_curve(self):
-        s, p = per_channel_curve_params(115.0, 1.0, True, False, 1.4, (0.85, 0.80, 0.75), 0.7, d_min=0.06, anchor=0.46)
+        s, p, _ = per_channel_curve_params(115.0, 1.0, True, False, 1.4, (0.85, 0.80, 0.75), 0.7, d_min=0.06, anchor=0.46)
         self.assertEqual(s[0], s[1])
         self.assertEqual(s[1], s[2])
         self.assertEqual(p[0], p[1])
@@ -29,26 +29,26 @@ class TestDensityBalance(unittest.TestCase):
 
     def test_no_refs_collapses_to_single_curve(self):
         # E6 / B&W: no shadow refs -> behaves like off.
-        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, None, 0.7, d_min=0.06, anchor=0.46)
+        s, p, _ = per_channel_curve_params(115.0, 1.0, True, True, 1.4, None, 0.7, d_min=0.06, anchor=0.46)
         self.assertEqual(s[0], s[1])
         self.assertEqual(s[1], s[2])
 
     def test_equal_refs_stay_neutral_even_on(self):
-        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, (0.80, 0.80, 0.80), 0.7, d_min=0.06, anchor=0.46)
+        s, p, _ = per_channel_curve_params(115.0, 1.0, True, True, 1.4, (0.80, 0.80, 0.80), 0.7, d_min=0.06, anchor=0.46)
         self.assertAlmostEqual(s[0], s[2], places=6)
         self.assertAlmostEqual(p[0], p[2], places=6)
 
     def test_mismatched_refs_diverge_slopes(self):
-        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, (0.85, 0.80, 0.72), 0.7, d_min=0.06, anchor=0.46)
+        s, p, _ = per_channel_curve_params(115.0, 1.0, True, True, 1.4, (0.85, 0.80, 0.72), 0.7, d_min=0.06, anchor=0.46)
         self.assertGreater(max(s) - min(s), 1e-4)
         # Green keeps the base slope (reference channel).
-        s_off, _ = per_channel_curve_params(115.0, 1.0, True, False, 1.4, (0.85, 0.80, 0.72), 0.7, d_min=0.06, anchor=0.46)
+        s_off, _, _ = per_channel_curve_params(115.0, 1.0, True, False, 1.4, (0.85, 0.80, 0.72), 0.7, d_min=0.06, anchor=0.46)
         self.assertAlmostEqual(s[1], s_off[1], places=6)
 
     def test_two_neutrals_print_neutral(self):
         anchor = 0.46
         refs = (0.85, 0.80, 0.72)
-        s, p = per_channel_curve_params(115.0, 1.0, True, True, 1.4, refs, 0.7, d_min=0.06, anchor=anchor)
+        s, p, _ = per_channel_curve_params(115.0, 1.0, True, True, 1.4, refs, 0.7, d_min=0.06, anchor=anchor)
         anchor_d = []
         shadow_d = []
         for ch in range(3):

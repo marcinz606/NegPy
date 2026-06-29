@@ -1,6 +1,7 @@
 struct ExposureUniforms {
     pivots: vec4<f32>,
     slopes: vec4<f32>,
+    curvatures: vec4<f32>,
     cmy_offsets: vec4<f32>,
     shadow_cmy: vec4<f32>,
     highlight_cmy: vec4<f32>,
@@ -86,7 +87,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     for (var ch = 0; ch < 3; ch++) {
         let val = color[ch] + params.cmy_offsets[ch];
-        var v = params.slopes[ch] * (val - params.pivots[ch]);
+        // Quadratic per-channel core (curvature 0 -> the original straight line).
+        var v = params.slopes[ch] * (val - params.pivots[ch]) + params.curvatures[ch] * val * val;
 
         // Variable-gamma paper S-curve: extra local gamma at the midtone centre
         // (v_star), easing to zero toward toe/shoulder. Mirrors the CPU kernel.

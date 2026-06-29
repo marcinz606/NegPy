@@ -145,14 +145,14 @@ def measure_neutral_axis_from_log(
     bounds: "LogNegativeBounds",
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
-) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]]]]:
     """
-    Per-channel neutral axis: median raw-log density at a midtone and a shadow luma
-    band, over each band's lowest-chroma pixels. The relative chroma quantile finds the
+    Per-channel neutral axis: median raw-log density at a highlight, a midtone and a shadow
+    luma band, over each band's lowest-chroma pixels. The relative chroma quantile finds the
     near-neutral population through the residual cast and rejects saturated content
-    (foliage/skin) that would otherwise pull the balance green. Returns (midtone_refs,
-    shadow_refs), or None when no trustworthy neutral set exists (callers fall back to
-    the shadow-only tie).
+    (foliage/skin) that would otherwise pull the balance green. Returns (midtone, shadow,
+    highlight) — highlight is None when that band has no trustworthy neutral set (callers
+    then fit a 2-point line); None overall when midtone or shadow is missing (shadow-only tie).
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -191,13 +191,15 @@ def measure_neutral_axis_from_log(
             float(np.median(flat_log[idx, 2])),
         )
 
+    hb = c["neutral_axis_highlight_band"]
     mb = c["neutral_axis_mid_band"]
     sb = c["neutral_axis_shadow_band"]
     mid = _band_refs(float(mb[0]), float(mb[1]))
     shadow = _band_refs(float(sb[0]), float(sb[1]))
     if mid is None or shadow is None:
         return None
-    return (mid, shadow)
+    highlight = _band_refs(float(hb[0]), float(hb[1]))
+    return (mid, shadow, highlight)
 
 
 def measure_neutral_axis(
@@ -205,7 +207,7 @@ def measure_neutral_axis(
     bounds: "LogNegativeBounds",
     roi: Optional[tuple[int, int, int, int]] = None,
     analysis_buffer: float = 0.0,
-) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]]]]:
     """Linear-image wrapper around measure_neutral_axis_from_log."""
     epsilon = 1e-6
     img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))

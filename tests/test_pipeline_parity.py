@@ -74,6 +74,19 @@ def _make_identity_geometry() -> GeometryConfig:
     )
 
 
+def _make_curved_negative(h: int = 320, w: int = 320) -> np.ndarray:
+    """C-41 negative with a curved per-channel neutral axis + green-dominant block, so
+    Cast Removal produces a non-zero quadratic curvature — exercises the GPU `+c2·u²` term."""
+    E = np.linspace(0.0, 1.0, h, dtype=np.float32)
+    gamma, curv, mask = (0.66, 0.71, 0.68), (0.0, 0.30, 0.12), (0.0, -0.12, -0.22)
+    log = np.empty((h, w, 3), np.float32)
+    for ch in range(3):
+        log[:, :, ch] = (-0.2 + mask[ch] - gamma[ch] * E - curv[ch] * E * E)[:, None]
+    gx = slice(int(0.82 * w), w)
+    log[:, gx, 1], log[:, gx, 0], log[:, gx, 2] = -0.22, -0.50, -0.62
+    return (10.0**log).astype(np.float32)
+
+
 def _make_base_settings() -> WorkspaceConfig:
     """WorkspaceConfig with identity geometry, no borders, no retouch, default other stages."""
     return replace(
@@ -157,6 +170,18 @@ class TestExposureParity:
 
     def test_default_config(self):
         self._run_and_compare(_make_base_settings())
+
+    def test_cast_removal_quadratic(self):
+        # Curved neutral axis -> 3-point Cast Removal emits a quadratic core; CPU and GPU
+        # must agree (validates the curvature uniform + shader term, not just the layout).
+        img = _make_curved_negative()
+        s = _make_base_settings()
+        scale = max(img.shape[:2]) / 1024.0
+        cpu = self.cpu.process(img, s, "parity_curved")
+        gpu_tex, _ = self.gpu.process_to_texture(img, s, scale_factor=scale, apply_layout=False, readback_metrics=False)
+        gpu = self.gpu._readback_downsampled(gpu_tex)
+        assert cpu.shape == gpu.shape
+        _assert_mostly_close(cpu, gpu, atol=1e-1, rtol=1e-1, max_violation_frac=0.01)
 
     def test_extreme_exposure_dark(self):
         s = replace(_make_base_settings(), exposure=ExposureConfig(density=-1.0, grade=2.0))

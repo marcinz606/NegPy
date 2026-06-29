@@ -50,6 +50,7 @@ def _apply_print_curve_kernel(
     img: np.ndarray,
     pivots: np.ndarray,
     slopes: np.ndarray,
+    curvatures: np.ndarray,
     toe: float,
     shoulder: float,
     toe_width: float,
@@ -109,7 +110,8 @@ def _apply_print_curve_kernel(
         for x in range(w):
             for ch in range(3):
                 val = img[y, x, ch] + cmy_offsets[ch]
-                v = slopes[ch] * (val - pivots[ch])
+                # Quadratic per-channel core (curvature 0 -> the original straight line).
+                v = slopes[ch] * (val - pivots[ch]) + curvatures[ch] * val * val
 
                 # Variable-gamma paper S-curve: extra local gamma at the midtone
                 # centre (v_star), easing to zero toward toe/shoulder. Centred on
@@ -225,6 +227,7 @@ def apply_characteristic_curve(
     flare: float = 0.0,
     surround_gamma: float = 1.0,
     midtone_gamma: Optional[float] = None,
+    curvatures: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     paper: Optional[PaperProfile] = None,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space."""
@@ -235,6 +238,7 @@ def apply_characteristic_curve(
     v_star = _reference_linear_value(d_min, paper)
     pivots = np.ascontiguousarray(np.array([params_r[0], params_g[0], params_b[0]], dtype=np.float32))
     slopes = np.ascontiguousarray(np.array([params_r[1], params_g[1], params_b[1]], dtype=np.float32))
+    curvs = np.ascontiguousarray(np.array(curvatures, dtype=np.float32))
     offsets = np.ascontiguousarray(np.array(cmy_offsets, dtype=np.float32))
     s_cmy = np.ascontiguousarray(np.array(shadow_cmy, dtype=np.float32))
     h_cmy = np.ascontiguousarray(np.array(highlight_cmy, dtype=np.float32))
@@ -243,6 +247,7 @@ def apply_characteristic_curve(
         np.ascontiguousarray(img.astype(np.float32)),
         pivots,
         slopes,
+        curvs,
         float(toe * ts),
         float(shoulder * ts),
         float(toe_width),
@@ -429,15 +434,14 @@ def normalized_shadow_refs(bounds: Any, refs: Optional[Tuple[float, float, float
     return normalize_refs(refs, bounds.floors, bounds.ceils)
 
 
-def normalized_neutral_axis(
-    bounds: Any,
-    refs: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]],
-) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
-    """(midtone, shadow) neutral refs normalized against `bounds`, or None if either is missing."""
+def normalized_neutral_axis(bounds: Any, refs: Any) -> Any:
+    """(midtone, shadow, highlight) neutral refs normalized against `bounds`; highlight may be
+    None (2-point), or the whole thing None if either core ref is missing."""
     if bounds is None or refs is None:
         return None
-    mid, shadow = refs
-    return (normalize_refs(mid, bounds.floors, bounds.ceils), normalize_refs(shadow, bounds.floors, bounds.ceils))
+    mid, shadow, highlight = refs
+    norm = lambda r: normalize_refs(r, bounds.floors, bounds.ceils) if r is not None else None  # noqa: E731
+    return (norm(mid), norm(shadow), norm(highlight))
 
 
 def per_channel_curve_params(
@@ -451,16 +455,17 @@ def per_channel_curve_params(
     d_min: float = 0.0,
     anchor: Optional[float] = None,
     paper: Optional[PaperProfile] = None,
-    neutral_axis_norm: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
-) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    neutral_axis_norm: Any = None,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
     """
-    Per-channel (slope, pivot) — single source of truth for CPU/GPU/chart.
+    Per-channel (slopes, pivots, curvatures) — single source of truth for CPU/GPU/chart.
+    The core is v = slope*(u - pivot) + curv*u² (curv 0 -> the original straight line).
 
-    Cast Removal tilts R/B onto green's neutral axis (green is the reference, so its
-    pivot keeps riding the luma anchor and exposure is unchanged). With a measured
-    neutral_axis_norm (low-chroma midtone + shadow) it's a two-point per-channel solve;
-    with only shadow_refs_norm it falls back to a one-point shadow tie that leaves the
-    midtone (the legacy green cast). Off, or with no refs (E6/B&W): one shared curve.
+    Cast Removal fits R/B onto green's neutral axis (green is the reference, so its pivot
+    keeps riding the luma anchor and exposure is unchanged). With a measured neutral_axis_norm
+    of (midtone, shadow, highlight) it's a quadratic per-channel fit through all three; with
+    only (midtone, shadow) a straight line; with only shadow_refs_norm a one-point shadow tie
+    (the legacy green cast). Off, or with no refs (E6/B&W): one shared linear curve.
     """
     c = effective_constants(paper)
     # Per-channel slope multipliers (paper dye-layer contrast crossover). The
@@ -475,31 +480,51 @@ def per_channel_curve_params(
     epsilon = 1e-6
 
     if cast_removal and neutral_axis_norm is not None:
-        # R/B solve a line through two green-matched points (midtone, shadow); pivot is
-        # taken from the midtone match so it stays neutral even when cg != 1.
-        mid_norm, sh_norm = neutral_axis_norm
+        # Fit R/B onto green's axis: a line through the green-matched midtone+shadow, plus a
+        # curvature term from the highlight (when present) so the highlight doesn't extrapolate
+        # past neutral. Mid is pinned exactly by the pivot; curvature is clamped to stay monotonic.
+        mid_norm, sh_norm, hl_norm = neutral_axis_norm
         limit = float(c["midtone_cast_max_offset"])
+        curv_lim = float(c["neutral_axis_curv_max_ratio"])
         m_g, s_g = float(mid_norm[1]), float(sh_norm[1])
         slope_g = min(max(base_slope * cg[1], slope_min), slope_max)
         pivot_g = compute_pivot(slope_g, density, d_min=d_min, anchor=anchor, paper=paper)
-        a_mid = slope_g * (m_g - pivot_g)
-        a_sh = slope_g * (s_g - pivot_g)
-        slopes = []
-        pivots = []
+        target = lambda g: slope_g * (g - pivot_g)  # noqa: E731  green's core at a green ref
+        t_m, t_s = target(m_g), target(s_g)
+        h_g = float(hl_norm[1]) if hl_norm is not None else None
+        clamp_dev = lambda g, v: g + min(max(v - g, -limit), limit)  # noqa: E731
+
+        slopes, pivots, curvs = [], [], []
         for ch in range(3):
             if ch == 1:
                 slopes.append(slope_g)
                 pivots.append(pivot_g)
+                curvs.append(0.0)
                 continue
-            m_ch = m_g + min(max(float(mid_norm[ch]) - m_g, -limit), limit)
-            s_ch = s_g + min(max(float(sh_norm[ch]) - s_g, -limit), limit)
-            denom = m_ch - s_ch
-            slope_ch = slope_g if abs(denom) < epsilon else (a_mid - a_sh) / denom
+            u_m = clamp_dev(m_g, float(mid_norm[ch]))
+            u_s = clamp_dev(s_g, float(sh_norm[ch]))
+
+            curv = 0.0
+            if h_g is not None and hl_norm is not None:
+                u_h = clamp_dev(h_g, float(hl_norm[ch]))
+                # Leading coeff of the quadratic through the three green-matched points.
+                m = np.array([[1.0, u_h, u_h * u_h], [1.0, u_m, u_m * u_m], [1.0, u_s, u_s * u_s]])
+                try:
+                    curv = float(np.linalg.solve(m, np.array([target(h_g), t_m, t_s]))[2])
+                except np.linalg.LinAlgError:
+                    curv = 0.0
+                curv = min(max(curv, -curv_lim * slope_g), curv_lim * slope_g)
+
+            # Re-pin midtone+shadow with this curvature (mid exact via pivot, like the 2-pt solve).
+            du = u_m - u_s
+            slope_ch = slope_g if abs(du) < epsilon else ((t_m - t_s) - curv * (u_m * u_m - u_s * u_s)) / du
             slope_ch = min(max(slope_ch * cg[ch], slope_min), slope_max)
-            pivot_ch = m_ch - a_mid / slope_ch if abs(slope_ch) > epsilon else pivot_g
+            curv_ch = curv * cg[ch]
+            pivot_ch = u_m - (t_m - curv_ch * u_m * u_m) / slope_ch if abs(slope_ch) > epsilon else pivot_g
             slopes.append(slope_ch)
             pivots.append(pivot_ch)
-        return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
+            curvs.append(curv_ch)
+        return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2]), (curvs[0], curvs[1], curvs[2])
 
     if cast_removal and shadow_refs_norm is not None:
         # Fallback one-point tie: slope-tilt each channel so its shadow ref lands on
@@ -523,7 +548,7 @@ def per_channel_curve_params(
             slope_ch = min(max(slope_ch * cg[ch], slope_min), slope_max)
             slopes.append(slope_ch)
             pivots.append(compute_pivot(slope_ch, density, d_min=d_min, anchor=anchor, paper=paper))
-        return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2])
+        return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2]), (0.0, 0.0, 0.0)
 
     # Base curve: Cast Removal off, or on with no measured refs (E6/B&W/no neutrals).
     s0 = min(max(base_slope * cg[0], slope_min), slope_max)
@@ -532,7 +557,7 @@ def per_channel_curve_params(
     p0 = compute_pivot(s0, density, d_min=d_min, anchor=anchor, paper=paper)
     p1 = compute_pivot(s1, density, d_min=d_min, anchor=anchor, paper=paper)
     p2 = compute_pivot(s2, density, d_min=d_min, anchor=anchor, paper=paper)
-    return (s0, s1, s2), (p0, p1, p2)
+    return (s0, s1, s2), (p0, p1, p2), (0.0, 0.0, 0.0)
 
 
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:

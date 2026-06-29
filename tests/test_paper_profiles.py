@@ -32,7 +32,7 @@ class TestPaperProfiles(unittest.TestCase):
     def _render(self, profile_key: str) -> np.ndarray:
         paper = resolve_paper(profile_key)
         d_min = paper.d_min  # paper_dmin on
-        slopes, pivots = per_channel_curve_params(
+        slopes, pivots, _ = per_channel_curve_params(
             grade=115.0,
             density=1.0,
             auto_normalize_contrast=False,
@@ -105,8 +105,8 @@ class TestPaperProfiles(unittest.TestCase):
 
     def test_channel_gamma_scales_slopes(self):
         paper = PAPER_PROFILES["fuji_crystal"]
-        slopes, _ = per_channel_curve_params(115.0, 1.0, False, False, 1.3, None, None, paper=paper)
-        base, _ = per_channel_curve_params(115.0, 1.0, False, False, 1.3, None, None)
+        slopes, _, _ = per_channel_curve_params(115.0, 1.0, False, False, 1.3, None, None, paper=paper)
+        base, _, _ = per_channel_curve_params(115.0, 1.0, False, False, 1.3, None, None)
         # Blue channel gamma > 1 → steeper blue slope than the neutral baseline.
         self.assertGreater(slopes[2], base[2])
 
