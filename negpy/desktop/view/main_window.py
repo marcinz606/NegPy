@@ -334,6 +334,7 @@ class MainWindow(QMainWindow):
         self.controller.export_finished.connect(self._on_export_finished)
         self.controller.session.settings_copied.connect(lambda: self.top_status.showMessage("settings copied", timeout=1500))
         self.controller.session.settings_pasted.connect(lambda: self.top_status.showMessage("settings pasted", timeout=1500))
+        self.controller.session.settings_synced.connect(lambda msg: self.top_status.showMessage(msg, timeout=2500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
         self.controller.compare_changed.connect(lambda _on: self.canvas.overlay.update())

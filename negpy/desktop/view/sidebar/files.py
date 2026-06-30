@@ -202,13 +202,13 @@ class FileBrowser(QWidget):
         self.rgb_scan_btn.setChecked(bool(self.session.repo.get_global_setting("rgbscan_mode", False)))
         self._update_rgb_scan_style(self.rgb_scan_btn.isChecked())
 
-        self.sync_btn = QToolButton()
-        self.sync_btn.setIcon(qta.icon("fa5s.sync", color=THEME.text_primary))
-        self.sync_btn.setToolTip("Sync Edits — apply exposure / lab / toning to selected images (preserves their crop and rotation)")
-
-        self.sync_crop_btn = QToolButton()
-        self.sync_crop_btn.setIcon(qta.icon("fa5s.crop", color=THEME.text_primary))
-        self.sync_crop_btn.setToolTip("Sync Crop — apply current crop and rotation to selected images")
+        self.apply_btn = QToolButton()
+        self.apply_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
+        self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
+        self.apply_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.apply_menu = QMenu(self.apply_btn)
+        self.apply_menu.aboutToShow.connect(self._rebuild_apply_menu)
+        self.apply_btn.setMenu(self.apply_menu)
 
         # Sort dropdown
         self.sort_btn = QToolButton()
@@ -244,8 +244,7 @@ class FileBrowser(QWidget):
             self.unload_btn,
             self.hot_folder_btn,
             self.rgb_scan_btn,
-            self.sync_btn,
-            self.sync_crop_btn,
+            self.apply_btn,
             self.sort_btn,
         ):
             btn.setIconSize(icon_size)
@@ -258,8 +257,7 @@ class FileBrowser(QWidget):
         toolbar_row.addWidget(self._create_separator())
         toolbar_row.addWidget(self.hot_folder_btn)
         toolbar_row.addWidget(self.rgb_scan_btn)
-        toolbar_row.addWidget(self.sync_btn)
-        toolbar_row.addWidget(self.sync_crop_btn)
+        toolbar_row.addWidget(self.apply_btn)
         toolbar_row.addStretch()
         toolbar_row.addWidget(self._create_separator())
         toolbar_row.addWidget(self.sort_btn)
@@ -306,8 +304,6 @@ class FileBrowser(QWidget):
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
-        self.sync_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("edits"))
-        self.sync_crop_btn.clicked.connect(lambda *_: self.session.sync_selected_settings("geometry_only"))
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self.sync_ui)
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
@@ -499,6 +495,48 @@ class FileBrowser(QWidget):
         menu = self._build_context_menu()
         menu.exec(self.list_view.viewport().mapToGlobal(pos))
 
+    def _source_name(self) -> str:
+        idx = self.session.state.selected_file_idx
+        files = self.session.state.uploaded_files
+        return os.path.basename(files[idx]["path"]) if 0 <= idx < len(files) else ""
+
+    def _build_apply_aspects(self, menu: QMenu, scope: str, enabled: bool = True) -> None:
+        """Adds the aspect actions (+ Bounds submenu) that push the active frame's
+        settings to `scope` ("selection" or "roll")."""
+        for label, mode in (("Everything", "everything"), ("Edits only", "edits"), ("Crop", "crop_only"), ("Rotation", "rotation_only")):
+            act = menu.addAction(label)
+            act.setEnabled(enabled)
+            act.triggered.connect(lambda _=False, m=mode, s=scope: self.session.sync_selected_settings(m, s))
+        bounds = menu.addMenu("Bounds")
+        bounds.menuAction().setEnabled(enabled)
+        for label, mode in (("Tonal span", "bounds_luma"), ("Colour balance", "bounds_colour"), ("Both", "bounds_both")):
+            bounds.addAction(label).triggered.connect(lambda _=False, m=mode, s=scope: self.session.sync_selected_settings(m, s))
+
+    def _populate_apply_menu(self, menu: QMenu, with_header: bool = True) -> None:
+        state = self.session.state
+        n_files = len(state.uploaded_files)
+        src = state.selected_file_idx
+        sel_targets = len([i for i in set(state.selected_indices) if i != src and 0 <= i < n_files])
+        roll_targets = max(0, n_files - 1)
+
+        if with_header:
+            name = self._source_name()
+            header = menu.addAction(f'From "{name}"' if name else "No frame loaded")
+            header.setEnabled(False)
+            menu.addSeparator()
+
+        # Top level targets the current selection (the common case after multi-select).
+        self._build_apply_aspects(menu, "selection", enabled=sel_targets > 0)
+        menu.addSeparator()
+        roll_menu = menu.addMenu(f"Whole roll ({roll_targets})")
+        roll_menu.menuAction().setEnabled(roll_targets > 0)
+        if roll_targets > 0:
+            self._build_apply_aspects(roll_menu, "roll")
+
+    def _rebuild_apply_menu(self) -> None:
+        self.apply_menu.clear()
+        self._populate_apply_menu(self.apply_menu, with_header=True)
+
     def _build_context_menu(self) -> QMenu:
         state = self.session.state
         multi = len(state.selected_indices) > 1
@@ -515,9 +553,8 @@ class FileBrowser(QWidget):
         act_paste.triggered.connect(self.session.paste_settings)
         act_paste.setEnabled(state.clipboard is not None)
         menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
-        if multi:
-            menu.addSeparator()
-            menu.addAction("Sync Edits to Selection").triggered.connect(lambda: self.session.sync_selected_settings("edits"))
+        menu.addSeparator()
+        self._populate_apply_menu(menu.addMenu("Apply settings…"), with_header=False)
         if not multi:
             menu.addSeparator()
             menu.addAction("Edit RGB Triplet…").triggered.connect(self._on_edit_triplet)

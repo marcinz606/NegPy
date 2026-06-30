@@ -224,6 +224,116 @@ class AssetListModel(QAbstractListModel):
         self.layoutChanged.emit()
 
 
+_SYNC_MODES = (
+    "everything",
+    "edits",
+    "edits_with_geometry",
+    "geometry_only",
+    "crop_only",
+    "rotation_only",
+    "bounds_luma",
+    "bounds_colour",
+    "bounds_both",
+)
+
+_SYNC_LABELS = {
+    "everything": "Everything",
+    "edits": "Edits",
+    "edits_with_geometry": "Edits + crop",
+    "geometry_only": "Crop & rotation",
+    "crop_only": "Crop",
+    "rotation_only": "Rotation",
+    "bounds_luma": "Bounds (tonal)",
+    "bounds_colour": "Bounds (colour)",
+    "bounds_both": "Bounds (both)",
+}
+
+
+def _source_effective_bounds(process) -> Optional[tuple]:
+    """The floors/ceils a source frame is currently rendering with.
+
+    Roll baseline when the source is on one, else its per-frame meter. Returns
+    None when the source was never analysed (all-zero) — nothing to broadcast.
+    """
+    if process.is_locked_initialized and (process.use_luma_average or process.use_colour_average):
+        return process.locked_floors, process.locked_ceils
+    if process.is_local_initialized:
+        return process.local_floors, process.local_ceils
+    return None
+
+
+def build_synced_config(
+    source: WorkspaceConfig,
+    target: WorkspaceConfig,
+    mode: str,
+    src_bounds: Optional[tuple],
+) -> WorkspaceConfig:
+    """Pure per-target merge for a bulk "Apply to selected" action.
+
+    `src_bounds` is (floors, ceils) from _source_effective_bounds, used by the
+    bounds_* modes (and "everything"). Dust spots and per-frame local bounds are
+    frame-specific, so they're always preserved on the target.
+    """
+    if mode == "geometry_only":
+        return replace(target, geometry=source.geometry)
+
+    if mode == "rotation_only":
+        sg = source.geometry
+        new_geo = replace(
+            target.geometry,
+            rotation=sg.rotation,
+            fine_rotation=sg.fine_rotation,
+            flip_horizontal=sg.flip_horizontal,
+            flip_vertical=sg.flip_vertical,
+        )
+        return replace(target, geometry=new_geo)
+
+    if mode == "crop_only":
+        sg = source.geometry
+        new_geo = replace(
+            target.geometry,
+            auto_crop_enabled=sg.auto_crop_enabled,
+            autocrop_offset=sg.autocrop_offset,
+            autocrop_ratio=sg.autocrop_ratio,
+            autocrop_mode=sg.autocrop_mode,
+            manual_crop_rect=sg.manual_crop_rect,
+        )
+        return replace(target, geometry=new_geo)
+
+    if mode in ("bounds_luma", "bounds_colour", "bounds_both"):
+        floors, ceils = src_bounds
+        # locked_* is one shared pair feeding both axes; a single-axis sync forces
+        # the other axis back to each frame's own meter to avoid an unintended shift.
+        new_process = replace(
+            target.process,
+            locked_floors=floors,
+            locked_ceils=ceils,
+            use_luma_average=mode in ("bounds_luma", "bounds_both"),
+            use_colour_average=mode in ("bounds_colour", "bounds_both"),
+        )
+        return replace(target, process=new_process)
+
+    # "edits" / "edits_with_geometry" / "everything": copy creative config; keep
+    # target geometry unless asked; always keep target dust + per-frame bounds.
+    merged_geo = source.geometry if mode in ("edits_with_geometry", "everything") else target.geometry
+    merged_retouch = replace(source.retouch, manual_dust_spots=target.retouch.manual_dust_spots)
+    merged_process = replace(
+        source.process,
+        local_floors=target.process.local_floors,
+        local_ceils=target.process.local_ceils,
+    )
+    if mode == "everything" and src_bounds is not None:
+        floors, ceils = src_bounds
+        merged_process = replace(
+            merged_process,
+            locked_floors=floors,
+            locked_ceils=ceils,
+            use_luma_average=True,
+            use_colour_average=True,
+        )
+    return replace(source, geometry=merged_geo, retouch=merged_retouch, process=merged_process)
+
+
 class DesktopSessionManager(QObject):
     """
     Manages application state, file list, and configuration persistence.
@@ -236,6 +346,7 @@ class DesktopSessionManager(QObject):
     active_file_changing = pyqtSignal()  # Outgoing file about to be replaced — last chance to snapshot it
     settings_copied = pyqtSignal()
     settings_pasted = pyqtSignal()
+    settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
 
     @property
@@ -568,60 +679,46 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = indices
         self.state_changed.emit()
 
-    def sync_selected_settings(self, mode: str = "edits") -> None:
+    def sync_selected_settings(self, mode: str = "edits", scope: str = "selection") -> int:
         """
-        Synchronizes current settings to all other selected files.
+        Apply the active frame's settings to other frames. Returns the count changed.
 
-        Modes:
-            "edits"               — sync everything except crop, fine_rotation, dust spots, local bounds.
-            "edits_with_geometry" — also sync manual_crop_rect and fine_rotation.
-            "geometry_only"       — sync only the GeometryConfig; leave other configs untouched.
+        mode:  everything | edits | edits_with_geometry | geometry_only |
+               crop_only | rotation_only | bounds_luma | bounds_colour | bounds_both
+        scope: "selection" (the multi-selected frames) or "roll" (all loaded frames).
         """
-        if not self.state.selected_indices or self.state.selected_file_idx == -1:
-            return
-        if mode not in ("edits", "edits_with_geometry", "geometry_only"):
-            return
+        if self.state.selected_file_idx == -1 or mode not in _SYNC_MODES:
+            return 0
 
         source_config = self.state.config
 
-        for idx in self.state.selected_indices:
-            if idx == self.state.selected_file_idx:
+        src_bounds = None
+        if mode in ("bounds_luma", "bounds_colour", "bounds_both", "everything"):
+            src_bounds = _source_effective_bounds(source_config.process)
+            if src_bounds is None and mode != "everything":
+                self.settings_synced.emit("Render the source frame before syncing bounds")
+                return 0
+
+        target_indices = range(len(self.state.uploaded_files)) if scope == "roll" else self.state.selected_indices
+
+        count = 0
+        for idx in target_indices:
+            if idx == self.state.selected_file_idx or not (0 <= idx < len(self.state.uploaded_files)):
                 continue
+            target_hash = self.state.uploaded_files[idx]["hash"]
+            target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
+            self.repo.save_file_settings(target_hash, build_synced_config(source_config, target_config, mode, src_bounds))
+            count += 1
 
-            if 0 <= idx < len(self.state.uploaded_files):
-                target_info = self.state.uploaded_files[idx]
-                target_hash = target_info["hash"]
-
-                target_config = self.repo.load_file_settings(target_hash)
-                if not target_config:
-                    target_config = WorkspaceConfig()
-
-                if mode == "geometry_only":
-                    new_config = replace(target_config, geometry=source_config.geometry)
-                else:
-                    if mode == "edits_with_geometry":
-                        merged_geo = source_config.geometry
-                    else:
-                        merged_geo = target_config.geometry
-
-                    merged_retouch = replace(source_config.retouch, manual_dust_spots=target_config.retouch.manual_dust_spots)
-
-                    merged_process = replace(
-                        source_config.process,
-                        local_floors=target_config.process.local_floors,
-                        local_ceils=target_config.process.local_ceils,
-                    )
-
-                    new_config = replace(
-                        source_config,
-                        geometry=merged_geo,
-                        retouch=merged_retouch,
-                        process=merged_process,
-                    )
-
-                self.repo.save_file_settings(target_hash, new_config)
-
-        self.settings_saved.emit()
+        if count:
+            label = _SYNC_LABELS.get(mode, mode)
+            if scope == "roll":
+                msg = f"{label} synced to whole roll ({count} frames)"
+            else:
+                msg = f"{label} synced to {count} frame{'s' if count != 1 else ''}"
+            self.settings_synced.emit(msg)
+            self.settings_saved.emit()
+        return count
 
     def next_file(self) -> None:
         display_idx = self.asset_model.actual_to_display(self.state.selected_file_idx)

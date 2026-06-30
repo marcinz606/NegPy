@@ -111,7 +111,7 @@ def test_context_menu_single_selection_items(browser, session):
     assert "Export Selected" not in labels
     assert "Reset Settings" in labels
     assert "Unload" in labels
-    assert "Sync Edits to Selection" not in labels
+    assert "Apply settings…" in labels
 
 
 def test_context_menu_multi_selection_uses_export_selected(browser, session):
@@ -122,13 +122,35 @@ def test_context_menu_multi_selection_uses_export_selected(browser, session):
     assert "Export" not in labels
 
 
-def test_context_menu_multi_selection_adds_sync_and_remove_selected(browser, session):
+def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
     labels = _action_labels(browser._build_context_menu())
-    assert "Sync Edits to Selection" in labels
+    assert "Apply settings…" in labels
     assert "Unload Selected" in labels
     assert "Unload" not in labels
+
+
+def test_apply_dropdown_menu_has_header_aspects_and_roll_scope(browser, session):
+    session.state.selected_indices = [0, 1]
+    session.state.selected_file_idx = 0
+    browser._rebuild_apply_menu()
+    labels = _action_labels(browser.apply_menu)
+    assert 'From "IMG_0001.cr2"' in labels
+    assert {"Everything", "Edits only", "Crop", "Rotation", "Bounds"} <= set(labels)
+    assert "Whole roll (3)" in labels  # 4 loaded − source
+    header = next(a for a in browser.apply_menu.actions() if a.text().startswith("From "))
+    assert not header.isEnabled()
+
+
+def test_apply_dropdown_disables_selection_aspects_when_nothing_selected(browser, session):
+    session.state.selected_indices = [0]
+    session.state.selected_file_idx = 0
+    browser._rebuild_apply_menu()
+    everything = next(a for a in browser.apply_menu.actions() if a.text() == "Everything")
+    assert not everything.isEnabled()  # no targets in the selection
+    roll = next(a for a in browser.apply_menu.actions() if a.text() == "Whole roll (3)")
+    assert roll.isEnabled()
 
 
 def test_context_menu_paste_disabled_without_clipboard(browser, session):
