@@ -120,7 +120,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings()
+        self.session.sync_selected_settings(frozenset({"process", "exposure", "color", "finish"}))
 
         args, _ = self.mock_repo.save_file_settings.call_args
         self.assertEqual(args[0], "hash2")
@@ -158,7 +158,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings("edits_with_geometry")
+        self.session.sync_selected_settings(frozenset({"process", "exposure", "color", "finish", "crop", "rotation"}))
 
         args, _ = self.mock_repo.save_file_settings.call_args
         saved_config = args[1]
@@ -188,7 +188,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings("geometry_only")
+        self.session.sync_selected_settings(frozenset({"crop", "rotation"}))
 
         args, _ = self.mock_repo.save_file_settings.call_args
         saved_config = args[1]
@@ -200,11 +200,11 @@ class TestDesktopSessionSync(unittest.TestCase):
         # Other config preserved from target
         self.assertEqual(saved_config.exposure.density, 0.7)
 
-    def test_sync_selected_settings_invalid_mode_is_noop(self):
+    def test_sync_selected_settings_invalid_aspect_is_noop(self):
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings("bogus")
+        self.session.sync_selected_settings(frozenset({"bogus"}))
         self.mock_repo.save_file_settings.assert_not_called()
 
     def test_undo_redo_persistence(self):

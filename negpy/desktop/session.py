@@ -224,29 +224,18 @@ class AssetListModel(QAbstractListModel):
         self.layoutChanged.emit()
 
 
-_SYNC_MODES = (
-    "everything",
-    "edits",
-    "edits_with_geometry",
-    "geometry_only",
-    "crop_only",
-    "rotation_only",
-    "bounds_luma",
-    "bounds_colour",
-    "bounds_both",
-)
-
-_SYNC_LABELS = {
-    "everything": "Everything",
-    "edits": "Edits",
-    "edits_with_geometry": "Edits + crop",
-    "geometry_only": "Crop & rotation",
-    "crop_only": "Crop",
-    "rotation_only": "Rotation",
-    "bounds_luma": "Bounds (tonal)",
-    "bounds_colour": "Bounds (colour)",
-    "bounds_both": "Bounds (both)",
+_ASPECT_LABELS = {
+    "process": "Process",
+    "crop": "Crop",
+    "rotation": "Rotation",
+    "exposure": "Exposure",
+    "color": "Color",
+    "finish": "Finish",
+    "bounds_luma": "Tonal span",
+    "bounds_colour": "Colour balance",
 }
+
+_VALID_ASPECTS = frozenset(_ASPECT_LABELS)
 
 
 def _source_effective_bounds(process) -> Optional[tuple]:
@@ -265,73 +254,90 @@ def _source_effective_bounds(process) -> Optional[tuple]:
 def build_synced_config(
     source: WorkspaceConfig,
     target: WorkspaceConfig,
-    mode: str,
+    aspects: frozenset,
     src_bounds: Optional[tuple],
 ) -> WorkspaceConfig:
     """Pure per-target merge for a bulk "Apply to selected" action.
 
-    `src_bounds` is (floors, ceils) from _source_effective_bounds, used by the
-    bounds_* modes (and "everything"). Dust spots and per-frame local bounds are
-    frame-specific, so they're always preserved on the target.
+    `aspects` is a subset of _VALID_ASPECTS, checked independently in the Sync
+    Settings dialog. `src_bounds` is (floors, ceils) from _source_effective_bounds,
+    needed when bounds_luma/bounds_colour is checked. Builds the result by starting
+    from `target` and overlaying only the checked aspects, so anything not covered
+    by an aspect (flatfield, rgbscan, metadata, export, dust spots, per-frame local
+    bounds) always stays the target's own.
     """
-    if mode == "geometry_only":
-        return replace(target, geometry=source.geometry)
+    out = target
 
-    if mode == "rotation_only":
-        sg = source.geometry
-        new_geo = replace(
-            target.geometry,
-            rotation=sg.rotation,
-            fine_rotation=sg.fine_rotation,
-            flip_horizontal=sg.flip_horizontal,
-            flip_vertical=sg.flip_vertical,
+    if "process" in aspects:
+        out = replace(
+            out,
+            process=replace(
+                source.process,
+                local_floors=out.process.local_floors,
+                local_ceils=out.process.local_ceils,
+                locked_floors=out.process.locked_floors,
+                locked_ceils=out.process.locked_ceils,
+                use_luma_average=out.process.use_luma_average,
+                use_colour_average=out.process.use_colour_average,
+            ),
         )
-        return replace(target, geometry=new_geo)
 
-    if mode == "crop_only":
+    if "crop" in aspects:
         sg = source.geometry
-        new_geo = replace(
-            target.geometry,
-            auto_crop_enabled=sg.auto_crop_enabled,
-            autocrop_offset=sg.autocrop_offset,
-            autocrop_ratio=sg.autocrop_ratio,
-            autocrop_mode=sg.autocrop_mode,
-            manual_crop_rect=sg.manual_crop_rect,
+        out = replace(
+            out,
+            geometry=replace(
+                out.geometry,
+                auto_crop_enabled=sg.auto_crop_enabled,
+                autocrop_offset=sg.autocrop_offset,
+                autocrop_ratio=sg.autocrop_ratio,
+                autocrop_mode=sg.autocrop_mode,
+                manual_crop_rect=sg.manual_crop_rect,
+            ),
         )
-        return replace(target, geometry=new_geo)
 
-    if mode in ("bounds_luma", "bounds_colour", "bounds_both"):
+    if "rotation" in aspects:
+        sg = source.geometry
+        out = replace(
+            out,
+            geometry=replace(
+                out.geometry,
+                rotation=sg.rotation,
+                fine_rotation=sg.fine_rotation,
+                flip_horizontal=sg.flip_horizontal,
+                flip_vertical=sg.flip_vertical,
+            ),
+        )
+
+    if "exposure" in aspects:
+        out = replace(out, exposure=source.exposure)
+
+    if "color" in aspects:
+        out = replace(out, lab=source.lab, toning=source.toning)
+
+    if "finish" in aspects:
+        out = replace(
+            out,
+            retouch=replace(source.retouch, manual_dust_spots=out.retouch.manual_dust_spots),
+            finish=source.finish,
+        )
+
+    if aspects & {"bounds_luma", "bounds_colour"}:
         floors, ceils = src_bounds
         # locked_* is one shared pair feeding both axes; a single-axis sync forces
         # the other axis back to each frame's own meter to avoid an unintended shift.
-        new_process = replace(
-            target.process,
-            locked_floors=floors,
-            locked_ceils=ceils,
-            use_luma_average=mode in ("bounds_luma", "bounds_both"),
-            use_colour_average=mode in ("bounds_colour", "bounds_both"),
+        out = replace(
+            out,
+            process=replace(
+                out.process,
+                locked_floors=floors,
+                locked_ceils=ceils,
+                use_luma_average="bounds_luma" in aspects,
+                use_colour_average="bounds_colour" in aspects,
+            ),
         )
-        return replace(target, process=new_process)
 
-    # "edits" / "edits_with_geometry" / "everything": copy creative config; keep
-    # target geometry unless asked; always keep target dust + per-frame bounds.
-    merged_geo = source.geometry if mode in ("edits_with_geometry", "everything") else target.geometry
-    merged_retouch = replace(source.retouch, manual_dust_spots=target.retouch.manual_dust_spots)
-    merged_process = replace(
-        source.process,
-        local_floors=target.process.local_floors,
-        local_ceils=target.process.local_ceils,
-    )
-    if mode == "everything" and src_bounds is not None:
-        floors, ceils = src_bounds
-        merged_process = replace(
-            merged_process,
-            locked_floors=floors,
-            locked_ceils=ceils,
-            use_luma_average=True,
-            use_colour_average=True,
-        )
-    return replace(source, geometry=merged_geo, retouch=merged_retouch, process=merged_process)
+    return out
 
 
 class DesktopSessionManager(QObject):
@@ -681,23 +687,25 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = indices
         self.state_changed.emit()
 
-    def sync_selected_settings(self, mode: str = "edits", scope: str = "selection") -> int:
+    def sync_selected_settings(self, aspects: frozenset, scope: str = "selection") -> int:
         """
         Apply the active frame's settings to other frames. Returns the count changed.
 
-        mode:  everything | edits | edits_with_geometry | geometry_only |
-               crop_only | rotation_only | bounds_luma | bounds_colour | bounds_both
-        scope: "selection" (the multi-selected frames) or "roll" (all loaded frames).
+        aspects: subset of _VALID_ASPECTS (process/crop/rotation/exposure/color/
+                 finish/bounds_luma/bounds_colour), checked independently.
+        scope:   "selection" (the multi-selected frames) or "roll" (all loaded frames).
         """
-        if self.state.selected_file_idx == -1 or mode not in _SYNC_MODES:
+        aspects = frozenset(aspects) & _VALID_ASPECTS
+        if self.state.selected_file_idx == -1 or not aspects:
             return 0
 
         source_config = self.state.config
 
         src_bounds = None
-        if mode in ("bounds_luma", "bounds_colour", "bounds_both", "everything"):
+        needs_bounds = bool(aspects & {"bounds_luma", "bounds_colour"})
+        if needs_bounds:
             src_bounds = _source_effective_bounds(source_config.process)
-            if src_bounds is None and mode != "everything":
+            if src_bounds is None:
                 self.settings_synced.emit("Render the source frame before syncing bounds")
                 return 0
 
@@ -709,11 +717,11 @@ class DesktopSessionManager(QObject):
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
             target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
-            self.repo.save_file_settings(target_hash, build_synced_config(source_config, target_config, mode, src_bounds))
+            self.repo.save_file_settings(target_hash, build_synced_config(source_config, target_config, aspects, src_bounds))
             count += 1
 
         if count:
-            label = _SYNC_LABELS.get(mode, mode)
+            label = ", ".join(_ASPECT_LABELS[a] for a in _ASPECT_LABELS if a in aspects)
             if scope == "roll":
                 msg = f"{label} synced to whole roll ({count} frames)"
             else:

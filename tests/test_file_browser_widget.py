@@ -1,10 +1,12 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from PyQt6.QtWidgets import QDialog
 
 from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.view.sidebar.files import FileBrowser
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sync_settings_dialog import SyncSettingsDialog
 from negpy.infrastructure.storage.repository import StorageRepository
 
 
@@ -131,26 +133,65 @@ def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, se
     assert "Unload" not in labels
 
 
-def test_apply_dropdown_menu_has_header_aspects_and_roll_scope(browser, session):
+def test_apply_dialog_shows_header_scope_and_counts():
+    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=2, roll_count=3)
+    assert dlg.sel_radio.text() == "Selected frames (2)"
+    assert dlg.sel_radio.isEnabled()
+    assert dlg.sel_radio.isChecked()  # selection preferred when it has targets
+    assert dlg.roll_radio.text() == "Whole roll (3)"
+    assert dlg.roll_radio.isEnabled()
+
+
+def test_apply_dialog_defaults_to_roll_when_selection_empty():
+    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=0, roll_count=3)
+    assert not dlg.sel_radio.isEnabled()
+    assert dlg.roll_radio.isChecked()
+
+
+def test_apply_dialog_check_all_and_none():
+    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=1, roll_count=3)
+    assert not dlg.apply_btn.isEnabled()
+    dlg._set_all_checked(True)
+    assert all(box.isChecked() for box in dlg._checkboxes.values())
+    assert dlg.apply_btn.isEnabled()
+    dlg._set_all_checked(False)
+    assert not any(box.isChecked() for box in dlg._checkboxes.values())
+    assert not dlg.apply_btn.isEnabled()
+
+
+def test_apply_dialog_apply_collects_checked_aspects_and_scope():
+    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=1, roll_count=3)
+    dlg._checkboxes["crop"].setChecked(True)
+    dlg._checkboxes["exposure"].setChecked(True)
+    dlg.roll_radio.setChecked(True)
+    dlg._on_apply()
+    assert dlg.aspects() == frozenset({"crop", "exposure"})
+    assert dlg.scope() == "roll"
+
+
+def test_open_apply_dialog_routes_aspects_and_scope_to_session(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
-    browser._rebuild_apply_menu()
-    labels = _action_labels(browser.apply_menu)
-    assert 'From "IMG_0001.cr2"' in labels
-    assert {"Everything", "Edits only", "Crop", "Rotation", "Bounds"} <= set(labels)
-    assert "Whole roll (3)" in labels  # 4 loaded − source
-    header = next(a for a in browser.apply_menu.actions() if a.text().startswith("From "))
-    assert not header.isEnabled()
+    session.sync_selected_settings = MagicMock()
+
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.DialogCode.Accepted
+    mock_dlg.aspects.return_value = frozenset({"exposure"})
+    mock_dlg.scope.return_value = "selection"
+    with patch("negpy.desktop.view.sidebar.files.SyncSettingsDialog", return_value=mock_dlg) as ctor:
+        browser._open_apply_dialog()
+
+    assert ctor.call_args.args[1:] == ("IMG_0001.cr2", 1, 3)  # 1 other selected, 3 other on roll
+    session.sync_selected_settings.assert_called_once_with(frozenset({"exposure"}), "selection")
 
 
-def test_apply_dropdown_disables_selection_aspects_when_nothing_selected(browser, session):
-    session.state.selected_indices = [0]
-    session.state.selected_file_idx = 0
-    browser._rebuild_apply_menu()
-    everything = next(a for a in browser.apply_menu.actions() if a.text() == "Everything")
-    assert not everything.isEnabled()  # no targets in the selection
-    roll = next(a for a in browser.apply_menu.actions() if a.text() == "Whole roll (3)")
-    assert roll.isEnabled()
+def test_open_apply_dialog_noop_without_active_file(browser, session):
+    session.state.selected_file_idx = -1
+    session.sync_selected_settings = MagicMock()
+    with patch("negpy.desktop.view.sidebar.files.SyncSettingsDialog") as ctor:
+        browser._open_apply_dialog()
+    ctor.assert_not_called()
+    session.sync_selected_settings.assert_not_called()
 
 
 def test_context_menu_paste_disabled_without_clipboard(browser, session):
