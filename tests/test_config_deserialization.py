@@ -62,6 +62,24 @@ class TestConfigDeserialization(unittest.TestCase):
         config = WorkspaceConfig.from_flat_dict(data)
         self.assertEqual(config.export.export_resolution_mode, ExportResolutionMode.TARGET_PX.value)
 
+    def test_flatfield_apply_does_not_collide_with_rgbscan_enabled(self):
+        """flatfield.apply and rgbscan.enabled must round-trip independently (#356)."""
+        cfg = WorkspaceConfig(
+            flatfield=replace(WorkspaceConfig().flatfield, apply=True, reference_path="/r.dng"),
+            rgbscan=replace(WorkspaceConfig().rgbscan, enabled=False),
+        )
+        back = WorkspaceConfig.from_flat_dict(cfg.to_dict())
+        self.assertTrue(back.flatfield.apply)
+        self.assertFalse(back.rgbscan.enabled)
+
+        cfg2 = WorkspaceConfig(
+            flatfield=replace(WorkspaceConfig().flatfield, apply=False),
+            rgbscan=replace(WorkspaceConfig().rgbscan, enabled=True),
+        )
+        back2 = WorkspaceConfig.from_flat_dict(cfg2.to_dict())
+        self.assertFalse(back2.flatfield.apply)
+        self.assertTrue(back2.rgbscan.enabled)
+
     def test_legacy_use_original_res_does_not_warn(self):
         data = {"use_original_res": False}
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):

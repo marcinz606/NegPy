@@ -17,13 +17,13 @@ def _radial_falloff(h: int, w: int) -> np.ndarray:
 
 def test_disabled_is_noop():
     img = np.full((16, 16, 3), 0.5, dtype=np.float32)
-    out = ff.apply_flatfield(img, FlatFieldConfig(enabled=False, reference_path="/nope.dng"))
+    out = ff.apply_flatfield(img, FlatFieldConfig(apply=False, reference_path="/nope.dng"))
     assert out is img
 
 
 def test_empty_path_is_noop():
     img = np.full((16, 16, 3), 0.5, dtype=np.float32)
-    out = ff.apply_flatfield(img, FlatFieldConfig(enabled=True, reference_path=""))
+    out = ff.apply_flatfield(img, FlatFieldConfig(apply=True, reference_path=""))
     assert out is img
 
 
@@ -41,7 +41,7 @@ def test_correction_flattens_uneven_illumination(tmp_path):
     path = str(ref_file)
     ff._GAIN_CACHE[(path, os.path.getmtime(path))] = ff._compute_gain(falloff)
 
-    cfg = FlatFieldConfig(enabled=True, reference_path=path)
+    cfg = FlatFieldConfig(apply=True, reference_path=path)
     corrected = ff.apply_flatfield(captured, cfg)
 
     # Before: clearly uneven. After: near-flat across the field.
@@ -59,5 +59,5 @@ def test_gain_resized_to_image(tmp_path):
     ff._GAIN_CACHE[(path, os.path.getmtime(path))] = ff._compute_gain(falloff)
 
     img = np.full((100, 140, 3), 0.5, dtype=np.float32)
-    out = ff.apply_flatfield(img, FlatFieldConfig(enabled=True, reference_path=path))
+    out = ff.apply_flatfield(img, FlatFieldConfig(apply=True, reference_path=path))
     assert out.shape == img.shape

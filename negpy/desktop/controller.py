@@ -1083,7 +1083,7 @@ class AppController(QObject):
         """
         Per-image toggle to enable/disable flat-field correction for the current frame.
         """
-        new_ff = replace(self.state.config.flatfield, enabled=enabled)
+        new_ff = replace(self.state.config.flatfield, apply=enabled)
         self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
         self.request_render()
 

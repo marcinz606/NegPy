@@ -364,7 +364,7 @@ class DesktopSessionManager(QObject):
         if only_global:
             return config
 
-        config = replace(config, flatfield=replace(config.flatfield, enabled=bool(ff_path)))
+        config = replace(config, flatfield=replace(config.flatfield, apply=bool(ff_path)))
 
         # Workflow settings — safe to carry across all files on a roll
         sticky_mode = self.repo.get_global_setting("last_process_mode")

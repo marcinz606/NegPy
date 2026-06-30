@@ -106,7 +106,7 @@ class FlatFieldSidebar(BaseSidebar):
             idx = self.profile_combo.findData(active)
             self.profile_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
-            self.enable_btn.setChecked(conf.enabled)
+            self.enable_btn.setChecked(conf.apply)
             self.enable_btn.setEnabled(bool(conf.reference_path))
         finally:
             self.block_signals(False)

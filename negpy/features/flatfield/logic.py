@@ -68,7 +68,7 @@ def load_reference_gain(path: str) -> Optional[np.ndarray]:
 
 def flatfield_token(config: FlatFieldConfig) -> str:
     """Identity of the active correction, folded into the render source hash. Empty when inactive."""
-    if not config.enabled or not config.reference_path:
+    if not config.apply or not config.reference_path:
         return ""
     try:
         mtime = os.path.getmtime(config.reference_path)
@@ -79,7 +79,7 @@ def flatfield_token(config: FlatFieldConfig) -> str:
 
 def apply_flatfield(image: ImageBuffer, config: FlatFieldConfig) -> ImageBuffer:
     """Multiply the linear source by the reference gain map. No-op when inactive or unreadable."""
-    if not config.enabled or not config.reference_path:
+    if not config.apply or not config.reference_path:
         return image
     gain = load_reference_gain(config.reference_path)
     if gain is None:
