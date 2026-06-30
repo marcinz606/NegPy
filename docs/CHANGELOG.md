@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.31.0
+
+- **Lens distortion correction** — the Flat-Field profile gains a **k1** slider for radial (barrel/pincushion) correction from a copy-stand setup, alongside the existing illumination correction. It's a single coefficient folded into the geometry transform (so dragging it doesn't force a RAW re-decode), with scale-to-fill baked in to avoid empty borders, and stays in sync with crop/retouch/dodge-burn placement.
+- **Apply settings dialog** — the Sync Edits / Sync Crop icon buttons are replaced by one **Apply** button (Files sidebar and context menu) that opens a Lightroom-style dialog: pick Selected frames or the whole roll, then check any combination of Process, Crop, Rotation, Exposure, Color, Finish, Tonal span and Colour balance and hit Apply. The bounds checkboxes broadcast the source frame's tonal/colour normalization as a locked roll baseline — a single-frame version of Batch Normalization.
+- **Optional edit sidecars** — SQLite stays the primary edit store, but you can now also mirror edits to plain `.negpy` sidecar files next to the source for archival. Off by default; enable via the new Export panel toggle, or write them on demand from the Sidecars section button. Loading a file falls back to a beside-source sidecar when there's no DB entry, and promotes it into the DB.
+- Fix: toggling **Linear RAW** no longer leaves a stale magenta cast in the preview — the auto-meter cache now invalidates when the RAW decode changes. (#355)
+- Fix: the **Flatfield Correction** toggle is no longer silently reset to off when switching files or using Sync Edits — it was colliding with RGB Scan's toggle in the saved settings. (#356)
+
 ## 0.30.2
 
 - **Cast Removal — cleaner highlights** — the per-channel gray balance now anchors a third (highlight) reference, fitting a curve through highlight/midtone/shadow instead of a line. Fixes highlights occasionally overcorrecting past neutral (toward magenta) under 0.30.1.
