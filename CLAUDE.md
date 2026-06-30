@@ -28,6 +28,8 @@ NegPy is a film negative processing desktop app (PyQt6 + WebGPU). Images flow th
 
 `WorkspaceConfig` (`negpy/domain/models.py`) is a **frozen dataclass** composed of per-feature configs (`ExposureConfig`, `LabConfig`, etc.). It is the single source of truth for an edit. Changes are always made via `dataclasses.replace(config, ...)` — never mutated in place. `to_dict`/`from_flat_dict` handle serialization to/from a flat key namespace.
 
+**Edit storage & sidecars.** Edits live primarily in SQLite (`edits.db`, keyed by content hash — `StorageRepository.save/load_file_settings`). Optionally they're mirrored to plain-file **sidecars** for archival: `negpy/services/assets/sidecar.py` writes `<source-basename>.negpy` **next to the source** (JSON = `WorkspaceConfig.to_dict()`, the full edit). On load, `select_file` calls `load_or_promote` — DB first, else a sidecar beside the source, and a loaded sidecar is **promoted into the DB** so the DB wins thereafter. Sidecars are written only on real export when `ExportConfig.export_sidecars_enabled` is on (not the contact sheet), or via the Export panel's "Export Edits Sidecars" section button (`AppController.export_edit_sidecars`).
+
 ### Feature pattern
 
 Every feature under `negpy/features/<name>/` follows this structure:

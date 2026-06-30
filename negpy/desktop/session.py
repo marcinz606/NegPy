@@ -10,6 +10,7 @@ from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSigna
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.assets.sidecar import load_or_promote
 
 
 class ToolMode(Enum):
@@ -540,7 +541,7 @@ class DesktopSessionManager(QObject):
             self.state.undo_index = self.repo.get_max_history_index(file_info["hash"])
             self.state.max_history_index = self.state.undo_index
 
-            saved_config = self.repo.load_file_settings(file_info["hash"])
+            saved_config = load_or_promote(self.repo, file_info["hash"], file_info["path"])
             self.state.current_file_is_new = saved_config is None
 
             if saved_config:

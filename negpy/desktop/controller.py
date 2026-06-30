@@ -34,6 +34,7 @@ from negpy.domain.models import (
     flat_master_config,
     preset_from_export_config,
 )
+from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
@@ -1457,6 +1458,9 @@ class AppController(QObject):
         if files is None:
             files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
 
+        if self.state.config.export.export_sidecars_enabled:
+            self._write_edit_sidecars(files)
+
         flat = self.state.flat_output
         flat_fmt = self._flat_export_format()
 
@@ -1520,6 +1524,8 @@ class AppController(QObject):
             "path": self.state.current_file_path,
             "hash": self.state.current_file_hash,
         }
+        if self.state.config.export.export_sidecars_enabled:
+            self._write_edit_sidecars([file_info])
         tasks = self._tasks_for_file(
             file_info,
             self.state.config,
@@ -1542,6 +1548,9 @@ class AppController(QObject):
 
         sync_metadata = self.state.config.metadata.sync_to_batch
         visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+
+        if self.state.config.export.export_sidecars_enabled:
+            self._write_edit_sidecars(visible_files)
 
         tasks = []
         for f in visible_files:
@@ -1615,6 +1624,27 @@ class AppController(QObject):
             Q_ARG(int, cs.contact_sheet_margin),
             Q_ARG(int, cs.contact_sheet_max_tiles),
         )
+
+    def _write_edit_sidecars(self, files: list[dict]) -> int:
+        """Write a .negpy edit sidecar next to each source (each frame's own saved edits). Returns count written."""
+        repo = self.session.repo
+        written = 0
+        for f in files:
+            params = load_or_promote(repo, f["hash"], f["path"]) or self.state.config
+            try:
+                write_sidecar(f["path"], params)
+                written += 1
+            except Exception as exc:
+                logger.warning("Sidecar write failed for %s: %s", f.get("path"), exc)
+        return written
+
+    def export_edit_sidecars(self) -> None:
+        """Explicit batch sidecar export for all visible files (ignores the on-export toggle)."""
+        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        if not visible_files:
+            return
+        written = self._write_edit_sidecars(visible_files)
+        self.set_status(f"Wrote {written} edit sidecar(s)", 4000)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
         self._export_start_time = time.time()

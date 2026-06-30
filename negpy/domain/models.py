@@ -131,6 +131,8 @@ class ExportConfig:
     contact_sheet_default_margin: int = 32
     contact_sheet_default_max_tiles: int = 38
 
+    export_sidecars_enabled: bool = False
+
 
 @dataclass
 class ExportPreset:

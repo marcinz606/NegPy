@@ -53,6 +53,7 @@ class ExportSidebar(BaseSidebar):
         self._add_batch_section()
 
         self._add_presets_section()
+        self._add_sidecars_section()
         self._add_contact_sheet_section()
         self._add_preview_section()
         self._sync_flat_enabled()
@@ -89,6 +90,9 @@ class ExportSidebar(BaseSidebar):
         self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
         self.cs_save_template_btn.clicked.connect(self._on_save_contact_sheet_template)
         self.cs_template_combo.currentTextChanged.connect(self._on_contact_sheet_template_changed)
+
+        self.sidecars_enabled_btn.toggled.connect(lambda _: self.update_timer.start())
+        self.export_sidecars_btn.clicked.connect(self.controller.export_edit_sidecars)
 
     # --- Presets -------------------------------------------------------------
 
@@ -574,6 +578,46 @@ class ExportSidebar(BaseSidebar):
         section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_preview", checked))
         self.layout.addWidget(section)
 
+    # --- Edit sidecars -------------------------------------------------------
+
+    def _add_sidecars_section(self) -> None:
+        """Collapsible EXPORT EDITS SIDECARS section: on-export toggle + manual export, side by side."""
+        conf = self.state.config.export
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(6)
+
+        btn_row = QHBoxLayout()
+
+        self.sidecars_enabled_btn = QPushButton(" Save on export")
+        self.sidecars_enabled_btn.setCheckable(True)
+        self.sidecars_enabled_btn.setChecked(conf.export_sidecars_enabled)
+        self.sidecars_enabled_btn.setFixedHeight(40)
+        self.sidecars_enabled_btn.setIcon(qta.icon("fa5s.file-export", color=THEME.text_primary))
+        self.sidecars_enabled_btn.setToolTip(
+            "When on, every export also writes a .negpy edit sidecar next to each source frame. Edits stay in the database too."
+        )
+        btn_row.addWidget(self.sidecars_enabled_btn)
+
+        self.export_sidecars_btn = QPushButton(" Export sidecars")
+        self.export_sidecars_btn.setObjectName("export_sidecars_btn")
+        self.export_sidecars_btn.setFixedHeight(40)
+        self.export_sidecars_btn.setIcon(qta.icon("fa5s.file-code", color=THEME.text_primary))
+        self.export_sidecars_btn.setToolTip("Write edit sidecars for all visible frames now")
+        btn_row.addWidget(self.export_sidecars_btn)
+
+        content_layout.addLayout(btn_row)
+
+        repo = self.controller.session.repo
+        expanded = bool(repo.get_global_setting("section_expanded_export_sidecars", default=False))
+        section = CollapsibleSection("Sidecars", expanded=expanded, icon=qta.icon("fa5s.file-export", color="#aaa"))
+        section.setToolTip("Optional plain-file copies of edits next to your sources, for archival. SQLite stays primary.")
+        section.set_content(content)
+        section.expanded_changed.connect(lambda checked: repo.save_global_setting("section_expanded_export_sidecars", checked))
+        self.layout.addWidget(section)
+
     # --- Batch ---------------------------------------------------------------
 
     def _add_batch_section(self) -> None:
@@ -714,6 +758,7 @@ class ExportSidebar(BaseSidebar):
             export_path=vals["output_path"],
             filename_pattern=vals["filename_pattern"],
             overwrite=vals["overwrite"],
+            export_sidecars_enabled=self.sidecars_enabled_btn.isChecked(),
             **cs_kwargs,
         )
 
@@ -769,6 +814,7 @@ class ExportSidebar(BaseSidebar):
             self.cs_margin_input.setValue(layout.margin)
             self.cs_max_tiles_input.setValue(layout.max_tiles)
             self.cs_output_path_edit.setText(conf.contact_sheet_output_path)
+            self.sidecars_enabled_btn.setChecked(conf.export_sidecars_enabled)
             self._refresh_contact_sheet_templates()
             saved_template = conf.contact_sheet_template.strip()
             if saved_template and saved_template in ContactSheetTemplates.list_templates():
@@ -801,6 +847,7 @@ class ExportSidebar(BaseSidebar):
             self.cs_max_tiles_input,
             self.cs_output_path_edit,
             self.cs_template_combo,
+            self.sidecars_enabled_btn,
             self.flat_format_combo,
             self.flat_peek_btn,
         ]
