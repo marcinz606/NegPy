@@ -6,8 +6,9 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     cmy_to_density,
     density_to_cmy,
+    linear_raw_token,
 )
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 
 
 class TestExposureLogic(unittest.TestCase):
@@ -120,6 +121,15 @@ class TestAdaptiveMeteringStrength(unittest.TestCase):
         self.assertGreater(dev_large, dev_slight)
         a_extreme = _anchor_for_luminance(assumed + 0.5)
         self.assertLessEqual(abs(a_extreme - assumed), float(c["anchor_meter_band"]) + 1e-6)
+
+
+class TestLinearRawToken(unittest.TestCase):
+    def test_token_differs_by_mode(self):
+        """Toggling Linear RAW must change the source identity, else the per-source
+        auto-meter cache (bounds + neutral-axis cast) goes stale across the toggle (#355)."""
+        on = linear_raw_token(ExposureConfig(linear_raw=True))
+        off = linear_raw_token(ExposureConfig(linear_raw=False))
+        self.assertNotEqual(on, off)
 
 
 if __name__ == "__main__":

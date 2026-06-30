@@ -4,8 +4,15 @@ import numpy as np
 from numba import njit  # type: ignore
 
 from negpy.domain.types import ImageBuffer
+from negpy.features.exposure.models import ExposureConfig
 from negpy.features.exposure.papers import PaperProfile, effective_constants
 from negpy.kernel.image.validation import ensure_image
+
+
+def linear_raw_token(exposure: ExposureConfig) -> str:
+    """Decode-mode identity, folded into the render source hash so the auto-meter
+    re-runs when Linear RAW toggles (the decode changes the source pixels)."""
+    return f"|lr:{int(exposure.linear_raw)}"
 
 
 def _expit(x: Any) -> Any:
