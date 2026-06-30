@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.sliders import CompactSlider
 
 _NONE_LABEL = "— None —"
 _FILE_FILTER = "Reference images (*.dng *.tif *.tiff *.cr2 *.cr3 *.nef *.arw *.raf *.rw2 *.jpg *.jpeg *.png);;All files (*)"
@@ -49,6 +50,13 @@ class FlatFieldSidebar(BaseSidebar):
         actions.addWidget(self.delete_btn)
         self.layout.addLayout(actions)
 
+        self.layout.addWidget(section_subheader("LENS DISTORTION"))
+        self.k1_slider = CompactSlider("Distortion", -0.25, 0.25, self.state.config.flatfield.k1, step=0.005, has_neutral=True)
+        self.k1_slider.setToolTip(
+            "Radial lens-distortion correction for the copy-stand rig.\nSaved with the profile. Use the film rebate as a straight reference."
+        )
+        self.layout.addWidget(self.k1_slider)
+
         self.layout.addStretch()
         self._refresh_profiles()
 
@@ -57,6 +65,12 @@ class FlatFieldSidebar(BaseSidebar):
         self.profile_combo.currentIndexChanged.connect(self._on_profile_selected)
         self.add_btn.clicked.connect(self._on_add)
         self.delete_btn.clicked.connect(self._on_delete)
+        # Drag = live preview only; commit writes k1 to the profile (its real home).
+        self.k1_slider.valueChanged.connect(
+            lambda v: self.update_config_section("flatfield", render=True, persist=False, readback_metrics=False, k1=v)
+        )
+        self.k1_slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
+        self.k1_slider.valueCommitted.connect(self.controller.set_flatfield_k1)
         self.sync_ui()
 
     def _refresh_profiles(self) -> None:
@@ -108,9 +122,11 @@ class FlatFieldSidebar(BaseSidebar):
 
             self.enable_btn.setChecked(conf.apply)
             self.enable_btn.setEnabled(bool(conf.reference_path))
+            self.k1_slider.setValue(conf.k1)
+            self.k1_slider.setEnabled(bool(conf.reference_path))
         finally:
             self.block_signals(False)
 
     def block_signals(self, blocked: bool) -> None:
-        for w in (self.enable_btn, self.profile_combo, self.add_btn, self.delete_btn):
+        for w in (self.enable_btn, self.profile_combo, self.add_btn, self.delete_btn, self.k1_slider):
             w.blockSignals(blocked)

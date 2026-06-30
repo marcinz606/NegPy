@@ -21,4 +21,5 @@ class LocalProcessor:
             fine_rotation=geo.get("fine_rotation", 0.0),
             flip_horizontal=geo.get("flip_horizontal", False),
             flip_vertical=geo.get("flip_vertical", False),
+            distortion_k1=context.metrics.get("distortion_k1", 0.0),
         )

@@ -48,6 +48,11 @@ class StorageRepository(IRepository):
                     path TEXT
                 )
             """)
+            # Migration: add radial distortion coefficient (rig-level, like the flat frame).
+            try:
+                conn.execute("ALTER TABLE flatfield_profiles ADD COLUMN k1 REAL DEFAULT 0.0")
+            except sqlite3.OperationalError:
+                pass
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS edit_history (
@@ -107,21 +112,21 @@ class StorageRepository(IRepository):
         with sqlite3.connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM normalization_rolls WHERE name = ?", (name,))
 
-    def save_flatfield_profile(self, name: str, path: str) -> None:
-        """Persists a named flat-field reference profile."""
+    def save_flatfield_profile(self, name: str, path: str, k1: float = 0.0) -> None:
+        """Persists a named flat-field reference profile (reference path + rig distortion)."""
         with sqlite3.connect(self.edits_db_path) as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO flatfield_profiles (name, path) VALUES (?, ?)",
-                (name, path),
+                "INSERT OR REPLACE INTO flatfield_profiles (name, path, k1) VALUES (?, ?, ?)",
+                (name, path, float(k1)),
             )
 
-    def get_flatfield_profile(self, name: str) -> Optional[str]:
-        """Returns the reference path for a named flat-field profile."""
+    def get_flatfield_profile(self, name: str) -> Optional[tuple[str, float]]:
+        """Returns (reference path, distortion k1) for a named flat-field profile."""
         with sqlite3.connect(self.edits_db_path) as conn:
-            cursor = conn.execute("SELECT path FROM flatfield_profiles WHERE name = ?", (name,))
+            cursor = conn.execute("SELECT path, k1 FROM flatfield_profiles WHERE name = ?", (name,))
             row = cursor.fetchone()
             if row:
-                return str(row[0])
+                return str(row[0]), float(row[1] or 0.0)
         return None
 
     def list_flatfield_profiles(self) -> list[str]:

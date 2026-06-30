@@ -10,3 +10,6 @@ class FlatFieldConfig:
     apply: bool = False
     # Resolved path of the globally active reference profile (seeded on file load).
     reference_path: str = ""
+    # Radial lens-distortion coefficient. A rig property, so it's mirrored from the
+    # active profile (re-seeded on load), not owned by the per-image edit.
+    k1: float = 0.0

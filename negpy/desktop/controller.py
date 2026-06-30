@@ -1057,8 +1057,9 @@ class AppController(QObject):
         ``name`` is empty). Applies its path to the current image and re-renders.
         """
         self.session.repo.save_global_setting("flatfield_active_profile", name or "")
-        path = self.session.repo.get_flatfield_profile(name) if name else None
-        new_ff = replace(self.state.config.flatfield, reference_path=path or "", enabled=bool(path))
+        rec = self.session.repo.get_flatfield_profile(name) if name else None
+        path, k1 = rec if rec else ("", 0.0)
+        new_ff = replace(self.state.config.flatfield, reference_path=path or "", apply=bool(path), k1=k1)
         self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
         self.request_render()
 
@@ -1086,6 +1087,20 @@ class AppController(QObject):
         """
         new_ff = replace(self.state.config.flatfield, apply=enabled)
         self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
+        self.request_render()
+
+    def set_flatfield_k1(self, k1: float) -> None:
+        """
+        Sets the rig's radial distortion. Saved into the active flat-field profile (so it
+        applies to every frame on that rig), not the per-image recipe.
+        """
+        new_ff = replace(self.state.config.flatfield, k1=k1)
+        self.session.update_config(replace(self.state.config, flatfield=new_ff), persist=True)
+        active = self.session.repo.get_global_setting("flatfield_active_profile") or ""
+        if active:
+            rec = self.session.repo.get_flatfield_profile(active)
+            path = rec[0] if rec else ""
+            self.session.repo.save_flatfield_profile(active, path, k1)
         self.request_render()
 
     # ── Scanner integration ───────────────────────────────────────────

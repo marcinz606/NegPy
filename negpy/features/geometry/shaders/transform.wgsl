@@ -3,7 +3,7 @@ struct GeometryUniforms {
     fine_rotation: f32, // degrees
     flip_h: i32,        // 0 or 1
     flip_v: i32,        // 0 or 1
-    pad: vec4<f32>,     // Padding
+    distortion: vec4<f32>, // (k1, scale_to_fill, _, _) — radial lens correction
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -57,8 +57,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // 1. Center UV
     var uv = out_uv - 0.5;
 
-    // 2. Inverse Fine Rotation (Must be first in sampling path)
     let out_aspect = f32(out_dims.x) / f32(out_dims.y);
+
+    // Inverse radial lens distortion (last forward op -> undone first). Mirrors
+    // apply_radial_distortion on the CPU; half-diagonal normalized.
+    let k1 = params.distortion.x;
+    if (k1 != 0.0) {
+        let dscale = params.distortion.y;
+        var p = vec2<f32>(uv.x * out_aspect, uv.y) * dscale;
+        let norm = 0.5 * sqrt(out_aspect * out_aspect + 1.0);
+        let rn = length(p) / norm;
+        p = p * (1.0 + k1 * rn * rn);
+        uv = vec2<f32>(p.x / out_aspect, p.y);
+    }
+
+    // 2. Inverse Fine Rotation
     if (params.fine_rotation != 0.0) {
         let rad = radians(params.fine_rotation);
         let c = cos(rad);

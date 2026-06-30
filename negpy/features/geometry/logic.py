@@ -702,6 +702,108 @@ def apply_fine_rotation(img: ImageBuffer, angle: float) -> ImageBuffer:
     return ensure_image(res)
 
 
+# Radial lens-distortion correction (poly3 / Brown-Conrady k1). Radius normalized to
+# the image half-diagonal (r=1 at corner) -> rotation/aspect invariant. Forward resample
+# map (output/corrected pixel -> input/distorted sample), s = scale-to-fill:
+#     P_src = (s * P_out) * (1 + k1 * |s * P_out|^2 / halfdiag^2)
+# Mirrored in transform.wgsl (uv/aspect form) and inverted in map_point_radial. Change
+# the model in all three.
+
+_DISTORT_EPS = 1e-6
+
+
+def _radial_center(w: int, h: int) -> Tuple[float, float, float]:
+    # Center in pixel-index convention to match the WGSL `(coord+0.5)/dims - 0.5`.
+    return (w - 1) * 0.5, (h - 1) * 0.5, 0.5 * math.hypot(w, h)
+
+
+def compute_distortion_scale(k1: float, w: int, h: int, _samples: int = 128) -> float:
+    """Largest scale at which the output frame still maps fully inside the input — fills
+    the frame without empty/replicated borders. Numeric, so it's sign-agnostic (the
+    binding point is a corner or an edge midpoint depending on barrel vs pincushion)."""
+    if abs(k1) < 1e-9:
+        return 1.0
+
+    cx, cy, halfdiag = _radial_center(w, h)
+    hw, hh = cx, cy
+    inv_hd2 = 1.0 / (halfdiag * halfdiag)
+
+    edge = max(1, _samples // 4)
+    pts = []
+    for i in range(edge):
+        t = i / edge
+        pts.append((-hw + 2 * hw * t, -hh))
+        pts.append((-hw + 2 * hw * t, hh))
+        pts.append((-hw, -hh + 2 * hh * t))
+        pts.append((hw, -hh + 2 * hh * t))
+
+    def max_ratio(s: float) -> float:
+        worst = 0.0
+        for px, py in pts:
+            pxs, pys = px * s, py * s
+            f = 1.0 + k1 * (pxs * pxs + pys * pys) * inv_hd2
+            if f <= 0.0:
+                return math.inf  # fold-over: scale is too large
+            worst = max(worst, abs(pxs * f) / hw, abs(pys * f) / hh)
+        return worst
+
+    lo, hi = 1e-3, 1.0
+    while max_ratio(hi) < 1.0 and hi < 1e3:
+        hi *= 2.0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if max_ratio(mid) < 1.0:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def _radial_maps(k1: float, w: int, h: int) -> Tuple[np.ndarray, np.ndarray]:
+    """cv2.remap source-coordinate maps for the radial correction (incl. scale-to-fill)."""
+    cx, cy, halfdiag = _radial_center(w, h)
+    s = compute_distortion_scale(k1, w, h)
+    inv_hd2 = 1.0 / (halfdiag * halfdiag)
+    ys, xs = np.meshgrid(np.arange(h, dtype=np.float32), np.arange(w, dtype=np.float32), indexing="ij")
+    px = (xs - cx) * s
+    py = (ys - cy) * s
+    f = 1.0 + k1 * (px * px + py * py) * inv_hd2
+    map_x = (cx + px * f).astype(np.float32)
+    map_y = (cy + py * f).astype(np.float32)
+    return map_x, map_y
+
+
+def apply_radial_distortion(img: ImageBuffer, k1: float) -> ImageBuffer:
+    """Radial lens-distortion correction. Purely geometric — moves pixels via a
+    coordinate remap, never scales values (brightness-preserving). No-op for k1≈0."""
+    if abs(k1) < _DISTORT_EPS:
+        return img
+    h, w = img.shape[:2]
+    map_x, map_y = _radial_maps(k1, w, h)
+    res = cv2.remap(img, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    return ensure_image(res)
+
+
+def map_point_radial(px: float, py: float, k1: float, w: int, h: int) -> Tuple[float, float]:
+    """Inverse of the resample map: given a point in the undistorted (pre-correction)
+    image, return where it lands in the corrected output. Used by coordinate mappers so
+    feature placements (crop corners, retouch spots, dodge/burn masks) stay aligned."""
+    if abs(k1) < _DISTORT_EPS:
+        return px, py
+    cx, cy, halfdiag = _radial_center(w, h)
+    s = compute_distortion_scale(k1, w, h)
+    ix, iy = px - cx, py - cy
+    r_in = math.hypot(ix, iy)
+    if r_in < 1e-9:
+        return px, py
+    # Solve (k1/halfdiag^2)·t^3 + t − r_in = 0 for t = |P_s| ≥ 0.
+    roots = np.roots([k1 / (halfdiag * halfdiag), 0.0, 1.0, -r_in])
+    real = [rt.real for rt in roots if abs(rt.imag) < 1e-6 and rt.real > 0]
+    t = min(real, key=lambda v: abs(v - r_in)) if real else r_in
+    scale = (t / s) / r_in
+    return cx + ix * scale, cy + iy * scale
+
+
 def apply_margin_to_roi(
     roi: ROI,
     h: int,
@@ -840,6 +942,7 @@ def get_manual_rect_coords(
     flip_vertical: bool = False,
     offset_px: int = 0,
     scale_factor: float = 1.0,
+    distortion_k1: float = 0.0,
 ) -> ROI:
     """
     Maps normalized manual crop rect (RAW coords) to pixel ROI in TRANSFORMED image space.
@@ -864,6 +967,7 @@ def get_manual_rect_coords(
             flip_horizontal,
             flip_vertical,
             roi=None,
+            distortion_k1=distortion_k1,
         )
         mapped_corners.append((mx, my))
 
@@ -948,6 +1052,7 @@ def map_coords_to_geometry(
     flip_horizontal: bool = False,
     flip_vertical: bool = False,
     roi: Optional[ROI] = None,
+    distortion_k1: float = 0.0,
 ) -> Tuple[float, float]:
     """
     Maps raw coordinates to geometry-transformed space.
@@ -977,6 +1082,11 @@ def map_coords_to_geometry(
         pt = np.array([px, py, 1.0])
         res_pt = m_mat @ pt
         px, py = float(res_pt[0]), float(res_pt[1])
+
+    # Inverse of the resample map: undistorted feature point -> corrected-image position
+    # (last forward op, matching GeometryProcessor / transform.wgsl).
+    if distortion_k1 != 0.0:
+        px, py = map_point_radial(px, py, distortion_k1, w, h)
 
     if roi:
         y1, y2, x1, x2 = roi

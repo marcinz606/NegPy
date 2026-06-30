@@ -92,8 +92,12 @@ class DarkroomEngine:
         if settings.geometry.manual_crop_rect:
             logger.debug(f"Engine process with manual_crop_rect: {settings.geometry.manual_crop_rect}")
 
+        # Folded into the base stage like fine_rotation (not source_hash) so the slider
+        # re-renders without re-decoding the RAW.
+        distortion_k1 = settings.flatfield.k1 if settings.flatfield.apply else 0.0
+
         def run_base(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
-            img_in = GeometryProcessor(settings.geometry).process(img_in, ctx)
+            img_in = GeometryProcessor(settings.geometry, distortion_k1).process(img_in, ctx)
             return NormalizationProcessor(settings.process).process(img_in, ctx)
 
         # While the crop tool shows the full uncropped frame, the crop-selection
@@ -130,6 +134,7 @@ class DarkroomEngine:
             settings.process.white_point_offset,
             settings.process.black_point_offset,
             settings.process.lock_bounds,
+            distortion_k1,
         )
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
 
@@ -195,6 +200,7 @@ class DarkroomEngine:
                 flip_v=settings.geometry.flip_vertical,
                 autocrop=True,
                 autocrop_params=({"roi": context.active_roi} if context.active_roi and not context.crop_preview_full else None),
+                distortion_k1=distortion_k1,
             )
             context.metrics["uv_grid"] = uv_grid
         except Exception as e:

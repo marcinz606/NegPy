@@ -32,6 +32,7 @@ class RetouchProcessor:
         fine_rotation = rot_params.get("fine_rotation", 0.0)
         flip_h = rot_params.get("flip_horizontal", False)
         flip_v = rot_params.get("flip_vertical", False)
+        distortion_k1 = context.metrics.get("distortion_k1", 0.0)
 
         mapped_spots = []
         if self.config.manual_dust_spots:
@@ -44,6 +45,7 @@ class RetouchProcessor:
                     fine_rotation,
                     flip_h,
                     flip_v,
+                    distortion_k1=distortion_k1,
                 )
                 mapped_spots.append((mnx, mny, size))
 

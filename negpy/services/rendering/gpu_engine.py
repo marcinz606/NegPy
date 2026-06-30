@@ -23,6 +23,8 @@ from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
     apply_fine_rotation,
     apply_margin_to_roi,
+    apply_radial_distortion,
+    compute_distortion_scale,
     get_autocrop_coords,
     get_manual_rect_coords,
     map_coords_to_geometry,
@@ -237,6 +239,9 @@ class GPUEngine:
         last = self._last_settings
         if last.geometry != settings.geometry:
             return 0
+        # k1 lives in flatfield config but is applied in the geometry pass (stage 0).
+        if last.flatfield.apply != settings.flatfield.apply or last.flatfield.k1 != settings.flatfield.k1:
+            return 0
         if last.process != settings.process or last.exposure != settings.exposure:
             return 1
         if last.lab.clahe_strength != settings.lab.clahe_strength:
@@ -372,6 +377,7 @@ class GPUEngine:
         assert device is not None
 
         h, w = img.shape[:2]
+        k1_eff = settings.flatfield.k1 if settings.flatfield.apply else 0.0
         source_tex = self._get_intermediate_texture(
             w,
             h,
@@ -417,6 +423,7 @@ class GPUEngine:
                     flip_vertical=settings.geometry.flip_vertical,
                     offset_px=settings.geometry.autocrop_offset,
                     scale_factor=scale_factor,
+                    distortion_k1=k1_eff,
                 )
             elif settings.geometry.auto_crop_enabled:
                 roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)
@@ -568,6 +575,7 @@ class GPUEngine:
             global_offset,
             actual_full_dims,
             scale_factor,
+            distortion_k1=k1_eff,
         )
         if clahe_cdf_override is not None:
             self._buffers["clahe_c"].upload(clahe_cdf_override)
@@ -719,9 +727,9 @@ class GPUEngine:
                     tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
                     self._ir_upload_key = None
                 else:
-                    upload_key = (id(self._pending_ir_buffer), settings.geometry, w_rot, h_rot)
+                    upload_key = (id(self._pending_ir_buffer), settings.geometry, w_rot, h_rot, k1_eff)
                     if upload_key != self._ir_upload_key:
-                        ir_for_gpu = self._transform_ir_for_gpu(self._pending_ir_buffer, settings.geometry, w_rot, h_rot)
+                        ir_for_gpu = self._transform_ir_for_gpu(self._pending_ir_buffer, settings.geometry, w_rot, h_rot, k1_eff)
                         tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
                         self._ir_upload_key = upload_key
             self._dispatch_pass(
@@ -764,6 +772,7 @@ class GPUEngine:
                         fine_rotation=settings.geometry.fine_rotation,
                         flip_horizontal=settings.geometry.flip_horizontal,
                         flip_vertical=settings.geometry.flip_vertical,
+                        distortion_k1=k1_eff,
                     )
                 tex_local_factor.upload(np.stack([local_factor] * 3, axis=-1))
                 self._dispatch_pass(
@@ -889,6 +898,7 @@ class GPUEngine:
                     flip_v=settings.geometry.flip_vertical,
                     autocrop=True,
                     autocrop_params={"roi": roi} if roi else None,
+                    distortion_k1=k1_eff,
                 )
             except Exception as e:
                 logger.error(f"GPU Engine metrics error: {e}")
@@ -916,16 +926,18 @@ class GPUEngine:
         neutral_axis_refs: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
-        g_data = (
-            struct.pack(
-                "ifii",
-                int(settings.geometry.rotation),
-                float(settings.geometry.fine_rotation),
-                (1 if settings.geometry.flip_horizontal else 0),
-                (1 if settings.geometry.flip_vertical else 0),
-            )
-            + b"\x00" * 16
-        )
+        # scale_s uses the post-rotation dims the geometry pass emits. Zeroed for tiled
+        # export below, where geometry runs on the CPU instead.
+        w_rot, h_rot = full_dims
+        k1_eff = settings.flatfield.k1 if settings.flatfield.apply else 0.0
+        scale_s = compute_distortion_scale(k1_eff, w_rot, h_rot) if k1_eff != 0.0 else 1.0
+        g_data = struct.pack(
+            "ifii",
+            int(settings.geometry.rotation),
+            float(settings.geometry.fine_rotation),
+            (1 if settings.geometry.flip_horizontal else 0),
+            (1 if settings.geometry.flip_vertical else 0),
+        ) + struct.pack("ffff", float(k1_eff), float(scale_s), 0.0, 0.0)
         if tiling_mode:
             g_data = b"\x00" * 32
 
@@ -1189,11 +1201,11 @@ class GPUEngine:
         geom: Any,
         w_rot: int,
         h_rot: int,
+        distortion_k1: float = 0.0,
     ) -> np.ndarray:
-        """CPU-transforms the IR sidecar (rotation, flip, fine rotation) so it aligns
-        with the geometry-transformed RGB texture the retouch shader samples."""
+        """CPU-transforms the IR sidecar (rotation, flip, fine rotation, lens distortion)
+        so it aligns with the geometry-transformed RGB texture the retouch shader samples."""
         import cv2
-        from negpy.features.geometry.logic import apply_fine_rotation
 
         ir = ir_raw
         if geom.rotation % 4 != 0:
@@ -1205,6 +1217,8 @@ class GPUEngine:
         ir = np.ascontiguousarray(ir.astype(np.float32))
         if geom.fine_rotation != 0.0:
             ir = apply_fine_rotation(ir, geom.fine_rotation)
+        if distortion_k1 != 0.0:
+            ir = apply_radial_distortion(ir, distortion_k1)
         if ir.shape[:2] != (h_rot, w_rot):
             ir = cv2.resize(ir, (w_rot, h_rot), interpolation=cv2.INTER_LINEAR)
         return np.ascontiguousarray(ir.astype(np.float32))
@@ -1217,6 +1231,7 @@ class GPUEngine:
         offset: Tuple[int, int],
         full_dims: Tuple[int, int],
         scale_factor: float,
+        distortion_k1: float = 0.0,
     ) -> None:
         """Uploads manual retouch spots to GPU storage buffer."""
         spot_data = bytearray()
@@ -1229,6 +1244,7 @@ class GPUEngine:
                 geom.fine_rotation,
                 geom.flip_horizontal,
                 geom.flip_vertical,
+                distortion_k1=distortion_k1,
             )
             # Correctly scale radius using scale_factor
             scaled_radius = (size * scale_factor) / max(orig_shape)
@@ -1484,6 +1500,9 @@ class GPUEngine:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
 
+        # Tiles apply geometry on the CPU (shader uniform zeroed), so distortion too.
+        k1_eff = settings.flatfield.k1 if settings.flatfield.apply else 0.0
+
         img_rot = img
         if settings.geometry.rotation != 0:
             img_rot = np.rot90(img_rot, k=settings.geometry.rotation)
@@ -1493,19 +1512,24 @@ class GPUEngine:
             img_rot = np.flipud(img_rot)
         if settings.geometry.fine_rotation != 0.0:
             img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
+        if k1_eff != 0.0:
+            img_rot = apply_radial_distortion(img_rot, k1_eff)
 
         # Pre-transform IR once into the post-geometry frame; tiles slice it directly.
         ir_rot: Optional[np.ndarray] = None
         if ir_buffer is not None and settings.retouch.ir_dust_remove:
             h_rot_full, w_rot_full = img_rot.shape[:2]
             try:
-                ir_rot = self._transform_ir_for_gpu(ir_buffer, settings.geometry, w_rot_full, h_rot_full)
+                ir_rot = self._transform_ir_for_gpu(ir_buffer, settings.geometry, w_rot_full, h_rot_full, k1_eff)
             except Exception as e:
                 logger.warning(f"IR pre-transform failed for tiled export; skipping IR dust removal: {e}")
                 ir_rot = None
 
         # Rasterise the dodge/burn factor map once at full post-geometry resolution;
         # tiles slice it directly (same pattern as IR above).
+        # ponytail: mask vertices are distortion-mapped (centres land right), but the
+        # feathered falloff isn't re-warped — negligible unless a mask sits at the frame
+        # edge under strong k1. Rasterise on a warped grid if that combo ever matters.
         local_factor_rot: Optional[np.ndarray] = None
         if settings.local.masks:
             h_rot_full, w_rot_full = img_rot.shape[:2]
@@ -1518,6 +1542,7 @@ class GPUEngine:
                 fine_rotation=settings.geometry.fine_rotation,
                 flip_horizontal=settings.geometry.flip_horizontal,
                 flip_vertical=settings.geometry.flip_vertical,
+                distortion_k1=k1_eff,
             )
 
         preview_scale = APP_CONFIG.preview_render_size / max(h, w)
@@ -1549,6 +1574,7 @@ class GPUEngine:
                 flip_vertical=settings.geometry.flip_vertical,
                 offset_px=settings.geometry.autocrop_offset,
                 scale_factor=scale_factor,
+                distortion_k1=k1_eff,
             )
         elif settings.geometry.auto_crop_enabled:
             roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)

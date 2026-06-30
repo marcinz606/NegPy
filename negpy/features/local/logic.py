@@ -36,6 +36,7 @@ def compute_local_factor_map(
     fine_rotation: float = 0.0,
     flip_horizontal: bool = False,
     flip_vertical: bool = False,
+    distortion_k1: float = 0.0,
 ) -> np.ndarray:
     """
     Build the per-pixel multiplicative dodge/burn factor map [h, w] float32.
@@ -62,6 +63,7 @@ def compute_local_factor_map(
                 fine_rotation,
                 flip_horizontal,
                 flip_vertical,
+                distortion_k1=distortion_k1,
             )
             for rx, ry in mask.vertices
         ]
@@ -81,6 +83,7 @@ def apply_local_adjustments(
     fine_rotation: float = 0.0,
     flip_horizontal: bool = False,
     flip_vertical: bool = False,
+    distortion_k1: float = 0.0,
 ) -> np.ndarray:
     """
     Apply polygon dodge/burn masks to a linear float32 RGB image [H, W, 3].
@@ -94,6 +97,6 @@ def apply_local_adjustments(
         return img
 
     h, w = img.shape[:2]
-    factor = compute_local_factor_map(config, h, w, orig_shape, rotation, fine_rotation, flip_horizontal, flip_vertical)
+    factor = compute_local_factor_map(config, h, w, orig_shape, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1)
     result = img.astype(np.float32, copy=True) * factor[..., np.newaxis]
     return np.clip(result, 0.0, 1.0)

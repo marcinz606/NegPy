@@ -18,9 +18,11 @@ class CoordinateMapping:
         flip_v: bool = False,
         autocrop: bool = False,
         autocrop_params: Optional[dict] = None,
+        distortion_k1: float = 0.0,
     ) -> np.ndarray:
         """
-        Generates UV map for geometric state.
+        Generates UV map for geometric state (output pixel -> raw uv it samples), so it
+        carries the same forward transforms as the image, distortion included.
         """
         u_raw, v_raw = np.meshgrid(np.linspace(0, 1, rw_orig), np.linspace(0, 1, rh_orig))
         uv_grid = np.stack([u_raw, v_raw], axis=-1).astype(np.float32)
@@ -39,6 +41,11 @@ class CoordinateMapping:
             h_r, w_r = uv_grid.shape[:2]
             m_mat = cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), fine_rot, 1.0)
             uv_grid = cv2.warpAffine(uv_grid, m_mat, (w_r, h_r), flags=cv2.INTER_LINEAR).astype(np.float32)
+
+        if distortion_k1 != 0.0:
+            from negpy.features.geometry.logic import apply_radial_distortion
+
+            uv_grid = np.ascontiguousarray(apply_radial_distortion(uv_grid, distortion_k1))
 
         if autocrop and autocrop_params:
             y1, y2, x1, x2 = autocrop_params["roi"]

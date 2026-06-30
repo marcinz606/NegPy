@@ -5,6 +5,7 @@ from negpy.features.geometry.models import GeometryConfig
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
     apply_margin_to_roi,
+    apply_radial_distortion,
     get_autocrop_coords,
     get_manual_rect_coords,
 )
@@ -15,8 +16,9 @@ class GeometryProcessor:
     Rotates and detects crop.
     """
 
-    def __init__(self, config: GeometryConfig):
+    def __init__(self, config: GeometryConfig, distortion_k1: float = 0.0):
         self.config = config
+        self.distortion_k1 = distortion_k1
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         orig_shape = (image.shape[0], image.shape[1])
@@ -43,6 +45,11 @@ class GeometryProcessor:
             if ir is not None:
                 ir = apply_fine_rotation(ir, self.config.fine_rotation)
 
+        if self.distortion_k1 != 0.0:
+            img = apply_radial_distortion(img, self.distortion_k1)
+            if ir is not None:
+                ir = apply_radial_distortion(ir, self.distortion_k1)
+
         context.metrics["geometry_params"] = {
             "rotation": self.config.rotation,
             "fine_rotation": self.config.fine_rotation,
@@ -50,6 +57,8 @@ class GeometryProcessor:
             "flip_vertical": self.config.flip_vertical,
         }
         context.metrics["ir_post_geometry"] = ir
+        # Downstream coordinate mappers (retouch/local) need the same correction.
+        context.metrics["distortion_k1"] = self.distortion_k1
 
         if self.config.manual_crop_rect:
             roi = get_manual_rect_coords(
@@ -62,6 +71,7 @@ class GeometryProcessor:
                 flip_vertical=self.config.flip_vertical,
                 offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
+                distortion_k1=self.distortion_k1,
             )
             context.active_roi = roi
         elif self.config.auto_crop_enabled:
