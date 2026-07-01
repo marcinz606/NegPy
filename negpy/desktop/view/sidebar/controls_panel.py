@@ -8,7 +8,7 @@ import qtawesome as qta
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
-from negpy.desktop.view.widgets.charts import MiniHistogramWidget
+from negpy.desktop.view.widgets.charts import MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.lab.models import LabConfig
@@ -21,13 +21,27 @@ from negpy.features.finish.models import FinishConfig
 from negpy.desktop.view.sidebar.presets import PresetsSidebar
 from negpy.desktop.view.sidebar.flatfield import FlatFieldSidebar
 from negpy.desktop.view.sidebar.process import ProcessSidebar
-from negpy.desktop.view.sidebar.exposure import ExposureSidebar
+from negpy.desktop.view.sidebar.colour import ColourSidebar
+from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.desktop.view.sidebar.lab import LabSidebar
 from negpy.desktop.view.sidebar.toning import ToningSidebar
 from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
+
+# Exposure field partitions — the Colour and Tone sections split ExposureConfig; used for both
+# per-section modified counts and scoped resets. render_intent is in neither (flat-master output).
+_COLOUR_FIELDS = (
+    "wb_cyan", "wb_magenta", "wb_yellow",
+    "shadow_cyan", "shadow_magenta", "shadow_yellow",
+    "highlight_cyan", "highlight_magenta", "highlight_yellow",
+    "cast_removal_strength", "auto_cast_removal",
+)
+_TONE_FIELDS = (
+    "density", "grade", "toe", "toe_width", "shoulder", "shoulder_width",
+    "flare", "surround", "paper_dmin", "auto_exposure", "auto_normalize_contrast", "paper_profile",
+)
 
 # Constant frozen-dataclass defaults — build once, not per resync.
 _DEFAULT_EXPOSURE = ExposureConfig()
@@ -88,14 +102,24 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.cogs", color=icon_color),
         )
 
-        self.exposure_sidebar = ExposureSidebar(self.controller)
-        self.exposure_histogram = MiniHistogramWidget()
-        self.exposure_section = self._make_section(
-            "Exposure",
-            "exposure",
-            self.exposure_sidebar,
+        self.colour_sidebar = ColourSidebar(self.controller)
+        self.colour_histogram = MiniRGBHistogramWidget()
+        self.colour_section = self._make_section(
+            "Colour",
+            "colour",
+            self.colour_sidebar,
+            icon=qta.icon("fa5s.palette", color=icon_color),
+            background_widget=self.colour_histogram,
+        )
+
+        self.tone_sidebar = ToneSidebar(self.controller)
+        self.tone_histogram = MiniHistogramWidget()
+        self.tone_section = self._make_section(
+            "Tone",
+            "tone",
+            self.tone_sidebar,
             icon=qta.icon("fa5s.sun", color=icon_color),
-            background_widget=self.exposure_histogram,
+            background_widget=self.tone_histogram,
         )
 
         self.lab_sidebar = LabSidebar(self.controller)
@@ -154,7 +178,7 @@ class ControlsPanel(QWidget):
                 [self.geometry_section, self.flatfield_section],
                 ["geometry_section", "flatfield_section"],
             ),
-            ("tone", "fa5s.sun", "Exposure", [self.exposure_section], ["exposure_section"]),
+            ("tone", "fa5s.sun", "Exposure — Colour, Tone", [self.colour_section, self.tone_section], ["colour_section", "tone_section"]),
             ("color", "fa5s.palette", "Color — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
             (
                 "finish",
@@ -199,7 +223,7 @@ class ControlsPanel(QWidget):
             is_expanded = bool(persisted)
         else:
             is_expanded = THEME.sidebar_expanded_defaults.get(key, False)
-            if key in ["process", "exposure", "geometry", "lab", "retouch", "export", "analysis", "toning"]:
+            if key in ["process", "colour", "tone", "geometry", "lab", "retouch", "export", "analysis", "toning"]:
                 is_expanded = THEME.sidebar_expanded_defaults.get(key, True)
 
         section = CollapsibleSection(title, expanded=is_expanded, icon=icon, background_widget=background_widget)
@@ -218,7 +242,8 @@ class ControlsPanel(QWidget):
         # Histogram only changes on render completion — refresh there, not on every resync.
         self.controller.image_updated.connect(self._update_histogram)
 
-        self.exposure_section.reset_requested.connect(lambda: self.controller.session.reset_section("exposure"))
+        self.colour_section.reset_requested.connect(lambda: self._reset_exposure_fields(_COLOUR_FIELDS))
+        self.tone_section.reset_requested.connect(lambda: self._reset_exposure_fields(_TONE_FIELDS))
         self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
         self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
         self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
@@ -228,7 +253,8 @@ class ControlsPanel(QWidget):
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
 
     def apply_shortcut_tooltips(self) -> None:
-        exp = self.exposure_sidebar
+        col = self.colour_sidebar
+        exp = self.tone_sidebar
         geo = self.geometry_sidebar
         lab = self.lab_sidebar
         proc = self.process_sidebar
@@ -236,25 +262,25 @@ class ControlsPanel(QWidget):
         ton = self.toning_sidebar
         fin = self.finish_sidebar
 
-        exp.pick_wb_btn.setToolTip(
+        col.pick_wb_btn.setToolTip(
             tooltip_with_shortcut(
                 "Activate eyedropper — click a neutral grey pixel to auto-compute white balance offsets",
                 "pick_wb",
             )
         )
-        exp.cyan_slider.setToolTip(
+        col.cyan_slider.setToolTip(
             tooltip_with_shortcut(
                 "Cyan↔Red white balance shift; negative = cyan, positive = red. Applies to selected region (Global/Shadows/Highlights)",
                 ["cyan_inc", "cyan_dec"],
             )
         )
-        exp.magenta_slider.setToolTip(
+        col.magenta_slider.setToolTip(
             tooltip_with_shortcut(
                 "Magenta↔Green white balance shift. Applies to selected region (Global/Shadows/Highlights)",
                 ["magenta_up", "magenta_down"],
             )
         )
-        exp.yellow_slider.setToolTip(
+        col.yellow_slider.setToolTip(
             tooltip_with_shortcut(
                 "Yellow↔Blue white balance shift. Applies to selected region (Global/Shadows/Highlights)",
                 ["yellow_up", "yellow_down"],
@@ -486,7 +512,8 @@ class ControlsPanel(QWidget):
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
         self.process_sidebar.sync_ui()
-        self.exposure_sidebar.sync_ui()
+        self.colour_sidebar.sync_ui()
+        self.tone_sidebar.sync_ui()
         self.geometry_sidebar.sync_ui()
         self.lab_sidebar.sync_ui()
         self.toning_sidebar.sync_ui()
@@ -503,7 +530,17 @@ class ControlsPanel(QWidget):
         if buf is self._last_histogram_buf:
             return
         self._last_histogram_buf = buf
-        self.exposure_histogram.update_data(buf)
+        self.tone_histogram.update_data(buf)
+        self.colour_histogram.update_data(buf)
+
+    def _reset_exposure_fields(self, fields) -> None:
+        """Reset only the given ExposureConfig fields to defaults (scoped section reset)."""
+        from dataclasses import replace
+
+        exp = self.controller.state.config.exposure
+        new_exp = replace(exp, **{f: getattr(_DEFAULT_EXPOSURE, f) for f in fields})
+        new_config = replace(self.controller.state.config, exposure=new_exp)
+        self.controller.session.update_config(new_config, persist=True)
 
     def _sync_modified_dots(self) -> None:
         """Update modified-indicator dots on collapsible section headers."""
@@ -515,25 +552,8 @@ class ControlsPanel(QWidget):
         _proc = _DEFAULT_PROCESS
 
         exp = cfg.exposure
-        exposure_count = sum(
-            [
-                exp.density != _exp.density,
-                exp.grade != _exp.grade,
-                exp.wb_cyan != _exp.wb_cyan,
-                exp.wb_magenta != _exp.wb_magenta,
-                exp.wb_yellow != _exp.wb_yellow,
-                exp.shadow_cyan != _exp.shadow_cyan,
-                exp.shadow_magenta != _exp.shadow_magenta,
-                exp.shadow_yellow != _exp.shadow_yellow,
-                exp.highlight_cyan != _exp.highlight_cyan,
-                exp.highlight_magenta != _exp.highlight_magenta,
-                exp.highlight_yellow != _exp.highlight_yellow,
-                exp.toe != _exp.toe,
-                exp.toe_width != _exp.toe_width,
-                exp.shoulder != _exp.shoulder,
-                exp.shoulder_width != _exp.shoulder_width,
-            ]
-        )
+        colour_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _COLOUR_FIELDS)
+        tone_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _TONE_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(
@@ -602,7 +622,8 @@ class ControlsPanel(QWidget):
             ]
         )
 
-        self.exposure_section.set_modified(exposure_count)
+        self.colour_section.set_modified(colour_count)
+        self.tone_section.set_modified(tone_count)
         self.lab_section.set_modified(lab_count)
         self.toning_section.set_modified(toning_count)
         self.geometry_section.set_modified(geometry_count)

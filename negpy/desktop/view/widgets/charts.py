@@ -613,3 +613,52 @@ class MiniHistogramWidget(QWidget):
             highlight_color = QColor(220, 80, 80, 180)
             painter.setBrush(QBrush(highlight_color))
             painter.drawRect(w - 3, 0, 3, h)
+
+
+class MiniRGBHistogramWidget(QWidget):
+    """
+    Per-channel counterpart to MiniHistogramWidget shown behind the Colour section header.
+    Overlays the R, G, B channels (~50% opacity) so a colour cast reads as the channels
+    pulling apart. Fed the same (4, 256) [R, G, B, L] buffer as the luma mini histogram.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._channels: dict[str, list] = {}
+
+    def update_data(self, buffer: Any) -> None:
+        if buffer is None or not isinstance(buffer, np.ndarray) or buffer.shape != (4, 256):
+            self._channels = {}
+            self.update()
+            return
+        self._channels = {}
+        for idx, key in ((0, "r"), (1, "g"), (2, "b")):
+            row = buffer[idx].astype(float)
+            max_val = float(row.max())
+            self._channels[key] = (row / max_val).tolist() if max_val > 0 else []
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        if not self._channels:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        w = self.width()
+        h = self.height()
+        colours = {"r": THEME.channel_red, "g": THEME.channel_green, "b": THEME.channel_blue}
+        for key, data in self._channels.items():
+            if not data:
+                continue
+            path = QPainterPath()
+            path.moveTo(0, h)
+            step = w / (len(data) - 1)
+            for i, val in enumerate(data):
+                path.lineTo(i * step, h - val * h)
+            path.lineTo(w, h)
+            path.closeSubpath()
+            c = QColor(colours[key])
+            c.setAlpha(120)
+            painter.setBrush(QBrush(c))
+            painter.drawPath(path)

@@ -1,9 +1,11 @@
 import types
 from typing import Any
 from dataclasses import replace
+import qtawesome as qta
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QComboBox, QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QComboBox, QPushButton, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.styles.theme import THEME
 
 
 class BaseSidebar(QWidget):
@@ -51,6 +53,27 @@ class BaseSidebar(QWidget):
     def sync_ui(self) -> None:
         """Override to update widgets from current AppState."""
         pass
+
+    def _icon_toggle(self, icon_name: str, checked: bool, tooltip: str) -> QPushButton:
+        """Compact icon-only checkable button placed beside a slider."""
+        btn = QPushButton()
+        btn.setCheckable(True)
+        btn.setChecked(checked)
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
+        btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 6px;")
+        btn.setFixedWidth(36)
+        btn.setToolTip(tooltip)
+        return btn
+
+    def _labeled_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
+        """Labeled checkable button (icon + text), styled like Pick WB / Linear RAW."""
+        btn = QPushButton(label)
+        btn.setCheckable(True)
+        btn.setChecked(checked)
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
+        btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
+        btn.setToolTip(tooltip)
+        return btn
 
     def update_config_section(
         self,

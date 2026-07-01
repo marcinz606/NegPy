@@ -17,13 +17,13 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.process_sidebar
 
     def _density(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.exposure_sidebar.density_slider
+        return w.controls_panel.tone_sidebar.density_slider
 
     def _toe(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.exposure_sidebar.toe_slider
+        return w.controls_panel.tone_sidebar.toe_slider
 
     def _region_btn(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.exposure_sidebar.region_global_btn
+        return w.controls_panel.colour_sidebar.region_global_btn
 
     def _lab(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.lab_sidebar
@@ -44,7 +44,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         return w.controls_panel.geometry_sidebar.manual_crop_btn
 
     def _paper(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.exposure_sidebar.paper_combo
+        return w.controls_panel.tone_sidebar.paper_combo
 
     def _toning(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.toning_sidebar
@@ -144,7 +144,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "follow the negative honestly."
             ),
             target=_density,
-            section_attr="exposure_section",
+            section_attr="tone_section",
         ),
         TutorialStep(
             title="Exposure — H&D Curve (Toe & Shoulder)",
@@ -157,7 +157,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Width</b>: how sharply each transition knee bends."
             ),
             target=_toe,
-            section_attr="exposure_section",
+            section_attr="tone_section",
         ),
         TutorialStep(
             title="Exposure — Color Balance",
@@ -169,7 +169,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "multipliers. Leave it off for a sensible default starting point."
             ),
             target=_region_btn,
-            section_attr="exposure_section",
+            section_attr="colour_section",
         ),
         TutorialStep(
             title="Exposure — Paper Profiles",
@@ -183,7 +183,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "Density still trim on top."
             ),
             target=_paper,
-            section_attr="exposure_section",
+            section_attr="tone_section",
         ),
         TutorialStep(
             title="Lab Panel — Film Aesthetics",
