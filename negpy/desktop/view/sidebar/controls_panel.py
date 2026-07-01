@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 import qtawesome as qta
 
 from negpy.desktop.controller import AppController
@@ -210,11 +210,11 @@ class ControlsPanel(QWidget):
         for key, icon_name, tooltip, sections, section_attrs in groups:
             page = QWidget()
             page_layout = QVBoxLayout(page)
-            page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
             page_layout.setContentsMargins(0, 0, 0, 0)
             page_layout.setSpacing(8)
             for section in sections:
                 page_layout.addWidget(section)
+            page_layout.addStretch(1)
             self.pages.append(
                 {
                     "key": key,
