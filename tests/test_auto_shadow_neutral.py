@@ -101,7 +101,7 @@ class TestCastRemoval(unittest.TestCase):
 
     def test_default_on(self):
         self.assertEqual(WorkspaceConfig().exposure.cast_removal_strength, 0.5)
-        self.assertFalse(WorkspaceConfig().exposure.auto_cast_removal)
+        self.assertTrue(WorkspaceConfig().exposure.auto_cast_removal)
 
     def test_serialization_roundtrip(self):
         config = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, cast_removal_strength=0.5))

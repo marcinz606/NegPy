@@ -47,7 +47,7 @@ def _render(img: np.ndarray, cast_removal: bool, mode: str = "C41") -> np.ndarra
     process = replace(cfg.process, analysis_buffer=0.0)
     ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)
     norm = NormalizationProcessor(process).process(img, ctx)
-    exp = replace(cfg.exposure, cast_removal_strength=1.0 if cast_removal else 0.0)
+    exp = replace(cfg.exposure, cast_removal_strength=1.0 if cast_removal else 0.0, auto_cast_removal=False)
     return PhotometricProcessor(exp).process(norm, ctx)
 
 
