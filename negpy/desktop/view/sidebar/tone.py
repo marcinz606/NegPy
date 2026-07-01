@@ -46,7 +46,7 @@ class ToneSidebar(BaseSidebar):
         self.layout.addLayout(grade_row)
 
         self.flare_btn = self._icon_toggle(
-            "fa5s.sun",
+            "fa5s.smog",
             conf.flare,
             "Flare: veiling-glare floor that lifts the deepest print blacks and softens the toe "
             "(film look) while leaving paper white fixed",

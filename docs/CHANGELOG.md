@@ -2,11 +2,14 @@
 
 ## 0.31.0
 
-- **Lens distortion correction** — the Flat-Field profile gains a **k1** slider for radial (barrel/pincushion) correction from a copy-stand setup, alongside the existing illumination correction. It's a single coefficient folded into the geometry transform (so dragging it doesn't force a RAW re-decode), with scale-to-fill baked in to avoid empty borders, and stays in sync with crop/retouch/dodge-burn placement.
-- **Apply settings dialog** — the Sync Edits / Sync Crop icon buttons are replaced by one **Apply** button (Files sidebar and context menu) that opens a Lightroom-style dialog: pick Selected frames or the whole roll, then check any combination of Process, Crop, Rotation, Exposure, Color, Finish, Tonal span and Colour balance and hit Apply. The bounds checkboxes broadcast the source frame's tonal/colour normalization as a locked roll baseline — a single-frame version of Batch Normalization.
-- **Optional edit sidecars** — SQLite stays the primary edit store, but you can now also mirror edits to plain `.negpy` sidecar files next to the source for archival. Off by default; enable via the new Export panel toggle, or write them on demand from the Sidecars section button. Loading a file falls back to a beside-source sidecar when there's no DB entry, and promotes it into the DB.
-- Fix: toggling **Linear RAW** no longer leaves a stale magenta cast in the preview — the auto-meter cache now invalidates when the RAW decode changes. (#355)
-- Fix: the **Flatfield Correction** toggle is no longer silently reset to off when switching files or using Sync Edits — it was colliding with RGB Scan's toggle in the saved settings. (#356)
+- **Lens distortion correction** — the Flat-Field profile gains a **k1** slider for radial (barrel/pincushion) correction, alongside illumination correction. Folded into the geometry transform (no RAW re-decode on drag), scale-to-fill, and kept in sync with crop/retouch/dodge-burn.
+- **Apply settings dialog** — the Sync Edits / Sync Crop buttons become one **Apply** button opening a dialog: pick Selected frames or the whole roll, tick any of Process, Crop, Rotation, Exposure, Color, Finish, Tonal span and Colour balance. The bounds options broadcast the source frame's normalization as a locked roll baseline (single-frame Batch Normalization).
+- **Optional edit sidecars** — mirror edits to plain `.negpy` files next to the source for archival (SQLite stays primary). Off by default; enable in the Export panel or write on demand. Loading falls back to a beside-source sidecar when there's no DB entry, and promotes it into the DB.
+- **Cast Removal is now a slider** — the toggle becomes a 0–1 **strength** slider to dial colour-cast neutralization back partway (default 0.5). A small **auto** button (like Density/Grade) sets the strength from how confidently the frame's neutral references read — clean greys full, few-neutral scenes gentler — with the slider trimming on top.
+- **Exposure panel split into Colour + Tone** — two independent collapsible sections, each with its own edited badge and reset: **Colour** (white balance, Cast Removal) and **Tone** (density, grade, toe/shoulder, contrast lift, paper). The region selector is now an icon column beside the CMY sliders (yellow when adjusted), the heading names the active region, and Pick WB is an eyedropper. Colour shows an RGB mini-histogram, Tone the luminance one.
+- **Geometry gets its own tab** — the Setup tab (Presets, Geometry, Process) is split: Geometry and Flat Field move to a dedicated tab, leaving Setup as Presets + Process.
+- Fix: toggling **Linear RAW** no longer leaves a stale magenta cast — the auto-meter cache invalidates when the RAW decode changes. (#355)
+- Fix: the **Flatfield Correction** toggle is no longer reset to off when switching files or applying edits — it was colliding with RGB Scan's toggle in saved settings. (#356)
 
 ## 0.30.2
 
