@@ -1,7 +1,7 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.features.process.models import ProcessMode
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 
@@ -18,7 +18,7 @@ class LabSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("COLOR"))
 
         matrix_row = QHBoxLayout()
-        self.crosstalk_label = QLabel("Crosstalk Matrix")
+        self.crosstalk_label = field_label("Crosstalk Matrix")
         self.crosstalk_combo = QComboBox()
         self.crosstalk_combo.addItems(CrosstalkProfiles.list_profiles())
         self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)

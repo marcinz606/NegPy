@@ -1,9 +1,10 @@
 import qtawesome as qta
-from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout
 
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.templates import field_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 
@@ -22,10 +23,7 @@ class ColourSidebar(BaseSidebar):
             tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"),
         )
         wb_header_row = QHBoxLayout()
-        self.wb_label = QLabel("Global White Balance")
-        self.wb_label.setStyleSheet(
-            f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary}; font-weight: {THEME.weight_semibold};"
-        )
+        self.wb_label = field_label("Global White Balance")
         wb_header_row.addWidget(self.wb_label)
         wb_header_row.addStretch()
         wb_header_row.addWidget(self.pick_wb_btn)

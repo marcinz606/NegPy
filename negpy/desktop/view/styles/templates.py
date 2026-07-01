@@ -15,6 +15,18 @@ def section_subheader(text: str) -> QLabel:
     return lbl
 
 
+def field_label_qss() -> str:
+    """Style for labels sitting next to a combo/entry field (muted, semibold)."""
+    return f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary}; font-weight: {THEME.weight_semibold};"
+
+
+def field_label(text: str) -> QLabel:
+    """Muted semibold label for a combo/entry field."""
+    lbl = QLabel(text)
+    lbl.setStyleSheet(field_label_qss())
+    return lbl
+
+
 def slider_label_qss(color: str, edited: bool) -> str:
     label_color = THEME.accent_edited if edited else color
     return f"font-size: {THEME.font_size_base}px; color: {label_color};"

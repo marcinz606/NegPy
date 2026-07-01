@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
@@ -148,7 +148,7 @@ class ExportSidebar(BaseSidebar):
         content_layout.setSpacing(6)
 
         template_row = QHBoxLayout()
-        template_label = QLabel("Template")
+        template_label = field_label("Template")
         template_label.setFixedWidth(90)
         template_row.addWidget(template_label)
         self.cs_template_combo = QComboBox()
@@ -169,7 +169,7 @@ class ExportSidebar(BaseSidebar):
 
         def _labeled_spinbox(label: str, value: int, lo: int, hi: int) -> QSpinBox:
             row = QHBoxLayout()
-            row.addWidget(QLabel(label))
+            row.addWidget(field_label(label))
             spin = QSpinBox()
             spin.setRange(lo, hi)
             spin.setValue(value)
@@ -191,7 +191,7 @@ class ExportSidebar(BaseSidebar):
             self.cs_template_combo.setCurrentText(ContactSheetTemplates.DEFAULT_NAME)
 
         cs_path_row = QHBoxLayout()
-        cs_path_label = QLabel("Path")
+        cs_path_label = field_label("Path")
         cs_path_label.setFixedWidth(90)
         cs_path_row.addWidget(cs_path_label)
         self.cs_output_path_edit = QLineEdit(conf.contact_sheet_output_path)
@@ -421,7 +421,7 @@ class ExportSidebar(BaseSidebar):
         self.flat_format_row_widget = QWidget()
         fmt_row = QHBoxLayout(self.flat_format_row_widget)
         fmt_row.setContentsMargins(0, 0, 0, 0)
-        fmt_label = QLabel("Format")
+        fmt_label = field_label("Format")
         fmt_label.setFixedWidth(90)
         fmt_row.addWidget(fmt_label)
         self.flat_format_combo = QComboBox()
@@ -551,7 +551,7 @@ class ExportSidebar(BaseSidebar):
         override = self.state.monitor_profile_override
         self.display_combo.setCurrentText(override if override in self.display_spaces else "As detected")
         disp_row = QHBoxLayout()
-        disp_label = QLabel("Display")
+        disp_label = field_label("Display")
         disp_label.setFixedWidth(90)
         disp_row.addWidget(disp_label)
         disp_row.addWidget(self.display_combo)

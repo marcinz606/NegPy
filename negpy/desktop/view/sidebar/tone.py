@@ -1,7 +1,8 @@
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.templates import field_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 
@@ -22,6 +23,32 @@ class ToneSidebar(BaseSidebar):
                 "grade_up",
             )
         )
+
+        self.surround_btn = self._labeled_toggle(
+            "fa5s.eye",
+            " Contrast Lift",
+            conf.surround,
+            "Contrast Lift: a gentle fixed contrast expansion about paper white. Prints viewed in a "
+            "normal (dim) surround read flatter than a 1:1 reproduction, so preferred tone "
+            "reproduction (Bartleson-Breneman) calls for a slightly higher system gamma (~1.1) — "
+            "this darkens midtones a touch and adds snap, uniformly on every frame.",
+        )
+        self.paper_label = field_label("Paper")
+        self.paper_combo = QComboBox()
+        self.paper_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
+        self.paper_combo.setToolTip(
+            "Darkroom paper profile — re-shapes the H&D curve (and colour, on RA4) to a classic "
+            "stock as a baseline; Grade / Density / toe / shoulder still trim on top."
+        )
+        self._populate_paper_combo(self.state.config.process.process_mode)
+        idx = self.paper_combo.findData(conf.paper_profile)
+        if idx >= 0:
+            self.paper_combo.setCurrentIndex(idx)
+        top_row = QHBoxLayout()
+        top_row.addWidget(self.surround_btn)
+        top_row.addWidget(self.paper_label)
+        top_row.addWidget(self.paper_combo, 1)
+        self.layout.addLayout(top_row)
 
         self.auto_density_btn = self._icon_toggle(
             "fa5s.magic",
@@ -75,34 +102,6 @@ class ToneSidebar(BaseSidebar):
         sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
         self.layout.addLayout(sh_row)
-
-        self.surround_btn = self._labeled_toggle(
-            "fa5s.eye",
-            " Contrast Lift",
-            conf.surround,
-            "Contrast Lift: a gentle fixed contrast expansion about paper white. Prints viewed in a "
-            "normal (dim) surround read flatter than a 1:1 reproduction, so preferred tone "
-            "reproduction (Bartleson-Breneman) calls for a slightly higher system gamma (~1.1) — "
-            "this darkens midtones a touch and adds snap, uniformly on every frame.",
-        )
-        self.layout.addWidget(self.surround_btn)
-
-        paper_row = QHBoxLayout()
-        self.paper_label = QLabel("Paper Profile")
-        self.paper_label.setStyleSheet(f"font-size: {THEME.font_size_base}px;")
-        self.paper_combo = QComboBox()
-        self.paper_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
-        self.paper_combo.setToolTip(
-            "Darkroom paper profile — re-shapes the H&D curve (and colour, on RA4) to a classic "
-            "stock as a baseline; Grade / Density / toe / shoulder still trim on top."
-        )
-        self._populate_paper_combo(self.state.config.process.process_mode)
-        idx = self.paper_combo.findData(conf.paper_profile)
-        if idx >= 0:
-            self.paper_combo.setCurrentIndex(idx)
-        paper_row.addWidget(self.paper_label)
-        paper_row.addWidget(self.paper_combo, 1)
-        self.layout.addLayout(paper_row)
 
         self.layout.addStretch()
 

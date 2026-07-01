@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 
 FORMAT_OPTIONS = ["35mm", "120", "4×5", "8×10", "Other"]
@@ -38,14 +38,14 @@ class MetadataSidebar(BaseSidebar):
         # ── CUSTOM METADATA ──────────────────────────────────────────────
         self.layout.addWidget(section_subheader("CUSTOM METADATA"))
 
-        self.layout.addWidget(QLabel("Film"))
+        self.layout.addWidget(field_label("Film"))
         self.film_edit = QLineEdit()
         self.film_edit.setPlaceholderText("e.g. Portra 400")
         self.film_edit.setText(conf.film)
         self.film_edit.setToolTip("Film stock name")
         self.layout.addWidget(self.film_edit)
 
-        self.layout.addWidget(QLabel("Format"))
+        self.layout.addWidget(field_label("Format"))
         self.format_combo = QComboBox()
         self.format_combo.addItems(FORMAT_OPTIONS)
         if conf.format in FORMAT_OPTIONS:
@@ -60,14 +60,14 @@ class MetadataSidebar(BaseSidebar):
         self.format_other_edit.setVisible(conf.format == "Other")
         self.layout.addWidget(self.format_other_edit)
 
-        self.layout.addWidget(QLabel("Developer"))
+        self.layout.addWidget(field_label("Developer"))
         self.developer_edit = QLineEdit()
         self.developer_edit.setPlaceholderText("e.g. D-76 1+1")
         self.developer_edit.setText(conf.developer)
         self.developer_edit.setToolTip("Developer and dilution")
         self.layout.addWidget(self.developer_edit)
 
-        self.layout.addWidget(QLabel("Push / Pull"))
+        self.layout.addWidget(field_label("Push / Pull"))
         self.push_pull_combo = QComboBox()
         self.push_pull_combo.addItems(PUSH_PULL_OPTIONS)
         idx = PUSH_PULL_VALUES.index(conf.push_pull) if conf.push_pull in PUSH_PULL_VALUES else 3
@@ -75,7 +75,7 @@ class MetadataSidebar(BaseSidebar):
         self.push_pull_combo.setToolTip("Push or pull processing")
         self.layout.addWidget(self.push_pull_combo)
 
-        self.layout.addWidget(QLabel("Scanning"))
+        self.layout.addWidget(field_label("Scanning"))
         self.scanning_edit = QLineEdit()
         self.scanning_edit.setPlaceholderText("e.g. Noritsu HS-1800")
         self.scanning_edit.setText(conf.scanning)
@@ -101,17 +101,17 @@ class MetadataSidebar(BaseSidebar):
         }
 
         # Camera row
-        self.camera_label = QLabel("Camera")
+        self.camera_label = field_label("Camera")
         self.layout.addWidget(self.camera_label)
         self.camera_edit = self._make_exif_field("camera")
 
         # Lens row
-        self.lens_label = QLabel("Lens")
+        self.lens_label = field_label("Lens")
         self.layout.addWidget(self.lens_label)
         self.lens_edit = self._make_exif_field("lens")
 
         # Exposure row
-        self.exposure_label = QLabel("Exposure")
+        self.exposure_label = field_label("Exposure")
         self.layout.addWidget(self.exposure_label)
         self.exposure_edit = self._make_exif_field("exposure")
 

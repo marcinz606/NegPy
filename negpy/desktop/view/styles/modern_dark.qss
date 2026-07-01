@@ -9,6 +9,10 @@ QWidget {
     font-size: 10pt;
 }
 
+QLabel {
+    background: transparent;
+}
+
 QDockWidget {
     titlebar-close-icon: none;
     titlebar-normal-icon: none;
