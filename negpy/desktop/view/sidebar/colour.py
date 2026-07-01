@@ -35,7 +35,9 @@ class ColourSidebar(BaseSidebar):
         # slider. The region applies to all three sliders — the row alignment is visual.
         self.region_global_btn = self._icon_toggle("fa5s.globe", True, "Global — apply CMY white balance to the entire tonal range")
         self.region_shadow_btn = self._icon_toggle("fa5s.moon", False, "Shadows — bias CMY white balance toward shadow (low-density) areas")
-        self.region_highlight_btn = self._icon_toggle("fa5s.sun", False, "Highlights — bias CMY white balance toward highlight (high-density) areas")
+        self.region_highlight_btn = self._icon_toggle(
+            "fa5s.sun", False, "Highlights — bias CMY white balance toward highlight (high-density) areas"
+        )
         self.region_btn_group = QButtonGroup(self)
         self.region_btn_group.setExclusive(True)
         self.region_btn_group.addButton(self.region_global_btn, 0)
@@ -110,7 +112,9 @@ class ColourSidebar(BaseSidebar):
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, cast_removal_strength=v)
         )
         self.auto_cast_btn.toggled.connect(
-            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, auto_cast_removal=checked)
+            lambda checked: self.update_config_section(
+                "exposure", render=True, persist=True, readback_metrics=True, auto_cast_removal=checked
+            )
         )
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:

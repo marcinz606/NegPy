@@ -147,7 +147,9 @@ class ToneSidebar(BaseSidebar):
             (self.auto_grade_btn, "auto_normalize_contrast"),
         ):
             btn.toggled.connect(
-                lambda checked, f=field: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, **{f: checked})
+                lambda checked, f=field: self.update_config_section(
+                    "exposure", render=True, persist=True, readback_metrics=True, **{f: checked}
+                )
             )
 
     def sync_ui(self) -> None:

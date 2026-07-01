@@ -33,14 +33,31 @@ from negpy.desktop.view.sidebar.finish import FinishSidebar
 # Exposure field partitions — the Colour and Tone sections split ExposureConfig; used for both
 # per-section modified counts and scoped resets. render_intent is in neither (flat-master output).
 _COLOUR_FIELDS = (
-    "wb_cyan", "wb_magenta", "wb_yellow",
-    "shadow_cyan", "shadow_magenta", "shadow_yellow",
-    "highlight_cyan", "highlight_magenta", "highlight_yellow",
-    "cast_removal_strength", "auto_cast_removal",
+    "wb_cyan",
+    "wb_magenta",
+    "wb_yellow",
+    "shadow_cyan",
+    "shadow_magenta",
+    "shadow_yellow",
+    "highlight_cyan",
+    "highlight_magenta",
+    "highlight_yellow",
+    "cast_removal_strength",
+    "auto_cast_removal",
 )
 _TONE_FIELDS = (
-    "density", "grade", "toe", "toe_width", "shoulder", "shoulder_width",
-    "flare", "surround", "paper_dmin", "auto_exposure", "auto_normalize_contrast", "paper_profile",
+    "density",
+    "grade",
+    "toe",
+    "toe_width",
+    "shoulder",
+    "shoulder_width",
+    "flare",
+    "surround",
+    "paper_dmin",
+    "auto_exposure",
+    "auto_normalize_contrast",
+    "paper_profile",
 )
 
 # Constant frozen-dataclass defaults — build once, not per resync.
