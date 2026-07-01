@@ -99,12 +99,14 @@ class PreviewManager:
         use_camera_wb: bool,
         full_resolution: bool,
         file_hash: str | None,
+        log_timings: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Decode and resize a linear preview from an already-open raw object.
         Handles cache write on completion.
         """
         t_decode = time.perf_counter()
+        log = logger.info if log_timings else logger.debug
 
         use_fast = (not full_resolution) and (not isinstance(raw, NonStandardFileWrapper))
         if use_fast:
@@ -135,7 +137,7 @@ class PreviewManager:
             user_flip=0,
             **post_kw,
         )
-        logger.debug("raw.postprocess %.3fs (fast=%s)", time.perf_counter() - t_pp, use_fast)
+        log("load-timing decode.postprocess %.0fms (fast=%s) %s", (time.perf_counter() - t_pp) * 1000, use_fast, file_path)
         rgb = ensure_rgb(rgb)
 
         # Bake EXIF orientation into the buffer (postprocess runs with user_flip=0).
@@ -169,7 +171,7 @@ class PreviewManager:
             )
         else:
             preview_raw = full_linear.copy()
-        logger.debug("preview resize+convert %.3fs", time.perf_counter() - t_resize0)
+        log("load-timing decode.resize %.0fms", (time.perf_counter() - t_resize0) * 1000)
 
         # IR channel travels with the preview; resize it to match the final preview dims.
         if ir_full is not None and ir_full.shape[:2] == full_linear.shape[:2]:
@@ -186,9 +188,9 @@ class PreviewManager:
             metadata["ir_preview"] = None
 
         out = ensure_image(preview_raw)
-        logger.debug(
-            "PreviewManager._load_from_open_raw decode+resize %.3fs",
-            time.perf_counter() - t_decode,
+        log(
+            "load-timing decode.total %.0fms (demosaic+orient+resize)",
+            (time.perf_counter() - t_decode) * 1000,
         )
         if file_hash:
             ck = PreviewCacheKey(
@@ -227,12 +229,14 @@ class PreviewManager:
         use_camera_wb: bool = False,
         full_resolution: bool = False,
         file_hash: str | None = None,
+        log_timings: bool = False,
     ) -> Tuple[ImageBuffer, Dimensions, dict]:
         """
         Loads linear RGB, downsamples for display.
         If color_space is None, uses the source's declared space (metadata).
         """
         t_all = time.perf_counter()
+        log = logger.info if log_timings else logger.debug
 
         # Fast path: skip file open entirely when all cache-key params are known upfront.
         if file_hash and color_space is not None:
@@ -274,11 +278,12 @@ class PreviewManager:
                 use_camera_wb,
                 full_resolution,
                 file_hash,
+                log_timings,
             )
-        logger.debug(
-            "PreviewManager.load_linear_preview decode+resize %.3fs (total %.3fs)",
-            time.perf_counter() - t_decode,
-            time.perf_counter() - t_all,
+        log(
+            "load-timing load_linear_preview %.0fms (decode %.0fms + open)",
+            (time.perf_counter() - t_all) * 1000,
+            (time.perf_counter() - t_decode) * 1000,
         )
         return out, dims, meta
 
@@ -362,6 +367,7 @@ class PreviewManager:
         use_camera_wb: bool = False,
         full_resolution: bool = False,
         file_hash: str | None = None,
+        log_timings: bool = False,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -410,6 +416,7 @@ class PreviewManager:
                     return None, hit  # no splash on cache hit — linear is already fast
 
         t_decode = time.perf_counter()
+        log = logger.info if log_timings else logger.debug
         splash_result: Optional[Tuple[ImageBuffer, Dimensions]] = None
         with ctx_mgr as raw:
             if not full_resolution:
@@ -422,10 +429,11 @@ class PreviewManager:
                 use_camera_wb,
                 full_resolution,
                 file_hash,
+                log_timings,
             )
-        logger.debug(
-            "PreviewManager.load_splash_and_linear %.3fs (total %.3fs)",
-            time.perf_counter() - t_decode,
-            time.perf_counter() - t_all,
+        log(
+            "load-timing load_splash_and_linear %.0fms (decode %.0fms + open)",
+            (time.perf_counter() - t_all) * 1000,
+            (time.perf_counter() - t_decode) * 1000,
         )
         return splash_result, linear_result

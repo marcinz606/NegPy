@@ -367,6 +367,11 @@ class PreviewLoadWorker(QObject):
                 source_cs = metadata.get("color_space", "")
                 ir_preview = metadata.get("ir_preview")
                 detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+                logger.info(
+                    "load-timing preview_worker_total %.0fms (rgb load->buffer) %s",
+                    (time.perf_counter() - t0) * 1000,
+                    task.file_path,
+                )
                 self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
                 return
             if task.use_splash and not task.full_resolution:
@@ -377,6 +382,7 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
+                    log_timings=True,
                 )
                 if sp is not None:
                     sbuf, sdims = sp
@@ -388,11 +394,16 @@ class PreviewLoadWorker(QObject):
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
+                    log_timings=True,
                 )
             source_cs = metadata.get("color_space", "")
             ir_preview = metadata.get("ir_preview")
             detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
-            logger.debug("PreviewLoadWorker load %.3fs for %s", time.perf_counter() - t0, task.file_path)
+            logger.info(
+                "load-timing preview_worker_total %.0fms (load->buffer) %s",
+                (time.perf_counter() - t0) * 1000,
+                task.file_path,
+            )
             self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
@@ -402,13 +413,22 @@ class PreviewLoadWorker(QObject):
         """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""
         from negpy.features.process.logic import detect_process_mode
 
+        t0 = time.perf_counter()
         try:
             if not task.use_camera_wb:
                 scan = raw
             else:
                 # Camera WB hides the C41 mask — re-decode no-WB (lean; detect downsamples).
                 scan = self._preview_service.decode_for_detection(task.file_path)
-            return str(detect_process_mode(scan))
+            mode = str(detect_process_mode(scan))
+            logger.info(
+                "load-timing detect %.0fms mode=%s (re_decode=%s) %s",
+                (time.perf_counter() - t0) * 1000,
+                mode,
+                task.use_camera_wb,
+                task.file_path,
+            )
+            return mode
         except Exception:
             logger.exception(f"Process-mode detection failed: {task.file_path}")
             return ""

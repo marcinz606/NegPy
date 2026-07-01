@@ -134,6 +134,7 @@ class AppController(QObject):
         self.session = session_manager
         self.state: AppState = session_manager.state
         self._first_render_done = False
+        self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
         self._discovery_running = False
         self._auto_open_after_discovery = False
@@ -528,9 +529,9 @@ class AppController(QObject):
     def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
         if self._requested_file_path != file_path:
             return
-        logger.debug(
-            "preview e2e (load request to decoded buffer) %.3fs for %s",
-            time.perf_counter() - self._preview_load_t0,
+        logger.info(
+            "load-timing preview_e2e %.0fms (load request -> decoded buffer) %s",
+            (time.perf_counter() - self._preview_load_t0) * 1000,
             file_path,
         )
         self.state.preview_raw = raw
@@ -542,6 +543,7 @@ class AppController(QObject):
         self._apply_detected_mode(detected_mode)
         self.preview_loaded.emit()
         self.config_updated.emit()
+        self._first_render_t0 = time.perf_counter()
         self.request_render()
         self._schedule_prefetch_neighbors()
 
@@ -1673,6 +1675,14 @@ class AppController(QObject):
 
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
+
+        if self._first_render_t0 is not None and not metrics.get("ephemeral"):
+            logger.info(
+                "load-timing first_render %.0fms (buffer -> painted) %s",
+                (time.perf_counter() - self._first_render_t0) * 1000,
+                self.state.current_file_path,
+            )
+            self._first_render_t0 = None
 
         # Snapshot the thumbnail once the render has converged (no newer render queued),
         # so we don't capture a premature/unconverted frame.

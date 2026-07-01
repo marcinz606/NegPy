@@ -1,6 +1,7 @@
 import gc
 import os
 import struct
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import cv2
@@ -197,6 +198,8 @@ class GPUEngine:
         ]
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
         self._current_source_hash: Optional[str] = None
+        # Once-per-source guard so the analysis timing log fires on load, not every slider.
+        self._analysis_timing_hash: Optional[str] = None
         # (key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis) — per-source
         # meter cache so creative-slider previews don't re-run the analysis (see _analysis_*).
         self._analysis_cache: Optional[tuple] = None
@@ -281,6 +284,7 @@ class GPUEngine:
         """Initializes hardware pipelines and persistent buffers."""
         if self._pipelines or not self.gpu.device:
             return
+        t0 = time.perf_counter()
         device = self.gpu.device
         self._sampler = device.create_sampler(min_filter="linear", mag_filter="linear")
 
@@ -308,7 +312,11 @@ class GPUEngine:
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
         )
 
-        logger.info("GPU Engine: Hardware resources initialized")
+        logger.info(
+            "load-timing gpu_init %.0fms (compiled %d shaders/pipelines)",
+            (time.perf_counter() - t0) * 1000,
+            len(self._pipelines),
+        )
 
     def _create_pipeline(self, shader_path: str) -> Any:
         shader_module = ShaderLoader.load(shader_path)
@@ -456,6 +464,7 @@ class GPUEngine:
                 neutral_axis_override,
             )
 
+        analysis_t0 = time.perf_counter()
         needs_refs = (
             shadow_refs_override is None
             and not tiling_mode
@@ -547,6 +556,22 @@ class GPUEngine:
         if analysis_key is not None:
             self._analysis_cache = _update_analysis_cache(
                 self._analysis_cache, analysis_key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis_refs
+            )
+
+        # CPU meter cost, logged once per source (skips creative-slider re-renders).
+        if (
+            analysis_source is not None
+            and analysis_source_hash is not None
+            and analysis_source_hash != self._analysis_timing_hash
+        ):
+            self._analysis_timing_hash = analysis_source_hash
+            logger.info(
+                "load-timing analysis %.0fms (bounds=%s refs=%s anchor=%s textural=%s)",
+                (time.perf_counter() - analysis_t0) * 1000,
+                needs_bounds_analysis,
+                needs_refs,
+                needs_anchor,
+                needs_textural,
             )
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
