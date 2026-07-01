@@ -86,7 +86,7 @@ class TestFlatPhotometric(unittest.TestCase):
             {
                 "auto_exposure": True,
                 "auto_normalize_contrast": True,
-                "cast_removal": True,
+                "cast_removal_strength": 1.0,
                 "grade": 50.0,
                 "density": 1.8,
                 "toe": 0.9,
@@ -173,7 +173,7 @@ class TestFlatConfigHelpers(unittest.TestCase):
         self.assertEqual(cfg.exposure.render_intent, RenderIntent.FLAT)
         self.assertFalse(cfg.exposure.auto_exposure)
         self.assertFalse(cfg.exposure.auto_normalize_contrast)
-        self.assertFalse(cfg.exposure.cast_removal)
+        self.assertEqual(cfg.exposure.cast_removal_strength, 0.0)
         self.assertFalse(cfg.exposure.surround)
         self.assertFalse(cfg.exposure.flare)
         self.assertFalse(cfg.exposure.paper_dmin)

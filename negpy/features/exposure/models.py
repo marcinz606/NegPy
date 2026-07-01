@@ -43,7 +43,8 @@ class ExposureConfig:
     shoulder_width: float = 2.5
     paper_dmin: bool = True
     flare: bool = False
-    cast_removal: bool = True
+    cast_removal_strength: float = 1.0
+    auto_cast_removal: bool = False
     surround: bool = False
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
@@ -59,6 +60,9 @@ class ExposureConfig:
         """
         if self.grade <= 5.0:
             object.__setattr__(self, "grade", 150.0 - 20.0 * self.grade)
+        # Legacy: cast_removal was a bool toggle; MIGRATIONS renames the key, coerce its value.
+        if isinstance(self.cast_removal_strength, bool):
+            object.__setattr__(self, "cast_removal_strength", 1.0 if self.cast_removal_strength else 0.0)
 
 
 EXPOSURE_CONSTANTS: Dict[str, Any] = {

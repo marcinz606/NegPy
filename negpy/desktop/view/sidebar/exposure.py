@@ -74,22 +74,10 @@ class ExposureSidebar(BaseSidebar):
             "reproduction (Bartleson-Breneman) calls for a slightly higher system gamma (~1.1) — "
             "this darkens midtones a touch and adds snap, uniformly on every frame.",
         )
-        self.cast_removal_btn = self._labeled_toggle(
-            "fa5s.palette",
-            " Cast Removal",
-            conf.cast_removal,
-            "Cast Removal: automatically neutralizes the color cast a negative leaves in the print — "
-            "balances each color layer so grays stay neutral from the deep shadows through the "
-            "highlights (C-41).",
-        )
-
         tone_row1 = QHBoxLayout()
         tone_row1.addWidget(self.pick_wb_btn, 1)
+        tone_row1.addWidget(self.surround_btn, 1)
         self.layout.addLayout(tone_row1)
-        tone_row2 = QHBoxLayout()
-        tone_row2.addWidget(self.cast_removal_btn, 1)
-        tone_row2.addWidget(self.surround_btn, 1)
-        self.layout.addLayout(tone_row2)
 
         self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
         self.density_slider.setToolTip(tooltip_with_shortcut("Overall exposure — higher values darken the print", "density_up"))
@@ -122,6 +110,24 @@ class ExposureSidebar(BaseSidebar):
         grade_row.addWidget(self.auto_grade_btn)
         grade_row.addWidget(self.grade_slider)
         self.layout.addLayout(grade_row)
+
+        self.cast_removal_slider = CompactSlider("Cast Removal", 0.0, 1.0, conf.cast_removal_strength)
+        self.cast_removal_slider.setToolTip(
+            "Cast Removal: neutralizes the colour cast a negative leaves in the print — balances each "
+            "colour layer so greys stay neutral from deep shadows through highlights (C-41). 0 = off, "
+            "1 = full."
+        )
+        self.auto_cast_btn = self._icon_toggle(
+            "fa5s.palette",
+            conf.auto_cast_removal,
+            "Auto Cast Removal: bias the strength by the frame's own neutral references — clean greys "
+            "get full correction, scenes with few true neutrals get a gentler touch to avoid over-correcting. "
+            "The slider still trims on top.",
+        )
+        cast_row = QHBoxLayout()
+        cast_row.addWidget(self.auto_cast_btn)
+        cast_row.addWidget(self.cast_removal_slider)
+        self.layout.addLayout(cast_row)
 
         self.flare_btn = self._icon_toggle(
             "fa5s.sun",
@@ -243,8 +249,14 @@ class ExposureSidebar(BaseSidebar):
         self.paper_dmin_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_dmin=checked)
         )
-        self.cast_removal_btn.toggled.connect(
-            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, cast_removal=checked)
+        self.cast_removal_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, cast_removal_strength=v)
+        )
+        self.cast_removal_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, cast_removal_strength=v)
+        )
+        self.auto_cast_btn.toggled.connect(
+            lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, auto_cast_removal=checked)
         )
         self.flare_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, flare=checked)
@@ -352,6 +364,7 @@ class ExposureSidebar(BaseSidebar):
 
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
+            self.cast_removal_slider.setValue(conf.cast_removal_strength)
 
             self.toe_slider.setValue(conf.toe)
             self.toe_w_slider.setValue(conf.toe_width)
@@ -361,10 +374,10 @@ class ExposureSidebar(BaseSidebar):
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.flare_btn.setChecked(conf.flare)
-            self.cast_removal_btn.setChecked(conf.cast_removal)
             self.surround_btn.setChecked(conf.surround)
             self.auto_density_btn.setChecked(conf.auto_exposure)
             self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
+            self.auto_cast_btn.setChecked(conf.auto_cast_removal)
         finally:
             self.block_signals(False)
 
@@ -383,16 +396,17 @@ class ExposureSidebar(BaseSidebar):
             self.pick_wb_btn,
             self.density_slider,
             self.grade_slider,
+            self.cast_removal_slider,
             self.toe_slider,
             self.toe_w_slider,
             self.sh_slider,
             self.sh_w_slider,
             self.paper_dmin_btn,
             self.flare_btn,
-            self.cast_removal_btn,
             self.surround_btn,
             self.auto_density_btn,
             self.auto_grade_btn,
+            self.auto_cast_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)

@@ -39,7 +39,7 @@ class TestAnalysisCacheKey(unittest.TestCase):
             replace(self.cfg, process=replace(self.cfg.process, luma_range_clip=0.05)),
             replace(self.cfg, process=replace(self.cfg.process, color_range_clip=0.05)),
             replace(self.cfg, geometry=replace(self.cfg.geometry, rotation=1)),
-            replace(self.cfg, exposure=replace(self.cfg.exposure, cast_removal=not self.cfg.exposure.cast_removal)),
+            replace(self.cfg, exposure=replace(self.cfg.exposure, cast_removal_strength=0.0, auto_cast_removal=False)),
             replace(self.cfg, exposure=replace(self.cfg.exposure, auto_exposure=not self.cfg.exposure.auto_exposure)),
         ]
         for cfg in variants:

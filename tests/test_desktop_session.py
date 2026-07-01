@@ -55,7 +55,8 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_export_config": {},
             "last_auto_exposure": True,
             "last_auto_normalize_contrast": True,
-            "last_cast_removal": False,
+            "last_cast_removal_strength": 0.5,
+            "last_auto_cast_removal": True,
             "last_paper_dmin": True,
             "last_surround": True,
             "last_paper_profile": "ilford_mg_rc",
@@ -64,7 +65,8 @@ class TestDesktopSessionSync(unittest.TestCase):
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertTrue(config.exposure.auto_exposure)
         self.assertTrue(config.exposure.auto_normalize_contrast)
-        self.assertFalse(config.exposure.cast_removal)
+        self.assertEqual(config.exposure.cast_removal_strength, 0.5)
+        self.assertTrue(config.exposure.auto_cast_removal)
         self.assertTrue(config.exposure.paper_dmin)
         self.assertTrue(config.exposure.surround)
         self.assertEqual(config.exposure.paper_profile, "ilford_mg_rc")

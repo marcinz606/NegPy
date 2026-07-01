@@ -118,7 +118,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
         analysis_source_hash,
         settings.process,
         settings.geometry,
-        e.cast_removal,
+        e.cast_removal_strength > 0.0 or e.auto_cast_removal,
         e.auto_exposure,
         e.auto_normalize_contrast,
     )
@@ -459,7 +459,7 @@ class GPUEngine:
         needs_refs = (
             shadow_refs_override is None
             and not tiling_mode
-            and settings.exposure.cast_removal
+            and (settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal)
             and settings.process.process_mode == ProcessMode.C41
         )
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
@@ -923,7 +923,9 @@ class GPUEngine:
         shadow_refs: Optional[Tuple[float, float, float]] = None,
         metered_anchor: Optional[float] = None,
         textural_range: Optional[float] = None,
-        neutral_axis_refs: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
+        neutral_axis_refs: Optional[
+            Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]], float]
+        ] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         # scale_s uses the post-rotation dims the geometry pass emits. Zeroed for tiled
@@ -972,6 +974,7 @@ class GPUEngine:
 
         from negpy.features.exposure.logic import (
             _reference_linear_value,
+            effective_cast_strength,
             normalize_refs,
             per_channel_curve_params,
         )
@@ -997,15 +1000,18 @@ class GPUEngine:
         if shadow_refs is not None:
             shadow_refs_norm = normalize_refs(shadow_refs, adj_floors, adj_ceils)
         neutral_axis_norm = None
+        cast_confidence = None
         if neutral_axis_refs is not None:
-            mid_refs, sh_refs, hl_refs = neutral_axis_refs
+            mid_refs, sh_refs, hl_refs = neutral_axis_refs[0], neutral_axis_refs[1], neutral_axis_refs[2]
+            cast_confidence = neutral_axis_refs[3]
             nf = lambda r: normalize_refs(r, adj_floors, adj_ceils) if r is not None else None  # noqa: E731
             neutral_axis_norm = (nf(mid_refs), nf(sh_refs), nf(hl_refs))
+        strength = effective_cast_strength(exp.cast_removal_strength, exp.auto_cast_removal, cast_confidence)
         slopes, pivots, curvatures = per_channel_curve_params(
             exp.grade,
             exp.density,
             exp.auto_normalize_contrast,
-            exp.cast_removal,
+            strength,
             lum_range,
             shadow_refs_norm,
             textural_range,
@@ -1608,7 +1614,9 @@ class GPUEngine:
 
         global_shadow_refs = None
         global_neutral_axis = None
-        if settings.exposure.cast_removal and settings.process.process_mode == ProcessMode.C41:
+        if (
+            settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal
+        ) and settings.process.process_mode == ProcessMode.C41:
             # Tiles must share one global measurement, like global_bounds.
             ah, aw = img_rot.shape[:2]
             a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))

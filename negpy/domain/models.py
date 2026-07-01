@@ -25,10 +25,11 @@ logger = get_logger("domain.models")
 MIGRATIONS: Dict[str, str] = {
     "export_border_size": "border_size",
     "export_border_color": "border_color",
-    # Shadow-neutral + density-balance consolidated into Cast Removal. Preserve a
-    # user's saved on/off; the unpublished "crossover"/"density_balance" keys are
-    # just dropped as unknown (default cast_removal=True).
-    "auto_shadow_neutral": "cast_removal",
+    # Shadow-neutral + density-balance consolidated into Cast Removal, then Cast
+    # Removal itself became a 0..1 strength (bool True/False coerced to 1.0/0.0 in
+    # ExposureConfig.__post_init__). Preserve a user's saved on/off.
+    "auto_shadow_neutral": "cast_removal_strength",
+    "cast_removal": "cast_removal_strength",
     # D-Range Clip split into independent luma + colour range clips; the old single
     # slider maps to the luma axis (colour defaults to its aggressive baseline).
     "drange_clip": "luma_range_clip",
@@ -378,7 +379,8 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
         render_intent=RenderIntent.FLAT,
         auto_exposure=False,
         auto_normalize_contrast=False,
-        cast_removal=False,
+        cast_removal_strength=0.0,
+        auto_cast_removal=False,
         surround=False,
         flare=False,
         paper_dmin=False,

@@ -439,16 +439,24 @@ def normalized_neutral_axis(bounds: Any, refs: Any) -> Any:
     None (2-point), or the whole thing None if either core ref is missing."""
     if bounds is None or refs is None:
         return None
-    mid, shadow, highlight = refs
+    mid, shadow, highlight = refs[0], refs[1], refs[2]  # refs may carry a trailing confidence
     norm = lambda r: normalize_refs(r, bounds.floors, bounds.ceils) if r is not None else None  # noqa: E731
     return (norm(mid), norm(shadow), norm(highlight))
+
+
+def effective_cast_strength(strength: float, auto: bool, confidence: Optional[float]) -> float:
+    """Applied cast-removal strength. Auto biases the slider by the neutral-reference
+    confidence (clean greys → full, ambiguous → gentler); the slider trims on top."""
+    if auto and confidence is not None:
+        return confidence * strength
+    return strength
 
 
 def per_channel_curve_params(
     grade: float,
     density: float,
     auto_normalize_contrast: bool,
-    cast_removal: bool,
+    strength: float,
     lum_range: Optional[float],
     shadow_refs_norm: Optional[Tuple[float, float, float]],
     textural_range: Optional[float],
@@ -478,7 +486,7 @@ def per_channel_curve_params(
 
     epsilon = 1e-6
 
-    if cast_removal and neutral_axis_norm is not None:
+    if strength > 0.0 and neutral_axis_norm is not None:
         # Line through the green-matched midtone+shadow, plus a highlight-driven curvature
         # (when present) so highlights don't extrapolate past neutral. Clamped monotonic.
         mid_norm, sh_norm, hl_norm = neutral_axis_norm
@@ -490,7 +498,7 @@ def per_channel_curve_params(
         target = lambda g: slope_g * (g - pivot_g)  # noqa: E731  green's core at a green ref
         t_m, t_s = target(m_g), target(s_g)
         h_g = float(hl_norm[1]) if hl_norm is not None else None
-        clamp_dev = lambda g, v: g + min(max(v - g, -limit), limit)  # noqa: E731
+        clamp_dev = lambda g, v: g + min(max(strength * (v - g), -limit), limit)  # noqa: E731
 
         slopes, pivots, curvs = [], [], []
         for ch in range(3):
@@ -524,7 +532,7 @@ def per_channel_curve_params(
             curvs.append(curv_ch)
         return (slopes[0], slopes[1], slopes[2]), (pivots[0], pivots[1], pivots[2]), (curvs[0], curvs[1], curvs[2])
 
-    if cast_removal and shadow_refs_norm is not None:
+    if strength > 0.0 and shadow_refs_norm is not None:
         # Fallback one-point tie: slope-tilt each channel so its shadow ref lands on
         # green's, with the luma anchor pinning the midtone (used when no neutral axis).
         anchor_val = float(c["assumed_anchor"]) if anchor is None else float(anchor)
@@ -536,7 +544,7 @@ def per_channel_curve_params(
         pivots = []
         for ch in range(3):
             # Clamp the shadow cast before solving, bounding the correction.
-            cast = min(max(r_green - float(shadow_refs_norm[ch]), -limit), limit)
+            cast = min(max(strength * (r_green - float(shadow_refs_norm[ch])), -limit), limit)
             denom = anchor_val - (r_green - cast)
             if ch == 1 or abs(denom) < epsilon:
                 slope_ch = base_slope

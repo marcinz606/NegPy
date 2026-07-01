@@ -36,7 +36,7 @@ class TestPaperProfiles(unittest.TestCase):
             grade=115.0,
             density=1.0,
             auto_normalize_contrast=False,
-            cast_removal=False,
+            strength=0.0,
             lum_range=1.3,
             shadow_refs_norm=None,
             textural_range=None,

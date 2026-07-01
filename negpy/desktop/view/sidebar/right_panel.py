@@ -303,7 +303,7 @@ class RightPanel(QWidget):
                 config.grade,
                 config.density,
                 config.auto_normalize_contrast,
-                config.cast_removal,
+                config.cast_removal_strength,
                 metrics.get("norm_density_range"),
                 shadow_refs_norm,
                 metrics.get("textural_range"),

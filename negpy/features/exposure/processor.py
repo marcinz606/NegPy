@@ -5,6 +5,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
+    effective_cast_strength,
     flat_curve_params,
     normalized_neutral_axis,
     normalized_shadow_refs,
@@ -156,12 +157,15 @@ class PhotometricProcessor:
         lum_range = context.metrics.get("norm_density_range")
         final_bounds = context.metrics.get("final_bounds")
         shadow_refs_norm = normalized_shadow_refs(final_bounds, context.metrics.get("shadow_log_refs"))
-        neutral_axis_norm = normalized_neutral_axis(final_bounds, context.metrics.get("neutral_axis_refs"))
+        neutral_axis_refs = context.metrics.get("neutral_axis_refs")
+        neutral_axis_norm = normalized_neutral_axis(final_bounds, neutral_axis_refs)
+        confidence = neutral_axis_refs[3] if neutral_axis_refs is not None else None
+        strength = effective_cast_strength(self.config.cast_removal_strength, self.config.auto_cast_removal, confidence)
         slopes, pivots, curvatures = per_channel_curve_params(
             self.config.grade,
             self.config.density,
             self.config.auto_normalize_contrast,
-            self.config.cast_removal,
+            strength,
             lum_range,
             shadow_refs_norm,
             context.metrics.get("textural_range"),
