@@ -35,8 +35,8 @@ class _FakeRepo:
 def test_batch_analysis_decodes_in_render_wb(qapp):
     base = WorkspaceConfig()
     settings = {
-        "h_cam": replace(base, exposure=replace(base.exposure, linear_raw=False)),
-        "h_flat": replace(base, exposure=replace(base.exposure, linear_raw=True)),
+        "h_cam": replace(base, process=replace(base.process, linear_raw=False)),
+        "h_flat": replace(base, process=replace(base.process, linear_raw=True)),
     }
     preview = _FakePreviewService()
     worker = NormalizationWorker(preview, _FakeRepo(settings))

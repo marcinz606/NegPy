@@ -28,7 +28,6 @@ class ExposureConfig:
 
     density: float = 1.0
     grade: float = 115.0
-    linear_raw: bool = True
     wb_cyan: float = 0.0
     wb_magenta: float = 0.0
     wb_yellow: float = 0.0

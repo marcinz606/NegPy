@@ -142,10 +142,17 @@ class ControlsPanel(QWidget):
         groups = [
             (
                 "setup",
+                "fa5s.cogs",
+                "Setup — Presets, Process",
+                [self.presets_section, self.process_section],
+                ["process_section"],
+            ),
+            (
+                "geometry",
                 "fa5s.crop",
-                "Setup — Presets, Flat Field, Geometry, Process",
-                [self.presets_section, self.flatfield_section, self.geometry_section, self.process_section],
-                ["flatfield_section", "geometry_section", "process_section"],
+                "Geometry & Flat Field",
+                [self.geometry_section, self.flatfield_section],
+                ["geometry_section", "flatfield_section"],
             ),
             ("tone", "fa5s.sun", "Exposure", [self.exposure_section], ["exposure_section"]),
             ("color", "fa5s.palette", "Color — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
@@ -512,7 +519,6 @@ class ControlsPanel(QWidget):
             [
                 exp.density != _exp.density,
                 exp.grade != _exp.grade,
-                exp.linear_raw != _exp.linear_raw,
                 exp.wb_cyan != _exp.wb_cyan,
                 exp.wb_magenta != _exp.wb_magenta,
                 exp.wb_yellow != _exp.wb_yellow,
@@ -573,6 +579,7 @@ class ControlsPanel(QWidget):
         process_count = sum(
             [
                 proc.process_mode != _proc.process_mode,
+                proc.linear_raw != _proc.linear_raw,
                 proc.analysis_buffer != _proc.analysis_buffer,
                 proc.luma_range_clip != _proc.luma_range_clip,
                 proc.color_range_clip != _proc.color_range_clip,

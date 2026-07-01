@@ -86,6 +86,15 @@ class ProcessSidebar(BaseSidebar):
         mode_row.addWidget(self.lock_bounds_btn)
         self.layout.addLayout(mode_row)
 
+        self.linear_raw_btn = QPushButton(" Linear RAW")
+        self.linear_raw_btn.setCheckable(True)
+        self.linear_raw_btn.setChecked(conf.linear_raw)
+        self.linear_raw_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
+        self.linear_raw_btn.setToolTip(
+            "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
+        )
+        self.layout.addWidget(self.linear_raw_btn)
+
         buf_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.analysis_buffer_slider.setToolTip(
@@ -194,6 +203,7 @@ class ProcessSidebar(BaseSidebar):
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         self.autodetect_btn.toggled.connect(lambda c: self.controller.toggle_autodetect(c))
         self.lock_bounds_btn.toggled.connect(self._on_lock_bounds_toggled)
+        self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
 
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
@@ -229,6 +239,22 @@ class ProcessSidebar(BaseSidebar):
     def _on_lock_bounds_toggled(self, checked: bool) -> None:
         self.update_config_section("process", lock_bounds=checked, persist=True, render=False)
         self.sync_ui()
+
+    def _on_linear_raw_toggled(self, checked: bool) -> None:
+        from dataclasses import replace
+
+        new_config = replace(
+            self.state.config,
+            process=replace(
+                self.state.config.process,
+                linear_raw=checked,
+                **invalidate_local_bounds(self.state.config.process),
+            ),
+        )
+        # render=False: don't analyse bounds on stale (pre-reload) raw data
+        self.controller.session.update_config(new_config, persist=True, render=False)
+        if self.state.current_file_path:
+            self.controller.load_file(self.state.current_file_path)
 
     def _on_mode_changed(self, mode: str) -> None:
         self.update_config_section(
@@ -359,6 +385,7 @@ class ProcessSidebar(BaseSidebar):
             self.normalize_e6_btn.setChecked(conf.e6_normalize)
 
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
+            self.linear_raw_btn.setChecked(conf.linear_raw)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
             self.use_luma_avg_btn.setChecked(conf.use_luma_average)
             self.use_colour_avg_btn.setChecked(conf.use_colour_average)
@@ -386,6 +413,7 @@ class ProcessSidebar(BaseSidebar):
             self.mode_combo,
             self.autodetect_btn,
             self.lock_bounds_btn,
+            self.linear_raw_btn,
             self.analysis_buffer_slider,
             self.luma_range_clip_slider,
             self.color_range_clip_slider,

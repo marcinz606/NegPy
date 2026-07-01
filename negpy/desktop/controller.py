@@ -507,7 +507,7 @@ class AppController(QObject):
             PreviewLoadTask(
                 file_path=file_path,
                 workspace_color_space=self.state.workspace_color_space,
-                use_camera_wb=not self.state.config.exposure.linear_raw,
+                use_camera_wb=not self.state.config.process.linear_raw,
                 full_resolution=self.state.hq_preview,
                 file_hash=self._file_hash_for_path(file_path),
                 detect_mode=force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new),
@@ -560,7 +560,7 @@ class AppController(QObject):
                 # linear_raw, not the current file's. Otherwise the warm buffer lands under
                 # the wrong key and navigation re-decodes anyway.
                 saved = self.session.repo.load_file_settings(h) if h else None
-                linear_raw = saved.exposure.linear_raw if saved else False
+                linear_raw = saved.process.linear_raw if saved else False
                 self.preview_load_requested.emit(
                     PreviewLoadTask(
                         file_path=path,

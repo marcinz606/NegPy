@@ -51,6 +51,7 @@ class ShortcutManager:
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "tab_setup": lambda: right.show_tab_by_key("setup"),
+            "tab_geometry": lambda: right.show_tab_by_key("geometry"),
             "tab_tone": lambda: right.show_tab_by_key("tone"),
             "tab_color": lambda: right.show_tab_by_key("color"),
             "tab_finish": lambda: right.show_tab_by_key("finish"),

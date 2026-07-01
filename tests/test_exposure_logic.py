@@ -6,9 +6,10 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     cmy_to_density,
     density_to_cmy,
-    linear_raw_token,
 )
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.features.process.logic import linear_raw_token
+from negpy.features.process.models import ProcessConfig
 
 
 class TestExposureLogic(unittest.TestCase):
@@ -127,8 +128,8 @@ class TestLinearRawToken(unittest.TestCase):
     def test_token_differs_by_mode(self):
         """Toggling Linear RAW must change the source identity, else the per-source
         auto-meter cache (bounds + neutral-axis cast) goes stale across the toggle (#355)."""
-        on = linear_raw_token(ExposureConfig(linear_raw=True))
-        off = linear_raw_token(ExposureConfig(linear_raw=False))
+        on = linear_raw_token(ProcessConfig(linear_raw=True))
+        off = linear_raw_token(ProcessConfig(linear_raw=False))
         self.assertNotEqual(on, off)
 
 

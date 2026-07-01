@@ -554,7 +554,7 @@ class DesktopSessionManager(QObject):
         # Exception: linear_raw and dust_remove are workflow preferences, not image-specific looks.
         sticky_linear_raw = self.repo.get_global_setting("last_linear_raw")
         if sticky_linear_raw is not None:
-            config = replace(config, exposure=replace(config.exposure, linear_raw=bool(sticky_linear_raw)))
+            config = replace(config, process=replace(config.process, linear_raw=bool(sticky_linear_raw)))
 
         # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
         # White) are workflow preferences, not per-image looks: carry them to
@@ -605,7 +605,7 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_wb_cyan", config.exposure.wb_cyan)
         self.repo.save_global_setting("last_wb_magenta", config.exposure.wb_magenta)
         self.repo.save_global_setting("last_wb_yellow", config.exposure.wb_yellow)
-        self.repo.save_global_setting("last_linear_raw", config.exposure.linear_raw)
+        self.repo.save_global_setting("last_linear_raw", config.process.linear_raw)
         self.repo.save_global_setting("last_auto_exposure", config.exposure.auto_exposure)
         self.repo.save_global_setting("last_auto_normalize_contrast", config.exposure.auto_normalize_contrast)
         self.repo.save_global_setting("last_cast_removal", config.exposure.cast_removal)

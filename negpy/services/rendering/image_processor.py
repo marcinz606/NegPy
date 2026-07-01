@@ -16,7 +16,7 @@ from negpy.domain.models import (
     ColorSpace,
 )
 from negpy.features.process.models import ProcessMode
-from negpy.features.exposure.logic import linear_raw_token
+from negpy.features.process.logic import linear_raw_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
@@ -107,10 +107,7 @@ class ImageProcessor:
         # into source_hash invalidates the engine cache when it changes.
         img = apply_flatfield(img, settings.flatfield)
         source_hash = (
-            source_hash
-            + flatfield_token(settings.flatfield)
-            + rgbscan_token(settings.rgbscan)
-            + linear_raw_token(settings.exposure)
+            source_hash + flatfield_token(settings.flatfield) + rgbscan_token(settings.rgbscan) + linear_raw_token(settings.process)
         )
 
         h_orig, w_cols = img.shape[:2]
@@ -199,7 +196,7 @@ class ImageProcessor:
 
         Returns (f32_buffer, ir_buffer, source_color_space).
         """
-        linear_raw = params.exposure.linear_raw
+        linear_raw = params.process.linear_raw
 
         try:
             mtime = os.path.getmtime(file_path)

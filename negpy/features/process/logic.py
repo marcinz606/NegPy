@@ -9,7 +9,14 @@ import numpy as np
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.normalization import get_analysis_crop
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import ProcessConfig, ProcessMode
+
+
+def linear_raw_token(process: ProcessConfig) -> str:
+    """Decode-mode identity, folded into the render source hash so the auto-meter
+    re-runs when Linear RAW toggles (the decode changes the source pixels)."""
+    return f"|lr:{int(process.linear_raw)}"
+
 
 # Tuned against real sample scans; see tests/test_process_detect.py.
 _ANALYSIS_BUFFER = 0.12  # centre-crop ratio: drops film rebate / borders

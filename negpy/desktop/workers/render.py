@@ -471,7 +471,7 @@ class NormalizationWorker(QObject):
                     process_mode = params.process.process_mode if params else DEFAULT_WORKSPACE_CONFIG.process.process_mode
                     e6_normalize = params.process.e6_normalize if params else DEFAULT_WORKSPACE_CONFIG.process.e6_normalize
                     geometry = params.geometry if params else DEFAULT_WORKSPACE_CONFIG.geometry
-                    linear_raw = params.exposure.linear_raw if params else DEFAULT_WORKSPACE_CONFIG.exposure.linear_raw
+                    linear_raw = params.process.linear_raw if params else DEFAULT_WORKSPACE_CONFIG.process.linear_raw
 
                     # Use to_thread for blocking CPU/IO bound load and analysis.
                     # Decode with the SAME WB the render path uses (use_camera_wb =

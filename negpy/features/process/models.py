@@ -18,6 +18,7 @@ class ProcessConfig:
     """
 
     process_mode: ProcessMode = ProcessMode.C41
+    linear_raw: bool = True
     analysis_buffer: float = 0.05
     # Two independent normalization clip axes: luma drives black/white-point span
     # (dynamic range), colour is the per-channel-balance clip percentile (orange-mask

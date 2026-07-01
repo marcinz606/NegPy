@@ -12,7 +12,6 @@ from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.features.process.models import invalidate_local_bounds
 
 
 class ExposureSidebar(BaseSidebar):
@@ -66,14 +65,6 @@ class ExposureSidebar(BaseSidebar):
         self.pick_wb_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
         self.pick_wb_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
         self.pick_wb_btn.setToolTip(tooltip_with_shortcut("Pick white balance from canvas", "pick_wb"))
-        self.linear_raw_btn = QPushButton(" Linear RAW")
-        self.linear_raw_btn.setCheckable(True)
-        self.linear_raw_btn.setChecked(conf.linear_raw)
-        self.linear_raw_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
-        self.linear_raw_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
-        self.linear_raw_btn.setToolTip(
-            "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
-        )
         self.surround_btn = self._labeled_toggle(
             "fa5s.eye",
             " Contrast Lift",
@@ -94,7 +85,6 @@ class ExposureSidebar(BaseSidebar):
 
         tone_row1 = QHBoxLayout()
         tone_row1.addWidget(self.pick_wb_btn, 1)
-        tone_row1.addWidget(self.linear_raw_btn, 1)
         self.layout.addLayout(tone_row1)
         tone_row2 = QHBoxLayout()
         tone_row2.addWidget(self.cast_removal_btn, 1)
@@ -250,7 +240,6 @@ class ExposureSidebar(BaseSidebar):
         )
 
         self.pick_wb_btn.toggled.connect(self._on_pick_wb_toggled)
-        self.linear_raw_btn.toggled.connect(self._on_linear_raw_toggled)
         self.paper_dmin_btn.toggled.connect(
             lambda checked: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_dmin=checked)
         )
@@ -330,19 +319,6 @@ class ExposureSidebar(BaseSidebar):
     def _on_pick_wb_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.WB_PICK if checked else ToolMode.NONE)
 
-    def _on_linear_raw_toggled(self, checked: bool) -> None:
-        from dataclasses import replace
-
-        new_config = replace(
-            self.state.config,
-            exposure=replace(self.state.config.exposure, linear_raw=checked),
-            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
-        )
-        # render=False: don't analyse bounds on stale (pre-reload) raw data
-        self.controller.session.update_config(new_config, persist=True, render=False)
-        if self.state.current_file_path:
-            self.controller.load_file(self.state.current_file_path)
-
     def sync_ui(self) -> None:
         conf = self.state.config.exposure
 
@@ -373,7 +349,6 @@ class ExposureSidebar(BaseSidebar):
                 self.yellow_slider.setValue(conf.highlight_yellow)
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
-            self.linear_raw_btn.setChecked(conf.linear_raw)
 
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)
@@ -406,7 +381,6 @@ class ExposureSidebar(BaseSidebar):
             self.magenta_slider,
             self.yellow_slider,
             self.pick_wb_btn,
-            self.linear_raw_btn,
             self.density_slider,
             self.grade_slider,
             self.toe_slider,
