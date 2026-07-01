@@ -2,14 +2,19 @@
 
 ## 0.31.0
 
+- **Default tone curve retuned** — Auto Cast Removal is now on by default, Auto Grade targets slightly lower contrast, and the midtone contrast boost eases in more gradually, for a softer out-of-the-box look.
+- **Cast Removal is now a slider** — the toggle becomes a 0–1 **strength** slider to dial colour-cast neutralization back partway (default 0.5). A small **auto** button (like Density/Grade) sets the strength from how confidently the frame's neutral references read — clean greys full, few-neutral scenes gentler — with the slider trimming on top.
 - **Lens distortion correction** — the Flat-Field profile gains a **k1** slider for radial (barrel/pincushion) correction, alongside illumination correction. Folded into the geometry transform (no RAW re-decode on drag), scale-to-fill, and kept in sync with crop/retouch/dodge-burn.
 - **Apply settings dialog** — the Sync Edits / Sync Crop buttons become one **Apply** button opening a dialog: pick Selected frames or the whole roll, tick any of Process, Crop, Rotation, Exposure, Color, Finish, Tonal span and Colour balance. The bounds options broadcast the source frame's normalization as a locked roll baseline (single-frame Batch Normalization).
 - **Optional edit sidecars** — mirror edits to plain `.negpy` files next to the source for archival (SQLite stays primary). Off by default; enable in the Export panel or write on demand. Loading falls back to a beside-source sidecar when there's no DB entry, and promotes it into the DB.
-- **Cast Removal is now a slider** — the toggle becomes a 0–1 **strength** slider to dial colour-cast neutralization back partway (default 0.5). A small **auto** button (like Density/Grade) sets the strength from how confidently the frame's neutral references read — clean greys full, few-neutral scenes gentler — with the slider trimming on top.
 - **Exposure panel split into Colour + Tone** — two independent collapsible sections, each with its own edited badge and reset: **Colour** (white balance, Cast Removal) and **Tone** (density, grade, toe/shoulder, contrast lift, paper). The region selector is now an icon column beside the CMY sliders (yellow when adjusted), the heading names the active region, and Pick WB is an eyedropper. Colour shows an RGB mini-histogram, Tone the luminance one.
 - **Geometry gets its own tab** — the Setup tab (Presets, Geometry, Process) is split: Geometry and Flat Field move to a dedicated tab, leaving Setup as Presets + Process.
-- Fix: toggling **Linear RAW** no longer leaves a stale magenta cast — the auto-meter cache invalidates when the RAW decode changes. (#355)
-- Fix: the **Flatfield Correction** toggle is no longer reset to off when switching files or applying edits — it was colliding with RGB Scan's toggle in saved settings. (#356)
+- **Kodak Aerocolor IV 2460 crosstalk matrix** added to the bundled Lab Crosstalk profiles (also sold as SantaColor 100 / 1Hundred). @whepper
+- Fix: toggling **Linear RAW** no longer leaves a stale magenta cast — the auto-meter cache invalidates when the RAW decode changes.
+- Fix: the **Flatfield Correction** toggle is no longer reset to off when switching files or applying edits — it was colliding with RGB Scan's toggle in saved settings.
+- Fix: sidebar labels no longer show an opaque black background patch against lighter section panels, and field labels next to combos/entries now share consistent styling across panels.
+- Fix: right-panel sections now stack from the top at their natural height instead of stretching to fill the panel and splitting the leftover space between them.
+- Fix: the tutorial overlay's body text no longer pans slightly wider than its popup — long unbreakable strings (e.g. file paths) now wrap instead of pushing the content past the visible width. @seanharding
 
 ## 0.30.2
 
