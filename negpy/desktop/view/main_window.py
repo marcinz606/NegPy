@@ -413,8 +413,12 @@ class MainWindow(QMainWindow):
         # a no-op (pass no monitor profile) to avoid converting to the monitor twice.
         # Otherwise the buffer is in the assumed source space and needs source→monitor.
         icc_active = self.controller.proof_active()
-        display_cs = ColorSpace.SRGB.value if icc_active else self.state.workspace_color_space
-        monitor_bytes = None if icc_active else self.state.monitor_icc_bytes
+        if metrics.get("splash"):  # embedded sRGB thumbnail, not a working-space render
+            display_cs = ColorSpace.SRGB.value
+            monitor_bytes = self.state.monitor_icc_bytes
+        else:
+            display_cs = ColorSpace.SRGB.value if icc_active else self.state.workspace_color_space
+            monitor_bytes = None if icc_active else self.state.monitor_icc_bytes
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes)
 
     def _refresh_image_info(self) -> None:

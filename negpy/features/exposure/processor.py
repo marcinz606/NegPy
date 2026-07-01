@@ -15,7 +15,7 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, R
 from negpy.features.exposure.papers import effective_paper_profile
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
-    analyze_log_exposure_bounds,
+    analyze_log_exposure_bounds_from_log,
     luma_source_bounds,
     luminance_density_range,
     measure_anchor_from_log,
@@ -23,6 +23,7 @@ from negpy.features.exposure.normalization import (
     measure_shadow_refs_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
+    prefilter_log_grid,
     resolve_bounds_detailed,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
@@ -40,6 +41,8 @@ class NormalizationProcessor:
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
         img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+        # Shared prefilter, once for all five meters (ROI/buffer applied here).
+        prefiltered = prefilter_log_grid(image, context.active_roi, self.config.analysis_buffer)
 
         def analyze_base() -> LogNegativeBounds:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
@@ -63,10 +66,10 @@ class NormalizationProcessor:
             if not needs_reanalysis:
                 return context.metrics["log_bounds"]
 
-            analyzed = analyze_log_exposure_bounds(
-                image,
-                context.active_roi,
-                self.config.analysis_buffer,
+            analyzed = analyze_log_exposure_bounds_from_log(
+                prefiltered,
+                None,
+                0.0,
                 process_mode=context.process_mode,
                 e6_normalize=self.config.e6_normalize,
                 percentile_clip=self.config.luma_range_clip,
@@ -93,9 +96,9 @@ class NormalizationProcessor:
                 or abs(cached_ref_buffer - self.config.analysis_buffer) > 1e-5
             ):
                 context.metrics["shadow_log_refs"] = measure_shadow_refs_from_log(
-                    img_log,
-                    context.active_roi,
-                    self.config.analysis_buffer,
+                    prefiltered,
+                    None,
+                    0.0,
                 )
                 context.metrics["shadow_refs_buffer_val"] = self.config.analysis_buffer
 
@@ -123,16 +126,14 @@ class NormalizationProcessor:
 
         # Neutral axis for the two-point Cast Removal gray balance (C-41 only).
         if context.process_mode == ProcessMode.C41:
-            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(
-                img_log, bounds, context.active_roi, self.config.analysis_buffer
-            )
+            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, bounds, None, 0.0)
 
         # Per-frame exposure anchor, measured against the same final bounds the
         # image is normalized with. Stored unconditionally (cheap, block-grid);
         # PhotometricProcessor uses it only when auto_exposure is on.
         anchor_bounds = luma_source_bounds(self.config, base_bounds)
-        context.metrics["metered_anchor"] = measure_anchor_from_log(img_log, anchor_bounds, context.active_roi, self.config.analysis_buffer)
-        context.metrics["textural_range"] = measure_textural_range_from_log(img_log, context.active_roi, self.config.analysis_buffer)
+        context.metrics["metered_anchor"] = measure_anchor_from_log(prefiltered, anchor_bounds, None, 0.0)
+        context.metrics["textural_range"] = measure_textural_range_from_log(prefiltered, None, 0.0)
 
         context.metrics["final_bounds"] = bounds
         context.metrics["normalized_log"] = res

@@ -123,20 +123,20 @@ class TestAnalysisReuseOnGPU(unittest.TestCase):
         eng = self.GPUEngine()
         try:
             calls = {"n": 0}
-            real = ge.analyze_log_exposure_bounds
+            real = ge.analyze_log_exposure_bounds_from_log
 
             def spy(*a, **k):
                 calls["n"] += 1
                 return real(*a, **k)
 
-            ge.analyze_log_exposure_bounds = spy
+            ge.analyze_log_exposure_bounds_from_log = spy
             try:
                 cfg = WorkspaceConfig()
                 self._render(eng, cfg, analysis_source_hash="frame")
                 cfg2 = replace(cfg, exposure=replace(cfg.exposure, density=cfg.exposure.density + 0.4))
                 self._render(eng, cfg2, analysis_source_hash="frame")
             finally:
-                ge.analyze_log_exposure_bounds = real
+                ge.analyze_log_exposure_bounds_from_log = real
             self.assertEqual(calls["n"], 1, "analysis must be cached across a creative-slider change")
         finally:
             eng.destroy_all()
@@ -147,19 +147,19 @@ class TestAnalysisReuseOnGPU(unittest.TestCase):
         eng = self.GPUEngine()
         try:
             calls = {"n": 0}
-            real = ge.analyze_log_exposure_bounds
+            real = ge.analyze_log_exposure_bounds_from_log
 
             def spy(*a, **k):
                 calls["n"] += 1
                 return real(*a, **k)
 
-            ge.analyze_log_exposure_bounds = spy
+            ge.analyze_log_exposure_bounds_from_log = spy
             try:
                 cfg = WorkspaceConfig()
                 self._render(eng, cfg)  # no analysis_source_hash -> cache off
                 self._render(eng, replace(cfg, exposure=replace(cfg.exposure, density=cfg.exposure.density + 0.4)))
             finally:
-                ge.analyze_log_exposure_bounds = real
+                ge.analyze_log_exposure_bounds_from_log = real
             self.assertEqual(calls["n"], 2, "without a source hash the cache must stay disabled")
         finally:
             eng.destroy_all()

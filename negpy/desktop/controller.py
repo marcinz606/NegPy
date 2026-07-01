@@ -521,10 +521,12 @@ class AppController(QObject):
     def _on_splash_preview(self, file_path: str, raw: Any, dims: Any) -> None:
         if self._requested_file_path != file_path:
             return
-        self.state.preview_raw = raw
         self.state.original_res = dims
-        # Display-only first paint from the embedded JPEG — must not persist its bounds.
-        self.request_render(ephemeral=True)
+        # Paint the embedded sRGB thumbnail directly — no pipeline; the real render replaces it.
+        with self.state.metrics_lock:
+            self.state.last_metrics["base_positive"] = raw
+            self.state.last_metrics["splash"] = True
+        self.image_updated.emit()
 
     def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
         if self._requested_file_path != file_path:
@@ -1690,6 +1692,7 @@ class AppController(QObject):
 
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
+            self.state.last_metrics["splash"] = False
 
         if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
             self._gpu_fallback_notified = True

@@ -102,6 +102,26 @@ def _block_median_grid(img_log: ImageBuffer) -> ImageBuffer:
     return np.concatenate(parts, axis=0)
 
 
+def prefilter_log_grid(
+    image: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> ImageBuffer:
+    """
+    Shared meter prefilter (log10 -> crop -> block-median grid), computed once and
+    fed to the *_from_log meters. Re-prefiltering it (roi=None, buffer=0) is a no-op
+    (_block_median_grid early-returns when b<=1), so results stay bit-exact.
+    """
+    epsilon = 1e-6
+    img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    if roi:
+        y1, y2, x1, x2 = roi
+        img_log = img_log[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img_log = get_analysis_crop(img_log, analysis_buffer)
+    return _block_median_grid(img_log)
+
+
 def measure_shadow_refs_from_log(
     img_log: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
@@ -423,10 +443,22 @@ def analyze_log_exposure_bounds(
     offsets from the colour sampling, so the cast clip is tunable without compressing
     highlights. Identical channels (mono) give zero deviation at any clip.
     """
-    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-
     epsilon = 1e-6
     img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    return analyze_log_exposure_bounds_from_log(img_log, roi, analysis_buffer, process_mode, e6_normalize, percentile_clip, color_clip)
+
+
+def analyze_log_exposure_bounds_from_log(
+    img_log: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+    process_mode: str = ProcessMode.C41,
+    e6_normalize: bool = True,
+    percentile_clip: float = 0.0,
+    color_clip: float = 0.0,
+) -> LogNegativeBounds:
+    """Log-image core of analyze_log_exposure_bounds (skips the log10)."""
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
     if roi:
         y1, y2, x1, x2 = roi
