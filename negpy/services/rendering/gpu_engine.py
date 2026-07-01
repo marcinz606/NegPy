@@ -549,11 +549,7 @@ class GPUEngine:
             )
 
         # CPU meter cost, logged once per source (skips creative-slider re-renders).
-        if (
-            analysis_source is not None
-            and analysis_source_hash is not None
-            and analysis_source_hash != self._analysis_timing_hash
-        ):
+        if analysis_source is not None and analysis_source_hash is not None and analysis_source_hash != self._analysis_timing_hash:
             self._analysis_timing_hash = analysis_source_hash
             logger.info(
                 "load-timing analysis %.0fms (bounds=%s refs=%s anchor=%s textural=%s)",

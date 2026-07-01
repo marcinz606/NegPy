@@ -44,7 +44,7 @@ class ExposureConfig:
     paper_dmin: bool = True
     flare: bool = False
     cast_removal_strength: float = 0.5
-    auto_cast_removal: bool = False
+    auto_cast_removal: bool = True
     surround: bool = False
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
@@ -182,7 +182,7 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Auto Grade nominal-frame contrast = auto_grade_target * auto_grade_nominal_ratio.
     # Target contrast multiplier for Auto Grade: effective_range = this · blend(nominal, measured_ratio).
     # ↑ aims for higher printed contrast across all frames; ↓ targets lower contrast.
-    "auto_grade_target": 0.6,
+    "auto_grade_target": 0.5,
     # Auto Grade adaptation strength (partial slope normalization): 0 = fixed, 1 = full.
     # How strongly Auto Grade adapts slope to scene range (0 = ignore scene, 1 = fully normalize).
     # ↑ grade changes more aggressively with scene contrast variation; ↓ closer to a fixed grade.
@@ -223,5 +223,5 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "paper_midtone_gamma": 0.15,
     # Density half-width over which the midtone gamma boost eases to the tails.
     # ↑ wider, more gradual S; ↓ tighter, more localized midtone boost.
-    "paper_gamma_width": 0.5,
+    "paper_gamma_width": 0.6,
 }
