@@ -497,6 +497,9 @@ class DesktopSessionManager(QObject):
         sticky_floors = self.repo.get_global_setting("last_locked_floors")
         sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
         sticky_roll_name = self.repo.get_global_setting("last_roll_name")
+        sticky_crosstalk_strength = self.repo.get_global_setting("last_crosstalk_strength")
+        sticky_crosstalk_matrix = self.repo.get_global_setting("last_crosstalk_matrix")
+        sticky_crosstalk_profile = self.repo.get_global_setting("last_crosstalk_profile")
 
         new_process = config.process
         if sticky_mode:
@@ -517,6 +520,12 @@ class DesktopSessionManager(QObject):
             new_process = replace(new_process, locked_ceils=tuple(sticky_ceils))
         if sticky_roll_name:
             new_process = replace(new_process, roll_name=str(sticky_roll_name))
+        if sticky_crosstalk_strength is not None:
+            new_process = replace(new_process, crosstalk_strength=float(sticky_crosstalk_strength))
+        if sticky_crosstalk_matrix:
+            new_process = replace(new_process, crosstalk_matrix=tuple(sticky_crosstalk_matrix))
+        if sticky_crosstalk_profile:
+            new_process = replace(new_process, crosstalk_profile=str(sticky_crosstalk_profile))
         config = replace(config, process=new_process)
 
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
@@ -597,6 +606,9 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting("last_locked_floors", config.process.locked_floors)
         self.repo.save_global_setting("last_locked_ceils", config.process.locked_ceils)
         self.repo.save_global_setting("last_roll_name", config.process.roll_name)
+        self.repo.save_global_setting("last_crosstalk_strength", config.process.crosstalk_strength)
+        self.repo.save_global_setting("last_crosstalk_matrix", config.process.crosstalk_matrix)
+        self.repo.save_global_setting("last_crosstalk_profile", config.process.crosstalk_profile)
 
         self.repo.save_global_setting("last_density", config.exposure.density)
         self.repo.save_global_setting("last_grade", config.exposure.grade)
