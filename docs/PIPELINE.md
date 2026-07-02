@@ -29,7 +29,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **White & Black Point Offsets**: Fine-tunes the detected bounds after statistical analysis. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running the analysis.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range. The result is **not clamped**: tones outside the detected bounds are kept and rolled off later by the soft toe/shoulder of the print curve, rather than being truncated here.
 *   **Per-frame metering**: Normalization also measures a few statistics used later by the Print stage's automatic helpers — per-channel **shadow references** ($P_{98}$, for Cast Removal) and a per-frame **exposure anchor** ($P_{50}$ luminance) and **textural range** ($P_{10}\text{–}P_{90}$, for Auto Density / Auto Grade). See §3.
-*   **Spectral crosstalk / dye unmix** (`crosstalk_strength` / `crosstalk_matrix`): applies a spectral-crosstalk matrix (`.toml` profiles, see docs/CROSSTALK.md) to the raw **negative** log densities *before* bounds analysis and the stretch. This is the physically correct domain — secondary dye absorptions are linear in negative dye density (Beer–Lambert), and the bundled matrices are derived from negative spectral dye-density curves. The matrix is blended with identity by strength and row-normalized (grays preserved); every meter (bounds, anchor, shadow refs, neutral axis) reads the unmixed film. It replaces the former Lab-stage "Separation" op, which applied the same matrices to *positive* print densities after the per-channel nonlinear print curves; legacy `color_separation` edits are migrated (slider 1–2 → strength 0–1). Batch Analysis applies the same unmix — bounds measured under a different matrix are invalid for the render, so re-run it (and re-check locked bounds) after changing the matrix or strength.
+*   **Spectral crosstalk / dye unmix** (`crosstalk_strength` / `crosstalk_matrix`): applies a spectral-crosstalk matrix (`.toml` profiles, see docs/CROSSTALK.md) to the raw **negative** log densities *before* bounds analysis and the stretch. This is the physically correct domain — secondary dye absorptions are linear in negative dye density (Beer–Lambert), and the bundled matrices are derived from negative spectral dye-density curves. The matrix is blended with identity by strength and row-normalized (grays preserved); every meter (bounds, anchor, shadow refs, neutral axis) reads the unmixed film. Batch Analysis applies the same unmix — bounds measured under a different matrix are invalid for the render, so re-run it (and re-check locked bounds) after changing the matrix or strength.
 *   **Scan-clip warning**: the fraction of source pixels at/above sensor white ($\ge 0.99$ linear) is reported per channel (`scan_clip_fractions`). In a negative scan the film base and scene shadows sit near sensor white, so clipping there irreversibly collapses distinct densities to $D=0$; the Analysis panel warns above 1%. This is a capture-side problem — no reconstruction is attempted.
 
 ---
@@ -138,17 +138,16 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 1.  **Chroma Denoise**: Applies a Gaussian filter to the A and B channels in LAB space. This reduces color noise and digital "chroma speckle" while leaving the L-channel (and its film grain) completely untouched.
 
-    (Spectral **Crosstalk** used to run here on positive densities; it now lives in §2 Scan Normalization, applied to the raw negative densities — the physically correct domain. See [`CROSSTALK.md`](CROSSTALK.md).)
 
-3.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
-4.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel.
-5.  **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
+2.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
+3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel.
+4.  **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
   
     $$L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L)$$
     *   $L$: Luminance channel.
     *   $\alpha$: Blending strength.
 
-6.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
+5.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
 
     $$L_{diff} = L - \text{GaussianBlur}(L, \sigma)$$
     $$L_{final} = L + L_{diff} \cdot \text{amount} \cdot 2.5 \quad \text{if } |L_{diff}| > 2.0$$
@@ -156,7 +155,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $2.5$: Hardcoded USM boosting factor.
     *   $2.0$: Noise threshold.
 
-7.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
+6.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 
     $$I_{out} = I + B_{glow} \cdot s_{glow}$$
     $$B_{glow} = \text{GaussianBlur}(I \cdot m_{hl})$$
@@ -164,7 +163,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $m_{hl}$: **Display-domain** highlight mask (lens bloom follows perceived print brightness), quadratically ramped from code value 0.5 to 1.0.
     *   Applied equally to all three channels; the sum is clamped at the stage output.
 
-8.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
+7.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
 
     $$I_{out} = I + B_{hal} \cdot s_{hal}$$
     $$B_{hal} = \text{GaussianBlur}(I_R \cdot m_{lin} \cdot C_{hal})$$
