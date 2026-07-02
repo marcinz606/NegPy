@@ -5,12 +5,12 @@ struct NormUniforms {
     normalize_flag: u32,
     wp_offset: f32,
     bp_offset: f32,
-    pad0: f32,
-    pad1: f32,
-    pad2: f32,
-    pad3: f32,
-    pad4: vec4<f32>,
-    pad5: vec4<f32>,
+    // Capture-side dye-unmix rows (effective blended+row-normalized matrix,
+    // computed CPU-side); identity rows when the unmix is off. Applied to the
+    // raw negative log densities before the stretch — mirrors the CPU path.
+    unmix0: vec4<f32>,
+    unmix1: vec4<f32>,
+    unmix2: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -34,8 +34,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let is_e6 = params.mode == 2u;
 
     let epsilon = 1e-6;
-    let log_color = log10_vec(max(color, vec3<f32>(epsilon)));
-    
+    var log_color = log10_vec(max(color, vec3<f32>(epsilon)));
+    log_color = vec3<f32>(
+        dot(params.unmix0.xyz, log_color),
+        dot(params.unmix1.xyz, log_color),
+        dot(params.unmix2.xyz, log_color),
+    );
+
     var res: vec3<f32>;
 
     for (var ch = 0; ch < 3; ch++) {

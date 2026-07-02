@@ -45,6 +45,8 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
     process=ProcessConfig(
         process_mode=ProcessMode.C41,
         analysis_buffer=0.05,
+        # Legacy default Lab separation 1.5 carried over to the capture-side domain.
+        crosstalk_strength=0.5,
     ),
     exposure=ExposureConfig(
         density=1.0,
@@ -61,7 +63,6 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         autocrop_ratio=AspectRatio.R_3_2,
     ),
     lab=LabConfig(
-        color_separation=1.5,
         clahe_strength=0.25,
         saturation=1.0,
         sharpen=0.25,

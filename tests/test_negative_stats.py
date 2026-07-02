@@ -59,6 +59,37 @@ class TestNegativeStatistics(unittest.TestCase):
         rows = negative_statistics(None, None, None, None, None)
         self.assertTrue(all(r.value == "—" for r in rows))
 
+    def test_print_row_stops_and_cc(self):
+        # density 1.5 @ ΔD 1.3 → (0.5·0.2·1.3)/0.30103 ≈ +0.43 stop (darker print).
+        rows = negative_statistics(1.3, 0.46, 4.0, 0.0, 0.0, density=1.5, wb_cmy=(0.0, 0.6, -0.3))
+        row = _by_name(rows, "Print")
+        self.assertEqual(row.value, "+0.43 stop · 12M 6B")
+
+    def test_print_row_neutral_shows_zero_stops(self):
+        row = _by_name(negative_statistics(1.3, 0.46, 4.0, 0.0, 0.0, density=1.0, wb_cmy=(0.0, 0.0, 0.0)), "Print")
+        self.assertEqual(row.value, "+0.00 stop")
+
+    def test_print_row_absent_without_config(self):
+        row = _by_name(negative_statistics(1.3, 0.46, 4.0, 0.0, 0.0), "Print")
+        self.assertEqual(row.value, "—")
+
+    def test_scan_clip_row_warns(self):
+        clean = _by_name(negative_statistics(1.3, 0.46, 4.0, 0.0, 0.0, scan_clip=(0.001, 0.0, 0.0)), "Scan clip")
+        self.assertFalse(clean.warn)
+        blown = _by_name(negative_statistics(1.3, 0.46, 4.0, 0.0, 0.0, scan_clip=(0.031, 0.002, 0.0)), "Scan clip")
+        self.assertTrue(blown.warn)
+        self.assertEqual(blown.value, "R 3.1% · G 0.2% · B 0.0%")
+
+    def test_scan_clip_fraction_measurement(self):
+        from negpy.features.exposure.normalization import measure_clip_fractions
+
+        img = np.full((64, 64, 3), 0.5, dtype=np.float32)
+        img[:16, :, 0] = 1.0  # top quarter of R at sensor white
+        r, g, b = measure_clip_fractions(img)
+        self.assertAlmostEqual(r, 0.25, delta=0.01)
+        self.assertEqual(g, 0.0)
+        self.assertEqual(b, 0.0)
+
 
 def test_clip_fractions_from_bin_array(qapp):
     from negpy.desktop.view.widgets.charts import HistogramWidget

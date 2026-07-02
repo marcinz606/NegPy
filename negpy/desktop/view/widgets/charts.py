@@ -346,7 +346,7 @@ class PhotometricCurveWidget(QWidget):
         process_mode: str | None = None,
         flat: bool = False,
     ) -> None:
-        from negpy.features.exposure.logic import CharacteristicCurve, _expit, compute_pivot, grade_to_slope
+        from negpy.features.exposure.logic import CharacteristicCurve, _expit, compute_pivot, grade_coupled_shape, grade_to_slope
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.papers import effective_paper_profile
         from negpy.kernel.image.validation import ensure_image
@@ -365,6 +365,10 @@ class PhotometricCurveWidget(QWidget):
         flare = EXPOSURE_CONSTANTS["flare_fraction"] if params.flare else 0.0
         surround_gamma = EXPOSURE_CONSTANTS["target_system_gamma"] if params.surround else 1.0
 
+        # Grade-coupled knees — same helper as the render path, so the plotted
+        # curve matches the engine at hard grades. Flat has no print knees.
+        toe_eff, shoulder_eff = (params.toe, params.shoulder) if flat else grade_coupled_shape(slope, params.toe, params.shoulder)
+
         n = 300
         plt_x = np.linspace(self._X_MIN, self._X_MAX, n)
         x_log_exp = 1.0 - plt_x
@@ -380,9 +384,9 @@ class PhotometricCurveWidget(QWidget):
                 contrast=s,
                 pivot=p,
                 d_min=d_min,
-                toe=params.toe,
+                toe=toe_eff,
                 toe_width=params.toe_width,
-                shoulder=params.shoulder,
+                shoulder=shoulder_eff,
                 shoulder_width=params.shoulder_width,
                 flare=flare,
                 surround_gamma=surround_gamma,
@@ -409,8 +413,8 @@ class PhotometricCurveWidget(QWidget):
         epsilon = 1e-6
         self._toe_mask = _expit((x_log_exp - pivot) * (10.0 / max(params.toe_width, epsilon))).tolist()
         self._shoulder_mask = _expit((pivot - x_log_exp) * (10.0 / max(params.shoulder_width, epsilon))).tolist()
-        self._toe_strength = params.toe
-        self._shoulder_strength = params.shoulder
+        self._toe_strength = toe_eff
+        self._shoulder_strength = shoulder_eff
 
         # Pivot in widget x-space: x_log_exp = pivot → plt_x = 1 - pivot
         pivot_plt_x = float(np.clip(1.0 - pivot, self._X_MIN, self._X_MAX))

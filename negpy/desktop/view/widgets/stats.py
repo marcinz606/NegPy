@@ -19,14 +19,23 @@ _TOOLTIPS = {
         "Contrast the conversion is applying, on the ISO R paper scale (R50 = hard … R180 = soft, "
         "R110 ≈ grade 2). Reflects the effective grade including Auto Grade, not just the Grade slider."
     ),
+    "Print": (
+        "Current print exposure in darkroom units: stops of print exposure (positive = darker print, "
+        "like f-stop printing) and the CMY white balance as dichroic-head CC filtration (slider ±1.0 = ±20cc)."
+    ),
     "Clipping": ("Share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns red above 1%."),
+    "Scan clip": (
+        "Share of source-scan pixels at/above sensor white, per channel. In a negative scan the film base and "
+        "scene shadows sit near sensor white — clipping there destroys base/shadow separation. Fix at capture: "
+        "expose the scan lower. Turns red above 1%."
+    ),
 }
 
 
 class NegativeStatsWidget(QWidget):
     """Compact numerical read-out of the negative under the Analysis charts."""
 
-    _ROWS = 4
+    _ROWS = 6
 
     def __init__(self, parent=None):
         super().__init__(parent)

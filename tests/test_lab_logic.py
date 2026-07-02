@@ -8,23 +8,27 @@ from negpy.features.lab.logic import (
     apply_glow_and_halation,
     apply_output_sharpening,
     apply_saturation,
-    apply_spectral_crosstalk,
     apply_vibrance,
 )
 
 
 class TestLabLogic(unittest.TestCase):
     def test_spectral_crosstalk(self) -> None:
-        """Matrix should mix channels."""
+        """Matrix should mix channels (op now lives in normalization, capture-side)."""
+        from negpy.features.exposure.normalization import resolve_crosstalk_matrix, unmix_log_image
+
+        def apply(img, strength, matrix):
+            return unmix_log_image(img, resolve_crosstalk_matrix(strength, tuple(matrix)))
+
         img = np.array([[[1.0, 0.5, 0.0]]], dtype=np.float32)
         # Identity matrix
         matrix = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-        res = apply_spectral_crosstalk(img, 1.0, matrix)
+        res = apply(img, 1.0, matrix)
         assert np.allclose(res, img)
 
         # Swap R and G
         matrix_swap = [0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-        res_swap = apply_spectral_crosstalk(img, 1.0, matrix_swap)
+        res_swap = apply(img, 1.0, matrix_swap)
         assert np.allclose(res_swap[0, 0], [0.5, 1.0, 0.0])
 
     def test_clahe(self) -> None:
@@ -187,6 +191,27 @@ class TestGlowAndHalation(unittest.TestCase):
         far_small = float(res_small[28, 50, 0])
         far_large = float(res_large[28, 50, 0])
         self.assertGreater(far_large, far_small)
+
+    def test_halation_ignores_midtones(self) -> None:
+        """Mid-gray (0.5 linear) must not halate: the mask thresholds linear
+        reflectance (0.65), not display code — the old encoded-domain mask lit up
+        anything above ~0.29 linear and moved with grade/density."""
+        img = np.full((64, 64, 3), 0.5, dtype=np.float32)
+        res = apply_glow_and_halation(img, glow_amount=0.0, halation_strength=1.0)
+        np.testing.assert_allclose(res, img, atol=1e-6)
+
+    def test_halation_energy_conserving(self) -> None:
+        """Additive scatter cannot add more light than the masked highlight source."""
+        from negpy.features.lab.logic import HALATION_THRESHOLD_LINEAR as t
+
+        img = self._highlight_image()
+        res = apply_glow_and_halation(img, glow_amount=0.0, halation_strength=1.0)
+        lin_luma = img[:, :, 0] * 0.2126 + img[:, :, 1] * 0.7152 + img[:, :, 2] * 0.0722
+        mask = np.clip((lin_luma - t) / (1.0 - t), 0.0, 1.0) ** 2
+        source_energy = float(np.sum(img[:, :, 0] * mask)) * (1.0 + 0.3 + 0.05)
+        added = float(np.sum(res - img))
+        self.assertLessEqual(added, source_energy + 1e-3)
+        self.assertGreater(added, 0.0)
 
     def test_combined_brighter_than_individual(self) -> None:
         """Applying both glow and halation should be at least as bright as either alone."""

@@ -122,6 +122,58 @@ def prefilter_log_grid(
     return _block_median_grid(img_log)
 
 
+def measure_clip_fractions(
+    image: ImageBuffer,
+    roi: Optional[tuple[int, int, int, int]] = None,
+    analysis_buffer: float = 0.0,
+) -> tuple[float, float, float]:
+    """
+    Per-channel fraction of pixels at/above the sensor-white clip level (linear
+    input). In a negative scan the film base and scene shadows sit near sensor
+    white, so a clipped scan silently collapses distinct densities to D=0 —
+    this feeds the scan-exposure warning, not any render math.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    img = image
+    if roi:
+        y1, y2, x1, x2 = roi
+        img = img[y1:y2, x1:x2]
+    if analysis_buffer > 0:
+        img = get_analysis_crop(img, analysis_buffer)
+    # Stride-subsampled: a warning metric doesn't need every pixel.
+    img = img[::4, ::4]
+    level = float(EXPOSURE_CONSTANTS["scan_clip_level"])
+    clipped = np.mean(img >= level, axis=(0, 1))
+    return (float(clipped[0]), float(clipped[1]), float(clipped[2]))
+
+
+def resolve_crosstalk_matrix(strength: float, matrix: Optional[tuple]) -> Optional[np.ndarray]:
+    """
+    Effective spectral-crosstalk (dye-unmix) matrix — identity↔calibration blend
+    by strength, row-normalized so neutral gray is preserved (rows redistribute
+    channel differences only) — or None when off. Applied to raw NEGATIVE log
+    densities before any metering/stretch; since the op is linear and
+    img_log = -D, applying it to log values is exact.
+    """
+    if float(strength) <= 0.0:
+        return None
+    from negpy.features.process.models import DEFAULT_CROSSTALK_MATRIX
+
+    m = matrix if matrix is not None else DEFAULT_CROSSTALK_MATRIX
+    cal = np.array(m, dtype=np.float64).reshape(3, 3)
+    applied = np.eye(3) * (1.0 - float(strength)) + cal * float(strength)
+    row_sums = np.sum(applied, axis=1, keepdims=True)
+    return applied / np.maximum(row_sums, 1e-6)
+
+
+def unmix_log_image(img_log: ImageBuffer, matrix: Optional[np.ndarray]) -> ImageBuffer:
+    """Apply the unmix matrix to a (H, W, 3) log-density image; identity when None."""
+    if matrix is None:
+        return img_log
+    return np.einsum("hwc,kc->hwk", img_log.astype(np.float32, copy=False), matrix.astype(np.float32))
+
+
 def measure_shadow_refs_from_log(
     img_log: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
@@ -424,6 +476,7 @@ def analyze_log_exposure_bounds(
     e6_normalize: bool = True,
     percentile_clip: float = 0.0,
     color_clip: float = 0.0,
+    unmix: Optional[np.ndarray] = None,
 ) -> LogNegativeBounds:
     """
     Performs full analysis pass on a linear image to find density floors/ceils.
@@ -445,6 +498,7 @@ def analyze_log_exposure_bounds(
     """
     epsilon = 1e-6
     img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+    img_log = unmix_log_image(img_log, unmix)
     return analyze_log_exposure_bounds_from_log(img_log, roi, analysis_buffer, process_mode, e6_normalize, percentile_clip, color_clip)
 
 

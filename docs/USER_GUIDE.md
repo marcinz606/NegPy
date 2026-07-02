@@ -36,6 +36,11 @@ The foundation of your edit — film type, exposure analysis, and roll-wide base
 *   **White Point** (-0.25–0.25): Manual offset applied on top of the auto-detected white point. Positive values brighten; negative values pull highlights back down. Centered (0) means "use auto exactly."
 *   **Black Point** (-0.25–0.25): Manual offset for the black point. Positive values lift the blacks; negative values deepen them.
 
+### CROSSTALK (hidden in B&W)
+
+*   **Profile dropdown**: The spectral-crosstalk matrix for your film stock/scanner. **Default** is built-in; custom `.toml` matrices go in `<Documents>/NegPy/crosstalk/` (see docs/CROSSTALK.md).
+*   **Separation** (0.0–1.0): Strength of the dye unmix, applied to the raw negative densities before analysis and inversion — richer, cleaner colour separation. Because it changes what the analysis reads, re-run Batch Analysis after changing it.
+
 ### AUTO
 
 *   **Normalize** (E-6 only): Auto-stretches the positive's histogram to fill the dynamic range. Useful for faded or expired slides; ignored in C41/B&W modes (where normalization runs on the negative density model instead).
@@ -117,8 +122,11 @@ Final polish and detail. Several sliders are hidden in B&W mode (where color man
 
 ### Color (hidden in B&W)
 
-*   **Separation** (1.0–2.0): Amplifies differences between the R, G, B channels. Higher values give richer, more saturated color separation; 1.0 is identity.
 *   **Denoise** (0.0–5.0): Chroma denoise in Lab space. Smooths color noise (especially in shadows) while preserving the luminance grain that gives film its character.
+
+> Spectral **Crosstalk** (formerly "Separation") moved to the Process panel — it now
+> unmixes the raw negative densities before inversion, the domain the film matrices
+> are actually calibrated in. See docs/CROSSTALK.md.
 *   **Saturation** (0.0–2.0): Linear saturation. 1.0 = unchanged, 0 = greyscale, 2.0 = double saturation. Neutral-center slider.
 *   **Vibrance** (0.0–2.0): Smart saturation that boosts muted colors more than already-saturated ones — gentler on skin tones than raw Saturation. Neutral-center.
 

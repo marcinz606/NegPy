@@ -955,6 +955,8 @@ class AppController(QObject):
             override_analysis_buffer=self.state.config.process.analysis_buffer,
             override_luma_range_clip=self.state.config.process.luma_range_clip,
             override_color_range_clip=self.state.config.process.color_range_clip,
+            override_crosstalk_strength=self.state.config.process.crosstalk_strength,
+            override_crosstalk_matrix=self.state.config.process.crosstalk_matrix,
         )
         self.normalization_requested.emit(task)
 

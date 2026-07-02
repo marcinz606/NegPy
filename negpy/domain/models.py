@@ -306,6 +306,15 @@ class WorkspaceConfig:
             data.setdefault("use_luma_average", legacy)
             data.setdefault("use_colour_average", legacy)
 
+        # Lab "Separation" moved to the capture side (ProcessConfig crosstalk):
+        # the 1.0–2.0 slider maps to strength 0–1. crosstalk_matrix/crosstalk_profile
+        # keep their key names and re-route to ProcessConfig by field membership;
+        # the old serialized DEFAULT_MATRIX field is dropped.
+        if "color_separation" in data and "crosstalk_strength" not in data:
+            data["crosstalk_strength"] = min(max(float(data.pop("color_separation")) - 1.0, 0.0), 1.0)
+        data.pop("color_separation", None)
+        data.pop("DEFAULT_MATRIX", None)
+
         if "use_original_res" in data and "export_resolution_mode" not in data:
             data["export_resolution_mode"] = (
                 ExportResolutionMode.ORIGINAL.value if data.pop("use_original_res") else ExportResolutionMode.PRINT.value

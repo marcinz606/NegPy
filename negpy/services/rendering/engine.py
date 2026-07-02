@@ -133,6 +133,8 @@ class DarkroomEngine:
             settings.process.local_ceils,
             settings.process.white_point_offset,
             settings.process.black_point_offset,
+            settings.process.crosstalk_strength,
+            settings.process.crosstalk_matrix,
             settings.process.lock_bounds,
             distortion_k1,
         )

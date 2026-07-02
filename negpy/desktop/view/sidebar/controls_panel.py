@@ -21,6 +21,7 @@ from negpy.features.finish.models import FinishConfig
 from negpy.desktop.view.sidebar.presets import PresetsSidebar
 from negpy.desktop.view.sidebar.flatfield import FlatFieldSidebar
 from negpy.desktop.view.sidebar.process import ProcessSidebar
+from negpy.desktop.view.sidebar.roll import RollAnalysisSidebar
 from negpy.desktop.view.sidebar.colour import ColourSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
@@ -119,6 +120,14 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.cogs", color=icon_color),
         )
 
+        self.roll_sidebar = RollAnalysisSidebar(self.controller)
+        self.roll_section = self._make_section(
+            "Roll Analysis",
+            "roll",
+            self.roll_sidebar,
+            icon=qta.icon("mdi6.film", color=icon_color),
+        )
+
         self.colour_sidebar = ColourSidebar(self.controller)
         self.colour_histogram = MiniRGBHistogramWidget()
         self.colour_section = self._make_section(
@@ -184,9 +193,9 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.cogs",
-                "Setup — Presets, Process",
-                [self.presets_section, self.process_section],
-                ["process_section"],
+                "Setup — Presets, Process, Roll Analysis",
+                [self.presets_section, self.process_section, self.roll_section],
+                ["process_section", "roll_section"],
             ),
             (
                 "geometry",
@@ -396,9 +405,9 @@ class ControlsPanel(QWidget):
             )
         )
 
-        lab.separation_slider.setToolTip(
+        proc.crosstalk_strength_slider.setToolTip(
             tooltip_with_shortcut(
-                "Amplifies differences between R, G, B channels. Higher = richer colour separation; 1.0 = identity",
+                "Spectral-crosstalk unmix on the raw negative densities. Higher = richer colour separation; 0 = off",
                 ["separation_inc", "separation_dec"],
             )
         )
@@ -529,6 +538,7 @@ class ControlsPanel(QWidget):
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
         self.process_sidebar.sync_ui()
+        self.roll_sidebar.sync_ui()
         self.colour_sidebar.sync_ui()
         self.tone_sidebar.sync_ui()
         self.geometry_sidebar.sync_ui()
@@ -575,7 +585,6 @@ class ControlsPanel(QWidget):
         lab = cfg.lab
         lab_count = sum(
             [
-                lab.color_separation != _lab.color_separation,
                 lab.saturation != _lab.saturation,
                 lab.vibrance != _lab.vibrance,
                 lab.clahe_strength != _lab.clahe_strength,

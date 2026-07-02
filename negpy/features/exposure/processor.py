@@ -7,6 +7,7 @@ from negpy.features.exposure.logic import (
     apply_flat_curve,
     effective_cast_strength,
     flat_curve_params,
+    grade_coupled_shape,
     normalized_neutral_axis,
     normalized_shadow_refs,
     per_channel_curve_params,
@@ -19,12 +20,15 @@ from negpy.features.exposure.normalization import (
     luma_source_bounds,
     luminance_density_range,
     measure_anchor_from_log,
+    measure_clip_fractions,
     measure_neutral_axis_from_log,
     measure_shadow_refs_from_log,
     measure_textural_range_from_log,
     normalize_log_image,
     prefilter_log_grid,
     resolve_bounds_detailed,
+    resolve_crosstalk_matrix,
+    unmix_log_image,
 )
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.kernel.image.logic import get_luminance
@@ -40,9 +44,18 @@ class NormalizationProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
-        img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, 1.0))
+        # No upper clamp: mirrors normalization.wgsl (only the low side is clamped);
+        # values above 1.0 only occur with flat-field gain and must match the GPU.
+        img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, None))
         # Shared prefilter, once for all five meters (ROI/buffer applied here).
         prefiltered = prefilter_log_grid(image, context.active_roi, self.config.analysis_buffer)
+        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, context.active_roi, self.config.analysis_buffer)
+
+        # Capture-side dye unmix on the negative densities, before any metering,
+        # so bounds/anchor/cast refs all read the unmixed film.
+        unmix = resolve_crosstalk_matrix(self.config.crosstalk_strength, self.config.crosstalk_matrix)
+        img_log = unmix_log_image(img_log, unmix)
+        prefiltered = unmix_log_image(prefiltered, unmix)
 
         def analyze_base() -> LogNegativeBounds:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
@@ -51,6 +64,7 @@ class NormalizationProcessor:
 
             cached_clip = context.metrics.get("log_bounds_clip_val")
             cached_color_clip = context.metrics.get("log_bounds_color_clip_val")
+            cached_unmix = context.metrics.get("log_bounds_crosstalk_val")
             needs_reanalysis = (
                 "log_bounds" not in context.metrics
                 or cached_buffer is None
@@ -61,6 +75,7 @@ class NormalizationProcessor:
                 or abs(cached_color_clip - self.config.color_range_clip) > 1e-6
                 or cached_norm != self.config.e6_normalize
                 or cached_mode != context.process_mode
+                or cached_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix)
             )
 
             if not needs_reanalysis:
@@ -81,6 +96,7 @@ class NormalizationProcessor:
             context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
             context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
             context.metrics["log_bounds_mode_val"] = context.process_mode
+            context.metrics["log_bounds_crosstalk_val"] = (self.config.crosstalk_strength, self.config.crosstalk_matrix)
             return analyzed
 
         bounds, base_bounds = resolve_bounds_detailed(self.config, analyze_base)
@@ -90,10 +106,12 @@ class NormalizationProcessor:
 
         if context.process_mode == ProcessMode.C41:
             cached_ref_buffer = context.metrics.get("shadow_refs_buffer_val")
+            cached_ref_unmix = context.metrics.get("shadow_refs_crosstalk_val")
             if (
                 "shadow_log_refs" not in context.metrics
                 or cached_ref_buffer is None
                 or abs(cached_ref_buffer - self.config.analysis_buffer) > 1e-5
+                or cached_ref_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix)
             ):
                 context.metrics["shadow_log_refs"] = measure_shadow_refs_from_log(
                     prefiltered,
@@ -101,6 +119,7 @@ class NormalizationProcessor:
                     0.0,
                 )
                 context.metrics["shadow_refs_buffer_val"] = self.config.analysis_buffer
+                context.metrics["shadow_refs_crosstalk_val"] = (self.config.crosstalk_strength, self.config.crosstalk_matrix)
 
         if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
             wp_offset = self.config.white_point_offset
@@ -196,12 +215,7 @@ class PhotometricProcessor:
             self.config.highlight_yellow * cmy_max,
         )
 
-        # Grade-coupled baseline: hard grades (VC paper) physically have snappier
-        # toes and compressed shoulders. slope_norm=0 at softest grade, 1 at hardest.
-        slope_norm = (slopes[1] - float(c["slope_min"])) / (float(c["slope_max"]) - float(c["slope_min"]))
-        slope_norm = min(max(slope_norm, 0.0), 1.0)
-        toe_eff = self.config.toe + float(c["toe_grade_strength"]) * slope_norm
-        shoulder_eff = self.config.shoulder + float(c["shoulder_grade_strength"]) * slope_norm
+        toe_eff, shoulder_eff = grade_coupled_shape(slopes[1], self.config.toe, self.config.shoulder)
 
         if context.process_mode == ProcessMode.BW:
             # Panchromatic response: collapse to a single density BEFORE the

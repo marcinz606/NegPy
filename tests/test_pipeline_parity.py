@@ -243,6 +243,13 @@ class TestExposureParity:
         )
         self._run_and_compare(s)
 
+    def test_capture_unmix(self):
+        # Capture-side dye unmix: CPU applies the matrix to img_log, the GPU via
+        # the normalization uniforms — both meters read the unmixed grid.
+        base = _make_base_settings()
+        s = replace(base, process=replace(base.process, crosstalk_strength=0.7))
+        self._run_and_compare(s)
+
 
 class TestLabParity:
     """CPU vs GPU parity for the lab colour/sharpening shader."""
@@ -284,10 +291,10 @@ class TestLabParity:
         self._run_and_compare(_make_base_settings())
 
     def test_high_saturation(self):
-        # Isolate saturation: disable color_separation and sharpen defaults
+        # Isolate saturation: disable the sharpen default
         s = replace(
             _make_base_settings(),
-            lab=LabConfig(saturation=2.0, color_separation=1.0, sharpen=0.0),
+            lab=LabConfig(saturation=2.0, sharpen=0.0),
         )
         self._run_and_compare(s)
 
@@ -321,7 +328,7 @@ class TestLabParity:
         assert np.allclose(cpu_result, gpu_result, atol=0.5, rtol=0.2), f"Max diff: {np.max(np.abs(cpu_result - gpu_result)):.6f}"
 
     def test_chroma_denoise(self):
-        # Isolate chroma denoise: disable color_separation and sharpen defaults
+        # Isolate chroma denoise: disable the sharpen default
         # NOTE: This test is expected to fail because the GPU chroma denoise shader
         # uses a fixed 5×5 Gaussian kernel regardless of the radius parameter,
         # while the CPU implementation adapts kernel size and sigma based on
@@ -332,7 +339,7 @@ class TestLabParity:
         pytest.xfail("GPU chroma denoise ignores radius param — uses fixed 5×5 kernel")
         s = replace(
             _make_base_settings(),
-            lab=LabConfig(chroma_denoise=3.0, color_separation=1.0, sharpen=0.0),
+            lab=LabConfig(chroma_denoise=3.0, sharpen=0.0),
         )
         self._run_and_compare(s)
 
@@ -348,10 +355,6 @@ class TestLabParity:
 
     def test_halation(self):
         s = replace(_make_base_settings(), lab=LabConfig(halation_strength=0.3))
-        self._run_and_compare(s)
-
-    def test_color_separation(self):
-        s = replace(_make_base_settings(), lab=LabConfig(color_separation=1.5))
         self._run_and_compare(s)
 
 

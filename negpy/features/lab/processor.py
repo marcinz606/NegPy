@@ -8,7 +8,6 @@ from negpy.features.lab.logic import (
     apply_glow_and_halation,
     apply_output_sharpening,
     apply_saturation,
-    apply_spectral_crosstalk,
     apply_vibrance,
 )
 from negpy.features.lab.models import LabConfig
@@ -26,18 +25,6 @@ class PhotoLabProcessor:
 
         if self.config.chroma_denoise > 0:
             img = apply_chroma_denoise(img, self.config.chroma_denoise, context.scale_factor)
-
-        c_strength = max(0.0, self.config.color_separation - 1.0)
-        if c_strength > 0:
-            epsilon = 1e-6
-            img_dens = -np.log10(np.clip(img, epsilon, 1.0))
-
-            matrix = self.config.crosstalk_matrix
-            if matrix is None:
-                matrix = self.config.DEFAULT_MATRIX
-
-            img_dens = apply_spectral_crosstalk(img_dens, c_strength, matrix)
-            img = np.power(10.0, -img_dens)
 
         if self.config.vibrance != 1.0:
             img = apply_vibrance(img, self.config.vibrance)

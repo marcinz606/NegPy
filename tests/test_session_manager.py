@@ -39,7 +39,7 @@ class TestWorkspaceSession(unittest.TestCase):
 
         config = self.session.create_default_config()
 
-        self.assertEqual(config.lab.color_separation, 1.5)
+        self.assertEqual(config.process.crosstalk_strength, 0.5)
         self.assertEqual(config.retouch.dust_size, 4)
         self.assertEqual(config.export.export_fmt, ExportFormat.JPEG)
         self.assertEqual(config.export.export_print_size, 30.0)

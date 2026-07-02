@@ -318,6 +318,8 @@ class RightPanel(QWidget):
         from negpy.features.exposure.stats import negative_statistics
 
         clip_low, clip_high = self.hist_widget.clip_fractions()
+        # Flat peek bypasses the print curve — the darkroom-units row reads N/A.
+        flat = self.controller.state.flat_peek
         self.stats_widget.update_stats(
             negative_statistics(
                 metrics.get("norm_density_range"),
@@ -326,5 +328,8 @@ class RightPanel(QWidget):
                 clip_low,
                 clip_high,
                 effective_range=density_range,
+                density=None if flat else config.density,
+                wb_cmy=None if flat else (config.wb_cyan, config.wb_magenta, config.wb_yellow),
+                scan_clip=metrics.get("scan_clip_fractions"),
             )
         )

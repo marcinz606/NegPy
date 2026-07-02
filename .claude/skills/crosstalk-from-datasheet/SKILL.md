@@ -1,6 +1,6 @@
 ---
 name: crosstalk-from-datasheet
-description: "Use when the user supplies a film-stock spec sheet, datasheet, or spectral data (PDF / URL / numbers) and wants a NegPy spectral-crosstalk .toml matrix for the Lab Separation control, or asks to calibrate / derive channel-unmixing for a specific film or scanner. Keywords: crosstalk, datasheet, spec sheet, film stock, dye density, spectral, separation, unmixing, toml."
+description: "Use when the user supplies a film-stock spec sheet, datasheet, or spectral data (PDF / URL / numbers) and wants a NegPy spectral-crosstalk .toml matrix for the Process panel's Crosstalk control, or asks to calibrate / derive channel-unmixing for a specific film or scanner. Keywords: crosstalk, datasheet, spec sheet, film stock, dye density, spectral, separation, unmixing, toml."
 ---
 
 # Crosstalk from datasheet
@@ -8,17 +8,18 @@ description: "Use when the user supplies a film-stock spec sheet, datasheet, or 
 ## Overview
 
 A color negative's three dye layers each leak density into channels they shouldn't
-("unwanted absorption"), muddying color. NegPy's **Separation** control unmixes them
-with a 3×3 matrix. This skill turns a film's published **spectral dye-density** curves
-into that matrix: read the unwanted absorptions, invert them, write a `.toml`.
+("unwanted absorption"), muddying color. NegPy's **Crosstalk** control (Process panel)
+unmixes them with a 3×3 matrix applied to the raw negative densities. This skill turns a
+film's published **spectral dye-density** curves into that matrix: read the unwanted
+absorptions, invert them, write a `.toml`.
 
 **Core principle:** the matrix is the *inverse* of the dye-leakage matrix. You only read
 values off curves and judge data quality — `derive_matrix.py` does the arithmetic.
 
 Read `docs/CROSSTALK.md` and `crosstalk/README.md` once for the file format and the
-density-domain math NegPy applies (`d=-log10(rgb)`, `d_out=M·d`); NegPy **row-normalizes**
-`M` and blends with identity by `strength = Separation−1`, so only the off-diagonal/diagonal
-*ratios* matter — absolute row scale is irrelevant.
+density-domain math NegPy applies (`d=-log10(rgb_negative)`, `d_out=M·d`, pre-normalization);
+NegPy **row-normalizes** `M` and blends with identity by the Crosstalk strength (0–1), so
+only the off-diagonal/diagonal *ratios* matter — absolute row scale is irrelevant.
 
 ## Workflow
 

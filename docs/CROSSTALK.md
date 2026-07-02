@@ -1,6 +1,6 @@
 # Custom Crosstalk Matrices
 
-The **Separation** control in the Lab sidebar runs *spectral crosstalk* correction.
+The **Crosstalk** control in the Process sidebar runs *spectral crosstalk* correction.
 NegPy ships with one built-in matrix (**Default**), but you can drop in your own —
 calibrated per film stock or scanner — without touching any code.
 
@@ -11,22 +11,22 @@ calibrated per film stock or scanner — without touching any code.
 A color negative's three dye layers are not spectrally pure: the cyan, magenta and
 yellow dyes each leak a little density into the channels they shouldn't affect. The
 result is muddy, low-separation color. Crosstalk correction *unmixes* the channels by
-multiplying the per-pixel **density** vector by a 3×3 matrix.
+multiplying the per-pixel **negative density** vector by a 3×3 matrix, *before*
+normalization and the print curve — the domain the matrices were derived in
+(secondary dye absorptions are linear in negative dye density).
 
-The math, per pixel:
+The math, per pixel on the raw decoded negative:
 
 ```
-density      = -log10(rgb)
+density      = -log10(rgb_negative)
 density_out  = M · density
-rgb_out      = 10^(-density_out)
 ```
 
-`M` is your 3×3 matrix. The **Separation** slider blends it with the identity matrix
-and row-normalizes the result, so `Separation = 1.0` is a no-op and higher values push
-toward the full matrix:
+`M` is your 3×3 matrix. The **Crosstalk** slider (0–1) blends it with the identity
+matrix and row-normalizes the result, so `0` is off and `1` is the full matrix:
 
 ```
-M_applied = I · (1 - strength) + M · strength      # strength = Separation - 1.0
+M_applied = I · (1 - strength) + M · strength
 M_applied = M_applied / row_sums(M_applied)        # each row normalized to sum 1
 ```
 
@@ -87,12 +87,14 @@ presets stay reproducible even if you later move or delete the file.
 ## Using it
 
 1. Drop your `.toml` into `<Documents>/NegPy/crosstalk/`.
-2. Open the **Lab** sidebar → the **crosstalk dropdown** under COLOR. New files appear
-   the next time the panel syncs (e.g. switching photos); restart if you don't see it.
-3. Pick your profile and raise **Separation** above 1.0 to apply it.
+2. Open the **Process** sidebar → the **crosstalk dropdown** under CROSSTALK. New files
+   appear the next time the panel syncs (e.g. switching photos); restart if you don't see it.
+3. Pick your profile and raise **Crosstalk** above 0 to apply it.
 4. Pick **Default** to revert to the built-in matrix.
 
-> Crosstalk is a color operation and is hidden in B&W mode.
+> Crosstalk is a color operation and is hidden in B&W mode. Because it changes what
+> the normalization meters read, re-run **Batch Analysis** (and re-save locked bounds)
+> after changing the profile or strength.
 
 ---
 

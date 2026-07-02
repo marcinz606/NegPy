@@ -15,7 +15,7 @@ class CrosstalkProfiles:
 
     Files live in APP_CONFIG.crosstalk_dir. The built-in hardcoded matrix is
     exposed as the "Default" profile. Disk I/O only happens on dropdown build
-    and on selection -- never per render (matrices are baked into LabConfig).
+    and on selection -- never per render (matrices are baked into ProcessConfig).
     """
 
     DEFAULT_NAME = DEFAULT_NAME
@@ -72,7 +72,7 @@ class CrosstalkProfiles:
     def get_matrix(name: str) -> Optional[List[float]]:
         """
         Flat 9-float list for a profile, or None for the built-in / missing /
-        invalid profiles. None means the render path uses LabConfig.DEFAULT_MATRIX.
+        invalid profiles. None means the render path uses process.models.DEFAULT_CROSSTALK_MATRIX.
         """
         if name == DEFAULT_NAME:
             return None

@@ -1,8 +1,6 @@
+// Spectral crosstalk moved to the normalization stage (capture-side,
+// negative-density domain) — see normalization.wgsl.
 struct LabUniforms {
-    crosstalk_row0: vec4<f32>,
-    crosstalk_row1: vec4<f32>,
-    crosstalk_row2: vec4<f32>,
-    strength: f32,
     sharpen: f32,
     chroma_denoise: f32,
     saturation: f32,
@@ -11,9 +9,6 @@ struct LabUniforms {
     halation_strength: f32,
     _pad0: f32,
     _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
-    _pad4: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -221,17 +216,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = lab_to_rgb(vec3<f32>(current_lab.x, blur_ab.x, blur_ab.y));
     }
 
-    // 2. Spectral Crosstalk
-    if (params.strength > 0.0) {
-        let epsilon = 1e-6;
-        let dens = -log(max(color, vec3<f32>(epsilon))) / 2.302585;
-        let m0 = params.crosstalk_row0.xyz;
-        let m1 = params.crosstalk_row1.xyz;
-        let m2 = params.crosstalk_row2.xyz;
-        let mixed_dens = vec3<f32>(dot(dens, m0), dot(dens, m1), dot(dens, m2));
-        color = pow(vec3<f32>(10.0), -mixed_dens);
-    }
-
     // 3. Vibrance
     if (params.vibrance != 1.0) {
         var lab = rgb_to_lab(color);
@@ -284,6 +268,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // rather than being renormalised back up to full highlight brightness.
     if (params.glow_amount > 0.0 || params.halation_strength > 0.0) {
         let HIGHLIGHT_THRESHOLD = 0.5;
+        // Halation mask in LINEAR reflectance: fixed by scene exposure, so the
+        // footprint doesn't move with grade/density (mirrors CPU logic.py).
+        let HALATION_THRESHOLD_LINEAR = 0.65;
         let GLOW_RADIUS = 15.0;
         let HAL_RADIUS = 25.0;
 
@@ -297,7 +284,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let g_off = offset * GLOW_RADIUS;
                 let g_coord = clamp(coords + vec2<i32>(g_off), vec2<i32>(0), vec2<i32>(dims) - 1);
                 let g_samp = load_lin(g_coord);
-                // Highlight mask in display domain (keeps 0.5 threshold); bloom is linear.
+                // Glow is a print-side lens effect: mask stays in display domain.
                 let g_luma = dot(oetf_encode(g_samp), LUMA_COEFFS);
                 let g_hl = max(0.0, (g_luma - HIGHLIGHT_THRESHOLD) / (1.0 - HIGHLIGHT_THRESHOLD));
                 let g_r = length(offset);  // normalised radius in [0,1]
@@ -309,22 +296,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let h_off = offset * HAL_RADIUS;
                 let h_coord = clamp(coords + vec2<i32>(h_off), vec2<i32>(0), vec2<i32>(dims) - 1);
                 let h_samp = load_lin(h_coord);
-                let h_luma = dot(oetf_encode(h_samp), LUMA_COEFFS);
-                let h_hl = max(0.0, (h_luma - HIGHLIGHT_THRESHOLD) / (1.0 - HIGHLIGHT_THRESHOLD));
+                let h_luma = dot(h_samp, LUMA_COEFFS);
+                let h_hl = max(0.0, (h_luma - HALATION_THRESHOLD_LINEAR) / (1.0 - HALATION_THRESHOLD_LINEAR));
                 let h_r = length(offset);
                 let h_w = exp(-h_r * h_r * 2.0);
                 hal_accum += vec3<f32>(h_samp.r, h_samp.r * 0.3, h_samp.r * 0.05) * (h_hl * h_w);
             }
         }
 
+        // Scattered light is added exposure — additive in linear, clamped at store.
         if (params.glow_amount > 0.0) {
-            let glow_color = (glow_accum / BLOOM_GAUSS_SUM) * params.glow_amount;
-            color = 1.0 - (1.0 - color) * (1.0 - glow_color);
+            color = color + (glow_accum / BLOOM_GAUSS_SUM) * params.glow_amount;
         }
 
         if (params.halation_strength > 0.0) {
-            let hal_color = (hal_accum / BLOOM_GAUSS_SUM) * params.halation_strength;
-            color = 1.0 - (1.0 - color) * (1.0 - hal_color);
+            color = color + (hal_accum / BLOOM_GAUSS_SUM) * params.halation_strength;
         }
     }
 

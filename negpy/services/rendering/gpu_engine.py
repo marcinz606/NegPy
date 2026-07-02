@@ -17,11 +17,14 @@ from negpy.features.exposure.normalization import (
     luminance_density_range,
     measure_anchor,
     measure_anchor_from_log,
+    measure_clip_fractions,
     measure_neutral_axis,
     measure_neutral_axis_from_log,
     measure_shadow_log_refs,
     measure_shadow_refs_from_log,
     measure_textural_range,
+    resolve_crosstalk_matrix,
+    unmix_log_image,
     measure_textural_range_from_log,
     prefilter_log_grid,
     resolve_bounds_detailed,
@@ -209,6 +212,8 @@ class GPUEngine:
         # (key, bounds, shadow_refs, metered_anchor, textural_range, neutral_axis) — per-source
         # meter cache so creative-slider previews don't re-run the analysis (see _analysis_*).
         self._analysis_cache: Optional[tuple] = None
+        # (analysis_key, per-channel clipped fractions) for the scan-exposure warning.
+        self._clip_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_scale_factor: float = 1.0
         self._pending_ir_buffer: Optional[np.ndarray] = None
@@ -488,6 +493,7 @@ class GPUEngine:
 
         analysis_source = None
         prefiltered = None
+        unmix_m = resolve_crosstalk_matrix(settings.process.crosstalk_strength, settings.process.crosstalk_matrix)
         if needs_bounds_analysis or needs_refs or needs_anchor or needs_textural:
             # Use views to avoid copying the full-res image; crop to ROI first.
             analysis_source = img
@@ -506,7 +512,16 @@ class GPUEngine:
 
             analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
             # Shared prefilter, once for all five meters (ROI already applied).
-            prefiltered = prefilter_log_grid(analysis_source, None, settings.process.analysis_buffer)
+            # Unmixed like the CPU path so every meter reads the unmixed film.
+            prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, settings.process.analysis_buffer), unmix_m)
+
+        scan_clip_fractions = None
+        if analysis_source is not None:
+            scan_clip_fractions = measure_clip_fractions(analysis_source, None, settings.process.analysis_buffer)
+            if analysis_key is not None:
+                self._clip_cache = (analysis_key, scan_clip_fractions)
+        elif analysis_key is not None and self._clip_cache is not None and self._clip_cache[0] == analysis_key:
+            scan_clip_fractions = self._clip_cache[1]
 
         def _analyze_bounds() -> LogNegativeBounds:
             assert prefiltered is not None
@@ -895,6 +910,7 @@ class GPUEngine:
             "norm_density_range": luminance_density_range(bounds),
             "metered_anchor": metered_anchor,
             "textural_range": textural_range,
+            "scan_clip_fractions": scan_clip_fractions,
         }
 
         if not tiling_mode and readback_metrics:
@@ -964,28 +980,31 @@ class GPUEngine:
         # E6 mirrors the CPU path (NormalizationProcessor), which negates the offsets.
         offset_sign = -1.0 if mode_val == 2 else 1.0
 
+        # Capture-side dye-unmix rows: effective matrix computed CPU-side (shared
+        # with NormalizationProcessor via resolve_crosstalk_matrix); identity when off.
+        unmix = resolve_crosstalk_matrix(settings.process.crosstalk_strength, settings.process.crosstalk_matrix)
+        if unmix is None:
+            unmix = np.eye(3)
+
         n_data = (
             struct.pack("ffff", f[0], f[1], f[2], 0.0)
             + struct.pack("ffff", c[0], c[1], c[2], 0.0)
             + struct.pack(
-                "IIffffffff",
+                "IIff",
                 mode_val,
                 (1 if settings.process.e6_normalize else 0),
                 offset_sign * settings.process.white_point_offset,
                 offset_sign * settings.process.black_point_offset,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
             )
-            + b"\x00" * 32
+            + struct.pack("ffff", unmix[0, 0], unmix[0, 1], unmix[0, 2], 0.0)
+            + struct.pack("ffff", unmix[1, 0], unmix[1, 1], unmix[1, 2], 0.0)
+            + struct.pack("ffff", unmix[2, 0], unmix[2, 1], unmix[2, 2], 0.0)
         )
 
         from negpy.features.exposure.logic import (
             _reference_linear_value,
             effective_cast_strength,
+            grade_coupled_shape,
             normalize_refs,
             per_channel_curve_params,
         )
@@ -1033,17 +1052,7 @@ class GPUEngine:
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         tint = paper.base_tint_cmy
-        # Grade-coupled baseline toe/shoulder: mirrors PhotometricProcessor._process_print.
-        _slope_norm = min(
-            max(
-                (slopes[1] - float(EXPOSURE_CONSTANTS["slope_min"]))
-                / (float(EXPOSURE_CONSTANTS["slope_max"]) - float(EXPOSURE_CONSTANTS["slope_min"])),
-                0.0,
-            ),
-            1.0,
-        )
-        _toe_eff = exp.toe + float(EXPOSURE_CONSTANTS["toe_grade_strength"]) * _slope_norm
-        _shoulder_eff = exp.shoulder + float(EXPOSURE_CONSTANTS["shoulder_grade_strength"]) * _slope_norm
+        _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
 
         e_data = (
             struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)
@@ -1128,25 +1137,9 @@ class GPUEngine:
         )
 
         lab = settings.lab
-        m_raw = lab.crosstalk_matrix
-        if m_raw is None:
-            m_raw = lab.DEFAULT_MATRIX
-
-        sep_strength = max(0.0, lab.color_separation - 1.0)
-
-        cal = np.array(m_raw).reshape(3, 3)
-        applied = np.eye(3) * (1.0 - sep_strength) + cal * sep_strength
-
-        # Row-normalization
-        applied /= np.maximum(np.sum(applied, axis=1, keepdims=True), 1e-6)
-        m = applied.flatten()
         l_data = (
-            struct.pack("ffff", m[0], m[1], m[2], 0.0)
-            + struct.pack("ffff", m[3], m[4], m[5], 0.0)
-            + struct.pack("ffff", m[6], m[7], m[8], 0.0)
-            + struct.pack(
-                "fffffff",
-                sep_strength,
+            struct.pack(
+                "ffffff",
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
                 float(lab.saturation),
@@ -1154,7 +1147,7 @@ class GPUEngine:
                 float(lab.glow_amount),
                 float(lab.halation_strength),
             )
-            + b"\x00" * 20
+            + b"\x00" * 8
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0

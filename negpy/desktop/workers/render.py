@@ -61,6 +61,10 @@ class NormalizationTask:
     override_analysis_buffer: float
     override_luma_range_clip: float
     override_color_range_clip: float
+    # Capture-side unmix must match the render path — bounds measured under a
+    # different matrix are invalid for it.
+    override_crosstalk_strength: float = 0.0
+    override_crosstalk_matrix: tuple | None = None
 
 
 @dataclass(frozen=True)
@@ -468,7 +472,7 @@ class NormalizationWorker(QObject):
         import numpy as np
 
         from negpy.domain.interfaces import PipelineContext
-        from negpy.features.exposure.normalization import analyze_log_exposure_bounds
+        from negpy.features.exposure.normalization import analyze_log_exposure_bounds, resolve_crosstalk_matrix
         from negpy.features.geometry.processor import GeometryProcessor
 
         self._cancel.clear()
@@ -526,6 +530,7 @@ class NormalizationWorker(QObject):
                         e6_normalize=e6_normalize,
                         percentile_clip=luma_range_clip,
                         color_clip=color_range_clip,
+                        unmix=resolve_crosstalk_matrix(task.override_crosstalk_strength, task.override_crosstalk_matrix),
                     )
 
                     async with lock:

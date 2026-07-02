@@ -1,5 +1,3 @@
-from typing import List, Optional
-
 import cv2
 import numpy as np
 from numba import njit  # type: ignore
@@ -7,26 +5,6 @@ from numba import njit  # type: ignore
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working, working_oetf_encode
 from negpy.kernel.image.validation import ensure_image
-
-
-def apply_spectral_crosstalk(img_dens: ImageBuffer, strength: float, matrix: Optional[List[float]]) -> ImageBuffer:
-    """
-    Mixes channels using calibration matrix.
-    """
-    if strength == 0.0 or matrix is None:
-        return img_dens
-
-    cal_matrix = np.array(matrix).reshape(3, 3)
-    identity = np.eye(3)
-
-    applied_matrix = identity * (1.0 - strength) + cal_matrix * strength
-
-    row_sums = np.sum(applied_matrix, axis=1, keepdims=True)
-    applied_matrix = applied_matrix / np.maximum(row_sums, 1e-6)
-
-    res = np.einsum("hwc,kc->hwk", img_dens.astype(np.float32, copy=False), applied_matrix.astype(np.float32))
-
-    return ensure_image(res)
 
 
 def apply_clahe(img: ImageBuffer, strength: float, scale_factor: float = 1.0) -> ImageBuffer:
@@ -150,6 +128,12 @@ def apply_chroma_denoise(img: ImageBuffer, radius: float, scale_factor: float = 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
 
 
+# Halation mask threshold in LINEAR reflectance: regions the negative rendered
+# dense (near paper white on the print). Thresholding linear light keeps the
+# halation footprint fixed by scene exposure instead of moving with grade/density.
+HALATION_THRESHOLD_LINEAR = 0.65
+
+
 def apply_glow_and_halation(
     img: ImageBuffer,
     glow_amount: float,
@@ -157,40 +141,43 @@ def apply_glow_and_halation(
     scale_factor: float = 1.0,
 ) -> ImageBuffer:
     """
-    Glow: all-channel Gaussian bloom of highlights (lens diffusion).
-    Halation: red-dominant scatter of highlights (film base reflection).
+    Glow: all-channel Gaussian bloom of highlights (lens diffusion, a print-side
+    effect — its mask stays in the display domain).
+    Halation: red-dominant scatter of highlights (light reflecting off the film
+    base at capture — masked in linear light, composited additively: scattered
+    light is added exposure, not an opacity composite).
     """
     if glow_amount == 0.0 and halation_strength == 0.0:
         return img
 
-    # Highlight mask in the display domain (keeps the 0.5 threshold); bloom is linear.
-    enc = working_oetf_encode(img)
-    luma = enc[:, :, 0] * 0.2126 + enc[:, :, 1] * 0.7152 + enc[:, :, 2] * 0.0722
-    threshold = 0.5
-    highlight_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0) ** 2
-
     result = img.copy().astype(np.float32)
 
     if glow_amount > 0.0:
+        # Highlight mask in the display domain (keeps the 0.5 threshold); bloom is linear.
+        enc = working_oetf_encode(img)
+        luma = enc[:, :, 0] * 0.2126 + enc[:, :, 1] * 0.7152 + enc[:, :, 2] * 0.0722
+        threshold = 0.5
+        glow_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0) ** 2
         base_r = max(3, int(15 * scale_factor))
         k = min((base_r * 2 + 1) | 1, 201)
         sigma = base_r * 0.5
-        highlights = (img * highlight_mask[:, :, np.newaxis]).astype(np.float32)
+        highlights = (img * glow_mask[:, :, np.newaxis]).astype(np.float32)
         glow_blur = cv2.GaussianBlur(highlights, (k, k), sigma)
-        scaled = glow_blur * glow_amount
-        result = 1.0 - (1.0 - result) * (1.0 - scaled)
+        result = result + glow_blur * glow_amount
 
     if halation_strength > 0.0:
+        lin_luma = img[:, :, 0] * 0.2126 + img[:, :, 1] * 0.7152 + img[:, :, 2] * 0.0722
+        t = HALATION_THRESHOLD_LINEAR
+        hal_mask = np.clip((lin_luma - t) / (1.0 - t), 0.0, 1.0) ** 2
         base_r = max(5, int(25 * scale_factor))
         k = min((base_r * 2 + 1) | 1, 301)
         sigma = base_r * 0.5
         red_hl = np.zeros_like(img, dtype=np.float32)
-        red_hl[:, :, 0] = img[:, :, 0] * highlight_mask
-        red_hl[:, :, 1] = img[:, :, 0] * highlight_mask * 0.3
-        red_hl[:, :, 2] = img[:, :, 0] * highlight_mask * 0.05
+        red_hl[:, :, 0] = img[:, :, 0] * hal_mask
+        red_hl[:, :, 1] = img[:, :, 0] * hal_mask * 0.3
+        red_hl[:, :, 2] = img[:, :, 0] * hal_mask * 0.05
         hal_blur = cv2.GaussianBlur(red_hl, (k, k), sigma)
-        scaled = hal_blur * halation_strength
-        result = 1.0 - (1.0 - result) * (1.0 - scaled)
+        result = result + hal_blur * halation_strength
 
     return ensure_image(np.clip(result, 0.0, 1.0))
 

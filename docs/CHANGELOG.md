@@ -1,5 +1,15 @@
 # Change Log
 
+## Unreleased
+
+- Change: **Crosstalk moved to the Process panel** — the unmix now applies to the raw *negative* densities before analysis and inversion, the domain the film matrices are actually calibrated in (the old Lab op worked on print densities). New **Matrix** dropdown + **Separation** slider (0–1); old edits migrate automatically — expect a subtle shift on frames that used Separation. Re-run Batch Analysis after changing it.
+- Change: **Process panel split** into *Process* and *Roll Analysis* collapsibles.
+- New: **Print stats row** — exposure in stops and CMY white balance as dichroic CC filtration (±1.0 = ±20cc).
+- New: **Scan clip warning** — per-channel share of source pixels at sensor white (red above 1%); in a negative scan that clipping destroys base/shadow separation and can only be fixed at capture.
+- Fix: the **H&D chart now matches the render at hard grades** — the grade-coupled toe/shoulder was applied by the engine but not shown by the chart.
+- Change: **halation** is masked in linear light (its footprint no longer moves with Grade/Density) and, like glow, composited additively.
+- Dev: `scripts/fit_paper_profile.py` — fit paper-profile constants from digitized datasheet D-logH curves.
+
 ## 0.31.2
 
 - Fix: in the **Apply** dialog, ticking **Tonal span** or **Colour balance** no longer clears the other — each now toggles only its own axis (Use Luma Average / Use Colour Average) on the target frames and leaves the other as it was. (#375)

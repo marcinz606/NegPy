@@ -50,15 +50,23 @@ class ColourSidebar(BaseSidebar):
 
         self.cyan_slider = CompactSlider("Cyan", -1.0, 1.0, conf.wb_cyan, has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
-        self.cyan_slider.setToolTip("Cyan–Red white balance shift; applies to the selected region (Global/Shadows/Highlights)")
+        self.cyan_slider.setToolTip(
+            "Cyan–Red white balance shift (±1.0 = ±20cc dichroic filtration); applies to the selected region (Global/Shadows/Highlights)"
+        )
         self.magenta_slider = CompactSlider("Magenta", -1.0, 1.0, conf.wb_magenta, has_neutral=True)
         self.magenta_slider.slider.setObjectName("magenta_slider")
         self.magenta_slider.setToolTip(
-            tooltip_with_shortcut("Magenta–Green white balance shift; applies to the selected region  E/D", None)
+            tooltip_with_shortcut(
+                "Magenta–Green white balance shift (±1.0 = ±20cc dichroic filtration); applies to the selected region  E/D", None
+            )
         )
         self.yellow_slider = CompactSlider("Yellow", -1.0, 1.0, conf.wb_yellow, has_neutral=True)
         self.yellow_slider.slider.setObjectName("yellow_slider")
-        self.yellow_slider.setToolTip(tooltip_with_shortcut("Yellow–Blue white balance shift; applies to the selected region  R/F", None))
+        self.yellow_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Yellow–Blue white balance shift (±1.0 = ±20cc dichroic filtration); applies to the selected region  R/F", None
+            )
+        )
         for region_btn, slider in (
             (self.region_global_btn, self.cyan_slider),
             (self.region_shadow_btn, self.magenta_slider),

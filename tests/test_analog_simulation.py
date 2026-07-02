@@ -1,10 +1,8 @@
 import unittest
 import numpy as np
 from negpy.features.exposure.logic import apply_characteristic_curve
-from negpy.features.lab.logic import (
-    apply_spectral_crosstalk,
-    apply_clahe,
-)
+from negpy.features.exposure.normalization import resolve_crosstalk_matrix, unmix_log_image
+from negpy.features.lab.logic import apply_clahe
 
 
 class TestAnalogSimulation(unittest.TestCase):
@@ -36,17 +34,17 @@ class TestAnalogSimulation(unittest.TestCase):
         """
         Normalized matrix should preserve neutral grey.
         """
-        # Neutral input in density space
+        # Neutral input in (negative log) density space
         img_dens = np.full((10, 10, 3), 0.5, dtype=np.float32)
 
         # A matrix that would normally darken/lighten the image
-        custom_matrix = [2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        custom_matrix = (2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 
-        res = apply_spectral_crosstalk(img_dens, 1.0, custom_matrix)
+        res = unmix_log_image(img_dens, resolve_crosstalk_matrix(1.0, custom_matrix))
 
         # With row normalization, [0.5, 0.5, 0.5] @ [2,0,0 / sum] -> 0.5
         # So the output should still be 0.5
-        self.assertAlmostEqual(np.mean(res), 0.5)
+        self.assertAlmostEqual(float(np.mean(res)), 0.5, places=6)
 
     def test_clahe_preserves_color(self):
         """

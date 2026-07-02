@@ -15,7 +15,12 @@ class ToneSidebar(BaseSidebar):
         conf = self.state.config.exposure
 
         self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
-        self.density_slider.setToolTip(tooltip_with_shortcut("Overall exposure — higher values darken the print", "density_up"))
+        self.density_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Overall exposure — higher values darken the print; full throw ≈ ±0.9 stop on a ΔD 1.3 negative",
+                "density_up",
+            )
+        )
         self.grade_slider = CompactSlider("ISO-R Grade", 50.0, 180.0, conf.grade, step=1.0, inverted=True)
         self.grade_slider.setToolTip(
             tooltip_with_shortcut(

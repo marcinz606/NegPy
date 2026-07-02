@@ -143,6 +143,12 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Percentile used to sample per-channel shadow references for cast detection.
     # ↑ samples even darker shadow tones (closer to paper black); ↓ lighter reference tones.
     "shadow_neutral_percentile": 98.0,
+    # Scan-exposure warning: linear level treated as sensor-white clipping (film base
+    # and scene shadows live near sensor white in a negative scan, so clipped pixels
+    # collapse distinct densities to D=0).
+    "scan_clip_level": 0.99,
+    # Per-channel clipped fraction above which the Analysis panel warns.
+    "scan_clip_warn": 0.01,
     # Cast Removal: max normalized shadow cast (green - channel) corrected, bounding the tilt.
     # Hard clamp on automatic per-channel slope tilt during cast removal.
     # ↑ allows stronger shadow neutralization; ↓ limits correction (less risk of overcorrection).

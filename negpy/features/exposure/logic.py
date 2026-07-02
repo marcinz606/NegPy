@@ -344,6 +344,23 @@ def slope_to_grade(slope: float, density_range: Optional[float]) -> float:
     return float(min(max(er * 100.0, c["iso_r_min"]), c["iso_r_max"]))
 
 
+def grade_coupled_shape(slope_g: float, toe: float, shoulder: float) -> Tuple[float, float]:
+    """
+    Grade-coupled baseline toe/shoulder: hard grades (VC paper) physically have
+    snappier toes and compressed shoulders. slope_norm = 0 at the softest grade,
+    1 at the hardest. Single source of truth for the CPU engine, the GPU uniform
+    packing and the curve chart — they must all draw the same knees.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    slope_norm = (float(slope_g) - float(c["slope_min"])) / (float(c["slope_max"]) - float(c["slope_min"]))
+    slope_norm = min(max(slope_norm, 0.0), 1.0)
+    toe_eff = float(toe) + float(c["toe_grade_strength"]) * slope_norm
+    shoulder_eff = float(shoulder) + float(c["shoulder_grade_strength"]) * slope_norm
+    return toe_eff, shoulder_eff
+
+
 def effective_grade_range(
     auto_normalize_contrast: bool,
     floor_ceil_range: Optional[float],

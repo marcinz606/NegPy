@@ -121,7 +121,7 @@ def test_preset_render_intent_defaults_to_print():
 def test_resolve_preset_export_flat_applies_master_pipeline():
     loud = replace(
         WorkspaceConfig(),
-        lab=replace(WorkspaceConfig().lab, saturation=2.0, color_separation=1.5),
+        lab=replace(WorkspaceConfig().lab, saturation=2.0),
         toning=replace(WorkspaceConfig().toning, sepia_strength=1.0),
     )
     preset = _make_preset(render_intent=RenderIntent.FLAT, export_fmt=ExportFormat.TIFF)

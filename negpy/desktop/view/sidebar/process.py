@@ -4,16 +4,16 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
-    QInputDialog,
     QPushButton,
 )
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
+from negpy.services.assets.crosstalk import CrosstalkProfiles
 
 # Luma Range Clip slider mapping: positions 0..100 clip the histogram tails; negative
 # positions -100..0 map to an outward log-density margin (gentler-than-zero stretch).
@@ -133,7 +133,28 @@ class ProcessSidebar(BaseSidebar):
         wp_bp_row.addWidget(self.black_point_slider)
         self.layout.addLayout(wp_bp_row)
 
-        self.layout.addWidget(section_subheader("AUTO"))
+        self.layout.addWidget(section_subheader("CROSSTALK"))
+
+        matrix_row = QHBoxLayout()
+        self.crosstalk_label = field_label("Matrix")
+        self.crosstalk_combo = QComboBox()
+        self.crosstalk_combo.addItems(CrosstalkProfiles.list_profiles())
+        self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
+        self.crosstalk_combo.setToolTip(
+            "Spectral crosstalk (dye unmix): applies the film's crosstalk matrix to the raw NEGATIVE "
+            "densities before analysis and inversion — the physically correct domain (the matrices are "
+            "derived from negative dye-density curves). 'Default' is built-in; drop custom .toml matrices "
+            "in the NegPy/crosstalk folder (see docs/CROSSTALK.md). Re-run Batch Analysis after changing this"
+        )
+        matrix_row.addWidget(self.crosstalk_label)
+        matrix_row.addWidget(self.crosstalk_combo, 1)
+        self.layout.addLayout(matrix_row)
+
+        self.crosstalk_strength_slider = CompactSlider("Separation", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
+        self.crosstalk_strength_slider.setToolTip(
+            "Strength of the spectral-crosstalk unmix (0 = off): richer colour separation, physically applied to the negative"
+        )
+        self.layout.addWidget(self.crosstalk_strength_slider)
 
         self.normalize_e6_btn = QPushButton(" Normalize")
         self.normalize_e6_btn.setCheckable(True)
@@ -141,61 +162,6 @@ class ProcessSidebar(BaseSidebar):
         self.normalize_e6_btn.setChecked(conf.e6_normalize)
         self.normalize_e6_btn.setToolTip("Automatically stretch the histogram to full dynamic range")
         self.layout.addWidget(self.normalize_e6_btn)
-
-        self.layout.addWidget(section_subheader("BATCH"))
-
-        btns_row = QHBoxLayout()
-        self.analyze_roll_btn = QPushButton(" Batch Analysis")
-        self.analyze_roll_btn.setIcon(qta.icon("fa5s.search", color=THEME.text_primary))
-        self.analyze_roll_btn.setToolTip("Scan every loaded file and compute a roll-wide average density and colour balance baseline")
-
-        btns_row.addWidget(self.analyze_roll_btn)
-        self.layout.addLayout(btns_row)
-
-        avg_row = QHBoxLayout()
-        self.use_luma_avg_btn = QPushButton(" Use Luma Average")
-        self.use_luma_avg_btn.setCheckable(True)
-        self.use_luma_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
-        self.use_luma_avg_btn.setToolTip(
-            "Take the tonal-range (black/white-point) baseline from Batch Analysis; colour still re-derives per frame"
-        )
-
-        self.use_colour_avg_btn = QPushButton(" Use Colour Average")
-        self.use_colour_avg_btn.setCheckable(True)
-        self.use_colour_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
-        self.use_colour_avg_btn.setToolTip(
-            "Take the per-channel colour-balance baseline from Batch Analysis; luma range still re-derives per frame"
-        )
-
-        avg_row.addWidget(self.use_luma_avg_btn)
-        avg_row.addWidget(self.use_colour_avg_btn)
-        self.layout.addLayout(avg_row)
-
-        self.layout.addWidget(section_subheader("ROLL"))
-
-        self.roll_combo = QComboBox()
-        self.roll_combo.setPlaceholderText("Select Roll...")
-        self.roll_combo.setToolTip("Previously saved roll normalization baselines")
-        self._refresh_rolls()
-        self.layout.addWidget(self.roll_combo)
-
-        roll_actions = QHBoxLayout()
-        self.load_roll_btn = QPushButton(" Load")
-        self.load_roll_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
-        self.load_roll_btn.setToolTip("Apply the selected roll's bounds and balance to the current workspace")
-
-        self.save_roll_btn = QPushButton(" Save")
-        self.save_roll_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
-        self.save_roll_btn.setToolTip("Save the current Batch Analysis result as a named reusable roll")
-
-        self.delete_roll_btn = QPushButton(" Delete")
-        self.delete_roll_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
-        self.delete_roll_btn.setToolTip("Remove the selected roll from the database")
-
-        roll_actions.addWidget(self.load_roll_btn)
-        roll_actions.addWidget(self.save_roll_btn)
-        roll_actions.addWidget(self.delete_roll_btn)
-        self.layout.addLayout(roll_actions)
 
         self.layout.addStretch()
 
@@ -220,14 +186,10 @@ class ProcessSidebar(BaseSidebar):
         self.black_point_slider.valueChanged.connect(lambda v: self._on_black_point_changed(v, persist=False))
         self.black_point_slider.valueCommitted.connect(lambda v: self._on_black_point_changed(v, persist=True))
 
+        self.crosstalk_combo.currentTextChanged.connect(self._on_crosstalk_profile_changed)
+        self.crosstalk_strength_slider.valueChanged.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=False))
+        self.crosstalk_strength_slider.valueCommitted.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=True))
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
-        self.analyze_roll_btn.clicked.connect(self.controller.request_batch_normalization)
-        self.use_luma_avg_btn.toggled.connect(self._on_use_luma_average_toggled)
-        self.use_colour_avg_btn.toggled.connect(self._on_use_colour_average_toggled)
-
-        self.load_roll_btn.clicked.connect(self._on_load_roll)
-        self.save_roll_btn.clicked.connect(self._on_save_roll)
-        self.delete_roll_btn.clicked.connect(self._on_delete_roll)
         self.sync_ui()
 
     def _on_white_point_changed(self, val: float, persist: bool = True) -> None:
@@ -266,6 +228,30 @@ class ProcessSidebar(BaseSidebar):
         )
         self.sync_ui()
 
+    def _on_crosstalk_profile_changed(self, name: str) -> None:
+        # Bake the matrix into the config so saved edits stay reproducible if the
+        # profile file is later moved/deleted. The persisted per-frame bounds were
+        # analyzed under the previous matrix — clear them so the stretch re-derives
+        # from the unmixed data (otherwise the mask redistribution leaks through).
+        matrix = CrosstalkProfiles.get_matrix(name)
+        self.update_config_section(
+            "process",
+            persist=True,
+            render=True,
+            crosstalk_profile=name,
+            crosstalk_matrix=matrix,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+
+    def _on_crosstalk_strength_changed(self, val: float, persist: bool = True) -> None:
+        self.update_config_section(
+            "process",
+            persist=persist,
+            render=True,
+            crosstalk_strength=val,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
         self.update_config_section(
             "process",
@@ -303,72 +289,6 @@ class ProcessSidebar(BaseSidebar):
             **invalidate_local_bounds(self.state.config.process),
         )
 
-    def _on_use_luma_average_toggled(self, checked: bool) -> None:
-        """Toggle the roll-wide luma (tonal-range) baseline for this axis only."""
-        self._toggle_roll_axis(use_luma_average=checked)
-
-    def _on_use_colour_average_toggled(self, checked: bool) -> None:
-        """Toggle the roll-wide colour-balance baseline for this axis only."""
-        self._toggle_roll_axis(use_colour_average=checked)
-
-    def _toggle_roll_axis(self, **axis: bool) -> None:
-        """
-        Flip one roll-average axis. The other axis re-derives per frame, so we clear
-        the cached local bounds to force a fresh analysis, and drop roll_name (the
-        baseline is no longer applied as a named whole).
-        """
-        self.update_config_section(
-            "process",
-            persist=True,
-            render=True,
-            roll_name=None,
-            **axis,
-            **invalidate_local_bounds(self.state.config.process),
-        )
-        self.sync_ui()
-
-    def _refresh_rolls(self) -> None:
-        """
-        Populates roll dropdown from database.
-        """
-        current = self.roll_combo.currentText()
-        self.roll_combo.blockSignals(True)
-        self.roll_combo.clear()
-        rolls = self.controller.session.repo.list_normalization_rolls()
-        self.roll_combo.addItems(rolls)
-        if current in rolls:
-            self.roll_combo.setCurrentText(current)
-        else:
-            self.roll_combo.setCurrentIndex(-1)
-        self.roll_combo.blockSignals(False)
-
-    def _on_load_roll(self) -> None:
-        """
-        Applies selected roll to session.
-        """
-        name = self.roll_combo.currentText()
-        if name:
-            self.controller.apply_normalization_roll(name)
-
-    def _on_save_roll(self) -> None:
-        """
-        Prompts user for name and saves current normalization.
-        """
-        name, ok = QInputDialog.getText(self, "Save Roll", "Enter name for this roll:")
-        if ok and name:
-            self.controller.save_current_normalization_as_roll(name)
-            self._refresh_rolls()
-            self.roll_combo.setCurrentText(name)
-
-    def _on_delete_roll(self) -> None:
-        """
-        Removes selected roll from DB.
-        """
-        name = self.roll_combo.currentText()
-        if name:
-            self.controller.session.repo.delete_normalization_roll(name)
-            self._refresh_rolls()
-
     def sync_ui(self) -> None:
         conf = self.state.config.process
         self.block_signals(True)
@@ -386,9 +306,18 @@ class ProcessSidebar(BaseSidebar):
 
             self.lock_bounds_btn.setChecked(conf.lock_bounds)
             self.linear_raw_btn.setChecked(conf.linear_raw)
+
+            profiles = CrosstalkProfiles.list_profiles()
+            if profiles != [self.crosstalk_combo.itemText(i) for i in range(self.crosstalk_combo.count())]:
+                self.crosstalk_combo.clear()
+                self.crosstalk_combo.addItems(profiles)
+            self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
+            self.crosstalk_strength_slider.setValue(conf.crosstalk_strength)
+            is_bw = conf.process_mode == ProcessMode.BW
+            self.crosstalk_label.setVisible(not is_bw)
+            self.crosstalk_combo.setVisible(not is_bw)
+            self.crosstalk_strength_slider.setVisible(not is_bw)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
-            self.use_luma_avg_btn.setChecked(conf.use_luma_average)
-            self.use_colour_avg_btn.setChecked(conf.use_colour_average)
 
             locked = conf.lock_bounds
             # Each clip slider is disabled when its axis rides the roll baseline; the
@@ -398,10 +327,6 @@ class ProcessSidebar(BaseSidebar):
             self.color_range_clip_slider.setEnabled(not locked and not conf.use_colour_average)
             for w in (self.white_point_slider, self.black_point_slider):
                 w.setEnabled(not locked)
-
-            self._refresh_rolls()
-            if conf.roll_name:
-                self.roll_combo.setCurrentText(conf.roll_name)
         finally:
             self.block_signals(False)
 
@@ -419,14 +344,9 @@ class ProcessSidebar(BaseSidebar):
             self.color_range_clip_slider,
             self.white_point_slider,
             self.black_point_slider,
+            self.crosstalk_combo,
+            self.crosstalk_strength_slider,
             self.normalize_e6_btn,
-            self.analyze_roll_btn,
-            self.use_luma_avg_btn,
-            self.use_colour_avg_btn,
-            self.roll_combo,
-            self.load_roll_btn,
-            self.save_roll_btn,
-            self.delete_roll_btn,
         ]
         for w in widgets:
             w.blockSignals(blocked)

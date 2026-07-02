@@ -11,6 +11,10 @@ Values were loosely mapped by Claude from published datasheets (Ilford, Kodak
 Endura, Foma, Fuji), not a precise calibration. Mainly d_max is grounded; the
 knee/midtone tweaks are light touches for character. Note these stack on the
 Grade slope, so over-soft knees read flat — keep them gentle.
+
+To replace a profile with a real calibration, digitize the datasheet's D-logH
+curve and run scripts/fit_paper_profile.py — it fits this exact parametric
+family and prints the PaperProfile kwargs (accept when RMS ≤ ~0.05 D).
 """
 
 from dataclasses import dataclass
