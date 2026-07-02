@@ -130,18 +130,22 @@ def test_bounds_both_only_changes_baseline():
     assert out.process.use_colour_average is True
 
 
-def test_bounds_luma_forces_other_axis_off():
-    out = build_synced_config(_source(), _target(), frozenset({"bounds_luma"}), _BOUNDS)
+def test_bounds_luma_preserves_other_axis():
+    src, tgt = _source(), _target()
+    tgt = replace(tgt, process=replace(tgt.process, use_colour_average=True))
+    out = build_synced_config(src, tgt, frozenset({"bounds_luma"}), _BOUNDS)
     assert out.process.locked_floors == _BOUNDS[0]
     assert out.process.use_luma_average is True
-    assert out.process.use_colour_average is False
+    assert out.process.use_colour_average is True
 
 
-def test_bounds_colour_forces_other_axis_off():
-    out = build_synced_config(_source(), _target(), frozenset({"bounds_colour"}), _BOUNDS)
+def test_bounds_colour_preserves_other_axis():
+    src, tgt = _source(), _target()
+    tgt = replace(tgt, process=replace(tgt.process, use_luma_average=True))
+    out = build_synced_config(src, tgt, frozenset({"bounds_colour"}), _BOUNDS)
     assert out.process.locked_ceils == _BOUNDS[1]
     assert out.process.use_colour_average is True
-    assert out.process.use_luma_average is False
+    assert out.process.use_luma_average is True
 
 
 def test_source_effective_bounds_prefers_per_frame_meter():

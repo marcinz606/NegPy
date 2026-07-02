@@ -324,18 +324,13 @@ def build_synced_config(
 
     if aspects & {"bounds_luma", "bounds_colour"}:
         floors, ceils = src_bounds
-        # locked_* is one shared pair feeding both axes; a single-axis sync forces
-        # the other axis back to each frame's own meter to avoid an unintended shift.
-        out = replace(
-            out,
-            process=replace(
-                out.process,
-                locked_floors=floors,
-                locked_ceils=ceils,
-                use_luma_average="bounds_luma" in aspects,
-                use_colour_average="bounds_colour" in aspects,
-            ),
-        )
+        # locked_* is a shared pair, so always write it; toggle only the selected axis.
+        changes: dict = {"locked_floors": floors, "locked_ceils": ceils}
+        if "bounds_luma" in aspects:
+            changes["use_luma_average"] = True
+        if "bounds_colour" in aspects:
+            changes["use_colour_average"] = True
+        out = replace(out, process=replace(out.process, **changes))
 
     return out
 

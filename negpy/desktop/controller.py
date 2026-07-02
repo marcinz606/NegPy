@@ -134,7 +134,7 @@ class AppController(QObject):
         super().__init__()
         self.session = session_manager
         self.state: AppState = session_manager.state
-        self._first_render_done = False
+        self._thumb_config: Optional[WorkspaceConfig] = None
         self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
         self._discovery_running = False
@@ -495,7 +495,7 @@ class AppController(QObject):
             self.zoom_requested.emit(1.0)
         self.set_status(f"Loading {os.path.basename(file_path)}...")
         self.loading_started.emit()
-        self._first_render_done = False
+        self._thumb_config = None
 
         self._render_cleanup_requested.emit()
 
@@ -1685,9 +1685,10 @@ class AppController(QObject):
             )
             self._first_render_t0 = None
 
-        # Snapshot the thumbnail once the render has converged (no newer render queued),
-        # so we don't capture a premature/unconverted frame.
-        should_update_thumb = not self._first_render_done and self._pending_render_task is None
+        # Config is replaced wholesale on every edit, so identity detects any change.
+        should_update_thumb = (
+            self._pending_render_task is None and not metrics.get("ephemeral") and self.state.config is not self._thumb_config
+        )
 
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
@@ -1702,8 +1703,9 @@ class AppController(QObject):
         self.image_updated.emit()
 
         if should_update_thumb:
-            self._first_render_done = True
-            self._update_thumbnail_from_state(force_readback=True)
+            self._thumb_config = self.state.config
+            # persist=False: refresh in-memory only; disk JPEG written on switch/save/export.
+            self._update_thumbnail_from_state(force_readback=True, persist=False)
 
         if self._pending_render_task:
             task = self._pending_render_task
@@ -1764,7 +1766,7 @@ class AppController(QObject):
         self.export_finished.emit(elapsed)
         self._update_thumbnail_from_state(force_readback=True)
 
-    def _update_thumbnail_from_state(self, force_readback: bool = False) -> None:
+    def _update_thumbnail_from_state(self, force_readback: bool = False, persist: bool = True) -> None:
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
         with self.state.metrics_lock:
@@ -1772,7 +1774,13 @@ class AppController(QObject):
         buffer = metrics.get("base_positive")
 
         if isinstance(buffer, GPUTexture):
+            t0 = time.perf_counter()
             buffer = buffer.readback()
+            logger.info(
+                "thumb-refresh readback %.1fms %s",
+                (time.perf_counter() - t0) * 1000,
+                os.path.basename(self.state.current_file_path),
+            )
 
         if buffer is not None and not isinstance(buffer, np.ndarray):
             buffer = metrics.get("analysis_buffer")
@@ -1785,6 +1793,7 @@ class AppController(QObject):
                 file_hash=self.state.current_file_hash,
                 buffer=buffer,
                 color_space=self.state.workspace_color_space,
+                persist=persist,
             )
         )
 

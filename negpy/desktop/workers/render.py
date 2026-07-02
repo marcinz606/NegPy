@@ -41,12 +41,13 @@ class RenderTask:
 
 @dataclass(frozen=True)
 class ThumbnailUpdateTask:
-    """Request to update persistent thumbnail cache."""
+    """Request to update the filmstrip thumbnail from a rendered buffer."""
 
     filename: str
     file_hash: str
     buffer: np.ndarray
     color_space: str = "sRGB"
+    persist: bool = True  # False = in-memory filmstrip only, skip the disk JPEG encode.
 
 
 @dataclass(frozen=True)
@@ -214,7 +215,8 @@ class ThumbnailWorker(QObject):
 
         try:
             buf = task.buffer.copy()
-            thumb = get_rendered_thumbnail(buf, task.file_hash, self._store, color_space=task.color_space)
+            store = self._store if task.persist else None
+            thumb = get_rendered_thumbnail(buf, task.file_hash, store, color_space=task.color_space)
             if thumb:
                 self.finished.emit({task.filename: thumb})
         except Exception as e:

@@ -59,6 +59,55 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_called_once_with(1.0)
         self.assertFalse(self.controller.state.hq_preview)
 
+    def test_thumbnail_refreshes_on_config_changed_settle(self):
+        """Filmstrip thumbnail is re-captured on every settled render whose config
+        differs from the last capture (covers in-place edits and reset), but not on a
+        repeat settle with the same config object."""
+        from negpy.domain.models import WorkspaceConfig
+
+        self.controller._update_thumbnail_from_state = MagicMock()
+        self.controller._pending_render_task = None
+        self.controller._thumb_config = None
+
+        cfg = WorkspaceConfig()
+        self.controller.state.config = cfg
+        self.controller._on_render_finished(None, {})
+        self.assertEqual(self.controller._update_thumbnail_from_state.call_count, 1)
+        self.controller._update_thumbnail_from_state.assert_called_with(force_readback=True, persist=False)
+
+        # Same config object -> no redundant refresh.
+        self.controller._on_render_finished(None, {})
+        self.assertEqual(self.controller._update_thumbnail_from_state.call_count, 1)
+
+        self.controller.state.config = replace(cfg, exposure=replace(cfg.exposure, density=1.0))
+        self.controller._on_render_finished(None, {})
+        self.assertEqual(self.controller._update_thumbnail_from_state.call_count, 2)
+
+    def test_thumbnail_not_refreshed_while_pending_or_ephemeral(self):
+        """Don't capture a premature frame while a newer render is queued, nor the
+        low-quality splash (ephemeral) render."""
+        import numpy as np
+
+        from negpy.domain.models import WorkspaceConfig
+        from negpy.desktop.workers.render import RenderTask
+
+        self.controller._update_thumbnail_from_state = MagicMock()
+        self.controller._thumb_config = None
+        self.controller.state.config = WorkspaceConfig()
+
+        self.controller._pending_render_task = RenderTask(
+            buffer=np.zeros((1, 1, 3), np.float32),
+            config=WorkspaceConfig(),
+            source_hash="x",
+            preview_size=1.0,
+        )
+        self.controller._on_render_finished(None, {})
+        self.controller._update_thumbnail_from_state.assert_not_called()
+
+        self.controller._pending_render_task = None
+        self.controller._on_render_finished(None, {"ephemeral": True})
+        self.controller._update_thumbnail_from_state.assert_not_called()
+
     def test_proof_active_gated_by_toggle(self):
         """proof_active() is False unless the soft-proof toggle is on, even with an
         export color space set (which always resolves an output profile)."""
