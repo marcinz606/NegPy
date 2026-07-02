@@ -25,9 +25,13 @@ def test_profile_k1_round_trip(tmp_path):
 def test_k1_column_migration_on_legacy_db(tmp_path):
     """A DB created before the k1 column must gain it (defaulting to 0.0) on init."""
     edits = str(tmp_path / "edits.db")
-    with sqlite3.connect(edits) as conn:
+    conn = sqlite3.connect(edits)
+    try:
         conn.execute("CREATE TABLE flatfield_profiles (name TEXT PRIMARY KEY, path TEXT)")
         conn.execute("INSERT INTO flatfield_profiles (name, path) VALUES (?, ?)", ("legacy", "/refs/old.dng"))
+        conn.commit()
+    finally:
+        conn.close()
 
     repo = StorageRepository(edits, str(tmp_path / "settings.db"))
     repo.initialize()  # runs the ALTER TABLE ADD COLUMN migration

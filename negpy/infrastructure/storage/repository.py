@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+from contextlib import contextmanager
 from typing import Any, List, Optional
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.domain.interfaces import IRepository
@@ -15,13 +16,23 @@ class StorageRepository(IRepository):
         self.edits_db_path = edits_db_path
         self.settings_db_path = settings_db_path
 
+    @contextmanager
+    def _connect(self, path: str):
+        """Connection context manager that actually closes the connection (sqlite3's own doesn't)."""
+        conn = sqlite3.connect(path)
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
     def initialize(self) -> None:
         """
         Ensures DB tables exist.
         """
         os.makedirs(os.path.dirname(self.edits_db_path), exist_ok=True)
 
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS file_settings (
                     file_hash TEXT PRIMARY KEY,
@@ -63,7 +74,7 @@ class StorageRepository(IRepository):
                 )
             """)
 
-        with sqlite3.connect(self.settings_db_path) as conn:
+        with self._connect(self.settings_db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS global_settings (
                     key TEXT PRIMARY KEY,
@@ -75,7 +86,7 @@ class StorageRepository(IRepository):
         """
         Persists a named normalization baseline (roll).
         """
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO normalization_rolls (name, floors_json, ceils_json, cast_json) VALUES (?, ?, ?, ?)",
                 (name, json.dumps(floors), json.dumps(ceils), json.dumps(cast)),
@@ -85,7 +96,7 @@ class StorageRepository(IRepository):
         """
         Retrieves a named normalization baseline.
         """
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute(
                 "SELECT floors_json, ceils_json FROM normalization_rolls WHERE name = ?",
                 (name,),
@@ -101,7 +112,7 @@ class StorageRepository(IRepository):
         """
         Returns names of all saved normalization rolls.
         """
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute("SELECT name FROM normalization_rolls ORDER BY name")
             return [row[0] for row in cursor.fetchall()]
 
@@ -109,12 +120,12 @@ class StorageRepository(IRepository):
         """
         Deletes a named normalization baseline.
         """
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM normalization_rolls WHERE name = ?", (name,))
 
     def save_flatfield_profile(self, name: str, path: str, k1: float = 0.0) -> None:
         """Persists a named flat-field reference profile (reference path + rig distortion)."""
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO flatfield_profiles (name, path, k1) VALUES (?, ?, ?)",
                 (name, path, float(k1)),
@@ -122,7 +133,7 @@ class StorageRepository(IRepository):
 
     def get_flatfield_profile(self, name: str) -> Optional[tuple[str, float]]:
         """Returns (reference path, distortion k1) for a named flat-field profile."""
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute("SELECT path, k1 FROM flatfield_profiles WHERE name = ?", (name,))
             row = cursor.fetchone()
             if row:
@@ -131,17 +142,17 @@ class StorageRepository(IRepository):
 
     def list_flatfield_profiles(self) -> list[str]:
         """Returns names of all saved flat-field profiles."""
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute("SELECT name FROM flatfield_profiles ORDER BY name")
             return [row[0] for row in cursor.fetchall()]
 
     def delete_flatfield_profile(self, name: str) -> None:
         """Deletes a named flat-field profile."""
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM flatfield_profiles WHERE name = ?", (name,))
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             settings_json = json.dumps(settings.to_dict(), default=str)
             conn.execute(
                 "INSERT OR REPLACE INTO file_settings (file_hash, settings_json) VALUES (?, ?)",
@@ -149,7 +160,7 @@ class StorageRepository(IRepository):
             )
 
     def load_file_settings(self, file_hash: str) -> Optional[WorkspaceConfig]:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute(
                 "SELECT settings_json FROM file_settings WHERE file_hash = ?",
                 (file_hash,),
@@ -161,7 +172,7 @@ class StorageRepository(IRepository):
         return None
 
     def save_history_step(self, file_hash: str, index: int, settings: WorkspaceConfig) -> None:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             settings_json = json.dumps(settings.to_dict(), default=str)
             conn.execute(
                 "INSERT OR REPLACE INTO edit_history (file_hash, step_index, settings_json) VALUES (?, ?, ?)",
@@ -169,7 +180,7 @@ class StorageRepository(IRepository):
             )
 
     def load_history_step(self, file_hash: str, index: int) -> Optional[WorkspaceConfig]:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute(
                 "SELECT settings_json FROM edit_history WHERE file_hash = ? AND step_index = ?",
                 (file_hash, index),
@@ -181,7 +192,7 @@ class StorageRepository(IRepository):
         return None
 
     def load_all_history(self, file_hash: str) -> List[tuple[int, WorkspaceConfig]]:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute(
                 "SELECT step_index, settings_json FROM edit_history WHERE file_hash = ? ORDER BY step_index",
                 (file_hash,),
@@ -189,7 +200,7 @@ class StorageRepository(IRepository):
             return [(int(idx), WorkspaceConfig.from_flat_dict(json.loads(js))) for idx, js in cursor.fetchall()]
 
     def get_max_history_index(self, file_hash: str) -> int:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute("SELECT MAX(step_index) FROM edit_history WHERE file_hash = ?", (file_hash,))
             row = cursor.fetchone()
             if row and row[0] is not None:
@@ -197,19 +208,19 @@ class StorageRepository(IRepository):
         return 0
 
     def clear_history(self, file_hash: str) -> None:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM edit_history WHERE file_hash = ?", (file_hash,))
 
     def truncate_history_above(self, file_hash: str, index: int) -> None:
         """Deletes all history steps with step_index > index (orphaned future branch)."""
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             conn.execute(
                 "DELETE FROM edit_history WHERE file_hash = ? AND step_index > ?",
                 (file_hash, index),
             )
 
     def prune_history(self, file_hash: str, max_steps: int = 10) -> None:
-        with sqlite3.connect(self.edits_db_path) as conn:
+        with self._connect(self.edits_db_path) as conn:
             # Delete steps that are older than (current_max_index - max_steps)
             # Find current max index for this file
             cursor = conn.execute("SELECT MAX(step_index) FROM edit_history WHERE file_hash = ?", (file_hash,))
@@ -222,14 +233,14 @@ class StorageRepository(IRepository):
                 )
 
     def save_global_setting(self, key: str, value: Any) -> None:
-        with sqlite3.connect(self.settings_db_path) as conn:
+        with self._connect(self.settings_db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)",
                 (key, json.dumps(value, default=str)),
             )
 
     def get_global_setting(self, key: str, default: Any = None) -> Any:
-        with sqlite3.connect(self.settings_db_path) as conn:
+        with self._connect(self.settings_db_path) as conn:
             cursor = conn.execute("SELECT value_json FROM global_settings WHERE key = ?", (key,))
             row = cursor.fetchone()
             if row:
