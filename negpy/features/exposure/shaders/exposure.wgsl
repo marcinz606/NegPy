@@ -24,10 +24,9 @@ struct ExposureUniforms {
     midtone_gamma: f32,
     gamma_width: f32,
     use_dye: u32,
-    // Per-channel paper-white floor (base+fog incl. base tint); d_min is the
-    // scalar base kept for layout/reference, the curve reads d_min_rgb.
+    // Per-channel paper-white floor (base+fog incl. tint); the curve reads this, not d_min.
     d_min_rgb: vec4<f32>,
-    // Row-normalized dye coupling (D_rgb = M * D_dye above base) when use_dye != 0.
+    // Row-normalized dye coupling rows (D_rgb = M * D_dye above base).
     dye_r: vec4<f32>,
     dye_g: vec4<f32>,
     dye_b: vec4<f32>,

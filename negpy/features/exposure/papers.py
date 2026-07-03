@@ -51,11 +51,10 @@ class PaperProfile:
     EXPOSURE_CONSTANTS values; colour fields are identity (neutral).
 
     channel_gamma — per-channel (R, G, B) slope multipliers (dye-layer contrast
-    crossover). base_tint_cmy — per-channel (C, M, Y) additions to the paper's
-    minimum density floor (base tint, shows in highlights). dye_matrix — rows of
-    D_rgb = M · D_dye above base: the paper dyes' unwanted absorptions coupling
-    channels (row-normalized at use so neutrals stay neutral). kind drives
-    dropdown grouping.
+    crossover). base_tint_cmy — per-channel (C, M, Y) additions to the minimum
+    density floor (base tint, shows in highlights). dye_matrix — dye coupling
+    D_rgb = M · D_dye above base (unwanted absorptions), row-normalized at use.
+    kind drives dropdown grouping.
     """
 
     label: str
@@ -122,8 +121,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         toe_sharpness_base=3.5,
         paper_midtone_gamma=0.22,
         channel_gamma=(1.04, 1.0, 0.98),
-        # Estimated dye unwanted absorptions (not measured): cyan absorbs some
-        # green, magenta a little blue — the classic RA-4 coupling, kept gentle.
+        # Estimated, not measured: cyan absorbs some green, magenta some blue.
         dye_matrix=(
             (0.95, 0.04, 0.01),
             (0.08, 0.88, 0.04),
@@ -141,8 +139,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_midtone_gamma=0.15,
         channel_gamma=(1.0, 1.03, 1.05),
         base_tint_cmy=(0.0, -0.01, -0.015),
-        # Estimated dye unwanted absorptions (not measured): slightly cleaner
-        # dyes than Endura for the vivid, high-separation look.
+        # Estimated, not measured: slightly cleaner dyes than Endura.
         dye_matrix=(
             (0.96, 0.03, 0.01),
             (0.06, 0.91, 0.03),
@@ -159,9 +156,8 @@ def resolve_paper(key: str) -> PaperProfile:
 
 def resolve_dye_matrix(paper: PaperProfile | None) -> Optional[np.ndarray]:
     """
-    Row-normalized print-dye coupling matrix (D_rgb = M · D_dye above paper base),
-    or None for identity — the default path stays byte-exact and allocation-free.
-    Row normalization preserves neutral densities exactly.
+    Row-normalized dye coupling matrix (rows sum to 1, so neutrals are preserved),
+    or None for identity so the default path stays byte-exact.
     """
     if paper is None or paper.dye_matrix == _IDENTITY_DYE:
         return None

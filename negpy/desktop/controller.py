@@ -878,8 +878,7 @@ class AppController(QObject):
 
         exp = self.state.config.exposure
         if is_log:
-            # CPU stores "final_bounds", GPU stores "log_bounds"; converts the
-            # normalized deviation to absolute CC density (filtration_offsets).
+            # CPU stores "final_bounds", GPU stores "log_bounds".
             bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
             new_m, new_y = calculate_wb_shifts_from_log(sampled[:3], bounds)
         else:

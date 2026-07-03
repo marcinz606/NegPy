@@ -1076,8 +1076,7 @@ class GPUEngine:
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
-        # Absolute CC filtration + per-channel paper base + dye coupling; mirrors
-        # PhotometricProcessor / apply_characteristic_curve.
+        # Mirrors apply_characteristic_curve (absolute CC, paper base, dye mix).
         wb_offsets = filtration_offsets(
             (exp.wb_cyan, exp.wb_magenta, exp.wb_yellow),
             LogNegativeBounds(adj_floors, adj_ceils),
@@ -1127,7 +1126,7 @@ class GPUEngine:
                 float(pc["paper_midtone_gamma"]),
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                0.0,  # pad to 16-byte alignment before the vec4 block
+                0.0,  # pad to 16B before the vec4s
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], 0.0)

@@ -198,8 +198,6 @@ class PhotometricProcessor:
 
         c = EXPOSURE_CONSTANTS
         cmy_max = c["cmy_max_density"]
-        # Absolute CC filtration (per-frame range-invariant); the paper base tint
-        # is a per-channel d_min floor inside the curve, not a pre-curve offset.
         cmy_offsets = filtration_offsets(
             (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
             final_bounds,
@@ -263,7 +261,6 @@ class PhotometricProcessor:
         """
         gain, lift = flat_curve_params()
 
-        # Same absolute-CC convention as the print path.
         cmy_offsets = filtration_offsets(
             (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
             context.metrics.get("final_bounds"),

@@ -82,9 +82,8 @@ def _apply_print_curve_kernel(
     shadows and `shoulder` only highlights (film/print convention). `toe`/`shoulder`
     arrive pre-scaled by toe_shoulder_strength.
 
-    d_min_rgb is the per-channel paper-white floor (base+fog incl. base tint).
-    dye_mix couples channels above that floor (paper dye unwanted absorptions,
-    D_rgb = M · D_dye) when use_dye_mix is set.
+    d_min_rgb: per-channel paper-white floor (base+fog incl. tint). dye_mix:
+    dye coupling above that floor (D_rgb = M · D_dye) when use_dye_mix is set.
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
@@ -239,9 +238,8 @@ class CharacteristicCurve:
 
 def paper_dmin_rgb(d_min: float, paper: Optional[PaperProfile]) -> Tuple[float, float, float]:
     """
-    Per-channel paper-white floor: base+fog density plus the paper's base tint —
-    physically a minimum dye density, so the tint shows in highlights and fades
-    toward d_max. Neutral (and fully off) when d_min is 0 (paper_dmin toggle).
+    Per-channel paper-white floor: d_min plus the paper's base tint (a minimum
+    dye density — tints highlights, fades toward d_max). All-zero when d_min is 0.
     """
     if d_min <= 0.0 or paper is None:
         base = max(d_min, 0.0)
@@ -628,11 +626,10 @@ def per_channel_curve_params(
 
 def filtration_offsets(wb_cmy: Tuple[float, float, float], bounds: Any) -> Tuple[float, float, float]:
     """
-    CC filtration as normalized-space offsets: slider · cmy_max_density is an
-    absolute density (a real pack, 1.0 = 20cc), divided by each channel's stretch
-    range so the same slider prints the same filtration on every frame. abs()
-    keeps the slider direction uniform across C-41/E-6. Range 1 when bounds are
-    unknown (direct curve calls).
+    WB sliders as normalized-space offsets: slider · cmy_max_density is an
+    absolute density (1.0 = 20cc), divided by each channel's stretch range so
+    the same slider prints the same filtration on every frame. abs() keeps the
+    slider direction uniform across C-41/E-6. Range 1 when bounds are None.
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -683,8 +680,7 @@ def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
 def calculate_wb_shifts_from_log(sampled_log_rgb: np.ndarray, bounds: Any = None) -> Tuple[float, float]:
     """
     Calculates Magenta and Yellow shifts from data in Negative Log-Density space.
-    `bounds` converts the normalized deviation to absolute density so the shift
-    matches filtration_offsets' absolute-CC sliders exactly.
+    `bounds` converts the deviation to absolute density (see filtration_offsets).
     """
     r, g, b = sampled_log_rgb[:3]
     d_m = r - g
