@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased
+## 0.32.2
 
 - Change: **White balance sliders are real CC filtration** — ±1.0 = ±20cc of density on any frame. Before, the same slider position did more on a contrasty negative and less on a flat one, so a WB that worked on one frame drifted on the next. Frames with saved WB will shift slightly.
 - Change: **Paper base tint sits in the paper white** — Fujicolor Crystal Archive's cool tint now lives in the base density, so it shows in the highlights and disappears into the blacks, like actual paper. Turning off Paper White turns the tint off with it.
