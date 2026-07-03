@@ -350,7 +350,7 @@ class GPUEngine:
         sizes = {
             "geometry": 32,
             "normalization": 112,
-            "exposure": 176,
+            "exposure": 240,
             "clahe_u": 32,
             "retouch_u": 64,
             "lab": 96,
@@ -1026,13 +1026,15 @@ class GPUEngine:
         from negpy.features.exposure.logic import (
             _reference_linear_value,
             effective_cast_strength,
+            filtration_offsets,
             grade_coupled_shape,
             normalize_refs,
+            paper_dmin_rgb,
             per_channel_curve_params,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
-        from negpy.features.exposure.normalization import luminance_density_range
-        from negpy.features.exposure.papers import effective_constants, effective_paper_profile
+        from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
+        from negpy.features.exposure.papers import effective_constants, effective_paper_profile, resolve_dye_matrix
 
         exp = settings.exposure
         paper = effective_paper_profile(exp.paper_profile, settings.process.process_mode)
@@ -1073,20 +1075,22 @@ class GPUEngine:
             neutral_axis_norm=neutral_axis_norm,
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
-        tint = paper.base_tint_cmy
         _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
+        # Absolute CC filtration + per-channel paper base + dye coupling; mirrors
+        # PhotometricProcessor / apply_characteristic_curve.
+        wb_offsets = filtration_offsets(
+            (exp.wb_cyan, exp.wb_magenta, exp.wb_yellow),
+            LogNegativeBounds(adj_floors, adj_ceils),
+        )
+        dmin_rgb = paper_dmin_rgb(d_min, paper)
+        dye = resolve_dye_matrix(paper)
+        dye_rows = np.eye(3) if dye is None else dye
 
         e_data = (
             struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)
             + struct.pack("ffff", slopes[0], slopes[1], slopes[2], 0.0)
             + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], 0.0)
-            + struct.pack(
-                "ffff",
-                exp.wb_cyan * cmy_m + tint[0],
-                exp.wb_magenta * cmy_m + tint[1],
-                exp.wb_yellow * cmy_m + tint[2],
-                0.0,
-            )
+            + struct.pack("ffff", wb_offsets[0], wb_offsets[1], wb_offsets[2], 0.0)
             + struct.pack(
                 "ffff",
                 exp.shadow_cyan * cmy_m,
@@ -1103,7 +1107,7 @@ class GPUEngine:
             )
             # Asymmetric H&D print-curve scalars; mirrors _apply_print_curve_kernel.
             + struct.pack(
-                "14fI4f",
+                "14fI3fIf",
                 _toe_eff * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
                 _shoulder_eff * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
                 exp.toe_width,
@@ -1122,8 +1126,13 @@ class GPUEngine:
                 _reference_linear_value(d_min, paper),
                 float(pc["paper_midtone_gamma"]),
                 float(pc["paper_gamma_width"]),
-                0.0,
+                1 if dye is not None else 0,
+                0.0,  # pad to 16-byte alignment before the vec4 block
             )
+            + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)
+            + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], 0.0)
+            + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], 0.0)
+            + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)

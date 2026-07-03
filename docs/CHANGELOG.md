@@ -1,5 +1,11 @@
 # Change Log
 
+## Unreleased
+
+- Change: **White balance is now true CC filtration** — a CMY slider unit is a fixed density (±1.0 = ±20cc) on every frame, instead of scaling with the frame's density range. The same filter pack now prints the same correction across a roll; frames with saved WB shift subtly.
+- Change: **Paper base tint is a real base density** — a tinted paper (Fujicolor Crystal Archive) now tints highlights most and fades toward black, like actual paper base, instead of shifting all tones equally. Turning off Paper White also disables the tint.
+- New: **Print-dye coupling** — the RA-4 paper profiles (Kodak Endura, Fujicolor Crystal Archive) model their dyes' unwanted absorptions, coupling channels the way real prints do. Neutral greys are untouched; saturated colours pick up the paper's characteristic hue twists. Estimated values, refined as profiles get calibrated.
+
 ## 0.32.1
 
 - Perf: fewer disk syncs on every edit (settings writes batched into one transaction), smoother slider dragging, faster contact-sheet/batch/tiled export, and lighter preview rendering — no change in output.

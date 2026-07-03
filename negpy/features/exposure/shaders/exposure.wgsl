@@ -23,7 +23,14 @@ struct ExposureUniforms {
     v_star: f32,
     midtone_gamma: f32,
     gamma_width: f32,
-    pad_a: f32,
+    use_dye: u32,
+    // Per-channel paper-white floor (base+fog incl. base tint); d_min is the
+    // scalar base kept for layout/reference, the curve reads d_min_rgb.
+    d_min_rgb: vec4<f32>,
+    // Row-normalized dye coupling (D_rgb = M * D_dye above base) when use_dye != 0.
+    dye_r: vec4<f32>,
+    dye_g: vec4<f32>,
+    dye_b: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -77,13 +84,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Negative toe: tighten shadow roll-off (sharper knee) rather than extending
     // d_max_eff beyond paper black (perceptually near-zero effect above d_max).
     let a_sh = select(a_sh_base * (1.0 - params.toe * 4.0), a_sh_base, params.toe >= 0.0);
-    var d_min_eff = params.d_min + params.shoulder * params.sh_height;
-    if (d_min_eff < 0.0) { d_min_eff = 0.0; }
-    var d_max_eff = select(params.d_max, params.d_max - params.toe * params.toe_height, params.toe >= 0.0);
-    if (d_max_eff < d_min_eff + 0.1) { d_max_eff = d_min_eff + 0.1; }
-    let flare_white = pow(10.0, -params.d_min);
+    let d_min_rgb = params.d_min_rgb.xyz;
+    let d_min_eff = max(d_min_rgb + vec3<f32>(params.shoulder * params.sh_height), vec3<f32>(0.0));
+    let d_max_base = select(params.d_max, params.d_max - params.toe * params.toe_height, params.toe >= 0.0);
+    let d_max_eff = max(vec3<f32>(d_max_base), d_min_eff + vec3<f32>(0.1));
+    let flare_white = pow(vec3<f32>(10.0), -d_min_rgb);
 
-    var res: vec3<f32>;
+    var dens: vec3<f32>;
 
     for (var ch = 0; ch < 3; ch++) {
         let val = color[ch] + params.cmy_offsets[ch];
@@ -102,21 +109,36 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         v = v + params.shadow_cmy[ch] * w_sh + params.highlight_cmy[ch] * w_hi;
 
         // Shoulder: smooth lower bound at paper white (highlights).
-        let v1 = d_min_eff + softplus(a_hl * (v - d_min_eff)) / a_hl;
+        let v1 = d_min_eff[ch] + softplus(a_hl * (v - d_min_eff[ch])) / a_hl;
         // Toe: smooth upper bound at paper black (shadows).
-        var density = d_max_eff - softplus(a_sh * (d_max_eff - v1)) / a_sh;
-
-        if (params.surround_gamma != 1.0) {
-            density = params.d_min + params.surround_gamma * (density - params.d_min);
-        }
-
-        var transmittance = pow(10.0, -density);
-        if (params.flare != 0.0) {
-            transmittance = (transmittance + params.flare * flare_white) / (1.0 + params.flare);
-        }
-
-        res[ch] = oetf_encode(transmittance);
+        dens[ch] = d_max_eff[ch] - softplus(a_sh * (d_max_eff[ch] - v1)) / a_sh;
     }
+
+    // Dye unwanted absorptions: mix the densities above paper base.
+    if (params.use_dye != 0u) {
+        let e = dens - d_min_rgb;
+        dens = d_min_rgb + vec3<f32>(
+            dot(params.dye_r.xyz, e),
+            dot(params.dye_g.xyz, e),
+            dot(params.dye_b.xyz, e),
+        );
+    }
+
+    var density = dens;
+    if (params.surround_gamma != 1.0) {
+        density = d_min_rgb + params.surround_gamma * (density - d_min_rgb);
+    }
+
+    var transmittance = pow(vec3<f32>(10.0), -density);
+    if (params.flare != 0.0) {
+        transmittance = (transmittance + params.flare * flare_white) / (1.0 + params.flare);
+    }
+
+    let res = vec3<f32>(
+        oetf_encode(transmittance.x),
+        oetf_encode(transmittance.y),
+        oetf_encode(transmittance.z),
+    );
 
     textureStore(output_tex, coords, vec4<f32>(clamp(res, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
 }

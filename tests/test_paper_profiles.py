@@ -43,13 +43,12 @@ class TestPaperProfiles(unittest.TestCase):
             d_min=d_min,
             paper=paper,
         )
-        tint = paper.base_tint_cmy
+        # Base tint + dye coupling ride the paper profile inside the curve.
         return apply_characteristic_curve(
             self._ramp(),
             (pivots[0], slopes[0]),
             (pivots[1], slopes[1]),
             (pivots[2], slopes[2]),
-            cmy_offsets=tint,
             d_min=d_min,
             paper=paper,
         )

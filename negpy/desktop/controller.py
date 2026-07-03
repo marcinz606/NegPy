@@ -878,7 +878,10 @@ class AppController(QObject):
 
         exp = self.state.config.exposure
         if is_log:
-            new_m, new_y = calculate_wb_shifts_from_log(sampled[:3])
+            # CPU stores "final_bounds", GPU stores "log_bounds"; converts the
+            # normalized deviation to absolute CC density (filtration_offsets).
+            bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
+            new_m, new_y = calculate_wb_shifts_from_log(sampled[:3], bounds)
         else:
             delta_m, delta_y = calculate_wb_shifts(sampled[:3])
             damping = 0.4

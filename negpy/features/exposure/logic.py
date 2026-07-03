@@ -4,7 +4,7 @@ import numpy as np
 from numba import njit  # type: ignore
 
 from negpy.domain.types import ImageBuffer
-from negpy.features.exposure.papers import PaperProfile, effective_constants
+from negpy.features.exposure.papers import PaperProfile, effective_constants, resolve_dye_matrix
 from negpy.kernel.image.validation import ensure_image
 
 
@@ -58,7 +58,7 @@ def _apply_print_curve_kernel(
     cmy_offsets: np.ndarray,
     shadow_cmy: np.ndarray,
     highlight_cmy: np.ndarray,
-    d_min: float,
+    d_min_rgb: np.ndarray,
     d_max: float,
     a_toe_base: float,
     a_sh_base: float,
@@ -69,6 +69,8 @@ def _apply_print_curve_kernel(
     v_star: float,
     midtone_gamma: float,
     gamma_width: float,
+    dye_mix: np.ndarray,
+    use_dye_mix: bool,
     flare: float = 0.0,
     surround_gamma: float = 1.0,
 ) -> np.ndarray:
@@ -80,32 +82,45 @@ def _apply_print_curve_kernel(
     shadows and `shoulder` only highlights (film/print convention). `toe`/`shoulder`
     arrive pre-scaled by toe_shoulder_strength.
 
+    d_min_rgb is the per-channel paper-white floor (base+fog incl. base tint).
+    dye_mix couples channels above that floor (paper dye unwanted absorptions,
+    D_rgb = M · D_dye) when use_dye_mix is set.
+
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
     eps = 1e-6
-    flare_white = 10.0 ** (-d_min)
 
     # Roll-off sharpness from width (larger width = gentler); slider sets height.
     # toe -> shadow (upper / paper-black) bound; shoulder -> highlight (lower /
     # paper-white) bound. a_toe_base/a_sh_base carry the shadow/highlight sharpness.
     a_hl = a_sh_base * width_ref / max(shoulder_width, eps)
     a_sh = a_toe_base * width_ref / max(toe_width, eps)
-    d_min_eff = d_min + shoulder * sh_height
-    if d_min_eff < 0.0:
-        d_min_eff = 0.0
     if toe >= 0.0:
-        d_max_eff = d_max - toe * toe_height
+        d_max_base = d_max - toe * toe_height
     else:
         # Negative toe: tighten the shadow roll-off (sharper knee) rather than
         # extending d_max_eff beyond paper black (perceptually near-zero effect).
-        d_max_eff = d_max
+        d_max_base = d_max
         a_sh = a_sh * (1.0 - toe * 4.0)
-    if d_max_eff < d_min_eff + 0.1:
-        d_max_eff = d_min_eff + 0.1
 
+    d_min_eff = np.empty(3, dtype=np.float64)
+    d_max_eff = np.empty(3, dtype=np.float64)
+    flare_white = np.empty(3, dtype=np.float64)
+    for ch in range(3):
+        dmn = d_min_rgb[ch] + shoulder * sh_height
+        if dmn < 0.0:
+            dmn = 0.0
+        dmx = d_max_base
+        if dmx < dmn + 0.1:
+            dmx = dmn + 0.1
+        d_min_eff[ch] = dmn
+        d_max_eff[ch] = dmx
+        flare_white[ch] = 10.0 ** (-d_min_rgb[ch])
+
+    dens = np.empty(3, dtype=np.float64)
     for y in range(h):
         for x in range(w):
             for ch in range(3):
@@ -125,16 +140,27 @@ def _apply_print_curve_kernel(
                 v = v + shadow_cmy[ch] * w_sh + highlight_cmy[ch] * w_hi
 
                 # Shoulder: smooth lower bound at paper white (highlights).
-                v1 = d_min_eff + _softplus(a_hl * (v - d_min_eff)) / a_hl
+                v1 = d_min_eff[ch] + _softplus(a_hl * (v - d_min_eff[ch])) / a_hl
                 # Toe: smooth upper bound at paper black (shadows).
-                density = d_max_eff - _softplus(a_sh * (d_max_eff - v1)) / a_sh
+                dens[ch] = d_max_eff[ch] - _softplus(a_sh * (d_max_eff[ch] - v1)) / a_sh
 
+            if use_dye_mix:
+                # Dye unwanted absorptions: mix the densities above paper base.
+                e0 = dens[0] - d_min_rgb[0]
+                e1 = dens[1] - d_min_rgb[1]
+                e2 = dens[2] - d_min_rgb[2]
+                dens[0] = d_min_rgb[0] + dye_mix[0, 0] * e0 + dye_mix[0, 1] * e1 + dye_mix[0, 2] * e2
+                dens[1] = d_min_rgb[1] + dye_mix[1, 0] * e0 + dye_mix[1, 1] * e1 + dye_mix[1, 2] * e2
+                dens[2] = d_min_rgb[2] + dye_mix[2, 0] * e0 + dye_mix[2, 1] * e1 + dye_mix[2, 2] * e2
+
+            for ch in range(3):
+                density = dens[ch]
                 if surround_gamma != 1.0:
-                    density = d_min + surround_gamma * (density - d_min)
+                    density = d_min_rgb[ch] + surround_gamma * (density - d_min_rgb[ch])
 
                 transmittance = 10.0 ** (-density)
                 if flare != 0.0:
-                    transmittance = (transmittance + flare * flare_white) / (1.0 + flare)
+                    transmittance = (transmittance + flare * flare_white[ch]) / (1.0 + flare)
 
                 final_val = transmittance
                 if final_val < 0.0:
@@ -211,6 +237,19 @@ class CharacteristicCurve:
         return ensure_image(res)
 
 
+def paper_dmin_rgb(d_min: float, paper: Optional[PaperProfile]) -> Tuple[float, float, float]:
+    """
+    Per-channel paper-white floor: base+fog density plus the paper's base tint —
+    physically a minimum dye density, so the tint shows in highlights and fades
+    toward d_max. Neutral (and fully off) when d_min is 0 (paper_dmin toggle).
+    """
+    if d_min <= 0.0 or paper is None:
+        base = max(d_min, 0.0)
+        return (base, base, base)
+    t = paper.base_tint_cmy
+    return (max(d_min + t[0], 0.0), max(d_min + t[1], 0.0), max(d_min + t[2], 0.0))
+
+
 def apply_characteristic_curve(
     img: ImageBuffer,
     params_r: Tuple[float, float],
@@ -242,6 +281,8 @@ def apply_characteristic_curve(
     offsets = np.ascontiguousarray(np.array(cmy_offsets, dtype=np.float32))
     s_cmy = np.ascontiguousarray(np.array(shadow_cmy, dtype=np.float32))
     h_cmy = np.ascontiguousarray(np.array(highlight_cmy, dtype=np.float32))
+    dye = resolve_dye_matrix(paper)
+    dye_mix = np.ascontiguousarray(np.eye(3) if dye is None else dye)
 
     res = _apply_print_curve_kernel(
         np.ascontiguousarray(img.astype(np.float32)),
@@ -255,7 +296,7 @@ def apply_characteristic_curve(
         offsets,
         s_cmy,
         h_cmy,
-        d_min=float(d_min),
+        d_min_rgb=np.array(paper_dmin_rgb(d_min, paper), dtype=np.float64),
         d_max=float(c["d_max"]),
         a_toe_base=float(c["toe_sharpness_base"]),
         a_sh_base=float(c["shoulder_sharpness_base"]),
@@ -266,6 +307,8 @@ def apply_characteristic_curve(
         v_star=float(v_star),
         midtone_gamma=float(midtone_gamma),
         gamma_width=float(c["paper_gamma_width"]),
+        dye_mix=dye_mix,
+        use_dye_mix=dye is not None,
         flare=float(flare),
         surround_gamma=float(surround_gamma),
     )
@@ -583,6 +626,26 @@ def per_channel_curve_params(
     return (s0, s1, s2), (p0, p1, p2), (0.0, 0.0, 0.0)
 
 
+def filtration_offsets(wb_cmy: Tuple[float, float, float], bounds: Any) -> Tuple[float, float, float]:
+    """
+    CC filtration as normalized-space offsets: slider · cmy_max_density is an
+    absolute density (a real pack, 1.0 = 20cc), divided by each channel's stretch
+    range so the same slider prints the same filtration on every frame. abs()
+    keeps the slider direction uniform across C-41/E-6. Range 1 when bounds are
+    unknown (direct curve calls).
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    cmy_max = float(EXPOSURE_CONSTANTS["cmy_max_density"])
+    out = []
+    for ch in range(3):
+        d = float(wb_cmy[ch]) * cmy_max
+        if bounds is not None:
+            d = d / max(abs(bounds.ceils[ch] - bounds.floors[ch]), 1e-6)
+        out.append(d)
+    return (out[0], out[1], out[2])
+
+
 def cmy_to_density(val: float, log_range: float = 1.0) -> float:
     """
     Converts a CMY slider value (-1.0..1.0) to a physical density shift (D).
@@ -617,15 +680,18 @@ def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
     return float(shift_m), float(shift_y)
 
 
-def calculate_wb_shifts_from_log(sampled_log_rgb: np.ndarray) -> Tuple[float, float]:
+def calculate_wb_shifts_from_log(sampled_log_rgb: np.ndarray, bounds: Any = None) -> Tuple[float, float]:
     """
     Calculates Magenta and Yellow shifts from data in Negative Log-Density space.
+    `bounds` converts the normalized deviation to absolute density so the shift
+    matches filtration_offsets' absolute-CC sliders exactly.
     """
     r, g, b = sampled_log_rgb[:3]
     d_m = r - g
     d_y = r - b
 
-    shift_m = density_to_cmy(d_m)
-    shift_y = density_to_cmy(d_y)
+    rng = lambda ch: abs(bounds.ceils[ch] - bounds.floors[ch]) if bounds is not None else 1.0  # noqa: E731
+    shift_m = density_to_cmy(d_m, rng(1))
+    shift_y = density_to_cmy(d_y, rng(2))
 
     return float(shift_m), float(shift_y)
