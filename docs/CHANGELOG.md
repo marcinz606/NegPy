@@ -2,6 +2,7 @@
 
 ## 0.32.2
 
+- New: **Expanded tutorial** — the walkthrough now explains the physics behind the pipeline (log density, the H&D print, orange-mask metering) and why a tight crop or the Analysis Buffer matters for clean black/white points. New steps for the Analysis Buffer, Crosstalk dye unmixing, roll consistency, Cast Removal and the Finish panel.
 - Change: **White balance sliders are real CC filtration** — ±1.0 = ±20cc of density on any frame. Before, the same slider position did more on a contrasty negative and less on a flat one, so a WB that worked on one frame drifted on the next. Frames with saved WB will shift slightly.
 - Change: **Paper base tint sits in the paper white** — Fujicolor Crystal Archive's cool tint now lives in the base density, so it shows in the highlights and disappears into the blacks, like actual paper. Turning off Paper White turns the tint off with it.
 - New: **RA-4 dye coupling** — Kodak Endura and Fujicolor Crystal Archive model the unwanted absorptions of their print dyes. Greys stay neutral; strong colours shift the way they do on real paper. Values are estimates for now.

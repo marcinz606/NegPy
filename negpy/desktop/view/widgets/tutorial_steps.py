@@ -58,12 +58,31 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _flat_master(w: "MainWindow") -> Optional[QWidget]:
         return w.right_panel.export_sidebar.intent_flat_btn
 
+    def _analysis_buffer(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.process_sidebar.analysis_buffer_slider
+
+    def _crosstalk(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.process_sidebar.crosstalk_combo
+
+    def _roll(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.roll_sidebar.analyze_roll_btn
+
+    def _finish(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.finish_sidebar
+
+    def _cast_removal(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.colour_sidebar.cast_removal_slider
+
     return [
         TutorialStep(
             title="Welcome to NegPy",
             body=(
-                "NegPy is a non-destructive RAW film scanner. "
-                "Your edits follow a fixed pipeline:<br><br>"
+                "NegPy is a non-destructive RAW film scanner built as a "
+                "<b>virtual darkroom</b>. Your scan is treated as a physical measurement "
+                "of film transmittance: it's converted to log density — film's native "
+                "scale — and printed through a model of real photographic paper "
+                "(the H&amp;D curve). Not a curves-and-levels editor.<br><br>"
+                "Edits follow a fixed pipeline:<br><br>"
                 "<b>Import → Process → Exposure → Lab → Export</b><br><br>"
                 "Everything runs on the GPU for near-instant previews. "
                 "All edits are stored in a local database keyed by file hash — "
@@ -107,41 +126,95 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Geometry — Crop & Straighten",
             body=(
                 "The unified <b>Crop</b> tool: drag corners to resize, drag inside to move, "
-                "click outside to draw a fresh rectangle.<br><br>"
-                "<b>Auto</b> detects the film edge (with a mode selector for image-only vs. full "
-                "film extent). <b>Fine Rot</b> straightens tilted scans against a rule-of-thirds "
-                "grid, and <b>Detect Aspect Ratio</b> snaps the crop to the nearest standard ratio."
+                "click outside to draw a fresh rectangle. <b>Auto</b> detects the film edge, "
+                "<b>Fine Rot</b> straightens tilted scans, and <b>Detect Aspect Ratio</b> snaps "
+                "to the nearest standard ratio.<br><br>"
+                "Crop matters for more than framing: the conversion <b>meters what's inside "
+                "the crop</b> to find the black and white points. Unexposed rebate sits at "
+                "film-base density (a false brightest highlight); sprocket holes and scanner "
+                "bed at the opposite extreme. None of it is picture — left in frame, it drags "
+                "the detected bounds, giving milky blacks and a wrong mask estimate.<br><br>"
+                "Crop tight to the image, or use the <b>Analysis Buffer</b> (next) when you "
+                "want to keep a border."
             ),
             target=_crop,
             section_attr="geometry_section",
         ),
         TutorialStep(
+            title="Analysis Buffer — Keep the Meter on the Image",
+            body=(
+                "Insets the metering window from the frame edge — up to 25% per side — so the "
+                "bounds analysis reads <b>only the picture</b>.<br><br>"
+                "The meter is statistical: it can't tell film rebate, sprocket holes or holder "
+                "from scene tones, and densities that never occurred in the scene skew the "
+                "percentile black/white points.<br><br>"
+                "Rule of thumb: the analysis area should contain image and nothing else. Use "
+                "the buffer when you deliberately keep a border in frame; a tight crop is the "
+                "cleaner fix."
+            ),
+            target=_analysis_buffer,
+            section_attr="process_section",
+        ),
+        TutorialStep(
             title="Process Panel — Bounds Analysis",
             body=(
-                "Unlike converters that use hardcoded orange mask constants, "
-                "NegPy <b>measures the orange mask directly from each negative</b> "
-                "using statistical bounds analysis.<br><br>"
-                "The clip is split into two independent controls: <b>Luma Range Clip</b> sets the "
-                "tonal black/white-point span (positive = tighter recovery, negative = outward "
-                "headroom), while <b>Colour Clip</b> sets the per-channel balance for orange-mask "
-                "cast removal — independent of the tonal range. Find good settings for your scanning setup.<br><br>"
-                "<b>Batch Analysis</b> normalises all loaded frames to a roll-wide average — "
-                "enable <b>Use Roll Average</b> afterwards for consistent exposure across the entire roll."
+                "Film dyes follow Beer–Lambert absorption — density is logarithmic — so NegPy "
+                "converts the raw signal to log space and meters it there, on two independent "
+                "axes: a <b>luma</b> pass sets the black/white-point span, and a per-channel "
+                "<b>colour</b> pass <b>measures the orange mask from the actual negative</b> — "
+                "no hardcoded mask constants.<br><br>"
+                "<b>Luma Range Clip</b> tunes the tonal span (positive = tighter recovery, "
+                "negative = outward headroom); <b>Colour Clip</b> sets the per-channel balance "
+                "independently. <b>White Point</b> / <b>Black Point</b> fine-tune the detected "
+                "bounds without re-analysis — highlight recovery or shadow crush.<br><br>"
+                "The stretch is <b>unclamped</b>: tones outside the bounds survive and roll "
+                "off later in the print curve's toe and shoulder."
             ),
             target=_process,
             section_attr="process_section",
         ),
         TutorialStep(
+            title="Crosstalk — Dye Unmixing",
+            body=(
+                "Each film dye layer also absorbs outside its own band — <b>secondary "
+                "absorptions</b> that leak one channel into another and mute colour. These "
+                "are linear in negative dye density (Beer–Lambert), so NegPy unmixes them "
+                "with a per-stock matrix in log-density space, <b>before any analysis</b>.<br><br>"
+                "Pick a profile matching your film stock and blend it in with the "
+                "<b>Separation</b> strength.<br><br>"
+                "Changed the matrix or strength? <b>Re-run Batch Analysis</b> — bounds "
+                "measured under a different matrix are invalid."
+            ),
+            target=_crosstalk,
+            section_attr="process_section",
+        ),
+        TutorialStep(
+            title="Roll Consistency — Batch Analysis",
+            body=(
+                "One enlarger setting for the whole roll. <b>Batch Analysis</b> meters every "
+                "loaded frame and builds a roll-wide baseline; <b>Use Roll Average</b> then "
+                "locks frames to it, so exposure and colour don't jump from frame to "
+                "frame.<br><br>"
+                "Roll presets save and load the baseline for later sessions. A locked "
+                "baseline is also what keeps <b>Flat masters</b> consistent across a roll."
+            ),
+            target=_roll,
+            section_attr="roll_section",
+        ),
+        TutorialStep(
             title="Exposure — Density & Grade",
             body=(
-                "<b>Density</b> controls overall brightness — lower values produce a brighter image, "
-                "just like longer exposure in an analog darkroom.<br><br>"
+                "<b>Density</b> slides the negative's log exposure along the paper curve — "
+                "exactly enlarger exposure time. Lower values print brighter.<br><br>"
                 "<b>Grade</b> sets contrast on the photographic <b>ISO-R paper scale</b> "
-                "(50–180, default 115). Lower R is harder (more contrast and punch); higher R "
-                "is softer (flatter) — R110 is roughly classic paper grade 2.<br><br>"
+                "(50–180, default 115): the range of log exposure the paper accepts. Lower R "
+                "is harder (more contrast and punch); higher R is softer — R110 is roughly "
+                "classic paper grade 2. The resulting slope is the literal H&amp;D gamma: "
+                "negative density range over paper exposure range.<br><br>"
                 "<b>Auto Density</b> and <b>Auto Grade</b> meter each frame for sensible "
-                "brightness and contrast out of the box; turn them off to let the conversion "
-                "follow the negative honestly."
+                "brightness and contrast out of the box — they correct only <i>partially</i>, "
+                "so low-key and high-key shots keep their mood. Turn them off to let the "
+                "conversion follow the negative honestly."
             ),
             target=_density,
             section_attr="tone_section",
@@ -169,6 +242,21 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "multipliers. Leave it off for a sensible default starting point."
             ),
             target=_region_btn,
+            section_attr="colour_section",
+        ),
+        TutorialStep(
+            title="Cast Removal — Neutral Greys End to End",
+            body=(
+                "A negative's colour cast isn't constant: it varies with density, so a "
+                "midtone-only white balance leaves shadows and highlights drifting "
+                "off-colour.<br><br>"
+                "<b>Cast Removal</b> measures each channel's deep-shadow reference and gives "
+                "it its own slope, pivoting on the midtone — greys read neutral from deep "
+                "shadows through highlights, not just at one point.<br><br>"
+                "The auto toggle meters it per frame; the slider sets how much of the "
+                "measured correction is applied."
+            ),
+            target=_cast_removal,
             section_attr="colour_section",
         ),
         TutorialStep(
@@ -239,6 +327,17 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             ),
             target=_local,
             section_attr="local_section",
+        ),
+        TutorialStep(
+            title="Finish — Vignette & Border",
+            body=(
+                "Print-presentation touches, applied at the very end of the pipeline.<br><br>"
+                "<b>Vignette</b> darkens toward the corners — the darkroom printer's edge "
+                "burn that holds the eye inside the frame — with <b>Strength</b> and "
+                "<b>Size</b>. <b>Border</b> adds a paper border in a colour of your choice."
+            ),
+            target=_finish,
+            section_attr="finish_section",
         ),
         TutorialStep(
             title="History",
