@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.32.1
+
+- Perf: fewer disk syncs on every edit (settings writes batched into one transaction), smoother slider dragging, faster contact-sheet/batch/tiled export, and lighter preview rendering — no change in output.
+
 ## 0.32.0
 
 - Change: **Crosstalk moved to the Process panel** — the unmix now applies to the raw negative densities **before** analysis and inversion, making it more physically correct. Old edits migrate automatically, but expect a subtle shift on frames that used Separation. Re-run Batch Analysis after changing it.
