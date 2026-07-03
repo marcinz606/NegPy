@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image, ImageCms
 from negpy.infrastructure.display.icc_lut import (
     apply_icc_u16_rgb,
+    apply_lut_f32,
     apply_lut_u16,
     build_3d_lut,
 )
@@ -96,6 +97,47 @@ def test_apply_lut_u16_with_scale_lut() -> None:
     # 40000 / 2 = 20000, interpolation keeps precision
     assert out.dtype == np.uint16
     assert abs(int(out[0, 0, 0]) - 20000) < 3
+
+
+def _scale_lut(n: int = 9, factor: float = 0.5) -> np.ndarray:
+    axis = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    r, g, b = np.meshgrid(axis, axis, axis, indexing="ij")
+    return np.stack((r * factor, g * factor, b * factor), axis=-1).astype(np.float32)
+
+
+def test_apply_lut_f32_dtype_and_layout_variants_match() -> None:
+    # The no-copy fast path must not change results for f64 or non-contiguous inputs.
+    lut = _scale_lut()
+    rng = np.random.default_rng(42)
+    img = rng.random((8, 8, 3)).astype(np.float32)
+    ref = apply_lut_f32(img, lut)
+
+    out_f64 = apply_lut_f32(img.astype(np.float64), lut)
+    assert np.array_equal(ref, out_f64)
+
+    wide = np.zeros((8, 16, 3), dtype=np.float32)
+    wide[:, ::2, :] = img
+    view = wide[:, ::2, :]
+    assert not view.flags["C_CONTIGUOUS"]
+    assert np.array_equal(ref, apply_lut_f32(view, lut))
+
+    out_lut_f64 = apply_lut_f32(img, lut.astype(np.float64))
+    assert np.array_equal(ref, out_lut_f64)
+
+
+def test_apply_lut_f32_does_not_mutate_input() -> None:
+    lut = _scale_lut()
+    img = np.random.default_rng(7).random((6, 6, 3)).astype(np.float32)
+    img_before = img.copy()
+    apply_lut_f32(img, lut)
+    assert np.array_equal(img, img_before)
+
+
+def test_apply_lut_u16_lut_dtype_variants_match() -> None:
+    lut = _scale_lut()
+    img = np.full((4, 4, 3), 40000, dtype=np.uint16)
+    ref = apply_lut_u16(img, lut)
+    assert np.array_equal(ref, apply_lut_u16(img, lut.astype(np.float64)))
 
 
 def test_apply_icc_u16_rgb_matches_pil_8bit_reference() -> None:

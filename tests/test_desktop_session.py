@@ -49,6 +49,20 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.set_autodetect_enabled(False)
         self.mock_repo.save_global_setting.assert_not_called()
 
+    def test_persist_writes_sticky_settings_in_one_batch(self):
+        self.session.select_file(0)
+        self.mock_repo.save_global_settings.reset_mock()
+
+        cfg = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.5))
+        self.session.update_config(cfg, persist=True)
+
+        self.mock_repo.save_global_settings.assert_called_once()
+        saved = self.mock_repo.save_global_settings.call_args.args[0]
+        self.assertEqual(saved["last_density"], 1.5)
+        self.assertIn("last_process_mode", saved)
+        self.assertIn("last_export_config", saved)
+        self.assertIn("last_dust_remove", saved)
+
     def test_processing_toggles_carry_to_new_files(self):
         # Globally remembered toggles must be applied to a fresh (sidecar-less) file.
         sticky = {

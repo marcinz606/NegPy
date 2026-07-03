@@ -33,6 +33,8 @@ class StorageRepository(IRepository):
         os.makedirs(os.path.dirname(self.edits_db_path), exist_ok=True)
 
         with self._connect(self.edits_db_path) as conn:
+            # WAL persists on the DB file; per-call connections inherit it
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS file_settings (
                     file_hash TEXT PRIMARY KEY,
@@ -75,6 +77,7 @@ class StorageRepository(IRepository):
             """)
 
         with self._connect(self.settings_db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS global_settings (
                     key TEXT PRIMARY KEY,
@@ -237,6 +240,14 @@ class StorageRepository(IRepository):
             conn.execute(
                 "INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)",
                 (key, json.dumps(value, default=str)),
+            )
+
+    def save_global_settings(self, settings: dict[str, Any]) -> None:
+        """Writes many global settings in one transaction (one connection, one commit)."""
+        with self._connect(self.settings_db_path) as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)",
+                [(k, json.dumps(v, default=str)) for k, v in settings.items()],
             )
 
     def get_global_setting(self, key: str, default: Any = None) -> Any:

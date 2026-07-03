@@ -2,7 +2,7 @@ import numpy as np
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
 )
-from negpy.kernel.image.logic import apply_exif_orientation
+from negpy.kernel.image.logic import apply_exif_orientation, float_to_uint8, float_to_uint16
 
 
 def test_apply_exif_orientation_noop():
@@ -56,3 +56,27 @@ def test_apply_film_characteristic_curve_positive_output():
     # Shadow Input (0.9) should result in Dark Output
 
     assert val_highlight_input > val_shadow_input
+
+
+def test_float_to_uint_dtype_and_layout_variants_match():
+    # The no-copy fast path must not change results for f64 or non-contiguous inputs.
+    rng = np.random.default_rng(3)
+    img = (rng.random((6, 6, 3)) * 1.2 - 0.1).astype(np.float32)  # includes out-of-range
+
+    for fn in (float_to_uint8, float_to_uint16):
+        ref = fn(img)
+        assert np.array_equal(ref, fn(img.astype(np.float64)))
+
+        wide = np.zeros((6, 12, 3), dtype=np.float32)
+        wide[:, ::2, :] = img
+        view = wide[:, ::2, :]
+        assert not view.flags["C_CONTIGUOUS"]
+        assert np.array_equal(ref, fn(view))
+
+
+def test_float_to_uint_does_not_mutate_input():
+    img = np.random.default_rng(5).random((4, 4, 3)).astype(np.float32)
+    img_before = img.copy()
+    float_to_uint8(img)
+    float_to_uint16(img)
+    assert np.array_equal(img, img_before)

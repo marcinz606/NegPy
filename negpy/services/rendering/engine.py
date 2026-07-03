@@ -192,20 +192,21 @@ class DarkroomEngine:
             # Output transform: scene-linear -> display-encoded (flat master skips this).
             current_img = ensure_image(working_oetf_encode(current_img))
 
-        try:
-            uv_grid = CoordinateMapping.create_uv_grid(
-                rh_orig=h_orig,
-                rw_orig=w_cols,
-                rotation=settings.geometry.rotation,
-                fine_rot=settings.geometry.fine_rotation,
-                flip_h=settings.geometry.flip_horizontal,
-                flip_v=settings.geometry.flip_vertical,
-                autocrop=True,
-                autocrop_params=({"roi": context.active_roi} if context.active_roi and not context.crop_preview_full else None),
-                distortion_k1=distortion_k1,
-            )
-            context.metrics["uv_grid"] = uv_grid
-        except Exception as e:
-            logger.error(f"Failed to generate UV grid: {e}")
+        if context.wants_uv_grid:
+            try:
+                uv_grid = CoordinateMapping.create_uv_grid(
+                    rh_orig=h_orig,
+                    rw_orig=w_cols,
+                    rotation=settings.geometry.rotation,
+                    fine_rot=settings.geometry.fine_rotation,
+                    flip_h=settings.geometry.flip_horizontal,
+                    flip_v=settings.geometry.flip_vertical,
+                    autocrop=True,
+                    autocrop_params=({"roi": context.active_roi} if context.active_roi and not context.crop_preview_full else None),
+                    distortion_k1=distortion_k1,
+                )
+                context.metrics["uv_grid"] = uv_grid
+            except Exception as e:
+                logger.error(f"Failed to generate UV grid: {e}")
 
         return current_img

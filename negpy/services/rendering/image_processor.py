@@ -34,7 +34,7 @@ from negpy.kernel.image.logic import (
     working_oetf_decode,
 )
 from negpy.infrastructure.loaders.factory import loader_factory
-from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, is_xtrans
 from negpy.services.export.print import PrintService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry, WORKING_COLOR_SPACE
 from negpy.infrastructure.display.icc_lut import apply_icc_u16_rgb
@@ -51,6 +51,12 @@ _JXL_COLOR = {
     ColorSpace.REC2020.value: ("RGB", "BT2100", "BT709"),
     ColorSpace.GREYSCALE.value: ("GRAY", None, "SRGB"),
 }
+
+
+def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
+    """Mirrors the preview fast path (PreviewManager): rawpy half_size aliases the
+    X-Trans 6x6 CFA on linear (no-camera-WB) decodes, so those stay full-res."""
+    return not isinstance(raw, NonStandardFileWrapper) and not (is_xtrans(raw) and linear_raw)
 
 
 class ImageProcessor:
@@ -99,6 +105,7 @@ class ImageProcessor:
         readback_metrics: bool = True,
         ir_buffer: Optional[np.ndarray] = None,
         crop_preview_full: bool = False,
+        wants_uv_grid: bool = True,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
@@ -119,6 +126,7 @@ class ImageProcessor:
             process_mode=settings.process.process_mode,
             ir_buffer=ir_buffer,
             crop_preview_full=crop_preview_full,
+            wants_uv_grid=wants_uv_grid,
         )
         if metrics:
             context.metrics.update(metrics)
@@ -169,15 +177,18 @@ class ImageProcessor:
             return Image.fromarray(float_to_uint8(buffer))
         raise ValueError(f"Unsupported bit depth: {bit_depth}")
 
-    def _decode_sensor_rgb(self, file_path: str, linear_raw: bool) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _decode_sensor_rgb(self, file_path: str, linear_raw: bool, fast: bool = False) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
 
+        `fast` allows a half-size decode (contact-sheet tiles); ignored where
+        half_size would distort colors (see _use_half_size_decode).
         Returns (rgb_uint16, loader_metadata).
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
             user_wb = [1, 1, 1, 1] if linear_raw else None
+            post_kw: Dict[str, Any] = {"half_size": True} if fast and _use_half_size_decode(raw, linear_raw) else {}
             rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
@@ -187,31 +198,37 @@ class ImageProcessor:
                 output_color=rawpy.ColorSpace.raw,
                 demosaic_algorithm=algo,
                 user_flip=0,
+                **post_kw,
             )
             rgb = ensure_rgb(rgb)
         return rgb, metadata
 
-    def _load_source_f32(self, file_path: str, params: WorkspaceConfig) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
+    def _load_source_f32(
+        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False
+    ) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
         """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
 
         Returns (f32_buffer, ir_buffer, source_color_space).
         """
         linear_raw = params.process.linear_raw
+        rgbcfg = params.rgbscan
+        is_triplet = bool(rgbcfg.enabled and rgbcfg.green_path and rgbcfg.blue_path)
+        # Narrowband triplet channels don't survive half_size CFA binning.
+        fast_decode = fast_decode and not is_triplet
 
         try:
             mtime = os.path.getmtime(file_path)
         except OSError:
             mtime = 0.0
-        cache_key = (file_path, mtime, linear_raw, rgbscan_token(params.rgbscan), flatfield_token(params.flatfield))
+        cache_key = (file_path, mtime, linear_raw, rgbscan_token(params.rgbscan), flatfield_token(params.flatfield), fast_decode)
         if cache_key == self._source_cache_key and self._source_cache_value is not None:
             return self._source_cache_value
 
-        rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw)
+        rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode)
         source_cs = str(metadata.get("color_space", ColorSpace.ADOBE_RGB.value))
         ir_full = metadata.get("ir")
 
-        rgbcfg = params.rgbscan
-        if rgbcfg.enabled and rgbcfg.green_path and rgbcfg.blue_path:
+        if is_triplet:
             # Assemble one frame from the R/G/B exposures; the primary (red) file is
             # already decoded above, so reuse it and decode only green/blue.
             def _decode(path: str) -> np.ndarray:
@@ -222,6 +239,13 @@ class ImageProcessor:
             rgb = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
 
         f32_buffer = uint16_to_float32(rgb)
+
+        if ir_full is not None and ir_full.shape[:2] != f32_buffer.shape[:2]:
+            # half-size decode only; CPU retouch silently skips a mismatched IR
+            import cv2
+
+            ih, iw = f32_buffer.shape[:2]
+            ir_full = cv2.resize(ir_full, (iw, ih), interpolation=cv2.INTER_AREA)
 
         orientation = metadata.get("orientation", 1)
         f32_buffer = apply_exif_orientation(f32_buffer, orientation)
@@ -265,7 +289,12 @@ class ImageProcessor:
 
             if prefer_gpu and self.engine_gpu:
                 buffer, gpu_metrics = self.engine_gpu.process(
-                    f32_buffer, params, scale_factor=export_scale, bounds_override=bounds_override, ir_buffer=ir_full
+                    f32_buffer,
+                    params,
+                    scale_factor=export_scale,
+                    bounds_override=bounds_override,
+                    ir_buffer=ir_full,
+                    readback_metrics=False,
                 )
             else:
                 buffer, _ = self.run_pipeline(
@@ -276,6 +305,7 @@ class ImageProcessor:
                     metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
                     prefer_gpu=False,
                     ir_buffer=ir_full,
+                    wants_uv_grid=False,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
                 # Release full-res arrays pinned in the CPU stage cache.
@@ -441,6 +471,7 @@ class ImageProcessor:
         target_long_px: int,
         prefer_gpu: bool = True,
         working_color_space: str = WORKING_COLOR_SPACE,
+        fast_decode: bool = False,
     ) -> Optional[np.ndarray]:
         """Render a file (with its edits) to a small sRGB uint8 RGB array for tiling.
 
@@ -450,7 +481,7 @@ class ImageProcessor:
         try:
             from negpy.infrastructure.display.color_mgmt import apply_display_transform
 
-            f32_buffer, ir_full, _ = self._load_source_f32(file_path, params)
+            f32_buffer, ir_full, _ = self._load_source_f32(file_path, params, fast_decode=fast_decode)
             h_raw, w_raw = f32_buffer.shape[:2]
             scale_factor = max(1.0, max(h_raw, w_raw) / float(target_long_px))
 
@@ -458,7 +489,9 @@ class ImageProcessor:
                 prefer_gpu = False
 
             if prefer_gpu and self.engine_gpu:
-                buffer, _ = self.engine_gpu.process(f32_buffer, params, scale_factor=scale_factor, ir_buffer=ir_full)
+                buffer, _ = self.engine_gpu.process(
+                    f32_buffer, params, scale_factor=scale_factor, ir_buffer=ir_full, readback_metrics=False
+                )
             else:
                 buffer, _ = self.run_pipeline(
                     f32_buffer,
@@ -467,6 +500,7 @@ class ImageProcessor:
                     render_size_ref=float(target_long_px),
                     prefer_gpu=False,
                     ir_buffer=ir_full,
+                    wants_uv_grid=False,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
                 self.engine_cpu.cache.clear()
@@ -725,12 +759,13 @@ class ImageProcessor:
             compression="tiff_lzw" if fmt == "TIFF" else None,
         )
 
-    def cleanup(self) -> None:
+    def cleanup(self, release_source_cache: bool = True, collect: bool = True) -> None:
         """Evacuates transient GPU resources."""
-        self._source_cache_key = None
-        self._source_cache_value = None
+        if release_source_cache:
+            self._source_cache_key = None
+            self._source_cache_value = None
         if self.engine_gpu:
-            self.engine_gpu.cleanup()
+            self.engine_gpu.cleanup(collect=collect)
 
     def destroy_all(self) -> None:
         """Teardown GPU engine."""

@@ -571,7 +571,9 @@ class AppController(QObject):
                         file_path=path,
                         workspace_color_space=self.state.workspace_color_space,
                         use_camera_wb=not linear_raw,
-                        full_resolution=self.state.hq_preview,
+                        # Half-size only: a full-res HQ neighbour (~720MB) evicts the
+                        # active buffer; the cache key separates resolutions.
+                        full_resolution=False,
                         file_hash=h,
                         use_splash=False,
                         for_cache_warm=True,

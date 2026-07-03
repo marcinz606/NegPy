@@ -309,7 +309,8 @@ class CompactSlider(BaseSlider):
                     sensitivity *= 10.0
                 new_val = max(self._min, min(self._max, self._scrub_start_val + dx * sensitivity))
                 self.setValue(new_val)
-                self._emit_value()
+                # debounce like groove drags; a direct emit renders per mouse-move
+                self.timer.start()
                 return True
             if et == QEvent.Type.MouseButtonRelease and self._scrub_active:
                 self._scrub_active = False

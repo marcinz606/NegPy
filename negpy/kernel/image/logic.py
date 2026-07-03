@@ -263,13 +263,13 @@ def float_to_uint_luma(img: np.ndarray, bit_depth: int = 8) -> np.ndarray:
 
 def float_to_uint16(img: np.ndarray) -> np.ndarray:
     """Converts float32 [0,1] buffer to uint16."""
-    res: np.ndarray = _to_uint16_jit(np.ascontiguousarray(img.astype(np.float32)))
+    res: np.ndarray = _to_uint16_jit(np.ascontiguousarray(img, dtype=np.float32))
     return res
 
 
 def float_to_uint8(img: np.ndarray) -> np.ndarray:
     """Converts float32 [0,1] buffer to uint8."""
-    res: np.ndarray = _to_uint8_jit(np.ascontiguousarray(img.astype(np.float32)))
+    res: np.ndarray = _to_uint8_jit(np.ascontiguousarray(img, dtype=np.float32))
     return res
 
 

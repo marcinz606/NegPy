@@ -97,6 +97,53 @@ def test_corrects_then_recorrects_round_trip(k1):
     assert np.mean(np.abs(back[m] - img[m])) < 0.06
 
 
+def test_create_uv_grid_matches_f64_reference():
+    """The float32 fast path must reproduce the original f64-meshgrid formula bitwise
+    (np.linspace(..., dtype=f32) == np.linspace(...).astype(f32) for [0,1] ranges)."""
+    import cv2
+
+    from negpy.services.view.coordinate_mapping import CoordinateMapping
+
+    def reference(rh, rw, rotation, fine_rot, flip_h, flip_v, roi):
+        u, v = np.meshgrid(np.linspace(0, 1, rw), np.linspace(0, 1, rh))
+        g = np.stack([u, v], axis=-1).astype(np.float32)
+        if rotation != 0:
+            g = np.rot90(g, k=rotation).astype(np.float32)
+        if flip_h:
+            g = np.fliplr(g).astype(np.float32)
+        if flip_v:
+            g = np.flipud(g).astype(np.float32)
+        if fine_rot != 0.0:
+            h_r, w_r = g.shape[:2]
+            m = cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), fine_rot, 1.0)
+            g = cv2.warpAffine(g, m, (w_r, h_r), flags=cv2.INTER_LINEAR).astype(np.float32)
+        if roi:
+            y1, y2, x1, x2 = roi
+            g = g[y1:y2, x1:x2].astype(np.float32)
+        return g
+
+    cases = [
+        (33, 47, 0, 0.0, False, False, None),
+        (33, 47, 1, 0.0, True, False, None),
+        (33, 47, 2, 1.5, False, True, None),
+        (33, 47, 3, 0.0, True, True, (2, 20, 3, 30)),
+    ]
+    for rh, rw, rot, fine, fh, fv, roi in cases:
+        got = CoordinateMapping.create_uv_grid(
+            rh,
+            rw,
+            rotation=rot,
+            fine_rot=fine,
+            flip_h=fh,
+            flip_v=fv,
+            autocrop=roi is not None,
+            autocrop_params={"roi": roi} if roi else None,
+        )
+        assert got.dtype == np.float32
+        assert got.flags["C_CONTIGUOUS"]
+        assert np.array_equal(got, reference(rh, rw, rot, fine, fh, fv, roi))
+
+
 @pytest.mark.parametrize("k1", _K1_RANGE)
 def test_uv_grid_and_point_mapper_are_consistent(k1):
     """The crop tool maps clicks->raw via the uv grid (forward) and renders features

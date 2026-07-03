@@ -26,6 +26,9 @@ class PipelineContext:
     # When set, the crop tool is active: the final crop slice and uv_grid are bypassed
     # so the full uncropped frame is shown, while active_roi still scopes tone analysis.
     crop_preview_full: bool = False
+    # Only the interactive preview needs the click->raw uv_grid; at export res it
+    # costs ~0.5GB of temporaries and is discarded.
+    wants_uv_grid: bool = True
 
 
 class IImageSource(Protocol):
@@ -46,6 +49,7 @@ class IRepository(Protocol):
     def load_file_settings(self, file_hash: str) -> Optional[WorkspaceConfig]: ...
 
     def save_global_setting(self, key: str, value: Any) -> None: ...
+    def save_global_settings(self, settings: dict[str, Any]) -> None: ...
     def get_global_setting(self, key: str, default: Any = None) -> Any: ...
     def initialize(self) -> None: ...
 

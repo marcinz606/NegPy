@@ -54,6 +54,22 @@ class TestGPUEngine(unittest.TestCase):
 
         self.engine.cleanup()
         self.assertEqual(len(self.engine._tex_cache), 0)
+        self.assertIsNone(self.engine._uv_grid_cache)
+
+    def test_uv_grid_cached_across_frames(self):
+        """Same geometry -> reused grid object; geometry change -> rebuilt."""
+        from dataclasses import replace
+
+        img = np.random.rand(64, 64, 3).astype(np.float32)
+        settings = WorkspaceConfig()
+
+        _, m1 = self.engine.process_to_texture(img, settings)
+        _, m2 = self.engine.process_to_texture(img, settings)
+        self.assertIs(m2["uv_grid"], m1["uv_grid"])
+
+        rotated = replace(settings, geometry=replace(settings.geometry, rotation=1))
+        _, m3 = self.engine.process_to_texture(img, rotated)
+        self.assertIsNot(m3["uv_grid"], m1["uv_grid"])
 
     def test_gpu_tiled_processing(self):
         """Verify tiled processing for large images."""

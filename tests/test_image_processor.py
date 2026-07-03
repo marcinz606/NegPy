@@ -49,3 +49,63 @@ def test_image_service_jit_conversions() -> None:
     f32_res_u8 = uint8_to_float32(np.ascontiguousarray(u8_arr))
     assert f32_res_u8.dtype == np.float32
     assert np.allclose(f32_res_u8, [[[0.0, 127 / 255, 1.0]]])
+
+
+def test_use_half_size_decode_rules(monkeypatch) -> None:
+    import negpy.services.rendering.image_processor as ip
+
+    class _Raw:
+        pass
+
+    monkeypatch.setattr(ip, "is_xtrans", lambda raw: False)
+    assert ip._use_half_size_decode(_Raw(), linear_raw=False)
+    assert ip._use_half_size_decode(_Raw(), linear_raw=True)
+
+    # X-Trans + linear decode: half_size aliases the 6x6 CFA -> stay full-res.
+    monkeypatch.setattr(ip, "is_xtrans", lambda raw: True)
+    assert ip._use_half_size_decode(_Raw(), linear_raw=False)
+    assert not ip._use_half_size_decode(_Raw(), linear_raw=True)
+
+    monkeypatch.setattr(ip, "is_xtrans", lambda raw: False)
+    wrapper = object.__new__(ip.NonStandardFileWrapper)
+    assert not ip._use_half_size_decode(wrapper, linear_raw=False)
+
+
+def _fake_decode_recorder(calls):
+    def fake(file_path, linear_raw, fast=False):
+        calls.append(fast)
+        return np.zeros((4, 4, 3), dtype=np.uint16), {"orientation": 1, "color_space": "sRGB"}
+
+    return fake
+
+
+def test_load_source_f32_cache_key_separates_fast_decode(monkeypatch) -> None:
+    service = ImageProcessor()
+    calls: list = []
+    monkeypatch.setattr(service, "_decode_sensor_rgb", _fake_decode_recorder(calls))
+    cfg = WorkspaceConfig()
+
+    service._load_source_f32("/nonexistent/a.raw", cfg, fast_decode=True)
+    service._load_source_f32("/nonexistent/a.raw", cfg, fast_decode=True)
+    assert calls == [True]  # second call is a cache hit
+
+    # A full-res consumer (real export) must not reuse the half-size buffer.
+    service._load_source_f32("/nonexistent/a.raw", cfg, fast_decode=False)
+    assert calls == [True, False]
+
+
+def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from negpy.features.rgbscan.models import RgbScanConfig
+
+    service = ImageProcessor()
+    calls: list = []
+    monkeypatch.setattr(service, "_decode_sensor_rgb", _fake_decode_recorder(calls))
+    cfg = replace(
+        WorkspaceConfig(),
+        rgbscan=RgbScanConfig(enabled=True, green_path="/nonexistent/g.raw", blue_path="/nonexistent/b.raw", align=False),
+    )
+
+    service._load_source_f32("/nonexistent/r.raw", cfg, fast_decode=True)
+    assert calls and calls[0] is False

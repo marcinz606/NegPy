@@ -593,52 +593,53 @@ class DesktopSessionManager(QObject):
 
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
         """
-        Saves current settings to global storage.
+        Saves current settings to global storage in a single transaction.
         """
         from dataclasses import asdict
 
-        self.repo.save_global_setting("last_process_mode", config.process.process_mode)
-        self.repo.save_global_setting("last_analysis_buffer", config.process.analysis_buffer)
-        self.repo.save_global_setting("last_luma_range_clip", config.process.luma_range_clip)
-        self.repo.save_global_setting("last_color_range_clip", config.process.color_range_clip)
-        self.repo.save_global_setting("last_use_luma_average", config.process.use_luma_average)
-        self.repo.save_global_setting("last_use_colour_average", config.process.use_colour_average)
-        self.repo.save_global_setting("last_locked_floors", config.process.locked_floors)
-        self.repo.save_global_setting("last_locked_ceils", config.process.locked_ceils)
-        self.repo.save_global_setting("last_roll_name", config.process.roll_name)
-        self.repo.save_global_setting("last_crosstalk_strength", config.process.crosstalk_strength)
-        self.repo.save_global_setting("last_crosstalk_matrix", config.process.crosstalk_matrix)
-        self.repo.save_global_setting("last_crosstalk_profile", config.process.crosstalk_profile)
-
-        self.repo.save_global_setting("last_density", config.exposure.density)
-        self.repo.save_global_setting("last_grade", config.exposure.grade)
-        self.repo.save_global_setting("last_wb_cyan", config.exposure.wb_cyan)
-        self.repo.save_global_setting("last_wb_magenta", config.exposure.wb_magenta)
-        self.repo.save_global_setting("last_wb_yellow", config.exposure.wb_yellow)
-        self.repo.save_global_setting("last_linear_raw", config.process.linear_raw)
-        self.repo.save_global_setting("last_auto_exposure", config.exposure.auto_exposure)
-        self.repo.save_global_setting("last_auto_normalize_contrast", config.exposure.auto_normalize_contrast)
-        self.repo.save_global_setting("last_cast_removal_strength", config.exposure.cast_removal_strength)
-        self.repo.save_global_setting("last_auto_cast_removal", config.exposure.auto_cast_removal)
-        self.repo.save_global_setting("last_paper_dmin", config.exposure.paper_dmin)
-        self.repo.save_global_setting("last_surround", config.exposure.surround)
-        self.repo.save_global_setting("last_paper_profile", config.exposure.paper_profile)
-
-        self.repo.save_global_setting("last_toe", config.exposure.toe)
-        self.repo.save_global_setting("last_toe_width", config.exposure.toe_width)
-        self.repo.save_global_setting("last_shoulder", config.exposure.shoulder)
-        self.repo.save_global_setting("last_shoulder_width", config.exposure.shoulder_width)
-
-        self.repo.save_global_setting("last_aspect_ratio", config.geometry.autocrop_ratio)
-        self.repo.save_global_setting("last_autocrop_mode", config.geometry.autocrop_mode)
-        self.repo.save_global_setting("last_autocrop_offset", config.geometry.autocrop_offset)
-        self.repo.save_global_setting("last_flip_horizontal", config.geometry.flip_horizontal)
-        self.repo.save_global_setting("last_flip_vertical", config.geometry.flip_vertical)
-        self.repo.save_global_setting("last_export_config", asdict(config.export))
-        self.repo.save_global_setting("last_lab_config", asdict(config.lab))
-        self.repo.save_global_setting("last_toning_config", asdict(config.toning))
-        self.repo.save_global_setting("last_retouch_config", asdict(config.retouch))
-        self.repo.save_global_setting("last_dust_remove", config.retouch.dust_remove)
+        self.repo.save_global_settings(
+            {
+                "last_process_mode": config.process.process_mode,
+                "last_analysis_buffer": config.process.analysis_buffer,
+                "last_luma_range_clip": config.process.luma_range_clip,
+                "last_color_range_clip": config.process.color_range_clip,
+                "last_use_luma_average": config.process.use_luma_average,
+                "last_use_colour_average": config.process.use_colour_average,
+                "last_locked_floors": config.process.locked_floors,
+                "last_locked_ceils": config.process.locked_ceils,
+                "last_roll_name": config.process.roll_name,
+                "last_crosstalk_strength": config.process.crosstalk_strength,
+                "last_crosstalk_matrix": config.process.crosstalk_matrix,
+                "last_crosstalk_profile": config.process.crosstalk_profile,
+                "last_density": config.exposure.density,
+                "last_grade": config.exposure.grade,
+                "last_wb_cyan": config.exposure.wb_cyan,
+                "last_wb_magenta": config.exposure.wb_magenta,
+                "last_wb_yellow": config.exposure.wb_yellow,
+                "last_linear_raw": config.process.linear_raw,
+                "last_auto_exposure": config.exposure.auto_exposure,
+                "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
+                "last_cast_removal_strength": config.exposure.cast_removal_strength,
+                "last_auto_cast_removal": config.exposure.auto_cast_removal,
+                "last_paper_dmin": config.exposure.paper_dmin,
+                "last_surround": config.exposure.surround,
+                "last_paper_profile": config.exposure.paper_profile,
+                "last_toe": config.exposure.toe,
+                "last_toe_width": config.exposure.toe_width,
+                "last_shoulder": config.exposure.shoulder,
+                "last_shoulder_width": config.exposure.shoulder_width,
+                "last_aspect_ratio": config.geometry.autocrop_ratio,
+                "last_autocrop_mode": config.geometry.autocrop_mode,
+                "last_autocrop_offset": config.geometry.autocrop_offset,
+                "last_flip_horizontal": config.geometry.flip_horizontal,
+                "last_flip_vertical": config.geometry.flip_vertical,
+                "last_export_config": asdict(config.export),
+                "last_lab_config": asdict(config.lab),
+                "last_toning_config": asdict(config.toning),
+                "last_retouch_config": asdict(config.retouch),
+                "last_dust_remove": config.retouch.dust_remove,
+            }
+        )
 
     def select_file(self, index: int, selection_override: Optional[List[int]] = None) -> None:
         """

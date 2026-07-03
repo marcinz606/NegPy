@@ -24,23 +24,29 @@ class CoordinateMapping:
         Generates UV map for geometric state (output pixel -> raw uv it samples), so it
         carries the same forward transforms as the image, distortion included.
         """
-        u_raw, v_raw = np.meshgrid(np.linspace(0, 1, rw_orig), np.linspace(0, 1, rh_orig))
-        uv_grid = np.stack([u_raw, v_raw], axis=-1).astype(np.float32)
+        u_raw, v_raw = np.meshgrid(
+            np.linspace(0, 1, rw_orig, dtype=np.float32),
+            np.linspace(0, 1, rh_orig, dtype=np.float32),
+        )
+        uv_grid = np.stack([u_raw, v_raw], axis=-1)
 
         if rotation != 0:
             # Must match GPUEngine rotation direction (CCW)
-            uv_grid = np.rot90(uv_grid, k=rotation).astype(np.float32)
+            uv_grid = np.rot90(uv_grid, k=rotation)
 
         if flip_h:
-            uv_grid = np.fliplr(uv_grid).astype(np.float32)
+            uv_grid = np.fliplr(uv_grid)
 
         if flip_v:
-            uv_grid = np.flipud(uv_grid).astype(np.float32)
+            uv_grid = np.flipud(uv_grid)
+
+        # rot90/flips return views; consumers need one contiguous copy
+        uv_grid = np.ascontiguousarray(uv_grid)
 
         if fine_rot != 0.0:
             h_r, w_r = uv_grid.shape[:2]
             m_mat = cv2.getRotationMatrix2D((w_r / 2.0, h_r / 2.0), fine_rot, 1.0)
-            uv_grid = cv2.warpAffine(uv_grid, m_mat, (w_r, h_r), flags=cv2.INTER_LINEAR).astype(np.float32)
+            uv_grid = cv2.warpAffine(uv_grid, m_mat, (w_r, h_r), flags=cv2.INTER_LINEAR)
 
         if distortion_k1 != 0.0:
             from negpy.features.geometry.logic import apply_radial_distortion
@@ -49,7 +55,8 @@ class CoordinateMapping:
 
         if autocrop and autocrop_params:
             y1, y2, x1, x2 = autocrop_params["roi"]
-            uv_grid = uv_grid[y1:y2, x1:x2].astype(np.float32)
+            # copy so the ROI slice doesn't pin the full-size parent
+            uv_grid = np.ascontiguousarray(uv_grid[y1:y2, x1:x2])
 
         return uv_grid
 

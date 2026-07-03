@@ -115,9 +115,13 @@ class ToneSidebar(BaseSidebar):
         mode (neutral default + the mode's kind)."""
         from negpy.features.exposure.papers import profiles_for_mode
 
+        entries = [(prof.label, key) for key, prof in profiles_for_mode(process_mode)]
+        current = [(self.paper_combo.itemText(i), self.paper_combo.itemData(i)) for i in range(self.paper_combo.count())]
+        if entries == current:
+            return
         self.paper_combo.clear()
-        for key, prof in profiles_for_mode(process_mode):
-            self.paper_combo.addItem(prof.label, key)
+        for label, key in entries:
+            self.paper_combo.addItem(label, key)
 
     def _on_paper_changed(self, _idx: int) -> None:
         key = self.paper_combo.currentData()

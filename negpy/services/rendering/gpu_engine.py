@@ -60,6 +60,9 @@ TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
 METRICS_BUFFER_SIZE = 4096
 
+# Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
+_METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
+
 
 def _detect_autocrop_roi(img: np.ndarray, settings: WorkspaceConfig, h_rot: int, w_rot: int) -> Tuple[int, int, int, int]:
     """
@@ -228,6 +231,9 @@ class GPUEngine:
         self._metrics_staging: Optional[Any] = None
         # (prb, height, buffer) — reused when image size/rotation is unchanged
         self._downsample_staging: Optional[Tuple[int, int, Any]] = None
+
+        # (key, grid) — pure function of geometry, reused across settled frames
+        self._uv_grid_cache: Optional[Tuple[Tuple, np.ndarray]] = None
 
     def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float) -> int:
         """
@@ -593,6 +599,7 @@ class GPUEngine:
             metered_anchor=metered_anchor,
             textural_range=textural_range,
             neutral_axis_refs=neutral_axis_refs,
+            unmix=unmix_m,
         )
         self._update_retouch_storage(
             settings.retouch,
@@ -877,7 +884,7 @@ class GPUEngine:
             tex_final, content_rect = tex_for_layout, (0, 0, crop_w, crop_h)
 
         if not tiling_mode and readback_metrics:
-            device.queue.write_buffer(self._buffers["metrics"].buffer, 0, np.zeros(1024, dtype=np.uint32))
+            device.queue.write_buffer(self._buffers["metrics"].buffer, 0, _METRICS_ZEROS)
             # Always compute metrics on the content image (tex_toning) before any
             # border/layout pass so that border pixels don't skew the histogram.
             self._dispatch_pass(
@@ -916,17 +923,32 @@ class GPUEngine:
         if not tiling_mode and readback_metrics:
             metrics["histogram_raw"] = self._readback_metrics()
             try:
-                metrics["uv_grid"] = CoordinateMapping.create_uv_grid(
-                    rh_orig=h,
-                    rw_orig=w,
-                    rotation=settings.geometry.rotation,
-                    fine_rot=settings.geometry.fine_rotation,
-                    flip_h=settings.geometry.flip_horizontal,
-                    flip_v=settings.geometry.flip_vertical,
-                    autocrop=True,
-                    autocrop_params={"roi": roi} if roi else None,
-                    distortion_k1=k1_eff,
+                uv_key = (
+                    h,
+                    w,
+                    settings.geometry.rotation,
+                    settings.geometry.fine_rotation,
+                    settings.geometry.flip_horizontal,
+                    settings.geometry.flip_vertical,
+                    roi,
+                    k1_eff,
                 )
+                if self._uv_grid_cache is not None and self._uv_grid_cache[0] == uv_key:
+                    metrics["uv_grid"] = self._uv_grid_cache[1]
+                else:
+                    uv_grid = CoordinateMapping.create_uv_grid(
+                        rh_orig=h,
+                        rw_orig=w,
+                        rotation=settings.geometry.rotation,
+                        fine_rot=settings.geometry.fine_rotation,
+                        flip_h=settings.geometry.flip_horizontal,
+                        flip_v=settings.geometry.flip_vertical,
+                        autocrop=True,
+                        autocrop_params={"roi": roi} if roi else None,
+                        distortion_k1=k1_eff,
+                    )
+                    self._uv_grid_cache = (uv_key, uv_grid)
+                    metrics["uv_grid"] = uv_grid
             except Exception as e:
                 logger.error(f"GPU Engine metrics error: {e}")
 
@@ -953,6 +975,7 @@ class GPUEngine:
         neutral_axis_refs: Optional[
             Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]], float]
         ] = None,
+        unmix: Optional[np.ndarray] = None,
     ) -> None:
         """Packs and uploads all pipeline parameters to the unified UBO."""
         # scale_s uses the post-rotation dims the geometry pass emits. Zeroed for tiled
@@ -980,9 +1003,8 @@ class GPUEngine:
         # E6 mirrors the CPU path (NormalizationProcessor), which negates the offsets.
         offset_sign = -1.0 if mode_val == 2 else 1.0
 
-        # Capture-side dye-unmix rows: effective matrix computed CPU-side (shared
-        # with NormalizationProcessor via resolve_crosstalk_matrix); identity when off.
-        unmix = resolve_crosstalk_matrix(settings.process.crosstalk_strength, settings.process.crosstalk_matrix)
+        # Capture-side dye-unmix rows, resolved once per frame by the caller
+        # (shared with NormalizationProcessor); identity when off.
         if unmix is None:
             unmix = np.eye(3)
 
@@ -1485,6 +1507,7 @@ class GPUEngine:
         scale_factor: float = 1.0,
         bounds_override: Optional[Any] = None,
         ir_buffer: Optional[np.ndarray] = None,
+        readback_metrics: bool = True,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
         self._init_resources()
@@ -1495,7 +1518,12 @@ class GPUEngine:
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
             return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, ir_buffer=ir_buffer)
         tex_final, metrics = self.process_to_texture(
-            img, settings, scale_factor=scale_factor, bounds_override=bounds_override, ir_buffer=ir_buffer
+            img,
+            settings,
+            scale_factor=scale_factor,
+            bounds_override=bounds_override,
+            ir_buffer=ir_buffer,
+            readback_metrics=readback_metrics,
         )
         return self._readback_downsampled(tex_final), metrics
 
@@ -1596,12 +1624,21 @@ class GPUEngine:
         y1, y2, x1, x2 = roi
         crop_w, crop_h = x2 - x1, y2 - y1
 
+        # All global meters read the same downsample + scaled ROI; compute lazily once.
+        ah, aw = img_rot.shape[:2]
+        a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
+        analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
+        analysis_small: Optional[np.ndarray] = None
+
+        def _analysis_img() -> np.ndarray:
+            nonlocal analysis_small
+            if analysis_small is None:
+                analysis_small = _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size)
+            return analysis_small
+
         def _analyze_global_bounds() -> LogNegativeBounds:
-            ah, aw = img_rot.shape[:2]
-            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
-            analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
             return analyze_log_exposure_bounds(
-                _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
+                _analysis_img(),
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
                 process_mode=settings.process.process_mode,
@@ -1622,17 +1659,13 @@ class GPUEngine:
             settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal
         ) and settings.process.process_mode == ProcessMode.C41:
             # Tiles must share one global measurement, like global_bounds.
-            ah, aw = img_rot.shape[:2]
-            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
-            analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
-            analysis_img = _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size)
             global_shadow_refs = measure_shadow_log_refs(
-                analysis_img,
+                _analysis_img(),
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
             )
             global_neutral_axis = measure_neutral_axis(
-                analysis_img,
+                _analysis_img(),
                 global_bounds,
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
@@ -1641,11 +1674,8 @@ class GPUEngine:
         global_metered_anchor = None
         if settings.exposure.auto_exposure:
             # Tiles must share one global anchor, like global_bounds/shadow_refs.
-            ah, aw = img_rot.shape[:2]
-            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
-            analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
             global_metered_anchor = measure_anchor(
-                _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
+                _analysis_img(),
                 global_anchor_bounds,
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
@@ -1654,11 +1684,8 @@ class GPUEngine:
         global_textural_range = None
         if settings.exposure.auto_normalize_contrast:
             # Tiles must share one global textural range, like global_bounds.
-            ah, aw = img_rot.shape[:2]
-            a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
-            analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
             global_textural_range = measure_textural_range(
-                _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size),
+                _analysis_img(),
                 roi=analysis_roi,
                 analysis_buffer=settings.process.analysis_buffer,
             )
@@ -1708,8 +1735,8 @@ class GPUEngine:
         result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
         return result, metrics_ref
 
-    def cleanup(self) -> None:
-        """Evacuates the texture pool and forces garbage collection."""
+    def cleanup(self, collect: bool = True) -> None:
+        """Evacuates the texture pool; optionally forces garbage collection."""
         for tex in self._tex_cache.values():
             tex.destroy()
         self._tex_cache.clear()
@@ -1717,7 +1744,9 @@ class GPUEngine:
         self._bind_group_cache.clear()
         self._bind_layout_cache.clear()
         self._ir_upload_key = None
-        gc.collect()
+        self._uv_grid_cache = None
+        if collect:
+            gc.collect()
         logger.info("GPUEngine: VRAM resources released")
 
     def destroy_all(self) -> None:

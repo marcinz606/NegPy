@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Optional, Any, Union
+import gc
 import os
 import tempfile
 import threading
@@ -25,6 +26,17 @@ class ExportTask:
     source_exif: Optional[dict] = None
     metadata_config: Optional[MetadataConfig] = None
     working_color_space: str = WORKING_COLOR_SPACE
+
+
+def _same_decode_source(a: ExportTask, b: ExportTask) -> bool:
+    """True when the decoded f32 source cache is reusable for the next task
+    (mirrors the _load_source_f32 cache key; the key still verifies on read)."""
+    return (
+        a.file_info["path"] == b.file_info["path"]
+        and a.params.process.linear_raw == b.params.process.linear_raw
+        and a.params.rgbscan == b.params.rgbscan
+        and a.params.flatfield == b.params.flatfield
+    )
 
 
 class ExportWorker(QObject):
@@ -133,12 +145,19 @@ class ExportWorker(QObject):
                         self.error.emit(str(write_err))
                         continue
 
-                # Aggressive VRAM evacuation between files
-                self._processor.cleanup()
+                # VRAM evacuated per file; decoded source kept for a same-file next
+                # task (multi-format presets), gc deferred to once per batch.
+                nxt = tasks[i + 1] if i + 1 < len(tasks) else None
+                self._processor.cleanup(
+                    release_source_cache=nxt is None or not _same_decode_source(task, nxt),
+                    collect=False,
+                )
 
             self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            gc.collect()
 
     @pyqtSlot(list, str, int, int, int, int)
     def run_contact_sheet(self, tasks: List[ExportTask], out_dir: str, cell_px: int, gap: int, margin: int, max_tiles: int) -> None:
@@ -161,6 +180,8 @@ class ExportWorker(QObject):
                     target_long_px=cell_px * 2,
                     prefer_gpu=task.gpu_enabled,
                     working_color_space=task.working_color_space,
+                    # half-size decode is visually identical at ~600px proof tiles
+                    fast_decode=True,
                 )
                 if tile is not None:
                     tiles.append(tile)

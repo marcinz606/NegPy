@@ -64,6 +64,29 @@ class TestDarkroomEngine(unittest.TestCase):
         self.assertIn("normalized_log", context.metrics)
         self.assertIn("log_bounds", context.metrics)
 
+    def test_uv_grid_present_by_default(self):
+        from negpy.domain.interfaces import PipelineContext
+
+        engine = DarkroomEngine()
+        img = np.random.rand(64, 64, 3).astype(np.float32)
+        context = PipelineContext(scale_factor=1.0, original_size=(64, 64))
+
+        engine.process(img, WorkspaceConfig(), source_hash="uv1", context=context)
+
+        self.assertIn("uv_grid", context.metrics)
+
+    def test_uv_grid_skipped_when_not_wanted(self):
+        """Export paths discard metrics; the full-res grid must not be built for them."""
+        from negpy.domain.interfaces import PipelineContext
+
+        engine = DarkroomEngine()
+        img = np.random.rand(64, 64, 3).astype(np.float32)
+        context = PipelineContext(scale_factor=1.0, original_size=(64, 64), wants_uv_grid=False)
+
+        engine.process(img, WorkspaceConfig(), source_hash="uv2", context=context)
+
+        self.assertNotIn("uv_grid", context.metrics)
+
 
 if __name__ == "__main__":
     unittest.main()
