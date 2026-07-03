@@ -7,19 +7,14 @@ owns contrast and Density/toe/shoulder still trim on top. The default profile
 reproduces EXPOSURE_CONSTANTS exactly. B&W profiles are tonal only (the B&W path
 collapses to luminance, so colour terms are inert — paper tone is a Toning job).
 
-Tonal values are least-squares fits of digitized datasheet D-logH curves
-(scripts/fit_paper_profile.py; curves extracted from the vendor PDFs' vector
-art, 2026-07 — digitized CSVs + fit logs in papers/fits/). Family fits share
-one paper shape across the published grade/channel curves; per-curve slope is
-nuisance (Grade owns contrast). All accepted fits have RMS ≤ 0.03 D except
-where noted. Fuji publishes no D-logH curve, so that profile stays a hand
-estimate. Note d_min is the softplus model parameter, not the literal paper
-floor — with very soft knees (Endura) the rendered floor emerges lower from
-the toe/shoulder interplay.
+Values were loosely mapped by Claude from published datasheets (Ilford, Kodak
+Endura, Foma, Fuji), not a precise calibration. Mainly d_max is grounded; the
+knee/midtone tweaks are light touches for character. Note these stack on the
+Grade slope, so over-soft knees read flat — keep them gentle.
 
-To recalibrate, digitize a datasheet's D-logH curve and run
-scripts/fit_paper_profile.py — it fits this exact parametric family and
-prints the PaperProfile kwargs (accept when RMS ≤ ~0.05 D).
+To replace a profile with a real calibration, digitize the datasheet's D-logH
+curve and run scripts/fit_paper_profile.py — it fits this exact parametric
+family and prints the PaperProfile kwargs (accept when RMS ≤ ~0.05 D).
 """
 
 from dataclasses import dataclass
@@ -74,80 +69,56 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     "ilford_mg_rc": PaperProfile(
         label="Ilford Multigrade RC",
         kind="bw",
-        # MULTIGRADE-IV-RC-Papers-060619.pdf p3. Curve chart is a low-res raster,
-        # so the shape is the FB Classic family fit (Ilford: MG curves "broadly
-        # similar"); Dmax 2.20 measured off the RC chart plateau — deeper than the
-        # FB Classic chart, contrary to RC/FB folklore. Toe unreadable → FB d_min.
-        d_max=2.20,
-        d_min=0.012,
-        toe_sharpness_base=5.64,
-        shoulder_sharpness_base=3.46,
-        paper_midtone_gamma=0.0,
+        # Neutral VC workhorse; Dmax ~2.1, normal contrast.
+        d_max=2.10,
+        d_min=0.04,
+        paper_midtone_gamma=0.15,
     ),
     "ilford_fb_classic": PaperProfile(
         label="Ilford Multigrade FB Classic",
         kind="bw",
-        # MULTIGRADE FB CLASSIC datasheet p2, grades 00-5 family fit, RMS 0.028 D.
-        # Crisp toe, soft-ish shoulder, no extra midtone S (mg fit → 0).
-        d_max=2.08,
-        d_min=0.012,
-        toe_sharpness_base=5.64,
-        shoulder_sharpness_base=3.46,
-        paper_midtone_gamma=0.0,
+        # Baryta, deeper blacks + crisper shadow knee than RC.
+        d_max=2.15,
+        d_min=0.04,
+        toe_sharpness_base=5.0,
+        paper_midtone_gamma=0.15,
     ),
     "foma_fomatone": PaperProfile(
         label="Foma Fomatone MG Classic",
         kind="bw",
-        # fomatone datasheet p2, grades 0-4 family fit, RMS 0.017 D. Strong
-        # chlorobromide midtone S with snappy knees; chart plateau is semi-glossy
-        # (1.83) — d_max set to the glossy 2.0 from the same sheet's table.
+        # Warm chlorobromide; gentler rendering, Dmax ~2.0.
         d_max=2.0,
-        d_min=0.085,
-        toe_sharpness_base=8.13,
-        shoulder_sharpness_base=7.15,
-        paper_midtone_gamma=0.80,
-        paper_gamma_width=0.62,
+        d_min=0.05,
+        toe_sharpness_base=3.5,
+        paper_midtone_gamma=0.10,
     ),
     "foma_fomabrom": PaperProfile(
         label="Foma Fomabrom Variant",
         kind="bw",
-        # fomabrom datasheet p2, grades 0-5 family fit, RMS 0.014 D. Near-linear
-        # mid (mg ≈ 0), firm knees; d_max 2.0 per the chart's own "Dmax=2,0" mark
-        # (fit read 1.97, within axis-calibration slop).
+        # Neutral baryta, Dmax 2.0.
         d_max=2.0,
-        d_min=0.105,
-        toe_sharpness_base=6.23,
-        shoulder_sharpness_base=6.55,
-        paper_midtone_gamma=0.03,
-        paper_gamma_width=0.37,
+        d_min=0.04,
+        paper_midtone_gamma=0.15,
     ),
     # ── RA4 colour ───────────────────────────────────────────────────────────
     "kodak_endura": PaperProfile(
         label="Kodak Endura Premier",
         kind="ra4",
-        # paper-endura-techpub-e4070.pdf p4 (Status A). Tonal shape = green-channel
-        # fit (RMS 0.005 D): very soft, wide knees over the 3-decade axis; the
-        # rendered floor emerges ≈0.10 from the knee interplay, not d_min itself.
-        # channel_gamma from per-channel slope refits with the G shape fixed
-        # (R 9.46 / G 8.27 / B 8.52) — R steepest ≈ its deeper Dmax (2.75 vs 2.52),
-        # cool deep shadows. The shared-shape family can't also hold R's Dmax
-        # (R-channel residual 0.10 D, concentrated in the last ~0.3 D of shadow).
-        # Channel floors are near-equal (R/G 0.105, B 0.079) → no base tint.
-        d_max=2.52,
-        d_min=0.20,
-        toe_sharpness_base=0.99,
-        shoulder_sharpness_base=0.90,
-        paper_midtone_gamma=0.0,
-        channel_gamma=(1.14, 1.0, 1.03),
+        # Neutral, deep blacks (Dmax ~2.55), punchy midtone S. Datasheet R/G/B
+        # diverge only at Dmax (R densest) → cool deep shadows; approximated with a
+        # small channel_gamma.
+        d_max=2.55,
+        d_min=0.06,
+        toe_sharpness_base=3.5,
+        paper_midtone_gamma=0.22,
+        channel_gamma=(1.04, 1.0, 0.98),
     ),
     "fuji_crystal": PaperProfile(
         label="Fujicolor Crystal Archive",
         kind="ra4",
-        # Fuji publishes no D-logH curve for CA papers (Type II / DPII / AF3-198E
-        # sheets checked 2026-07: spectral data only), so this stays a hand
-        # estimate — brilliant whites, vivid blue/green, slight cool base. Tint is
-        # a per-channel density offset (+darkens that channel): negative M/Y lifts
-        # green/blue for the cool, vivid look.
+        # No published curve; rough estimate — brilliant whites, vivid blue/green,
+        # slight cool base. Tint is a per-channel density offset (+darkens that
+        # channel): negative M/Y lifts green/blue for the cool, vivid look.
         d_max=2.35,
         d_min=0.03,
         paper_midtone_gamma=0.15,
