@@ -344,6 +344,40 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(self.session.state.undo_index, 5)
         self.assertEqual(self.session.state.max_history_index, 5)
 
+    def test_reset_settings_drops_edits_and_bounds(self):
+        self.session.select_file(0)
+        dirty = replace(
+            self.session.state.config,
+            exposure=replace(self.session.state.config.exposure, density=1.8, grade=140.0),
+            process=replace(
+                self.session.state.config.process,
+                local_floors=(0.1, 0.2, 0.3),
+                local_ceils=(0.7, 0.8, 0.9),
+                locked_floors=(0.05, 0.05, 0.05),
+                locked_ceils=(0.95, 0.95, 0.95),
+                lock_bounds=True,
+            ),
+            geometry=replace(self.session.state.config.geometry, rotation=2, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+        )
+        self.session.update_config(dirty, persist=True)
+
+        self.session.reset_settings()
+
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        self.assertFalse(self.session.state.config.process.is_local_initialized)
+        self.assertFalse(self.session.state.config.process.is_locked_initialized)
+
+    def test_reset_settings_clears_history(self):
+        self.session.select_file(0)
+        self.session.state.undo_index = 3
+        self.session.state.max_history_index = 3
+
+        self.session.reset_settings()
+
+        self.mock_repo.clear_history.assert_called_once_with("hash1")
+        self.assertEqual(self.session.state.undo_index, 0)
+        self.assertEqual(self.session.state.max_history_index, 0)
+
     def _last_session_manifest(self):
         """Returns (paths, active_path) from the most recent _persist_session calls."""
         saved = {c.args[0]: c.args[1] for c in self.mock_repo.save_global_setting.call_args_list}
