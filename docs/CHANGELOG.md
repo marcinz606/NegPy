@@ -11,6 +11,7 @@
 - New: **Tone-curve drag feedback** — while dragging a Tone slider, the H&D chart keeps the pre-drag curve as a faded ghost so you see exactly what moved; Toe/Shoulder sliders glow their zone of the curve, Grade/Density highlight the pivot crosshair.
 - Change: **Lock Bounds** is now a labeled button beside Linear RAW in the Process panel, instead of a small icon squeezed next to the process dropdown.
 - Fix: the **GPU histogram** was binning scene-linear values since the scene-linear pipeline rework (0.30.0), reading darker than the CPU one — both now bin the display-encoded image.
+- Fix: the bundled **RGBScan input ICC profile** used an sRGB TRC instead of the gamma 2.2 curve NegPy's pipeline expects at that stage, lifting the toe and giving a washed-out look — rebuilt to match, same colour transform. @thetalkingdrum
 
 ## 0.32.1
 
