@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -203,3 +204,30 @@ def test_config_roundtrip_preserves_rgbscan():
     cfg = type(cfg)(**{**cfg.__dict__, "rgbscan": RgbScanConfig(enabled=True, green_path="/g", blue_path="/b")})
     restored = WorkspaceConfig.from_flat_dict(cfg.to_dict())
     assert restored.rgbscan == cfg.rgbscan
+
+
+def test_resolve_asset_rgbscan_injects_from_asset():
+    """Batch export must use the asset dict's own green/blue, overriding a stale DB config."""
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    stale = replace(WorkspaceConfig(), rgbscan=RgbScanConfig(enabled=True, green_path="/old_g", blue_path="/old_b"))
+    asset = {"path": "/r", "green_path": "/g", "blue_path": "/b"}
+    out = resolve_asset_rgbscan(stale, asset)
+    assert out.rgbscan == RgbScanConfig(enabled=True, green_path="/g", blue_path="/b", align=True)
+
+
+def test_resolve_asset_rgbscan_honors_align():
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    asset = {"green_path": "/g", "blue_path": "/b", "align": False}
+    out = resolve_asset_rgbscan(WorkspaceConfig(), asset)
+    assert out.rgbscan.align is False
+
+
+def test_resolve_asset_rgbscan_resets_when_not_triplet():
+    """A non-triplet frame must not inherit a leaked/enabled triplet config."""
+    from negpy.desktop.session import resolve_asset_rgbscan
+
+    leaked = replace(WorkspaceConfig(), rgbscan=RgbScanConfig(enabled=True, green_path="/g", blue_path="/b"))
+    out = resolve_asset_rgbscan(leaked, {"path": "/r"})
+    assert out.rgbscan == RgbScanConfig()

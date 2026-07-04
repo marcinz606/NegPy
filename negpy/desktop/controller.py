@@ -9,7 +9,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QMessageBox
 
 from negpy.desktop.converters import ImageConverter
-from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode
+from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan
 from negpy.desktop.workers.export import ExportTask, ExportWorker
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
@@ -1338,6 +1338,13 @@ class AppController(QObject):
                 self.session.save_export_presets()
         return True
 
+    def _batch_params_for(self, f: dict) -> WorkspaceConfig:
+        """Resolve a visible frame's export params: its saved DB config (else the current
+        config), with its own RGB-scan green/blue re-injected from the asset dict — the
+        same authoritative source individual export gets via select_file."""
+        params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
+        return resolve_asset_rgbscan(params, f)
+
     def _tasks_for_file(
         self,
         file_info: dict,
@@ -1481,7 +1488,7 @@ class AppController(QObject):
 
         tasks = []
         for f in files:
-            params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
+            params = self._batch_params_for(f)
 
             if override_settings:
                 params = replace(params, export=current_export)
@@ -1587,7 +1594,7 @@ class AppController(QObject):
 
         tasks = []
         for f in visible_files:
-            params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
+            params = self._batch_params_for(f)
 
             bounds_override = None
             if f["hash"] == self.state.current_file_hash:
@@ -1632,7 +1639,7 @@ class AppController(QObject):
 
         tasks = []
         for f in visible_files:
-            params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
+            params = self._batch_params_for(f)
             tasks.append(
                 ExportTask(
                     file_info=f,

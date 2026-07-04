@@ -1,6 +1,11 @@
 # Change Log
 
 
+## 0.33.1
+
+- Fix: **exporting all RGB-scan triplets no longer fails** with "Input/output error" on most frames. Batch export was reusing stale saved paths for each frame's green/blue exposures instead of the ones the triplet was actually built from, so it tried to read files that weren't there; it now uses each frame's own exposures, the same as exporting one at a time.
+
+
 ## 0.33.0
 
 - New: **Temperature slider** — a Kelvin lever above the CMY white balance: drag it and Magenta/Yellow move together along the warm–cool axis in the right ratio, like re-dialing a dichroic filter pack, while your green–magenta tint stays put. Move M/Y (or Pick WB) yourself and the slider reads back the print's temperature instead. Warm sits on the right, travel is mired-linear (equal drag = equal perceived shift), and `T`/`G` nudge it from the keyboard. The thermometer button locks the temperature for the roll: every frame you open gets re-aimed to it — keeping its own tint — and the lock survives restarts.

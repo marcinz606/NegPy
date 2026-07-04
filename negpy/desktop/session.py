@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
 from negpy.domain.models import ExportPreset, WorkspaceConfig
+from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.sidecar import load_or_promote
@@ -333,6 +334,17 @@ def build_synced_config(
         out = replace(out, process=replace(out.process, **changes))
 
     return out
+
+
+def resolve_asset_rgbscan(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+    """Overlay a frame's own RGB-scan triplet paths (from the asset dict) onto its export
+    params — the authoritative source select_file uses. A non-triplet frame gets rgbscan
+    reset so a batch frame never inherits the currently-open frame's leaked/stale triplet."""
+    green, blue = asset.get("green_path"), asset.get("blue_path")
+    if green and blue:
+        align = bool(asset.get("align", params.rgbscan.align))
+        return replace(params, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align))
+    return replace(params, rgbscan=RgbScanConfig())
 
 
 class DesktopSessionManager(QObject):

@@ -94,18 +94,22 @@ def test_load_source_f32_cache_key_separates_fast_decode(monkeypatch) -> None:
     assert calls == [True, False]
 
 
-def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch) -> None:
+def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch, tmp_path) -> None:
     from dataclasses import replace
 
     from negpy.features.rgbscan.models import RgbScanConfig
+
+    r, g, b = (tmp_path / n for n in ("r.raw", "g.raw", "b.raw"))
+    for f in (r, g, b):
+        f.write_bytes(b"x")
 
     service = ImageProcessor()
     calls: list = []
     monkeypatch.setattr(service, "_decode_sensor_rgb", _fake_decode_recorder(calls))
     cfg = replace(
         WorkspaceConfig(),
-        rgbscan=RgbScanConfig(enabled=True, green_path="/nonexistent/g.raw", blue_path="/nonexistent/b.raw", align=False),
+        rgbscan=RgbScanConfig(enabled=True, green_path=str(g), blue_path=str(b), align=False),
     )
 
-    service._load_source_f32("/nonexistent/r.raw", cfg, fast_decode=True)
+    service._load_source_f32(str(r), cfg, fast_decode=True)
     assert calls and calls[0] is False

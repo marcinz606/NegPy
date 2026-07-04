@@ -231,6 +231,10 @@ class ImageProcessor:
         if is_triplet:
             # Assemble one frame from the R/G/B exposures; the primary (red) file is
             # already decoded above, so reuse it and decode only green/blue.
+            for label, path in (("green", rgbcfg.green_path), ("blue", rgbcfg.blue_path)):
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f"RGB-scan {label} exposure not found: {path}")
+
             def _decode(path: str) -> np.ndarray:
                 if path == file_path:
                     return rgb
