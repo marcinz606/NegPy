@@ -32,14 +32,9 @@ def slider_label_qss(color: str, edited: bool) -> str:
     return f"font-size: {THEME.font_size_base}px; color: {label_color};"
 
 
-def hue_handle_qss(color: str) -> str:
-    return (
-        f"QSlider::groove:horizontal {{"
-        f"background: {THEME.bg_header}; height: 6px; border-radius: 3px;}}"
-        f" QSlider::handle:horizontal {{"
-        f"background: {color}; width: 12px; height: 12px;"
-        f"margin: -3px 0; border-radius: 6px; border: 2px solid rgba(0,0,0,0.5);}}"
-    )
+def slider_handle_qss(color: str) -> str:
+    """Recolors the handle only; geometry cascades from the app-wide QSlider style."""
+    return f"QSlider::handle:horizontal {{background: {color};}}"
 
 
 def swatch_qss(hex_col: str) -> str:

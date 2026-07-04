@@ -77,6 +77,21 @@ def test_kelvin_slider_mired_travel(qapp):
     s.timer.stop()
 
 
+def test_kelvin_slider_handle_tracks_temperature(qapp):
+    from negpy.desktop.view.widgets.sliders import _kelvin_handle_color
+
+    warm, cool = _kelvin_handle_color(3000.0), _kelvin_handle_color(12000.0)
+    assert warm.red() > warm.blue()
+    assert cool.blue() > cool.red()
+
+    s = KelvinSlider("Temperature")
+    s.setValue(3000)
+    warm_qss = s.slider.styleSheet()
+    s.setValue(12000)
+    assert s.slider.styleSheet() != warm_qss
+    s.timer.stop()
+
+
 def test_kelvin_slider_default_roundtrips_exactly(qapp):
     s = KelvinSlider("Temperature")
     s.setValue(4300)
