@@ -476,6 +476,15 @@ class DesktopSessionManager(QObject):
         ff_path, ff_k1 = ff_rec if ff_rec else ("", 0.0)
         config = replace(config, flatfield=replace(config.flatfield, reference_path=ff_path, k1=ff_k1))
 
+        # Temperature roll-lock: re-aim global WB at the locked Kelvin, keeping
+        # the frame's own off-locus tint.
+        locked_k = self.repo.get_global_setting("wb_temp_lock")
+        if locked_k is not None:
+            from negpy.features.exposure.logic import kelvin_to_wb
+
+            m2, y2 = kelvin_to_wb(float(locked_k), config.exposure.wb_magenta, config.exposure.wb_yellow)
+            config = replace(config, exposure=replace(config.exposure, wb_magenta=m2, wb_yellow=y2))
+
         if only_global:
             return config
 

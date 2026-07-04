@@ -78,6 +78,9 @@ class ShortcutManager:
             "magenta_down": (lambda: controls.colour_sidebar.magenta_slider, -1.0),
             "yellow_up": (lambda: controls.colour_sidebar.yellow_slider, 1.0),
             "yellow_down": (lambda: controls.colour_sidebar.yellow_slider, -1.0),
+            # Warmer = lower Kelvin.
+            "temp_warm": (lambda: controls.colour_sidebar.temp_slider, -1.0),
+            "temp_cool": (lambda: controls.colour_sidebar.temp_slider, 1.0),
             "density_up": (lambda: controls.tone_sidebar.density_slider, 1.0),
             "density_down": (lambda: controls.tone_sidebar.density_slider, -1.0),
             # ISO R scale is inverted: harder grade = lower R.

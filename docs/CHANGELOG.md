@@ -1,13 +1,15 @@
 # Change Log
 
-## 0.32.2
+## 0.33.0
 
+- New: **Temperature slider** — a Kelvin lever above the CMY white balance: drag it and Magenta/Yellow move together along the warm–cool axis in the right ratio, like re-dialing a dichroic filter pack, while your green–magenta tint stays put. Move M/Y (or Pick WB) yourself and the slider reads back the print's temperature instead. Warm sits on the right, travel is mired-linear (equal drag = equal perceived shift), and `T`/`G` nudge it from the keyboard. The thermometer button locks the temperature for the roll: every frame you open gets re-aimed to it — keeping its own tint — and the lock survives restarts.
 - New: **Expanded tutorial** — the walkthrough now explains the physics behind the pipeline (log density, the H&D print, orange-mask metering) and why a tight crop or the Analysis Buffer matters for clean black/white points. New steps for the Analysis Buffer, Crosstalk dye unmixing, roll consistency, Cast Removal and the Finish panel.
 - Change: **White balance sliders are real CC filtration** — ±1.0 = ±20cc of density on any frame. Before, the same slider position did more on a contrasty negative and less on a flat one, so a WB that worked on one frame drifted on the next. Frames with saved WB will shift slightly.
 - Change: **Paper base tint sits in the paper white** — Fujicolor Crystal Archive's cool tint now lives in the base density, so it shows in the highlights and disappears into the blacks, like actual paper. Turning off Paper White turns the tint off with it.
 - New: **RA-4 dye coupling** — Kodak Endura and Fujicolor Crystal Archive model the unwanted absorptions of their print dyes. Greys stay neutral; strong colours shift the way they do on real paper. Values are estimates for now.
 - New: **Histogram pixel marker** — hover the image and the Analysis histogram marks the pixel's R, G and B values with dashed lines in channel colours.
 - New: **Tone-curve drag feedback** — while dragging a Tone slider, the H&D chart keeps the pre-drag curve as a faded ghost so you see exactly what moved; Toe/Shoulder sliders glow their zone of the curve, Grade/Density highlight the pivot crosshair.
+- Change: **Lock Bounds** is now a labeled button beside Linear RAW in the Process panel, instead of a small icon squeezed next to the process dropdown.
 - Fix: the **GPU histogram** was binning scene-linear values since the scene-linear pipeline rework (0.30.0), reading darker than the CPU one — both now bin the display-encoded image.
 
 ## 0.32.1

@@ -294,6 +294,14 @@ class ControlsPanel(QWidget):
                 "pick_wb",
             )
         )
+        col.temp_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Colour temperature lever over the Global Magenta/Yellow white balance — moving it "
+                "steers M/Y along the warm-cool axis (tint preserved); moving M/Y updates the readout. "
+                "Mired-linear travel, warm right; Kelvin is nominal",
+                ["temp_warm", "temp_cool"],
+            )
+        )
         col.cyan_slider.setToolTip(
             tooltip_with_shortcut(
                 "Cyan↔Red white balance shift; negative = cyan, positive = red. Applies to selected region (Global/Shadows/Highlights)",

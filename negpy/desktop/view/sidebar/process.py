@@ -71,11 +71,10 @@ class ProcessSidebar(BaseSidebar):
         self.mode_combo.addItems([m.value for m in ProcessMode])
         self.mode_combo.setCurrentText(conf.process_mode)
         self.mode_combo.setToolTip("Film process mode: C41 (colour negative), B&W (panchromatic), E-6 (slide/reversal)")
-        self.lock_bounds_btn = QPushButton()
+        self.lock_bounds_btn = QPushButton(" Lock Bounds")
         self.lock_bounds_btn.setCheckable(True)
         self.lock_bounds_btn.setIcon(qta.icon("fa5s.lock", color=THEME.text_primary))
         self.lock_bounds_btn.setToolTip("Freeze normalization bounds — crop and analysis sliders no longer re-analyze")
-        self.lock_bounds_btn.setFixedWidth(28)
         self.autodetect_btn = QPushButton()
         self.autodetect_btn.setCheckable(True)
         self.autodetect_btn.setIcon(qta.icon("mdi6.auto-fix", color=THEME.text_primary))
@@ -83,7 +82,6 @@ class ProcessSidebar(BaseSidebar):
         self.autodetect_btn.setFixedWidth(28)
         mode_row.addWidget(self.mode_combo, stretch=1)
         mode_row.addWidget(self.autodetect_btn)
-        mode_row.addWidget(self.lock_bounds_btn)
         self.layout.addLayout(mode_row)
 
         self.linear_raw_btn = QPushButton(" Linear RAW")
@@ -93,7 +91,10 @@ class ProcessSidebar(BaseSidebar):
         self.linear_raw_btn.setToolTip(
             "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
         )
-        self.layout.addWidget(self.linear_raw_btn)
+        raw_row = QHBoxLayout()
+        raw_row.addWidget(self.linear_raw_btn, 1)
+        raw_row.addWidget(self.lock_bounds_btn, 1)
+        self.layout.addLayout(raw_row)
 
         buf_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)

@@ -32,6 +32,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "magenta_up": ShortcutEntry("E", "Magenta up", "Exposure"),
     "yellow_down": ShortcutEntry("F", "Yellow down", "Exposure"),
     "yellow_up": ShortcutEntry("R", "Yellow up", "Exposure"),
+    "temp_warm": ShortcutEntry("T", "Temperature warmer", "Exposure"),
+    "temp_cool": ShortcutEntry("G", "Temperature cooler", "Exposure"),
     "density_down": ShortcutEntry("A", "Density down", "Exposure"),
     "density_up": ShortcutEntry("Q", "Density up", "Exposure"),
     "grade_down": ShortcutEntry("S", "Grade down", "Exposure"),

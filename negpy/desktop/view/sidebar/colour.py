@@ -6,7 +6,8 @@ from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
+from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 
 
 class ColourSidebar(BaseSidebar):
@@ -28,6 +29,29 @@ class ColourSidebar(BaseSidebar):
         wb_header_row.addStretch()
         wb_header_row.addWidget(self.pick_wb_btn)
         self.layout.addLayout(wb_header_row)
+
+        # Temperature lever over the global M/Y pair (real darkroom: cyan stays 0).
+        locked_k = self.controller.session.repo.get_global_setting("wb_temp_lock")
+        self.temp_lock_btn = self._icon_toggle(
+            "fa5s.thermometer-half",
+            locked_k is not None,
+            "Roll lock — every newly opened frame is re-aimed to this temperature (its own "
+            "tint preserved); committing the slider while locked updates the target.",
+        )
+        if locked_k is not None:
+            self.temp_lock_btn.setIcon(qta.icon("fa5s.thermometer-half", color=THEME.accent_edited))
+        self.temp_slider = KelvinSlider("Temperature")
+        self.temp_slider.setValue(wb_to_kelvin(conf.wb_magenta, conf.wb_yellow))
+        self.temp_slider.setToolTip(
+            "Colour temperature lever over the Global Magenta/Yellow white balance — moving it "
+            "steers M/Y along the warm-cool axis (tint preserved); moving M/Y updates the readout. "
+            "Mired-linear travel, warm right; Kelvin is nominal."
+        )
+        self._temp_anchor = None
+        temp_row = QHBoxLayout()
+        temp_row.addWidget(self.temp_lock_btn)
+        temp_row.addWidget(self.temp_slider)
+        self.layout.addLayout(temp_row)
 
         # Region selector as an icon column: one exclusive toggle to the left of each CMY
         # slider. The region applies to all three sliders — the row alignment is visual.
@@ -103,6 +127,12 @@ class ColourSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         self.region_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
 
+        self.temp_slider.dragStarted.connect(self._on_temp_drag_started)
+        self.temp_slider.dragEnded.connect(self._on_temp_drag_ended)
+        self.temp_slider.valueChanged.connect(self._on_temp_changed)
+        self.temp_slider.valueCommitted.connect(lambda v: self._on_temp_changed(v, persist=True))
+        self.temp_lock_btn.toggled.connect(self._on_temp_lock_toggled)
+
         self.cyan_slider.valueChanged.connect(self._on_cyan_changed)
         self.magenta_slider.valueChanged.connect(self._on_magenta_changed)
         self.yellow_slider.valueChanged.connect(self._on_yellow_changed)
@@ -122,6 +152,28 @@ class ColourSidebar(BaseSidebar):
                 "exposure", render=True, persist=True, readback_metrics=True, auto_cast_removal=checked
             )
         )
+
+    def _on_temp_drag_started(self) -> None:
+        # Anchor (M, Y) for the whole drag: re-projecting an already-clipped
+        # pair on every tick would corrupt the tint component.
+        conf = self.state.config.exposure
+        self._temp_anchor = (conf.wb_magenta, conf.wb_yellow)
+
+    def _on_temp_drag_ended(self) -> None:
+        self._temp_anchor = None
+
+    def _on_temp_changed(self, kelvin: float, persist: bool = False) -> None:
+        conf = self.state.config.exposure
+        m0, y0 = self._temp_anchor or (conf.wb_magenta, conf.wb_yellow)
+        m2, y2 = kelvin_to_wb(kelvin, m0, y0)
+        self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, wb_magenta=m2, wb_yellow=y2)
+        if persist and self.temp_lock_btn.isChecked():
+            # Store the achieved temperature (post-clip), not the requested one.
+            self.controller.session.repo.save_global_setting("wb_temp_lock", wb_to_kelvin(m2, y2))
+
+    def _on_temp_lock_toggled(self, checked: bool) -> None:
+        self.controller.session.repo.save_global_setting("wb_temp_lock", float(self.temp_slider.value()) if checked else None)
+        self.temp_lock_btn.setIcon(qta.icon("fa5s.thermometer-half", color=THEME.accent_edited if checked else THEME.text_primary))
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:
         field = ("wb_cyan", "shadow_cyan", "highlight_cyan")[self._region_index()]
@@ -152,6 +204,8 @@ class ColourSidebar(BaseSidebar):
             self.cyan_slider.setValue(getattr(conf, channels[0]))
             self.magenta_slider.setValue(getattr(conf, channels[1]))
             self.yellow_slider.setValue(getattr(conf, channels[2]))
+            # Readout always measures the global pair, whatever region is selected.
+            self.temp_slider.setValue(wb_to_kelvin(conf.wb_magenta, conf.wb_yellow))
 
             for btn, icon_name, fields in self._region_icons:
                 edited = any(getattr(conf, f) != 0.0 for f in fields)
@@ -169,6 +223,8 @@ class ColourSidebar(BaseSidebar):
             self.region_global_btn,
             self.region_shadow_btn,
             self.region_highlight_btn,
+            self.temp_slider,
+            self.temp_lock_btn,
             self.cyan_slider,
             self.magenta_slider,
             self.yellow_slider,

@@ -108,7 +108,9 @@ class BaseSlider(QWidget):
         self._precision = precision
         self._last_committed_value = default_val
 
-        default_pos = (default_val - min_val) / (max_val - min_val) if max_val > min_val else None
+        # sorted() keeps a decreasing value->int mapping (e.g. Kelvin->mired) legal.
+        lo, hi = sorted((self._to_int(min_val), self._to_int(max_val)))
+        default_pos = (self._to_int(default_val) - lo) / (hi - lo) if hi > lo else None
         if inverted and default_pos is not None:
             default_pos = 1.0 - default_pos
         self.slider = _NoScrollSlider(Qt.Orientation.Horizontal, default_pos=default_pos)
@@ -117,9 +119,9 @@ class BaseSlider(QWidget):
             self.slider.setInvertedControls(True)
         if has_neutral:
             self.slider.setObjectName("neutral_slider")
-        self.slider.setRange(int(min_val * self._precision), int(max_val * self._precision))
-        self.slider.setValue(int(default_val * self._precision))
-        self.slider._default_slider_value = int(default_val * self._precision)
+        self.slider.setRange(lo, hi)
+        self.slider.setValue(self._to_int(default_val))
+        self.slider._default_slider_value = self._to_int(default_val)
 
         self.spin = _NoScrollSpinBox()
         self.spin.setRange(min_val, max_val)
@@ -152,8 +154,16 @@ class BaseSlider(QWidget):
             self._last_committed_value = current_val
             self.valueCommitted.emit(current_val)
 
+    def _to_int(self, value: float) -> int:
+        """Value -> slider int; subclasses override the pair for nonlinear
+        travel. Must stay stateless: called during __init__."""
+        return int(value * self._precision)
+
+    def _from_int(self, i: int) -> float:
+        return i / self._precision
+
     def _on_slider_changed(self, value: int) -> None:
-        f_val = value / self._precision
+        f_val = self._from_int(value)
         self.spin.blockSignals(True)
         self.spin.setValue(f_val)
         self.spin.blockSignals(False)
@@ -161,7 +171,7 @@ class BaseSlider(QWidget):
 
     def _on_spin_changed(self, value: float) -> None:
         self.slider.blockSignals(True)
-        self.slider.setValue(int(value * self._precision))
+        self.slider.setValue(self._to_int(value))
         self.slider.blockSignals(False)
         self.timer.start()
 
@@ -173,7 +183,7 @@ class BaseSlider(QWidget):
             return
         self.slider.blockSignals(True)
         self.spin.blockSignals(True)
-        self.slider.setValue(int(value * self._precision))
+        self.slider.setValue(self._to_int(value))
         self.spin.setValue(value)
         self.slider.blockSignals(False)
         self.spin.blockSignals(False)
@@ -348,6 +358,24 @@ class HueSlider(CompactSlider):
     def setValue(self, value: float) -> None:
         super().setValue(value)
         self._apply_hue(value)
+
+
+class KelvinSlider(CompactSlider):
+    """
+    Kelvin readout with mired-linear travel: slider ints are mired*10, so warm
+    (low K) sits on the right and equal drag distance = equal perceived shift.
+    """
+
+    def __init__(self, label: str, parent=None):
+        super().__init__(label, 3000.0, 12000.0, 5500.0, step=50.0, precision=1, unit="K", parent=parent)
+        self._spin_full_width = 68  # room for "12000K"
+
+    def _to_int(self, value: float) -> int:
+        return round(1e7 / max(value, 1.0))
+
+    def _from_int(self, i: int) -> float:
+        # Snap to 10K so the 5500 default round-trips exactly (edited-state check).
+        return round(1e6 / (i / 10.0) / 10.0) * 10.0
 
 
 class RangeSlider(QWidget):

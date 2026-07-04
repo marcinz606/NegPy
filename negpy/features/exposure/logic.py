@@ -663,6 +663,42 @@ def density_to_cmy(density: float, log_range: float = 1.0) -> float:
     return float(absolute_density / EXPOSURE_CONSTANTS["cmy_max_density"])
 
 
+TEMP_REF_KELVIN = 5500.0
+TEMP_MIN_KELVIN, TEMP_MAX_KELVIN = 3000.0, 12000.0
+# Slider units per mired, red-anchored (wb_cyan stays 0): Wien slopes
+# c2*log10(e)*(1/lambda - 1/lambda_R) at ~460/550/690 nm, over a nominal
+# effective print gamma (~4) and cmy_max_density (0.2) — so the Kelvin
+# readout is nominal, not colorimetric. Calibration knobs: retune by eye.
+_TEMP_K_MAGENTA = 0.0029
+_TEMP_K_YELLOW = 0.0057
+
+
+def wb_to_kelvin(magenta: float, yellow: float) -> float:
+    """
+    Measured print temperature: least-squares projection of the global (M, Y)
+    pair onto the Planckian (mired) direction; 5500K at neutral.
+    """
+    km, ky = _TEMP_K_MAGENTA, _TEMP_K_YELLOW
+    dmu = (km * magenta + ky * yellow) / (km * km + ky * ky)
+    # Clamp in the mired domain: a Kelvin-domain clamp breaks when mu goes negative.
+    mu = min(max(1e6 / TEMP_REF_KELVIN + dmu, 1e6 / TEMP_MAX_KELVIN), 1e6 / TEMP_MIN_KELVIN)
+    return float(1e6 / mu)
+
+
+def kelvin_to_wb(kelvin: float, magenta: float, yellow: float) -> Tuple[float, float]:
+    """
+    Moves (M, Y) along the Planckian direction to land on `kelvin`, keeping the
+    off-locus green-magenta tint component untouched. Clips to slider range.
+    """
+    km, ky = _TEMP_K_MAGENTA, _TEMP_K_YELLOW
+    kelvin = min(max(kelvin, TEMP_MIN_KELVIN), TEMP_MAX_KELVIN)
+    dmu_cur = (km * magenta + ky * yellow) / (km * km + ky * ky)
+    d = (1e6 / kelvin - 1e6 / TEMP_REF_KELVIN) - dmu_cur
+    m2 = min(max(magenta + km * d, -1.0), 1.0)
+    y2 = min(max(yellow + ky * d, -1.0), 1.0)
+    return float(m2), float(y2)
+
+
 def calculate_wb_shifts(sampled_rgb: np.ndarray) -> Tuple[float, float]:
     """
     Calculates Magenta and Yellow shifts to neutralize sampled color in positive space.

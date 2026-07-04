@@ -6,6 +6,8 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     cmy_to_density,
     density_to_cmy,
+    kelvin_to_wb,
+    wb_to_kelvin,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.process.logic import linear_raw_token
@@ -63,6 +65,54 @@ class TestExposureLogic(unittest.TestCase):
         # dY = log10(0.4)-log10(0.5) < 0
         self.assertGreater(dm, 0)
         self.assertLess(dy, 0)
+
+    def test_wb_to_kelvin_neutral_is_reference(self):
+        from negpy.features.exposure.logic import TEMP_REF_KELVIN
+
+        self.assertAlmostEqual(wb_to_kelvin(0.0, 0.0), TEMP_REF_KELVIN, places=6)
+
+    def test_kelvin_wb_roundtrip(self):
+        for k in (4000.0, 5500.0, 8000.0, 11000.0):
+            m, y = kelvin_to_wb(k, 0.0, 0.0)
+            self.assertAlmostEqual(wb_to_kelvin(m, y), k, places=4)
+
+    def test_kelvin_warm_direction_and_ratio(self):
+        m, y = kelvin_to_wb(4000.0, 0.0, 0.0)
+        self.assertGreater(m, 0.0)
+        self.assertGreater(y, 0.0)
+        # Along the locus both channels move by k * dmu, so the ratio is exact.
+        self.assertAlmostEqual(y / m, 0.0057 / 0.0029, places=6)
+
+    def test_kelvin_to_wb_preserves_tint(self):
+        # Moving temperature away and back recovers the original pair exactly.
+        m0, y0 = 0.3, -0.2
+        k0 = wb_to_kelvin(m0, y0)
+        m1, y1 = kelvin_to_wb(4500.0, m0, y0)
+        m2, y2 = kelvin_to_wb(k0, m1, y1)
+        self.assertAlmostEqual(m2, m0, places=6)
+        self.assertAlmostEqual(y2, y0, places=6)
+
+    def test_kelvin_projection_idempotent(self):
+        m1, y1 = kelvin_to_wb(4500.0, 0.1, 0.05)
+        m2, y2 = kelvin_to_wb(4500.0, m1, y1)
+        self.assertAlmostEqual(m1, m2, places=9)
+        self.assertAlmostEqual(y1, y2, places=9)
+
+    def test_kelvin_extreme_wb_clamps_in_mired_domain(self):
+        from negpy.features.exposure.logic import TEMP_MAX_KELVIN, TEMP_MIN_KELVIN
+
+        # A full-cool pair pushes mu negative; the mired-domain clamp must
+        # land on the cool end, not wrap to the warm one.
+        self.assertAlmostEqual(wb_to_kelvin(-1.0, -1.0), TEMP_MAX_KELVIN, places=6)
+        self.assertAlmostEqual(wb_to_kelvin(1.0, 1.0), TEMP_MIN_KELVIN, places=6)
+
+    def test_kelvin_orthogonal_tint_moves_dont_change_readout(self):
+        from negpy.features.exposure.logic import _TEMP_K_MAGENTA, _TEMP_K_YELLOW
+
+        k_before = wb_to_kelvin(0.1, 0.2)
+        t = 0.15
+        k_after = wb_to_kelvin(0.1 + _TEMP_K_YELLOW * t, 0.2 - _TEMP_K_MAGENTA * t)
+        self.assertAlmostEqual(k_before, k_after, places=6)
 
     def test_toe_shoulder_direction(self):
         """Toe rolls shadows (high input), shoulder rolls highlights (low input),

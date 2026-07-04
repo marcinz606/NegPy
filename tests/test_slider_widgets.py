@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 
 
 def _label_event(event_type, x: float, button=Qt.MouseButton.LeftButton, buttons=Qt.MouseButton.LeftButton):
@@ -57,3 +57,31 @@ def test_label_scrub_debounces_value_changes(qapp):
     assert slider.eventFilter(slider.label, release)
     committed.assert_called_once_with(1.2)
     slider.timer.stop()
+
+
+def test_kelvin_slider_mired_travel(qapp):
+    s = KelvinSlider("Temperature")
+    # Slider ints are mired*10: 12000K left, 3000K right (warm on the right).
+    assert (s.slider.minimum(), s.slider.maximum()) == (833, 3333)
+    assert s.value() == 5500
+
+    s.slider.setValue(3333)
+    assert s.value() == 3000
+    s.slider.setValue(833)
+    assert s.value() == 12000
+
+    s.setValue(12000)
+    assert s.slider.value() == 833
+    s.setValue(3000)
+    assert s.slider.value() == 3333
+    s.timer.stop()
+
+
+def test_kelvin_slider_default_roundtrips_exactly(qapp):
+    s = KelvinSlider("Temperature")
+    s.setValue(4300)
+    s.setValue(5500)
+    # The 10K snap keeps the default exact so the edited-state check stays clean.
+    assert abs(s.spin.value() - 5500.0) < 1e-6
+    assert s.slider.value() == 1818
+    s.timer.stop()

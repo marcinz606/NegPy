@@ -93,6 +93,26 @@ class TestDesktopSessionSync(unittest.TestCase):
         config = self.session._apply_sticky_settings(base, only_global=True)
         self.assertFalse(config.exposure.auto_exposure)
 
+    def test_temp_lock_reaims_wb_on_load(self):
+        from negpy.features.exposure.logic import _TEMP_K_MAGENTA, _TEMP_K_YELLOW, wb_to_kelvin
+
+        sticky = {"last_export_config": {}, "wb_temp_lock": 4500.0}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, wb_magenta=0.2, wb_yellow=0.1))
+        # Both branches re-aim: saved files (only_global=True) and fresh files.
+        for only_global in (True, False):
+            cfg = self.session._apply_sticky_settings(base, only_global=only_global)
+            m, y = cfg.exposure.wb_magenta, cfg.exposure.wb_yellow
+            self.assertAlmostEqual(wb_to_kelvin(m, y), 4500.0, places=4)
+            # Re-aim moves along the locus only: the frame's tint is preserved.
+            self.assertAlmostEqual((m - 0.2) / _TEMP_K_MAGENTA, (y - 0.1) / _TEMP_K_YELLOW, places=6)
+
+    def test_temp_lock_absent_leaves_wb(self):
+        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, wb_magenta=0.2, wb_yellow=0.1))
+        cfg = self.session._apply_sticky_settings(base, only_global=True)
+        self.assertEqual(cfg.exposure.wb_magenta, 0.2)
+        self.assertEqual(cfg.exposure.wb_yellow, 0.1)
+
     def test_contact_sheet_output_path_in_sticky_export(self):
         sticky = {
             "last_export_config": {"contact_sheet_output_path": "/saved/contact", "contact_sheet_cell_px": 800},
