@@ -12,6 +12,7 @@
 - Change: **Lock Bounds** is now a labeled button beside Linear RAW in the Process panel, instead of a small icon squeezed next to the process dropdown.
 - Fix: the **GPU histogram** was binning scene-linear values since the scene-linear pipeline rework (0.30.0), reading darker than the CPU one — both now bin the display-encoded image.
 - Fix: the bundled **RGBScan input ICC profile** used an sRGB TRC instead of the gamma 2.2 curve NegPy's pipeline expects at that stage, lifting the toe and giving a washed-out look — rebuilt to match, same colour transform. @thetalkingdrum
+- Fix: a **roll's Batch Analysis baseline no longer leaks onto other rolls** — the roll-wide bounds and colour balance were being remembered globally and quietly applied to every freshly opened file, so a different film stock (e.g. mask-less Phoenix II) came up with a heavy cast until you hit Reset. The baseline now stays with the roll it was measured on; open a new roll and it meters per frame again.
 
 ## 0.32.1
 

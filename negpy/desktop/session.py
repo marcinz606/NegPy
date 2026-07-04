@@ -495,17 +495,8 @@ class DesktopSessionManager(QObject):
         sticky_buffer = self.repo.get_global_setting("last_analysis_buffer")
         sticky_luma_range_clip = self.repo.get_global_setting("last_luma_range_clip")
         sticky_color_range_clip = self.repo.get_global_setting("last_color_range_clip")
-        sticky_legacy_average = self.repo.get_global_setting("last_use_roll_average")
-        sticky_luma_average = self.repo.get_global_setting("last_use_luma_average")
-        sticky_colour_average = self.repo.get_global_setting("last_use_colour_average")
-        # Legacy single roll-average sticky: apply to both axes if the split keys are absent.
-        if sticky_luma_average is None:
-            sticky_luma_average = sticky_legacy_average
-        if sticky_colour_average is None:
-            sticky_colour_average = sticky_legacy_average
-        sticky_floors = self.repo.get_global_setting("last_locked_floors")
-        sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
-        sticky_roll_name = self.repo.get_global_setting("last_roll_name")
+        # Roll-average baseline is roll-scoped (written per-file by Batch Analysis /
+        # a saved roll), never seeded onto fresh files.
         sticky_crosstalk_strength = self.repo.get_global_setting("last_crosstalk_strength")
         sticky_crosstalk_matrix = self.repo.get_global_setting("last_crosstalk_matrix")
         sticky_crosstalk_profile = self.repo.get_global_setting("last_crosstalk_profile")
@@ -519,16 +510,6 @@ class DesktopSessionManager(QObject):
             new_process = replace(new_process, luma_range_clip=float(sticky_luma_range_clip))
         if sticky_color_range_clip is not None:
             new_process = replace(new_process, color_range_clip=float(sticky_color_range_clip))
-        if sticky_luma_average is not None:
-            new_process = replace(new_process, use_luma_average=bool(sticky_luma_average))
-        if sticky_colour_average is not None:
-            new_process = replace(new_process, use_colour_average=bool(sticky_colour_average))
-        if sticky_floors:
-            new_process = replace(new_process, locked_floors=tuple(sticky_floors))
-        if sticky_ceils:
-            new_process = replace(new_process, locked_ceils=tuple(sticky_ceils))
-        if sticky_roll_name:
-            new_process = replace(new_process, roll_name=str(sticky_roll_name))
         if sticky_crosstalk_strength is not None:
             new_process = replace(new_process, crosstalk_strength=float(sticky_crosstalk_strength))
         if sticky_crosstalk_matrix:
@@ -612,11 +593,6 @@ class DesktopSessionManager(QObject):
                 "last_analysis_buffer": config.process.analysis_buffer,
                 "last_luma_range_clip": config.process.luma_range_clip,
                 "last_color_range_clip": config.process.color_range_clip,
-                "last_use_luma_average": config.process.use_luma_average,
-                "last_use_colour_average": config.process.use_colour_average,
-                "last_locked_floors": config.process.locked_floors,
-                "last_locked_ceils": config.process.locked_ceils,
-                "last_roll_name": config.process.roll_name,
                 "last_crosstalk_strength": config.process.crosstalk_strength,
                 "last_crosstalk_matrix": config.process.crosstalk_matrix,
                 "last_crosstalk_profile": config.process.crosstalk_profile,
