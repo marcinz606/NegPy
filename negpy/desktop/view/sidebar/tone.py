@@ -146,6 +146,8 @@ class ToneSidebar(BaseSidebar):
             slider.valueCommitted.connect(
                 lambda v, f=field: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, **{f: v})
             )
+            slider.dragStarted.connect(lambda f=field: self.controller.tone_drag_changed.emit(f))
+            slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
 
         for btn, field in (
             (self.flare_btn, "flare"),

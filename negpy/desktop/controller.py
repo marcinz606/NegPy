@@ -121,7 +121,8 @@ class AppController(QObject):
     batch_started = pyqtSignal(str, bool)  # title, abortable
     batch_progress = pyqtSignal(int, int, str)  # current, total, label
     batch_finished = pyqtSignal()
-    pixel_readout = pyqtSignal(str, str)
+    pixel_readout_rgb = pyqtSignal(object)  # (r255, g255, b255) tuple or None
+    tone_drag_changed = pyqtSignal(str)  # exposure field being slider-dragged; "" = drag ended
     scan_devices_requested = pyqtSignal()
     scan_requested = pyqtSignal(ScanRequest)
     scan_devices_ready = pyqtSignal(list)
@@ -234,7 +235,7 @@ class AppController(QObject):
     def on_cursor_left(self) -> None:
         self._pending_cursor_nx = None
         self._pending_cursor_ny = None
-        self.pixel_readout.emit("", "")
+        self.pixel_readout_rgb.emit(None)
 
     def _emit_pixel_readout(self) -> None:
         nx, ny = self._pending_cursor_nx, self._pending_cursor_ny
@@ -247,17 +248,7 @@ class AppController(QObject):
         r255 = int(round(max(0.0, min(1.0, r)) * 255))
         g255 = int(round(max(0.0, min(1.0, g)) * 255))
         b255 = int(round(max(0.0, min(1.0, b)) * 255))
-        import cv2
-
-        rgb_u8 = np.array([[[r255, g255, b255]]], dtype=np.uint8)
-        lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB)[0, 0]
-        L = int(round(int(lab[0]) * 100 / 255))
-        a = int(lab[1]) - 128
-        b_val = int(lab[2]) - 128
-        self.pixel_readout.emit(
-            f"RGB {r255:>3} {g255:>3} {b255:>3}",
-            f"Lab {L:>3} {a:+4d} {b_val:+4d}",
-        )
+        self.pixel_readout_rgb.emit((r255, g255, b255))
 
     def set_status(self, message: str, timeout: int = 0) -> None:
         self.status_message_requested.emit(message, timeout)

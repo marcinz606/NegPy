@@ -349,7 +349,6 @@ class MainWindow(QMainWindow):
         self.controller.batch_progress.connect(self.progress_dialog.set_progress)
         self.controller.batch_finished.connect(self.progress_dialog.finish)
         self.progress_dialog.abort_requested.connect(self.controller.abort_active_batch)
-        self.controller.pixel_readout.connect(self.canvas.pixel_readout_overlay.set_values)
 
         self.dash_timer = QTimer(self)
         self.dash_timer.timeout.connect(self._refresh_dashboard)

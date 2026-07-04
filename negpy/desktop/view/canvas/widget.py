@@ -7,7 +7,6 @@ from PyQt6.QtCore import QEvent, pyqtSignal, Qt, QPointF
 from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
-from negpy.desktop.view.canvas.pixel_readout import PixelReadoutOverlay
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG
@@ -125,13 +124,6 @@ class ImageCanvas(QWidget):
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
         self.overlay.lasso_completed.connect(self.lasso_completed.emit)
         self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
-
-        # Pixel readout overlay — absolute child, not in layout
-        self.pixel_readout_overlay = PixelReadoutOverlay(self)
-        self.pixel_readout_overlay.raise_()
-
-        self.cursor_position_changed.connect(lambda x, y: self.pixel_readout_overlay.setVisible(True))
-        self.cursor_left_canvas.connect(lambda: self.pixel_readout_overlay.setVisible(False))
 
         self.grabGesture(Qt.GestureType.PinchGesture)
 
@@ -441,7 +433,3 @@ class ImageCanvas(QWidget):
         act_reset = menu.addAction("Reset View")
         act_reset.triggered.connect(self.fit_to_window)
         menu.exec(event.globalPos())
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self.pixel_readout_overlay._reposition()

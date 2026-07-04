@@ -4,6 +4,12 @@
 // Rec. 709 coefficients
 const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
 
+// Working-space OETF (ProPhoto ROMM: gamma 1.8 + linear toe) — mirrors output_encode.wgsl.
+fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
+    let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    return select(pow(x, vec3<f32>(0.55555556)), x * 16.0, x < vec3<f32>(0.001953125));
+}
+
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dims = textureDimensions(input_tex);
@@ -12,10 +18,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
-    let color = textureLoad(input_tex, coords, 0).rgb;
-    
-    // The input texture (tex_final) already has gamma correction applied.
-    // We measure the bins directly to match the CPU histogram of the final buffer.
+    // Input is the scene-linear content texture (pre-output_encode) — encode so
+    // the bins match the display-encoded base_positive the CPU histogram sees.
+    let color = oetf_encode(textureLoad(input_tex, coords, 0).rgb);
     let luma = dot(color, LUMA_COEFFS);
     
     let bin_r = u32(clamp(color.r * 255.0, 0.0, 255.0));

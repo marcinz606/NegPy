@@ -87,6 +87,9 @@ class BaseSlider(QWidget):
 
     valueChanged = pyqtSignal(float)
     valueCommitted = pyqtSignal(float)
+    # Handle grab/release, independent of whether the value actually changed.
+    dragStarted = pyqtSignal()
+    dragEnded = pyqtSignal()
 
     def __init__(
         self,
@@ -140,6 +143,8 @@ class BaseSlider(QWidget):
         self.timer.timeout.connect(self._emit_value)
         self.slider.sliderReleased.connect(self._on_committed)
         self.spin.editingFinished.connect(self._on_committed)
+        self.slider.sliderPressed.connect(self.dragStarted.emit)
+        self.slider.sliderReleased.connect(self.dragEnded.emit)
 
     def _on_committed(self) -> None:
         current_val = self.spin.value()

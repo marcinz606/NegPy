@@ -37,6 +37,7 @@ class HistogramWidget(QWidget):
         self.setMinimumHeight(40)
         # Raw bin counts per channel (256-length arrays); empty until first frame.
         self._counts: dict[str, np.ndarray] = {}
+        self._marker: tuple[int, int, int] | None = None
         self._log_scale: bool = False
         self._clip_low: dict[str, bool] = {}
         self._clip_high: dict[str, bool] = {}
@@ -60,6 +61,13 @@ class HistogramWidget(QWidget):
         if enabled == self._log_scale:
             return
         self._log_scale = enabled
+        self.update()
+
+    def set_marker(self, rgb: tuple | None) -> None:
+        """Marks the hovered pixel's R/G/B values (0-255) with vertical lines; None clears."""
+        if rgb == self._marker:
+            return
+        self._marker = rgb
         self.update()
 
     def update_data(self, buffer: Any) -> None:
@@ -173,6 +181,15 @@ class HistogramWidget(QWidget):
         for i in range(1, 10):
             x = int(w * i * 0.1)
             painter.drawLine(x, h - 5, x, h - 1)
+
+        # Hovered-pixel marker lines
+        if self._marker is not None:
+            for value, color_hex in zip(self._marker, (THEME.channel_red, THEME.channel_green, THEME.channel_blue)):
+                c = QColor(color_hex)
+                c.setAlpha(220)
+                painter.setPen(QPen(c, 1, Qt.PenStyle.DashLine))
+                x = int(value / 255 * (w - 1))
+                painter.drawLine(x, 0, x, h)
 
         # H1: Per-channel clipping indicators
         self._draw_clip_indicators(painter, w, h)
@@ -325,6 +342,10 @@ class PhotometricCurveWidget(QWidget):
         self._shoulder_mask: list[float] = []
         self._toe_strength: float = 0.0
         self._shoulder_strength: float = 0.0
+        # Drag feedback: pre-drag curve snapshot + the exposure field being dragged.
+        self._active_param: str | None = None
+        self._ghost_pts: list[tuple[float, float]] = []
+        self._ghost_pivot: tuple[float, float] | None = None
 
     # ── coordinate helpers ────────────────────────────────────────────────────
 
@@ -335,6 +356,20 @@ class PhotometricCurveWidget(QWidget):
         return h - (dy - self._Y_MIN) / (self._Y_MAX - self._Y_MIN) * h
 
     # ── data update ──────────────────────────────────────────────────────────
+
+    def set_active_param(self, param: str | None) -> None:
+        """Snapshot the current curve as a ghost while `param` drags; empty/None clears."""
+        param = param or None
+        if param == self._active_param:
+            return
+        self._active_param = param
+        if param is None:
+            self._ghost_pts = []
+            self._ghost_pivot = None
+        else:
+            self._ghost_pts = list(self._curve_pts)
+            self._ghost_pivot = self._pivot_pt
+        self.update()
 
     def update_curve(
         self,
@@ -470,6 +505,12 @@ class PhotometricCurveWidget(QWidget):
         # P4: Shoulder zone shading (cool blue — left side, thin silver = highlights)
         self._draw_zone_shading(painter, w, h, self._shoulder_mask, self._shoulder_strength, QColor(60, 130, 255))
 
+        # Glow the dragged slider's zone (fixed strength — reads even at zero/negative values)
+        if self._active_param in ("toe", "toe_width"):
+            self._draw_zone_shading(painter, w, h, self._toe_mask, 0.5, QColor(255, 140, 50))
+        elif self._active_param in ("shoulder", "shoulder_width"):
+            self._draw_zone_shading(painter, w, h, self._shoulder_mask, 0.5, QColor(60, 130, 255))
+
         # P2: Gradient luminance fill under the curve
         fill_path = QPainterPath(curve_path)
         bot = self._wy(self._Y_MIN, h)
@@ -490,6 +531,20 @@ class PhotometricCurveWidget(QWidget):
             zx = int(self._wx(i * 0.1, w))
             painter.drawLine(zx, h - 5, zx, h - 1)
 
+        # Pre-drag ghost curve
+        if self._ghost_pts:
+            ghost_path = QPainterPath()
+            ghost_path.moveTo(self._wx(self._ghost_pts[0][0], w), self._wy(self._ghost_pts[0][1], h))
+            for px, py in self._ghost_pts[1:]:
+                ghost_path.lineTo(self._wx(px, w), self._wy(py, h))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(200, 200, 200, 90), 1, Qt.PenStyle.DashLine))
+            painter.drawPath(ghost_path)
+            if self._ghost_pivot:
+                painter.setBrush(QBrush(QColor(200, 200, 200, 90)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(QPointF(self._wx(self._ghost_pivot[0], w), self._wy(self._ghost_pivot[1], h)), 2.5, 2.5)
+
         # Curve line on top; per-channel traces replace the white line when present.
         painter.setBrush(Qt.BrushStyle.NoBrush)
         if self._channel_curves:
@@ -509,7 +564,9 @@ class PhotometricCurveWidget(QWidget):
             wpx = self._wx(self._pivot_pt[0], w)
             wpy = self._wy(self._pivot_pt[1], h)
 
-            painter.setPen(QPen(QColor(200, 200, 200, 45), 1, Qt.PenStyle.DotLine))
+            # Grade/Density act about the pivot — brighten its crosshair while dragged.
+            cross_alpha = 110 if self._active_param in ("grade", "density") else 45
+            painter.setPen(QPen(QColor(200, 200, 200, cross_alpha), 1, Qt.PenStyle.DotLine))
             painter.drawLine(int(wpx), 0, int(wpx), h)
             painter.drawLine(0, int(wpy), w, int(wpy))
 
