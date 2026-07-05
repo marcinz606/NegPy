@@ -126,8 +126,7 @@ class ExportSidebar(BaseSidebar):
         self.manage_presets_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
         self.manage_presets_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         preset_scope_tooltip = (
-            "Export the selected filmstrip frames with every enabled preset. "
-            "Use the menu arrow for current frame or all visible frames."
+            "Export the selected filmstrip frames with every enabled preset. Use the menu arrow for current frame or all visible frames."
         )
         self.export_presets_group = QWidget()
         export_presets_row = QHBoxLayout(self.export_presets_group)
@@ -145,9 +144,7 @@ class ExportSidebar(BaseSidebar):
         export_current_action.setToolTip("Export the current file with every enabled preset")
         export_current_action.triggered.connect(self.controller.request_preset_export)
         export_all_presets_action = preset_menu.addAction("Export all visible frames…")
-        export_all_presets_action.setToolTip(
-            "Export every visible frame in the filmstrip with every enabled preset"
-        )
+        export_all_presets_action.setToolTip("Export every visible frame in the filmstrip with every enabled preset")
         export_all_presets_action.triggered.connect(self.controller.request_preset_batch_export)
 
         self.export_presets_menu_btn = QToolButton()

@@ -526,9 +526,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
         self.visible_indices = [0, 1, 2]
         self.mock_session_manager.asset_model = MagicMock()
-        self.mock_session_manager.asset_model.visible_actual_indices_ordered.side_effect = (
-            lambda: list(self.visible_indices)
-        )
+        self.mock_session_manager.asset_model.visible_actual_indices_ordered.side_effect = lambda: list(self.visible_indices)
 
         with (
             patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
