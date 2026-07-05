@@ -1,6 +1,11 @@
 # Change Log
 
 
+## 0.34.0
+
+- Change: **Dodge & Burn is real print exposure** — masks now change the exposure ahead of the paper curve instead of brightening/darkening the finished image. Burns roll into paper black through the toe and dodges lift toward paper white through the shoulder, like holding back light under the enlarger — no more flat clipped patches under strong masks. Existing dodge/burn edits will render slightly differently. The Dodge & Burn section moved to the Exposure tab to match.
+
+
 ## 0.33.1
 
 - Fix: **exporting all RGB-scan triplets no longer fails** with "Input/output error" on most frames. Batch export was reusing stale saved paths for each frame's green/blue exposures instead of the ones the triplet was actually built from, so it tried to read files that weren't there; it now uses each frame's own exposures, the same as exporting one at a time.

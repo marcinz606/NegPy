@@ -15,7 +15,6 @@ from negpy.features.exposure.processor import (
 )
 from negpy.features.toning.processor import ToningProcessor
 from negpy.features.lab.processor import PhotoLabProcessor
-from negpy.features.local.processor import LocalProcessor
 from negpy.features.retouch.processor import RetouchProcessor
 from negpy.features.finish.processor import FinishProcessor
 from negpy.kernel.system.config import APP_CONFIG
@@ -141,12 +140,14 @@ class DarkroomEngine:
         current_img, pipeline_changed = self._run_stage(current_img, base_key, "base", run_base, context, pipeline_changed)
 
         def run_exposure(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
-            img_out = PhotometricProcessor(settings.exposure).process(img_in, ctx)
+            img_out = PhotometricProcessor(settings.exposure, settings.local).process(img_in, ctx)
             return img_out
 
+        # Dodge/burn is part of the print exposure, so the local config keys
+        # this stage alongside the exposure params.
         current_img, pipeline_changed = self._run_stage(
             current_img,
-            settings.exposure,
+            (settings.exposure, settings.local),
             "exposure",
             run_exposure,
             context,
@@ -176,11 +177,6 @@ class DarkroomEngine:
                 return PhotoLabProcessor(settings.lab).process(img_in, ctx)
 
             current_img, pipeline_changed = self._run_stage(current_img, settings.lab, "lab", run_lab, context, pipeline_changed)
-
-            def run_local(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
-                return LocalProcessor(settings.local).process(img_in, ctx)
-
-            current_img, pipeline_changed = self._run_stage(current_img, settings.local, "local", run_local, context, pipeline_changed)
 
             current_img = ToningProcessor(settings.toning).process(current_img, context)
 

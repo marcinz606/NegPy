@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
@@ -9,6 +11,7 @@ from negpy.features.exposure.logic import (
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
+    local_ev_scale,
     normalized_neutral_axis,
     normalized_shadow_refs,
     per_channel_curve_params,
@@ -31,6 +34,8 @@ from negpy.features.exposure.normalization import (
     resolve_crosstalk_matrix,
     unmix_log_image,
 )
+from negpy.features.local.logic import compute_local_ev_map
+from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.kernel.image.logic import get_luminance
 
@@ -162,11 +167,30 @@ class NormalizationProcessor:
 
 class PhotometricProcessor:
     """
-    Applies H&D curve simulation.
+    Applies H&D curve simulation. Dodge/burn masks are folded in as per-pixel
+    print-exposure offsets ahead of the curve (real enlarger exposure changes).
     """
 
-    def __init__(self, config: ExposureConfig):
+    def __init__(self, config: ExposureConfig, local_config: Optional[LocalAdjustmentsConfig] = None):
         self.config = config
+        self.local_config = local_config
+
+    def _build_ev_map(self, image: ImageBuffer, context: PipelineContext) -> Optional[np.ndarray]:
+        if self.local_config is None or not self.local_config.masks:
+            return None
+        h, w = image.shape[:2]
+        geo = context.metrics.get("geometry_params", {})
+        return compute_local_ev_map(
+            self.local_config,
+            h,
+            w,
+            orig_shape=context.original_size,
+            rotation=geo.get("rotation", 0),
+            fine_rotation=geo.get("fine_rotation", 0.0),
+            flip_horizontal=geo.get("flip_horizontal", False),
+            flip_vertical=geo.get("flip_vertical", False),
+            distortion_k1=context.metrics.get("distortion_k1", 0.0),
+        )
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         if self.config.render_intent == RenderIntent.FLAT:
@@ -222,6 +246,8 @@ class PhotometricProcessor:
             lum = get_luminance(image)
             image = np.stack([lum, lum, lum], axis=-1)
 
+        ev_map = self._build_ev_map(image, context)
+
         img_pos = apply_characteristic_curve(
             image,
             params_r=(pivots[0], slopes[0]),
@@ -239,6 +265,8 @@ class PhotometricProcessor:
             surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
             curvatures=curvatures,
             paper=paper,
+            ev_map=ev_map,
+            ev_scale=local_ev_scale(final_bounds),
         )
 
         if context.process_mode == ProcessMode.BW:

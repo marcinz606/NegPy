@@ -30,11 +30,16 @@ struct ExposureUniforms {
     dye_r: vec4<f32>,
     dye_g: vec4<f32>,
     dye_b: vec4<f32>,
+    // Dodge/burn: xyz = per-channel normalized-space size of one EV stop
+    // (local_ev_scale), w = enable flag (0 -> ev_tex is a dummy, skip it).
+    ev_scale: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: ExposureUniforms;
+// Per-pixel dodge/burn EV map, rasterised on the CPU (shared with the CPU path).
+@group(0) @binding(3) var ev_tex: texture_2d<f32>;
 
 fn fast_sigmoid(x: f32) -> f32 {
     if (x >= 0.0) {
@@ -89,10 +94,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let d_max_eff = max(vec3<f32>(d_max_base), d_min_eff + vec3<f32>(0.1));
     let flare_white = pow(vec3<f32>(10.0), -d_min_rgb);
 
+    // Dodge/burn print-exposure offset (EV stops), same domain as cmy_offsets so
+    // burns/dodges roll through the toe/shoulder like real enlarger exposure.
+    var ev = 0.0;
+    if (params.ev_scale.w != 0.0) {
+        ev = textureLoad(ev_tex, coords, 0).r;
+    }
+
     var dens: vec3<f32>;
 
     for (var ch = 0; ch < 3; ch++) {
-        let val = color[ch] + params.cmy_offsets[ch];
+        let val = color[ch] + params.cmy_offsets[ch] + ev * params.ev_scale[ch];
         // Quadratic per-channel core (curvature 0 -> the original straight line).
         var v = params.slopes[ch] * (val - params.pivots[ch]) + params.curvatures[ch] * val * val;
 

@@ -39,7 +39,7 @@ from negpy.features.geometry.logic import (
     get_manual_rect_coords,
     map_coords_to_geometry,
 )
-from negpy.features.local.logic import compute_local_factor_map
+from negpy.features.local.logic import compute_local_ev_map
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -186,7 +186,6 @@ class GPUEngine:
             "clahe_apply": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_apply.wgsl")),
             "retouch": get_resource_path(os.path.join("negpy", "features", "retouch", "shaders", "retouch.wgsl")),
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
-            "local": get_resource_path(os.path.join("negpy", "features", "local", "shaders", "local.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
@@ -238,13 +237,13 @@ class GPUEngine:
     def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float) -> int:
         """
         Determines the earliest pipeline stage that needs re-running.
-        Returns stage index:
+        Returns stage index (5 is unused — dodge/burn folded into the
+        exposure pass, keeping the downstream indices stable):
         0: Geometry (Source/Transform)
-        1: Exposure (Normalization/Grading)
+        1: Exposure (Normalization/Grading/Dodge & Burn)
         2: CLAHE (Adaptive Hist)
         3: Retouch (Healing)
         4: Lab (Color/Sharpen)
-        5: Local (Dodge/Burn)
         6: Toning (Paper/Split)
         7: Finish (Vignette)
         8: Layout (Final compositing)
@@ -264,14 +263,15 @@ class GPUEngine:
             return 0
         if last.process != settings.process or last.exposure != settings.exposure:
             return 1
+        # Dodge/burn is part of the print exposure now.
+        if last.local != settings.local:
+            return 1
         if last.lab.clahe_strength != settings.lab.clahe_strength:
             return 2
         if last.retouch != settings.retouch:
             return 3
         if last.lab != settings.lab:
             return 4
-        if last.local != settings.local:
-            return 5
         if last.toning != settings.toning:
             return 6
         if last.finish != settings.finish:
@@ -350,7 +350,7 @@ class GPUEngine:
         sizes = {
             "geometry": 32,
             "normalization": 112,
-            "exposure": 240,
+            "exposure": 256,
             "clahe_u": 32,
             "retouch_u": 64,
             "lab": 96,
@@ -384,13 +384,13 @@ class GPUEngine:
         readback_metrics: bool = True,
         ir_buffer: Optional[np.ndarray] = None,
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
-        local_factor: Optional[np.ndarray] = None,
+        local_ev: Optional[np.ndarray] = None,
         analysis_source_hash: Optional[str] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes the full pipeline, returning a GPU texture and associated metrics.
 
-        ``local_factor`` is a pre-rasterised dodge/burn factor map already in the
+        ``local_ev`` is a pre-rasterised dodge/burn EV map already in the
         post-geometry frame; tiled export passes a per-tile slice. When None and
         masks are present, it is computed here from ``settings.local``.
         """
@@ -656,18 +656,22 @@ class GPUEngine:
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "lab",
         )
-        tex_local = self._get_intermediate_texture(
-            w_rot,
-            h_rot,
-            wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
-            "local",
-        )
-        tex_local_factor = self._get_intermediate_texture(
-            w_rot,
-            h_rot,
-            wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
-            "local_factor",
-        )
+        # Dodge/burn EV map feeds the exposure pass; a zero-initialized 1x1 dummy
+        # keeps the bind group valid when no masks are active (ev_scale.w gates it).
+        if settings.local.masks:
+            tex_local_ev = self._get_intermediate_texture(
+                w_rot,
+                h_rot,
+                wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+                "local_ev",
+            )
+        else:
+            tex_local_ev = self._get_intermediate_texture(
+                1,
+                1,
+                wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+                "local_ev",
+            )
         tex_toning = self._get_intermediate_texture(
             crop_w,
             crop_h,
@@ -702,6 +706,20 @@ class GPUEngine:
                 w_rot,
                 h_rot,
             )
+            if settings.local.masks:
+                if local_ev is None:
+                    local_ev = compute_local_ev_map(
+                        settings.local,
+                        h_rot,
+                        w_rot,
+                        orig_shape,
+                        rotation=settings.geometry.rotation,
+                        fine_rotation=settings.geometry.fine_rotation,
+                        flip_horizontal=settings.geometry.flip_horizontal,
+                        flip_vertical=settings.geometry.flip_vertical,
+                        distortion_k1=k1_eff,
+                    )
+                tex_local_ev.upload(np.stack([local_ev] * 3, axis=-1))
             self._dispatch_pass(
                 enc,
                 "exposure",
@@ -709,6 +727,7 @@ class GPUEngine:
                     (0, tex_norm.view),
                     (1, tex_expo.view),
                     (2, self._get_uniform_binding("exposure")),
+                    (3, tex_local_ev.view),
                 ],
                 w_rot,
                 h_rot,
@@ -792,36 +811,7 @@ class GPUEngine:
                 h_rot,
             )
 
-        # --- Local (Dodge/Burn) --- runs at full pre-crop resolution, before toning.
-        if settings.local.masks:
-            if start_stage <= 5:
-                if local_factor is None:
-                    local_factor = compute_local_factor_map(
-                        settings.local,
-                        h_rot,
-                        w_rot,
-                        orig_shape,
-                        rotation=settings.geometry.rotation,
-                        fine_rotation=settings.geometry.fine_rotation,
-                        flip_horizontal=settings.geometry.flip_horizontal,
-                        flip_vertical=settings.geometry.flip_vertical,
-                        distortion_k1=k1_eff,
-                    )
-                tex_local_factor.upload(np.stack([local_factor] * 3, axis=-1))
-                self._dispatch_pass(
-                    enc,
-                    "local",
-                    [
-                        (0, tex_lab.view),
-                        (1, tex_local.view),
-                        (2, tex_local_factor.view),
-                    ],
-                    w_rot,
-                    h_rot,
-                )
-            tex_pre_toning = tex_local
-        else:
-            tex_pre_toning = tex_lab
+        tex_pre_toning = tex_lab
 
         if start_stage <= 6:
             self._dispatch_pass(
@@ -1028,6 +1018,7 @@ class GPUEngine:
             effective_cast_strength,
             filtration_offsets,
             grade_coupled_shape,
+            local_ev_scale,
             normalize_refs,
             paper_dmin_rgb,
             per_channel_curve_params,
@@ -1132,6 +1123,8 @@ class GPUEngine:
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], 0.0)
             + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], 0.0)
             + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], 0.0)
+            # Dodge/burn: per-channel EV-stop size (mirrors the CPU ev_scale), w = enable.
+            + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -1571,15 +1564,15 @@ class GPUEngine:
                 logger.warning(f"IR pre-transform failed for tiled export; skipping IR dust removal: {e}")
                 ir_rot = None
 
-        # Rasterise the dodge/burn factor map once at full post-geometry resolution;
+        # Rasterise the dodge/burn EV map once at full post-geometry resolution;
         # tiles slice it directly (same pattern as IR above).
         # ponytail: mask vertices are distortion-mapped (centres land right), but the
         # feathered falloff isn't re-warped — negligible unless a mask sits at the frame
         # edge under strong k1. Rasterise on a warped grid if that combo ever matters.
-        local_factor_rot: Optional[np.ndarray] = None
+        local_ev_rot: Optional[np.ndarray] = None
         if settings.local.masks:
             h_rot_full, w_rot_full = img_rot.shape[:2]
-            local_factor_rot = compute_local_factor_map(
+            local_ev_rot = compute_local_ev_map(
                 settings.local,
                 h_rot_full,
                 w_rot_full,
@@ -1710,7 +1703,7 @@ class GPUEngine:
                     min(h_rot, y1 + ty + th + TILE_HALO),
                 )
                 ir_tile = np.ascontiguousarray(ir_rot[iy1:iy2, ix1:ix2]) if ir_rot is not None else None
-                factor_tile = np.ascontiguousarray(local_factor_rot[iy1:iy2, ix1:ix2]) if local_factor_rot is not None else None
+                ev_tile = np.ascontiguousarray(local_ev_rot[iy1:iy2, ix1:ix2]) if local_ev_rot is not None else None
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 tile_res, _ = self.process_to_texture(
                     img_rot[iy1:iy2, ix1:ix2],
@@ -1728,7 +1721,7 @@ class GPUEngine:
                     apply_layout=False,
                     ir_buffer=ir_tile,
                     vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
-                    local_factor=factor_tile,
+                    local_ev=ev_tile,
                 )
                 full_source_res[ty : ty + th, tx : tx + tw] = self._readback_downsampled(tile_res)[oy : oy + th, ox : ox + tw]
 

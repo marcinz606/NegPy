@@ -183,5 +183,107 @@ class TestLinearRawToken(unittest.TestCase):
         self.assertNotEqual(on, off)
 
 
+class TestExposureDomainDodgeBurn(unittest.TestCase):
+    """Dodge/burn as per-pixel print-exposure offsets fed through the H&D curve:
+    burns roll into paper black via the toe, dodges lift toward paper white via
+    the shoulder — never a hard clip."""
+
+    PARAMS = (0.35, 4.0)  # (pivot, slope)
+
+    def _render(self, ev: float) -> np.ndarray:
+        from negpy.features.exposure.logic import local_ev_scale
+
+        img = np.full((8, 8, 3), 0.5, dtype=np.float32)
+        ev_map = np.full((8, 8), ev, dtype=np.float32)
+        return apply_characteristic_curve(
+            img,
+            self.PARAMS,
+            self.PARAMS,
+            self.PARAMS,
+            ev_map=ev_map,
+            ev_scale=local_ev_scale(None),
+        )
+
+    def test_local_ev_scale(self):
+        """One stop = -log10(2) in normalized space, divided by the channel's stretch range."""
+        from negpy.features.exposure.logic import local_ev_scale
+        from negpy.features.exposure.normalization import LogNegativeBounds
+
+        s = local_ev_scale(None)
+        self.assertAlmostEqual(s[0], -np.log10(2.0), places=6)
+        self.assertEqual(s[0], s[1])
+        self.assertEqual(s[1], s[2])
+
+        b = LogNegativeBounds(floors=(-2.0, -1.5, -1.0), ceils=(-0.1, -0.1, -0.1))
+        s = local_ev_scale(b)
+        self.assertAlmostEqual(s[0], -np.log10(2.0) / 1.9, places=6)
+        self.assertAlmostEqual(s[1], -np.log10(2.0) / 1.4, places=6)
+        self.assertAlmostEqual(s[2], -np.log10(2.0) / 0.9, places=6)
+
+    def test_no_map_is_baseline(self):
+        """ev_map=None must be byte-exact with the plain call."""
+        img = np.linspace(0.0, 1.0, 8 * 8 * 3, dtype=np.float32).reshape(8, 8, 3)
+        base = apply_characteristic_curve(img, self.PARAMS, self.PARAMS, self.PARAMS)
+        with_none = apply_characteristic_curve(img, self.PARAMS, self.PARAMS, self.PARAMS, ev_map=None)
+        np.testing.assert_array_equal(base, with_none)
+
+    def test_zero_map_is_baseline(self):
+        from negpy.features.exposure.logic import local_ev_scale
+
+        img = np.full((8, 8, 3), 0.5, dtype=np.float32)
+        base = apply_characteristic_curve(img, self.PARAMS, self.PARAMS, self.PARAMS)
+        zero = apply_characteristic_curve(
+            img,
+            self.PARAMS,
+            self.PARAMS,
+            self.PARAMS,
+            ev_map=np.zeros((8, 8), dtype=np.float32),
+            ev_scale=local_ev_scale(None),
+        )
+        np.testing.assert_allclose(zero, base, atol=1e-6)
+
+    def test_positive_ev_dodges_brighter(self):
+        self.assertGreater(float(np.mean(self._render(1.0))), float(np.mean(self._render(0.0))))
+
+    def test_burn_rolls_into_toe_no_clip(self):
+        """Deeper burns approach paper black asymptotically: density stays below
+        d_max, transmittance stays above zero, and increments shrink."""
+        d = {ev: float(-np.log10(np.mean(self._render(ev)))) for ev in (-2.0, -4.0, -6.0)}
+        d_max = EXPOSURE_CONSTANTS["d_max"]
+        self.assertLess(d[-2.0], d[-4.0])
+        self.assertLess(d[-4.0], d[-6.0])
+        self.assertLess(d[-6.0], d_max + 1e-3)
+        self.assertGreater(float(self._render(-6.0).min()), 0.0)
+        self.assertGreater(d[-4.0] - d[-2.0], d[-6.0] - d[-4.0])
+
+    def test_dodge_rolls_into_shoulder_no_clip(self):
+        """Deeper dodges approach paper white (10^-d_min) asymptotically:
+        transmittance never overshoots it and increments shrink. Uses the real
+        paper d_min so the asymptote is measurable in float32."""
+        from negpy.features.exposure.logic import local_ev_scale
+
+        d_min = float(EXPOSURE_CONSTANTS["d_min"])
+        img = np.full((8, 8, 3), 0.5, dtype=np.float32)
+
+        def render(ev: float) -> float:
+            ev_map = np.full((8, 8), ev, dtype=np.float32)
+            res = apply_characteristic_curve(
+                img,
+                self.PARAMS,
+                self.PARAMS,
+                self.PARAMS,
+                d_min=d_min,
+                ev_map=ev_map,
+                ev_scale=local_ev_scale(None),
+            )
+            return float(np.mean(res))
+
+        t = {ev: render(ev) for ev in (1.0, 2.0, 3.0)}
+        self.assertLess(t[1.0], t[2.0])
+        self.assertLess(t[2.0], t[3.0])
+        self.assertLessEqual(t[3.0], 10.0**-d_min + 1e-4)
+        self.assertGreater(t[2.0] - t[1.0], t[3.0] - t[2.0])
+
+
 if __name__ == "__main__":
     unittest.main()

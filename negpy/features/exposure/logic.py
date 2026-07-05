@@ -71,6 +71,9 @@ def _apply_print_curve_kernel(
     gamma_width: float,
     dye_mix: np.ndarray,
     use_dye_mix: bool,
+    ev_map: np.ndarray,
+    ev_scale: np.ndarray,
+    use_ev: bool,
     flare: float = 0.0,
     surround_gamma: float = 1.0,
 ) -> np.ndarray:
@@ -84,6 +87,9 @@ def _apply_print_curve_kernel(
 
     d_min_rgb: per-channel paper-white floor (base+fog incl. tint). dye_mix:
     dye coupling above that floor (D_rgb = M · D_dye) when use_dye_mix is set.
+    ev_map/ev_scale: per-pixel dodge/burn print-exposure offset (EV stops ×
+    normalized-space stop size) when use_ev is set — same domain as cmy_offsets,
+    so burns/dodges roll through the toe/shoulder like real enlarger exposure.
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
@@ -124,6 +130,8 @@ def _apply_print_curve_kernel(
         for x in range(w):
             for ch in range(3):
                 val = img[y, x, ch] + cmy_offsets[ch]
+                if use_ev:
+                    val = val + ev_map[y, x] * ev_scale[ch]
                 # Quadratic per-channel core (curvature 0 -> the original straight line).
                 v = slopes[ch] * (val - pivots[ch]) + curvatures[ch] * val * val
 
@@ -266,8 +274,13 @@ def apply_characteristic_curve(
     midtone_gamma: Optional[float] = None,
     curvatures: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     paper: Optional[PaperProfile] = None,
+    ev_map: Optional[np.ndarray] = None,
+    ev_scale: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
-    """Applies the asymmetric H&D print curve per channel in log-density space."""
+    """Applies the asymmetric H&D print curve per channel in log-density space.
+
+    ev_map (H×W, EV stops; positive = dodge) with ev_scale (see local_ev_scale)
+    applies per-pixel dodge/burn as print-exposure offsets ahead of the curve."""
     c = effective_constants(paper)
     ts = c["toe_shoulder_strength"]
     if midtone_gamma is None:
@@ -281,6 +294,8 @@ def apply_characteristic_curve(
     h_cmy = np.ascontiguousarray(np.array(highlight_cmy, dtype=np.float32))
     dye = resolve_dye_matrix(paper)
     dye_mix = np.ascontiguousarray(np.eye(3) if dye is None else dye)
+    use_ev = ev_map is not None
+    ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
 
     res = _apply_print_curve_kernel(
         np.ascontiguousarray(img.astype(np.float32)),
@@ -307,6 +322,9 @@ def apply_characteristic_curve(
         gamma_width=float(c["paper_gamma_width"]),
         dye_mix=dye_mix,
         use_dye_mix=dye is not None,
+        ev_map=ev_arr,
+        ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
+        use_ev=use_ev,
         flare=float(flare),
         surround_gamma=float(surround_gamma),
     )
@@ -640,6 +658,23 @@ def filtration_offsets(wb_cmy: Tuple[float, float, float], bounds: Any) -> Tuple
         if bounds is not None:
             d = d / max(abs(bounds.ceils[ch] - bounds.floors[ch]), 1e-6)
         out.append(d)
+    return (out[0], out[1], out[2])
+
+
+def local_ev_scale(bounds: Any) -> Tuple[float, float, float]:
+    """
+    Normalized-space size of one dodge/burn stop, per channel: -log10(2) divided
+    by the channel's stretch range (like filtration_offsets), negative so a
+    positive EV (dodge) lowers print exposure -> lighter print. Equal EV in all
+    channels is a neutral light change; colour shifts emerge only through the
+    per-channel slopes, as on real paper. Range 1 when bounds are None.
+    """
+    step = -float(np.log10(2.0))
+    if bounds is None:
+        return (step, step, step)
+    out = []
+    for ch in range(3):
+        out.append(step / max(abs(bounds.ceils[ch] - bounds.floors[ch]), 1e-6))
     return (out[0], out[1], out[2])
 
 

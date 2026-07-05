@@ -274,6 +274,20 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="tone_section",
         ),
         TutorialStep(
+            title="Dodge & Burn",
+            body=(
+                "Darkroom-style local lighten/darken with freehand <b>polygon masks</b>. "
+                "<b>Draw Mask</b>, click to drop vertices, double-click to close; each mask has "
+                "its own EV <b>Strength</b> and <b>Feather</b>.<br><br>"
+                "Masks change the <b>print exposure</b> ahead of the paper curve — burns roll "
+                "into paper black through the toe and dodges lift toward paper white, like "
+                "holding back light under the enlarger. Masks are stored in raw-image space, so "
+                "they survive rotation, flip and crop. <b>Show Masks</b> toggles their overlay."
+            ),
+            target=_local,
+            section_attr="local_section",
+        ),
+        TutorialStep(
             title="Lab Panel — Film Aesthetics",
             body=(
                 "<b>Color:</b> "
@@ -314,19 +328,6 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             ),
             target=_retouch,
             section_attr="retouch_section",
-        ),
-        TutorialStep(
-            title="Dodge & Burn",
-            body=(
-                "Darkroom-style local lighten/darken with freehand <b>polygon masks</b>. "
-                "<b>Draw Mask</b>, click to drop vertices, double-click to close; each mask has "
-                "its own EV <b>Strength</b> and <b>Feather</b>.<br><br>"
-                "Masks are stored in raw-image space, so they survive rotation, flip and crop. "
-                "<b>Show Masks</b> toggles their overlay. Runs on the GPU with bit-for-bit CPU "
-                "parity."
-            ),
-            target=_local,
-            section_attr="local_section",
         ),
         TutorialStep(
             title="Finish — Vignette & Border",

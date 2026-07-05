@@ -27,7 +27,7 @@ def _rasterise_mask(
     return mask_f
 
 
-def compute_local_factor_map(
+def compute_local_ev_map(
     config: LocalAdjustmentsConfig,
     h: int,
     w: int,
@@ -39,15 +39,15 @@ def compute_local_factor_map(
     distortion_k1: float = 0.0,
 ) -> np.ndarray:
     """
-    Build the per-pixel multiplicative dodge/burn factor map [h, w] float32.
-
-    factor = prod over masks of 2^(strength * alpha), where alpha is the
-    feathered polygon mask. All-ones when there are no masks. The image is
-    adjusted by multiplying each channel by this map.
+    Build the per-pixel dodge/burn print-exposure map [h, w] float32, in EV
+    stops: ev = sum over masks of strength * alpha, where alpha is the feathered
+    polygon mask. Positive = dodge (hold back light), negative = burn. All-zeros
+    when there are no masks. Consumed by the exposure stage as a per-pixel
+    exposure offset ahead of the H&D print curve.
     """
-    factor = np.ones((h, w), dtype=np.float32)
+    ev = np.zeros((h, w), dtype=np.float32)
     if not config.masks:
-        return factor
+        return ev
 
     short_side = float(min(h, w))
     for mask in config.masks:
@@ -70,33 +70,6 @@ def compute_local_factor_map(
 
         sigma_px = mask.feather * short_side
         alpha = _rasterise_mask(transformed, h, w, sigma_px)
-        factor *= np.power(2.0, mask.strength * alpha, dtype=np.float32)
+        ev += mask.strength * alpha
 
-    return factor
-
-
-def apply_local_adjustments(
-    img: np.ndarray,
-    config: LocalAdjustmentsConfig,
-    orig_shape: Tuple[int, int],
-    rotation: int = 0,
-    fine_rotation: float = 0.0,
-    flip_horizontal: bool = False,
-    flip_vertical: bool = False,
-    distortion_k1: float = 0.0,
-) -> np.ndarray:
-    """
-    Apply polygon dodge/burn masks to a linear float32 RGB image [H, W, 3].
-
-    Vertices are in raw-image normalised space; they are mapped into the
-    current image's geometry-transformed space before rasterisation.
-    Positive strength dodges (brightens), negative burns (darkens).
-    Returns the adjusted image clipped to [0, 1].
-    """
-    if not config.masks:
-        return img
-
-    h, w = img.shape[:2]
-    factor = compute_local_factor_map(config, h, w, orig_shape, rotation, fine_rotation, flip_horizontal, flip_vertical, distortion_k1)
-    result = img.astype(np.float32, copy=True) * factor[..., np.newaxis]
-    return np.clip(result, 0.0, 1.0)
+    return ev
