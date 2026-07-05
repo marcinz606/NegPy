@@ -167,8 +167,8 @@ class NormalizationProcessor:
 
 class PhotometricProcessor:
     """
-    Applies H&D curve simulation. Dodge/burn masks are folded in as per-pixel
-    print-exposure offsets ahead of the curve (real enlarger exposure changes).
+    Applies H&D curve simulation; dodge/burn masks enter as per-pixel
+    print-exposure offsets.
     """
 
     def __init__(self, config: ExposureConfig, local_config: Optional[LocalAdjustmentsConfig] = None):

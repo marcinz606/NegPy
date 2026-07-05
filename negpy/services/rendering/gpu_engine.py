@@ -237,8 +237,7 @@ class GPUEngine:
     def _detect_invalidated_stage(self, settings: WorkspaceConfig, scale_factor: float) -> int:
         """
         Determines the earliest pipeline stage that needs re-running.
-        Returns stage index (5 is unused — dodge/burn folded into the
-        exposure pass, keeping the downstream indices stable):
+        Returns stage index (5 unused — dodge/burn lives in the exposure pass):
         0: Geometry (Source/Transform)
         1: Exposure (Normalization/Grading/Dodge & Burn)
         2: CLAHE (Adaptive Hist)
@@ -263,7 +262,6 @@ class GPUEngine:
             return 0
         if last.process != settings.process or last.exposure != settings.exposure:
             return 1
-        # Dodge/burn is part of the print exposure now.
         if last.local != settings.local:
             return 1
         if last.lab.clahe_strength != settings.lab.clahe_strength:
@@ -1123,7 +1121,7 @@ class GPUEngine:
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], 0.0)
             + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], 0.0)
             + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], 0.0)
-            # Dodge/burn: per-channel EV-stop size (mirrors the CPU ev_scale), w = enable.
+            # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
             + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
         )
 

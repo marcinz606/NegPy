@@ -143,8 +143,7 @@ class DarkroomEngine:
             img_out = PhotometricProcessor(settings.exposure, settings.local).process(img_in, ctx)
             return img_out
 
-        # Dodge/burn is part of the print exposure, so the local config keys
-        # this stage alongside the exposure params.
+        # Dodge/burn masks are print-exposure inputs, so they key this stage.
         current_img, pipeline_changed = self._run_stage(
             current_img,
             (settings.exposure, settings.local),

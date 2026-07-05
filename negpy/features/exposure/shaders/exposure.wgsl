@@ -94,8 +94,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let d_max_eff = max(vec3<f32>(d_max_base), d_min_eff + vec3<f32>(0.1));
     let flare_white = pow(vec3<f32>(10.0), -d_min_rgb);
 
-    // Dodge/burn print-exposure offset (EV stops), same domain as cmy_offsets so
-    // burns/dodges roll through the toe/shoulder like real enlarger exposure.
+    // Dodge/burn print-exposure offset (EV stops), same domain as cmy_offsets.
     var ev = 0.0;
     if (params.ev_scale.w != 0.0) {
         ev = textureLoad(ev_tex, coords, 0).r;

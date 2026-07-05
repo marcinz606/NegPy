@@ -87,12 +87,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = vec3<f32>(luma);
     }
 
-    // 2. Chemical Toning (Selenium/Sepia) — B&W only, density-driven on the
-    // linear print (mirrors _apply_chemical_toning_jit / TONING_CONSTANTS).
-    // Silver density D = -log10(t); a density-dependent fraction c converts to
-    // the toner's dye: D' = D*(1-c) + c*D*gain. Selenium converts the densest
-    // silver first (Dmax boost, eggplant shadows); sepia the thinnest (warm
-    // highlights, shadows hold).
+    // 2. Chemical Toning (Selenium/Sepia) — B&W only, density-driven on the linear
+    // print; mirrors _apply_chemical_toning_jit / TONING_CONSTANTS: a density-
+    // dependent fraction c of the silver converts, D' = D*(1-c) + c*D*gain.
     if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0)) {
         let sel_gain = vec3<f32>(1.04, 1.10, 1.02);
         let sep_gain = vec3<f32>(0.82, 0.94, 1.12);

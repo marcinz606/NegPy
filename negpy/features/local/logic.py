@@ -39,11 +39,9 @@ def compute_local_ev_map(
     distortion_k1: float = 0.0,
 ) -> np.ndarray:
     """
-    Build the per-pixel dodge/burn print-exposure map [h, w] float32, in EV
-    stops: ev = sum over masks of strength * alpha, where alpha is the feathered
-    polygon mask. Positive = dodge (hold back light), negative = burn. All-zeros
-    when there are no masks. Consumed by the exposure stage as a per-pixel
-    exposure offset ahead of the H&D print curve.
+    Build the per-pixel dodge/burn EV map [h, w] float32: ev = sum over masks
+    of strength * alpha, where alpha is the feathered polygon mask. Positive =
+    dodge, negative = burn. All-zeros when there are no masks.
     """
     ev = np.zeros((h, w), dtype=np.float32)
     if not config.masks:

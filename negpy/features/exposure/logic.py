@@ -88,8 +88,7 @@ def _apply_print_curve_kernel(
     d_min_rgb: per-channel paper-white floor (base+fog incl. tint). dye_mix:
     dye coupling above that floor (D_rgb = M · D_dye) when use_dye_mix is set.
     ev_map/ev_scale: per-pixel dodge/burn print-exposure offset (EV stops ×
-    normalized-space stop size) when use_ev is set — same domain as cmy_offsets,
-    so burns/dodges roll through the toe/shoulder like real enlarger exposure.
+    normalized-space stop size) when use_ev is set; same domain as cmy_offsets.
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
@@ -663,11 +662,9 @@ def filtration_offsets(wb_cmy: Tuple[float, float, float], bounds: Any) -> Tuple
 
 def local_ev_scale(bounds: Any) -> Tuple[float, float, float]:
     """
-    Normalized-space size of one dodge/burn stop, per channel: -log10(2) divided
-    by the channel's stretch range (like filtration_offsets), negative so a
-    positive EV (dodge) lowers print exposure -> lighter print. Equal EV in all
-    channels is a neutral light change; colour shifts emerge only through the
-    per-channel slopes, as on real paper. Range 1 when bounds are None.
+    Normalized-space size of one dodge/burn EV stop per channel: -log10(2) over
+    the channel's stretch range (like filtration_offsets); negative so positive
+    EV (dodge) lowers print exposure. Range 1 when bounds are None.
     """
     step = -float(np.log10(2.0))
     if bounds is None:

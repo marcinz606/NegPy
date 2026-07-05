@@ -22,8 +22,8 @@ class ToningProcessor:
         img = image
 
         if context.process_mode == ProcessMode.BW:
-            # Chemical toning is density-driven, so it works on the linear print
-            # directly; the black point keeps its display-domain bracket.
+            # Density-driven toning reads the linear print; the black point
+            # keeps its display-domain bracket.
             img = apply_chemical_toning(
                 img,
                 selenium_strength=self.config.selenium_strength,
