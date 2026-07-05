@@ -18,9 +18,13 @@ class ToningSidebar(BaseSidebar):
         self.layout.addWidget(section_subheader("TONERS"))
 
         self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
-        self.selenium_slider.setToolTip("Simulates selenium toning — adds cool blue-purple cast to shadows (B&W only)")
+        self.selenium_slider.setToolTip(
+            "Simulates selenium toning — converts the densest silver first: deeper blacks, cool eggplant shadows (B&W only)"
+        )
         self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength, color="#664422")
-        self.sepia_slider.setToolTip("Simulates sepia toning — adds warm brown cast across the tonal range (B&W only)")
+        self.sepia_slider.setToolTip(
+            "Simulates sepia bleach-redevelop toning — warms the highlights first, shadows hold; partial strength gives the classic split-sepia look (B&W only)"
+        )
         self.layout.addWidget(self.selenium_slider)
         self.layout.addWidget(self.sepia_slider)
 

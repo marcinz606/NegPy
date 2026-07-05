@@ -22,13 +22,14 @@ class ToningProcessor:
         img = image
 
         if context.process_mode == ProcessMode.BW:
-            # Chemical toning + black point run in the display domain (luma masks).
-            p = working_oetf_encode(img)
-            p = apply_chemical_toning(
-                p,
+            # Chemical toning is density-driven, so it works on the linear print
+            # directly; the black point keeps its display-domain bracket.
+            img = apply_chemical_toning(
+                img,
                 selenium_strength=self.config.selenium_strength,
                 sepia_strength=self.config.sepia_strength,
             )
+            p = working_oetf_encode(img)
             p = apply_chromaticity_preserving_black_point(p, 0.05)
             img = working_oetf_decode(p)
 

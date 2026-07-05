@@ -24,7 +24,7 @@ from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.models import GeometryConfig
-from negpy.features.process.models import ProcessConfig
+from negpy.features.process.models import ProcessConfig, ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.services.rendering.engine import DarkroomEngine
 from negpy.services.rendering.gpu_engine import GPUEngine
@@ -423,6 +423,26 @@ class TestToningParity:
             ),
         )
         self._run_and_compare(s)
+
+    def _bw_settings(self, **toning_kwargs) -> WorkspaceConfig:
+        base = _make_base_settings()
+        return replace(
+            base,
+            process=replace(base.process, process_mode=ProcessMode.BW),
+            toning=ToningConfig(**toning_kwargs),
+        )
+
+    # B&W parity carries the CPU-only chromaticity-preserving black point on top
+    # of the toning math; the shared tolerance absorbs it on this synthetic image.
+
+    def test_chemical_selenium(self):
+        self._run_and_compare(self._bw_settings(selenium_strength=0.8))
+
+    def test_chemical_sepia(self):
+        self._run_and_compare(self._bw_settings(sepia_strength=0.8))
+
+    def test_chemical_both(self):
+        self._run_and_compare(self._bw_settings(selenium_strength=0.5, sepia_strength=0.5))
 
 
 class TestRetouchParity:

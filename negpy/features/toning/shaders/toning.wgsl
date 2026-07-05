@@ -16,17 +16,6 @@ struct ToningUniforms {
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: ToningUniforms;
 
-// Working-space TRC (ProPhoto ROMM: gamma 1.8 + linear toe); chemical toning is bracketed in it.
-fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
-    let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
-    return select(pow(x, vec3<f32>(0.55555556)), x * 16.0, x < vec3<f32>(0.001953125));
-}
-
-fn oetf_decode(c: vec3<f32>) -> vec3<f32> {
-    let e = max(c, vec3<f32>(0.0));
-    return select(pow(e, vec3<f32>(1.8)), e / 16.0, e < vec3<f32>(0.03125));
-}
-
 fn rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
     // Linear Adobe RGB -> CIELAB (D65). Input is scene-linear (no sRGB decode).
     let r = max(rgb.r, 0.0);
@@ -98,19 +87,26 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = vec3<f32>(luma);
     }
 
-    // 2. Chemical Toning (Selenium/Sepia) — B&W only, bracketed in the display domain.
-    if (params.selenium_strength > 0.0 || params.sepia_strength > 0.0) {
-        var p = oetf_encode(color);
-        let luma_toning = dot(p, vec3<f32>(0.2126, 0.7152, 0.0722));
+    // 2. Chemical Toning (Selenium/Sepia) — B&W only, density-driven on the
+    // linear print (mirrors _apply_chemical_toning_jit / TONING_CONSTANTS).
+    // Silver density D = -log10(t); a density-dependent fraction c converts to
+    // the toner's dye: D' = D*(1-c) + c*D*gain. Selenium converts the densest
+    // silver first (Dmax boost, eggplant shadows); sepia the thinnest (warm
+    // highlights, shadows hold).
+    if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0)) {
+        let sel_gain = vec3<f32>(1.04, 1.10, 1.02);
+        let sep_gain = vec3<f32>(0.82, 0.94, 1.12);
+        var d = -log(clamp(color, vec3<f32>(1e-6), vec3<f32>(1.0))) / log(10.0);
+        // Conversion caps at 1: all the silver is toned (slider > 1 = longer bath).
         if (params.selenium_strength > 0.0) {
-            let sel_m = clamp((1.0 - luma_toning) * (1.0 - luma_toning) * params.selenium_strength, 0.0, 1.0);
-            p = mix(p, p * vec3<f32>(0.85, 0.75, 0.85), sel_m);
+            let c_sel = min(params.selenium_strength * pow(min(d / 2.0, vec3<f32>(1.0)), vec3<f32>(1.5)), vec3<f32>(1.0));
+            d = d * (1.0 - c_sel) + c_sel * d * sel_gain;
         }
         if (params.sepia_strength > 0.0) {
-            let sep_m = exp(-pow(luma_toning - 0.6, 2.0) / 0.08) * params.sepia_strength;
-            p = mix(p, p * vec3<f32>(1.1, 0.99, 0.825), sep_m);
+            let c_sep = min(params.sepia_strength * pow(1.0 - min(d / 1.8, vec3<f32>(1.0)), vec3<f32>(2.0)), vec3<f32>(1.0));
+            d = d * (1.0 - c_sep) + c_sep * d * sep_gain;
         }
-        color = oetf_decode(p);
+        color = clamp(pow(vec3<f32>(10.0), -d), vec3<f32>(0.0), vec3<f32>(1.0));
     }
 
     // 3. Split Toning — all modes (color and B&W)

@@ -1,45 +1,88 @@
+from typing import Any, Dict
+
 import numpy as np
 from numba import njit  # type: ignore
 
-from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
+from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
 from negpy.kernel.image.validation import ensure_image
 
+TONING_CONSTANTS: Dict[str, Any] = {
+    # ── Selenium (silver -> silver selenide, densest silver first) ───────────
+    # Density at which selenium conversion saturates (c = strength·(D/this)^power).
+    # ↑ conversion spreads to lighter tones more slowly; ↓ shadows convert sooner.
+    "sel_d_ref": 2.0,
+    # Exponent shaping the density-proportional conversion.
+    # ↑ conversion concentrates deeper in the shadows; ↓ creeps into midtones.
+    "sel_power": 1.5,
+    # Per-channel density multipliers of converted silver: all ≥1 deepens blacks
+    # (the Dmax boost selenium is used for); green highest -> eggplant shadow hue.
+    "sel_gain": (1.04, 1.10, 1.02),
+    # ── Sepia (bleach–redevelop to sulfide, thinnest silver first) ────────────
+    # Density above which bleach no longer reaches (c = strength·(1 − D/this)^power).
+    # ↑ toning creeps into deeper shadows; ↓ holds toning to the highlights.
+    "sep_d_bleach": 1.8,
+    # Exponent shaping the highlight-first conversion falloff.
+    # ↑ tighter split-sepia (highlights only); ↓ more even toning.
+    "sep_power": 2.0,
+    # Per-channel density multipliers of converted silver: red < 1 (sulfide's
+    # lower covering power lifts/warms), blue > 1 -> yellow-brown hue.
+    "sep_gain": (0.82, 0.94, 1.12),
+}
+
 
 @njit(cache=True, fastmath=True)
-def _apply_chemical_toning_jit(img: np.ndarray, sel_strength: float, sep_strength: float) -> np.ndarray:
+def _apply_chemical_toning_jit(
+    img: np.ndarray,
+    sel_strength: float,
+    sep_strength: float,
+    sel_d_ref: float,
+    sel_power: float,
+    sel_gain: np.ndarray,
+    sep_d_bleach: float,
+    sep_power: float,
+    sep_gain: np.ndarray,
+) -> np.ndarray:
     """
-    Selenium (Shadows) & Sepia (Mids) toning.
+    Density-driven chemical toning on linear reflectance. Silver density
+    D = -log10(t); a density-dependent fraction c of it converts to the toner's
+    dye, whose per-channel covering power reshapes D: D_ch = D·(1−c) + c·D·gain.
+    Selenium converts the densest silver first, sepia the thinnest.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
-    sel_color = np.array([0.85, 0.75, 0.85], dtype=np.float32)
-    sep_color = np.array([1.1, 0.99, 0.825], dtype=np.float32)
+    eps = 1e-6
 
     for y in range(h):
         for x in range(w):
-            # Fused Luminance (Rec. 709)
-            lum_val = LUMA_R * img[y, x, 0] + LUMA_G * img[y, x, 1] + LUMA_B * img[y, x, 2]
-
-            sel_m = 0.0
-            if sel_strength > 0:
-                m = 1.0 - lum_val
-                if m < 0.0:
-                    m = 0.0
-                sel_m = m * m * sel_strength
-
-            sep_m = 0.0
-            if sep_strength > 0:
-                dist = lum_val - 0.6
-                sep_m = np.exp(-(dist * dist) / 0.08) * sep_strength
-
             for ch in range(3):
-                pixel = img[y, x, ch]
-                if sel_m > 0:
-                    pixel = pixel * (1.0 - sel_m) + (pixel * sel_color[ch]) * sel_m
-                if sep_m > 0:
-                    pixel = pixel * (1.0 - sep_m) + (pixel * sep_color[ch]) * sep_m
+                t = img[y, x, ch]
+                if t < eps:
+                    t = eps
+                elif t > 1.0:
+                    t = 1.0
+                d = -np.log10(t)
 
+                if sel_strength > 0.0:
+                    frac = d / sel_d_ref
+                    if frac > 1.0:
+                        frac = 1.0
+                    # Conversion caps at 1: all the silver is toned (slider > 1 = longer bath).
+                    c_sel = sel_strength * frac**sel_power
+                    if c_sel > 1.0:
+                        c_sel = 1.0
+                    d = d * (1.0 - c_sel) + c_sel * d * sel_gain[ch]
+
+                if sep_strength > 0.0:
+                    frac = d / sep_d_bleach
+                    if frac > 1.0:
+                        frac = 1.0
+                    c_sep = sep_strength * (1.0 - frac) ** sep_power
+                    if c_sep > 1.0:
+                        c_sep = 1.0
+                    d = d * (1.0 - c_sep) + c_sep * d * sep_gain[ch]
+
+                pixel = 10.0**-d
                 if pixel < 0.0:
                     pixel = 0.0
                 elif pixel > 1.0:
@@ -86,15 +129,22 @@ def apply_chemical_toning(
     sepia_strength: float = 0.0,
 ) -> ImageBuffer:
     """
-    Applies split-toning based on luminance.
+    Selenium / sepia toning of a linear-reflectance print (density domain).
     """
     if selenium_strength == 0 and sepia_strength == 0:
         return img
 
+    c = TONING_CONSTANTS
     return ensure_image(
         _apply_chemical_toning_jit(
             np.ascontiguousarray(img.astype(np.float32)),
             float(selenium_strength),
             float(sepia_strength),
+            float(c["sel_d_ref"]),
+            float(c["sel_power"]),
+            np.array(c["sel_gain"], dtype=np.float32),
+            float(c["sep_d_bleach"]),
+            float(c["sep_power"]),
+            np.array(c["sep_gain"], dtype=np.float32),
         )
     )

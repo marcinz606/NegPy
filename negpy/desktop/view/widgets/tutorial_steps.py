@@ -312,8 +312,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Split Toning</b> (all modes) pushes shadows and highlights toward independent "
                 "hue angles with their own strength. It works in Lab space, so luminance — and "
                 "therefore grain and detail — is preserved exactly.<br><br>"
-                "<b>Selenium</b> and <b>Sepia</b> simulate classic chemical toners (B&W mode only): "
-                "selenium cools the shadows, sepia warms the midtones."
+                "<b>Selenium</b> and <b>Sepia</b> simulate classic chemical toners on the print's "
+                "silver density (B&W mode only): selenium converts the densest silver first — "
+                "deeper blacks and cool eggplant shadows; sepia bleach-redevelops the thinnest "
+                "silver first — warm highlights that hold the shadows (partial strength gives the "
+                "classic split-sepia look)."
             ),
             target=_toning,
             section_attr="toning_section",

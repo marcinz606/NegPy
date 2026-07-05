@@ -495,13 +495,13 @@ class ControlsPanel(QWidget):
 
         ton.selenium_slider.setToolTip(
             tooltip_with_shortcut(
-                "Simulates selenium toning — adds a cool blue-purple cast to shadows. B&W mode only",
+                "Simulates selenium toning — converts the densest silver first: deeper blacks, cool eggplant shadows. B&W mode only",
                 ["selenium_inc", "selenium_dec"],
             )
         )
         ton.sepia_slider.setToolTip(
             tooltip_with_shortcut(
-                "Simulates sepia toning — adds a warm brown cast across the full tonal range. B&W mode only",
+                "Simulates sepia bleach-redevelop toning — warms the highlights first while shadows hold. B&W mode only",
                 ["sepia_inc", "sepia_dec"],
             )
         )

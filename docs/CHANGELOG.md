@@ -4,6 +4,7 @@
 ## 0.34.0
 
 - Change: **Dodge & Burn is real print exposure** — masks now change the exposure ahead of the paper curve instead of brightening/darkening the finished image. Burns roll into paper black through the toe and dodges lift toward paper white through the shoulder, like holding back light under the enlarger — no more flat clipped patches under strong masks. Existing dodge/burn edits will render slightly differently. The Dodge & Burn section moved to the Exposure tab to match.
+- Change: **Selenium and Sepia tone the print's silver, not its brightness** — both toners now work on density like the real baths. Selenium converts the densest silver first: visibly deeper blacks (the reason printers selenium-tone) and a cool eggplant cast that stays in the shadows. Sepia bleach-redevelops the thinnest silver first: highlights warm up while shadows hold, and partial strength gives the classic split-sepia look. Paper white stays white. Existing toned edits will render differently.
 
 
 ## 0.33.1

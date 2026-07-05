@@ -7,32 +7,84 @@ from negpy.features.toning.logic import (
 )
 
 
-class TestToningLogic(unittest.TestCase):
-    def test_apply_chemical_toning_selenium(self):
-        """Selenium targets shadows (low luma)."""
-        # Create a gradient from 0 to 1
-        img = np.linspace(0, 1, 100).reshape((10, 10, 1)).repeat(3, axis=2).astype(np.float32)
+class TestChemicalToning(unittest.TestCase):
+    """Density-driven chemical toners on the linear print: selenium converts the
+    densest silver first (Dmax boost, cool shadows); sepia bleach-redevelop
+    converts the thinnest silver first (warm highlights, shadows hold)."""
 
-        res = apply_chemical_toning(img, selenium_strength=1.0, sepia_strength=0.0)
+    @staticmethod
+    def _gray(t: float) -> np.ndarray:
+        return np.full((4, 4, 3), t, dtype=np.float32)
 
-        # Selenium color is [0.85, 0.75, 0.85] (cool/dark)
-        # It affects low lum (1 - lum_val)
-        # Shadow (img=0.1) should be changed more than highlight (img=0.9)
-        diff_shadow = np.abs(res[1, 0, 0] - img[1, 0, 0])
-        diff_highlight = np.abs(res[9, 0, 0] - img[9, 0, 0])
+    @staticmethod
+    def _density(res: np.ndarray, ch: int) -> float:
+        return float(-np.log10(max(float(res[0, 0, ch]), 1e-6)))
 
-        self.assertGreater(diff_shadow, diff_highlight)
+    def test_zero_strength_is_identity(self):
+        img = np.random.rand(10, 10, 3).astype(np.float32)
+        res = apply_chemical_toning(img, selenium_strength=0.0, sepia_strength=0.0)
+        np.testing.assert_array_equal(res, img)
 
-    def test_apply_chemical_toning_sepia(self):
-        """Sepia targets midtones (warm shift)."""
-        img = np.full((10, 10, 3), 0.6, dtype=np.float32)
-        res = apply_chemical_toning(img, selenium_strength=0.0, sepia_strength=1.0)
+    def test_selenium_deepens_shadows(self):
+        """Selenium adds density where silver is dense — blacks get deeper."""
+        dark = self._gray(0.05)  # D ~ 1.3
+        res = apply_chemical_toning(dark, selenium_strength=1.0, sepia_strength=0.0)
+        self.assertLess(float(res.mean()), 0.05)
 
-        # Sepia color is [1.1, 0.99, 0.825]
-        # Midtones around 0.6 are affected by exp(-((lum-0.6)**2)/0.08)
-        # Check that red increased and blue decreased
-        self.assertGreater(res[0, 0, 0], img[0, 0, 0])
-        self.assertLess(res[0, 0, 2], img[0, 0, 2])
+    def test_selenium_converts_densest_first(self):
+        """Density gain grows with input density; highlights barely move."""
+        d_dark_in, d_light_in = -np.log10(0.05), -np.log10(0.9)
+        res_dark = apply_chemical_toning(self._gray(0.05), selenium_strength=1.0, sepia_strength=0.0)
+        res_light = apply_chemical_toning(self._gray(0.9), selenium_strength=1.0, sepia_strength=0.0)
+        gain_dark = self._density(res_dark, 1) - d_dark_in
+        gain_light = self._density(res_light, 1) - d_light_in
+        self.assertGreater(gain_dark, gain_light * 10)
+        self.assertAlmostEqual(gain_light, 0.0, places=3)
+
+    def test_selenium_cools_shadows(self):
+        """Green gains the most density -> magenta/eggplant cast in the shadows."""
+        res = apply_chemical_toning(self._gray(0.05), selenium_strength=1.0, sepia_strength=0.0)
+        self.assertLess(float(res[0, 0, 1]), float(res[0, 0, 0]))  # G darker than R
+        self.assertLess(float(res[0, 0, 1]), float(res[0, 0, 2]))  # G darker than B
+
+    def test_sepia_warms_highlights(self):
+        """Converted silver -> warm sulfide dye: red lifts, blue drops."""
+        light = self._gray(0.6)
+        res = apply_chemical_toning(light, selenium_strength=0.0, sepia_strength=1.0)
+        self.assertGreater(float(res[0, 0, 0]), 0.6)  # R lighter (warm)
+        self.assertLess(float(res[0, 0, 2]), 0.6)  # B denser
+
+    def test_sepia_converts_thinnest_first(self):
+        """Bleach eats the thinnest silver first — highlights tone, shadows hold
+        (the classic split-sepia look at partial strength)."""
+        res_light = apply_chemical_toning(self._gray(0.6), selenium_strength=0.0, sepia_strength=1.0)
+        res_dark = apply_chemical_toning(self._gray(0.01), selenium_strength=0.0, sepia_strength=1.0)
+        warmth_light = float(res_light[0, 0, 0] - res_light[0, 0, 2])
+        warmth_dark = float(res_dark[0, 0, 0] - res_dark[0, 0, 2])
+        self.assertGreater(warmth_light, 0.01)
+        self.assertAlmostEqual(warmth_dark, 0.0, places=3)
+
+    def test_paper_white_stays_white(self):
+        """No silver at paper white — nothing to tone."""
+        white = self._gray(1.0)
+        res = apply_chemical_toning(white, selenium_strength=1.0, sepia_strength=1.0)
+        np.testing.assert_allclose(res, white, atol=1e-3)
+
+    def test_output_range_combined(self):
+        img = np.random.rand(10, 10, 3).astype(np.float32)
+        res = apply_chemical_toning(img, selenium_strength=1.0, sepia_strength=1.0)
+        self.assertGreaterEqual(float(res.min()), 0.0)
+        self.assertLessEqual(float(res.max()), 1.0)
+
+    def test_slider_max_saturates_conversion(self):
+        """Sliders go to 2.0 — conversion caps at all-silver-toned, output stays
+        sane and monotone with strength."""
+        dark = self._gray(0.05)
+        res_1 = apply_chemical_toning(dark, selenium_strength=1.0, sepia_strength=0.0)
+        res_2 = apply_chemical_toning(dark, selenium_strength=2.0, sepia_strength=0.0)
+        self.assertGreaterEqual(float(res_2.min()), 0.0)
+        self.assertLessEqual(float(res_2.max()), 1.0)
+        self.assertLessEqual(float(res_2.mean()), float(res_1.mean()))  # longer bath, deeper
 
 
 class TestSplitToning(unittest.TestCase):
