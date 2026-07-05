@@ -4,6 +4,7 @@
 ## 0.34.0
 
 - Change: **Dodge & Burn moved into the print exposure** — masks now adjust exposure before the paper curve instead of scaling the finished image, which is how dodging and burning physically work. Strong burns and dodges roll off through the paper's toe and shoulder instead of clipping flat. The section moved to the Exposure tab; existing dodge/burn edits will render slightly differently.
+- Fix: **dodge/burn mask overlay now shows the real feathered falloff** instead of a hard-edged polygon — the on-canvas mask previously didn't match the soft edge the pipeline actually renders.
 - Change: **Selenium and Sepia work on print density** — both toners now convert silver density instead of tinting by brightness, matching the real baths. Selenium acts on the densest areas (deeper blacks, cooler shadows); sepia acts on the thinnest (warmer highlights, shadows hold). Existing toned edits will render differently.
 - Fix: **exporting all RGB-scan triplets no longer fails** with "Input/output error" on most frames. Batch export was reusing stale saved paths for each frame's green/blue exposures instead of the ones the triplet was actually built from, so it tried to read files that weren't there; it now uses each frame's own exposures, the same as exporting one at a time.
 
