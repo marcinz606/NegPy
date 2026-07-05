@@ -10,6 +10,7 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.geometry.logic import translate_manual_crop_rect
+from negpy.features.local.logic import _rasterise_mask
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
@@ -18,11 +19,29 @@ _CROP_HANDLE_PX = 10.0
 _CROP_MIN_SCREEN_PX = 24.0
 _ROTATION_GRID_DIVISIONS = 10
 _GRID_ALPHA = 70
+_MASK_RASTER_MAX = 384  # px cap for feathered overlay rasters
 
 
 def grid_interior_fractions(divisions: int) -> List[float]:
     """Interior division fractions, e.g. 3 -> [1/3, 2/3], 10 -> [.1 .. .9]."""
     return [i / divisions for i in range(1, divisions)]
+
+
+def feathered_mask_image(local_pts: List[Tuple[float, float]], w: int, h: int, sigma_px: float, color: QColor, max_alpha: int) -> QImage:
+    """Tinted premultiplied-alpha QImage of a feathered polygon.
+
+    `local_pts` in raster pixel coords; `sigma_px` in raster pixels.
+    """
+    norm = [(x / w, y / h) for x, y in local_pts]
+    alpha = _rasterise_mask(norm, h, w, sigma_px)
+    a = alpha * (max_alpha / 255.0)
+    buf = np.empty((h, w, 4), dtype=np.uint8)
+    buf[..., 0] = (color.red() * a).astype(np.uint8)
+    buf[..., 1] = (color.green() * a).astype(np.uint8)
+    buf[..., 2] = (color.blue() * a).astype(np.uint8)
+    buf[..., 3] = (a * 255.0).astype(np.uint8)
+    img = QImage(buf.data, w, h, w * 4, QImage.Format.Format_RGBA8888_Premultiplied)
+    return img.copy()  # QImage-from-buffer does not own the memory
 
 
 class CanvasOverlay(QWidget):
@@ -61,6 +80,7 @@ class CanvasOverlay(QWidget):
         self._lasso_pts: List[QPointF] = []
         self._lasso_drawing: bool = False
         self._local_mask_screen_polys: List[List[QPointF]] = []
+        self._mask_img_cache: Dict[tuple, QImage] = {}
 
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
@@ -483,6 +503,7 @@ class CanvasOverlay(QWidget):
             return
 
         selected = getattr(self.state, "local_selected_mask", -1)
+        fresh_cache: Dict[tuple, QImage] = {}
         for i, mask in enumerate(masks):
             if len(mask.vertices) < 3:
                 self._local_mask_screen_polys.append([])
@@ -492,19 +513,37 @@ class CanvasOverlay(QWidget):
 
             is_selected = i == selected
             outline = QColor(232, 200, 74) if mask.strength >= 0 else QColor(74, 143, 232)
-            poly = QPolygonF(screen_pts)
+            max_alpha = 70 if is_selected else 32
+
+            sigma_screen = mask.feather * min(self._view_rect.width(), self._view_rect.height())
+            pad = 3.0 * sigma_screen + 2.0
+            xs = [p.x() for p in screen_pts]
+            ys = [p.y() for p in screen_pts]
+            x0, y0 = min(xs) - pad, min(ys) - pad
+            bw, bh = max(xs) + pad - x0, max(ys) + pad - y0
+            scale = min(1.0, _MASK_RASTER_MAX / max(bw, bh, 1.0))
+            rw, rh = max(int(bw * scale), 2), max(int(bh * scale), 2)
+            # Bbox-relative points are pan-invariant, so panning reuses the cache.
+            local = tuple((round((p.x() - x0) * scale, 1), round((p.y() - y0) * scale, 1)) for p in screen_pts)
+
+            key = (local, rw, rh, round(sigma_screen * scale, 2), outline.rgb(), max_alpha)
+            img = self._mask_img_cache.get(key)
+            if img is None:
+                img = feathered_mask_image(local, rw, rh, sigma_screen * scale, outline, max_alpha)
+            fresh_cache[key] = img
+            painter.drawImage(QRectF(x0, y0, bw, bh), img)
 
             if is_selected:
-                fill = QColor(outline)
-                fill.setAlpha(60)
-                painter.setBrush(fill)
-                pen = QPen(outline, 2.0, Qt.PenStyle.SolidLine)
+                outline_color = QColor(outline)
+                outline_color.setAlpha(160)
+                pen = QPen(outline_color, 2.0, Qt.PenStyle.SolidLine)
             else:
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                pen = QPen(QColor(255, 255, 255, 140), 1.0, Qt.PenStyle.SolidLine)
+                pen = QPen(QColor(255, 255, 255, 100), 1.0, Qt.PenStyle.SolidLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
-            painter.drawPolygon(poly)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPolygon(QPolygonF(screen_pts))
+        self._mask_img_cache = fresh_cache
 
     def _draw_lasso_in_progress(self, painter: QPainter) -> None:
         if not self._lasso_drawing or not self._lasso_pts:
