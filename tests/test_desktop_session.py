@@ -494,5 +494,46 @@ class TestAssetListModelFilter(unittest.TestCase):
         self.assertEqual(len(self.model._sorted_indices), 5)
 
 
+class TestNavButtonBoundaries(unittest.TestCase):
+    """Regression for #407: Next/Prev enable must be computed in display space
+    (sorted/filtered order), matching session.next_file/prev_file — not raw
+    uploaded_files (load-order) index space."""
+
+    def setUp(self):
+        self.state = AppState()
+        # Loaded reverse-alphabetically; default sort is name-ascending, so
+        # display order is the reverse of load order.
+        self.state.uploaded_files = [
+            {"name": "c.dng", "path": "/tmp/c.dng", "hash": "h1"},
+            {"name": "b.dng", "path": "/tmp/b.dng", "hash": "h2"},
+            {"name": "a.dng", "path": "/tmp/a.dng", "hash": "h3"},
+        ]
+        self.model = AssetListModel(self.state)
+
+    def _enabled(self, actual_idx):
+        display_idx = self.model.actual_to_display(actual_idx)
+        prev_enabled = display_idx > 0
+        next_enabled = 0 <= display_idx < self.model.rowCount() - 1
+        return prev_enabled, next_enabled
+
+    def test_first_display_file_is_last_loaded(self):
+        # a.dng (actual 2) is the last-loaded but first in display order.
+        prev_enabled, next_enabled = self._enabled(2)
+        self.assertFalse(prev_enabled)
+        self.assertTrue(next_enabled)
+
+    def test_last_display_file_is_first_loaded(self):
+        # c.dng (actual 0) is the first-loaded but last in display order.
+        prev_enabled, next_enabled = self._enabled(0)
+        self.assertTrue(prev_enabled)
+        self.assertFalse(next_enabled)
+
+    def test_filtered_out_selection_disables_both(self):
+        self.model.set_filter("a.dng", regex=False)
+        prev_enabled, next_enabled = self._enabled(0)  # c.dng no longer visible
+        self.assertFalse(prev_enabled)
+        self.assertFalse(next_enabled)
+
+
 if __name__ == "__main__":
     unittest.main()

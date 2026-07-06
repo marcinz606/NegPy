@@ -316,6 +316,7 @@ class ActionToolbar(QWidget):
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
+        self.session.asset_model.layoutChanged.connect(self._update_ui_state)
 
         # Overflow menu action connections
         self._ov_hq_action.triggered.connect(self.controller.toggle_hq_preview)
@@ -415,8 +416,10 @@ class ActionToolbar(QWidget):
 
     def _update_ui_state(self) -> None:
         state = self.session.state
-        self.btn_prev.setEnabled(state.selected_file_idx > 0)
-        self.btn_next.setEnabled(state.selected_file_idx < len(state.uploaded_files) - 1)
+        model = self.session.asset_model
+        display_idx = model.actual_to_display(state.selected_file_idx)
+        self.btn_prev.setEnabled(display_idx > 0)
+        self.btn_next.setEnabled(0 <= display_idx < model.rowCount() - 1)
         self.btn_hq.setChecked(state.hq_preview)
         self._ov_hq_action.setChecked(state.hq_preview)
 
