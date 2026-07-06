@@ -54,6 +54,7 @@ class CanvasOverlay(QWidget):
     cursor_moved = pyqtSignal(float, float)
     cursor_left = pyqtSignal()
     lasso_completed = pyqtSignal(list)
+    scratch_completed = pyqtSignal(list)
     local_mask_selected = pyqtSignal(int)
 
     def __init__(self, state: AppState, parent=None):
@@ -79,6 +80,9 @@ class CanvasOverlay(QWidget):
         # Lasso (polygon mask) interaction state
         self._lasso_pts: List[QPointF] = []
         self._lasso_drawing: bool = False
+
+        # Scratch heal (open polyline) interaction state
+        self._scratch_pts: List[QPointF] = []
         self._local_mask_screen_polys: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
 
@@ -146,6 +150,8 @@ class CanvasOverlay(QWidget):
         if mode != ToolMode.LOCAL_DRAW:
             self._lasso_pts = []
             self._lasso_drawing = False
+        if mode != ToolMode.SCRATCH_PICK:
+            self._scratch_pts = []
         self.update()
 
     def _end_crop_drag(self) -> None:
@@ -161,6 +167,9 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing:
             self._lasso_pts = []
             self._lasso_drawing = False
+            self.update()
+        elif self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
+            self._scratch_pts = []
             self.update()
 
     def update_buffer(
@@ -269,7 +278,7 @@ class CanvasOverlay(QWidget):
             painter.drawRect(inner)
 
         if self._tool_mode != ToolMode.NONE and visible_rect.contains(self._mouse_pos):
-            if self._tool_mode == ToolMode.DUST_PICK:
+            if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
                 self._draw_brush(painter)
             elif self._tool_mode != ToolMode.LOCAL_DRAW:
                 pen = QPen(QColor(255, 255, 255, 80), 1, Qt.PenStyle.DotLine)
@@ -283,6 +292,10 @@ class CanvasOverlay(QWidget):
             self._draw_local_masks(painter)
         if self._tool_mode == ToolMode.LOCAL_DRAW:
             self._draw_lasso_in_progress(painter)
+        if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+            self._draw_placed_heals(painter)
+        if self._tool_mode == ToolMode.SCRATCH_PICK:
+            self._draw_scratch_in_progress(painter)
 
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
@@ -315,9 +328,7 @@ class CanvasOverlay(QWidget):
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "BEFORE")
 
     def _draw_brush(self, painter: QPainter) -> None:
-        conf = self.state.config.retouch
-        max_screen_dim = max(self._view_rect.width(), self._view_rect.height())
-        radius = (conf.manual_dust_size / (2.0 * APP_CONFIG.preview_render_size)) * max_screen_dim
+        radius = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         pen = QPen(Qt.GlobalColor.white, 1.0, Qt.PenStyle.SolidLine)
@@ -330,6 +341,76 @@ class CanvasOverlay(QWidget):
         painter.setBrush(accent)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(self._mouse_pos, radius, radius)
+
+    def _brush_screen_radius(self, size: float) -> float:
+        max_screen_dim = max(self._view_rect.width(), self._view_rect.height())
+        return (size / (2.0 * APP_CONFIG.preview_render_size)) * max_screen_dim
+
+    def _draw_scratch_in_progress(self, painter: QPainter) -> None:
+        if not self._scratch_pts:
+            return
+        width = max(1.5, 2.0 * self._brush_screen_radius(self.state.config.retouch.manual_dust_size))
+
+        band = QColor(THEME.accent_primary)
+        band.setAlpha(60)
+        pen = QPen(band, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath(self._scratch_pts[0])
+        for pt in self._scratch_pts[1:]:
+            path.lineTo(pt)
+        if self._view_rect.contains(self._mouse_pos):
+            path.lineTo(self._mouse_pos)
+        painter.drawPath(path)
+
+        centerline = QPen(Qt.GlobalColor.white, 1.0, Qt.PenStyle.SolidLine)
+        centerline.setCosmetic(True)
+        painter.setPen(centerline)
+        painter.drawPath(path)
+        painter.setBrush(QColor(255, 255, 255, 180))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(self._scratch_pts[0], 3.0, 3.0)
+
+    def _draw_placed_heals(self, painter: QPainter) -> None:
+        """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""
+        conf = self.state.config.retouch
+        if not (conf.manual_heal_strokes or conf.manual_dust_spots):
+            return
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None:
+            return
+
+        pen = QPen(QColor(THEME.accent_primary), 1.0, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        for points, size, _dx, _dy in conf.manual_heal_strokes:
+            screen_pts = [self._raw_to_screen(px, py, uv_grid) for px, py in points]
+            radius = max(2.0, self._brush_screen_radius(size))
+            if len(screen_pts) == 1:
+                painter.setPen(pen)
+                painter.drawEllipse(screen_pts[0], radius, radius)
+            else:
+                band = QPen(
+                    QColor(THEME.accent_primary), 2.0 * radius, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin
+                )
+                band_color = QColor(THEME.accent_primary)
+                band_color.setAlpha(40)
+                band.setColor(band_color)
+                painter.setPen(band)
+                path = QPainterPath(screen_pts[0])
+                for pt in screen_pts[1:]:
+                    path.lineTo(pt)
+                painter.drawPath(path)
+                painter.setPen(pen)
+                painter.drawPath(path)
+
+        painter.setPen(pen)
+        for rx, ry, size in conf.manual_dust_spots:
+            center = self._raw_to_screen(rx, ry, uv_grid)
+            radius = max(2.0, self._brush_screen_radius(size))
+            painter.drawEllipse(center, radius, radius)
 
     def _raw_to_screen(self, rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> QPointF:
         """
@@ -600,6 +681,13 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        if self._tool_mode == ToolMode.SCRATCH_PICK:
+            if self._view_rect.contains(event.position()):
+                self._scratch_pts.append(event.position())
+                self.update()
+            event.accept()
+            return
+
         coords = self._map_to_image_coords(event.position())
         if coords:
             self.clicked.emit(*coords)
@@ -764,7 +852,30 @@ class CanvasOverlay(QWidget):
             self._finish_lasso()
             event.accept()
             return
+        if self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
+            self._finish_scratch()
+            event.accept()
+            return
         super().mouseDoubleClickEvent(event)
+
+    def _finish_scratch(self) -> None:
+        pts = self._scratch_pts
+        self._scratch_pts = []
+        # The double-click lands as an extra press at the previous point — drop near-duplicates.
+        deduped: List[QPointF] = []
+        for pt in pts:
+            if not deduped or (pt - deduped[-1]).manhattanLength() > 2.0:
+                deduped.append(pt)
+        vertices = []
+        for pt in deduped:
+            coords = self._map_to_image_coords(pt)
+            if coords is None:
+                self.update()
+                return
+            vertices.append(coords)
+        if vertices:
+            self.scratch_completed.emit(vertices)
+        self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self.parent()._is_panning:

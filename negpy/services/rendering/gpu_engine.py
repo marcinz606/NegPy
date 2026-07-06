@@ -37,10 +37,10 @@ from negpy.features.geometry.logic import (
     compute_distortion_scale,
     get_autocrop_coords,
     get_manual_rect_coords,
-    map_coords_to_geometry,
 )
 from negpy.features.local.logic import compute_local_ev_map
 from negpy.features.process.models import ProcessMode
+from negpy.features.retouch.logic import build_heal_regions
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
@@ -220,6 +220,7 @@ class GPUEngine:
         self._last_scale_factor: float = 1.0
         self._pending_ir_buffer: Optional[np.ndarray] = None
         self._ir_upload_key: Optional[Tuple[int, Any, int, int]] = None
+        self._retouch_num_regions = 0
 
         # Bind groups reference resources, not contents, so they survive across frames;
         # cache and reuse (cleared in cleanup()). Saves ~28 wgpu calls per frame.
@@ -321,7 +322,9 @@ class GPUEngine:
             65536,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
         )
-        self._buffers["retouch_s"] = GPUBuffer(8192, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        # 512 heal regions × 32 B, and 16K polyline/boundary points × 8 B.
+        self._buffers["retouch_s"] = GPUBuffer(16384, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        self._buffers["retouch_p"] = GPUBuffer(131072, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["metrics"] = GPUBuffer(
             METRICS_BUFFER_SIZE,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
@@ -581,6 +584,16 @@ class GPUEngine:
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
 
+        # Regions before uniforms: the uniform block reads the uploaded region count.
+        self._update_retouch_storage(
+            settings.retouch,
+            (h, w),
+            settings.geometry,
+            global_offset,
+            actual_full_dims,
+            scale_factor,
+            distortion_k1=k1_eff,
+        )
         self._upload_unified_uniforms(
             settings,
             bounds,
@@ -598,15 +611,6 @@ class GPUEngine:
             textural_range=textural_range,
             neutral_axis_refs=neutral_axis_refs,
             unmix=unmix_m,
-        )
-        self._update_retouch_storage(
-            settings.retouch,
-            (h, w),
-            settings.geometry,
-            global_offset,
-            actual_full_dims,
-            scale_factor,
-            distortion_k1=k1_eff,
         )
         if clahe_cdf_override is not None:
             self._buffers["clahe_c"].upload(clahe_cdf_override)
@@ -791,6 +795,7 @@ class GPUEngine:
                     (2, self._get_uniform_binding("retouch_u")),
                     (3, self._buffers["retouch_s"]),
                     (4, tex_ir.view),
+                    (5, self._buffers["retouch_p"]),
                 ],
                 w_rot,
                 h_rot,
@@ -1145,7 +1150,7 @@ class GPUEngine:
             "ffIIiiIIfIff",
             float(ret.dust_threshold),
             float(ret.dust_size),
-            len(ret.manual_dust_spots),
+            self._retouch_num_regions,
             (1 if ret.dust_remove else 0),
             offset[0],
             offset[1],
@@ -1264,24 +1269,45 @@ class GPUEngine:
         scale_factor: float,
         distortion_k1: float = 0.0,
     ) -> None:
-        """Uploads manual retouch spots to GPU storage buffer."""
-        spot_data = bytearray()
-        for x, y, size in conf.manual_dust_spots[:512]:
-            mx, my = map_coords_to_geometry(
-                x,
-                y,
-                orig_shape,
-                geom.rotation,
-                geom.fine_rotation,
-                geom.flip_horizontal,
-                geom.flip_vertical,
-                distortion_k1=distortion_k1,
+        """Uploads manual heal regions (capsule chains + boundary loops) to GPU storage."""
+        self._retouch_num_regions = 0
+        if not (conf.manual_heal_strokes or conf.manual_dust_spots):
+            return
+
+        reg_i, reg_f, pts = build_heal_regions(
+            conf.manual_heal_strokes,
+            conf.manual_dust_spots,
+            orig_shape,
+            geom.rotation,
+            geom.fine_rotation,
+            geom.flip_horizontal,
+            geom.flip_vertical,
+            distortion_k1,
+            scale_factor,
+            full_dims,
+        )
+        n_entries = len(conf.manual_heal_strokes) + len(conf.manual_dust_spots)
+        if len(reg_i) < n_entries:
+            logger.warning("Retouch storage full: %d of %d heals uploaded", len(reg_i), n_entries)
+        if len(reg_i) == 0:
+            return
+
+        reg_data = bytearray()
+        for k in range(len(reg_i)):
+            reg_data += struct.pack(
+                "IIIIffff",
+                int(reg_i[k, 0]),
+                int(reg_i[k, 1]),
+                int(reg_i[k, 2]),
+                int(reg_i[k, 3]),
+                float(reg_f[k, 0]),
+                0.0,
+                float(reg_f[k, 1]),
+                float(reg_f[k, 2]),
             )
-            # Correctly scale radius using scale_factor
-            scaled_radius = (size * scale_factor) / max(orig_shape)
-            spot_data += struct.pack("ffff", mx, my, scaled_radius, 0.0)
-        if spot_data:
-            self._buffers["retouch_s"].upload(np.frombuffer(spot_data, dtype=np.uint8))
+        self._buffers["retouch_s"].upload(np.frombuffer(reg_data, dtype=np.uint8))
+        self._buffers["retouch_p"].upload(np.ascontiguousarray(pts, dtype=np.float32))
+        self._retouch_num_regions = len(reg_i)
 
     def _calculate_layout_dims(
         self, settings: WorkspaceConfig, cw: int, ch: int, size_ref: Optional[float]
@@ -1692,13 +1718,25 @@ class GPUEngine:
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
+        # Manual heals sample up to radius + |source offset| beyond a pixel, so the
+        # halo must grow with them or tile-edge heals read clamped garbage.
+        halo = TILE_HALO
+        ret = settings.retouch
+        for _pts, size, sdx, sdy in ret.manual_heal_strokes:
+            off_px = float(np.hypot(sdx * w_rot, sdy * h_rot))
+            halo = max(halo, int(np.ceil(size * scale_factor + off_px)) + 2)
+        for _x, _y, size in ret.manual_dust_spots:
+            # Legacy spots get a golden-angle fallback offset of 2.6·radius.
+            halo = max(halo, int(np.ceil(size * scale_factor * 3.6)) + 2)
+        halo = min(halo, 512)
+
         for ty in range(0, crop_h, TILE_SIZE):
             for tx in range(0, crop_w, TILE_SIZE):
                 tw, th = min(TILE_SIZE, crop_w - tx), min(TILE_SIZE, crop_h - ty)
-                ix1, iy1 = max(0, x1 + tx - TILE_HALO), max(0, y1 + ty - TILE_HALO)
+                ix1, iy1 = max(0, x1 + tx - halo), max(0, y1 + ty - halo)
                 ix2, iy2 = (
-                    min(w_rot, x1 + tx + tw + TILE_HALO),
-                    min(h_rot, y1 + ty + th + TILE_HALO),
+                    min(w_rot, x1 + tx + tw + halo),
+                    min(h_rot, y1 + ty + th + halo),
                 )
                 ir_tile = np.ascontiguousarray(ir_rot[iy1:iy2, ix1:ix2]) if ir_rot is not None else None
                 ev_tile = np.ascontiguousarray(local_ev_rot[iy1:iy2, ix1:ix2]) if local_ev_rot is not None else None

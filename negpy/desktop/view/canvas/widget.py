@@ -78,6 +78,7 @@ class ImageCanvas(QWidget):
     cursor_position_changed = pyqtSignal(float, float)
     cursor_left_canvas = pyqtSignal()
     lasso_completed = pyqtSignal(list)
+    scratch_completed = pyqtSignal(list)
     local_mask_selected = pyqtSignal(int)
 
     def __init__(self, state: AppState, parent=None):
@@ -123,6 +124,7 @@ class ImageCanvas(QWidget):
         self.overlay.cursor_moved.connect(self.cursor_position_changed.emit)
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
         self.overlay.lasso_completed.connect(self.lasso_completed.emit)
+        self.overlay.scratch_completed.connect(self.scratch_completed.emit)
         self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
 
         self.grabGesture(Qt.GestureType.PinchGesture)

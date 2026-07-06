@@ -36,10 +36,16 @@ class RetouchSidebar(BaseSidebar):
         self.pick_dust_btn = QPushButton(" Heal Tool")
         self.pick_dust_btn.setCheckable(True)
         self.pick_dust_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
-        self.pick_dust_btn.setToolTip(tooltip_with_shortcut("Toggle heal tool", "pick_dust"))
+        self.pick_dust_btn.setToolTip(tooltip_with_shortcut("Toggle heal tool — click a dust spot to heal it", "pick_dust"))
+
+        self.pick_scratch_btn = QPushButton(" Scratch Tool")
+        self.pick_scratch_btn.setCheckable(True)
+        self.pick_scratch_btn.setIcon(qta.icon("fa5s.pen-nib", color=THEME.text_primary))
+        self.pick_scratch_btn.setToolTip("Heal a scratch or hair: click points along it, double-click to finish, Esc cancels")
 
         buttons_row.addWidget(self.auto_dust_btn)
         buttons_row.addWidget(self.pick_dust_btn)
+        buttons_row.addWidget(self.pick_scratch_btn)
         self.layout.addLayout(buttons_row)
 
         self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px")
@@ -52,11 +58,11 @@ class RetouchSidebar(BaseSidebar):
         actions_row = QHBoxLayout()
         self.undo_btn = QPushButton(" Undo Last")
         self.undo_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
-        self.undo_btn.setToolTip("Remove the most recent manual healing spot")
+        self.undo_btn.setToolTip("Remove the most recent manual heal")
 
         self.clear_btn = QPushButton(" Clear All")
         self.clear_btn.setIcon(qta.icon("fa5s.trash-alt", color=THEME.text_primary))
-        self.clear_btn.setToolTip("Remove all manual healing spots (auto-detected dust is unaffected)")
+        self.clear_btn.setToolTip("Remove all manual heals (auto-detected dust is unaffected)")
 
         actions_row.addWidget(self.undo_btn, 1)
         actions_row.addWidget(self.clear_btn, 1)
@@ -90,6 +96,7 @@ class RetouchSidebar(BaseSidebar):
             lambda v: self.update_config_section("retouch", readback_metrics=False, dust_size=int(v))  # TODO: precision loss from int cast
         )
         self.pick_dust_btn.toggled.connect(self._on_pick_toggled)
+        self.pick_scratch_btn.toggled.connect(self._on_scratch_toggled)
         self.manual_size_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", render=False, persist=True, manual_dust_size=int(v))
         )
@@ -103,7 +110,11 @@ class RetouchSidebar(BaseSidebar):
 
     def _on_pick_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.DUST_PICK if checked else ToolMode.NONE)
-        self.manual_size_slider.setVisible(checked)
+        self.manual_size_slider.setVisible(checked or self.pick_scratch_btn.isChecked())
+
+    def _on_scratch_toggled(self, checked: bool) -> None:
+        self.controller.set_active_tool(ToolMode.SCRATCH_PICK if checked else ToolMode.NONE)
+        self.manual_size_slider.setVisible(checked or self.pick_dust_btn.isChecked())
 
     def _set_ir_controls_enabled(self, enabled: bool) -> None:
         tip = "" if enabled else "No IR channel in this scan"
@@ -120,14 +131,15 @@ class RetouchSidebar(BaseSidebar):
             self.auto_size_slider.setValue(float(conf.dust_size))
             self.manual_size_slider.setValue(float(conf.manual_dust_size))
             self.pick_dust_btn.setChecked(self.state.active_tool == ToolMode.DUST_PICK)
-            self.manual_size_slider.setVisible(self.state.active_tool == ToolMode.DUST_PICK)
+            self.pick_scratch_btn.setChecked(self.state.active_tool == ToolMode.SCRATCH_PICK)
+            self.manual_size_slider.setVisible(self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK))
 
-            num_spots = len(conf.manual_dust_spots)
-            self.heals_subheader.setText(f"HEALS · {num_spots}")
+            num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+            self.heals_subheader.setText(f"HEALS · {num_heals}")
 
-            has_spots = num_spots > 0
-            self.undo_btn.setEnabled(has_spots)
-            self.clear_btn.setEnabled(has_spots)
+            has_heals = num_heals > 0
+            self.undo_btn.setEnabled(has_heals)
+            self.clear_btn.setEnabled(has_heals)
 
             self.ir_dust_btn.setChecked(conf.ir_dust_remove)
             self.ir_threshold_slider.setValue(float(conf.ir_threshold))
@@ -142,6 +154,7 @@ class RetouchSidebar(BaseSidebar):
             self.auto_size_slider,
             self.manual_size_slider,
             self.pick_dust_btn,
+            self.pick_scratch_btn,
             self.ir_dust_btn,
             self.ir_threshold_slider,
         ]

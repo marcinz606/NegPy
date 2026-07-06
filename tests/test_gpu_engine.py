@@ -124,6 +124,35 @@ class TestGPUEngine(unittest.TestCase):
         diff_max = float(np.abs(res_with - res_without).max())
         self.assertGreater(diff_max, 0.05, "Tiled export ignored IR buffer; output identical to IR-off")
 
+    def test_gpu_tiled_manual_stroke_matches_untiled(self):
+        """A heal stroke crossing a tile boundary must render like the untiled path —
+        the dynamic tile halo has to cover the stroke radius + source offset."""
+        from negpy.features.retouch.models import RetouchConfig
+        from dataclasses import replace
+
+        h, w = 128, 2200  # spans the TILE_SIZE=2048 boundary
+        rng = np.random.default_rng(1)
+        img = (rng.random((h, w, 3), dtype=np.float32) * 0.05 + 0.45).astype(np.float32)
+        img[60:66, 1980:2120] = 0.95  # scratch across the boundary
+
+        stroke = ([[1980.0 / w, 63.0 / h], [2120.0 / w, 63.0 / h]], 8.0, 0.0, 0.3)
+        base = WorkspaceConfig()
+        settings = replace(
+            base,
+            retouch=RetouchConfig(manual_heal_strokes=[stroke]),
+            # Native output size so the tiled result is comparable 1:1 with the untiled texture.
+            export=replace(base.export, export_resolution_mode="original"),
+        )
+
+        res_tiled, _ = self.engine._process_tiled(img, settings, scale_factor=1.0)
+        tex, _ = self.engine.process_to_texture(img, settings, scale_factor=1.0, apply_layout=False)
+        res_direct = self.engine._readback_downsampled(tex)
+
+        self.assertEqual(res_tiled.shape, res_direct.shape)
+        band = np.s_[40:90, 1900:2200]
+        diff = float(np.abs(res_tiled[band] - res_direct[band]).max())
+        self.assertLess(diff, 0.05, "Tiled heal diverges from untiled across the tile boundary")
+
     def test_gpu_tiled_export_ir_no_crash_without_buffer(self):
         """ir_dust_remove enabled but ir_buffer=None must not crash the tiled path."""
         from negpy.features.retouch.models import RetouchConfig

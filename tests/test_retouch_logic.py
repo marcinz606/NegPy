@@ -1,5 +1,21 @@
+import json
+
 import numpy as np
-from negpy.features.retouch.logic import apply_dust_removal
+
+from negpy.domain.models import WorkspaceConfig
+from negpy.features.retouch.logic import (
+    _capsule_boundary,
+    apply_dust_removal,
+    apply_manual_heals,
+    build_heal_regions,
+    select_source_offset,
+)
+from negpy.features.retouch.models import RetouchConfig
+
+
+def _regions_for_spot(nx, ny, size, shape, scale=1.0):
+    h, w = shape
+    return build_heal_regions([([[nx, ny]], size, 0.15, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, scale, (w, h))
 
 
 def test_manual_dust_removal_effect():
@@ -8,14 +24,13 @@ def test_manual_dust_removal_effect():
     img[48:53, 48:53] = 1.0
 
     orig_mean = np.mean(img)
-    manual_spots = [(0.5, 0.5, 10)]
 
     res = apply_dust_removal(
         img.copy(),
         dust_remove=False,
         dust_threshold=0.75,
         dust_size=2,
-        manual_spots=manual_spots,
+        heal_regions=_regions_for_spot(0.5, 0.5, 10, (100, 100)),
         scale_factor=1.0,
     )
 
@@ -34,7 +49,7 @@ def test_manual_dust_removal_no_spots():
         dust_remove=False,
         dust_threshold=0.75,
         dust_size=2,
-        manual_spots=[],
+        heal_regions=None,
         scale_factor=1.0,
     )
     assert np.array_equal(img, res)
@@ -50,7 +65,7 @@ def test_auto_dust_removal_low_res():
         dust_remove=True,
         dust_threshold=0.5,
         dust_size=2,
-        manual_spots=[],
+        heal_regions=None,
         scale_factor=1.0,
     )
 
@@ -68,7 +83,7 @@ def test_auto_dust_removal_high_res():
         dust_remove=True,
         dust_threshold=0.5,
         dust_size=4,
-        manual_spots=[],
+        heal_regions=None,
         scale_factor=2.0,
     )
 
@@ -88,7 +103,7 @@ def test_auto_detection_uses_perceptual_luma():
         dust_remove=True,
         dust_threshold=0.5,
         dust_size=2,
-        manual_spots=[],
+        heal_regions=None,
         scale_factor=1.0,
     )
 
@@ -106,9 +121,132 @@ def test_auto_dust_removal_cloud_protection():
         dust_remove=True,
         dust_threshold=0.5,
         dust_size=2,
-        manual_spots=[],
+        heal_regions=None,
         scale_factor=1.0,
     )
 
     # Soft gradients should remain identical or very close
     np.testing.assert_allclose(img, res, atol=0.01)
+
+
+def test_auto_heal_avoids_other_defects():
+    """P2 guard: the reflection-copy source must skip masked pixels — a second
+    speck one heal-radius away must not be copied into the healed area."""
+    img = np.zeros((100, 100, 3), dtype=np.float32)
+    img[50, 50] = 1.0
+    img[50, 55] = 1.0  # decoy defect near the reflection source distance
+
+    res = apply_dust_removal(
+        img.copy(),
+        dust_remove=True,
+        dust_threshold=0.5,
+        dust_size=2,
+        heal_regions=None,
+        scale_factor=1.0,
+    )
+    assert res[50, 50, 0] < 0.5
+    assert res[50, 55, 0] < 0.5
+
+
+def test_membrane_recovers_gradient():
+    """The MVC membrane clone must reconstruct a linear gradient under a speck —
+    diffusion-style fills can't; this is the quality bar for the new heal."""
+    h, w = 80, 120
+    grad = np.linspace(0.2, 0.6, w, dtype=np.float32)[None, :, None].repeat(h, axis=0)
+    img = np.repeat(grad, 3, axis=2)
+    clean = img.copy()
+    img[36:44, 56:64] = 0.95
+
+    regions = _regions_for_spot(60.0 / w, 40.0 / h, 8.0, (h, w))
+    out = apply_manual_heals(img, *regions)
+
+    err = np.abs(out[36:44, 56:64] - clean[36:44, 56:64]).mean()
+    assert err < 0.02
+
+
+def test_stroke_heals_scratch():
+    """A polyline stroke heals a diagonal scratch line."""
+    rng = np.random.default_rng(7)
+    h, w = 120, 160
+    grad = np.linspace(0.2, 0.6, w, dtype=np.float32)[None, :, None].repeat(h, axis=0)
+    img = (np.repeat(grad, 3, axis=2) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
+    clean = img.copy()
+    mask = np.zeros((h, w), bool)
+    for t in np.linspace(0, 1, 200):
+        x, y = int(30 + t * 90), int(30 + t * 50)
+        img[y : y + 2, x : x + 2] = 0.9
+        mask[y : y + 2, x : x + 2] = True
+
+    pts = [[30.0 / w, 30.0 / h], [75.0 / w, 55.0 / h], [120.0 / w, 80.0 / h]]
+    off = select_source_offset(img, pts, 5.0, 0)
+    regions = build_heal_regions([(pts, 5.0, off[0], off[1])], [], (h, w), 0, 0.0, False, False, 0.0, 1.0, (w, h))
+    out = apply_manual_heals(img, *regions)
+
+    err_before = np.abs(img[mask] - clean[mask]).mean()
+    err_after = np.abs(out[mask] - clean[mask]).mean()
+    assert err_after < err_before * 0.2
+
+
+def test_capsule_boundary_is_closed_ordered_loop():
+    pts = np.array([[20.0, 20.0], [60.0, 40.0]], dtype=np.float64)
+    loop = _capsule_boundary(pts, 5.0, 32)
+    assert loop.shape[1] == 2
+    assert len(loop) >= 16
+    # Every sample sits on the capsule outline (distance ~radius from the chain).
+    from negpy.features.retouch.logic import _dist_to_chain
+
+    for bx, by in loop:
+        assert abs(_dist_to_chain(float(bx), float(by), pts) - 5.0) < 0.5
+    # Ordered loop: consecutive samples are close relative to the perimeter.
+    seg = np.diff(np.vstack([loop, loop[:1]]), axis=0)
+    step = np.hypot(seg[:, 0], seg[:, 1])
+    assert step.max() < 5.0 * step.mean()
+
+
+def test_select_source_offset_avoids_defect():
+    """Scoring must reject candidates whose band lands on a second defect."""
+    rng = np.random.default_rng(3)
+    h, w = 100, 100
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
+    img[46:54, 46:54] = 0.95  # the defect being healed
+    img[46:54, 20:36] = 0.05  # strong anomaly left of it
+
+    off = select_source_offset(img, [[0.5, 0.5]], 4.0, 0)
+    sx, sy = 50 + off[0] * w, 50 + off[1] * h
+    val = img[int(np.clip(sy, 0, h - 1)), int(np.clip(sx, 0, w - 1))]
+    assert abs(float(val.mean()) - 0.5) < 0.1
+
+
+def test_legacy_spot_conversion():
+    regions = build_heal_regions([], [(0.5, 0.5, 8.0)], (100, 100), 0, 0.0, False, False, 0.0, 1.0, (100, 100))
+    reg_i, reg_f, pts = regions
+    assert len(reg_i) == 1
+    assert reg_i[0, 1] == 1  # single-point chain
+    assert reg_i[0, 3] >= 16  # boundary loop present
+    assert reg_f[0, 0] == 8.0  # radius px
+    assert np.hypot(reg_f[0, 1], reg_f[0, 2]) > 8.0  # fallback offset clears the spot
+
+
+def test_heal_strokes_serialization_roundtrip():
+    cfg = WorkspaceConfig(
+        retouch=RetouchConfig(
+            manual_dust_spots=[(0.1, 0.2, 6.0)],
+            manual_heal_strokes=[([[0.3, 0.4], [0.5, 0.6]], 5.0, 0.02, -0.01)],
+        )
+    )
+    data = json.loads(json.dumps(cfg.to_dict()))
+    restored = WorkspaceConfig.from_flat_dict(data)
+    strokes = restored.retouch.manual_heal_strokes
+    assert len(strokes) == 1
+    pts, size, dx, dy = strokes[0]
+    assert pts == [[0.3, 0.4], [0.5, 0.6]]
+    assert (size, dx, dy) == (5.0, 0.02, -0.01)
+    assert list(map(list, restored.retouch.manual_dust_spots))[0] == [0.1, 0.2, 6.0]
+
+
+def test_old_config_without_strokes_loads_default():
+    cfg = WorkspaceConfig(retouch=RetouchConfig(manual_dust_spots=[(0.1, 0.2, 6.0)]))
+    data = cfg.to_dict()
+    data.pop("manual_heal_strokes")
+    restored = WorkspaceConfig.from_flat_dict(data)
+    assert restored.retouch.manual_heal_strokes == []

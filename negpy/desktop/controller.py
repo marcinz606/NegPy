@@ -46,6 +46,7 @@ from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_as
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
+from negpy.features.retouch.logic import fallback_source_offset, select_source_offset
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
@@ -728,25 +729,30 @@ class AppController(QObject):
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=[]),
+                retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[]),
             )
         )
         self.request_render()
 
     def undo_last_retouch(self) -> None:
         """
-        Removes the most recently added dust spot.
+        Removes the most recently added heal (strokes first, then legacy spots).
         """
+        strokes = list(self.state.config.retouch.manual_heal_strokes)
         spots = list(self.state.config.retouch.manual_dust_spots)
-        if spots:
+        if strokes:
+            strokes.pop()
+        elif spots:
             spots.pop()
-            self.session.update_config(
-                replace(
-                    self.state.config,
-                    retouch=replace(self.state.config.retouch, manual_dust_spots=spots),
-                )
+        else:
+            return
+        self.session.update_config(
+            replace(
+                self.state.config,
+                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
             )
-            self.request_render()
+        )
+        self.request_render()
 
     def _handle_dust_pick(self, nx: float, ny: float) -> None:
         with self.state.metrics_lock:
@@ -754,11 +760,38 @@ class AppController(QObject):
         if uv_grid is None:
             return
         rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, uv_grid)
-        new_spots = self.state.config.retouch.manual_dust_spots + [(rx, ry, float(self.state.config.retouch.manual_dust_size))]
+        self._commit_heal_stroke([(rx, ry)])
+
+    def handle_heal_stroke_completed(self, viewport_pts: list) -> None:
+        """Commits a scratch-tool polyline (viewport-normalized points)."""
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None or not viewport_pts:
+            return
+        raw_pts = [CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_pts]
+        self._commit_heal_stroke(raw_pts)
+
+    def _commit_heal_stroke(self, raw_pts: list) -> None:
+        conf = self.state.config.retouch
+        size = float(conf.manual_dust_size)
+        index = len(conf.manual_heal_strokes)
+
+        # Score the clone source on the source-frame preview; size is in source px,
+        # the preview is downsampled, so scale the radius accordingly.
+        offset = (0.0, 0.0)
+        preview = self.state.preview_raw
+        if preview is not None:
+            src_w, src_h = self.state.original_res
+            scale = max(preview.shape[:2]) / max(src_w, src_h, 1)
+            offset = select_source_offset(preview, raw_pts, size * scale, index)
+        else:
+            offset = fallback_source_offset(index, size, (self.state.original_res[1], self.state.original_res[0]))
+
+        stroke = ([[rx, ry] for rx, ry in raw_pts], size, float(offset[0]), float(offset[1]))
         self.session.update_config(
             replace(
                 self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=new_spots),
+                retouch=replace(self.state.config.retouch, manual_heal_strokes=conf.manual_heal_strokes + [stroke]),
             )
         )
         self.request_render()

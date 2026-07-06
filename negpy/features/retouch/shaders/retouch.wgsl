@@ -1,7 +1,7 @@
 struct RetouchUniforms {
     dust_threshold: f32,
     dust_size: f32,
-    num_manual_spots: u32,
+    num_regions: u32,
     enabled_auto: u32,
     global_offset: vec2<i32>,
     full_dims: vec2<i32>,
@@ -11,17 +11,25 @@ struct RetouchUniforms {
     ir_inpaint_radius: f32,
 };
 
-struct ManualSpot {
-    pos: vec2<f32>,
+// Capsule-chain heal region: polyline points [pt_start, pt_start+pt_count) and
+// ordered boundary-loop samples [bnd_start, bnd_start+bnd_count) index into
+// heal_pts (global pixel coords). src_off is the clone-source offset in pixels.
+struct HealRegion {
+    pt_start: u32,
+    pt_count: u32,
+    bnd_start: u32,
+    bnd_count: u32,
     radius: f32,
-    pad: f32,
+    pad0: f32,
+    src_off: vec2<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: RetouchUniforms;
-@group(0) @binding(3) var<storage, read> manual_spots: array<ManualSpot>;
+@group(0) @binding(3) var<storage, read> heal_regions: array<HealRegion>;
 @group(0) @binding(4) var ir_tex: texture_2d<f32>;
+@group(0) @binding(5) var<storage, read> heal_pts: array<vec2<f32>>;
 
 fn hash(p: vec2<f32>) -> f32 {
     var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
@@ -29,80 +37,17 @@ fn hash(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-fn get_noise(p: vec2<f32>) -> f32 {
-    return hash(p) * 2.0 - 1.0;
+fn load_global_px(gp: vec2<f32>, idims: vec2<i32>) -> vec3<f32> {
+    let gi = vec2<i32>(floor(gp)) - params.global_offset;
+    return textureLoad(input_tex, clamp(gi, vec2<i32>(0), idims - 1), 0).rgb;
 }
 
-fn median3x3(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
-    var r = array<f32, 9>(); var g = array<f32, 9>(); var b = array<f32, 9>();
-    var idx = 0;
-    for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-            let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), dims - 1), 0).rgb;
-            r[idx] = s.r; g[idx] = s.g; b[idx] = s.b; idx++;
-        }
-    }
-    for (var i = 0; i < 9; i++) {
-        for (var j = i + 1; j < 9; j++) {
-            if (r[i] > r[j]) { let t = r[i]; r[i] = r[j]; r[j] = t; }
-            if (g[i] > g[j]) { let t = g[i]; g[i] = g[j]; g[j] = t; }
-            if (b[i] > b[j]) { let t = b[i]; b[i] = b[j]; b[j] = t; }
-        }
-    }
-    return vec3<f32>(r[4], g[4], b[4]);
-}
-
-fn median5x5(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
-    var r = array<f32, 25>(); var g = array<f32, 25>(); var b = array<f32, 25>();
-    var idx = 0;
-    for (var j = -2; j <= 2; j++) {
-        for (var i = -2; i <= 2; i++) {
-            let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), dims - 1), 0).rgb;
-            r[idx] = s.r; g[idx] = s.g; b[idx] = s.b; idx++;
-        }
-    }
-    for (var i = 0; i <= 12; i++) {
-        var min_idx_r = i; var min_idx_g = i; var min_idx_b = i;
-        for (var j = i + 1; j < 25; j++) {
-            if (r[j] < r[min_idx_r]) { min_idx_r = j; }
-            if (g[j] < g[min_idx_g]) { min_idx_g = j; }
-            if (b[j] < b[min_idx_b]) { min_idx_b = j; }
-        }
-        let tr = r[i]; r[i] = r[min_idx_r]; r[min_idx_r] = tr;
-        let tg = g[i]; g[i] = g[min_idx_g]; g[min_idx_g] = tg;
-        let tb = b[i]; b[i] = b[min_idx_b]; b[min_idx_b] = tb;
-    }
-    return vec3<f32>(r[12], g[12], b[12]);
-}
-
-fn median7x7(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
-    var luma = array<f32, 49>(); var colors = array<vec3<f32>, 49>();
-    var idx = 0;
-    for (var j = -3; j <= 3; j++) {
-        for (var i = -3; i <= 3; i++) {
-            let s = textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), dims - 1), 0).rgb;
-            colors[idx] = s; luma[idx] = dot(s, vec3<f32>(0.2126, 0.7152, 0.0722)); idx++;
-        }
-    }
-    for (var i = 0; i <= 24; i++) {
-        var min_idx = i;
-        for (var j = i + 1; j < 49; j++) {
-            if (luma[j] < luma[min_idx]) { min_idx = j; }
-        }
-        let tl = luma[i]; luma[i] = luma[min_idx]; luma[min_idx] = tl;
-        let tc = colors[i]; colors[i] = colors[min_idx]; colors[min_idx] = tc;
-    }
-    return colors[24];
-}
-
-fn min3x3(coords: vec2<i32>, dims: vec2<i32>) -> vec3<f32> {
-    var m = vec3<f32>(1.0);
-    for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-            m = min(m, textureLoad(input_tex, clamp(coords + vec2<i32>(i, j), vec2<i32>(0), dims - 1), 0).rgb);
-        }
-    }
-    return m;
+fn dist_to_seg(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+    let ab = b - a;
+    let ab2 = dot(ab, ab);
+    var t = 0.0;
+    if (ab2 > 1e-12) { t = clamp(dot(p - a, ab) / ab2, 0.0, 1.0); }
+    return distance(p, a + t * ab);
 }
 
 @compute @workgroup_size(8, 8)
@@ -112,18 +57,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     let idims = vec2<i32>(dims);
-    let global_coords = vec2<f32>(f32(coords.x + params.global_offset.x) + 0.5, 
+    let global_coords = vec2<f32>(f32(coords.x + params.global_offset.x) + 0.5,
                                   f32(coords.y + params.global_offset.y) + 0.5);
     let global_uv = global_coords / vec2<f32>(f32(params.full_dims.x), f32(params.full_dims.y));
-    
+
     let original = textureLoad(input_tex, coords, 0).rgb;
     var res = original;
 
     if (params.enabled_auto == 1u) {
         let base_s = max(1.0, params.dust_size);
         let scale = max(1.0, params.scale_factor);
-        
-        let v_rad = i32(max(3.0, base_s * 3.0 * scale)); 
+
+        let v_rad = i32(max(3.0, base_s * 3.0 * scale));
         var luma_sum = 0.0; var luma_sq_sum = 0.0;
         let step_v = max(1, v_rad / 4);
         var samples_v = 0.0;
@@ -137,7 +82,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let mean = luma_sum / samples_v;
         let luma_std = sqrt(max(0.0, (luma_sq_sum / samples_v) - (mean * mean)));
 
-        let w_rad = i32(max(7.0, base_s * 4.0 * scale)); 
+        let w_rad = i32(max(7.0, base_s * 4.0 * scale));
         var w_luma_sum = 0.0; var w_luma_sq_sum = 0.0;
         let step_w = max(1, w_rad / 6);
         var samples_w = 0.0;
@@ -149,7 +94,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
         }
         let w_std = sqrt(max(0.0, (w_luma_sq_sum / samples_w) - (pow(w_luma_sum / samples_w, 2.0))));
-        
+
         let luma = dot(original, vec3<f32>(0.2126, 0.7152, 0.0722));
         let local_s = max(0.005, luma_std);
         let z_score = (luma - mean) / local_s;
@@ -157,16 +102,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let thresh = (params.dust_threshold * 0.4) + (local_s * 1.0) + wide_penalty;
 
         var min_d2 = 1000.0;
+        var c_x = 0.0; var c_y = 0.0; var c_n = 0.0;
         let exp_rad = i32(clamp(params.dust_size * 0.4 * scale, 1.0, 16.0));
         let p_rad = exp_rad + i32(3.0 * scale);
-        
+
         for (var yoff = -exp_rad; yoff <= exp_rad; yoff++) {
             for (var xoff = -exp_rad; xoff <= exp_rad; xoff++) {
                 let nc = clamp(coords + vec2<i32>(xoff, yoff), vec2<i32>(0), idims - 1);
                 let ns = textureLoad(input_tex, nc, 0).rgb;
                 let nl = dot(ns, vec3<f32>(0.2126, 0.7152, 0.0722));
                 let n_diff = nl - mean;
-                
+
                 if (n_diff > thresh && nl > 0.15 && (nl - mean) / local_s > 3.0) {
                     let is_strong = n_diff > (thresh * 2.5) || n_diff > 0.25;
                     var is_max = true;
@@ -179,9 +125,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                         }
                         if (!is_max) { break; }
                     }
-                    if (is_max || is_strong) { 
+                    if (is_max || is_strong) {
                         let d2 = f32(xoff*xoff + yoff*yoff);
                         if (d2 < min_d2) { min_d2 = d2; }
+                        c_x += f32(nc.x); c_y += f32(nc.y); c_n += 1.0;
                     }
                 }
             }
@@ -193,38 +140,67 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             feather = clamp(feather, 0.0, 1.0);
             feather = feather * feather * (3.0 - 2.0 * feather);
 
-            // 8-point trimmed sampling
-            var s_r = array<f32, 8>(); var s_g = array<f32, 8>(); var s_b = array<f32, 8>(); var s_l = array<f32, 8>();
-            let dxs = array<i32, 8>(-p_rad, p_rad, 0, 0, -p_rad, -p_rad, p_rad, p_rad);
-            let dys = array<i32, 8>(0, 0, -p_rad, p_rad, -p_rad, p_rad, -p_rad, p_rad);
-
-            for (var i = 0; i < 8; i++) {
-                let pix = textureLoad(input_tex, clamp(coords + vec2<i32>(dxs[i], dys[i]), vec2<i32>(0), idims - 1), 0).rgb;
-                s_r[i] = pix.r; s_g[i] = pix.g; s_b[i] = pix.b;
-                s_l[i] = dot(pix, vec3<f32>(0.2126, 0.7152, 0.0722));
+            // Guarded reflection copy: sample outward from the defect centroid so
+            // neighbouring pixels copy neighbouring sources (grain continuity).
+            var u = vec2<f32>(f32(coords.x), f32(coords.y)) - vec2<f32>(c_x, c_y) / c_n;
+            let ul = length(u);
+            if (ul < 1e-3) {
+                let ang = hash(vec2<f32>(f32(coords.x + params.global_offset.x), f32(coords.y + params.global_offset.y))) * 6.28318530718;
+                u = vec2<f32>(cos(ang), sin(ang));
+            } else {
+                u = u / ul;
             }
 
-            // Inline sort for outlier rejection
-            for (var i = 0; i < 7; i++) {
-                for (var j = i + 1; j < 8; j++) {
-                    if (s_l[i] > s_l[j]) {
-                        let tl = s_l[i]; s_l[i] = s_l[j]; s_l[j] = tl;
-                        let tr = s_r[i]; s_r[i] = s_r[j]; s_r[j] = tr;
-                        let tg = s_g[i]; s_g[i] = s_g[j]; s_g[j] = tg;
-                        let tb = s_b[i]; s_b[i] = s_b[j]; s_b[j] = tb;
-                    }
+            // Guard rotations (0°, ±45°, ±90°) — order mirrored in the CPU engine.
+            let g_cos = array<f32, 5>(1.0, 0.70710678, 0.70710678, 0.0, 0.0);
+            let g_sin = array<f32, 5>(0.0, 0.70710678, -0.70710678, 1.0, -1.0);
+            var found = false;
+            var healed_val = vec3<f32>(0.0);
+            for (var k = 0; k < 5; k++) {
+                let dir = vec2<f32>(u.x * g_cos[k] - u.y * g_sin[k],
+                                    u.x * g_sin[k] + u.y * g_cos[k]);
+                let sp = clamp(vec2<i32>(round(vec2<f32>(coords) + dir * f32(p_rad))), vec2<i32>(0), idims - 1);
+                let sv = textureLoad(input_tex, sp, 0).rgb;
+                let sl = dot(sv, vec3<f32>(0.2126, 0.7152, 0.0722));
+                // Guard: source must not be a defect itself.
+                if (sl - mean <= params.dust_threshold * 0.4) {
+                    healed_val = sv;
+                    found = true;
+                    break;
                 }
             }
 
-            // Average middle 50%
-            let healed_val = vec3<f32>(
-                (s_r[2] + s_r[3] + s_r[4] + s_r[5]) / 4.0,
-                (s_g[2] + s_g[3] + s_g[4] + s_g[5]) / 4.0,
-                (s_b[2] + s_b[3] + s_b[4] + s_b[5]) / 4.0
-            );
+            if (!found) {
+                // Fallback: 8-point trimmed sampling (previous fill — worst case unchanged).
+                var s_r = array<f32, 8>(); var s_g = array<f32, 8>(); var s_b = array<f32, 8>(); var s_l = array<f32, 8>();
+                let dxs = array<i32, 8>(-p_rad, p_rad, 0, 0, -p_rad, -p_rad, p_rad, p_rad);
+                let dys = array<i32, 8>(0, 0, -p_rad, p_rad, -p_rad, p_rad, -p_rad, p_rad);
 
-            let grain = get_noise(global_uv * 1000.0) * 0.003 * (4.0 * mean * (1.0 - mean));
-            res = mix(original, healed_val + vec3<f32>(grain), feather);
+                for (var i = 0; i < 8; i++) {
+                    let pix = textureLoad(input_tex, clamp(coords + vec2<i32>(dxs[i], dys[i]), vec2<i32>(0), idims - 1), 0).rgb;
+                    s_r[i] = pix.r; s_g[i] = pix.g; s_b[i] = pix.b;
+                    s_l[i] = dot(pix, vec3<f32>(0.2126, 0.7152, 0.0722));
+                }
+
+                for (var i = 0; i < 7; i++) {
+                    for (var j = i + 1; j < 8; j++) {
+                        if (s_l[i] > s_l[j]) {
+                            let tl = s_l[i]; s_l[i] = s_l[j]; s_l[j] = tl;
+                            let tr = s_r[i]; s_r[i] = s_r[j]; s_r[j] = tr;
+                            let tg = s_g[i]; s_g[i] = s_g[j]; s_g[j] = tg;
+                            let tb = s_b[i]; s_b[i] = s_b[j]; s_b[j] = tb;
+                        }
+                    }
+                }
+
+                healed_val = vec3<f32>(
+                    (s_r[2] + s_r[3] + s_r[4] + s_r[5]) / 4.0,
+                    (s_g[2] + s_g[3] + s_g[4] + s_g[5]) / 4.0,
+                    (s_b[2] + s_b[3] + s_b[4] + s_b[5]) / 4.0
+                );
+            }
+
+            res = mix(original, healed_val, feather);
         }
     }
 
@@ -234,12 +210,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let ir_p_rad = ir_exp_rad + i32(max(2.0, 3.0 * ir_scale));
 
         var ir_min_d2 = 1.0e9;
+        var ir_cx = 0.0; var ir_cy = 0.0; var ir_cn = 0.0;
         for (var yoff = -ir_exp_rad; yoff <= ir_exp_rad; yoff++) {
             for (var xoff = -ir_exp_rad; xoff <= ir_exp_rad; xoff++) {
                 let nc = clamp(coords + vec2<i32>(xoff, yoff), vec2<i32>(0), idims - 1);
                 if (textureLoad(ir_tex, nc, 0).r < params.ir_threshold) {
                     let d2 = f32(xoff*xoff + yoff*yoff);
                     if (d2 < ir_min_d2) { ir_min_d2 = d2; }
+                    ir_cx += f32(nc.x); ir_cy += f32(nc.y); ir_cn += 1.0;
                 }
             }
         }
@@ -249,54 +227,121 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             var ir_feather = clamp(1.0 - dist / f32(ir_exp_rad + 1), 0.0, 1.0);
             ir_feather = ir_feather * ir_feather * (3.0 - 2.0 * ir_feather);
 
-            var ir_sr = array<f32, 8>(); var ir_sg = array<f32, 8>(); var ir_sb = array<f32, 8>(); var ir_sl = array<f32, 8>();
-            let ir_dxs = array<i32, 8>(-ir_p_rad, ir_p_rad, 0, 0, -ir_p_rad, -ir_p_rad, ir_p_rad, ir_p_rad);
-            let ir_dys = array<i32, 8>(0, 0, -ir_p_rad, ir_p_rad, -ir_p_rad, ir_p_rad, -ir_p_rad, ir_p_rad);
-            for (var i = 0; i < 8; i++) {
-                let sc = clamp(coords + vec2<i32>(ir_dxs[i], ir_dys[i]), vec2<i32>(0), idims - 1);
-                let pix = textureLoad(input_tex, sc, 0).rgb;
-                ir_sr[i] = pix.r; ir_sg[i] = pix.g; ir_sb[i] = pix.b;
-                ir_sl[i] = dot(pix, vec3<f32>(0.2126, 0.7152, 0.0722));
+            var u = vec2<f32>(f32(coords.x), f32(coords.y)) - vec2<f32>(ir_cx, ir_cy) / ir_cn;
+            let ul = length(u);
+            if (ul < 1e-3) {
+                let ang = hash(vec2<f32>(f32(coords.x + params.global_offset.x), f32(coords.y + params.global_offset.y))) * 6.28318530718;
+                u = vec2<f32>(cos(ang), sin(ang));
+            } else {
+                u = u / ul;
             }
-            for (var i = 0; i < 7; i++) {
-                for (var j = i + 1; j < 8; j++) {
-                    if (ir_sl[i] > ir_sl[j]) {
-                        let tl = ir_sl[i]; ir_sl[i] = ir_sl[j]; ir_sl[j] = tl;
-                        let tr = ir_sr[i]; ir_sr[i] = ir_sr[j]; ir_sr[j] = tr;
-                        let tg = ir_sg[i]; ir_sg[i] = ir_sg[j]; ir_sg[j] = tg;
-                        let tb = ir_sb[i]; ir_sb[i] = ir_sb[j]; ir_sb[j] = tb;
-                    }
+
+            let g_cos = array<f32, 5>(1.0, 0.70710678, 0.70710678, 0.0, 0.0);
+            let g_sin = array<f32, 5>(0.0, 0.70710678, -0.70710678, 1.0, -1.0);
+            var found = false;
+            var ir_healed = vec3<f32>(0.0);
+            for (var k = 0; k < 5; k++) {
+                let dir = vec2<f32>(u.x * g_cos[k] - u.y * g_sin[k],
+                                    u.x * g_sin[k] + u.y * g_cos[k]);
+                let sp = clamp(vec2<i32>(round(vec2<f32>(coords) + dir * f32(ir_p_rad))), vec2<i32>(0), idims - 1);
+                if (textureLoad(ir_tex, sp, 0).r >= params.ir_threshold) {
+                    ir_healed = textureLoad(input_tex, sp, 0).rgb;
+                    found = true;
+                    break;
                 }
             }
-            let ir_healed = vec3<f32>(
-                (ir_sr[2] + ir_sr[3] + ir_sr[4] + ir_sr[5]) / 4.0,
-                (ir_sg[2] + ir_sg[3] + ir_sg[4] + ir_sg[5]) / 4.0,
-                (ir_sb[2] + ir_sb[3] + ir_sb[4] + ir_sb[5]) / 4.0,
-            );
+
+            if (!found) {
+                var ir_sr = array<f32, 8>(); var ir_sg = array<f32, 8>(); var ir_sb = array<f32, 8>(); var ir_sl = array<f32, 8>();
+                let ir_dxs = array<i32, 8>(-ir_p_rad, ir_p_rad, 0, 0, -ir_p_rad, -ir_p_rad, ir_p_rad, ir_p_rad);
+                let ir_dys = array<i32, 8>(0, 0, -ir_p_rad, ir_p_rad, -ir_p_rad, ir_p_rad, -ir_p_rad, ir_p_rad);
+                for (var i = 0; i < 8; i++) {
+                    let sc = clamp(coords + vec2<i32>(ir_dxs[i], ir_dys[i]), vec2<i32>(0), idims - 1);
+                    let pix = textureLoad(input_tex, sc, 0).rgb;
+                    ir_sr[i] = pix.r; ir_sg[i] = pix.g; ir_sb[i] = pix.b;
+                    ir_sl[i] = dot(pix, vec3<f32>(0.2126, 0.7152, 0.0722));
+                }
+                for (var i = 0; i < 7; i++) {
+                    for (var j = i + 1; j < 8; j++) {
+                        if (ir_sl[i] > ir_sl[j]) {
+                            let tl = ir_sl[i]; ir_sl[i] = ir_sl[j]; ir_sl[j] = tl;
+                            let tr = ir_sr[i]; ir_sr[i] = ir_sr[j]; ir_sr[j] = tr;
+                            let tg = ir_sg[i]; ir_sg[i] = ir_sg[j]; ir_sg[j] = tg;
+                            let tb = ir_sb[i]; ir_sb[i] = ir_sb[j]; ir_sb[j] = tb;
+                        }
+                    }
+                }
+                ir_healed = vec3<f32>(
+                    (ir_sr[2] + ir_sr[3] + ir_sr[4] + ir_sr[5]) / 4.0,
+                    (ir_sg[2] + ir_sg[3] + ir_sg[4] + ir_sg[5]) / 4.0,
+                    (ir_sb[2] + ir_sb[3] + ir_sb[4] + ir_sb[5]) / 4.0,
+                );
+            }
             res = mix(res, ir_healed, ir_feather);
         }
     }
 
-    for (var i = 0u; i < params.num_manual_spots; i++) {
-        let spot = manual_spots[i];
-        let d = distance(global_uv, spot.pos);
-        if (d < spot.radius) {
-            let pi = 3.14159265;
-            let full_f = vec2<f32>(f32(params.full_dims.x), f32(params.full_dims.y));
-            let delta = global_uv - spot.pos;
-            let pixel_angle = atan2(delta.y, delta.x);
-            let seed = global_coords + f32(i) * 7.77;
-            var heal = vec3<f32>(0.0);
-            for(var s = 0.0; s < 3.0; s += 1.0) {
-                let jitter = (hash(seed + s * 0.555) - 0.5) * (pi * 0.2);
-                let p_off = vec2<f32>(cos(pixel_angle + jitter), sin(pixel_angle + jitter)) * (spot.radius * 0.95);
-                let pc = vec2<i32>((spot.pos + p_off) * full_f) - params.global_offset;
-                heal += min3x3(pc, idims);
+    // Manual heals: mean-value-coordinates membrane clone (Georgiev healing
+    // brush). out = src_patch + MVC-interpolated boundary difference — copied
+    // pixels carry real grain, the membrane matches the rim seamlessly.
+    for (var ri = 0u; ri < params.num_regions; ri++) {
+        let reg = heal_regions[ri];
+        if (reg.bnd_count < 3u || reg.bnd_count > 64u || reg.pt_count < 1u) { continue; }
+
+        let p = global_coords;
+        var d = 1e18;
+        if (reg.pt_count == 1u) {
+            d = distance(p, heal_pts[reg.pt_start]);
+        } else {
+            for (var s = 0u; s + 1u < reg.pt_count; s++) {
+                d = min(d, dist_to_seg(p, heal_pts[reg.pt_start + s], heal_pts[reg.pt_start + s + 1u]));
             }
-            let healed_val = heal / 3.0;
-            let luma_mask = smoothstep(0.04, 0.12, dot(res, vec3<f32>(0.2126, 0.7152, 0.0722)) - dot(healed_val, vec3<f32>(0.2126, 0.7152, 0.0722)));
-            res = mix(res, healed_val, smoothstep(spot.radius, spot.radius * 0.8, d) * luma_mask);
         }
+        if (d >= reg.radius) { continue; }
+
+        let n = reg.bnd_count;
+        var vxs: array<f32, 64>; var vys: array<f32, 64>; var vls: array<f32, 64>;
+        var diffs: array<vec3<f32>, 64>;
+        var on_sample = -1;
+        for (var i = 0u; i < n; i++) {
+            let b = heal_pts[reg.bnd_start + i];
+            diffs[i] = load_global_px(b, idims) - load_global_px(b + reg.src_off, idims);
+            let v = b - p;
+            let l = length(v);
+            vxs[i] = v.x; vys[i] = v.y; vls[i] = l;
+            if (l < 1e-4) { on_sample = i32(i); }
+        }
+
+        var mem = vec3<f32>(0.0);
+        if (on_sample >= 0) {
+            mem = diffs[on_sample];
+        } else {
+            var tans: array<f32, 64>;
+            for (var i = 0u; i < n; i++) {
+                var j = i + 1u;
+                if (j == n) { j = 0u; }
+                var cr = vxs[i] * vys[j] - vys[i] * vxs[j];
+                if (abs(cr) < 1e-9) { cr = 1e-9; }
+                tans[i] = (vls[i] * vls[j] - (vxs[i] * vxs[j] + vys[i] * vys[j])) / cr;
+            }
+            var wsum = 0.0;
+            for (var i = 0u; i < n; i++) {
+                var prev = n - 1u;
+                if (i > 0u) { prev = i - 1u; }
+                let wi = (tans[prev] + tans[i]) / vls[i];
+                wsum += wi;
+                mem += wi * diffs[i];
+            }
+            if (abs(wsum) < 1e-12) { continue; }
+            mem /= wsum;
+        }
+
+        let healed = load_global_px(p + reg.src_off, idims) + mem;
+        // 1.5px feather at the rim hides boundary-sampling aliasing.
+        let t = clamp((d - (reg.radius - 1.5)) / 1.5, 0.0, 1.0);
+        let alpha = 1.0 - t * t * (3.0 - 2.0 * t);
+        res = mix(res, healed, alpha);
     }
+
     textureStore(output_tex, coords, vec4<f32>(res, 1.0));
 }

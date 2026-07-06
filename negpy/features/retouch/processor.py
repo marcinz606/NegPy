@@ -1,8 +1,7 @@
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.retouch.models import RetouchConfig
-from negpy.features.retouch.logic import apply_dust_removal
-from negpy.features.geometry.logic import map_coords_to_geometry
+from negpy.features.retouch.logic import apply_dust_removal, build_heal_regions
 
 
 class RetouchProcessor:
@@ -28,26 +27,22 @@ class RetouchProcessor:
                 "flip_vertical": False,
             },
         )
-        rotation = rot_params.get("rotation", 0)
-        fine_rotation = rot_params.get("fine_rotation", 0.0)
-        flip_h = rot_params.get("flip_horizontal", False)
-        flip_v = rot_params.get("flip_vertical", False)
         distortion_k1 = context.metrics.get("distortion_k1", 0.0)
 
-        mapped_spots = []
-        if self.config.manual_dust_spots:
-            for nx, ny, size in self.config.manual_dust_spots:
-                mnx, mny = map_coords_to_geometry(
-                    nx,
-                    ny,
-                    (orig_h, orig_w),
-                    rotation,
-                    fine_rotation,
-                    flip_h,
-                    flip_v,
-                    distortion_k1=distortion_k1,
-                )
-                mapped_spots.append((mnx, mny, size))
+        heal_regions = None
+        if self.config.manual_heal_strokes or self.config.manual_dust_spots:
+            heal_regions = build_heal_regions(
+                self.config.manual_heal_strokes,
+                self.config.manual_dust_spots,
+                (orig_h, orig_w),
+                rot_params.get("rotation", 0),
+                rot_params.get("fine_rotation", 0.0),
+                rot_params.get("flip_horizontal", False),
+                rot_params.get("flip_vertical", False),
+                distortion_k1,
+                scale_factor,
+                (img.shape[1], img.shape[0]),
+            )
 
         ir_post_geometry = context.metrics.get("ir_post_geometry")
 
@@ -56,7 +51,7 @@ class RetouchProcessor:
             self.config.dust_remove,
             self.config.dust_threshold,
             self.config.dust_size,
-            mapped_spots,
+            heal_regions,
             scale_factor,
             ir_buffer=ir_post_geometry,
             ir_dust_remove=self.config.ir_dust_remove,

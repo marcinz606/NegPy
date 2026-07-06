@@ -487,6 +487,27 @@ class TestRetouchParity:
         s = replace(_make_base_settings(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=2))
         self._run_and_compare(s)
 
+    # Manual heal sizes below are large because the 64px test image renders at
+    # scale 0.0625 — radius_px = size * scale.
+
+    def test_manual_spot_stroke(self):
+        s = replace(
+            _make_base_settings(),
+            retouch=RetouchConfig(manual_heal_strokes=[([[45.5 / 64.0, 30.5 / 64.0]], 80.0, 0.25, 0.0)]),
+        )
+        self._run_and_compare(s)
+
+    def test_manual_polyline_stroke(self):
+        s = replace(
+            _make_base_settings(),
+            retouch=RetouchConfig(manual_heal_strokes=[([[0.3, 0.3], [40.5 / 64.0, 40.5 / 64.0], [0.85, 0.75]], 64.0, 0.0, 0.3)]),
+        )
+        self._run_and_compare(s)
+
+    def test_legacy_manual_spot(self):
+        s = replace(_make_base_settings(), retouch=RetouchConfig(manual_dust_spots=[(45.5 / 64.0, 30.5 / 64.0, 80.0)]))
+        self._run_and_compare(s)
+
 
 class TestLocalParity:
     """CPU vs GPU parity for the dodge/burn local shader.
