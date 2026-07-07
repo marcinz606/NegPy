@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 
+from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
@@ -101,7 +102,21 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider.setToolTip(
             "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
         )
+        self.analysis_region_btn = QPushButton()
+        self.analysis_region_btn.setCheckable(True)
+        self.analysis_region_btn.setIcon(qta.icon("fa5s.vector-square", color=THEME.text_primary))
+        self.analysis_region_btn.setFixedWidth(32)
+        self.analysis_region_btn.setToolTip(
+            "Draw a freehand analysis region on the image — the meters read exactly that area "
+            "(overrides the Analysis Buffer). Double-click inside it to confirm."
+        )
+        self.clear_analysis_region_btn = QPushButton()
+        self.clear_analysis_region_btn.setIcon(qta.icon("fa5s.times", color=THEME.text_primary))
+        self.clear_analysis_region_btn.setFixedWidth(32)
+        self.clear_analysis_region_btn.setToolTip("Clear the freehand analysis region (fall back to the Analysis Buffer)")
         buf_row.addWidget(self.analysis_buffer_slider)
+        buf_row.addWidget(self.analysis_region_btn)
+        buf_row.addWidget(self.clear_analysis_region_btn)
         self.layout.addLayout(buf_row)
 
         clip_row = QHBoxLayout()
@@ -174,6 +189,8 @@ class ProcessSidebar(BaseSidebar):
 
         self.analysis_buffer_slider.valueChanged.connect(lambda v: self._on_buffer_changed(v, persist=False))
         self.analysis_buffer_slider.valueCommitted.connect(lambda v: self._on_buffer_changed(v, persist=True))
+        self.analysis_region_btn.toggled.connect(self._on_analysis_region_toggled)
+        self.clear_analysis_region_btn.clicked.connect(self.controller.clear_analysis_region)
 
         self.luma_range_clip_slider.valueChanged.connect(lambda v: self._on_luma_range_clip_changed(v, persist=False))
         self.luma_range_clip_slider.valueCommitted.connect(lambda v: self._on_luma_range_clip_changed(v, persist=True))
@@ -262,6 +279,9 @@ class ProcessSidebar(BaseSidebar):
             **invalidate_local_bounds(self.state.config.process),
         )
 
+    def _on_analysis_region_toggled(self, checked: bool) -> None:
+        self.controller.set_active_tool(ToolMode.ANALYSIS_DRAW if checked else ToolMode.NONE)
+
     def _on_buffer_changed(self, val: float, persist: bool = True) -> None:
         self.update_config_section(
             "process",
@@ -320,10 +340,17 @@ class ProcessSidebar(BaseSidebar):
             self.crosstalk_strength_slider.setVisible(not is_bw)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
 
+            has_region = conf.analysis_rect is not None
+            self.analysis_region_btn.setChecked(self.state.active_tool == ToolMode.ANALYSIS_DRAW)
+            self.clear_analysis_region_btn.setEnabled(has_region)
+
             locked = conf.lock_bounds
             # Each clip slider is disabled when its axis rides the roll baseline; the
-            # analysis buffer only matters when at least one axis still analyzes locally.
-            self.analysis_buffer_slider.setEnabled(not locked and not (conf.use_luma_average and conf.use_colour_average))
+            # analysis buffer only matters when at least one axis still analyzes locally,
+            # and is overridden entirely by a freehand analysis region.
+            self.analysis_buffer_slider.setEnabled(
+                not locked and not has_region and not (conf.use_luma_average and conf.use_colour_average)
+            )
             self.luma_range_clip_slider.setEnabled(not locked and not conf.use_luma_average)
             self.color_range_clip_slider.setEnabled(not locked and not conf.use_colour_average)
             for w in (self.white_point_slider, self.black_point_slider):
@@ -341,6 +368,7 @@ class ProcessSidebar(BaseSidebar):
             self.lock_bounds_btn,
             self.linear_raw_btn,
             self.analysis_buffer_slider,
+            self.analysis_region_btn,
             self.luma_range_clip_slider,
             self.color_range_clip_slider,
             self.white_point_slider,

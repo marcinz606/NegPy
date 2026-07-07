@@ -130,6 +130,18 @@ class TestConfigDeserialization(unittest.TestCase):
         )
         self.assertIsInstance(calculate_config_hash(base_key), str)
 
+    def test_analysis_rect_survives_db_roundtrip_as_tuple(self):
+        """The freehand analysis region must reload as a tuple so the frozen
+        ProcessConfig stays hashable for the pipeline cache key."""
+        config = WorkspaceConfig()
+        config = replace(config, process=replace(config.process, analysis_rect=(0.1, 0.2, 0.8, 0.9)))
+
+        reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
+
+        self.assertIsInstance(reloaded.process.analysis_rect, tuple)
+        self.assertEqual(reloaded.process.analysis_rect, (0.1, 0.2, 0.8, 0.9))
+        hash(reloaded.process)  # must not raise
+
     def test_autocrop_mode_defaults_to_image_for_legacy_dicts(self):
         config = WorkspaceConfig.from_flat_dict({"process_mode": ProcessMode.C41})
         self.assertEqual(config.geometry.autocrop_mode, "image")

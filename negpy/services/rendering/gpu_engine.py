@@ -27,6 +27,7 @@ from negpy.features.exposure.normalization import (
     unmix_log_image,
     measure_textural_range_from_log,
     prefilter_log_grid,
+    resolve_analysis_region,
     resolve_bounds_detailed,
 )
 from negpy.features.geometry.logic import (
@@ -442,14 +443,8 @@ class GPUEngine:
                 roi = get_manual_rect_coords(
                     (h_rot, w_rot),
                     settings.geometry.manual_crop_rect,
-                    orig_shape=orig_shape,
-                    rotation_k=settings.geometry.rotation,
-                    fine_rotation=settings.geometry.fine_rotation,
-                    flip_horizontal=settings.geometry.flip_horizontal,
-                    flip_vertical=settings.geometry.flip_vertical,
                     offset_px=settings.geometry.autocrop_offset,
                     scale_factor=scale_factor,
-                    distortion_k1=k1_eff,
                 )
             elif settings.geometry.auto_crop_enabled:
                 roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)
@@ -510,7 +505,15 @@ class GPUEngine:
                 analysis_source = np.fliplr(analysis_source)
             if settings.geometry.flip_vertical:
                 analysis_source = np.flipud(analysis_source)
-            analysis_roi = roi if not tiling_mode else None
+            # A freehand analysis_rect overrides the crop ROI + centered buffer (mirrors
+            # the CPU path); tiled export uses explicit overrides so it stays on the ROI.
+            base_roi = roi if not tiling_mode else None
+            analysis_roi, an_buffer = resolve_analysis_region(
+                analysis_source.shape,
+                base_roi,
+                settings.process.analysis_buffer,
+                settings.process.analysis_rect if not tiling_mode else None,
+            )
             if analysis_roi is not None:
                 ay1, ay2, ax1, ax2 = analysis_roi
                 analysis_source = np.ascontiguousarray(analysis_source[ay1:ay2, ax1:ax2])
@@ -520,11 +523,11 @@ class GPUEngine:
             analysis_source = _downsample_for_analysis(analysis_source, APP_CONFIG.preview_render_size)
             # Shared prefilter, once for all five meters (ROI already applied).
             # Unmixed like the CPU path so every meter reads the unmixed film.
-            prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, settings.process.analysis_buffer), unmix_m)
+            prefiltered = unmix_log_image(prefilter_log_grid(analysis_source, None, an_buffer), unmix_m)
 
         scan_clip_fractions = None
         if analysis_source is not None:
-            scan_clip_fractions = measure_clip_fractions(analysis_source, None, settings.process.analysis_buffer)
+            scan_clip_fractions = measure_clip_fractions(analysis_source, None, an_buffer)
             if analysis_key is not None:
                 self._clip_cache = (analysis_key, scan_clip_fractions)
         elif analysis_key is not None and self._clip_cache is not None and self._clip_cache[0] == analysis_key:
@@ -1630,14 +1633,8 @@ class GPUEngine:
             roi = get_manual_rect_coords(
                 (h_rot, w_rot),
                 settings.geometry.manual_crop_rect,
-                orig_shape=(h, w),
-                rotation_k=settings.geometry.rotation,
-                fine_rotation=settings.geometry.fine_rotation,
-                flip_horizontal=settings.geometry.flip_horizontal,
-                flip_vertical=settings.geometry.flip_vertical,
                 offset_px=settings.geometry.autocrop_offset,
                 scale_factor=scale_factor,
-                distortion_k1=k1_eff,
             )
         elif settings.geometry.auto_crop_enabled:
             roi = _detect_autocrop_roi(img, settings, h_rot, w_rot)

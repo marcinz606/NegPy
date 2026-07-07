@@ -606,7 +606,10 @@ class AppController(QObject):
             self._handle_dust_pick(nx, ny)
 
     def set_active_tool(self, mode: ToolMode) -> None:
-        crop_tool_changed = ToolMode.CROP_MANUAL in (self.state.active_tool, mode)
+        # Both the crop and analysis-region tools show the full uncropped frame, so
+        # crossing into/out of that set must re-render to swap the preview.
+        uncropped = {ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW}
+        preview_mode_changed = (self.state.active_tool in uncropped) != (mode in uncropped)
         leaving_crop = self.state.active_tool == ToolMode.CROP_MANUAL and mode != ToolMode.CROP_MANUAL
         self.state.active_tool = mode
         self.tool_sync_requested.emit()
@@ -615,9 +618,7 @@ class AppController(QObject):
             new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
             self.session.update_config(replace(self.state.config, process=new_proc), render=False)
             self._crop_bounds_dirty = False
-        if crop_tool_changed:
-            # Entering/leaving the crop tool swaps between the full uncropped preview
-            # and the normal cropped preview, so the canvas must re-render immediately.
+        if preview_mode_changed:
             self.request_render()
 
     def cancel_active_tool(self) -> None:
@@ -651,6 +652,42 @@ class AppController(QObject):
             self.request_render()
         else:
             self._render_debounce.start()
+
+    def confirm_manual_crop(self) -> None:
+        """Close the crop tool (committing the current rect) — invoked by a double-click
+        inside the crop box so the user needn't return to the Crop button."""
+        if self.state.active_tool == ToolMode.CROP_MANUAL:
+            self.set_active_tool(ToolMode.NONE)
+
+    def handle_analysis_rect_changed(self, nx1: float, ny1: float, nx2: float, ny2: float, persist: bool) -> None:
+        """Live-update (persist=False) or commit (persist=True) the freehand analysis
+        region while the tool is open. Setting a region re-meters the frame, so a commit
+        clears the per-file bounds (unless bounds are locked) and re-renders."""
+        if self.state.active_tool != ToolMode.ANALYSIS_DRAW:
+            return
+        rect = (min(nx1, nx2), min(ny1, ny2), max(nx1, nx2), max(ny1, ny2))
+        proc = replace(self.state.config.process, analysis_rect=rect)
+        if persist:
+            proc = replace(proc, **invalidate_local_bounds(proc))
+        self.session.update_config(replace(self.state.config, process=proc), persist=persist)
+        if persist:
+            self.request_render()
+        else:
+            self._render_debounce.start()
+
+    def clear_analysis_region(self) -> None:
+        """Drop the freehand analysis region; metering falls back to the Analysis Buffer slider."""
+        if self.state.config.process.analysis_rect is None:
+            return
+        proc = replace(self.state.config.process, analysis_rect=None)
+        proc = replace(proc, **invalidate_local_bounds(proc))
+        self.session.update_config(replace(self.state.config, process=proc), persist=True)
+        self.request_render()
+
+    def confirm_analysis_region(self) -> None:
+        """Close the analysis-region tool (double-click inside the region)."""
+        if self.state.active_tool == ToolMode.ANALYSIS_DRAW:
+            self.set_active_tool(ToolMode.NONE)
 
     def reset_crop(self) -> None:
         self._crop_bounds_dirty = False
@@ -1271,7 +1308,7 @@ class AppController(QObject):
             readback_metrics=readback_metrics,
             ir_buffer=self.state.preview_ir,
             monitor_icc_bytes=self.state.monitor_icc_bytes,
-            crop_preview_full=self.state.active_tool == ToolMode.CROP_MANUAL,
+            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
             ephemeral=ephemeral,
         )
 

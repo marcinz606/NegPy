@@ -4,6 +4,7 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, QRect, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QActionGroup, QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -297,6 +298,7 @@ class FileBrowser(QWidget):
         self.add_files_btn.clicked.connect(self._on_add_files)
         self.add_folder_btn.clicked.connect(self._on_add_folder)
         self.unload_btn.clicked.connect(self._on_unload_clicked)
+        self.list_view.clicked.connect(self._on_item_clicked)
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
         self.list_view.customContextMenuRequested.connect(self._show_context_menu)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -469,10 +471,22 @@ class FileBrowser(QWidget):
             self.session.repo.save_global_setting("last_open_folder", os.path.dirname(folder))
             self.controller.request_asset_discovery([folder], auto_open=True)
 
-    def _on_item_double_clicked(self, index) -> None:
+    def _activate_file(self, index) -> None:
+        """Load a thumbnail into the main viewer, skipping a redundant reload of the
+        already-active frame."""
         actual = self.session.asset_model.display_to_actual(index.row())
-        if actual >= 0:
+        if actual >= 0 and actual != self.session.state.selected_file_idx:
             self.session.select_file(actual)
+
+    def _on_item_clicked(self, index) -> None:
+        # Plain single click sets the active frame instantly. Ctrl/Shift clicks build a
+        # multi-selection for batch actions and are left to the selectionChanged handler.
+        if QApplication.keyboardModifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+            return
+        self._activate_file(index)
+
+    def _on_item_double_clicked(self, index) -> None:
+        self._activate_file(index)
 
     def _show_context_menu(self, pos) -> None:
         index = self.list_view.indexAt(pos)

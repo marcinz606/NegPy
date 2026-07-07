@@ -114,7 +114,7 @@ class GeometrySidebar(BaseSidebar):
             unit=" px",
         )
         self.offset_slider.setToolTip(tooltip_with_shortcut("Insets the crop border from the auto-detected film edge (px)", "offset_inc"))
-        self.fine_rot_slider = CompactSlider("Fine Rot", -5.0, 5.0, conf.fine_rotation, unit="°")
+        self.fine_rot_slider = CompactSlider("Fine Rotation", -5.0, 5.0, conf.fine_rotation, unit="°")
         self.fine_rot_slider.setToolTip("Fine-tunes rotation to correct slight tilt (degrees)")
         slider_row.addWidget(self.offset_slider)
         slider_row.addWidget(self.fine_rot_slider)

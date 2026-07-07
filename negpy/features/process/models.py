@@ -24,6 +24,11 @@ class ProcessConfig:
     process_mode: ProcessMode = ProcessMode.C41
     linear_raw: bool = True
     analysis_buffer: float = 0.05
+    # Optional freehand analysis region, normalized in the transformed (display) image —
+    # the same space as the manual crop rect. When set it defines the exact area the
+    # black/white-point meters read (the centered analysis_buffer inset is bypassed);
+    # None falls back to the analysis_buffer slider.
+    analysis_rect: Optional[tuple] = None
     # Two independent normalization clip axes: luma drives black/white-point span
     # (dynamic range), colour is the per-channel-balance clip percentile (orange-mask
     # cast removal), defaulting to the robust base_color_clip neutral.
@@ -66,6 +71,8 @@ class ProcessConfig:
         object.__setattr__(self, "local_ceils", tuple(self.local_ceils))
         if self.crosstalk_matrix is not None:
             object.__setattr__(self, "crosstalk_matrix", tuple(self.crosstalk_matrix))
+        if self.analysis_rect is not None:
+            object.__setattr__(self, "analysis_rect", tuple(self.analysis_rect))
 
     @property
     def is_local_initialized(self) -> bool:

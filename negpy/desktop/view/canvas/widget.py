@@ -34,6 +34,7 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.CROP_MANUAL: Qt.CursorShape.CrossCursor,
     ToolMode.DUST_PICK: Qt.CursorShape.BlankCursor,
     ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
+    ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
 }
 # Do not apply more than this many notch-equivalents in a single event (huge flings).
 _WHEEL_MAX_NOTCHES = 4.0
@@ -74,6 +75,9 @@ class ImageCanvas(QWidget):
 
     clicked = pyqtSignal(float, float)
     crop_rect_changed = pyqtSignal(float, float, float, float, bool)
+    crop_confirmed = pyqtSignal()
+    analysis_rect_changed = pyqtSignal(float, float, float, float, bool)
+    analysis_confirmed = pyqtSignal()
     zoom_changed = pyqtSignal(float)
     cursor_position_changed = pyqtSignal(float, float)
     cursor_left_canvas = pyqtSignal()
@@ -121,6 +125,9 @@ class ImageCanvas(QWidget):
 
         self.overlay.clicked.connect(self.clicked.emit)
         self.overlay.crop_rect_changed.connect(self.crop_rect_changed.emit)
+        self.overlay.crop_confirmed.connect(self.crop_confirmed.emit)
+        self.overlay.analysis_rect_changed.connect(self.analysis_rect_changed.emit)
+        self.overlay.analysis_confirmed.connect(self.analysis_confirmed.emit)
         self.overlay.cursor_moved.connect(self.cursor_position_changed.emit)
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
         self.overlay.lasso_completed.connect(self.lasso_completed.emit)

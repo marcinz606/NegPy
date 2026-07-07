@@ -30,6 +30,7 @@ from negpy.features.exposure.normalization import (
     measure_textural_range_from_log,
     normalize_log_image,
     prefilter_log_grid,
+    resolve_analysis_region,
     resolve_bounds_detailed,
     resolve_crosstalk_matrix,
     unmix_log_image,
@@ -53,9 +54,11 @@ class NormalizationProcessor:
         # No upper clamp: mirrors normalization.wgsl (only the low side is clamped);
         # values above 1.0 only occur with flat-field gain and must match the GPU.
         img_log = np.log10(np.clip(np.nan_to_num(image, nan=epsilon, posinf=1.0, neginf=epsilon), epsilon, None))
-        # Shared prefilter, once for all five meters (ROI/buffer applied here).
-        prefiltered = prefilter_log_grid(image, context.active_roi, self.config.analysis_buffer)
-        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, context.active_roi, self.config.analysis_buffer)
+        # Shared prefilter, once for all five meters (ROI/buffer applied here). A freehand
+        # analysis_rect overrides the crop ROI + centered buffer for the metered region.
+        an_roi, an_buffer = resolve_analysis_region(image.shape, context.active_roi, self.config.analysis_buffer, self.config.analysis_rect)
+        prefiltered = prefilter_log_grid(image, an_roi, an_buffer)
+        context.metrics["scan_clip_fractions"] = measure_clip_fractions(image, an_roi, an_buffer)
 
         # Capture-side dye unmix on the negative densities, before any metering,
         # so bounds/anchor/cast refs all read the unmixed film.
@@ -65,6 +68,7 @@ class NormalizationProcessor:
 
         def analyze_base() -> LogNegativeBounds:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
+            cached_rect = context.metrics.get("log_bounds_rect_val")
             cached_norm = context.metrics.get("log_bounds_norm_val")
             cached_mode = context.metrics.get("log_bounds_mode_val")
 
@@ -75,6 +79,7 @@ class NormalizationProcessor:
                 "log_bounds" not in context.metrics
                 or cached_buffer is None
                 or abs(cached_buffer - self.config.analysis_buffer) > 1e-5
+                or cached_rect != self.config.analysis_rect
                 or cached_clip is None
                 or abs(cached_clip - self.config.luma_range_clip) > 1e-6
                 or cached_color_clip is None
@@ -98,6 +103,7 @@ class NormalizationProcessor:
             )
             context.metrics["log_bounds"] = analyzed
             context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
+            context.metrics["log_bounds_rect_val"] = self.config.analysis_rect
             context.metrics["log_bounds_clip_val"] = self.config.luma_range_clip
             context.metrics["log_bounds_color_clip_val"] = self.config.color_range_clip
             context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
@@ -112,11 +118,13 @@ class NormalizationProcessor:
 
         if context.process_mode == ProcessMode.C41:
             cached_ref_buffer = context.metrics.get("shadow_refs_buffer_val")
+            cached_ref_rect = context.metrics.get("shadow_refs_rect_val")
             cached_ref_unmix = context.metrics.get("shadow_refs_crosstalk_val")
             if (
                 "shadow_log_refs" not in context.metrics
                 or cached_ref_buffer is None
                 or abs(cached_ref_buffer - self.config.analysis_buffer) > 1e-5
+                or cached_ref_rect != self.config.analysis_rect
                 or cached_ref_unmix != (self.config.crosstalk_strength, self.config.crosstalk_matrix)
             ):
                 context.metrics["shadow_log_refs"] = measure_shadow_refs_from_log(
@@ -125,6 +133,7 @@ class NormalizationProcessor:
                     0.0,
                 )
                 context.metrics["shadow_refs_buffer_val"] = self.config.analysis_buffer
+                context.metrics["shadow_refs_rect_val"] = self.config.analysis_rect
                 context.metrics["shadow_refs_crosstalk_val"] = (self.config.crosstalk_strength, self.config.crosstalk_matrix)
 
         if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:

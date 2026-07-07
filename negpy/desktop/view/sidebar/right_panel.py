@@ -186,12 +186,33 @@ class RightPanel(QWidget):
             self.splitter.setSizes([320, 600])
         self.splitter.splitterMoved.connect(lambda *_: repo.save_global_setting("analysis_splitter_sizes", self.splitter.sizes()))
 
+        # Collapsing the Analysis section should hand its splitter space back to the tabs
+        # below (pinning the header at the top) instead of leaving a large empty pane.
+        self._analysis_expanded_size = self.splitter.sizes()[0]
+        self.analysis_section.expanded_changed.connect(self._resize_splitter_for_analysis)
+        if not analysis_expanded:
+            self._resize_splitter_for_analysis(False)
+
         layout.addWidget(self.splitter, 1)
 
         self.apply_shortcut_tooltips()
 
         # Default tab (Setup)
         self._switch_tab(0)
+
+    def _resize_splitter_for_analysis(self, expanded: bool) -> None:
+        """Pin the collapsed Analysis header at the top: shrink pane 0 to the header and
+        give the rest to the tabs; restore the prior size when re-expanded."""
+        sizes = self.splitter.sizes()
+        total = sum(sizes)
+        if total <= 0:
+            return
+        if expanded:
+            top = min(max(self._analysis_expanded_size, 120), max(120, total - 120))
+        else:
+            self._analysis_expanded_size = sizes[0]
+            top = max(1, self.analysis_section.sizeHint().height())
+        self.splitter.setSizes([top, max(0, total - top)])
 
     def apply_shortcut_tooltips(self) -> None:
         """Append the current keyboard shortcut (action id `tab_<key>`) to each tab tooltip."""

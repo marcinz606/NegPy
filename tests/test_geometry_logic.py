@@ -188,48 +188,41 @@ def test_map_coords_to_geometry_flips():
     assert abs(fny - 0.7) < 0.001
 
 
-def test_get_manual_rect_coords_rotation():
+def test_get_manual_rect_coords_transformed_dims():
     from negpy.features.geometry.logic import get_manual_rect_coords
 
-    # Raw image: 100x200 (H, W)
-    # Rotated 90 deg CCW: 200x100
-    img_rot = np.zeros((200, 100, 3), dtype=np.float32)
-    manual_rect = (0.0, 0.0, 0.5, 0.5)  # Top-left quadrant in raw space
-
-    # k=1 is 90 deg CCW
-    roi = get_manual_rect_coords(
-        img_rot,
-        manual_rect,
-        orig_shape=(100, 200),
-        rotation_k=1,
-        offset_px=0,
-    )
-
-    # In raw space: y=0..50, x=0..100
-    # CCW 90 rotation maps:
-    # Top-Left (0,0) -> Bottom-Left (100, 0) ? No, standard numpy rot90 behavior
-    # Let's just assert it produces a non-empty valid ROI for now
-    assert roi[1] > roi[0]
-    assert roi[3] > roi[2]
-    assert roi[1] <= 200
-    assert roi[3] <= 100
+    # The rect is normalized in the already-transformed image, so it scales directly by
+    # the passed (transformed) dims — no rotation/flip re-mapping, no bounding box.
+    img = np.zeros((200, 100, 3), dtype=np.float32)  # transformed H=200, W=100
+    roi = get_manual_rect_coords(img, (0.0, 0.0, 0.5, 0.5), offset_px=0)
+    assert roi == (0, 100, 0, 50)
 
 
-def test_get_manual_rect_coords_flips():
+def test_get_manual_rect_coords_offset_inset():
     from negpy.features.geometry.logic import get_manual_rect_coords
 
     img = np.zeros((100, 100, 3), dtype=np.float32)
-    manual_rect = (0.0, 0.0, 0.5, 0.5)  # Top-left quadrant
+    roi = get_manual_rect_coords(img, (0.2, 0.2, 0.8, 0.8), offset_px=5)
+    # 0.2..0.8 of 100 = 20..80, inset 5px each side => 25..75
+    assert roi == (25, 75, 25, 75)
 
-    # Horizontal flip
-    roi = get_manual_rect_coords(img, manual_rect, orig_shape=(100, 100), flip_horizontal=True)
-    # Should become top-right quadrant: x=50..100
-    assert roi == (0, 50, 50, 100)
 
-    # Vertical flip
-    roi = get_manual_rect_coords(img, manual_rect, orig_shape=(100, 100), flip_vertical=True)
-    # Should become bottom-left quadrant: y=50..100
-    assert roi == (50, 100, 0, 50)
+def test_manual_crop_no_inflation_under_fine_rotation():
+    # Regression (#task6): the manual crop rect lives in transformed (display) space, so
+    # fine rotation — which preserves the image dims — must resolve to the identical ROI
+    # instead of inflating it via a corner-mapped bounding box.
+    rect = (0.2, 0.2, 0.8, 0.8)
+    img = np.zeros((400, 600, 3), dtype=np.float32)
+
+    ctx_base = PipelineContext(scale_factor=1.0, original_size=(400, 600))
+    GeometryProcessor(GeometryConfig(manual_crop_rect=rect, autocrop_offset=0)).process(img, ctx_base)
+
+    ctx_rot = PipelineContext(scale_factor=1.0, original_size=(400, 600))
+    GeometryProcessor(GeometryConfig(manual_crop_rect=rect, autocrop_offset=0, fine_rotation=4.0)).process(img, ctx_rot)
+
+    assert ctx_base.active_roi == ctx_rot.active_roi
+    # Exactly the fractional slice of the transformed frame, un-inflated.
+    assert ctx_base.active_roi == (80, 320, 120, 480)
 
 
 def test_translate_within_bounds():
@@ -355,7 +348,6 @@ def test_manual_rect_coords_fractional_inset_scale_invariant():
     roi_prev = get_manual_rect_coords(
         (PREV_H, PREV_W),
         manual_rect,
-        orig_shape=(PREV_H, PREV_W),
         offset_px=offset_px,
         scale_factor=1.0,
     )
@@ -370,7 +362,6 @@ def test_manual_rect_coords_fractional_inset_scale_invariant():
     roi_full = get_manual_rect_coords(
         (FULL_H, FULL_W),
         manual_rect,
-        orig_shape=(FULL_H, FULL_W),
         offset_px=offset_px,
         scale_factor=scale_factor,
     )
@@ -526,13 +517,15 @@ def test_manual_crop_roi_consistent_preview_vs_export(rotation_k, flip_h):
 @pytest.mark.parametrize("rotation_k", [0, 1, 2, 3])
 def test_manual_crop_extracts_same_marker_at_preview_and_export(rotation_k):
     # End-to-end content parity: a marker filling the crop rect must survive the crop
-    # identically at full-res (export) and downsampled (preview) resolution.
+    # identically at full-res (export) and downsampled (preview) resolution. The crop
+    # rect is now in transformed (display) space, so a centered marker + centered rect
+    # stay aligned under any 90° rotation.
     full_h, full_w = 600, 900
     full = np.zeros((full_h, full_w, 3), dtype=np.float32)
-    full[60:180, 90:270] = 1.0  # exactly normalized (0.1..0.3, 0.1..0.3)
+    full[210:390, 315:585] = 1.0  # centered block, normalized (0.35..0.65) in both axes
     prev = cv2.resize(full, (300, 200), interpolation=cv2.INTER_AREA)
 
-    config = GeometryConfig(manual_crop_rect=(0.1, 0.1, 0.3, 0.3), rotation=rotation_k)
+    config = GeometryConfig(manual_crop_rect=(0.35, 0.35, 0.65, 0.65), rotation=rotation_k)
     proc = GeometryProcessor(config)
     cropper = CropProcessor(config)
 

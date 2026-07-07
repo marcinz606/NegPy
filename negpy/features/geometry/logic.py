@@ -935,17 +935,18 @@ def _enforce_ratio_by_occupancy(
 def get_manual_rect_coords(
     img_or_shape: ImageBuffer | Tuple[int, int],
     manual_rect: Tuple[float, float, float, float],
-    orig_shape: Tuple[int, int],
-    rotation_k: int = 0,
-    fine_rotation: float = 0.0,
-    flip_horizontal: bool = False,
-    flip_vertical: bool = False,
     offset_px: int = 0,
     scale_factor: float = 1.0,
-    distortion_k1: float = 0.0,
 ) -> ROI:
     """
-    Maps normalized manual crop rect (RAW coords) to pixel ROI in TRANSFORMED image space.
+    Maps a normalized manual crop rect to a pixel ROI in the TRANSFORMED image.
+
+    The rect is expressed in the coordinate space of the already-transformed image
+    (post rotation / fine-rotation / flip / distortion) — the same space the user draws
+    it on in the canvas overlay — so it is a plain axis-aligned slice: no corner mapping,
+    no bounding-box collapse. Storing it in raw space instead forced the crop through
+    `map_coords_to_geometry` + an AABB, which inflated the region as fine rotation tilted
+    the mapped rect (the crop grew larger than the drawn box).
     """
     if isinstance(img_or_shape, tuple):
         h_curr, w_curr = img_or_shape
@@ -953,26 +954,8 @@ def get_manual_rect_coords(
         h_curr, w_curr = img_or_shape.shape[:2]
 
     x1_n, y1_n, x2_n, y2_n = manual_rect
-
-    corners = [(x1_n, y1_n), (x2_n, y1_n), (x2_n, y2_n), (x1_n, y2_n)]
-    mapped_corners = []
-
-    for nx, ny in corners:
-        mx, my = map_coords_to_geometry(
-            nx,
-            ny,
-            orig_shape,
-            rotation_k,
-            fine_rotation,
-            flip_horizontal,
-            flip_vertical,
-            roi=None,
-            distortion_k1=distortion_k1,
-        )
-        mapped_corners.append((mx, my))
-
-    xs = [p[0] * w_curr for p in mapped_corners]
-    ys = [p[1] * h_curr for p in mapped_corners]
+    xs = (x1_n * w_curr, x2_n * w_curr)
+    ys = (y1_n * h_curr, y2_n * h_curr)
 
     ix1, ix2 = int(min(xs)), int(max(xs))
     iy1, iy2 = int(min(ys)), int(max(ys))

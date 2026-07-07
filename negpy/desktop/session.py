@@ -21,6 +21,7 @@ class ToolMode(Enum):
     DUST_PICK = auto()
     SCRATCH_PICK = auto()
     LOCAL_DRAW = auto()
+    ANALYSIS_DRAW = auto()
 
 
 @dataclass

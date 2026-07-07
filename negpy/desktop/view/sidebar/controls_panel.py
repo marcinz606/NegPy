@@ -641,6 +641,7 @@ class ControlsPanel(QWidget):
                 proc.process_mode != _proc.process_mode,
                 proc.linear_raw != _proc.linear_raw,
                 proc.analysis_buffer != _proc.analysis_buffer,
+                proc.analysis_rect is not None,
                 proc.luma_range_clip != _proc.luma_range_clip,
                 proc.color_range_clip != _proc.color_range_clip,
                 proc.white_point_offset != _proc.white_point_offset,
@@ -677,3 +678,4 @@ class ControlsPanel(QWidget):
         """Updates toggle button states to match active_tool."""
         self.geometry_sidebar.sync_ui()
         self.local_sidebar.sync_ui()
+        self.process_sidebar.sync_ui()

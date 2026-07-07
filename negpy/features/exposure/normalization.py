@@ -52,6 +52,33 @@ class LogNegativeBounds:
         self.ceils = ceils
 
 
+def resolve_analysis_region(
+    image_shape: tuple[int, ...],
+    active_roi: Optional[tuple[int, int, int, int]],
+    analysis_buffer: float,
+    analysis_rect: Optional[tuple[float, float, float, float]],
+) -> tuple[Optional[tuple[int, int, int, int]], float]:
+    """Resolve the (roi, buffer) the meters should read.
+
+    A freehand `analysis_rect` (normalized in the transformed image) wins over the crop
+    ROI + centered buffer: it maps directly to a pixel ROI and disables the symmetric
+    inset. Otherwise the crop `active_roi` and the `analysis_buffer` slider apply as before.
+    """
+    if analysis_rect is not None:
+        h, w = image_shape[:2]
+        x1, y1, x2, y2 = analysis_rect
+        roi = (
+            int(min(y1, y2) * h),
+            int(max(y1, y2) * h),
+            int(min(x1, x2) * w),
+            int(max(x1, x2) * w),
+        )
+        # Degenerate rect (zero area) is ignored so a stray click can't blank analysis.
+        if roi[1] - roi[0] >= 2 and roi[3] - roi[2] >= 2:
+            return roi, 0.0
+    return active_roi, analysis_buffer
+
+
 def get_analysis_crop(img: ImageBuffer, buffer_ratio: float) -> ImageBuffer:
     """
     Returns a center crop of the image for analysis purposes.

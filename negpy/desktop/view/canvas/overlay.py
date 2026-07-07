@@ -12,7 +12,6 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.features.geometry.logic import translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
 from negpy.kernel.system.config import APP_CONFIG
-from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
@@ -51,6 +50,9 @@ class CanvasOverlay(QWidget):
 
     clicked = pyqtSignal(float, float)
     crop_rect_changed = pyqtSignal(float, float, float, float, bool)
+    crop_confirmed = pyqtSignal()
+    analysis_rect_changed = pyqtSignal(float, float, float, float, bool)
+    analysis_confirmed = pyqtSignal()
     cursor_moved = pyqtSignal(float, float)
     cursor_left = pyqtSignal()
     lasso_completed = pyqtSignal(list)
@@ -66,14 +68,22 @@ class CanvasOverlay(QWidget):
 
         # Crop tool interaction state: corner-resize, interior move, or fresh draw
         # (when the click lands outside the existing rect).
-        self._crop_rect_raw: Optional[Tuple[float, float, float, float]] = None
+        self._crop_rect_norm: Optional[Tuple[float, float, float, float]] = None
         self._crop_drag_mode: Optional[str] = None  # "corner" | "move" | "draw"
         self._crop_anchor_screen: Optional[QPointF] = None
-        self._crop_press_raw: Optional[Tuple[float, float]] = None
+        self._crop_press_norm: Optional[Tuple[float, float]] = None
         self._crop_orig_rect: Optional[Tuple[float, float, float, float]] = None
-        self._crop_uv_grid: Optional[np.ndarray] = None
         self._crop_draw_p1: Optional[QPointF] = None
         self._crop_draw_p2: Optional[QPointF] = None
+
+        # Freehand analysis-region interaction (transformed-normalized, like the crop rect).
+        self._analysis_rect_norm: Optional[Tuple[float, float, float, float]] = None
+        self._analysis_drag_mode: Optional[str] = None  # "move" | "draw"
+        self._analysis_press_norm: Optional[Tuple[float, float]] = None
+        self._analysis_orig_rect: Optional[Tuple[float, float, float, float]] = None
+        self._analysis_draw_p1: Optional[QPointF] = None
+        self._analysis_draw_p2: Optional[QPointF] = None
+
         self._tool_mode: ToolMode = ToolMode.NONE
         self._mouse_pos: QPointF = QPointF()
 
@@ -152,10 +162,15 @@ class CanvasOverlay(QWidget):
     def set_tool_mode(self, mode: ToolMode) -> None:
         self._tool_mode = mode
         if mode == ToolMode.CROP_MANUAL:
-            self._crop_rect_raw = self.state.config.geometry.manual_crop_rect
+            self._crop_rect_norm = self.state.config.geometry.manual_crop_rect
         else:
-            self._crop_rect_raw = None
+            self._crop_rect_norm = None
             self._end_crop_drag()
+        if mode == ToolMode.ANALYSIS_DRAW:
+            self._analysis_rect_norm = self.state.config.process.analysis_rect
+        else:
+            self._analysis_rect_norm = None
+            self._end_analysis_drag()
         if mode != ToolMode.LOCAL_DRAW:
             self._lasso_pts = []
             self._lasso_drawing = False
@@ -166,11 +181,17 @@ class CanvasOverlay(QWidget):
     def _end_crop_drag(self) -> None:
         self._crop_drag_mode = None
         self._crop_anchor_screen = None
-        self._crop_press_raw = None
+        self._crop_press_norm = None
         self._crop_orig_rect = None
-        self._crop_uv_grid = None
         self._crop_draw_p1 = None
         self._crop_draw_p2 = None
+
+    def _end_analysis_drag(self) -> None:
+        self._analysis_drag_mode = None
+        self._analysis_press_norm = None
+        self._analysis_orig_rect = None
+        self._analysis_draw_p1 = None
+        self._analysis_draw_p2 = None
 
     def _cancel_lasso(self) -> None:
         if self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing:
@@ -198,7 +219,9 @@ class CanvasOverlay(QWidget):
             self._current_size = gpu_size
 
         if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
-            self._crop_rect_raw = self.state.config.geometry.manual_crop_rect
+            self._crop_rect_norm = self.state.config.geometry.manual_crop_rect
+        if self._tool_mode == ToolMode.ANALYSIS_DRAW and self._analysis_drag_mode is None:
+            self._analysis_rect_norm = self.state.config.process.analysis_rect
 
         self._recalc_view_rect()
         self.update()
@@ -267,7 +290,14 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.CROP_MANUAL:
             self._draw_crop_tool(painter)
 
-        if self._buffer_overlay_visible and self._buffer_overlay_ratio > 1e-4 and self._tool_mode != ToolMode.CROP_MANUAL:
+        if self._tool_mode == ToolMode.ANALYSIS_DRAW:
+            self._draw_analysis_tool(painter)
+
+        if (
+            self._buffer_overlay_visible
+            and self._buffer_overlay_ratio > 1e-4
+            and self._tool_mode not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        ):
             d = visible_rect
             margin_w = d.width() * self._buffer_overlay_ratio
             margin_h = d.height() * self._buffer_overlay_ratio
@@ -446,40 +476,37 @@ class CanvasOverlay(QWidget):
             self._view_rect.y() + ny * self._view_rect.height(),
         )
 
-    def _crop_corner_screen_points(self) -> Optional[Dict[str, QPointF]]:
-        """Maps the current raw crop rect to its on-screen axis-aligned bounding box.
+    def _norm_to_screen(self, nx: float, ny: float) -> QPointF:
+        """Transformed-image normalized coords (0-1) -> screen position."""
+        return QPointF(
+            self._view_rect.x() + nx * self._view_rect.width(),
+            self._view_rect.y() + ny * self._view_rect.height(),
+        )
 
-        The actual crop (`get_manual_rect_coords` / `CropProcessor`) always takes the
-        axis-aligned bounding box of the rect's transformed corners - it's a plain
-        array slice, never a rotated one. So under fine rotation the 4 raw corners
-        land at a tilted quadrilateral, but we deliberately collapse that to its AABB
-        here rather than drawing the tilt, so the overlay shows what will actually be
-        cropped instead of a shape the pipeline can't produce.
+    def _screen_to_norm(self, screen_pos: QPointF) -> Tuple[float, float]:
+        """Screen position -> transformed-image normalized coords, clamped to 0-1."""
+        if self._view_rect.isEmpty():
+            return 0.0, 0.0
+        nx = (screen_pos.x() - self._view_rect.x()) / self._view_rect.width()
+        ny = (screen_pos.y() - self._view_rect.y()) / self._view_rect.height()
+        return float(np.clip(nx, 0.0, 1.0)), float(np.clip(ny, 0.0, 1.0))
+
+    def _crop_corner_screen_points(self) -> Optional[Dict[str, QPointF]]:
+        """Screen positions of the crop rect's four corners.
+
+        The rect is stored in the transformed (display) image's normalized coords — the
+        same space it is drawn on — so it maps linearly through the view rect and stays a
+        true axis-aligned rectangle. The box shown is exactly the box `CropProcessor`
+        slices (no fine-rotation bounding-box inflation).
         """
-        if self._crop_rect_raw is None:
+        if self._crop_rect_norm is None or self._view_rect.isEmpty():
             return None
-        with self.state.metrics_lock:
-            uv_grid = self.state.last_metrics.get("uv_grid")
-        if uv_grid is None:
-            return None
-        x1, y1, x2, y2 = self._crop_rect_raw
-        h_uv, w_uv = uv_grid.shape[:2]
-        buckets = max(h_uv, w_uv)
-        pts = [
-            self._raw_to_screen(x1, y1, uv_grid, buckets),
-            self._raw_to_screen(x2, y1, uv_grid, buckets),
-            self._raw_to_screen(x2, y2, uv_grid, buckets),
-            self._raw_to_screen(x1, y2, uv_grid, buckets),
-        ]
-        left = min(p.x() for p in pts)
-        right = max(p.x() for p in pts)
-        top = min(p.y() for p in pts)
-        bottom = max(p.y() for p in pts)
+        x1, y1, x2, y2 = self._crop_rect_norm
         return {
-            "tl": QPointF(left, top),
-            "tr": QPointF(right, top),
-            "br": QPointF(right, bottom),
-            "bl": QPointF(left, bottom),
+            "tl": self._norm_to_screen(x1, y1),
+            "tr": self._norm_to_screen(x2, y1),
+            "br": self._norm_to_screen(x2, y2),
+            "bl": self._norm_to_screen(x1, y2),
         }
 
     def _hit_test_crop_corner(self, pos: QPointF, corners: Dict[str, QPointF]) -> Optional[str]:
@@ -489,13 +516,13 @@ class CanvasOverlay(QWidget):
                 return name
         return None
 
-    def _apply_aspect_and_min(self, anchor_screen: QPointF, cur_screen: QPointF, uv_grid: np.ndarray) -> Tuple[float, float, float, float]:
+    def _apply_aspect_and_min(self, anchor_screen: QPointF, cur_screen: QPointF) -> Tuple[float, float, float, float]:
         """Resizes a rect anchored at `anchor_screen` towards `cur_screen`, honoring the
         configured aspect ratio (if any) and a minimum rect size.
 
-        Done entirely in screen-pixel space: raw-normalised (0-1) fractions only equal
-        physical aspect ratio when the source image is square, so applying a target
-        ratio to raw-space deltas distorts it by the image's actual width/height ratio.
+        Done entirely in screen-pixel space: normalised (0-1) fractions only equal
+        physical aspect ratio when the displayed image is square, so applying a target
+        ratio to normalised deltas distorts it by the image's actual width/height ratio.
         Screen pixels reflect the image as displayed, so ratios computed there are correct.
         """
         ax, ay = anchor_screen.x(), anchor_screen.y()
@@ -531,13 +558,11 @@ class CanvasOverlay(QWidget):
                 dy = _CROP_MIN_SCREEN_PX if dy >= 0 else -_CROP_MIN_SCREEN_PX
 
         end_screen = QPointF(ax + dx, ay + dy)
-        c1 = self._raw_from_screen_with_grid(anchor_screen, uv_grid)
-        c2 = self._raw_from_screen_with_grid(end_screen, uv_grid)
-        if c1 is None or c2 is None:
-            return self._crop_rect_raw or (0.0, 0.0, 1.0, 1.0)
+        c1 = self._screen_to_norm(anchor_screen)
+        c2 = self._screen_to_norm(end_screen)
         x1, x2 = sorted((c1[0], c2[0]))
         y1, y2 = sorted((c1[1], c2[1]))
-        return (max(0.0, x1), max(0.0, y1), min(1.0, x2), min(1.0, y2))
+        return (x1, y1, x2, y2)
 
     def _draw_crop_tool(self, painter: QPainter) -> None:
         if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None:
@@ -578,6 +603,33 @@ class CanvasOverlay(QWidget):
         painter.setBrush(QColor(THEME.accent_primary))
         for pt in corners.values():
             painter.drawRect(QRectF(pt.x() - 5, pt.y() - 5, 10, 10))
+
+    def _analysis_rect_screen(self) -> Optional[QRectF]:
+        """Screen rect for the current analysis region, or None if unset."""
+        if self._analysis_drag_mode == "draw" and self._analysis_draw_p1 is not None:
+            return QRectF(self._analysis_draw_p1, self._analysis_draw_p2 or self._analysis_draw_p1).normalized()
+        if self._analysis_rect_norm is None or self._view_rect.isEmpty():
+            return None
+        x1, y1, x2, y2 = self._analysis_rect_norm
+        return QRectF(self._norm_to_screen(x1, y1), self._norm_to_screen(x2, y2)).normalized()
+
+    def _draw_analysis_tool(self, painter: QPainter) -> None:
+        """Green-dashed analysis region: the exact area the exposure meters read."""
+        rect = self._analysis_rect_screen()
+        if rect is None:
+            return
+        rect = rect.intersected(self._view_rect)
+        fill = QColor(THEME.channel_green)
+        fill.setAlpha(28)
+        painter.setBrush(fill)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(rect)
+
+        pen = QPen(QColor(THEME.channel_green), 1.5, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        painter.drawRect(rect)
 
     def _draw_local_masks(self, painter: QPainter) -> None:
         if self._view_rect.isEmpty():
@@ -668,13 +720,6 @@ class CanvasOverlay(QWidget):
 
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
-    def _raw_from_screen_with_grid(self, screen_pos: QPointF, uv_grid: np.ndarray) -> Optional[Tuple[float, float]]:
-        if self._view_rect.isEmpty():
-            return None
-        nb_x = float(np.clip((screen_pos.x() - self._view_rect.x()) / self._view_rect.width(), 0.0, 1.0))
-        nb_y = float(np.clip((screen_pos.y() - self._view_rect.y()) / self._view_rect.height(), 0.0, 1.0))
-        return CoordinateMapping.map_click_to_raw(nb_x, nb_y, uv_grid)
-
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton or (
             event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self._tool_mode == ToolMode.NONE
@@ -697,6 +742,12 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        if self._tool_mode == ToolMode.ANALYSIS_DRAW:
+            self._start_analysis_drag(event.position())
+            self.update()
+            event.accept()
+            return
+
         coords = self._map_to_image_coords(event.position())
         if coords:
             self.clicked.emit(*coords)
@@ -704,10 +755,25 @@ class CanvasOverlay(QWidget):
                 self._start_crop_drag(event.position())
             self.update()
 
+    def _start_analysis_drag(self, pos: QPointF) -> None:
+        if self._view_rect.isEmpty():
+            return
+        rect = self._analysis_rect_screen()
+        if rect is not None and rect.contains(pos):
+            self._analysis_drag_mode = "move"
+            self._analysis_press_norm = self._screen_to_norm(pos)
+            self._analysis_orig_rect = self._analysis_rect_norm
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+        # Fresh region: drag out a new rectangle.
+        px = np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())
+        py = np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())
+        self._analysis_drag_mode = "draw"
+        self._analysis_draw_p1 = QPointF(px, py)
+        self._analysis_draw_p2 = QPointF(px, py)
+
     def _start_crop_drag(self, pos: QPointF) -> None:
-        with self.state.metrics_lock:
-            uv_grid = self.state.last_metrics.get("uv_grid")
-        if uv_grid is None:
+        if self._view_rect.isEmpty():
             return
 
         corners = self._crop_corner_screen_points()
@@ -716,18 +782,14 @@ class CanvasOverlay(QWidget):
             anchor_name = {"tl": "br", "tr": "bl", "br": "tl", "bl": "tr"}[corner]
             self._crop_drag_mode = "corner"
             self._crop_anchor_screen = corners[anchor_name]
-            self._crop_uv_grid = uv_grid
             self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ("tl", "br") else Qt.CursorShape.SizeBDiagCursor)
             return
 
         if corners is not None and QPolygonF(list(corners.values())).containsPoint(pos, Qt.FillRule.OddEvenFill):
-            press_raw = self._raw_from_screen_with_grid(pos, uv_grid)
-            if press_raw is not None:
-                self._crop_drag_mode = "move"
-                self._crop_press_raw = press_raw
-                self._crop_orig_rect = self._crop_rect_raw
-                self._crop_uv_grid = uv_grid
-                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._crop_drag_mode = "move"
+            self._crop_press_norm = self._screen_to_norm(pos)
+            self._crop_orig_rect = self._crop_rect_norm
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
         # Clicked outside the existing rect: draw a fresh one from scratch.
@@ -736,7 +798,6 @@ class CanvasOverlay(QWidget):
         self._crop_drag_mode = "draw"
         self._crop_draw_p1 = QPointF(px, py)
         self._crop_draw_p2 = QPointF(px, py)
-        self._crop_uv_grid = uv_grid
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         self._mouse_pos = event.position()
@@ -755,35 +816,51 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
-        if self._crop_drag_mode == "corner" and self._crop_anchor_screen is not None and self._crop_uv_grid is not None:
+        if self._analysis_drag_mode == "move" and self._analysis_press_norm is not None and self._analysis_orig_rect is not None:
+            curr_norm = self._screen_to_norm(event.position())
+            dx = curr_norm[0] - self._analysis_press_norm[0]
+            dy = curr_norm[1] - self._analysis_press_norm[1]
+            new_rect = translate_manual_crop_rect(self._analysis_orig_rect, dx, dy)
+            if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._analysis_rect_norm or new_rect)):
+                self._analysis_rect_norm = new_rect
+                self.analysis_rect_changed.emit(*new_rect, False)
+                self.update()
+            event.accept()
+            return
+
+        if self._analysis_drag_mode == "draw" and self._analysis_draw_p1 is not None:
+            mx = np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())
+            my = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
+            self._analysis_draw_p2 = QPointF(mx, my)
+            self.update()
+            event.accept()
+            return
+
+        if self._crop_drag_mode == "corner" and self._crop_anchor_screen is not None:
             cur_screen = QPointF(
                 float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
                 float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
             )
-            rect = self._apply_aspect_and_min(self._crop_anchor_screen, cur_screen, self._crop_uv_grid)
-            self._crop_rect_raw = rect
+            rect = self._apply_aspect_and_min(self._crop_anchor_screen, cur_screen)
+            self._crop_rect_norm = rect
             self.crop_rect_changed.emit(*rect, False)
             self.update()
             event.accept()
             return
 
-        if (
-            self._crop_drag_mode == "move"
-            and self._crop_press_raw is not None
-            and self._crop_orig_rect is not None
-            and self._crop_uv_grid is not None
-        ):
-            curr_raw = self._raw_from_screen_with_grid(event.position(), self._crop_uv_grid)
-            if curr_raw is not None:
-                fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                sensitivity = 0.2 if fine else 0.5
-                dx = (curr_raw[0] - self._crop_press_raw[0]) * sensitivity
-                dy = (curr_raw[1] - self._crop_press_raw[1]) * sensitivity
-                new_rect = translate_manual_crop_rect(self._crop_orig_rect, dx, dy)
-                if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._crop_rect_raw or new_rect)):
-                    self._crop_rect_raw = new_rect
-                    self.crop_rect_changed.emit(*new_rect, False)
-                    self.update()
+        if self._crop_drag_mode == "move" and self._crop_press_norm is not None and self._crop_orig_rect is not None:
+            curr_norm = self._screen_to_norm(event.position())
+            # Normalized coords track the cursor 1:1, so a plain drag moves the crop
+            # exactly with the mouse; Shift halves it for fine placement.
+            fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            sensitivity = 0.5 if fine else 1.0
+            dx = (curr_norm[0] - self._crop_press_norm[0]) * sensitivity
+            dy = (curr_norm[1] - self._crop_press_norm[1]) * sensitivity
+            new_rect = translate_manual_crop_rect(self._crop_orig_rect, dx, dy)
+            if any(abs(a - b) > 5e-4 for a, b in zip(new_rect, self._crop_rect_norm or new_rect)):
+                self._crop_rect_norm = new_rect
+                self.crop_rect_changed.emit(*new_rect, False)
+                self.update()
             event.accept()
             return
 
@@ -865,6 +942,23 @@ class CanvasOverlay(QWidget):
             self._finish_scratch()
             event.accept()
             return
+        # Double-clicking inside the crop box confirms the crop and closes the tool, so
+        # the user never has to leave the canvas to press the Crop button again.
+        if self._tool_mode == ToolMode.CROP_MANUAL:
+            corners = self._crop_corner_screen_points()
+            if corners is not None and QPolygonF(list(corners.values())).containsPoint(event.position(), Qt.FillRule.OddEvenFill):
+                self._end_crop_drag()
+                self.crop_confirmed.emit()
+                event.accept()
+                return
+        # Double-clicking inside the analysis region confirms it and closes the tool.
+        if self._tool_mode == ToolMode.ANALYSIS_DRAW:
+            rect = self._analysis_rect_screen()
+            if rect is not None and rect.contains(event.position()):
+                self._end_analysis_drag()
+                self.analysis_confirmed.emit()
+                event.accept()
+                return
         super().mouseDoubleClickEvent(event)
 
     def _finish_draw_if_active(self) -> None:
@@ -900,8 +994,8 @@ class CanvasOverlay(QWidget):
             return
 
         if self._crop_drag_mode in ("corner", "move"):
-            if self._crop_rect_raw is not None:
-                self.crop_rect_changed.emit(*self._crop_rect_raw, True)
+            if self._crop_rect_norm is not None:
+                self.crop_rect_changed.emit(*self._crop_rect_norm, True)
             self._end_crop_drag()
             self.unsetCursor()
             event.accept()
@@ -910,15 +1004,33 @@ class CanvasOverlay(QWidget):
         if self._crop_drag_mode == "draw":
             r = QRectF(self._crop_draw_p1, self._crop_draw_p2 or self._crop_draw_p1).normalized()
             r = r.intersected(self._view_rect)
-            uv_grid = self._crop_uv_grid
-            if r.width() > 5 and r.height() > 5 and uv_grid is not None:
-                c1 = self._raw_from_screen_with_grid(r.topLeft(), uv_grid)
-                c2 = self._raw_from_screen_with_grid(r.bottomRight(), uv_grid)
-                if c1 and c2:
-                    rect = (min(c1[0], c2[0]), min(c1[1], c2[1]), max(c1[0], c2[0]), max(c1[1], c2[1]))
-                    self._crop_rect_raw = rect
-                    self.crop_rect_changed.emit(*rect, True)
+            if r.width() > 5 and r.height() > 5:
+                c1 = self._screen_to_norm(r.topLeft())
+                c2 = self._screen_to_norm(r.bottomRight())
+                rect = (min(c1[0], c2[0]), min(c1[1], c2[1]), max(c1[0], c2[0]), max(c1[1], c2[1]))
+                self._crop_rect_norm = rect
+                self.crop_rect_changed.emit(*rect, True)
             self._end_crop_drag()
+            self.update()
+
+        if self._analysis_drag_mode == "move":
+            if self._analysis_rect_norm is not None:
+                self.analysis_rect_changed.emit(*self._analysis_rect_norm, True)
+            self._end_analysis_drag()
+            self.unsetCursor()
+            event.accept()
+            return
+
+        if self._analysis_drag_mode == "draw":
+            r = QRectF(self._analysis_draw_p1, self._analysis_draw_p2 or self._analysis_draw_p1).normalized()
+            r = r.intersected(self._view_rect)
+            if r.width() > 5 and r.height() > 5:
+                c1 = self._screen_to_norm(r.topLeft())
+                c2 = self._screen_to_norm(r.bottomRight())
+                rect = (min(c1[0], c2[0]), min(c1[1], c2[1]), max(c1[0], c2[0]), max(c1[1], c2[1]))
+                self._analysis_rect_norm = rect
+                self.analysis_rect_changed.emit(*rect, True)
+            self._end_analysis_drag()
             self.update()
 
     def leaveEvent(self, event) -> None:

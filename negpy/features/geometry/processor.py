@@ -21,7 +21,6 @@ class GeometryProcessor:
         self.distortion_k1 = distortion_k1
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
-        orig_shape = (image.shape[0], image.shape[1])
         img = image
         ir = context.ir_buffer
 
@@ -64,14 +63,8 @@ class GeometryProcessor:
             roi = get_manual_rect_coords(
                 img,
                 self.config.manual_crop_rect,
-                orig_shape=orig_shape,
-                rotation_k=self.config.rotation,
-                fine_rotation=self.config.fine_rotation,
-                flip_horizontal=self.config.flip_horizontal,
-                flip_vertical=self.config.flip_vertical,
                 offset_px=self.config.autocrop_offset,
                 scale_factor=context.scale_factor,
-                distortion_k1=self.distortion_k1,
             )
             context.active_roi = roi
         elif self.config.auto_crop_enabled:
