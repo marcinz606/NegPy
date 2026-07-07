@@ -136,7 +136,9 @@ class ExportConfig:
     export_resolution_mode: str = ExportResolutionMode.ORIGINAL.value
     export_target_long_edge_px: int = 2000
     filename_pattern: str = "{{ original_name }}"
-    overwrite: bool = True
+    # When True, exports silently overwrite existing files; when False, the export
+    # prompts (Overwrite / Rename / Cancel) before clobbering anything.
+    overwrite: bool = False
     output_mode: str = ExportPresetOutputMode.ABSOLUTE
     output_subfolder: str = ""
     icc_input_path: Optional[str] = None
@@ -189,7 +191,7 @@ class ExportPreset:
     output_mode: str = ExportPresetOutputMode.SAME_AS_SOURCE
     output_subfolder: str = ""
     output_path: str = ""
-    overwrite: bool = True
+    overwrite: bool = False
     filename_pattern: str = "{{ original_name }}"
 
     # Color

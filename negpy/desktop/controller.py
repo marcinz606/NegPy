@@ -6,11 +6,11 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan
-from negpy.desktop.workers.export import ExportTask, ExportWorker
+from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_conflicts
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
@@ -1798,6 +1798,7 @@ class AppController(QObject):
         self.set_status(f"Wrote {written} edit sidecar(s)", 4000)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
+        # Reject unencodable format/colour-space pairings before anything else.
         blocked = [t for t in tasks if export_blocked(t.export_settings.export_fmt, t.export_settings.export_color_space)]
         if blocked:
             names = ", ".join(sorted({t.file_info.get("name", "?") for t in blocked})[:5])
@@ -1809,6 +1810,11 @@ class AppController(QObject):
             )
             return
 
+        # Then confirm any overwrites before dispatching to the worker.
+        tasks = self._resolve_export_conflicts(tasks)
+        if not tasks:
+            return
+
         self._export_start_time = time.time()
         self._export_failures = 0
         self._begin_batch("Exporting", abortable=True)
@@ -1818,6 +1824,81 @@ class AppController(QObject):
             Qt.ConnectionType.QueuedConnection,
             Q_ARG(list, tasks),
         )
+
+    def _resolve_export_conflicts(self, tasks: List[ExportTask]) -> Optional[List[ExportTask]]:
+        """Decide how to handle existing destination files before dispatching an export.
+
+        If the "Overwrite existing files" preference is on, overwrite silently (no prompt)
+        — for single Export and Export All alike. Otherwise, if the batch would clobber
+        existing files, prompt (Overwrite / Rename / Cancel); the dialog's "always
+        overwrite without asking" toggle persists the preference. Returns the tasks to run
+        (overwrite flag set to the chosen action) or None to cancel the whole export."""
+        if not tasks:
+            return tasks
+
+        if self.state.config.export.overwrite:
+            return [replace(t, export_settings=replace(t.export_settings, overwrite=True)) for t in tasks]
+
+        conflicts = find_export_conflicts(tasks)
+        if not conflicts:
+            return tasks
+
+        choice, remember = self._prompt_overwrite_conflicts(conflicts)
+        if choice is None:
+            return None
+        if remember and choice:
+            self._set_overwrite_preference(True)
+        return [replace(t, export_settings=replace(t.export_settings, overwrite=choice)) for t in tasks]
+
+    def _set_overwrite_preference(self, value: bool) -> None:
+        """Persist the global 'Overwrite existing files' preference (syncs the Export tab
+        checkbox and the sticky default) without touching edit history or re-rendering."""
+        cfg = self.state.config
+        if bool(cfg.export.overwrite) == value:
+            return
+        new_config = replace(cfg, export=replace(cfg.export, overwrite=value))
+        self.session.update_config(new_config, persist=True, render=True, record_history=False)
+
+    @staticmethod
+    def _prompt_overwrite_conflicts(conflicts: List[str]) -> tuple[Optional[bool], bool]:
+        """Ask how to handle existing destination files. Returns (choice, remember):
+        choice is True (overwrite), False (rename with a numbered suffix) or None (cancel);
+        remember is whether the user asked to always overwrite without being asked again."""
+        n = len(conflicts)
+        names = "\n".join("  • " + os.path.basename(p) for p in conflicts[:8])
+        if n > 8:
+            names += f"\n  … and {n - 8} more"
+
+        box = QMessageBox()
+        box.setIcon(QMessageBox.Icon.Warning)
+        if n == 1:
+            box.setWindowTitle("File already exists")
+            box.setText(f"“{os.path.basename(conflicts[0])}” already exists in the export folder.")
+        else:
+            box.setWindowTitle("Files already exist")
+            box.setText(f"{n} files already exist in the export destination.")
+        box.setInformativeText(f"{names}\n\nOverwrite, save with a new name, or cancel?")
+
+        remember_check = QCheckBox("Always overwrite without asking")
+        remember_check.setToolTip("Turns on the Export panel's “Overwrite existing files” option; stays on until you turn it off.")
+        box.setCheckBox(remember_check)
+
+        overwrite_label = "Overwrite" if n == 1 else "Overwrite All"
+        rename_label = "Rename" if n == 1 else "Rename All"
+        overwrite_btn = box.addButton(overwrite_label, QMessageBox.ButtonRole.DestructiveRole)
+        rename_btn = box.addButton(rename_label, QMessageBox.ButtonRole.AcceptRole)
+        cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(rename_btn)
+        box.setEscapeButton(cancel_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        remember = remember_check.isChecked()
+        if clicked is overwrite_btn:
+            return True, remember
+        if clicked is rename_btn:
+            return False, remember
+        return None, False
 
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False

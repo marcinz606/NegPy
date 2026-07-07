@@ -1,4 +1,6 @@
+import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 from dataclasses import replace
@@ -7,7 +9,8 @@ from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
-from negpy.domain.models import ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
+from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
+from negpy.domain.models import ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode, WorkspaceConfig
 from negpy.services.rendering.preview_manager import PreviewManager
 
 if not QApplication.instance():
@@ -197,6 +200,79 @@ class TestAppController(unittest.TestCase):
         self.assertFalse(saved_config.geometry.auto_crop_enabled)
         self.assertIsNone(saved_config.geometry.manual_crop_rect)
         self.controller.request_render.assert_called_once_with()
+
+    def _export_task(self, path, overwrite=False):
+        preset = ExportPreset(
+            name="t",
+            output_mode=ExportPresetOutputMode.ABSOLUTE,
+            output_path=os.path.dirname(path),
+            overwrite=overwrite,
+        )
+        return ExportTask(
+            file_info={"name": os.path.basename(path), "path": path, "hash": "h"},
+            params=WorkspaceConfig(),
+            export_settings=preset,
+        )
+
+    def _set_export_overwrite(self, value):
+        cfg = self.controller.state.config
+        self.controller.state.config = replace(cfg, export=replace(cfg.export, overwrite=value))
+
+    def test_export_overwrite_pref_on_skips_prompt_and_overwrites(self):
+        self._set_export_overwrite(True)
+        with tempfile.TemporaryDirectory() as d:
+            task = self._export_task(os.path.join(d, "A.RAF"))
+            open(resolve_export_target_path(task), "wb").close()
+            self.controller._prompt_overwrite_conflicts = MagicMock()
+            out = self.controller._resolve_export_conflicts([task])
+            self.assertTrue(out[0].export_settings.overwrite)
+            self.controller._prompt_overwrite_conflicts.assert_not_called()
+
+    def test_export_conflict_overwrite_sets_flag_true(self):
+        self._set_export_overwrite(False)
+        with tempfile.TemporaryDirectory() as d:
+            task = self._export_task(os.path.join(d, "A.RAF"))
+            open(resolve_export_target_path(task), "wb").close()
+            self.controller._prompt_overwrite_conflicts = MagicMock(return_value=(True, False))
+            out = self.controller._resolve_export_conflicts([task])
+            self.assertEqual(len(out), 1)
+            self.assertTrue(out[0].export_settings.overwrite)
+
+    def test_export_conflict_rename_sets_flag_false(self):
+        self._set_export_overwrite(False)
+        with tempfile.TemporaryDirectory() as d:
+            task = self._export_task(os.path.join(d, "A.RAF"))
+            open(resolve_export_target_path(task), "wb").close()
+            self.controller._prompt_overwrite_conflicts = MagicMock(return_value=(False, False))
+            out = self.controller._resolve_export_conflicts([task])
+            self.assertFalse(out[0].export_settings.overwrite)
+
+    def test_export_conflict_cancel_returns_none(self):
+        self._set_export_overwrite(False)
+        with tempfile.TemporaryDirectory() as d:
+            task = self._export_task(os.path.join(d, "A.RAF"))
+            open(resolve_export_target_path(task), "wb").close()
+            self.controller._prompt_overwrite_conflicts = MagicMock(return_value=(None, False))
+            self.assertIsNone(self.controller._resolve_export_conflicts([task]))
+
+    def test_export_conflict_remember_persists_preference(self):
+        self._set_export_overwrite(False)
+        with tempfile.TemporaryDirectory() as d:
+            task = self._export_task(os.path.join(d, "A.RAF"))
+            open(resolve_export_target_path(task), "wb").close()
+            self.controller._prompt_overwrite_conflicts = MagicMock(return_value=(True, True))
+            self.controller._set_overwrite_preference = MagicMock()
+            self.controller._resolve_export_conflicts([task])
+            self.controller._set_overwrite_preference.assert_called_once_with(True)
+
+    def test_export_no_conflict_passes_through_without_prompt(self):
+        self._set_export_overwrite(False)
+        with tempfile.TemporaryDirectory() as d:
+            task = self._export_task(os.path.join(d, "A.RAF"))  # target not created
+            self.controller._prompt_overwrite_conflicts = MagicMock()
+            out = self.controller._resolve_export_conflicts([task])
+            self.assertEqual(out, [task])
+            self.controller._prompt_overwrite_conflicts.assert_not_called()
 
     def test_manual_crop_rect_changed_disables_auto_crop(self):
         geometry = replace(self.controller.state.config.geometry, auto_crop_enabled=True)

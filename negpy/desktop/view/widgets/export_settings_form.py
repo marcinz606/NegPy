@@ -324,6 +324,10 @@ class ExportSettingsForm(QWidget):
         root.addLayout(filename_row)
 
         self.overwrite_check = QCheckBox("Overwrite existing files")
+        self.overwrite_check.setToolTip(
+            "Checked: replace files that already exist, without asking. "
+            "Unchecked: ask before overwriting (Overwrite / Rename / Cancel) when a file already exists."
+        )
         self.overwrite_check.stateChanged.connect(self._on_changed)
         root.addWidget(self.overwrite_check)
 
