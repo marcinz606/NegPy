@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from typing import TypeVar
 
 from negpy.features.metadata.gear_models import (
@@ -60,13 +59,31 @@ class GearProfiles:
         os.replace(tmp, path)
 
     @staticmethod
+    def _read_bundled_list(fname: str, factory: type[T]) -> list[T]:
+        items = GearProfiles._read_list(os.path.join(get_resource_path("gear"), fname), factory)
+        for item in items:
+            item.is_bundled = True  # type: ignore[attr-defined]
+        return items
+
+    @staticmethod
+    def _merge(bundled: list[T], user: list[T]) -> list[T]:
+        """Bundled ∪ user, deduped by id, bundled wins."""
+        bundled_ids = {item.id for item in bundled}  # type: ignore[attr-defined]
+        return bundled + [item for item in user if item.id not in bundled_ids]  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _load_merged(fname: str, factory: type[T]) -> list[T]:
+        bundled = GearProfiles._read_bundled_list(fname, factory)
+        user = GearProfiles._read_list(os.path.join(GearProfiles._gear_dir(), fname), factory)
+        return GearProfiles._merge(bundled, user)
+
+    @staticmethod
     def load_library() -> GearLibrary:
-        base = GearProfiles._gear_dir()
         return GearLibrary(
-            cameras=GearProfiles._read_list(os.path.join(base, _CAMERAS_FILE), Camera),
-            lenses=GearProfiles._read_list(os.path.join(base, _LENSES_FILE), Lens),
-            film_stocks=GearProfiles._read_list(os.path.join(base, _FILM_STOCKS_FILE), FilmStock),
-            gear_presets=GearProfiles._read_list(os.path.join(base, _GEAR_PRESETS_FILE), GearPreset),
+            cameras=GearProfiles._load_merged(_CAMERAS_FILE, Camera),
+            lenses=GearProfiles._load_merged(_LENSES_FILE, Lens),
+            film_stocks=GearProfiles._load_merged(_FILM_STOCKS_FILE, FilmStock),
+            gear_presets=GearProfiles._load_merged(_GEAR_PRESETS_FILE, GearPreset),
         )
 
     @staticmethod
@@ -87,26 +104,12 @@ class GearProfiles:
 
     @staticmethod
     def save_library(library: GearLibrary) -> None:
-        GearProfiles.save_cameras(library.cameras)
-        GearProfiles.save_lenses(library.lenses)
-        GearProfiles.save_film_stocks(library.film_stocks)
-        GearProfiles.save_gear_presets(library.gear_presets)
+        GearProfiles.save_cameras([c for c in library.cameras if not c.is_bundled])
+        GearProfiles.save_lenses([lens for lens in library.lenses if not lens.is_bundled])
+        GearProfiles.save_film_stocks([f for f in library.film_stocks if not f.is_bundled])
+        GearProfiles.save_gear_presets([p for p in library.gear_presets if not p.is_bundled])
 
     @staticmethod
-    def seed_example() -> None:
-        """Copy bundled starter gear JSON into the user folder when missing."""
-        gear_dir = APP_CONFIG.gear_dir
-        bundled_dir = get_resource_path("gear")
-        try:
-            os.makedirs(gear_dir, exist_ok=True)
-            if not os.path.isdir(bundled_dir):
-                return
-            for fname in (_CAMERAS_FILE, _LENSES_FILE, _FILM_STOCKS_FILE, _GEAR_PRESETS_FILE):
-                dest = os.path.join(gear_dir, fname)
-                if os.path.exists(dest):
-                    continue
-                src = os.path.join(bundled_dir, fname)
-                if os.path.isfile(src):
-                    shutil.copyfile(src, dest)
-        except OSError:
-            pass
+    def ensure_user_dir() -> None:
+        """Make sure the user's gear directory exists; no seeding."""
+        GearProfiles._gear_dir()

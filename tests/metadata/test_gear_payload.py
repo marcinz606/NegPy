@@ -1,5 +1,6 @@
 """Tests for gear library and metadata payload resolution."""
 
+import json
 import os
 
 
@@ -26,14 +27,81 @@ from negpy.services.assets.gear import GearProfiles
 @pytest.fixture
 def gear_dir(tmp_path, monkeypatch):
     monkeypatch.setattr("negpy.services.assets.gear.APP_CONFIG.gear_dir", str(tmp_path))
+    monkeypatch.setattr("negpy.services.assets.gear.get_resource_path", lambda _: str(tmp_path / "_no_bundled"))
 
     return tmp_path
 
 
-def test_seed_example_copies_bundled_files(gear_dir):
-    GearProfiles.seed_example()
+def test_ensure_user_dir_creates_directory(tmp_path, monkeypatch):
+    target = tmp_path / "nested" / "gear"
+    monkeypatch.setattr("negpy.services.assets.gear.APP_CONFIG.gear_dir", str(target))
 
-    assert os.path.isfile(os.path.join(gear_dir, "cameras.json"))
+    assert not target.exists()
+
+    GearProfiles.ensure_user_dir()
+
+    assert target.is_dir()
+
+
+def test_load_library_merges_bundled_and_user_deduped(tmp_path, monkeypatch):
+    bundled_dir = tmp_path / "bundled"
+    bundled_dir.mkdir()
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    monkeypatch.setattr("negpy.services.assets.gear.APP_CONFIG.gear_dir", str(user_dir))
+    monkeypatch.setattr("negpy.services.assets.gear.get_resource_path", lambda _: str(bundled_dir))
+
+    with open(bundled_dir / "cameras.json", "w", encoding="utf-8") as f:
+        json.dump([{"id": "cam-shared", "make": "Leica", "model": "M6"}], f)
+    with open(user_dir / "cameras.json", "w", encoding="utf-8") as f:
+        json.dump(
+            [
+                {"id": "cam-shared", "make": "Leica", "model": "M6-EDITED"},
+                {"id": "user-1", "make": "Pentax", "model": "K1000"},
+            ],
+            f,
+        )
+
+    library = GearProfiles.load_library()
+
+    assert [c.id for c in library.cameras] == ["cam-shared", "user-1"]
+    assert library.cameras[0].model == "M6"
+    assert library.cameras[0].is_bundled is True
+    assert library.cameras[1].is_bundled is False
+
+
+def test_save_library_excludes_bundled_items(gear_dir):
+    library = GearLibrary(
+        cameras=[
+            Camera(id="cam-bundled", make="Leica", is_bundled=True),
+            Camera(id="user-1", make="Pentax"),
+        ]
+    )
+
+    GearProfiles.save_library(library)
+
+    on_disk = GearProfiles._read_list(os.path.join(gear_dir, "cameras.json"), Camera)
+    assert [c.id for c in on_disk] == ["user-1"]
+
+
+def test_duplicate_bundled_item_is_editable_and_persistable(gear_dir):
+    from negpy.desktop.view.widgets.gear_library_dialog import GearLibraryDialog
+
+    library = GearLibrary(cameras=[Camera(id="cam-bundled", make="Leica", model="M6", is_bundled=True)])
+    dlg = GearLibraryDialog(library)
+
+    assert dlg.display_name_edit.isEnabled() is False
+    assert dlg.del_btn.isEnabled() is False
+
+    dlg._duplicate_item()
+
+    dup = dlg.library().cameras[-1]
+    assert dup.is_bundled is False
+    assert dup.id != "cam-bundled"
+    assert dlg.display_name_edit.isEnabled() is True
+
+    on_disk = GearProfiles._read_list(os.path.join(gear_dir, "cameras.json"), Camera)
+    assert [c.id for c in on_disk] == [dup.id]
 
 
 def test_load_and_save_library(gear_dir):

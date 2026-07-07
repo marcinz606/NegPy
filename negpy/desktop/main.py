@@ -57,8 +57,8 @@ def _bootstrap_environment() -> None:
     ]
     for d in dirs:
         os.makedirs(d, exist_ok=True)
-    CrosstalkProfiles.seed_example()
-    GearProfiles.seed_example()
+    CrosstalkProfiles.ensure_user_dir()
+    GearProfiles.ensure_user_dir()
 
 
 def main() -> None:

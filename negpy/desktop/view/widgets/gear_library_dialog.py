@@ -290,10 +290,18 @@ class GearLibraryDialog(QDialog):
     def _on_item_changed(self, row: int) -> None:
         if row < 0 or row >= len(self._current_items()):
             self._selected_idx = -1
+            self._set_form_editable(True)
             self._clear_form()
             return
         self._selected_idx = row
-        self._populate_form(self._current_items()[row])
+        item = self._current_items()[row]
+        self._set_form_editable(not item.is_bundled)
+        self._populate_form(item)
+
+    def _set_form_editable(self, enabled: bool) -> None:
+        for _label, widget in self._form_rows.values():
+            widget.setEnabled(enabled)
+        self.del_btn.setEnabled(enabled)
 
     def _populate_form(self, item) -> None:
         self._updating = True
@@ -421,6 +429,7 @@ class GearLibraryDialog(QDialog):
         from negpy.features.metadata.gear_models import _new_id
 
         dup.id = _new_id()
+        dup.is_bundled = False
         items.append(dup)
         self._set_current_items(items)
         GearProfiles.save_library(self._library)

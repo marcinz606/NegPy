@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.crosstalk import CrosstalkProfiles
 
@@ -7,6 +9,11 @@ from negpy.services.assets.crosstalk import CrosstalkProfiles
 def _write(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_bundled(tmp_path, monkeypatch):
+    monkeypatch.setattr("negpy.services.assets.crosstalk.get_resource_path", lambda _: str(tmp_path / "_no_bundled"))
 
 
 def test_list_and_get_custom(tmp_path, monkeypatch):
@@ -44,35 +51,55 @@ def test_malformed_skipped(tmp_path, monkeypatch):
     assert CrosstalkProfiles.list_profiles() == ["Default"]
 
 
-def test_seed_example(tmp_path, monkeypatch):
+def test_ensure_user_dir_creates_directory(tmp_path, monkeypatch):
+    target = tmp_path / "nested" / "crosstalk"
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(target))
+
+    assert not target.exists()
+
+    CrosstalkProfiles.ensure_user_dir()
+
+    assert target.is_dir()
+
+
+def test_list_profiles_merges_bundled_and_user(tmp_path, monkeypatch):
     user_dir = tmp_path / "user"
     bundled_dir = tmp_path / "bundled"
     user_dir.mkdir()
     bundled_dir.mkdir()
     _write(
-        os.path.join(bundled_dir, "example.toml"),
-        'name = "Example"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+        os.path.join(bundled_dir, "portra_400.toml"),
+        'name = "Portra 400"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
     )
-    _write(os.path.join(bundled_dir, "README.md"), "not a matrix\n")
+    _write(
+        os.path.join(user_dir, "my_film.toml"),
+        'name = "My Film"\nmatrix = [[0.9, 0.1, 0.0], [0.0, 0.9, 0.1], [0.0, 0.0, 0.9]]\n',
+    )
 
     monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(user_dir))
     monkeypatch.setattr("negpy.services.assets.crosstalk.get_resource_path", lambda _: str(bundled_dir))
 
-    CrosstalkProfiles.seed_example()
-    tomls = [f for f in os.listdir(user_dir) if f.endswith(".toml")]
-    assert tomls == ["example.toml"]  # README.md not copied
-    assert CrosstalkProfiles.list_profiles() == ["Default", "Example"]
+    assert CrosstalkProfiles.list_profiles() == ["Default", "My Film", "Portra 400"]
+    assert CrosstalkProfiles.get_matrix("Portra 400") == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    assert CrosstalkProfiles.get_matrix("My Film") == [0.9, 0.1, 0.0, 0.0, 0.9, 0.1, 0.0, 0.0, 0.9]
 
-    # Re-running is a no-op for a file the user already has.
-    _write(os.path.join(user_dir, "example.toml"), 'name = "Edited"\nmatrix = [[1,0,0],[0,1,0],[0,0,1]]\n')
-    CrosstalkProfiles.seed_example()
-    assert CrosstalkProfiles.list_profiles() == ["Default", "Edited"]
 
-    # A matrix added to the bundled dir in a later release still gets copied in.
+def test_bundled_wins_on_name_collision_dedup(tmp_path, monkeypatch):
+    user_dir = tmp_path / "user"
+    bundled_dir = tmp_path / "bundled"
+    user_dir.mkdir()
+    bundled_dir.mkdir()
     _write(
-        os.path.join(bundled_dir, "second.toml"),
-        'name = "Second"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+        os.path.join(bundled_dir, "portra_400.toml"),
+        'name = "Portra 400"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
     )
-    CrosstalkProfiles.seed_example()
-    assert sorted(f for f in os.listdir(user_dir) if f.endswith(".toml")) == ["example.toml", "second.toml"]
-    assert CrosstalkProfiles.list_profiles() == ["Default", "Edited", "Second"]
+    _write(
+        os.path.join(user_dir, "old_seeded_copy.toml"),
+        'name = "Portra 400"\nmatrix = [[9.0, 9.0, 9.0], [9.0, 9.0, 9.0], [9.0, 9.0, 9.0]]\n',
+    )
+
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(user_dir))
+    monkeypatch.setattr("negpy.services.assets.crosstalk.get_resource_path", lambda _: str(bundled_dir))
+
+    assert CrosstalkProfiles.list_profiles() == ["Default", "Portra 400"]
+    assert CrosstalkProfiles.get_matrix("Portra 400") == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]

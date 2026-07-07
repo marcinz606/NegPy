@@ -1,5 +1,4 @@
 import os
-import shutil
 import tomllib
 from typing import List, Optional
 
@@ -21,16 +20,15 @@ class CrosstalkProfiles:
     DEFAULT_NAME = DEFAULT_NAME
 
     @staticmethod
-    def _scan() -> dict:
-        """Maps display-name -> flat 9-float matrix for valid custom .toml files."""
+    def _scan_dir(directory: str) -> dict:
+        """Maps display-name -> flat 9-float matrix for valid .toml files in a directory."""
         result: dict = {}
-        crosstalk_dir = APP_CONFIG.crosstalk_dir
-        if not os.path.isdir(crosstalk_dir):
+        if not os.path.isdir(directory):
             return result
-        for fname in os.listdir(crosstalk_dir):
+        for fname in os.listdir(directory):
             if not fname.endswith(".toml"):
                 continue
-            path = os.path.join(crosstalk_dir, fname)
+            path = os.path.join(directory, fname)
             parsed = CrosstalkProfiles._parse_file(path)
             if parsed is None:
                 continue
@@ -39,6 +37,13 @@ class CrosstalkProfiles:
             if name != DEFAULT_NAME:
                 result[name] = matrix
         return result
+
+    @staticmethod
+    def _scan() -> dict:
+        """Bundled ∪ user custom matrices, keyed by display name; bundled wins."""
+        bundled = CrosstalkProfiles._scan_dir(get_resource_path("crosstalk"))
+        user = CrosstalkProfiles._scan_dir(APP_CONFIG.crosstalk_dir)
+        return {**user, **bundled}
 
     @staticmethod
     def _parse_file(path: str) -> Optional[tuple]:
@@ -79,24 +84,6 @@ class CrosstalkProfiles:
         return CrosstalkProfiles._scan().get(name)
 
     @staticmethod
-    def seed_example() -> None:
-        """Copy bundled gallery matrices into the user folder, per file.
-
-        Skips a file that already exists in the user folder, so user edits
-        are never overwritten. New matrices bundled in later releases still
-        get copied in on next startup.
-        """
-        crosstalk_dir = APP_CONFIG.crosstalk_dir
-        bundled_dir = get_resource_path("crosstalk")
-        try:
-            if not os.path.isdir(crosstalk_dir) or not os.path.isdir(bundled_dir):
-                return
-            for fname in os.listdir(bundled_dir):
-                if not fname.endswith(".toml"):
-                    continue
-                dest = os.path.join(crosstalk_dir, fname)
-                if os.path.exists(dest):
-                    continue
-                shutil.copyfile(os.path.join(bundled_dir, fname), dest)
-        except OSError:
-            pass
+    def ensure_user_dir() -> None:
+        """Make sure the user's crosstalk directory exists; no seeding."""
+        os.makedirs(APP_CONFIG.crosstalk_dir, exist_ok=True)

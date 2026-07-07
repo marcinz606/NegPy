@@ -69,6 +69,7 @@ class Camera:
     display_name: str = ""
     serial_number: str = ""
     notes: str = ""
+    is_bundled: bool = False
 
     @property
     def resolved_display_name(self) -> str:
@@ -108,6 +109,7 @@ class Lens:
     max_aperture: Optional[float] = None
     serial_number: str = ""
     notes: str = ""
+    is_bundled: bool = False
 
     @property
     def resolved_display_name(self) -> str:
@@ -158,6 +160,7 @@ class FilmStock:
     format: FilmFormat = FilmFormat.FORMAT_35MM
     color_type: FilmColorType = FilmColorType.COLOR_NEGATIVE
     notes: str = ""
+    is_bundled: bool = False
 
     @property
     def resolved_display_name(self) -> str:
@@ -219,6 +222,7 @@ class GearPreset:
     lens_id: str = ""
     film_stock_id: str = ""
     notes: str = ""
+    is_bundled: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
