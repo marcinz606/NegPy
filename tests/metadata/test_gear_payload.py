@@ -1,15 +1,11 @@
 """Tests for gear library and metadata payload resolution."""
 
-
-
 import os
-
 
 
 import piexif
 
 import pytest
-
 
 
 from negpy.features.metadata.gear_models import Camera, FilmStock, GearLibrary, GearPreset, Lens
@@ -27,43 +23,25 @@ from negpy.features.metadata.writer import embed_metadata
 from negpy.services.assets.gear import GearProfiles
 
 
-
-
-
 @pytest.fixture
-
 def gear_dir(tmp_path, monkeypatch):
-
     monkeypatch.setattr("negpy.services.assets.gear.APP_CONFIG.gear_dir", str(tmp_path))
 
     return tmp_path
 
 
-
-
-
 def test_seed_example_copies_bundled_files(gear_dir):
-
     GearProfiles.seed_example()
 
     assert os.path.isfile(os.path.join(gear_dir, "cameras.json"))
 
 
-
-
-
 def test_load_and_save_library(gear_dir):
-
     library = GearLibrary(
-
         cameras=[Camera(id="c1", make="Canon", model="AE-1")],
-
         lenses=[Lens(id="l1", lens_model="50mm", make="Canon")],
-
         film_stocks=[FilmStock(id="f1", manufacturer="Kodak", stock_name="Portra 400", iso=400)],
-
         gear_presets=[GearPreset(id="p1", display_name="Test", camera_id="c1", lens_id="l1", film_stock_id="f1")],
-
     )
 
     GearProfiles.save_library(library)
@@ -77,21 +55,12 @@ def test_load_and_save_library(gear_dir):
     assert loaded.gear_presets[0].display_name == "Test"
 
 
-
-
-
 def test_metadata_from_gear_preset():
-
     library = GearLibrary(
-
         cameras=[Camera(id="c1", make="Canon", model="AE-1 Program")],
-
         lenses=[Lens(id="l1", lens_model="FD 50mm f/1.4", make="Canon", focal_length_mm=50, max_aperture=1.4)],
-
         film_stocks=[FilmStock(id="f1", manufacturer="Kodak", stock_name="Portra 400", iso=400)],
-
         gear_presets=[GearPreset(id="p1", display_name="Combo", camera_id="c1", lens_id="l1", film_stock_id="f1")],
-
     )
 
     config = metadata_from_gear(MetadataConfig(), library, gear_preset_id="p1")
@@ -105,47 +74,26 @@ def test_metadata_from_gear_preset():
     assert config.film_iso == 400
 
 
-
-
-
 def test_build_image_description():
-
     from negpy.features.metadata.payload import MetadataPayload
 
-
-
     payload = MetadataPayload(
-
         camera_make="Canon",
-
         camera_model="AE-1",
-
         lens_model="50mm f/1.4",
-
         film_stock="Portra 400",
-
         iso=400,
-
     )
 
     assert build_image_description(payload) == "Canon AE-1 • 50mm f/1.4 • Portra 400 • ISO 400"
 
 
-
-
-
 def test_build_metadata_payload_preview_pairs():
-
     library = GearLibrary(
-
         cameras=[Camera(id="c1", make="Canon", model="AE-1")],
-
         lenses=[],
-
         film_stocks=[],
-
         gear_presets=[],
-
     )
 
     config = MetadataConfig(camera_id="c1", developer="D-76 1+1")
@@ -161,33 +109,18 @@ def test_build_metadata_payload_preview_pairs():
     assert payload.exif_flags.camera is True
 
 
-
-
-
 def test_developer_only_does_not_trigger_capture_exif():
-
     assert has_capture_gear(MetadataConfig(developer="D-76")) is False
 
 
-
-
-
 def test_xmp_contains_negpy_capture_namespace():
-
     from negpy.features.metadata.payload import MetadataPayload
 
-
-
     payload = MetadataPayload(
-
         film_stock="Portra 400",
-
         film_manufacturer="Kodak",
-
         film_format="35mm",
-
         developer="D-76",
-
     )
 
     xml = build_xmp_xml(payload)
@@ -201,64 +134,36 @@ def test_xmp_contains_negpy_capture_namespace():
     assert "tiff:Make" not in xml
 
 
-
-
-
 def test_scan_rig_preserved_in_xmp_while_exif_shows_analog():
-
     library = GearLibrary(
-
         cameras=[Camera(id="c1", make="Nikon", model="FM2")],
-
         lenses=[Lens(id="l1", lens_model="Nikkor 28mm f/2.8 AIS", make="Nikkor", focal_length_mm=28, max_aperture=2.8)],
-
         film_stocks=[],
-
         gear_presets=[],
-
     )
 
     source_exif = {
-
         "0th": {
-
             piexif.ImageIFD.Make: b"NIKON CORPORATION",
-
             piexif.ImageIFD.Model: b"NIKON D750",
-
         },
-
         "Exif": {
-
             piexif.ExifIFD.LensMake: b"NIKON",
-
             piexif.ExifIFD.LensModel: b"AF-S 60mm f/2.8G",
-
             piexif.ExifIFD.FocalLength: (600, 10),
-
             piexif.ExifIFD.FocalLengthIn35mmFilm: 60,
-
             piexif.ExifIFD.ExposureTime: (1, 640),
-
             piexif.ExifIFD.FNumber: (56, 10),
-
             piexif.ExifIFD.ISOSpeedRatings: 100,
-
         },
-
         "GPS": {},
-
         "Interop": {},
-
         "1st": {},
-
     }
 
     config = MetadataConfig(camera_id="c1", lens_id="l1", scanning="DSLR copy-stand")
 
     payload = build_metadata_payload(config, library, source_exif)
-
-
 
     assert payload.camera_model == "FM2"
 
@@ -267,8 +172,6 @@ def test_scan_rig_preserved_in_xmp_while_exif_shows_analog():
     assert payload.exif_flags.camera is True
 
     assert payload.exif_flags.lens is True
-
-
 
     xml = build_xmp_xml(payload)
 
@@ -279,14 +182,8 @@ def test_scan_rig_preserved_in_xmp_while_exif_shows_analog():
     assert "NIKON CORPORATION" in xml
 
 
-
-
-
 def test_embed_jpeg_analog_exif_and_scan_xmp():
-
     from PIL import Image
-
-
 
     buf = __import__("io").BytesIO()
 
@@ -294,71 +191,39 @@ def test_embed_jpeg_analog_exif_and_scan_xmp():
 
     jpeg = buf.getvalue()
 
-
-
     source_exif = {
-
         "0th": {
-
             piexif.ImageIFD.Make: b"NIKON CORPORATION",
-
             piexif.ImageIFD.Model: b"NIKON D750",
-
         },
-
         "Exif": {
-
             piexif.ExifIFD.LensMake: b"NIKON",
-
             piexif.ExifIFD.LensModel: b"AF-S 60mm f/2.8G",
-
             piexif.ExifIFD.FocalLength: (600, 10),
-
             piexif.ExifIFD.FocalLengthIn35mmFilm: 60,
-
             piexif.ExifIFD.ISOSpeedRatings: 100,
-
         },
-
         "GPS": {},
-
         "Interop": {},
-
         "1st": {},
-
     }
 
-
-
     library = GearLibrary(
-
         cameras=[Camera(id="c1", make="Nikon", model="FM2")],
-
         lenses=[Lens(id="l1", lens_model="Nikkor 28mm f/2.8 AIS", make="Nikkor", focal_length_mm=28, max_aperture=2.8)],
-
         film_stocks=[FilmStock(id="f1", manufacturer="Kodak", stock_name="Portra 400", iso=400)],
-
         gear_presets=[],
-
     )
 
     config = MetadataConfig(
-
         camera_id="c1",
-
         lens_id="l1",
-
         film_stock_id="f1",
-
         film="Portra 400",
-
         scanning="DSLR scan",
-
     )
 
     out = embed_metadata(jpeg, config, source_exif, gear=library)
-
-
 
     assert b"http://ns.adobe.com/xap/1.0/" in out
 
@@ -385,14 +250,8 @@ def test_embed_jpeg_analog_exif_and_scan_xmp():
     assert loaded["0th"][piexif.ImageIFD.Software] == b"NegPy"
 
 
-
-
-
 def test_embed_keeps_scan_exif_when_capture_not_set():
-
     from PIL import Image
-
-
 
     buf = __import__("io").BytesIO()
 
@@ -400,37 +259,21 @@ def test_embed_keeps_scan_exif_when_capture_not_set():
 
     jpeg = buf.getvalue()
 
-
-
     source_exif = {
-
         "0th": {
-
             piexif.ImageIFD.Make: b"Plustek",
-
             piexif.ImageIFD.Model: b"OpticFilm 8200",
-
         },
-
         "Exif": {
-
             piexif.ExifIFD.LensModel: b"",
-
             piexif.ExifIFD.ISOSpeedRatings: 200,
-
         },
-
         "GPS": {},
-
         "Interop": {},
-
         "1st": {},
-
     }
 
     out = embed_metadata(jpeg, MetadataConfig(developer="HC-110"), source_exif)
-
-
 
     loaded = piexif.load(out)
 
@@ -439,4 +282,3 @@ def test_embed_keeps_scan_exif_when_capture_not_set():
     assert loaded["0th"][piexif.ImageIFD.Model] == b"OpticFilm 8200"
 
     assert loaded["Exif"][piexif.ExifIFD.ISOSpeedRatings] == 200
-

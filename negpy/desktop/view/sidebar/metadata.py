@@ -451,9 +451,7 @@ class MetadataSidebar(BaseSidebar):
 
         for title, rows in sections:
             header = QLabel(title)
-            header.setStyleSheet(
-                f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: 600;"
-            )
+            header.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: 600;")
             self.preview_rows.addWidget(header)
             for label, value in rows:
                 row = QWidget()

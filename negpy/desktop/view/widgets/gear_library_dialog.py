@@ -44,9 +44,7 @@ _CATEGORIES = [
 _CATEGORY_FIELDS: dict[str, frozenset[str]] = {
     "cameras": frozenset({"display_name", "make", "model", "notes"}),
     "lenses": frozenset({"display_name", "make", "lens_model", "focal", "aperture", "notes"}),
-    "film_stocks": frozenset(
-        {"display_name", "manufacturer", "stock_name", "iso", "format", "color_type", "notes"}
-    ),
+    "film_stocks": frozenset({"display_name", "manufacturer", "stock_name", "iso", "format", "color_type", "notes"}),
     "gear_presets": frozenset({"display_name", "preset_camera", "preset_lens", "preset_film", "notes"}),
 }
 
