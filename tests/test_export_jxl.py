@@ -3,10 +3,12 @@ import imagecodecs
 import pytest
 
 from negpy.domain.models import (
+    JXL_TAGGABLE_SPACES,
     ColorSpace,
     ExportConfig,
     ExportFormat,
     ExportPreset,
+    export_blocked,
     preset_from_export_config,
 )
 from negpy.kernel.image.logic import float_to_uint16, float_to_uint_luma
@@ -104,3 +106,12 @@ def test_jxl_fields_roundtrip_through_preset():
 
     restored = ExportPreset.from_dict(preset.to_dict())
     assert (restored.jxl_lossless, restored.jxl_distance, restored.jxl_effort) == (False, 2.5, 9)
+
+
+def test_export_blocked_pure_helper_mirrors_jxl_table():
+    """The UI/controller gate must stay in sync with the encoder's tag table."""
+    assert JXL_TAGGABLE_SPACES == set(_JXL_COLOR) | {ColorSpace.SAME_AS_SOURCE.value}
+    assert export_blocked(ExportFormat.JXL, ColorSpace.PROPHOTO.value)
+    assert not export_blocked(ExportFormat.JXL, ColorSpace.SRGB.value)
+    assert not export_blocked(ExportFormat.JXL, ColorSpace.SAME_AS_SOURCE.value)
+    assert not export_blocked(ExportFormat.TIFF, ColorSpace.PROPHOTO.value)

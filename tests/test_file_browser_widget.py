@@ -109,8 +109,8 @@ def test_context_menu_single_selection_items(browser, session):
     session.state.selected_indices = [0]
     session.state.selected_file_idx = 0
     labels = _action_labels(browser._build_context_menu())
-    assert "Export" in labels
-    assert "Export Selected" not in labels
+    assert "Export current frame" in labels
+    assert "Export selected frames" not in labels
     assert "Reset Settings" in labels
     assert "Unload" in labels
     assert "Apply settings…" in labels
@@ -120,8 +120,8 @@ def test_context_menu_multi_selection_uses_export_selected(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
     labels = _action_labels(browser._build_context_menu())
-    assert "Export Selected" in labels
-    assert "Export" not in labels
+    assert "Export selected frames" in labels
+    assert "Export current frame" not in labels
 
 
 def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, session):

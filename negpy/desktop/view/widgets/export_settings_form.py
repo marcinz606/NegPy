@@ -23,11 +23,13 @@ from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
+    JXL_TAGGABLE_SPACES,
     AspectRatio,
     ColorSpace,
     ExportFormat,
     ExportPresetOutputMode,
     ExportResolutionMode,
+    export_blocked,
 )
 from negpy.infrastructure.display.color_mgmt import ColorService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
@@ -41,17 +43,6 @@ def constrain_combo(combo: QComboBox, min_chars: int = 6) -> None:
     combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
     combo.setMinimumContentsLength(min_chars)
     combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-
-# Spaces JXL can tag (mirror _JXL_COLOR). Same as Source is allowed — resolved at
-# export time and rejected by the encoder if it lands on an unsupported space.
-_JXL_SUPPORTED = {
-    ColorSpace.SRGB.value,
-    ColorSpace.P3_D65.value,
-    ColorSpace.REC2020.value,
-    ColorSpace.GREYSCALE.value,
-    ColorSpace.SAME_AS_SOURCE.value,
-}
 
 
 class ExportSettingsForm(QWidget):
@@ -360,9 +351,9 @@ class ExportSettingsForm(QWidget):
         for i in range(self.color_space_combo.count()):
             item = model.item(i)
             if item is not None:
-                supported = self.color_space_combo.itemText(i) in _JXL_SUPPORTED
+                supported = self.color_space_combo.itemText(i) in JXL_TAGGABLE_SPACES
                 item.setEnabled(supported or not is_jxl)
-        if is_jxl and self.color_space_combo.currentText() not in _JXL_SUPPORTED:
+        if is_jxl and self.color_space_combo.currentText() not in JXL_TAGGABLE_SPACES:
             self.color_space_combo.setCurrentText(ColorSpace.SRGB.value)
 
         if is_jxl:
@@ -377,7 +368,7 @@ class ExportSettingsForm(QWidget):
         """True when the current JXL + colour space pairing can't be tagged."""
         if self._flat_mode:
             return False
-        return self.fmt_combo.currentText() == ExportFormat.JXL and self.color_space_combo.currentText() not in _JXL_SUPPORTED
+        return export_blocked(self.fmt_combo.currentText(), self.color_space_combo.currentText())
 
     def _refresh_jxl_warning(self) -> None:
         blocked = self.is_export_blocked()

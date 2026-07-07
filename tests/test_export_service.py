@@ -1,7 +1,7 @@
 import inspect
 
 import numpy as np
-from negpy.domain.models import ExportConfig, WorkspaceConfig
+from negpy.domain.models import ExportConfig, ExportResolutionMode, WorkspaceConfig
 from negpy.desktop.workers import export as export_worker_mod
 from negpy.services.rendering.image_processor import ImageProcessor
 
@@ -21,7 +21,7 @@ def test_apply_scaling_f32() -> None:
 
     # Export config for 50px result (approx)
     # 1 inch @ 50 DPI
-    export_settings = ExportConfig(export_print_size=2.54, export_dpi=50)
+    export_settings = ExportConfig(export_resolution_mode=ExportResolutionMode.PRINT.value, export_print_size=2.54, export_dpi=50)
 
     res = service._apply_scaling_and_border_f32(img, params, export_settings)
     assert res.shape == (50, 50, 3)
@@ -36,6 +36,7 @@ def test_apply_border_f32() -> None:
     from negpy.services.export.print import PrintService
 
     export_settings = ExportConfig(
+        export_resolution_mode=ExportResolutionMode.PRINT.value,
         export_print_size=2.54,
         export_dpi=100,
     )

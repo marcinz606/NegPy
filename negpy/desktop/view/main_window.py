@@ -466,9 +466,12 @@ class MainWindow(QMainWindow):
         self.top_status.file_pos_label.clear()
         self.top_status.showMessage(f"Exporting {filename} ({current}/{total})...")
 
-    def _on_export_finished(self, elapsed: float) -> None:
+    def _on_export_finished(self, elapsed: float, failed: int) -> None:
         self.top_status.progress.setVisible(False)
-        self.top_status.showMessage(f"export complete in {elapsed:.2f}s", timeout=3000)
+        msg = f"export complete in {elapsed:.2f}s"
+        if failed:
+            msg += f" — {failed} failed"
+        self.top_status.showMessage(msg, timeout=6000 if failed else 3000)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

@@ -1,7 +1,8 @@
 import os
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -16,7 +17,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +26,7 @@ from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
+from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.domain.models import ColorSpace, preset_display_name
 from negpy.services.export.contact_sheet_templates import ContactSheetLayout, ContactSheetTemplates
 
@@ -44,16 +45,16 @@ class ExportSidebar(BaseSidebar):
         self.update_timer.timeout.connect(self._persist_all_export_settings)
 
         # Task-flow order: the Print/Flat decision reframes the whole form, so it
-        # comes first; the form and the primary Export action follow; occasional
-        # tools (presets, contact sheet, preview) sit collapsed at the bottom.
+        # comes first with the primary Export action right under it; the form
+        # follows; occasional tools (presets, contact sheet, preview) sit
+        # collapsed at the bottom.
         self._add_flat_master_section()
+        self._add_export_section()
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.
         self.form = ExportSettingsForm()
         self.form.load(self._config_to_form_values())
         self.layout.addWidget(self.form)
-
-        self._add_batch_section()
 
         self._add_presets_section()
         self._add_sidecars_section()
@@ -77,8 +78,8 @@ class ExportSidebar(BaseSidebar):
         self.controller.monitor_profile_changed.connect(self._refresh_display_info)
 
         self.manage_presets_btn.clicked.connect(self._open_presets_dialog)
-        self.export_presets_btn.clicked.connect(self.controller.request_preset_export_selected)
-        self.export_presets_menu_btn.clicked.connect(self._show_export_presets_menu)
+        self.export_presets_btn.clicked.connect(self._on_export_presets_clicked)
+        self.export_main_btn.clicked.connect(self._on_export_clicked)
 
         self.intent_btn_group.idToggled.connect(self._on_flat_output_toggled)
         self.flat_format_combo.currentIndexChanged.connect(self._on_flat_format_changed)
@@ -87,10 +88,6 @@ class ExportSidebar(BaseSidebar):
         self.controller.flat_output_changed.connect(self._on_flat_output_changed)
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
 
-        self.apply_all_btn.toggled.connect(self._update_apply_all_style)
-        self.batch_export_btn.clicked.connect(
-            lambda: self.controller.request_batch_export(override_settings=self.apply_all_btn.isChecked())
-        )
         self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
         self.cs_save_template_btn.clicked.connect(self._on_save_contact_sheet_template)
         self.cs_template_combo.currentTextChanged.connect(self._on_contact_sheet_template_changed)
@@ -125,40 +122,16 @@ class ExportSidebar(BaseSidebar):
         self.manage_presets_btn.setObjectName("manage_presets_btn")
         self.manage_presets_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
         self.manage_presets_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        preset_scope_tooltip = (
-            "Export the selected filmstrip frames with every enabled preset. Use the menu arrow for current frame or all visible frames."
-        )
-        self.export_presets_group = QWidget()
-        export_presets_row = QHBoxLayout(self.export_presets_group)
-        export_presets_row.setContentsMargins(0, 0, 0, 0)
-        export_presets_row.setSpacing(0)
-
-        self.export_presets_btn = QPushButton(" Export Presets")
-        self.export_presets_btn.setObjectName("export_presets_btn")
-        self.export_presets_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary))
-        self.export_presets_btn.setToolTip(preset_scope_tooltip)
-        self.export_presets_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        preset_menu = QMenu(self)
-        export_current_action = preset_menu.addAction("Export current frame")
-        export_current_action.setToolTip("Export the current file with every enabled preset")
-        export_current_action.triggered.connect(self.controller.request_preset_export)
-        export_all_presets_action = preset_menu.addAction("Export all visible frames…")
-        export_all_presets_action.setToolTip("Export every visible frame in the filmstrip with every enabled preset")
-        export_all_presets_action.triggered.connect(self.controller.request_preset_batch_export)
-
-        self.export_presets_menu_btn = QToolButton()
-        self.export_presets_menu_btn.setObjectName("export_presets_menu_btn")
-        self.export_presets_menu_btn.setAutoRaise(False)
-        self.export_presets_menu_btn.setIcon(qta.icon("fa5s.chevron-down", color=THEME.text_primary))
-        self.export_presets_menu_btn.setIconSize(QSize(18, 18))
-        self.export_presets_menu_btn.setFixedWidth(36)
-        self.export_presets_menu_btn.setToolTip(preset_scope_tooltip)
+        preset_menu, self._preset_scope_actions = self._build_scope_menu(self._PRESET_SCOPES, self._set_preset_scope)
         self._export_presets_menu = preset_menu
 
-        export_presets_row.addWidget(self.export_presets_btn, 1)
-        export_presets_row.addWidget(self.export_presets_menu_btn, 0)
-        self.export_presets_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.export_presets_group, self.export_presets_btn, self.export_presets_menu_btn = make_split_button(
+            " Export Presets", "fa5s.layer-group", preset_menu, primary=True
+        )
+        self.export_presets_menu_btn.setToolTip("Choose what the Export Presets button does")
+
+        saved = self.controller.session.repo.get_global_setting("preset_export_scope", "current")
+        self._set_preset_scope(saved if saved in self._PRESET_SCOPES else "current", persist=False)
         preset_btn_row.addWidget(self.manage_presets_btn, 0)
         preset_btn_row.addWidget(self.export_presets_group, 1)
         content_layout.addLayout(preset_btn_row)
@@ -246,8 +219,9 @@ class ExportSidebar(BaseSidebar):
 
         self.contact_sheet_btn = QPushButton(" Export contact sheet")
         self.contact_sheet_btn.setObjectName("contact_sheet_btn")
-        self.contact_sheet_btn.setFixedHeight(40)
-        self.contact_sheet_btn.setIcon(qta.icon("fa5s.th", color=THEME.text_primary))
+        self.contact_sheet_btn.setProperty("primary", True)
+        self.contact_sheet_btn.setFixedHeight(36)
+        self.contact_sheet_btn.setIcon(qta.icon("fa5s.th", color="white"))
         self.contact_sheet_btn.setToolTip("Render all visible frames into a contact sheet")
         content_layout.addWidget(self.contact_sheet_btn)
 
@@ -510,8 +484,6 @@ class ExportSidebar(BaseSidebar):
         self.flat_hint_label.setVisible(on)
         self.flat_peek_btn.setVisible(on)
         self._sync_flat_roll_warning()
-        if hasattr(self, "apply_all_btn"):
-            self.apply_all_btn.setToolTip(self._apply_all_tooltip_flat if on else self._apply_all_tooltip_print)
         if hasattr(self, "form"):
             self._refresh_export_enabled()
 
@@ -629,7 +601,7 @@ class ExportSidebar(BaseSidebar):
         self.sidecars_enabled_btn = QPushButton(" Save on export")
         self.sidecars_enabled_btn.setCheckable(True)
         self.sidecars_enabled_btn.setChecked(conf.export_sidecars_enabled)
-        self.sidecars_enabled_btn.setFixedHeight(40)
+        self.sidecars_enabled_btn.setFixedHeight(36)
         self.sidecars_enabled_btn.setIcon(qta.icon("fa5s.file-export", color=THEME.text_primary))
         self.sidecars_enabled_btn.setToolTip(
             "When on, every export also writes a .negpy edit sidecar next to each source frame. Edits stay in the database too."
@@ -638,8 +610,9 @@ class ExportSidebar(BaseSidebar):
 
         self.export_sidecars_btn = QPushButton(" Export sidecars")
         self.export_sidecars_btn.setObjectName("export_sidecars_btn")
-        self.export_sidecars_btn.setFixedHeight(40)
-        self.export_sidecars_btn.setIcon(qta.icon("fa5s.file-code", color=THEME.text_primary))
+        self.export_sidecars_btn.setProperty("primary", True)
+        self.export_sidecars_btn.setFixedHeight(36)
+        self.export_sidecars_btn.setIcon(qta.icon("fa5s.file-code", color="white"))
         self.export_sidecars_btn.setToolTip("Write edit sidecars for all visible frames now")
         btn_row.addWidget(self.export_sidecars_btn)
 
@@ -655,24 +628,113 @@ class ExportSidebar(BaseSidebar):
 
     # --- Batch ---------------------------------------------------------------
 
-    def _add_batch_section(self) -> None:
-        self.layout.addWidget(section_subheader("BATCH"))
+    # Sticky scopes: the chevron menu picks what a split button does; only the
+    # button itself triggers an export. key -> (menu label, button label, tooltip)
+    _EXPORT_SCOPES = {
+        "current": (
+            "Export current frame",
+            " Export",
+            "Export the current frame with the settings below  Ctrl+E",
+        ),
+        "selected": (
+            "Export selected frames",
+            " Export Selected",
+            "Export the selected filmstrip frames, each with its own saved export settings",
+        ),
+        "all_current": (
+            "Export all visible — current settings",
+            " Export All (current settings)",
+            "Export every visible frame using the settings below",
+        ),
+        "all_saved": (
+            "Export all visible — saved per-frame settings",
+            " Export All (saved settings)",
+            "Export every visible frame using each frame's own saved export settings",
+        ),
+    }
 
-        self.apply_all_btn = QPushButton(" Sync export settings")
-        self.apply_all_btn.setFixedHeight(40)
-        self.apply_all_btn.setCheckable(True)
-        self.apply_all_btn.setChecked(True)
-        self._apply_all_tooltip_print = "Apply current export settings (format, size, color, destination) to all files"
-        self._apply_all_tooltip_flat = "Apply current export settings (size, color, destination) to all files"
-        self.apply_all_btn.setToolTip(self._apply_all_tooltip_print)
-        self._update_apply_all_style(True)
-        self.layout.addWidget(self.apply_all_btn)
+    _PRESET_SCOPES = {
+        "current": (
+            "Export current frame",
+            " Export Presets",
+            "Export the current frame with every enabled preset",
+        ),
+        "selected": (
+            "Export selected frames",
+            " Export Presets (selected)",
+            "Export the selected filmstrip frames with every enabled preset",
+        ),
+        "all": (
+            "Export all visible frames",
+            " Export Presets (all)",
+            "Export every visible frame with every enabled preset",
+        ),
+    }
 
-        self.batch_export_btn = QPushButton(" Export All")
-        self.batch_export_btn.setObjectName("batch_export_btn")
-        self.batch_export_btn.setFixedHeight(40)
-        self.batch_export_btn.setIcon(qta.icon("fa5s.images", color=THEME.text_primary))
-        self.layout.addWidget(self.batch_export_btn)
+    def _build_scope_menu(self, scopes: dict, on_select) -> tuple[QMenu, dict]:
+        """Checkable, exclusive scope menu for a sticky split button."""
+        menu = QMenu(self)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        actions = {}
+        for key, (label, _btn_label, tooltip) in scopes.items():
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setToolTip(tooltip)
+            act.triggered.connect(lambda _checked=False, k=key: on_select(k))
+            group.addAction(act)
+            actions[key] = act
+        return menu, actions
+
+    def _add_export_section(self) -> None:
+        """Primary Export action: the menu arrow selects the sticky scope."""
+        menu, self._export_scope_actions = self._build_scope_menu(self._EXPORT_SCOPES, self._set_export_scope)
+        self._export_menu = menu
+
+        container, self.export_main_btn, self.export_menu_btn = make_split_button(" Export", "fa5s.check-circle", menu, primary=True)
+        self.export_menu_btn.setToolTip("Choose what the Export button does")
+        self.layout.addWidget(container)
+
+        saved = self.controller.session.repo.get_global_setting("export_scope", "current")
+        self._set_export_scope(saved if saved in self._EXPORT_SCOPES else "current", persist=False)
+
+    def _set_export_scope(self, key: str, persist: bool = True) -> None:
+        self._export_scope = key
+        _label, btn_label, tooltip = self._EXPORT_SCOPES[key]
+        self._export_scope_actions[key].setChecked(True)
+        self.export_main_btn.setText(btn_label)
+        self.export_main_btn.setToolTip(tooltip)
+        if persist:
+            self.controller.session.repo.save_global_setting("export_scope", key)
+
+    def _on_export_clicked(self) -> None:
+        scope = self._export_scope
+        if scope == "selected":
+            self.controller.request_export_selected()
+        elif scope == "all_current":
+            self.controller.request_batch_export(override_settings=True)
+        elif scope == "all_saved":
+            self.controller.request_batch_export(override_settings=False)
+        else:
+            self.controller.request_export()
+
+    def _set_preset_scope(self, key: str, persist: bool = True) -> None:
+        self._preset_scope = key
+        _label, btn_label, tooltip = self._PRESET_SCOPES[key]
+        self._preset_scope_actions[key].setChecked(True)
+        self.export_presets_btn.setText(btn_label)
+        self.export_presets_btn.setToolTip(tooltip)
+        if persist:
+            self.controller.session.repo.save_global_setting("preset_export_scope", key)
+
+    def _on_export_presets_clicked(self) -> None:
+        scope = self._preset_scope
+        if scope == "selected":
+            self.controller.request_preset_export_selected()
+        elif scope == "all":
+            self.controller.request_preset_batch_export()
+        else:
+            self.controller.request_preset_export()
 
     def _rebuild_preset_rows(self) -> None:
         """Rebuild the preset checkbox list from state."""
@@ -700,10 +762,6 @@ class ExportSidebar(BaseSidebar):
             presets[idx].enabled = state == Qt.CheckState.Checked.value
             self.controller.session.save_export_presets()
 
-    def _show_export_presets_menu(self) -> None:
-        btn = self.export_presets_menu_btn
-        self._export_presets_menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
-
     def _open_presets_dialog(self) -> None:
         from negpy.desktop.view.widgets.export_presets_dialog import ExportPresetsDialog
 
@@ -717,23 +775,6 @@ class ExportSidebar(BaseSidebar):
         self._rebuild_preset_rows()
 
     # --- Current export settings ---------------------------------------------
-
-    def _update_apply_all_style(self, checked: bool) -> None:
-        """Toggle checked appearance for the Sync export settings button."""
-        if checked:
-            self.apply_all_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #222222;
-                    color: white;
-                    font-weight: bold;
-                    border: 2px solid #555555;
-                    border-radius: 4px;
-                }
-            """)
-            self.apply_all_btn.setIcon(qta.icon("fa5s.clone", color="white"))
-        else:
-            self.apply_all_btn.setStyleSheet("font-weight: bold;")
-            self.apply_all_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
 
     def _config_to_form_values(self) -> dict:
         """Build the form's value dict from the export config + ICC AppState."""
@@ -834,9 +875,11 @@ class ExportSidebar(BaseSidebar):
         self.proof_mismatch_label.setVisible(mismatch)
 
     def _refresh_export_enabled(self) -> None:
-        """Disable 'Export All' when the current format/colour-space pairing can't
-        be encoded (JPEG XL only tags a subset of colour spaces)."""
-        self.batch_export_btn.setEnabled(not self.form.is_export_blocked())
+        """Disable the Export action when the current format/colour-space pairing
+        can't be encoded (JPEG XL only tags a subset of colour spaces)."""
+        blocked = self.form.is_export_blocked()
+        self.export_main_btn.setEnabled(not blocked)
+        self.export_menu_btn.setEnabled(not blocked)
 
     def sync_ui(self) -> None:
         conf = self.state.config.export

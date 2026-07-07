@@ -52,7 +52,6 @@ class ActionToolbar(QWidget):
     def _init_ui(self) -> None:
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 10, 0, 10)
-        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         container = QFrame()
         container.setObjectName("toolbar_container")
@@ -159,15 +158,10 @@ class ActionToolbar(QWidget):
             self.canvas_color_btns.append(btn)
         self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
 
-        # 5. Save / Export
-        self.btn_save = QPushButton(" Save")
+        # 5. Save
+        self.btn_save = QToolButton()
         self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
-
-        self.btn_export = QPushButton(" Export")
-        self.btn_export.setObjectName("export_btn")
-        self.btn_export.setIcon(qta.icon("fa5s.check-circle", color=icon_color))
-        self.btn_export.setToolTip("Export  Ctrl+E")
-        self.btn_export.setFixedHeight(36)
+        self.btn_save.setToolTip("Save Edits")
 
         # 6. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
@@ -258,10 +252,7 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.btn_export.setIconSize(icon_size)
-        self.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · save · export · overflow · toggle_right
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · save · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
@@ -281,7 +272,6 @@ class ActionToolbar(QWidget):
         self._sep3 = self._create_separator()
         row_layout.addWidget(self._sep3)
         row_layout.addWidget(self.btn_save)
-        row_layout.addWidget(self.btn_export)
         row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_gpu)
         row_layout.addWidget(self.btn_overflow)
@@ -292,7 +282,8 @@ class ActionToolbar(QWidget):
         self._ov_flip_rotate: list = [self.btn_rot_l, self.btn_rot_r, self.btn_flip_h, self.btn_flip_v, self._sep3]
 
         v_layout.addLayout(row_layout)
-        main_layout.addWidget(container)
+        # Size the pill to its controls; don't stretch it across the canvas.
+        main_layout.addWidget(container, 0, Qt.AlignmentFlag.AlignCenter)
 
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)
@@ -304,7 +295,6 @@ class ActionToolbar(QWidget):
         self.btn_flip_v.clicked.connect(lambda: self.flip("vertical"))
 
         self.btn_save.clicked.connect(self.controller.save_current_edits)
-        self.btn_export.clicked.connect(self.controller.request_export)
 
         self.canvas_color_group.idToggled.connect(self._on_canvas_color_changed)
 

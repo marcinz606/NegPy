@@ -92,6 +92,26 @@ class ColorSpace(Enum):
     GREYSCALE = "Greyscale"
 
 
+# Colour spaces JPEG XL can tag (mirror _JXL_COLOR in image_processor). Same as
+# Source is allowed — resolved at export time and rejected by the encoder if it
+# lands on an unsupported space.
+JXL_TAGGABLE_SPACES = frozenset(
+    {
+        ColorSpace.SRGB.value,
+        ColorSpace.P3_D65.value,
+        ColorSpace.REC2020.value,
+        ColorSpace.GREYSCALE.value,
+        ColorSpace.SAME_AS_SOURCE.value,
+    }
+)
+
+
+def export_blocked(fmt: str, color_space: str) -> bool:
+    """True when the format + colour-space pairing can't be encoded (JPEG XL
+    only tags a subset of colour spaces)."""
+    return fmt == ExportFormat.JXL and color_space not in JXL_TAGGABLE_SPACES
+
+
 @dataclass(frozen=True)
 class ExportConfig:
     """
@@ -113,7 +133,7 @@ class ExportConfig:
     paper_aspect_ratio: str = AspectRatio.ORIGINAL
     export_print_size: float = 30.0
     export_dpi: int = 300
-    export_resolution_mode: str = ExportResolutionMode.PRINT.value
+    export_resolution_mode: str = ExportResolutionMode.ORIGINAL.value
     export_target_long_edge_px: int = 2000
     filename_pattern: str = "{{ original_name }}"
     overwrite: bool = True

@@ -279,27 +279,58 @@ QLabel#update_label {
     padding: 5px;
 }
 
-QPushButton#export_presets_btn {
+/* Primary action (Export in the Export panel): solid accent fill so it reads
+   as the one call-to-action, not a disabled outline. */
+QPushButton[primary="true"], QToolButton[primary="true"] {
+    background-color: #B71C1C;
+    border: 1px solid #B71C1C;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+QPushButton[primary="true"]:hover, QToolButton[primary="true"]:hover {
+    background-color: #C62828;
+    border: 1px solid #C62828;
+}
+
+QPushButton[primary="true"]:pressed, QToolButton[primary="true"]:pressed {
+    background-color: #8E1414;
+    border: 1px solid #8E1414;
+}
+
+QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
+    background-color: transparent;
+    border: 1px solid #262626;
+    color: #555555;
+}
+
+/* Darker red divider between the two halves of a primary split button. */
+QToolButton#split_menu_btn[primary="true"] {
+    border-left: 1px solid #8E1414;
+}
+
+/* Fused split button (main action + menu arrow), see widgets/split_button.py. */
+QPushButton#split_main_btn {
     text-align: center;
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
     border-right: none;
 }
 
-QToolButton#export_presets_menu_btn {
+QToolButton#split_menu_btn {
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
     border-left: 1px solid #3A3A3A;
     padding: 6px 4px;
 }
 
-QToolButton#export_presets_menu_btn::menu-button {
+QToolButton#split_menu_btn::menu-button {
     width: 0px;
     border: none;
     padding: 0px;
 }
 
-QToolButton#export_presets_menu_btn::menu-arrow {
+QToolButton#split_menu_btn::menu-arrow {
     image: none;
     width: 0px;
     height: 0px;

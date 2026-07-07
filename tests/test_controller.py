@@ -351,6 +351,7 @@ class TestBatchExportFiltering(unittest.TestCase):
 
         self.controller._ensure_valid_export_path = MagicMock(return_value="/tmp/out")
         self.controller._run_export_tasks = MagicMock()
+        self.controller._confirm_bulk_export = MagicMock(return_value=True)
 
     def tearDown(self):
         import gc
@@ -558,11 +559,14 @@ class TestPresetExportSelected(unittest.TestCase):
         del self.controller
         gc.collect()
 
-    def test_preset_export_selected_uses_display_order_without_confirmation(self):
+    def test_preset_export_selected_confirms_and_uses_display_order(self):
+        from PyQt6.QtWidgets import QMessageBox
+
         self.mock_session_manager.state.selected_indices = [2, 0]
         with patch("negpy.desktop.controller.QMessageBox.question") as mock_question:
+            mock_question.return_value = QMessageBox.StandardButton.Yes
             self.controller.request_preset_export_selected()
-            mock_question.assert_not_called()
+            mock_question.assert_called_once()
 
         tasks = self.controller._run_export_tasks.call_args.args[0]
         self.assertEqual(len(tasks), 4)

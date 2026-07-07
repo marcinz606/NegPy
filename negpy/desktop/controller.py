@@ -30,6 +30,7 @@ from negpy.domain.models import (
     ExportPresetOutputMode,
     ExportResolutionMode,
     WorkspaceConfig,
+    export_blocked,
     flat_export_config,
     flat_master_config,
     preset_from_export_config,
@@ -99,7 +100,7 @@ class AppController(QObject):
     loading_started = pyqtSignal()
     load_failed = pyqtSignal()
     export_progress = pyqtSignal(int, int, str)
-    export_finished = pyqtSignal(float)
+    export_finished = pyqtSignal(float, int)
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
@@ -139,6 +140,7 @@ class AppController(QObject):
         self._thumb_config: Optional[WorkspaceConfig] = None
         self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
+        self._export_failures = 0
         self._discovery_running = False
         self._auto_open_after_discovery = False
         self._replace_after_discovery = False
@@ -266,6 +268,7 @@ class AppController(QObject):
         self.export_worker.finished.connect(self._on_export_finished)
         self.export_worker.cancelled.connect(self._on_batch_cancelled)
         self.export_worker.error.connect(self._on_render_error)
+        self.export_worker.error.connect(self._on_export_task_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
         self.thumb_worker.progress.connect(self._on_thumbnail_progress)
@@ -1560,6 +1563,9 @@ class AppController(QObject):
         if files is None:
             files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
 
+        if len(files) > 1 and not self._confirm_bulk_export(f"Export {len(files)} frames?"):
+            return
+
         if self.state.config.export.export_sidecars_enabled:
             self._write_edit_sidecars(files)
 
@@ -1655,7 +1661,17 @@ class AppController(QObject):
             )
         return tasks
 
-    def _dispatch_preset_export(self, files: list[dict], *, confirm: bool) -> None:
+    def _confirm_bulk_export(self, text: str) -> bool:
+        reply = QMessageBox.question(
+            None,
+            "Export",
+            text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _dispatch_preset_export(self, files: list[dict]) -> None:
         if not files:
             return
 
@@ -1667,21 +1683,13 @@ class AppController(QObject):
         if not self._validate_preset_paths(presets):
             return
 
-        if confirm:
+        if len(files) > 1:
             n_frames = len(files)
             n_presets = len(presets)
             n_files = n_frames * n_presets
-            frame_word = "frame" if n_frames == 1 else "frames"
             preset_word = "preset" if n_presets == 1 else "presets"
             file_word = "file" if n_files == 1 else "files"
-            reply = QMessageBox.question(
-                None,
-                "Export All Presets",
-                f"Export {n_frames} {frame_word} through {n_presets} {preset_word} ({n_files} {file_word})?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
+            if not self._confirm_bulk_export(f"Export {n_frames} frames through {n_presets} {preset_word} ({n_files} {file_word})?"):
                 return
 
         if self.state.config.export.export_sidecars_enabled:
@@ -1701,12 +1709,12 @@ class AppController(QObject):
             "path": self.state.current_file_path,
             "hash": self.state.current_file_hash,
         }
-        self._dispatch_preset_export([file_info], confirm=False)
+        self._dispatch_preset_export([file_info])
 
     def request_preset_export_selected(self) -> None:
         """Initiates preset export for every selected filmstrip frame."""
         files = self._preset_export_files_for_selection()
-        self._dispatch_preset_export(files, confirm=False)
+        self._dispatch_preset_export(files)
 
     def request_preset_batch_export(self) -> None:
         """Initiates batch export for all visible files using enabled presets."""
@@ -1715,7 +1723,7 @@ class AppController(QObject):
             for i in self.session.asset_model.visible_actual_indices_ordered()
             if not self.state.uploaded_files[i].get("excluded")
         ]
-        self._dispatch_preset_export(visible_files, confirm=True)
+        self._dispatch_preset_export(visible_files)
 
     def _contact_sheet_output_dir(self, visible_files: list) -> Optional[str]:
         """Resolve the contact sheet output folder (custom path or export destination rules)."""
@@ -1736,6 +1744,9 @@ class AppController(QObject):
         if not out_dir:
             return
 
+        if len(visible_files) > 1 and not self._confirm_bulk_export(f"Render a contact sheet from {len(visible_files)} frames?"):
+            return
+
         tasks = []
         for f in visible_files:
             params = self._batch_params_for(f)
@@ -1751,6 +1762,7 @@ class AppController(QObject):
 
         cs = self.state.config.export
         self._export_start_time = time.time()
+        self._export_failures = 0
         self._begin_batch("Contact sheet", abortable=True)
         QMetaObject.invokeMethod(
             self.export_worker,
@@ -1786,7 +1798,19 @@ class AppController(QObject):
         self.set_status(f"Wrote {written} edit sidecar(s)", 4000)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
+        blocked = [t for t in tasks if export_blocked(t.export_settings.export_fmt, t.export_settings.export_color_space)]
+        if blocked:
+            names = ", ".join(sorted({t.file_info.get("name", "?") for t in blocked})[:5])
+            QMessageBox.warning(
+                None,
+                "Export",
+                f"JPEG XL can't tag the selected colour space ({names}).\n"
+                "Choose sRGB, P3 D65, Rec 2020 or Greyscale, or a different format.",
+            )
+            return
+
         self._export_start_time = time.time()
+        self._export_failures = 0
         self._begin_batch("Exporting", abortable=True)
         QMetaObject.invokeMethod(
             self.export_worker,
@@ -1881,10 +1905,13 @@ class AppController(QObject):
             self._is_rendering = True
             self.render_requested.emit(task)
 
+    def _on_export_task_error(self, _message: str) -> None:
+        self._export_failures += 1
+
     def _on_export_finished(self) -> None:
         elapsed = time.time() - self._export_start_time
         self._end_batch()
-        self.export_finished.emit(elapsed)
+        self.export_finished.emit(elapsed, self._export_failures)
         self._update_thumbnail_from_state(force_readback=True)
 
     def _update_thumbnail_from_state(self, force_readback: bool = False, persist: bool = True) -> None:

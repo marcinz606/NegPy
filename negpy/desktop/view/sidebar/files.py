@@ -531,9 +531,9 @@ class FileBrowser(QWidget):
 
         menu = QMenu(self)
         if multi:
-            menu.addAction("Export Selected").triggered.connect(lambda: self.controller.request_export_selected())
+            menu.addAction("Export selected frames").triggered.connect(lambda: self.controller.request_export_selected())
         else:
-            menu.addAction("Export").triggered.connect(lambda: self.controller.request_export())
+            menu.addAction("Export current frame").triggered.connect(lambda: self.controller.request_export())
         menu.addSeparator()
         menu.addAction("Copy Settings  Ctrl+C").triggered.connect(self.session.copy_settings)
         menu.addAction("Copy Settings + Bounds  Ctrl+Shift+C").triggered.connect(self.session.copy_settings_with_bounds)
