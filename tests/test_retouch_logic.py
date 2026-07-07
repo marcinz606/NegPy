@@ -204,6 +204,31 @@ def test_clone_source_dust_not_recloned():
     assert healed.max() < 0.7, "dust from the source patch was recloned into the heal"
 
 
+def test_heal_gate_leaves_clean_pixels_untouched():
+    """The brush marks a search area: only bright dust inside it is replaced,
+    clean pixels within the brush stay byte-identical (modulo OETF round-trip)."""
+    rng = np.random.default_rng(21)
+    h, w = 100, 100
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
+    img[49:52, 49:52] = 0.95  # small speck, large brush around it
+
+    strokes = [([[0.5, 0.5]], 15.0, 25.0 / w, 0.0)]
+    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, 1.0, (w, h))
+    out = apply_manual_heals(img, *regions)
+
+    assert out[49:52, 49:52].max() < 0.7, "dust inside the brush was not healed"
+
+    yy, xx = np.mgrid[0:h, 0:w]
+    dist = np.hypot(xx - 50, yy - 50)
+    clean_in_brush = (dist < 13) & (dist > 4)
+    np.testing.assert_allclose(
+        out[clean_in_brush],
+        img[clean_in_brush],
+        atol=2e-3,
+        err_msg="clean pixels inside the brush were altered",
+    )
+
+
 def test_source_scoring_penalizes_dusty_patch():
     """select_source_offset must prefer a clean patch over one with a speck inside
     (rim-band SSD alone can't see interior dust)."""

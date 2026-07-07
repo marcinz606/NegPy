@@ -17,6 +17,11 @@ _FALLBACK_OFFSET_FACTOR = 2.6
 # neighbour by this much is treated as dust and replaced by the median pixel,
 # so dust in the source patch is never recloned. Mirrored in retouch.wgsl.
 _CLONE_GUARD_LUMA = 0.06
+# Destination dust gate: a brushed pixel is healed only when its luma exceeds
+# the membrane-predicted clean value by this ramp (encoded domain) — the brush
+# marks a search area, only the bright dust inside it gets replaced.
+_HEAL_GATE_LO = 0.04
+_HEAL_GATE_HI = 0.12
 
 
 @njit(cache=True, fastmath=True)
@@ -276,6 +281,37 @@ def _sample_clean_jit(img: np.ndarray, ix: int, iy: int, out: np.ndarray) -> Non
 
 
 @njit(cache=True, fastmath=True)
+def _sample_clean5_jit(img: np.ndarray, ix: int, iy: int, out: np.ndarray) -> None:
+    """5×5 variant of `_sample_clean_jit` for the directly-cloned source sample —
+    catches specks up to ~4px that slip through the 3×3 window."""
+    h, w, _ = img.shape
+    lums = np.empty(25, dtype=np.float64)
+    sxs = np.empty(25, dtype=np.int64)
+    sys_ = np.empty(25, dtype=np.int64)
+    n = 0
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            sx = max(0, min(w - 1, ix + dx))
+            sy = max(0, min(h - 1, iy + dy))
+            lums[n] = LUMA_R * img[sy, sx, 0] + LUMA_G * img[sy, sx, 1] + LUMA_B * img[sy, sx, 2]
+            sxs[n] = sx
+            sys_[n] = sy
+            n += 1
+
+    order = np.argsort(lums)
+    mi = order[12]
+    lv = LUMA_R * img[iy, ix, 0] + LUMA_G * img[iy, ix, 1] + LUMA_B * img[iy, ix, 2]
+    if lv - lums[mi] > _CLONE_GUARD_LUMA:
+        out[0] = img[sys_[mi], sxs[mi], 0]
+        out[1] = img[sys_[mi], sxs[mi], 1]
+        out[2] = img[sys_[mi], sxs[mi], 2]
+    else:
+        out[0] = img[iy, ix, 0]
+        out[1] = img[iy, ix, 1]
+        out[2] = img[iy, ix, 2]
+
+
+@njit(cache=True, fastmath=True)
 def _membrane_heal_jit(
     buf: np.ndarray,
     reg_i: np.ndarray,
@@ -292,7 +328,9 @@ def _membrane_heal_jit(
     source patch carries real grain; the MVC-weighted boundary-difference field
     is the smooth membrane that matches the destination at the rim. All clone
     samples go through the `_sample_clean_jit` dust guard so specks in the
-    source patch or on the boundary are never recloned.
+    source patch or on the boundary are never recloned, and a destination
+    dust gate limits the heal to pixels brighter than the membrane-predicted
+    clean value — the brush marks a search area, clean pixels stay untouched.
     Heal values sample the immutable stage input (matching the GPU's
     single-pass ``input_tex`` reads); only the blend base evolves in ``buf``.
     """
@@ -408,10 +446,24 @@ def _membrane_heal_jit(
                 if alpha <= 0.0:
                     continue
 
-                _sample_clean_jit(img, sx, sy, smp_a)
+                _sample_clean5_jit(img, sx, sy, smp_a)
                 hr = smp_a[0] + mr
                 hg = smp_a[1] + mg
                 hb = smp_a[2] + mb
+
+                # Dust gate: heal only pixels brighter than the membrane-predicted
+                # clean value — the brush is a search area, not a clone stamp.
+                dest_l = LUMA_R * buf[y, x, 0] + LUMA_G * buf[y, x, 1] + LUMA_B * buf[y, x, 2]
+                heal_l = LUMA_R * hr + LUMA_G * hg + LUMA_B * hb
+                g = (dest_l - heal_l - _HEAL_GATE_LO) / (_HEAL_GATE_HI - _HEAL_GATE_LO)
+                if g < 0.0:
+                    g = 0.0
+                elif g > 1.0:
+                    g = 1.0
+                alpha *= g * g * (3.0 - 2.0 * g)
+                if alpha <= 0.0:
+                    continue
+
                 buf[y, x, 0] = buf[y, x, 0] * (1.0 - alpha) + hr * alpha
                 buf[y, x, 1] = buf[y, x, 1] * (1.0 - alpha) + hg * alpha
                 buf[y, x, 2] = buf[y, x, 2] * (1.0 - alpha) + hb * alpha

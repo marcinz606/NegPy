@@ -74,6 +74,37 @@ fn sample_clean(gp: vec2<f32>, idims: vec2<i32>) -> vec3<f32> {
     return v;
 }
 
+// 5x5 variant for the directly-cloned source sample — catches specks up to
+// ~4px that slip through the 3x3 window. Mirrors _sample_clean5_jit.
+fn sample_clean5(gp: vec2<f32>, idims: vec2<i32>) -> vec3<f32> {
+    let gi = clamp(vec2<i32>(floor(gp)) - params.global_offset, vec2<i32>(0), idims - 1);
+    var lums: array<f32, 25>;
+    var cols: array<vec3<f32>, 25>;
+    var n = 0;
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            let sc = clamp(gi + vec2<i32>(dx, dy), vec2<i32>(0), idims - 1);
+            let v = textureLoad(input_tex, sc, 0).rgb;
+            cols[n] = v;
+            lums[n] = dot(v, vec3<f32>(0.2126, 0.7152, 0.0722));
+            n++;
+        }
+    }
+    for (var i = 0; i <= 12; i++) {
+        var mi = i;
+        for (var j = i + 1; j < 25; j++) {
+            if (lums[j] < lums[mi]) { mi = j; }
+        }
+        let tl = lums[i]; lums[i] = lums[mi]; lums[mi] = tl;
+        let tc = cols[i]; cols[i] = cols[mi]; cols[mi] = tc;
+    }
+    let v = textureLoad(input_tex, gi, 0).rgb;
+    if (dot(v, vec3<f32>(0.2126, 0.7152, 0.0722)) - lums[12] > CLONE_GUARD_LUMA) {
+        return cols[12];
+    }
+    return v;
+}
+
 fn dist_to_seg(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
     let ab = b - a;
     let ab2 = dot(ab, ab);
@@ -368,10 +399,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             mem /= wsum;
         }
 
-        let healed = sample_clean(p + reg.src_off, idims) + mem;
+        let healed = sample_clean5(p + reg.src_off, idims) + mem;
         // 1.5px feather at the rim hides boundary-sampling aliasing.
         let t = clamp((d - (reg.radius - 1.5)) / 1.5, 0.0, 1.0);
-        let alpha = 1.0 - t * t * (3.0 - 2.0 * t);
+        var alpha = 1.0 - t * t * (3.0 - 2.0 * t);
+        // Dust gate: heal only pixels brighter than the membrane-predicted
+        // clean value — the brush is a search area, not a clone stamp.
+        let gate = smoothstep(0.04, 0.12, dot(res, vec3<f32>(0.2126, 0.7152, 0.0722)) - dot(healed, vec3<f32>(0.2126, 0.7152, 0.0722)));
+        alpha *= gate;
         res = mix(res, healed, alpha);
     }
 
