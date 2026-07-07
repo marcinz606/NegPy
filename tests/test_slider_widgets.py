@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 
+from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 
 
@@ -89,6 +90,31 @@ def test_kelvin_slider_handle_tracks_temperature(qapp):
     warm_qss = s.slider.styleSheet()
     s.setValue(12000)
     assert s.slider.styleSheet() != warm_qss
+    s.timer.stop()
+
+
+def test_compact_slider_locked_style_overrides_edited(qapp):
+    slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    slider.setValue(1.5)  # edited (differs from default)
+
+    slider.setEnabled(False)
+    assert THEME.text_muted in slider.label.styleSheet()
+    assert THEME.accent_edited not in slider.label.styleSheet()
+
+    slider.setEnabled(True)
+    assert THEME.accent_edited in slider.label.styleSheet()
+
+
+def test_kelvin_slider_locked_handle_is_muted(qapp):
+    s = KelvinSlider("Temperature")
+    live_qss = s.slider.styleSheet()
+
+    s.setEnabled(False)
+    assert THEME.text_muted in s.slider.styleSheet()
+    assert s.slider.styleSheet() != live_qss
+
+    s.setEnabled(True)
+    assert s.slider.styleSheet() == live_qss
     s.timer.stop()
 
 

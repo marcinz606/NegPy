@@ -292,7 +292,14 @@ class CompactSlider(BaseSlider):
         super().setValue(value)
         self._update_edited_state()
 
+    def setEnabled(self, enabled: bool) -> None:
+        super().setEnabled(enabled)
+        self._update_edited_state()
+
     def _update_edited_state(self) -> None:
+        if not self.isEnabled():
+            self.label.setStyleSheet(slider_label_qss(THEME.text_muted, edited=False))
+            return
         edited = abs(self.spin.value() - self._default) > 1e-6
         self.label.setStyleSheet(slider_label_qss(self._label_color, edited))
 
@@ -347,10 +354,13 @@ class HueSlider(CompactSlider):
 
     def _apply_hue(self, hue_deg: float) -> None:
         """Update slider handle to match the current hue; label stays grey (yellow when edited)."""
-        h = int(hue_deg) % 360
-        color = QColor.fromHsv(h, 200, 210)
+        if self.isEnabled():
+            h = int(hue_deg) % 360
+            color = QColor.fromHsv(h, 200, 210).name()
+        else:
+            color = THEME.text_muted
         self._update_edited_state()
-        self.slider.setStyleSheet(slider_handle_qss(color.name()))
+        self.slider.setStyleSheet(slider_handle_qss(color))
 
     def _on_slider_changed(self, value: int) -> None:
         super()._on_slider_changed(value)
@@ -359,6 +369,10 @@ class HueSlider(CompactSlider):
     def setValue(self, value: float) -> None:
         super().setValue(value)
         self._apply_hue(value)
+
+    def setEnabled(self, enabled: bool) -> None:
+        super().setEnabled(enabled)
+        self._apply_hue(self.value())
 
 
 def _kelvin_handle_color(kelvin: float) -> QColor:
@@ -394,7 +408,8 @@ class KelvinSlider(CompactSlider):
         return round(1e6 / (i / 10.0) / 10.0) * 10.0
 
     def _apply_temp(self, kelvin: float) -> None:
-        self.slider.setStyleSheet(slider_handle_qss(_kelvin_handle_color(kelvin).name()))
+        color = _kelvin_handle_color(kelvin).name() if self.isEnabled() else THEME.text_muted
+        self.slider.setStyleSheet(slider_handle_qss(color))
 
     def _on_slider_changed(self, value: int) -> None:
         super()._on_slider_changed(value)
@@ -402,6 +417,10 @@ class KelvinSlider(CompactSlider):
 
     def setValue(self, value: float) -> None:
         super().setValue(value)
+        self._apply_temp(self.value())
+
+    def setEnabled(self, enabled: bool) -> None:
+        super().setEnabled(enabled)
         self._apply_temp(self.value())
 
 

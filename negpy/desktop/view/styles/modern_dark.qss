@@ -124,6 +124,17 @@ QSlider::sub-page:horizontal {
     border-radius: 3px;
 }
 
+/* Disabled state — grey out locked/overridden controls. Relies entirely on
+   Qt's automatic isEnabled()-driven :disabled propagation from a parent
+   widget.setEnabled(False); no per-callsite changes needed. */
+QSlider::handle:horizontal:disabled { background: #555555; }
+QSlider::groove:horizontal:disabled { background: #1A1A1A; }
+QSlider::sub-page:horizontal:disabled { background: #2A2A2A; }
+
+QSlider#cyan_slider::handle:horizontal:disabled,
+QSlider#magenta_slider::handle:horizontal:disabled,
+QSlider#yellow_slider::handle:horizontal:disabled { background: #555555; }
+
 QListView {
     background-color: #0D0D0D;
     border: 1px solid #262626;
@@ -182,6 +193,14 @@ QComboBox:focus, QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QTextEdi
     border: 1px solid #555555;
     background-color: #0D0D0D;
 }
+
+QComboBox:disabled, QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled, QTextEdit:disabled {
+    color: #555555;
+    border: 1px solid #1A1A1A;
+}
+
+QPushButton:disabled, QToolButton:disabled { color: #555555; }
+QCheckBox:disabled { color: #555555; }
 
 QStatusBar {
     background-color: #B71C1C;
