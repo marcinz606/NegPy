@@ -157,7 +157,7 @@ def test_membrane_recovers_gradient():
     clean = img.copy()
     img[36:44, 56:64] = 0.95
 
-    regions = _regions_for_spot(60.0 / w, 40.0 / h, 8.0, (h, w))
+    regions = _regions_for_spot(60.0 / w, 40.0 / h, 16.0, (h, w))
     out = apply_manual_heals(img, *regions)
 
     err = np.abs(out[36:44, 56:64] - clean[36:44, 56:64]).mean()
@@ -179,7 +179,7 @@ def test_stroke_heals_scratch():
 
     pts = [[30.0 / w, 30.0 / h], [75.0 / w, 55.0 / h], [120.0 / w, 80.0 / h]]
     off = select_source_offset(img, pts, 5.0, 0)
-    regions = build_heal_regions([(pts, 5.0, off[0], off[1])], [], (h, w), 0, 0.0, False, False, 0.0, 1.0, (w, h))
+    regions = build_heal_regions([(pts, 10.0, off[0], off[1])], [], (h, w), 0, 0.0, False, False, 0.0, 1.0, (w, h))
     out = apply_manual_heals(img, *regions)
 
     err_before = np.abs(img[mask] - clean[mask]).mean()
@@ -196,7 +196,7 @@ def test_clone_source_dust_not_recloned():
     img[47:53, 47:53] = 0.95  # defect being healed
     img[49:51, 69:71] = 0.95  # dust inside the source patch (offset +20px)
 
-    strokes = [([[0.5, 0.5]], 8.0, 20.0 / w, 0.0)]
+    strokes = [([[0.5, 0.5]], 12.0, 20.0 / w, 0.0)]
     regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, 1.0, (w, h))
     out = apply_manual_heals(img, *regions)
 
@@ -281,8 +281,44 @@ def test_legacy_spot_conversion():
     assert len(reg_i) == 1
     assert reg_i[0, 1] == 1  # single-point chain
     assert reg_i[0, 3] >= 16  # boundary loop present
-    assert reg_f[0, 0] == 8.0  # radius px
-    assert np.hypot(reg_f[0, 1], reg_f[0, 2]) > 8.0  # fallback offset clears the spot
+    assert reg_f[0, 0] == 4.0  # radius px = size/2 (brush size is a diameter)
+    assert np.hypot(reg_f[0, 1], reg_f[0, 2]) > 4.0  # fallback offset clears the spot
+
+
+def test_heal_footprint_stays_within_brush():
+    """Nothing outside the brush circle may change — the healed footprint must
+    not exceed the on-screen cursor. A bright strip crossing the brush is healed
+    only inside it."""
+    rng = np.random.default_rng(31)
+    h, w = 100, 100
+    img = (np.full((h, w, 3), 0.4) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
+    img[48:52, :] = 0.95  # dust strip across the whole frame
+
+    strokes = [([[0.5, 0.5]], 16.0, 0.0, 25.0 / h)]  # radius 8 at scale 1
+    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, 1.0, (w, h))
+    out = apply_manual_heals(img, *regions)
+
+    changed = np.abs(out.astype(np.float64) - img).max(axis=2) > 5e-3
+    ys, xs = np.where(changed)
+    assert len(ys) > 0, "strip inside the brush was not healed"
+    dist = np.hypot(xs + 0.5 - 50.0, ys + 0.5 - 50.0)
+    assert dist.max() <= 8.0, f"heal leaked {dist.max():.2f}px from center, brush radius is 8"
+    assert out[48:52, 80:].min() > 0.9, "strip outside the brush must stay untouched"
+
+
+def test_heal_radius_matches_cursor_fraction():
+    """Pipeline heal radius must equal the overlay cursor circle: the cursor
+    (overlay._brush_screen_radius) draws size/(2·preview_render_size) of the
+    view; the pipeline radius normalized by the render long edge is the same."""
+    from negpy.kernel.system.config import APP_CONFIG
+
+    size = 12.0
+    full_dims = (1600, 1067)
+    scale_factor = max(full_dims) / float(APP_CONFIG.preview_render_size)
+    _, reg_f, _ = build_heal_regions([([[0.5, 0.5]], size, 0.1, 0.0)], [], (2000, 3000), 0, 0.0, False, False, 0.0, scale_factor, full_dims)
+    pipeline_fraction = reg_f[0, 0] / max(full_dims)
+    cursor_fraction = size / (2.0 * APP_CONFIG.preview_render_size)
+    assert abs(pipeline_fraction - cursor_fraction) < 1e-9
 
 
 def test_heal_strokes_serialization_roundtrip():

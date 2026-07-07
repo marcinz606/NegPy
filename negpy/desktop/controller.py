@@ -776,14 +776,14 @@ class AppController(QObject):
         size = float(conf.manual_dust_size)
         index = len(conf.manual_heal_strokes)
 
-        # Score the clone source on the source-frame preview; size is in source px,
-        # the preview is downsampled, so scale the radius accordingly.
+        # Score the clone source on the source-frame preview. Brush size is a
+        # diameter at preview_render_size scale (same convention as the pipeline
+        # radius size/2·scale_factor and the overlay cursor).
         offset = (0.0, 0.0)
         preview = self.state.preview_raw
         if preview is not None:
-            src_w, src_h = self.state.original_res
-            scale = max(preview.shape[:2]) / max(src_w, src_h, 1)
-            offset = select_source_offset(preview, raw_pts, size * scale, index)
+            scale = max(preview.shape[:2]) / float(APP_CONFIG.preview_render_size)
+            offset = select_source_offset(preview, raw_pts, 0.5 * size * scale, index)
         else:
             offset = fallback_source_offset(index, size, (self.state.original_res[1], self.state.original_res[0]))
 

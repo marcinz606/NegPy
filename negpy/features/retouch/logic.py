@@ -568,7 +568,9 @@ def build_heal_regions(
 
     for points, size, sdx, sdy in entries[:max_regions]:
         chain = np.array([_map(p[0], p[1]) for p in points], dtype=np.float32)
-        radius = max(1.0, float(size) * float(scale_factor))
+        # Brush size is a DIAMETER: the healed footprint must match the on-screen
+        # cursor circle (overlay._brush_screen_radius draws size/2 at preview scale).
+        radius = max(1.0, float(size) * float(scale_factor) * 0.5)
 
         cx = float(np.mean([p[0] for p in points]))
         cy = float(np.mean([p[1] for p in points]))
