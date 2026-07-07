@@ -10,7 +10,7 @@
     "id": "preset-lma-s50-vision500t-ahu",
     "displayName": "M-A / 50 f/2.0 / 500T AHU",
     "cameraId": "cam-leica-ma",
-    "lensId": "lens-canon-fd-50-1.4",
+    "lensId": "lens-leica-summicron-50-2.0",
     "filmStockId": "film-vision3-500t-ahu"
   },
   {
