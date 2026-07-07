@@ -335,3 +335,40 @@ QToolButton#split_menu_btn::menu-arrow {
     width: 0px;
     height: 0px;
 }
+
+/* Checkboxes — Fusion's default indicator is almost invisible on this dark
+   background. Give the unchecked box a clear border + subtle fill, and a filled
+   accent when checked, so its state reads at a glance. */
+QCheckBox {
+    spacing: 6px;
+}
+
+QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 3px;
+    border: 1px solid #5A5A5A;
+    background-color: #1A1A1A;
+}
+
+QCheckBox::indicator:hover {
+    border: 1px solid #8A8A8A;
+    background-color: #202020;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #B71C1C;
+    border: 1px solid #C62828;
+    image: url("__CHECKBOX_CHECK_ICON__");
+}
+
+QCheckBox::indicator:checked:hover {
+    background-color: #C62828;
+    border: 1px solid #C62828;
+    image: url("__CHECKBOX_CHECK_ICON__");
+}
+
+QCheckBox::indicator:disabled {
+    border: 1px solid #333333;
+    background-color: #141414;
+}
