@@ -19,7 +19,7 @@ class LocalSidebar(BaseSidebar):
         self.draw_btn.setCheckable(True)
         self.draw_btn.setIcon(qta.icon("fa5s.draw-polygon", color=THEME.text_primary))
         self.draw_btn.setToolTip(
-            "Click to place vertices, double-click or click near the start to close. "
+            "Click to place vertices; double-click, Enter, or a click near the start closes. "
             "Click inside an existing mask to select it. Esc cancels the current shape."
         )
         self.show_btn = QPushButton(" Show Masks")

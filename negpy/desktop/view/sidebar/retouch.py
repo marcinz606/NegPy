@@ -41,7 +41,7 @@ class RetouchSidebar(BaseSidebar):
         self.pick_scratch_btn = QPushButton(" Scratch Tool")
         self.pick_scratch_btn.setCheckable(True)
         self.pick_scratch_btn.setIcon(qta.icon("fa5s.pen-nib", color=THEME.text_primary))
-        self.pick_scratch_btn.setToolTip("Heal a scratch or hair: click points along it, double-click to finish, Esc cancels")
+        self.pick_scratch_btn.setToolTip("Heal a scratch or hair: click points along it, double-click or Enter to finish, Esc cancels")
 
         buttons_row.addWidget(self.auto_dust_btn)
         buttons_row.addWidget(self.pick_dust_btn)

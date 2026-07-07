@@ -105,10 +105,19 @@ class CanvasOverlay(QWidget):
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Widget-context shortcuts (Esc cancel, Enter finish) need focus to fire;
+        # clicking the canvas to draw grants it.
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
         self._escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         self._escape_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self._escape_shortcut.activated.connect(self._cancel_lasso)
+
+        # Enter finishes an in-progress scratch/lasso polyline, same as double-click.
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            sc = QShortcut(QKeySequence(key), self)
+            sc.setContext(Qt.ShortcutContext.WidgetShortcut)
+            sc.activated.connect(self._finish_draw_if_active)
 
         if sys.platform == "win32":
             self.setAttribute(Qt.WidgetAttribute.WA_StaticContents, False)
@@ -857,6 +866,12 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    def _finish_draw_if_active(self) -> None:
+        if self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
+            self._finish_scratch()
+        elif self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing and len(self._lasso_pts) >= 3:
+            self._finish_lasso()
 
     def _finish_scratch(self) -> None:
         pts = self._scratch_pts
