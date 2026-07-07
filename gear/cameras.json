@@ -1,5 +1,68 @@
 [
   {
+    "id": "cam-leica-ma",
+    "make": "Leica",
+    "model": "M-A",
+    "displayName": "Leica M-A",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-m2",
+    "make": "Leica",
+    "model": "M2",
+    "displayName": "Leica M2",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-m3",
+    "make": "Leica",
+    "model": "M3",
+    "displayName": "Leica M3",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-m4",
+    "make": "Leica",
+    "model": "M4",
+    "displayName": "Leica M4",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-m42",
+    "make": "Leica",
+    "model": "M4-2",
+    "displayName": "Leica M4-2",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-m4p",
+    "make": "Leica",
+    "model": "M4-P",
+    "displayName": "Leica M4-P",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-m5",
+    "make": "Leica",
+    "model": "M5",
+    "displayName": "Leica M5",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-m6",
+    "make": "Leica",
+    "model": "M6",
+    "displayName": "Leica M6",
+    "notes": "35mm rangefinder."
+  },
+  {
+    "id": "cam-leica-mp",
+    "make": "Leica",
+    "model": "MP",
+    "displayName": "Leica MP",
+    "notes": "35mm rangefinder."
+  },
+  {
     "id": "cam-canon-ae1p",
     "make": "Canon",
     "model": "AE-1 Program",

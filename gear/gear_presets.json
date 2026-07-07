@@ -7,10 +7,17 @@
     "filmStockId": "film-portra-400"
   },
   {
+    "id": "preset-lma-s50-vision500t-ahu",
+    "displayName": "M-A / 50 f/2.0 / 500T AHU",
+    "cameraId": "cam-leica-ma",
+    "lensId": "lens-canon-fd-50-1.4",
+    "filmStockId": "film-vision3-500t-ahu"
+  },
+  {
     "id": "preset-fm2-50-trix",
     "displayName": "FM2 / Nikkor 50 f/1.8 / Tri-X 400",
     "cameraId": "cam-nikon-fm2",
-    "lensId": "lens-nikkor-50-1.8",
+    "lensId": "lens-leica-summicron-50-2.0",
     "filmStockId": "film-tri-x-400"
   }
 ]

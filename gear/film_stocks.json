@@ -46,6 +46,95 @@
     "colorType": "B&W Negative"
   },
   {
+    "id": "film-fp4-125",
+    "displayName": "Ilford FP4 Plus",
+    "manufacturer": "Ilford",
+    "stockName": "FP4 Plus 125",
+    "iso": 125,
+    "format": "35mm",
+    "colorType": "B&W Negative"
+  },
+  {
+    "id": "film-delta-100",
+    "displayName": "Ilford Delta 100",
+    "manufacturer": "Ilford",
+    "stockName": "Delta 100 Professional",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Core-shell tabular grain, fine grain and high sharpness."
+  },
+  {
+    "id": "film-delta-400",
+    "displayName": "Ilford Delta 400",
+    "manufacturer": "Ilford",
+    "stockName": "Delta 400 Professional",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Core-shell tabular grain, fine grain and high sharpness."
+  },
+  {
+    "id": "film-delta-3200",
+    "displayName": "Ilford Delta 3200",
+    "manufacturer": "Ilford",
+    "stockName": "Delta 3200 Professional",
+    "iso": 3200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "True speed ~1000, designed to be push processed."
+  },
+  {
+    "id": "film-panf-50",
+    "displayName": "Ilford Pan F Plus",
+    "manufacturer": "Ilford",
+    "stockName": "Pan F Plus 50",
+    "iso": 50,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Ultra-fine grain, slow speed."
+  },
+  {
+    "id": "film-xp2-400",
+    "displayName": "Ilford XP2 Super",
+    "manufacturer": "Ilford",
+    "stockName": "XP2 Super 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Chromogenic B&W on a C-41 process, wide exposure latitude."
+  },
+  {
+    "id": "film-sfx-200",
+    "displayName": "Ilford SFX 200",
+    "manufacturer": "Ilford",
+    "stockName": "SFX 200",
+    "iso": 200,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Extended red sensitivity to ~740nm, near-infrared effects with a red filter."
+  },
+  {
+    "id": "film-kentmere-100",
+    "displayName": "Kentmere 100",
+    "manufacturer": "Kentmere",
+    "stockName": "Kentmere 100",
+    "iso": 100,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Budget B&W, made by Ilford."
+  },
+  {
+    "id": "film-kentmere-400",
+    "displayName": "Kentmere 400",
+    "manufacturer": "Kentmere",
+    "stockName": "Kentmere 400",
+    "iso": 400,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Budget B&W, made by Ilford."
+  },
+  {
     "id": "film-ektachrome-e100",
     "displayName": "Kodak Ektachrome E100",
     "manufacturer": "Kodak",
@@ -63,5 +152,55 @@
     "format": "35mm",
     "colorType": "ColorNegative",
     "notes": "Tungsten-balanced color negative with characteristic halation."
+  },
+  {
+    "id": "film-vision3-250d-remjet",
+    "displayName": "Kodak Vision3 250D",
+    "manufacturer": "Kodak",
+    "stockName": "Vision3 250D",
+    "iso": 250,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Motion picture stock, daylight balanced. With remjet layer."
+  },
+  {
+    "id": "film-vision3-250d-ahu",
+    "displayName": "Kodak Vision3 250D AHU",
+    "manufacturer": "Kodak",
+    "stockName": "Vision3 250D AHU",
+    "iso": 250,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Motion picture stock, daylight balanced."
+  },
+  {
+    "id": "film-vision3-500t-remjet",
+    "displayName": "Kodak Vision3 500T",
+    "manufacturer": "Kodak",
+    "stockName": "Vision3 500T",
+    "iso": 500,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Motion picture stock, tungsten balanced. With remjet layer"
+  },
+  {
+    "id": "film-vision3-500t-ahu",
+    "displayName": "Kodak Vision3 500T AHU",
+    "manufacturer": "Kodak",
+    "stockName": "Vision3 500T AHU",
+    "iso": 500,
+    "format": "35mm",
+    "colorType": "ColorNegative",
+    "notes": "Motion picture stock, tungsten balanced."
+  },
+  {
+    "id": "film-double-x-250",
+    "displayName": "Kodak Double-X",
+    "manufacturer": "Kodak",
+    "stockName": "Double-X 250",
+    "iso": 250,
+    "format": "35mm",
+    "colorType": "B&W Negative",
+    "notes": "Motion picture panchromatic negative."
   }
 ]

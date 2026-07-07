@@ -16,6 +16,30 @@
     "maxAperture": 2.8
   },
   {
+    "id": "lens-leica-summicron-28-2.0",
+    "displayName": "Leica Summicron 28mm f/2.0",
+    "lensModel": "Summicron 28mm f/2 ASPH",
+    "make": "Leica",
+    "focalLength": 28,
+    "maxAperture": 2.0
+  },
+  {
+    "id": "lens-leica-summilux-50-1.4",
+    "displayName": "Leica Summilux 50mm f/1.4",
+    "lensModel": "Summilux 50mm f/1.4 ASPH",
+    "make": "Leica",
+    "focalLength": 50,
+    "maxAperture": 1.4
+  },
+  {
+    "id": "lens-leica-summicron-50-2.0",
+    "displayName": "Leica Summicron 50mm f/2.0",
+    "lensModel": "Summicron 50mm f/2.0",
+    "make": "Leica",
+    "focalLength": 50,
+    "maxAperture": 2.0
+  },
+  {
     "id": "lens-nikkor-50-1.8",
     "displayName": "Nikkor 50mm f/1.8 AI-S",
     "lensModel": "Nikkor 50mm f/1.8 AI-S",
