@@ -13,6 +13,10 @@ from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working
 # (legacy spots, or no preview buffer at click time).
 _GOLDEN_ANGLE = 2.39996322972865332
 _FALLBACK_OFFSET_FACTOR = 2.6
+# Clone-sample dust guard: a sample whose luma exceeds its 3×3 luma-median
+# neighbour by this much is treated as dust and replaced by the median pixel,
+# so dust in the source patch is never recloned. Mirrored in retouch.wgsl.
+_CLONE_GUARD_LUMA = 0.06
 
 
 @njit(cache=True, fastmath=True)
@@ -236,6 +240,42 @@ def _dist_to_chain(px: float, py: float, pts: np.ndarray) -> float:
 
 
 @njit(cache=True, fastmath=True)
+def _sample_clean_jit(img: np.ndarray, ix: int, iy: int, out: np.ndarray) -> None:
+    """Dust-guarded clone sample: the pixel at (ix, iy), or its 3×3 luma-median
+    neighbour when the pixel is a strong bright outlier (a dust speck).
+
+    Keeps grain (a real neighbouring pixel is returned, never an average).
+    Ceiling: specks wider than ~2px fill the 3×3 window and pass through —
+    the source-scoring penalty in select_source_offset avoids those upfront.
+    """
+    h, w, _ = img.shape
+    lums = np.empty(9, dtype=np.float64)
+    sxs = np.empty(9, dtype=np.int64)
+    sys_ = np.empty(9, dtype=np.int64)
+    n = 0
+    for dy in range(-1, 2):
+        for dx in range(-1, 2):
+            sx = max(0, min(w - 1, ix + dx))
+            sy = max(0, min(h - 1, iy + dy))
+            lums[n] = LUMA_R * img[sy, sx, 0] + LUMA_G * img[sy, sx, 1] + LUMA_B * img[sy, sx, 2]
+            sxs[n] = sx
+            sys_[n] = sy
+            n += 1
+
+    order = np.argsort(lums)
+    mi = order[4]
+    lv = LUMA_R * img[iy, ix, 0] + LUMA_G * img[iy, ix, 1] + LUMA_B * img[iy, ix, 2]
+    if lv - lums[mi] > _CLONE_GUARD_LUMA:
+        out[0] = img[sys_[mi], sxs[mi], 0]
+        out[1] = img[sys_[mi], sxs[mi], 1]
+        out[2] = img[sys_[mi], sxs[mi], 2]
+    else:
+        out[0] = img[iy, ix, 0]
+        out[1] = img[iy, ix, 1]
+        out[2] = img[iy, ix, 2]
+
+
+@njit(cache=True, fastmath=True)
 def _membrane_heal_jit(
     buf: np.ndarray,
     reg_i: np.ndarray,
@@ -250,7 +290,9 @@ def _membrane_heal_jit(
 
     out(p) = img(p + off) + Σ ŵ_i (img(b_i) − img(b_i + off)) — the copied
     source patch carries real grain; the MVC-weighted boundary-difference field
-    is the smooth membrane that matches the destination at the rim.
+    is the smooth membrane that matches the destination at the rim. All clone
+    samples go through the `_sample_clean_jit` dust guard so specks in the
+    source patch or on the boundary are never recloned.
     Heal values sample the immutable stage input (matching the GPU's
     single-pass ``input_tex`` reads); only the blend base evolves in ``buf``.
     """
@@ -262,6 +304,8 @@ def _membrane_heal_jit(
     vlen = np.empty(64, dtype=np.float64)
     vx = np.empty(64, dtype=np.float64)
     vy = np.empty(64, dtype=np.float64)
+    smp_a = np.empty(3, dtype=np.float32)
+    smp_b = np.empty(3, dtype=np.float32)
 
     for r in range(n_reg):
         ps, pc, bs, bc = reg_i[r, 0], reg_i[r, 1], reg_i[r, 2], reg_i[r, 3]
@@ -278,8 +322,10 @@ def _membrane_heal_jit(
             by = max(0, min(h - 1, int(byf)))
             sx = max(0, min(w - 1, int(bxf + ox)))
             sy = max(0, min(h - 1, int(byf + oy)))
+            _sample_clean_jit(img, bx, by, smp_a)
+            _sample_clean_jit(img, sx, sy, smp_b)
             for c in range(3):
-                diffs[i, c] = img[by, bx, c] - img[sy, sx, c]
+                diffs[i, c] = smp_a[c] - smp_b[c]
 
         x0 = int(pts[ps, 0])
         x1 = x0
@@ -362,9 +408,10 @@ def _membrane_heal_jit(
                 if alpha <= 0.0:
                     continue
 
-                hr = img[sy, sx, 0] + mr
-                hg = img[sy, sx, 1] + mg
-                hb = img[sy, sx, 2] + mb
+                _sample_clean_jit(img, sx, sy, smp_a)
+                hr = smp_a[0] + mr
+                hg = smp_a[1] + mg
+                hb = smp_a[2] + mb
                 buf[y, x, 0] = buf[y, x, 0] * (1.0 - alpha) + hr * alpha
                 buf[y, x, 1] = buf[y, x, 1] * (1.0 - alpha) + hg * alpha
                 buf[y, x, 2] = buf[y, x, 2] * (1.0 - alpha) + hb * alpha
@@ -550,6 +597,9 @@ def select_source_offset(
     chain_samples = [tuple(p) for p in pts_px]
     for a, b in zip(pts_px[:-1], pts_px[1:]):
         chain_samples.append(((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0))
+    # Interior probes of the candidate patch (dust check inside, not just the rim).
+    interior = chain_samples + [tuple(p) for p in _capsule_boundary(pts_px, 0.6 * r, 16)]
+    luma_w = np.array([LUMA_R, LUMA_G, LUMA_B], dtype=np.float64)
 
     best = None
     best_score = np.inf
@@ -559,13 +609,29 @@ def select_source_offset(
             continue
         score = 0.0
         valid = True
+        band_lums = []
         for bx, by in boundary:
             sx, sy = bx + cdx, by + cdy
             if not (0 <= sx < w - 1 and 0 <= sy < h - 1):
                 valid = False
                 break
-            diff = preview_img[int(sy), int(sx)] - preview_img[int(by), int(bx)]
+            src_px = preview_img[int(sy), int(sx)]
+            diff = src_px - preview_img[int(by), int(bx)]
             score += float(np.dot(diff, diff))
+            band_lums.append(float(np.dot(src_px[:3], luma_w)))
+        if not valid:
+            continue
+        # Heavy penalty for dust inside the candidate patch: interior lumas that
+        # pop above the candidate band's median mean the patch contains a speck.
+        med = float(np.median(band_lums))
+        for cx_, cy_ in interior:
+            sx, sy = cx_ + cdx, cy_ + cdy
+            if not (0 <= sx < w - 1 and 0 <= sy < h - 1):
+                valid = False
+                break
+            excess = float(np.dot(preview_img[int(sy), int(sx)][:3], luma_w)) - med - _CLONE_GUARD_LUMA
+            if excess > 0.0:
+                score += excess * excess * 100.0 * len(boundary)
         if valid and score < best_score:
             best_score = score
             best = (cdx, cdy)

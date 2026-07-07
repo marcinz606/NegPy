@@ -37,9 +37,41 @@ fn hash(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-fn load_global_px(gp: vec2<f32>, idims: vec2<i32>) -> vec3<f32> {
-    let gi = vec2<i32>(floor(gp)) - params.global_offset;
-    return textureLoad(input_tex, clamp(gi, vec2<i32>(0), idims - 1), 0).rgb;
+// Clone-sample dust guard (mirrors _sample_clean_jit): if the pixel's luma
+// exceeds its 3x3 luma-median neighbour by CLONE_GUARD_LUMA it's a speck —
+// return the median-luma pixel (a real pixel, grain preserved) instead, so
+// dust in the source patch or on the boundary is never recloned.
+// Ceiling: specks wider than ~2px fill the window and pass through; the
+// source-offset scoring on the CPU avoids those upfront.
+const CLONE_GUARD_LUMA: f32 = 0.06;
+
+fn sample_clean(gp: vec2<f32>, idims: vec2<i32>) -> vec3<f32> {
+    let gi = clamp(vec2<i32>(floor(gp)) - params.global_offset, vec2<i32>(0), idims - 1);
+    var lums: array<f32, 9>;
+    var cols: array<vec3<f32>, 9>;
+    var n = 0;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let sc = clamp(gi + vec2<i32>(dx, dy), vec2<i32>(0), idims - 1);
+            let v = textureLoad(input_tex, sc, 0).rgb;
+            cols[n] = v;
+            lums[n] = dot(v, vec3<f32>(0.2126, 0.7152, 0.0722));
+            n++;
+        }
+    }
+    for (var i = 0; i <= 4; i++) {
+        var mi = i;
+        for (var j = i + 1; j < 9; j++) {
+            if (lums[j] < lums[mi]) { mi = j; }
+        }
+        let tl = lums[i]; lums[i] = lums[mi]; lums[mi] = tl;
+        let tc = cols[i]; cols[i] = cols[mi]; cols[mi] = tc;
+    }
+    let v = textureLoad(input_tex, gi, 0).rgb;
+    if (dot(v, vec3<f32>(0.2126, 0.7152, 0.0722)) - lums[4] > CLONE_GUARD_LUMA) {
+        return cols[4];
+    }
+    return v;
 }
 
 fn dist_to_seg(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
@@ -305,7 +337,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var on_sample = -1;
         for (var i = 0u; i < n; i++) {
             let b = heal_pts[reg.bnd_start + i];
-            diffs[i] = load_global_px(b, idims) - load_global_px(b + reg.src_off, idims);
+            diffs[i] = sample_clean(b, idims) - sample_clean(b + reg.src_off, idims);
             let v = b - p;
             let l = length(v);
             vxs[i] = v.x; vys[i] = v.y; vls[i] = l;
@@ -336,7 +368,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             mem /= wsum;
         }
 
-        let healed = load_global_px(p + reg.src_off, idims) + mem;
+        let healed = sample_clean(p + reg.src_off, idims) + mem;
         // 1.5px feather at the rim hides boundary-sampling aliasing.
         let t = clamp((d - (reg.radius - 1.5)) / 1.5, 0.0, 1.0);
         let alpha = 1.0 - t * t * (3.0 - 2.0 * t);

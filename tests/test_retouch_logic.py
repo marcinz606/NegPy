@@ -187,6 +187,39 @@ def test_stroke_heals_scratch():
     assert err_after < err_before * 0.2
 
 
+def test_clone_source_dust_not_recloned():
+    """Dust sitting in the clone-source patch must not be copied into the heal —
+    the sample guard replaces bright outliers with their 3×3 luma-median pixel."""
+    rng = np.random.default_rng(11)
+    h, w = 100, 100
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
+    img[47:53, 47:53] = 0.95  # defect being healed
+    img[49:51, 69:71] = 0.95  # dust inside the source patch (offset +20px)
+
+    strokes = [([[0.5, 0.5]], 8.0, 20.0 / w, 0.0)]
+    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, 1.0, (w, h))
+    out = apply_manual_heals(img, *regions)
+
+    healed = out[44:56, 44:56]
+    assert healed.max() < 0.7, "dust from the source patch was recloned into the heal"
+
+
+def test_source_scoring_penalizes_dusty_patch():
+    """select_source_offset must prefer a clean patch over one with a speck inside
+    (rim-band SSD alone can't see interior dust)."""
+    rng = np.random.default_rng(5)
+    h, w = 120, 120
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
+    img[56:64, 56:64] = 0.95  # defect at center
+    # Dust inside the +x candidate patch interior (ring candidate at 2.6r ≈ 10px)
+    img[59:61, 69:71] = 0.95
+
+    off = select_source_offset(img, [[0.5, 0.5]], 4.0, 0)
+    sx, sy = 60 + off[0] * w, 60 + off[1] * h
+    patch = img[int(sy) - 4 : int(sy) + 4, int(sx) - 4 : int(sx) + 4]
+    assert patch.max() < 0.7, "scoring picked a source patch containing dust"
+
+
 def test_capsule_boundary_is_closed_ordered_loop():
     pts = np.array([[20.0, 20.0], [60.0, 40.0]], dtype=np.float64)
     loop = _capsule_boundary(pts, 5.0, 32)
