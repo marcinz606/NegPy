@@ -976,27 +976,33 @@ class AppController(QObject):
                 cropped += 1
 
         if cropped == 0:
-            crop_note = (
-                "Crop status: none of the files have a crop set. Analysis samples the "
-                "full frame, so any border or letterboxing around the negative will skew "
-                "the average. For best results, crop each file to the negative area — or, "
-                "if that's not practical, raise the Analysis Buffer to exclude the margin."
+            crop_status = f"Crop status: 0 of {total} files are cropped."
+            crop_warning = (
+                "Strongly recommended: crop all images in this session before running "
+                "Batch Analysis. Without a crop, the Analysis Buffer's small centered "
+                "margin isn't enough to exclude sprocket holes and empty space outside "
+                "the actual frame — that unwanted region gets included in the luma and "
+                "color average, producing a less accurate result for every file."
             )
         elif cropped < total:
-            crop_note = (
-                f"Crop status: {cropped} of {total} files have a crop set. The uncropped "
-                "ones are analyzed on the full frame, so their borders may skew the "
-                "average. Crop them, or raise the Analysis Buffer to exclude the margin."
+            crop_status = f"Crop status: {cropped} of {total} files are cropped."
+            crop_warning = (
+                f"Strongly recommended: crop the remaining {total - cropped} file(s) "
+                "before running Batch Analysis. Uncropped files rely on the Analysis "
+                "Buffer's small centered margin, which isn't enough to exclude sprocket "
+                "holes and empty space outside the actual frame — that unwanted region "
+                "gets included in the luma and color average, producing a less accurate "
+                "result for every file."
             )
         else:
-            crop_note = (
-                "Crop status: all files are cropped — analysis runs on the negative area, "
-                "ignoring borders. The Analysis Buffer still trims a margin inside the crop."
-            )
+            crop_status = f"Crop status: all {total} files are cropped."
+            crop_warning = "Analysis will run on each file's cropped negative area."
 
         reply = QMessageBox.question(
             None,
             "Batch Analysis",
+            f"{crop_status}\n"
+            f"{crop_warning}\n\n"
             "Batch Analysis measures the exposure bounds of every file and applies "
             "their average to the whole roll, so all your frames share a consistent "
             "baseline.\n\n"
@@ -1007,7 +1013,6 @@ class AppController(QObject):
             "  • Luma Range Clip — how aggressively the highlight/shadow tails are "
             "clipped when setting each file's bounds.\n"
             "Set both on the current frame before running.\n\n"
-            f"{crop_note}\n\n"
             "Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
