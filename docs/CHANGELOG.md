@@ -3,6 +3,7 @@
 
 ## 0.35.0
 
+- Change: **Canvas redesign** — the status bar and info rows around the preview are gone; the image fills the whole central area. File info moved to overlay pills in the canvas corners, the toolbar floats over the image, status messages show as a short toast.
 - New: **Gear Library** — a searchable library of cameras, lenses and film stocks; picking gear for a frame writes scan-rig and film metadata into the exported XMP. There are some bundled items but library is easily user-extendable. @jboneng
 - New: **Freehand analysis region** — draw the exposure-metering area directly on the canvas instead of relying on the centered Analysis Buffer inset; a draw/clear pair sits on the Process page. @linkmodo
 - New: **Scratch Tool** — heal hairs and scratches by clicking a polyline along the defect (double-click or Enter to commit), instead of forcing them through the round brush.

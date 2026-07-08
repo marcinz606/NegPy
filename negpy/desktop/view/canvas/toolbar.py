@@ -423,9 +423,9 @@ class ActionToolbar(QWidget):
         self._action_redo.setEnabled(state.undo_index < state.max_history_index)
         self._action_paste.setEnabled(state.clipboard is not None)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        w = self.width()
+    def set_available_width(self, w: int) -> None:
+        """Responsive overflow keyed on the hosting canvas width (the toolbar itself
+        floats at sizeHint size, so its own width no longer reflects available space)."""
         show_swatches_hq = w >= 720
         show_flip_rotate = w >= 580
 

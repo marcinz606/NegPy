@@ -6,6 +6,7 @@ from PyQt6.QtGui import QMouseEvent, QNativeGestureEvent, QPainter, QColor, QWhe
 from PyQt6.QtCore import QEvent, pyqtSignal, Qt, QPointF
 from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
+from negpy.desktop.view.canvas.hud import CanvasHud
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
@@ -134,7 +135,36 @@ class ImageCanvas(QWidget):
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
         self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
 
+        self.hud = CanvasHud(self)
+        self._floating_toolbar: Optional[QWidget] = None
+
         self.grabGesture(Qt.GestureType.PinchGesture)
+
+    def set_floating_toolbar(self, toolbar: QWidget) -> None:
+        """Adopts the action toolbar as a floating pill anchored to the canvas bottom."""
+        toolbar.setParent(self)
+        toolbar.show()
+        self._floating_toolbar = toolbar
+        self._layout_floating_widgets()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._layout_floating_widgets()
+
+    def _layout_floating_widgets(self) -> None:
+        self.hud.setGeometry(self.rect())
+        tb = self._floating_toolbar
+        if tb is not None:
+            if hasattr(tb, "set_available_width"):
+                tb.set_available_width(self.width())
+            size = tb.sizeHint()
+            tb.setGeometry((self.width() - size.width()) // 2, self.height() - size.height(), size.width(), size.height())
+        self._raise_floating_widgets()
+
+    def _raise_floating_widgets(self) -> None:
+        self.hud.raise_()
+        if self._floating_toolbar is not None:
+            self._floating_toolbar.raise_()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self.setCursor(_TOOL_CURSORS.get(mode, Qt.CursorShape.ArrowCursor))
@@ -416,6 +446,7 @@ class ImageCanvas(QWidget):
             self.overlay.update_buffer(buffer, color_space, content_rect, monitor_icc_bytes=monitor_icc_bytes)
             self.overlay.show()
             self.overlay.raise_()
+        self._raise_floating_widgets()
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
         self.overlay.update_overlay(filename, res, colorspace, extra, edits)

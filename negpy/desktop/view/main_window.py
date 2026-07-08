@@ -24,9 +24,7 @@ from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
-from negpy.desktop.view.widgets.overlays import ImageMetadataPanel
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
-from negpy.desktop.view.widgets.status_bar import TopStatusBar
 from negpy.domain.models import AspectRatio, ColorSpace
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.image.logic import float_to_uint8
@@ -220,14 +218,12 @@ class MainWindow(QMainWindow):
         self.central_layout.setContentsMargins(0, 0, 0, 0)
         self.central_layout.setSpacing(4)
 
-        self.top_status = TopStatusBar()
-        self.metadata_top = ImageMetadataPanel()
         self.canvas = ImageCanvas(self.state)
-        self.metadata_bottom = ImageMetadataPanel()
 
         self.controller.register_canvas(self.canvas)
         self.canvas.set_controller(self.controller)
         self.toolbar = ActionToolbar(self.controller)
+        self.canvas.set_floating_toolbar(self.toolbar)
 
         self.empty_state = _EmptyStateOverlay(self.canvas, lambda: self.show_tutorial())
         self.empty_state.raise_()
@@ -235,11 +231,7 @@ class MainWindow(QMainWindow):
         self.loading_overlay = LoadingOverlay(self.canvas)
         self.loading_overlay.raise_()
 
-        self.central_layout.addWidget(self.top_status)
-        self.central_layout.addWidget(self.metadata_top)
         self.central_layout.addWidget(self.canvas, stretch=1)
-        self.central_layout.addWidget(self.metadata_bottom)
-        self.central_layout.addWidget(self.toolbar)
 
         self.setCentralWidget(self.central_widget)
 
@@ -263,7 +255,7 @@ class MainWindow(QMainWindow):
         self.session_dock.setVisible(repo.get_global_setting("panel_left_visible", True))
         self.drawer.setVisible(repo.get_global_setting("panel_right_visible", True))
 
-        # hide status bar - we use TopStatusBar instead
+        # hide native status bar - status lives in the canvas HUD
         self.setStatusBar(QStatusBar())
         self.statusBar().hide()
 
@@ -336,17 +328,17 @@ class MainWindow(QMainWindow):
 
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)
-        self.controller.session.settings_copied.connect(lambda: self.top_status.showMessage("settings copied", timeout=1500))
-        self.controller.session.settings_pasted.connect(lambda: self.top_status.showMessage("settings pasted", timeout=1500))
-        self.controller.session.settings_synced.connect(lambda msg: self.top_status.showMessage(msg, timeout=2500))
+        self.controller.session.settings_copied.connect(lambda: self.canvas.hud.showMessage("settings copied", timeout=1500))
+        self.controller.session.settings_pasted.connect(lambda: self.canvas.hud.showMessage("settings pasted", timeout=1500))
+        self.controller.session.settings_synced.connect(lambda msg: self.canvas.hud.showMessage(msg, timeout=2500))
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         self.controller.config_updated.connect(self.canvas.overlay.update)
         self.controller.compare_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.analysis_buffer_preview_requested.connect(self.canvas.overlay.show_analysis_buffer)
         self.controller.rotation_guide_requested.connect(self.canvas.overlay.show_rotation_grid)
 
-        self.controller.status_message_requested.connect(self.top_status.showMessage)
-        self.controller.status_progress_requested.connect(self.top_status.set_progress)
+        self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
+        self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
 
         self.progress_dialog = ProgressDialog(self)
         self.controller.batch_started.connect(self.progress_dialog.start)
@@ -425,11 +417,9 @@ class MainWindow(QMainWindow):
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes)
 
     def _refresh_image_info(self) -> None:
-        """Updates the persistent metadata panels."""
+        """Updates the canvas HUD corner pills."""
         if not self.state.current_file_path:
-            self.metadata_top.update_values("No File", "- x - px")
-            self.metadata_bottom.update_values("Edits: 0", "")
-            self.top_status.set_right_cluster("", "")
+            self.canvas.hud.update_info("", "", "", "", "", "")
             return
 
         filename = os.path.basename(self.state.current_file_path)
@@ -442,36 +432,26 @@ class MainWindow(QMainWindow):
         mode_str = f"{self.state.config.process.process_mode} | {cs}"
         edits_str = f"Edits: {self.state.undo_index}"
 
-        self.metadata_top.update_values(filename, res_str)
-        self.metadata_bottom.update_values(edits_str, mode_str)
-        self._update_status_right()
-
-    def _on_zoom_info_changed(self, zoom: float) -> None:
-        pass
-
-    def _update_status_right(self) -> None:
         tool_label = self.TOOL_LABELS.get(self.state.active_tool, "")
         total = len(self.state.uploaded_files)
         idx = self.state.selected_file_idx
         file_pos = f"{idx + 1} / {total}" if total > 1 and idx >= 0 else ""
-        self.top_status.set_right_cluster(tool_label, file_pos)
 
-    def _on_canvas_clicked(self, nx: float, ny: float) -> None:
-        self.top_status.showMessage(f"Clicked at: {nx:.3f}, {ny:.3f}")
+        self.canvas.hud.update_info(filename, res_str, mode_str, edits_str, tool_label, file_pos)
+
+    def _on_zoom_info_changed(self, zoom: float) -> None:
+        pass
 
     def _on_export_progress(self, current: int, total: int, filename: str) -> None:
-        self.top_status.progress.setVisible(True)
-        self.top_status.progress.setRange(0, total)
-        self.top_status.progress.setValue(current)
-        self.top_status.file_pos_label.clear()
-        self.top_status.showMessage(f"Exporting {filename} ({current}/{total})...")
+        self.canvas.hud.set_progress(current, total)
+        self.canvas.hud.showMessage(f"Exporting {filename} ({current}/{total})...")
 
     def _on_export_finished(self, elapsed: float, failed: int) -> None:
-        self.top_status.progress.setVisible(False)
+        self.canvas.hud.hide_progress()
         msg = f"export complete in {elapsed:.2f}s"
         if failed:
             msg += f" — {failed} failed"
-        self.top_status.showMessage(msg, timeout=6000 if failed else 3000)
+        self.canvas.hud.showMessage(msg, timeout=6000 if failed else 3000)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -491,7 +471,7 @@ class MainWindow(QMainWindow):
         self.controls_panel.retouch_sidebar.pick_dust_btn.setChecked(mode == ToolMode.DUST_PICK)
 
         self._update_title()
-        self._update_status_right()
+        self._refresh_image_info()
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():
