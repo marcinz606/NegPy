@@ -8,6 +8,7 @@
 - New: **Freehand analysis region** — draw the exposure-metering area directly on the canvas instead of relying on the centered Analysis Buffer inset; a draw/clear pair sits on the Process page. @linkmodo
 - New: **Scratch Tool** — heal hairs and scratches by clicking a polyline along the defect (double-click or Enter to commit), instead of forcing them through the round brush.
 - New: Enter now also commits an in-progress Dodge & Burn stroke, same as double-click.
+- Change: **Export now warns before overwriting files** — a batch that would clobber existing files stops for an Overwrite / Rename / Cancel prompt instead of silently overwriting; tick "Always overwrite without asking" to bring back the old silent behavior. @linkmodo
 - Change: **Manual healing now clones real texture** — heals copy a matching patch from elsewhere in the frame and blend the seam, keeping grain intact instead of a smoothed synthetic fill; existing heal spots convert automatically.
 - Change: **Bundled gear and crosstalk profiles now load live from the app** instead of being copied into your docs folder. Docs folder is reserved for your personal profiles & gear  
 - Change: **Selecting a thumbnail now opens it** — a single click loads the frame into the viewer (Ctrl/Shift-click still builds a multi-selection for batch actions); double-clicking inside an open crop box now confirms and closes the tool. @linkmodo
