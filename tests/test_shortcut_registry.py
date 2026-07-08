@@ -56,3 +56,26 @@ def test_tooltip_with_multiple_shortcuts_renders_all_keys():
     assert "Density" in tooltip
     assert "Q" in tooltip
     assert "A" in tooltip
+
+
+def test_tooltip_places_shortcut_on_new_line():
+    tooltip = tooltip_with_shortcut("Density up", "density_up", {"density_up": "Q"})
+
+    # Shortcut sits on its own line below the tooltip text, inside the tooltip box.
+    text_part, _, shortcut_part = tooltip.partition("<br>")
+    assert text_part == "Density up"
+    assert "Q" in shortcut_part
+
+
+def test_tooltip_joins_two_shortcuts_with_and():
+    tooltip = tooltip_with_shortcut("Density", ["density_up", "density_down"], {"density_up": "Q", "density_down": "A"})
+
+    assert "<br>" in tooltip
+    assert ">and<" in tooltip.replace(" ", "")
+
+
+def test_tooltip_without_binding_returns_plain_text():
+    tooltip = tooltip_with_shortcut("Cyan up", "cyan_inc", {"cyan_inc": ""})
+
+    assert tooltip == "Cyan up"
+    assert "<br>" not in tooltip
