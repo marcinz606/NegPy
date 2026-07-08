@@ -156,11 +156,16 @@ class ProcessSidebar(BaseSidebar):
         self.crosstalk_combo = QComboBox()
         self.crosstalk_combo.addItems(CrosstalkProfiles.list_profiles())
         self.crosstalk_combo.setCurrentText(conf.crosstalk_profile)
+        # Wrap the long tooltip in a fixed-width table so Qt word-wraps it to the
+        # panel width instead of rendering one line that runs off the screen (plain
+        # text tooltips are not auto-wrapped — only rich text is).
         self.crosstalk_combo.setToolTip(
+            "<table width='280'><tr><td>"
             "Spectral crosstalk (dye unmix): applies the film's crosstalk matrix to the raw NEGATIVE "
             "densities before analysis and inversion — the physically correct domain (the matrices are "
             "derived from negative dye-density curves). 'Default' is built-in; drop custom .toml matrices "
-            "in the NegPy/crosstalk folder (see docs/CROSSTALK.md). Re-run Batch Analysis after changing this"
+            "in the NegPy/crosstalk folder (see docs/CROSSTALK.md). Re-run Batch Analysis after changing this."
+            "</td></tr></table>"
         )
         matrix_row.addWidget(self.crosstalk_label)
         matrix_row.addWidget(self.crosstalk_combo, 1)
