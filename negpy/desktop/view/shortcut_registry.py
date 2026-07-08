@@ -176,5 +176,8 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
         f'<span style="color:#888;background:#1A1A1A;padding:1px 5px;border-radius:3px;font-size:10px;">{key}</span>'
         for key in keys
     ]
-    chips_html = ' <span style="color:#888;font-size:10px;">and</span> '.join(chips)
-    return f"{text}<br>{chips_html}"
+    # The " & " separator carries no colour of its own, so it inherits the
+    # tooltip's text colour (unlike the greyed chips). The shortcut row is
+    # right-aligned on its own line to balance the tooltip box.
+    chips_html = " &amp; ".join(chips)
+    return f'{text}<div align="right">{chips_html}</div>'
