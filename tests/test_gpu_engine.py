@@ -153,6 +153,92 @@ class TestGPUEngine(unittest.TestCase):
         diff = float(np.abs(res_tiled[band] - res_direct[band]).max())
         self.assertLess(diff, 0.05, "Tiled heal diverges from untiled across the tile boundary")
 
+    def test_gpu_tiled_crosstalk_matches_untiled(self):
+        """Tiled export metered bounds from the raw image, skipping the crosstalk
+        unmix the untiled/preview path always applies — diverged when Separation > 0."""
+        from negpy.features.process.models import ProcessMode
+        from dataclasses import replace
+
+        h, w = 128, 2200  # spans the TILE_SIZE=2048 boundary
+        rng = np.random.default_rng(2)
+        img = np.empty((h, w, 3), dtype=np.float32)
+        img[..., 0] = rng.random((h, w), dtype=np.float32) * 0.15 + 0.55
+        img[..., 1] = rng.random((h, w), dtype=np.float32) * 0.15 + 0.35
+        img[..., 2] = rng.random((h, w), dtype=np.float32) * 0.15 + 0.15
+
+        base = WorkspaceConfig()
+        settings = replace(
+            base,
+            process=replace(base.process, process_mode=ProcessMode.C41, crosstalk_strength=1.0),
+            export=replace(base.export, export_resolution_mode="original"),
+        )
+
+        res_tiled, _ = self.engine._process_tiled(img, settings, scale_factor=1.0)
+        tex, _ = self.engine.process_to_texture(img, settings, scale_factor=1.0, apply_layout=False)
+        res_direct = self.engine._readback_downsampled(tex)
+
+        self.assertEqual(res_tiled.shape, res_direct.shape)
+        diff = float(np.abs(res_tiled - res_direct).max())
+        self.assertLess(diff, 0.05, "Tiled export ignored Separation (crosstalk) when metering global bounds")
+
+    def test_gpu_tiled_global_meter_stays_lazy_when_unused(self):
+        """Locked bounds + no auto refs/anchor/textural: the meter buffer must not build."""
+        from negpy.features.process.models import ProcessMode
+        from dataclasses import replace
+        from unittest.mock import patch
+        import negpy.services.rendering.gpu_engine as gpu_engine_module
+
+        img = np.random.rand(96, 96, 3).astype(np.float32)
+        base = WorkspaceConfig()
+        settings = replace(
+            base,
+            process=replace(
+                base.process,
+                process_mode=ProcessMode.C41,
+                crosstalk_strength=1.0,
+                lock_bounds=True,
+                locked_floors=(-1.0, -1.0, -1.0),
+                locked_ceils=(-0.2, -0.2, -0.2),
+                use_luma_average=True,
+                use_colour_average=True,
+            ),
+            exposure=replace(
+                base.exposure,
+                auto_exposure=False,
+                auto_normalize_contrast=False,
+                cast_removal_strength=0.0,
+                auto_cast_removal=False,
+            ),
+        )
+
+        # CDF priming already calls prefilter_log_grid once (unrelated); wrap it so
+        # that still works, and assert the meter block under test adds no calls.
+        real_prefilter = gpu_engine_module.prefilter_log_grid
+        with patch.object(gpu_engine_module, "prefilter_log_grid", wraps=real_prefilter) as mock_prefilter:
+            self.engine._process_tiled(img, settings, scale_factor=1.0)
+            self.assertEqual(mock_prefilter.call_count, 1, "Global crosstalk meter built even though nothing needed it")
+
+    def test_gpu_tiled_export_honours_freehand_analysis_rect(self):
+        """Tiled export must meter the drawn analysis_rect, not the centered default."""
+        from negpy.features.process.models import ProcessMode
+        from dataclasses import replace
+
+        h, w = 128, 256
+        img = np.empty((h, w, 3), dtype=np.float32)
+        img[:, : w // 2] = (0.15, 0.05, 0.05)  # left: dark, red-cast
+        img[:, w // 2 :] = (0.85, 0.85, 0.85)  # right: bright, neutral
+
+        base = WorkspaceConfig()
+
+        def _settings(rect):
+            return replace(base, process=replace(base.process, process_mode=ProcessMode.C41, analysis_rect=rect))
+
+        res_left, _ = self.engine._process_tiled(img, _settings((0.0, 0.0, 0.5, 1.0)), scale_factor=1.0)
+        res_right, _ = self.engine._process_tiled(img, _settings((0.5, 0.0, 1.0, 1.0)), scale_factor=1.0)
+
+        diff = float(np.abs(res_left - res_right).max())
+        self.assertGreater(diff, 0.05, "Tiled export ignored freehand analysis_rect — output identical either way")
+
     def test_gpu_tiled_export_ir_no_crash_without_buffer(self):
         """ir_dust_remove enabled but ir_buffer=None must not crash the tiled path."""
         from negpy.features.retouch.models import RetouchConfig

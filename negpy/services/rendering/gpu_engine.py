@@ -11,18 +11,13 @@ import wgpu  # type: ignore
 from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConfig
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
-    analyze_log_exposure_bounds,
     analyze_log_exposure_bounds_from_log,
     luma_source_bounds,
     luminance_density_range,
-    measure_anchor,
     measure_anchor_from_log,
     measure_clip_fractions,
-    measure_neutral_axis,
     measure_neutral_axis_from_log,
-    measure_shadow_log_refs,
     measure_shadow_refs_from_log,
-    measure_textural_range,
     resolve_crosstalk_matrix,
     unmix_log_image,
     measure_textural_range_from_log,
@@ -1650,6 +1645,11 @@ class GPUEngine:
         ah, aw = img_rot.shape[:2]
         a_scale = min(1.0, APP_CONFIG.preview_render_size / max(ah, aw))
         analysis_roi = (int(y1 * a_scale), int(y2 * a_scale), int(x1 * a_scale), int(x2 * a_scale))
+        analysis_shape = (int(ah * a_scale), int(aw * a_scale))
+        # Freehand analysis_rect wins over the crop ROI + centered buffer here too.
+        meter_roi, meter_buffer = resolve_analysis_region(
+            analysis_shape, analysis_roi, settings.process.analysis_buffer, settings.process.analysis_rect
+        )
         analysis_small: Optional[np.ndarray] = None
 
         def _analysis_img() -> np.ndarray:
@@ -1658,11 +1658,22 @@ class GPUEngine:
                 analysis_small = _downsample_for_analysis(img_rot, APP_CONFIG.preview_render_size)
             return analysis_small
 
+        # Unmixed like the non-tiled path, lazily (skipped when bounds are locked and
+        # no auto refs/anchor/textural need it).
+        unmix_m = resolve_crosstalk_matrix(settings.process.crosstalk_strength, settings.process.crosstalk_matrix)
+        prefiltered_cache: Optional[np.ndarray] = None
+
+        def _prefiltered() -> np.ndarray:
+            nonlocal prefiltered_cache
+            if prefiltered_cache is None:
+                prefiltered_cache = unmix_log_image(prefilter_log_grid(_analysis_img(), meter_roi, meter_buffer), unmix_m)
+            return prefiltered_cache
+
         def _analyze_global_bounds() -> LogNegativeBounds:
-            return analyze_log_exposure_bounds(
-                _analysis_img(),
-                roi=analysis_roi,
-                analysis_buffer=settings.process.analysis_buffer,
+            return analyze_log_exposure_bounds_from_log(
+                _prefiltered(),
+                None,
+                0.0,
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,
                 percentile_clip=settings.process.luma_range_clip,
@@ -1680,37 +1691,16 @@ class GPUEngine:
         if (
             settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal
         ) and settings.process.process_mode == ProcessMode.C41:
-            # Tiles must share one global measurement, like global_bounds.
-            global_shadow_refs = measure_shadow_log_refs(
-                _analysis_img(),
-                roi=analysis_roi,
-                analysis_buffer=settings.process.analysis_buffer,
-            )
-            global_neutral_axis = measure_neutral_axis(
-                _analysis_img(),
-                global_bounds,
-                roi=analysis_roi,
-                analysis_buffer=settings.process.analysis_buffer,
-            )
+            global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0)
+            global_neutral_axis = measure_neutral_axis_from_log(_prefiltered(), global_bounds, None, 0.0)
 
         global_metered_anchor = None
         if settings.exposure.auto_exposure:
-            # Tiles must share one global anchor, like global_bounds/shadow_refs.
-            global_metered_anchor = measure_anchor(
-                _analysis_img(),
-                global_anchor_bounds,
-                roi=analysis_roi,
-                analysis_buffer=settings.process.analysis_buffer,
-            )
+            global_metered_anchor = measure_anchor_from_log(_prefiltered(), global_anchor_bounds, None, 0.0)
 
         global_textural_range = None
         if settings.exposure.auto_normalize_contrast:
-            # Tiles must share one global textural range, like global_bounds.
-            global_textural_range = measure_textural_range(
-                _analysis_img(),
-                roi=analysis_roi,
-                analysis_buffer=settings.process.analysis_buffer,
-            )
+            global_textural_range = measure_textural_range_from_log(_prefiltered(), None, 0.0)
 
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
