@@ -2,7 +2,7 @@ import hashlib
 import os
 from typing import Any, Optional
 import numpy as np
-from numba import njit  # type: ignore
+from numba import njit, prange  # type: ignore
 from negpy.domain.types import LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.logging import get_logger
@@ -116,16 +116,44 @@ _ROMM_LIN_BREAK = 1.0 / 512.0  # linear-domain toe break (encode)
 _ROMM_ENC_BREAK = 16.0 / 512.0  # encoded-domain toe break (decode) = 1/32
 
 
+@njit(cache=True, fastmath=True, parallel=True)
+def _oetf_encode_flat(flat: np.ndarray, inv_gamma: float, lin_break: float) -> np.ndarray:
+    """Row-parallel ProPhoto ROMM encode over a flattened buffer (shape-agnostic)."""
+    n = flat.shape[0]
+    out = np.empty(n, dtype=np.float32)
+    for i in prange(n):
+        x = flat[i]
+        if x < 0.0:
+            x = 0.0
+        elif x > 1.0:
+            x = 1.0
+        out[i] = x * 16.0 if x < lin_break else x**inv_gamma
+    return out
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _oetf_decode_flat(flat: np.ndarray, gamma: float, enc_break: float) -> np.ndarray:
+    """Inverse of _oetf_encode_flat."""
+    n = flat.shape[0]
+    out = np.empty(n, dtype=np.float32)
+    for i in prange(n):
+        e = flat[i]
+        if e < 0.0:
+            e = 0.0
+        out[i] = e / 16.0 if e < enc_break else e**gamma
+    return out
+
+
 def working_oetf_encode(img: np.ndarray) -> np.ndarray:
     """Scene-linear -> display-encoded code values [0,1] (ProPhoto ROMM TRC)."""
-    x = np.clip(img.astype(np.float32), 0.0, 1.0)
-    return np.where(x < _ROMM_LIN_BREAK, x * 16.0, x ** (1.0 / _WORKING_GAMMA)).astype(np.float32)
+    flat = np.ascontiguousarray(img, dtype=np.float32).reshape(-1)
+    return _oetf_encode_flat(flat, np.float32(1.0 / _WORKING_GAMMA), np.float32(_ROMM_LIN_BREAK)).reshape(img.shape)
 
 
 def working_oetf_decode(img: np.ndarray) -> np.ndarray:
     """Inverse of working_oetf_encode."""
-    e = np.clip(img.astype(np.float32), 0.0, None)
-    return np.where(e < _ROMM_ENC_BREAK, e / 16.0, e**_WORKING_GAMMA).astype(np.float32)
+    flat = np.ascontiguousarray(img, dtype=np.float32).reshape(-1)
+    return _oetf_decode_flat(flat, np.float32(_WORKING_GAMMA), np.float32(_ROMM_ENC_BREAK)).reshape(img.shape)
 
 
 # CIELAB in the working space (ProPhoto RGB / ROMM, D50): ProPhoto primaries.
@@ -151,32 +179,73 @@ _LAB_EPS = 0.008856
 _LAB_KAPPA = 7.787
 
 
+@njit(cache=True, fastmath=True, parallel=True)
+def _rgb_to_lab_kernel(px: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
+    """Row-parallel linear ProPhoto RGB -> CIELAB (D50) over an (N, 3) pixel list."""
+    n = px.shape[0]
+    out = np.empty((n, 3), dtype=np.float32)
+    c = np.float32(16.0 / 116.0)
+    for i in prange(n):
+        r = px[i, 0]
+        g = px[i, 1]
+        b = px[i, 2]
+        if r < 0.0:
+            r = 0.0
+        if g < 0.0:
+            g = 0.0
+        if b < 0.0:
+            b = 0.0
+        xr = (m[0, 0] * r + m[0, 1] * g + m[0, 2] * b) / white[0]
+        yr = (m[1, 0] * r + m[1, 1] * g + m[1, 2] * b) / white[1]
+        zr = (m[2, 0] * r + m[2, 1] * g + m[2, 2] * b) / white[2]
+        fx = xr ** (1.0 / 3.0) if xr > eps else kappa * xr + c
+        fy = yr ** (1.0 / 3.0) if yr > eps else kappa * yr + c
+        fz = zr ** (1.0 / 3.0) if zr > eps else kappa * zr + c
+        out[i, 0] = 116.0 * fy - 16.0
+        out[i, 1] = 500.0 * (fx - fy)
+        out[i, 2] = 200.0 * (fy - fz)
+    return out
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _lab_to_rgb_kernel(lab: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
+    """Row-parallel inverse: CIELAB (D50) -> linear ProPhoto RGB over an (N, 3) pixel list."""
+    n = lab.shape[0]
+    out = np.empty((n, 3), dtype=np.float32)
+    c = np.float32(16.0 / 116.0)
+    for i in prange(n):
+        fy = (lab[i, 0] + 16.0) / 116.0
+        fx = lab[i, 1] / 500.0 + fy
+        fz = fy - lab[i, 2] / 200.0
+        fx3 = fx * fx * fx
+        fy3 = fy * fy * fy
+        fz3 = fz * fz * fz
+        xr = (fx3 if fx3 > eps else (fx - c) / kappa) * white[0]
+        yr = (fy3 if fy3 > eps else (fy - c) / kappa) * white[1]
+        zr = (fz3 if fz3 > eps else (fz - c) / kappa) * white[2]
+        r = m[0, 0] * xr + m[0, 1] * yr + m[0, 2] * zr
+        g = m[1, 0] * xr + m[1, 1] * yr + m[1, 2] * zr
+        b = m[2, 0] * xr + m[2, 1] * yr + m[2, 2] * zr
+        out[i, 0] = r if r > 0.0 else 0.0
+        out[i, 1] = g if g > 0.0 else 0.0
+        out[i, 2] = b if b > 0.0 else 0.0
+    return out
+
+
 def rgb_to_lab_working(img: np.ndarray) -> np.ndarray:
-    """Linear ProPhoto RGB -> CIELAB (D50). No transfer decode — the buffer is linear."""
-    lin = np.clip(img.astype(np.float32), 0.0, None)
-    xyz = lin @ _PROPHOTO_TO_XYZ.T
-    xyz = xyz / _D50_WHITE
-    f = np.where(xyz > _LAB_EPS, np.cbrt(xyz), _LAB_KAPPA * xyz + 16.0 / 116.0).astype(np.float32)
-    fx, fy, fz = f[..., 0], f[..., 1], f[..., 2]
-    lab = np.empty_like(f)
-    lab[..., 0] = 116.0 * fy - 16.0
-    lab[..., 1] = 500.0 * (fx - fy)
-    lab[..., 2] = 200.0 * (fy - fz)
-    return lab
+    """Linear ProPhoto RGB -> CIELAB (D50). No transfer decode — the buffer is linear.
+
+    Accepts any array whose last axis is the 3 RGB channels ((H, W, 3), (N, 3), ...)."""
+    arr = np.ascontiguousarray(img, dtype=np.float32)
+    out = _rgb_to_lab_kernel(arr.reshape(-1, 3), _PROPHOTO_TO_XYZ, _D50_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA))
+    return out.reshape(arr.shape)
 
 
 def lab_to_rgb_working(lab: np.ndarray) -> np.ndarray:
     """Inverse of rgb_to_lab_working: CIELAB (D50) -> linear ProPhoto RGB (no encode)."""
-    lab = lab.astype(np.float32)
-    fy = (lab[..., 0] + 16.0) / 116.0
-    fx = lab[..., 1] / 500.0 + fy
-    fz = fy - lab[..., 2] / 200.0
-    f = np.stack([fx, fy, fz], axis=-1)
-    f3 = f**3
-    xyz = np.where(f3 > _LAB_EPS, f3, (f - 16.0 / 116.0) / _LAB_KAPPA).astype(np.float32)
-    xyz = xyz * _D50_WHITE
-    lin = xyz @ _XYZ_TO_PROPHOTO.T
-    return np.clip(lin, 0.0, None).astype(np.float32)
+    arr = np.ascontiguousarray(lab, dtype=np.float32)
+    out = _lab_to_rgb_kernel(arr.reshape(-1, 3), _XYZ_TO_PROPHOTO, _D50_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA))
+    return out.reshape(arr.shape)
 
 
 @njit(cache=True, fastmath=True)
