@@ -1,7 +1,7 @@
 from typing import Any, Optional, Tuple
 
 import numpy as np
-from numba import njit  # type: ignore
+from numba import njit, prange  # type: ignore
 
 from negpy.domain.types import ImageBuffer
 from negpy.features.exposure.papers import PaperProfile, effective_constants, resolve_dye_matrix
@@ -45,7 +45,7 @@ def _inv_softplus_np(y: Any) -> Any:
     return np.where(y > 20.0, y, np.log(np.expm1(np.maximum(y, 1e-12))))
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, parallel=True)
 def _apply_print_curve_kernel(
     img: np.ndarray,
     pivots: np.ndarray,
@@ -124,8 +124,10 @@ def _apply_print_curve_kernel(
         d_max_eff[ch] = dmx
         flare_white[ch] = 10.0 ** (-d_min_rgb[ch])
 
-    dens = np.empty(3, dtype=np.float64)
-    for y in range(h):
+    # Rows are independent, so parallelise over y. `dens` is allocated per row so
+    # each worker thread has its own scratch (no cross-iteration sharing).
+    for y in prange(h):
+        dens = np.empty(3, dtype=np.float64)
         for x in range(w):
             for ch in range(3):
                 val = img[y, x, ch] + cmy_offsets[ch]

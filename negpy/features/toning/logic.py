@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 import numpy as np
-from numba import njit  # type: ignore
+from numba import njit, prange  # type: ignore
 
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
@@ -31,7 +31,7 @@ TONING_CONSTANTS: Dict[str, Any] = {
 }
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, parallel=True)
 def _apply_chemical_toning_jit(
     img: np.ndarray,
     sel_strength: float,
@@ -53,7 +53,7 @@ def _apply_chemical_toning_jit(
     res = np.empty_like(img)
     eps = 1e-6
 
-    for y in range(h):
+    for y in prange(h):
         for x in range(w):
             for ch in range(3):
                 t = img[y, x, ch]
