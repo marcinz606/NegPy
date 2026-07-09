@@ -67,9 +67,7 @@ class ToneSidebar(BaseSidebar):
         top_row.addWidget(self.paper_combo, 1)
         self.layout.addLayout(top_row)
 
-        # Channel selector: Global = the shared curve; R/G/B = per-layer trims
-        # (crossover). Full-width labeled buttons; the dot keeps its channel
-        # colour, an edited layer colours the label text instead.
+        # Channel selector: Global = the shared curve; R/G/B = per-layer trims.
         self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — edit the shared H&D curve (all layers)")
         self.ch_r_btn = self._labeled_toggle(
             "fa5s.circle", " Red", False, "Red layer — per-layer Grade/Toe/Shoulder trims for the cyan-dye emulsion"
@@ -86,8 +84,7 @@ class ToneSidebar(BaseSidebar):
         self.ch_btn_group.setExclusive(True)
         for i, btn in enumerate((self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn)):
             self.ch_btn_group.addButton(btn, i)
-        # (button, that channel's trim fields) — label text turns edited-yellow
-        # when any trim is set; the dot never changes colour.
+        # (button, that channel's trim fields) for the edited-text tint.
         self._channel_buttons = tuple(
             (btn, (f"grade_trim_{ch}", f"toe_trim_{ch}", f"shoulder_trim_{ch}"))
             for btn, ch in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_SUFFIX)
@@ -213,7 +210,6 @@ class ToneSidebar(BaseSidebar):
         self.paper_combo.currentIndexChanged.connect(self._on_paper_changed)
         self.ch_btn_group.idToggled.connect(lambda _id, checked: self.sync_ui() if checked else None)
 
-        # Fixed-field sliders.
         for slider, field in (
             (self.density_slider, "density"),
             (self.grade_slider, "grade"),
@@ -230,7 +226,7 @@ class ToneSidebar(BaseSidebar):
             slider.dragStarted.connect(lambda f=field: self.controller.tone_drag_changed.emit(f))
             slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
 
-        # Channel-scoped sliders: the target field follows the selector.
+        # Toe/shoulder retarget to the selected channel's trim field at emit time.
         for slider, base in ((self.toe_slider, "toe"), (self.sh_slider, "shoulder")):
             slider.valueChanged.connect(
                 lambda v, b=base: self.update_config_section(

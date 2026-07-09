@@ -28,9 +28,7 @@ class ExposureConfig:
 
     density: float = 1.0
     grade: float = 115.0
-    # Per-layer contrast trims in ISO-R points (crossover correction): each dye
-    # layer's grade = grade + trim. Filtration can only shift a layer's curve;
-    # these rotate its slope about the anchor, so midtones stay neutral.
+    # Per-layer contrast trims in ISO-R points (crossover correction).
     grade_trim_red: float = 0.0
     grade_trim_green: float = 0.0
     grade_trim_blue: float = 0.0
@@ -47,8 +45,7 @@ class ExposureConfig:
     toe_width: float = 2.5
     shoulder: float = 0.0
     shoulder_width: float = 2.5
-    # Per-layer knee trims on top of the global toe/shoulder (endpoint crossover:
-    # per-dye-layer toe/shoulder mismatch = shadow/highlight colour casts).
+    # Per-layer knee trims on top of the global toe/shoulder (endpoint crossover).
     toe_trim_red: float = 0.0
     toe_trim_green: float = 0.0
     toe_trim_blue: float = 0.0
@@ -56,8 +53,7 @@ class ExposureConfig:
     shoulder_trim_green: float = 0.0
     shoulder_trim_blue: float = 0.0
     paper_dmin: bool = True
-    # Black point compensation (ICC relative-colorimetric soft-proof style):
-    # map paper Dmax to display black, as the adapted eye reads a real print.
+    # Black point compensation: map paper Dmax to display black.
     true_black: bool = False
     # Additive trim on the paper's variable midtone gamma (tanh S-curve).
     midtone_gamma: float = 0.0

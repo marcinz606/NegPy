@@ -1071,8 +1071,8 @@ class GPUEngine:
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
-        # Per-channel effective toe/shoulder (global + layer trims), pre-scaled;
-        # carried in the spare vec4 w-lanes — the uniform block is full at 256B.
+        # Per-channel effective toe/shoulder, pre-scaled; the uniform block is
+        # full at 256B so these ride the vec4 w-lanes.
         _ts_k = float(EXPOSURE_CONSTANTS["toe_shoulder_strength"])
         _toe3, _sh3 = per_channel_toe_shoulder(
             _toe_eff,
@@ -1134,9 +1134,8 @@ class GPUEngine:
                 effective_midtone_gamma(paper, exp.midtone_gamma),
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                # BPC flag (was the 16B pad). NOTE: the exposure uniform block is
-                # full at 256B — further per-channel params go in the spare
-                # w-lanes of the vec4s before any layout change.
+                # BPC flag (former pad). Block is full at 256B and all w-lanes
+                # are taken — new uniforms need real multi-slot offsets.
                 1.0 if exp.true_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)

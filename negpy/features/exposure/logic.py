@@ -95,10 +95,8 @@ def _apply_print_curve_kernel(
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
 
-    bpc: black point compensation — remap so the paper's physical Dmax (run
-    through the same surround transform) lands on display black, like an
-    ICC relative-colorimetric soft-proof. Referenced to the neutral d_max, not
-    d_max_eff, so a lifted toe and per-channel shadow casts survive.
+    bpc: black point compensation — paper Dmax maps to display black (ICC
+    relative-colorimetric style).
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -132,12 +130,9 @@ def _apply_print_curve_kernel(
             dmx = dmn + 0.1
         d_min_eff[ch] = dmn
         d_max_eff[ch] = dmx
-        # BPC reference: the physical paper black (d_max, not d_max_eff) run
-        # through the same surround transform as the pixel path. The curve only
-        # reaches d_max asymptotically, so a negative toe raises the clip point
-        # into the shadows — that is what makes exact 0 attainable ("negative
-        # deepens blacks", literally, when True Black is on); with per-channel
-        # toe this also tints the deepest black.
+        # BPC references the physical d_max (not d_max_eff) so toe lifts survive;
+        # negative toe raises the clip point — the bound reaches d_max only
+        # asymptotically, so exact 0 needs the clip inside the shadow range.
         db = d_max
         if t_ch < 0.0:
             db = d_max + t_ch * toe_height
@@ -630,8 +625,8 @@ def per_channel_curve_params(
     # only away from the midtone.
     cg = paper.channel_gamma if paper is not None else (1.0, 1.0, 1.0)
     if grade_trims != (0.0, 0.0, 0.0):
-        # Crossover trims: a per-layer ISO-R delta is a user channel_gamma — the
-        # pivot re-solve below keeps the anchor tone neutral under the rotation.
+        # Per-layer ISO-R trims fold in as user channel_gammas; the pivot
+        # re-solve keeps the anchor neutral.
         cg = (
             cg[0] * _grade_trim_mult(grade, grade_trims[0], c),
             cg[1] * _grade_trim_mult(grade, grade_trims[1], c),

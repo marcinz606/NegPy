@@ -87,10 +87,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // sharpness; width sets gentleness, slider sets roll-off height.
     let a_hl = params.a_sh_base * params.width_ref / max(params.shoulder_width, eps);
     let a_sh_base = params.a_toe_base * params.width_ref / max(params.toe_width, eps);
-    // Per-channel toe/shoulder (global + layer trims, pre-scaled CPU-side via
-    // per_channel_toe_shoulder). The uniform block is full at 256B, so the
-    // spare vec4 w-lanes carry them; the scalar toe/shoulder fields keep the
-    // global value for layout only.
+    // Per-channel toe/shoulder, pre-scaled CPU-side (per_channel_toe_shoulder).
+    // The uniform block is full at 256B, so the vec4 w-lanes carry them; the
+    // scalar toe/shoulder fields exist for layout only.
     let toe3 = vec3<f32>(params.pivots.w, params.slopes.w, params.curvatures.w);
     let sh3 = vec3<f32>(params.cmy_offsets.w, params.shadow_cmy.w, params.highlight_cmy.w);
     let toe_neg = toe3 < vec3<f32>(0.0);
@@ -148,13 +147,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     var transmittance = pow(vec3<f32>(10.0), -density);
-    // Black point compensation: map the physical paper black (d_max, run through
-    // the same surround transform) to display black. Mirrors the CPU kernel
-    // prologue; oetf_encode clamps the negative deep-shadow tail to 0.
+    // BPC: physical paper black -> display 0; mirrors the CPU kernel prologue
+    // (negative toe raises the clip point). oetf_encode clamps the tail to 0.
     if (params.bpc != 0.0) {
-        // Negative toe raises the clip point into the shadows (the curve only
-        // reaches d_max asymptotically) — exact black becomes attainable, and
-        // per-channel toe tints the deepest black.
         var db = vec3<f32>(params.d_max) + select(vec3<f32>(0.0), toe3 * params.toe_height, toe_neg);
         if (params.surround_gamma != 1.0) {
             db = d_min_rgb + params.surround_gamma * (db - d_min_rgb);

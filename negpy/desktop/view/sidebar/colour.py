@@ -16,9 +16,7 @@ class ColourSidebar(BaseSidebar):
         self.layout.setSpacing(12)
         conf = self.state.config.exposure
 
-        # Region selector: full-width labeled buttons, same idiom as the tone
-        # page's channel selector. An edited region colours its label text; the
-        # icons never change colour.
+        # Region selector, same idiom as the tone page's channel selector.
         self.region_global_btn = self._labeled_toggle(
             "fa5s.globe", " Global", True, "Global — apply temperature and CMY white balance to the entire tonal range"
         )
@@ -44,7 +42,6 @@ class ColourSidebar(BaseSidebar):
             region_row.addWidget(btn, 1)
         self.layout.addLayout(region_row)
 
-        # Region-scoped tools: discrete right-aligned icon toggles under the selector.
         self.pick_wb_btn = self._icon_toggle(
             "fa5s.eye-dropper",
             False,
@@ -224,8 +221,6 @@ class ColourSidebar(BaseSidebar):
             self.cyan_slider.setValue(getattr(conf, channels[0]))
             self.magenta_slider.setValue(getattr(conf, channels[1]))
             self.yellow_slider.setValue(getattr(conf, channels[2]))
-            # Readout measures the selected region's M/Y pair; the roll lock
-            # reflects the selected region's own lock.
             self.temp_slider.setValue(wb_to_kelvin(*self._region_my(conf)))
             locked = self.controller.session.repo.get_global_setting(self._LOCK_KEYS[idx]) is not None
             self.temp_lock_btn.setChecked(locked)

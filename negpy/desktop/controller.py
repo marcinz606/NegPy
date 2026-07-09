@@ -959,11 +959,10 @@ class AppController(QObject):
                 wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
             )
         else:
-            # Regional pick: the solver yields the TOTAL filtration that neutralizes
-            # the patch; store the residual over the current global pair in the
-            # region's fields. Filtration offsets are range-normalized while regional
-            # offsets are absolute density, so convert by the channel stretch range.
-            # ponytail: assumes the picked patch sits in its region (weight ~1).
+            # Store the residual over the global pair in the region's fields.
+            # Filtration offsets are range-normalized, regional ones absolute
+            # density — convert by the stretch range. Assumes the picked patch
+            # sits in its region (weight ~1).
             c_field, m_field, y_field = (
                 ("shadow_cyan", "shadow_magenta", "shadow_yellow"),
                 ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
