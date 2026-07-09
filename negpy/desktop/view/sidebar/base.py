@@ -59,7 +59,7 @@ class BaseSidebar(QWidget):
         btn = QPushButton()
         btn.setCheckable(True)
         btn.setChecked(checked)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
         btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 6px;")
         btn.setFixedWidth(36)
         btn.setToolTip(tooltip)
@@ -70,7 +70,7 @@ class BaseSidebar(QWidget):
         btn = QPushButton(label)
         btn.setCheckable(True)
         btn.setChecked(checked)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
         btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
         btn.setToolTip(tooltip)
         return btn

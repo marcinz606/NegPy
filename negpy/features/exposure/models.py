@@ -11,7 +11,7 @@ class RenderIntent(StrEnum):
     FLAT  — a low-contrast, neutral "digital intermediate" master intended for
             further editing in Lightroom/Darktable/Photoshop. The mask-neutralized
             inversion is kept, but the creative print decisions (auto density/grade,
-            cast removal, toe/shoulder, surround/flare) and the downstream creative
+            cast removal, toe/shoulder, surround) and the downstream creative
             stages (lab, local, toning, finish) are bypassed so maximal tonal and
             colour information is preserved with gentle highlight/shadow roll-off.
     """
@@ -28,6 +28,12 @@ class ExposureConfig:
 
     density: float = 1.0
     grade: float = 115.0
+    # Per-layer contrast trims in ISO-R points (crossover correction): each dye
+    # layer's grade = grade + trim. Filtration can only shift a layer's curve;
+    # these rotate its slope about the anchor, so midtones stay neutral.
+    grade_trim_red: float = 0.0
+    grade_trim_green: float = 0.0
+    grade_trim_blue: float = 0.0
     wb_cyan: float = 0.0
     wb_magenta: float = 0.0
     wb_yellow: float = 0.0
@@ -41,8 +47,20 @@ class ExposureConfig:
     toe_width: float = 2.5
     shoulder: float = 0.0
     shoulder_width: float = 2.5
+    # Per-layer knee trims on top of the global toe/shoulder (endpoint crossover:
+    # per-dye-layer toe/shoulder mismatch = shadow/highlight colour casts).
+    toe_trim_red: float = 0.0
+    toe_trim_green: float = 0.0
+    toe_trim_blue: float = 0.0
+    shoulder_trim_red: float = 0.0
+    shoulder_trim_green: float = 0.0
+    shoulder_trim_blue: float = 0.0
     paper_dmin: bool = True
-    flare: bool = False
+    # Black point compensation (ICC relative-colorimetric soft-proof style):
+    # map paper Dmax to display black, as the adapted eye reads a real print.
+    true_black: bool = False
+    # Additive trim on the paper's variable midtone gamma (tanh S-curve).
+    midtone_gamma: float = 0.0
     cast_removal_strength: float = 0.5
     auto_cast_removal: bool = True
     surround: bool = False
@@ -204,10 +222,6 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Percentile margin for measuring the "textural" scene range (rejects specular highlights and dust).
     # ↑ includes more histogram (wider textural range); ↓ tighter (more robust to extreme outliers).
     "textural_range_clip": 10.0,
-    # Veiling-glare floor out=(r+f)/(1+f), r normalized to paper white; applied when flare is on.
-    # Veiling-glare fraction: transmittance = (t + f·white)/(1+f).
-    # ↑ stronger glare (lifts shadows, reduces shadow contrast, milky look); ↓ cleaner shadows.
-    "flare_fraction": 0.005,
     # ── Flat / digital-intermediate master (RenderIntent.FLAT) ──────────────
     # A true log-video master: the normalized log signal is emitted directly as the
     # code value (positive-oriented 1 - val), with NO 10^-D decode and NO sRGB OETF,

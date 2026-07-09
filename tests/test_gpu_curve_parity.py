@@ -5,6 +5,7 @@ shader (exposure.wgsl). They must agree, or GPU previews drift from CPU exports.
 """
 
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
@@ -40,6 +41,47 @@ class TestGpuCurveParity(unittest.TestCase):
         img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
 
         settings = WorkspaceConfig()
+        cpu = self._render(processor, settings, img, prefer_gpu=False)
+        gpu = self._render(processor, settings, img, prefer_gpu=True)
+
+        self.assertEqual(cpu.shape, gpu.shape)
+        mad = float(np.mean(np.abs(cpu - gpu)))
+        mx = float(np.max(np.abs(cpu - gpu)))
+        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
+    def test_cpu_gpu_match_trims_true_black(self):
+        """Crossover trims fold CPU-side, True Black + midtone gamma ride the
+        uniforms — the WGSL mirror must track all of them."""
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        rng = np.random.default_rng(1)
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
+
+        settings = WorkspaceConfig()
+        settings = replace(
+            settings,
+            exposure=replace(
+                settings.exposure,
+                grade_trim_red=25.0,
+                grade_trim_blue=-20.0,
+                toe_trim_red=0.5,
+                toe_trim_blue=-0.4,
+                shoulder_trim_green=0.3,
+                true_black=True,
+                midtone_gamma=0.3,
+                toe=-0.6,
+                paper_profile="fuji_crystal",
+            ),
+        )
         cpu = self._render(processor, settings, img, prefer_gpu=False)
         gpu = self._render(processor, settings, img, prefer_gpu=True)
 

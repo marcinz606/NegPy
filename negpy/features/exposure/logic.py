@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from numba import njit, prange  # type: ignore
@@ -52,8 +52,8 @@ def _apply_print_curve_kernel(
     pivots: np.ndarray,
     slopes: np.ndarray,
     curvatures: np.ndarray,
-    toe: float,
-    shoulder: float,
+    toe: np.ndarray,
+    shoulder: np.ndarray,
     toe_width: float,
     shoulder_width: float,
     cmy_offsets: np.ndarray,
@@ -75,8 +75,8 @@ def _apply_print_curve_kernel(
     ev_map: np.ndarray,
     ev_scale: np.ndarray,
     use_ev: bool,
-    flare: float = 0.0,
     surround_gamma: float = 1.0,
+    bpc: bool = False,
 ) -> np.ndarray:
     """
     Asymmetric H&D print curve: a straight line of slope `slope` through the
@@ -84,7 +84,8 @@ def _apply_print_curve_kernel(
     d_max) and below by the shoulder (highlights -> paper white d_min). Toe and
     shoulder are independent softplus bounds, so the `toe` slider shapes only
     shadows and `shoulder` only highlights (film/print convention). `toe`/`shoulder`
-    arrive pre-scaled by toe_shoulder_strength.
+    are per-channel 3-arrays (global value + per-layer trims — endpoint crossover),
+    pre-scaled by toe_shoulder_strength.
 
     d_min_rgb: per-channel paper-white floor (base+fog incl. tint). dye_mix:
     dye coupling above that floor (D_rgb = M · D_dye) when use_dye_mix is set.
@@ -93,6 +94,11 @@ def _apply_print_curve_kernel(
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
+
+    bpc: black point compensation — remap so the paper's physical Dmax (run
+    through the same surround transform) lands on display black, like an
+    ICC relative-colorimetric soft-proof. Referenced to the neutral d_max, not
+    d_max_eff, so a lifted toe and per-channel shadow casts survive.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -102,20 +108,23 @@ def _apply_print_curve_kernel(
     # toe -> shadow (upper / paper-black) bound; shoulder -> highlight (lower /
     # paper-white) bound. a_toe_base/a_sh_base carry the shadow/highlight sharpness.
     a_hl = a_sh_base * width_ref / max(shoulder_width, eps)
-    a_sh = a_toe_base * width_ref / max(toe_width, eps)
-    if toe >= 0.0:
-        d_max_base = d_max - toe * toe_height
-    else:
-        # Negative toe: tighten the shadow roll-off (sharper knee) rather than
-        # extending d_max_eff beyond paper black (perceptually near-zero effect).
-        d_max_base = d_max
-        a_sh = a_sh * (1.0 - toe * 4.0)
+    a_sh_w = a_toe_base * width_ref / max(toe_width, eps)
 
+    a_sh = np.empty(3, dtype=np.float64)
     d_min_eff = np.empty(3, dtype=np.float64)
     d_max_eff = np.empty(3, dtype=np.float64)
-    flare_white = np.empty(3, dtype=np.float64)
+    bpc_black = np.empty(3, dtype=np.float64)
     for ch in range(3):
-        dmn = d_min_rgb[ch] + shoulder * sh_height
+        t_ch = toe[ch]
+        if t_ch >= 0.0:
+            d_max_base = d_max - t_ch * toe_height
+            a_sh[ch] = a_sh_w
+        else:
+            # Negative toe: tighten the shadow roll-off (sharper knee) rather than
+            # extending d_max_eff beyond paper black (perceptually near-zero effect).
+            d_max_base = d_max
+            a_sh[ch] = a_sh_w * (1.0 - t_ch * 4.0)
+        dmn = d_min_rgb[ch] + shoulder[ch] * sh_height
         if dmn < 0.0:
             dmn = 0.0
         dmx = d_max_base
@@ -123,7 +132,18 @@ def _apply_print_curve_kernel(
             dmx = dmn + 0.1
         d_min_eff[ch] = dmn
         d_max_eff[ch] = dmx
-        flare_white[ch] = 10.0 ** (-d_min_rgb[ch])
+        # BPC reference: the physical paper black (d_max, not d_max_eff) run
+        # through the same surround transform as the pixel path. The curve only
+        # reaches d_max asymptotically, so a negative toe raises the clip point
+        # into the shadows — that is what makes exact 0 attainable ("negative
+        # deepens blacks", literally, when True Black is on); with per-channel
+        # toe this also tints the deepest black.
+        db = d_max
+        if t_ch < 0.0:
+            db = d_max + t_ch * toe_height
+        if surround_gamma != 1.0:
+            db = d_min_rgb[ch] + surround_gamma * (db - d_min_rgb[ch])
+        bpc_black[ch] = 10.0**-db
 
     # Rows are independent, so parallelise over y. `dens` is allocated per row so
     # each worker thread has its own scratch (no cross-iteration sharing).
@@ -151,7 +171,7 @@ def _apply_print_curve_kernel(
                 # Shoulder: smooth lower bound at paper white (highlights).
                 v1 = d_min_eff[ch] + _softplus(a_hl * (v - d_min_eff[ch])) / a_hl
                 # Toe: smooth upper bound at paper black (shadows).
-                dens[ch] = d_max_eff[ch] - _softplus(a_sh * (d_max_eff[ch] - v1)) / a_sh
+                dens[ch] = d_max_eff[ch] - _softplus(a_sh[ch] * (d_max_eff[ch] - v1)) / a_sh[ch]
 
             if use_dye_mix:
                 # Dye unwanted absorptions: mix the densities above paper base.
@@ -168,8 +188,8 @@ def _apply_print_curve_kernel(
                     density = d_min_rgb[ch] + surround_gamma * (density - d_min_rgb[ch])
 
                 transmittance = 10.0 ** (-density)
-                if flare != 0.0:
-                    transmittance = (transmittance + flare * flare_white[ch]) / (1.0 + flare)
+                if bpc:
+                    transmittance = (transmittance - bpc_black[ch]) / (1.0 - bpc_black[ch])
 
                 final_val = transmittance
                 if final_val < 0.0:
@@ -197,9 +217,10 @@ class CharacteristicCurve:
         toe_width: float = 2.5,
         shoulder: float = 0.0,
         shoulder_width: float = 2.5,
-        flare: float = 0.0,
         surround_gamma: float = 1.0,
         paper: Optional[PaperProfile] = None,
+        midtone_gamma: Optional[float] = None,
+        bpc: bool = False,
     ):
         c = effective_constants(paper)
         ts = float(c["toe_shoulder_strength"])
@@ -207,11 +228,18 @@ class CharacteristicCurve:
         self.x0 = float(pivot)
         self.d_min = float(d_min)
         self.v_star = _reference_linear_value(d_min, paper)
-        self.midtone_gamma = float(c["paper_midtone_gamma"])
+        self.midtone_gamma = float(c["paper_midtone_gamma"]) if midtone_gamma is None else float(midtone_gamma)
         self.gamma_width = float(c["paper_gamma_width"])
         self.d_max = float(c["d_max"])
-        self.flare = float(flare)
         self.surround_gamma = float(surround_gamma)
+        # BPC reference mirrors the kernel prologue (achromatic: d_min for the tint).
+        self.bpc = bool(bpc)
+        db = self.d_max
+        if toe * ts < 0.0:
+            db = self.d_max + toe * ts * float(c["toe_height"])
+        if surround_gamma != 1.0:
+            db = self.d_min + surround_gamma * (db - self.d_min)
+        self.bpc_black = 10.0**-db
         wr = float(c["toeshoulder_width_ref"])
         # toe -> shadow (upper) bound; shoulder -> highlight (lower) bound.
         self.a_hl = float(c["shoulder_sharpness_base"]) * wr / max(shoulder_width, 1e-6)
@@ -237,13 +265,35 @@ class CharacteristicCurve:
         if self.surround_gamma != 1.0:
             res = self.d_min + self.surround_gamma * (res - self.d_min)
 
-        if self.flare != 0.0:
-            white = 10.0 ** (-self.d_min)
+        if self.bpc:
             t = 10.0 ** (-res)
-            t = (t + self.flare * white) / (1.0 + self.flare)
+            t = (t - self.bpc_black) / (1.0 - self.bpc_black)
             res = -np.log10(np.maximum(t, 1e-12))
 
         return ensure_image(res)
+
+
+def per_channel_toe_shoulder(
+    toe_eff: float,
+    shoulder_eff: float,
+    toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Per-layer effective toe/shoulder: grade-coupled global value + per-layer trim,
+    clamped to the slider domain. Single source of truth for CPU / GPU / chart.
+    """
+
+    def _clamp(v: float) -> float:
+        return min(max(v, -1.0), 1.0)
+
+    toe3 = (_clamp(toe_eff + toe_trims[0]), _clamp(toe_eff + toe_trims[1]), _clamp(toe_eff + toe_trims[2]))
+    sh3 = (
+        _clamp(shoulder_eff + shoulder_trims[0]),
+        _clamp(shoulder_eff + shoulder_trims[1]),
+        _clamp(shoulder_eff + shoulder_trims[2]),
+    )
+    return toe3, sh3
 
 
 def paper_dmin_rgb(d_min: float, paper: Optional[PaperProfile]) -> Tuple[float, float, float]:
@@ -271,13 +321,15 @@ def apply_characteristic_curve(
     highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     d_min: float = 0.0,
-    flare: float = 0.0,
     surround_gamma: float = 1.0,
     midtone_gamma: Optional[float] = None,
     curvatures: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     paper: Optional[PaperProfile] = None,
     ev_map: Optional[np.ndarray] = None,
     ev_scale: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    bpc: bool = False,
+    toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -299,13 +351,14 @@ def apply_characteristic_curve(
     use_ev = ev_map is not None
     ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
 
+    toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
     res = _apply_print_curve_kernel(
         np.ascontiguousarray(img.astype(np.float32)),
         pivots,
         slopes,
         curvs,
-        float(toe * ts),
-        float(shoulder * ts),
+        np.array([t * ts for t in toe3], dtype=np.float64),
+        np.array([s * ts for s in sh3], dtype=np.float64),
         float(toe_width),
         float(shoulder_width),
         offsets,
@@ -327,8 +380,8 @@ def apply_characteristic_curve(
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
-        flare=float(flare),
         surround_gamma=float(surround_gamma),
+        bpc=bool(bpc),
     )
     return ensure_image(res)
 
@@ -403,6 +456,24 @@ def slope_to_grade(slope: float, density_range: Optional[float]) -> float:
         return float(c["iso_r_max"])
     er = float(c["grade_contrast_scale"]) * rng / float(slope)
     return float(min(max(er * 100.0, c["iso_r_min"]), c["iso_r_max"]))
+
+
+def effective_midtone_gamma(paper: Optional[PaperProfile], trim: float) -> float:
+    """
+    Paper's variable midtone gamma plus the user's additive trim. Single source
+    of truth for CPU / GPU / chart.
+    """
+    return float(effective_constants(paper)["paper_midtone_gamma"]) + float(trim)
+
+
+def _grade_trim_mult(grade: float, trim: float, c: Dict[str, Any]) -> float:
+    """
+    Per-layer ISO-R trim -> slope ratio: k ∝ 1/R, so a ΔR trim is the pure
+    ratio R/(R+ΔR), with both grades clamped to the R ladder.
+    """
+    r0 = min(max(float(grade), float(c["iso_r_min"])), float(c["iso_r_max"]))
+    r1 = min(max(r0 + float(trim), float(c["iso_r_min"])), float(c["iso_r_max"]))
+    return r0 / r1
 
 
 def grade_coupled_shape(slope_g: float, toe: float, shoulder: float) -> Tuple[float, float]:
@@ -542,6 +613,7 @@ def per_channel_curve_params(
     anchor: Optional[float] = None,
     paper: Optional[PaperProfile] = None,
     neutral_axis_norm: Any = None,
+    grade_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
     """
     Per-channel (slopes, pivots, curvatures); single source of truth for CPU/GPU/chart.
@@ -557,6 +629,14 @@ def per_channel_curve_params(
     # pivot is re-solved per channel so neutrals stay neutral and colour diverges
     # only away from the midtone.
     cg = paper.channel_gamma if paper is not None else (1.0, 1.0, 1.0)
+    if grade_trims != (0.0, 0.0, 0.0):
+        # Crossover trims: a per-layer ISO-R delta is a user channel_gamma — the
+        # pivot re-solve below keeps the anchor tone neutral under the rotation.
+        cg = (
+            cg[0] * _grade_trim_mult(grade, grade_trims[0], c),
+            cg[1] * _grade_trim_mult(grade, grade_trims[1], c),
+            cg[2] * _grade_trim_mult(grade, grade_trims[2], c),
+        )
     slope_min = float(c["slope_min"])
     slope_max = float(c["slope_max"])
     r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)

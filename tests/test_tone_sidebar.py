@@ -1,3 +1,4 @@
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 from negpy.desktop.session import AppState
@@ -24,3 +25,69 @@ def test_paper_combo_rebuilt_only_when_entries_change(qapp):
     sidebar.sync_ui()  # unchanged process mode -> no rebuild
     assert clears == []
     assert _combo_items(sidebar.paper_combo) == items
+
+
+def test_channel_selector_retargets_and_syncs(qapp):
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    cfg = controller.state.config
+    controller.state.config = replace(
+        cfg,
+        exposure=replace(
+            cfg.exposure,
+            grade_trim_red=15.0,
+            toe_trim_red=0.4,
+            shoulder_trim_red=-0.2,
+            true_black=True,
+            midtone_gamma=0.25,
+        ),
+    )
+    sidebar.sync_ui()
+
+    # Global page: shared curve values, ISO-R grade slider shown.
+    assert sidebar._curve_field("toe") == "toe"
+    assert not sidebar.grade_slider.isHidden()
+    assert sidebar.grade_trim_slider.isHidden()
+    assert sidebar.true_black_btn.isChecked()
+    assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
+
+    # Red page: sliders retarget to the red trims; global-only controls grey out.
+    sidebar.ch_r_btn.setChecked(True)
+
+    assert sidebar._curve_field("toe") == "toe_trim_red"
+    assert sidebar._curve_field("shoulder") == "shoulder_trim_red"
+    assert sidebar.grade_slider.isHidden()
+    assert not sidebar.grade_trim_slider.isHidden()
+    assert sidebar.grade_trim_slider.value() == 15.0
+    assert abs(sidebar.toe_slider.value() - 0.4) < 1e-9
+    assert abs(sidebar.sh_slider.value() - (-0.2)) < 1e-9
+    assert sidebar.toe_slider.label.text() == "Toe R"
+    for w in sidebar._global_only:
+        assert not w.isEnabled()
+
+    # Back to Global: values and enablement restore.
+    sidebar.ch_global_btn.setChecked(True)
+    assert sidebar.toe_slider.value() == 0.0
+    for w in sidebar._global_only:
+        assert w.isEnabled()
+
+
+def test_channel_selector_hidden_in_bw(qapp):
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    sidebar.sync_ui()
+    assert not sidebar.ch_r_btn.isHidden()
+    sidebar.ch_r_btn.setChecked(True)
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, process_mode="B&W"))
+    sidebar.sync_ui()
+    for w in (sidebar.ch_global_btn, sidebar.ch_r_btn, sidebar.ch_g_btn, sidebar.ch_b_btn):
+        assert w.isHidden()
+    # Forced back to the Global page.
+    assert sidebar._channel_index() == 0
+    assert not sidebar.grade_slider.isHidden()

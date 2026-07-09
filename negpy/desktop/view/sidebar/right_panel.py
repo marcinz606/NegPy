@@ -334,6 +334,7 @@ class RightPanel(QWidget):
                 d_min=d_min,
                 anchor=anchor,
                 paper=paper,
+                grade_trims=(config.grade_trim_red, config.grade_trim_green, config.grade_trim_blue),
             )
             # Green channel is the base curve (white reference + stats slope).
             slope, pivot = slopes[1], pivots[1]

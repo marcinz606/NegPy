@@ -37,6 +37,9 @@ class AppState:
     workspace_color_space: str = "Adobe RGB"
     is_processing: bool = False
     active_tool: ToolMode = ToolMode.NONE
+    # Colour page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
+    # picker so a pick writes the selected region's CMY fields.
+    wb_pick_region: int = 0
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     thumbnails: Dict[str, Any] = field(default_factory=dict)  # filename -> QIcon/QPixmap
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
@@ -497,14 +500,19 @@ class DesktopSessionManager(QObject):
         ff_path, ff_k1 = ff_rec if ff_rec else ("", 0.0)
         config = replace(config, flatfield=replace(config.flatfield, reference_path=ff_path, k1=ff_k1))
 
-        # Temperature roll-lock: re-aim global WB at the locked Kelvin, keeping
-        # the frame's own off-locus tint.
-        locked_k = self.repo.get_global_setting("wb_temp_lock")
-        if locked_k is not None:
-            from negpy.features.exposure.logic import kelvin_to_wb
+        # Temperature roll-locks (per region): re-aim each locked region's M/Y
+        # pair at its Kelvin target, keeping the frame's own off-locus tint.
+        for lock_key, m_field, y_field in (
+            ("wb_temp_lock", "wb_magenta", "wb_yellow"),
+            ("wb_temp_lock_shadow", "shadow_magenta", "shadow_yellow"),
+            ("wb_temp_lock_highlight", "highlight_magenta", "highlight_yellow"),
+        ):
+            locked_k = self.repo.get_global_setting(lock_key)
+            if locked_k is not None:
+                from negpy.features.exposure.logic import kelvin_to_wb
 
-            m2, y2 = kelvin_to_wb(float(locked_k), config.exposure.wb_magenta, config.exposure.wb_yellow)
-            config = replace(config, exposure=replace(config.exposure, wb_magenta=m2, wb_yellow=y2))
+                m2, y2 = kelvin_to_wb(float(locked_k), getattr(config.exposure, m_field), getattr(config.exposure, y_field))
+                config = replace(config, exposure=replace(config.exposure, **{m_field: m2, y_field: y2}))
 
         if only_global:
             return config

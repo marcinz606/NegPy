@@ -1017,7 +1017,9 @@ class GPUEngine:
         from negpy.features.exposure.logic import (
             _reference_linear_value,
             effective_cast_strength,
+            effective_midtone_gamma,
             filtration_offsets,
+            per_channel_toe_shoulder,
             grade_coupled_shape,
             local_ev_scale,
             normalize_refs,
@@ -1065,9 +1067,21 @@ class GPUEngine:
             anchor=render_anchor,
             paper=paper,
             neutral_axis_norm=neutral_axis_norm,
+            grade_trims=(exp.grade_trim_red, exp.grade_trim_green, exp.grade_trim_blue),
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
+        # Per-channel effective toe/shoulder (global + layer trims), pre-scaled;
+        # carried in the spare vec4 w-lanes — the uniform block is full at 256B.
+        _ts_k = float(EXPOSURE_CONSTANTS["toe_shoulder_strength"])
+        _toe3, _sh3 = per_channel_toe_shoulder(
+            _toe_eff,
+            _shoulder_eff,
+            (exp.toe_trim_red, exp.toe_trim_green, exp.toe_trim_blue),
+            (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
+        )
+        _toe3 = tuple(t * _ts_k for t in _toe3)
+        _sh3 = tuple(s * _ts_k for s in _sh3)
         # Mirrors apply_characteristic_curve (absolute CC, paper base, dye mix).
         wb_offsets = filtration_offsets(
             (exp.wb_cyan, exp.wb_magenta, exp.wb_yellow),
@@ -1077,24 +1091,26 @@ class GPUEngine:
         dye = resolve_dye_matrix(paper)
         dye_rows = np.eye(3) if dye is None else dye
 
+        # The w-lanes carry per-channel toe (first three vec4s) and shoulder
+        # (next three) — see the toe3/sh3 reads in exposure.wgsl.
         e_data = (
-            struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)
-            + struct.pack("ffff", slopes[0], slopes[1], slopes[2], 0.0)
-            + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], 0.0)
-            + struct.pack("ffff", wb_offsets[0], wb_offsets[1], wb_offsets[2], 0.0)
+            struct.pack("ffff", pivots[0], pivots[1], pivots[2], _toe3[0])
+            + struct.pack("ffff", slopes[0], slopes[1], slopes[2], _toe3[1])
+            + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], _toe3[2])
+            + struct.pack("ffff", wb_offsets[0], wb_offsets[1], wb_offsets[2], _sh3[0])
             + struct.pack(
                 "ffff",
                 exp.shadow_cyan * cmy_m,
                 exp.shadow_magenta * cmy_m,
                 exp.shadow_yellow * cmy_m,
-                0.0,
+                _sh3[1],
             )
             + struct.pack(
                 "ffff",
                 exp.highlight_cyan * cmy_m,
                 exp.highlight_magenta * cmy_m,
                 exp.highlight_yellow * cmy_m,
-                0.0,
+                _sh3[2],
             )
             # Asymmetric H&D print-curve scalars; mirrors _apply_print_curve_kernel.
             + struct.pack(
@@ -1111,14 +1127,17 @@ class GPUEngine:
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
-                float(EXPOSURE_CONSTANTS["flare_fraction"]) if exp.flare else 0.0,
+                0.0,  # pad (former flare slot)
                 float(EXPOSURE_CONSTANTS["target_system_gamma"]) if exp.surround else 1.0,
                 mode_val,
                 _reference_linear_value(d_min, paper),
-                float(pc["paper_midtone_gamma"]),
+                effective_midtone_gamma(paper, exp.midtone_gamma),
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                0.0,  # pad to 16B before the vec4s
+                # BPC flag (was the 16B pad). NOTE: the exposure uniform block is
+                # full at 256B — further per-channel params go in the spare
+                # w-lanes of the vec4s before any layout change.
+                1.0 if exp.true_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], 0.0)

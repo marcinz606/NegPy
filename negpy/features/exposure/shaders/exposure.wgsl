@@ -17,13 +17,15 @@ struct ExposureUniforms {
     toe_height: f32,
     sh_height: f32,
     zone_center: f32,
-    flare: f32,
+    pad0: f32,  // former flare slot, kept to preserve the 256B layout
     surround_gamma: f32,
     mode: u32,
     v_star: f32,
     midtone_gamma: f32,
     gamma_width: f32,
     use_dye: u32,
+    // Black point compensation flag (0/1); was the 16B pad before d_min_rgb.
+    bpc: f32,
     // Per-channel paper-white floor (base+fog incl. tint); the curve reads this, not d_min.
     d_min_rgb: vec4<f32>,
     // Row-normalized dye coupling rows (D_rgb = M * D_dye above base).
@@ -85,14 +87,20 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // sharpness; width sets gentleness, slider sets roll-off height.
     let a_hl = params.a_sh_base * params.width_ref / max(params.shoulder_width, eps);
     let a_sh_base = params.a_toe_base * params.width_ref / max(params.toe_width, eps);
+    // Per-channel toe/shoulder (global + layer trims, pre-scaled CPU-side via
+    // per_channel_toe_shoulder). The uniform block is full at 256B, so the
+    // spare vec4 w-lanes carry them; the scalar toe/shoulder fields keep the
+    // global value for layout only.
+    let toe3 = vec3<f32>(params.pivots.w, params.slopes.w, params.curvatures.w);
+    let sh3 = vec3<f32>(params.cmy_offsets.w, params.shadow_cmy.w, params.highlight_cmy.w);
+    let toe_neg = toe3 < vec3<f32>(0.0);
     // Negative toe: tighten shadow roll-off (sharper knee) rather than extending
     // d_max_eff beyond paper black (perceptually near-zero effect above d_max).
-    let a_sh = select(a_sh_base * (1.0 - params.toe * 4.0), a_sh_base, params.toe >= 0.0);
+    let a_sh = select(vec3<f32>(a_sh_base), a_sh_base * (1.0 - toe3 * 4.0), toe_neg);
     let d_min_rgb = params.d_min_rgb.xyz;
-    let d_min_eff = max(d_min_rgb + vec3<f32>(params.shoulder * params.sh_height), vec3<f32>(0.0));
-    let d_max_base = select(params.d_max, params.d_max - params.toe * params.toe_height, params.toe >= 0.0);
-    let d_max_eff = max(vec3<f32>(d_max_base), d_min_eff + vec3<f32>(0.1));
-    let flare_white = pow(vec3<f32>(10.0), -d_min_rgb);
+    let d_min_eff = max(d_min_rgb + sh3 * params.sh_height, vec3<f32>(0.0));
+    let d_max_base = select(vec3<f32>(params.d_max) - toe3 * params.toe_height, vec3<f32>(params.d_max), toe_neg);
+    let d_max_eff = max(d_max_base, d_min_eff + vec3<f32>(0.1));
 
     // Dodge/burn print-exposure offset (EV stops), same domain as cmy_offsets.
     var ev = 0.0;
@@ -121,7 +129,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // Shoulder: smooth lower bound at paper white (highlights).
         let v1 = d_min_eff[ch] + softplus(a_hl * (v - d_min_eff[ch])) / a_hl;
         // Toe: smooth upper bound at paper black (shadows).
-        dens[ch] = d_max_eff[ch] - softplus(a_sh * (d_max_eff[ch] - v1)) / a_sh;
+        dens[ch] = d_max_eff[ch] - softplus(a_sh[ch] * (d_max_eff[ch] - v1)) / a_sh[ch];
     }
 
     // Dye unwanted absorptions: mix the densities above paper base.
@@ -140,8 +148,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     var transmittance = pow(vec3<f32>(10.0), -density);
-    if (params.flare != 0.0) {
-        transmittance = (transmittance + params.flare * flare_white) / (1.0 + params.flare);
+    // Black point compensation: map the physical paper black (d_max, run through
+    // the same surround transform) to display black. Mirrors the CPU kernel
+    // prologue; oetf_encode clamps the negative deep-shadow tail to 0.
+    if (params.bpc != 0.0) {
+        // Negative toe raises the clip point into the shadows (the curve only
+        // reaches d_max asymptotically) — exact black becomes attainable, and
+        // per-channel toe tints the deepest black.
+        var db = vec3<f32>(params.d_max) + select(vec3<f32>(0.0), toe3 * params.toe_height, toe_neg);
+        if (params.surround_gamma != 1.0) {
+            db = d_min_rgb + params.surround_gamma * (db - d_min_rgb);
+        }
+        let tb = pow(vec3<f32>(10.0), -db);
+        transmittance = (transmittance - tb) / (vec3<f32>(1.0) - tb);
     }
 
     let res = vec3<f32>(

@@ -8,6 +8,7 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
     effective_cast_strength,
+    effective_midtone_gamma,
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
@@ -227,6 +228,7 @@ class PhotometricProcessor:
             anchor=anchor,
             paper=paper,
             neutral_axis_norm=neutral_axis_norm,
+            grade_trims=(self.config.grade_trim_red, self.config.grade_trim_green, self.config.grade_trim_blue),
         )
 
         c = EXPOSURE_CONSTANTS
@@ -270,12 +272,15 @@ class PhotometricProcessor:
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
             d_min=d_min,
-            flare=EXPOSURE_CONSTANTS["flare_fraction"] if self.config.flare else 0.0,
             surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
+            midtone_gamma=effective_midtone_gamma(paper, self.config.midtone_gamma),
             curvatures=curvatures,
             paper=paper,
             ev_map=ev_map,
             ev_scale=local_ev_scale(final_bounds),
+            bpc=self.config.true_black,
+            toe_trims=(self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
+            shoulder_trims=(self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),
         )
 
         if context.process_mode == ProcessMode.BW:
@@ -289,7 +294,7 @@ class PhotometricProcessor:
         """
         Flat log-master render: emits the normalized log signal directly (a flat,
         milky log-video look), dropping all creative print decisions — no auto
-        density/grade, cast removal, toe/shoulder, surround/flare. A fixed gain/lift
+        density/grade, cast removal, toe/shoulder, surround. A fixed gain/lift
         keeps the master consistent across a roll and holds maximal editing latitude.
 
         Manual global white balance (the WB picker / CMY global) is still honoured
