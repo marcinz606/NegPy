@@ -113,11 +113,19 @@ class ImageProcessor:
         # Flat-field is a source pre-correction (before geometry/crop); folding its token
         # into source_hash invalidates the engine cache when it changes.
         img = apply_flatfield(img, settings.flatfield)
+        h_orig, w_cols = img.shape[:2]
+        # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
+        # file at full resolution with unchanged settings, so without this the engine
+        # cache reports "nothing changed" and returns the stale low-res render instead
+        # of re-rendering the new full-res buffer.
         source_hash = (
-            source_hash + flatfield_token(settings.flatfield) + rgbscan_token(settings.rgbscan) + linear_raw_token(settings.process)
+            source_hash
+            + flatfield_token(settings.flatfield)
+            + rgbscan_token(settings.rgbscan)
+            + linear_raw_token(settings.process)
+            + f"|res{w_cols}x{h_orig}"
         )
 
-        h_orig, w_cols = img.shape[:2]
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
 
         context = PipelineContext(
