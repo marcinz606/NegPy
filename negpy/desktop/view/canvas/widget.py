@@ -150,6 +150,8 @@ class ImageCanvas(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._layout_floating_widgets()
+        # The fit scale moves with the viewport, so the true-zoom % readout must refresh.
+        self.zoom_changed.emit(self.zoom_level)
 
     def _layout_floating_widgets(self) -> None:
         self.hud.setGeometry(self.rect())
@@ -183,27 +185,57 @@ class ImageCanvas(QWidget):
             self.pan_offset = QPointF(0, 0)
         self._sync_transform()
 
-    def fit_to_window(self) -> None:
-        """Fit image to the visible viewport (zoom to fill, reset pan)."""
-        metrics = self.state.last_metrics
-        buf = metrics.get("base_positive")
+    def _image_dims(self) -> Optional[Tuple[int, int]]:
+        """Current rendered image size as (width, height), or None if nothing is shown."""
+        buf = self.state.last_metrics.get("base_positive")
         if buf is None:
-            self.set_zoom(1.0)
-            return
+            return None
         import numpy as np
 
         if isinstance(buf, np.ndarray):
-            img_h, img_w = buf.shape[:2]
-        elif isinstance(buf, GPUTexture):
-            img_w, img_h = buf.width, buf.height
-        else:
+            return int(buf.shape[1]), int(buf.shape[0])
+        if isinstance(buf, GPUTexture):
+            return int(buf.width), int(buf.height)
+        return None
+
+    def _fit_scale(self) -> Optional[float]:
+        """Device-pixel scale the shader applies at zoom_level 1.0 — its fit ratio
+        min(viewport / image). True pixel zoom = zoom_level * _fit_scale()."""
+        dims = self._image_dims()
+        if not dims:
+            return None
+        img_w, img_h = dims
+        dpr = self.devicePixelRatioF()
+        vw = max(1.0, self.width() * dpr)
+        vh = max(1.0, self.height() * dpr)
+        return min(vw / max(1, img_w), vh / max(1, img_h))
+
+    def current_zoom_percent(self) -> int:
+        """True pixel zoom percentage (100 = 1 image pixel : 1 device pixel)."""
+        fs = self._fit_scale() or 1.0
+        return int(round(self.zoom_level * fs * 100.0))
+
+    def fit_to_window(self) -> None:
+        """Fit the image to the viewport (zoom_level 1.0 is the shader's fit); reset pan."""
+        self.set_zoom(1.0)
+
+    def zoom_to_percent(self, percent: float) -> None:
+        """Set the true pixel zoom to ``percent`` (100 = 1 image pixel : 1 device pixel)."""
+        fs = self._fit_scale()
+        if not fs:
             self.set_zoom(1.0)
             return
-        vw, vh = max(1, self.width()), max(1, self.height())
-        zoom = min(vw / max(1, img_w), vh / max(1, img_h))
-        self.zoom_level = clamp_canvas_zoom_level(zoom)
-        self.pan_offset = QPointF(0, 0)
+        zmin = APP_CONFIG.canvas_zoom_min
+        # Allow above the normal wheel max so true 100% stays reachable for images much
+        # larger than the viewport (where 1 / fit_scale exceeds canvas_zoom_max).
+        self.zoom_level = max(zmin, (percent / 100.0) / fs)
+        if self.zoom_level <= 1.0:
+            self.pan_offset = QPointF(0, 0)
         self._sync_transform()
+
+    def zoom_to_original(self) -> None:
+        """Zoom to true 1:1 pixels (100%)."""
+        self.zoom_to_percent(100.0)
 
     def set_monitor_profile(self, monitor_icc_bytes: Optional[bytes]) -> None:
         """Forward the detected monitor ICC profile to the GPU display path."""
@@ -447,6 +479,9 @@ class ImageCanvas(QWidget):
             self.overlay.show()
             self.overlay.raise_()
         self._raise_floating_widgets()
+        # The image resolution can change between renders (e.g. toggling HQ), which
+        # shifts the fit scale, so refresh the true-zoom % readout for the new buffer.
+        self.zoom_changed.emit(self.zoom_level)
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
         self.overlay.update_overlay(filename, res, colorspace, extra, edits)

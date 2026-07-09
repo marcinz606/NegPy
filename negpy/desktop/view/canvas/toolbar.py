@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import swatch_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -119,8 +120,20 @@ class ActionToolbar(QWidget):
         self.zoom_slider.setValue(100)
         self.zoom_slider.setFixedWidth(80)
         self.zoom_label = QLabel("100%")
-        self.zoom_label.setFixedWidth(35)
+        self.zoom_label.setFixedWidth(42)
         self.zoom_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;")
+
+        self.btn_zoom_fit = QToolButton()
+        self.btn_zoom_fit.setIcon(qta.icon("fa5s.expand", color=icon_color))
+        self.btn_zoom_fit.setToolTip(tooltip_with_shortcut("Fit to Window", "fit_view"))
+        self.btn_zoom_original = QToolButton()
+        self.btn_zoom_original.setText("1:1")
+        self.btn_zoom_original.setToolTip(
+            tooltip_with_shortcut(
+                "Original size (100%). Displays a lower-resolution preview unless HQ is enabled.",
+                "zoom_100",
+            )
+        )
 
         self.btn_hq = QToolButton()
         self.btn_hq.setText("HQ")
@@ -260,6 +273,8 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self._sep1)
         row_layout.addWidget(self.zoom_slider)
         row_layout.addWidget(self.zoom_label)
+        row_layout.addWidget(self.btn_zoom_fit)
+        row_layout.addWidget(self.btn_zoom_original)
         row_layout.addWidget(self.btn_hq)
         for btn in self.canvas_color_btns:
             row_layout.addWidget(btn)
@@ -299,6 +314,8 @@ class ActionToolbar(QWidget):
         self.canvas_color_group.idToggled.connect(self._on_canvas_color_changed)
 
         self.zoom_slider.valueChanged.connect(lambda v: self.controller.zoom_requested.emit(float(v / 100.0)))
+        self.btn_zoom_fit.clicked.connect(self._on_fit_clicked)
+        self.btn_zoom_original.clicked.connect(self._on_original_clicked)
         self.btn_hq.clicked.connect(self.controller.toggle_hq_preview)
         self.btn_compare.clicked.connect(self.controller.toggle_compare)
         self.controller.compare_changed.connect(self.btn_compare.setChecked)
@@ -359,11 +376,24 @@ class ActionToolbar(QWidget):
                 self.controller.canvas.set_background_color(r, g, b)
 
     def _on_zoom_changed(self, zoom: float) -> None:
+        # The slider tracks the internal fit-relative zoom_level; the label shows the
+        # true pixel zoom (zoom_level x fit_scale), which is what the user cares about.
         self.zoom_slider.blockSignals(True)
-        zoom_pct = int(round(max(0.0, zoom) * 100.0))
-        self.zoom_slider.setValue(zoom_pct)
+        self.zoom_slider.setValue(int(round(max(0.0, zoom) * 100.0)))
         self.zoom_slider.blockSignals(False)
-        self.zoom_label.setText(f"{zoom_pct}%")
+        canvas = getattr(self.controller, "canvas", None)
+        pct = canvas.current_zoom_percent() if canvas is not None else int(round(max(0.0, zoom) * 100.0))
+        self.zoom_label.setText(f"{pct}%")
+
+    def _on_fit_clicked(self) -> None:
+        canvas = getattr(self.controller, "canvas", None)
+        if canvas is not None:
+            canvas.fit_to_window()
+
+    def _on_original_clicked(self) -> None:
+        canvas = getattr(self.controller, "canvas", None)
+        if canvas is not None:
+            canvas.zoom_to_original()
 
     def rotate(self, direction: int) -> None:
         from dataclasses import replace
