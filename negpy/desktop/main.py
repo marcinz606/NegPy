@@ -15,6 +15,7 @@ from negpy.kernel.system.config import APP_CONFIG, BASE_USER_DIR
 from negpy.kernel.system.logging import get_logger, setup_logging
 from negpy.kernel.system.override import apply as apply_override
 from negpy.kernel.system.override import load_or_create as load_override
+from negpy.kernel.system.parallel import configure_cpu_parallel
 from negpy.kernel.system.paths import get_resource_path
 
 logger = get_logger(__name__)
@@ -77,6 +78,8 @@ def main() -> None:
         os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
 
         apply_override(override_cfg, APP_CONFIG)
+        # Multi-core Numba kernels: platform default (off on macOS) unless overridden.
+        configure_cpu_parallel(APP_CONFIG.cpu_parallel)
 
         _bootstrap_environment()
 

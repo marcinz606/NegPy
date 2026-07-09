@@ -10,8 +10,10 @@ per-sample fidelity is 8-bit (bounded by LUT size and profile non-linearity).
 
 from typing import Any
 import numpy as np
-from numba import njit, prange  # type: ignore
+from numba import prange  # type: ignore
 from PIL import Image, ImageCms
+
+from negpy.kernel.system.parallel import parallel_njit
 
 DEFAULT_LUT_SIZE = 33
 
@@ -43,7 +45,7 @@ def build_3d_lut(
     return np.ascontiguousarray(lut)
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@parallel_njit(cache=True, fastmath=True)
 def _apply_lut_u16_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     h = img.shape[0]
     w = img.shape[1]
@@ -108,7 +110,7 @@ def apply_lut_u16(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     return _apply_lut_u16_jit(img_c, lut_c)
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@parallel_njit(cache=True, fastmath=True)
 def _apply_lut_f32_jit(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
     h = img.shape[0]
     w = img.shape[1]

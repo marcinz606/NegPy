@@ -43,6 +43,9 @@ class AppConfig:
     override_toml_path: str = ""
     max_texture_size: int | None = None
     force_hq_preview: bool | None = None
+    # Multi-core Numba kernels on the CPU pipeline: None = platform default
+    # (on everywhere except macOS), True/False = explicit override.toml choice.
+    cpu_parallel: bool | None = None
     # Preview buffer LRU (decoded float preview before render pipeline)
     preview_cache_max_entries: int = 8
     preview_cache_max_bytes: int = 1_200_000_000

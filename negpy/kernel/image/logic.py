@@ -3,6 +3,7 @@ import os
 from typing import Any, Optional
 import numpy as np
 from numba import njit, prange  # type: ignore
+from negpy.kernel.system.parallel import parallel_njit
 from negpy.domain.types import LUMA_R, LUMA_G, LUMA_B
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.logging import get_logger
@@ -116,7 +117,7 @@ _ROMM_LIN_BREAK = 1.0 / 512.0  # linear-domain toe break (encode)
 _ROMM_ENC_BREAK = 16.0 / 512.0  # encoded-domain toe break (decode) = 1/32
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@parallel_njit(cache=True, fastmath=True)
 def _oetf_encode_flat(flat: np.ndarray, inv_gamma: float, lin_break: float) -> np.ndarray:
     """Row-parallel ProPhoto ROMM encode over a flattened buffer (shape-agnostic)."""
     n = flat.shape[0]
@@ -131,7 +132,7 @@ def _oetf_encode_flat(flat: np.ndarray, inv_gamma: float, lin_break: float) -> n
     return out
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@parallel_njit(cache=True, fastmath=True)
 def _oetf_decode_flat(flat: np.ndarray, gamma: float, enc_break: float) -> np.ndarray:
     """Inverse of _oetf_encode_flat."""
     n = flat.shape[0]
@@ -179,7 +180,7 @@ _LAB_EPS = 0.008856
 _LAB_KAPPA = 7.787
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@parallel_njit(cache=True, fastmath=True)
 def _rgb_to_lab_kernel(px: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
     """Row-parallel linear ProPhoto RGB -> CIELAB (D50) over an (N, 3) pixel list."""
     n = px.shape[0]
@@ -207,7 +208,7 @@ def _rgb_to_lab_kernel(px: np.ndarray, m: np.ndarray, white: np.ndarray, eps: fl
     return out
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@parallel_njit(cache=True, fastmath=True)
 def _lab_to_rgb_kernel(lab: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
     """Row-parallel inverse: CIELAB (D50) -> linear ProPhoto RGB over an (N, 3) pixel list."""
     n = lab.shape[0]

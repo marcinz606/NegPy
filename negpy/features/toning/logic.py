@@ -1,11 +1,12 @@
 from typing import Any, Dict
 
 import numpy as np
-from numba import njit, prange  # type: ignore
+from numba import prange  # type: ignore
 
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working
 from negpy.kernel.image.validation import ensure_image
+from negpy.kernel.system.parallel import parallel_njit
 
 TONING_CONSTANTS: Dict[str, Any] = {
     # ── Selenium (silver -> silver selenide, densest silver first) ───────────
@@ -31,7 +32,7 @@ TONING_CONSTANTS: Dict[str, Any] = {
 }
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@parallel_njit(cache=True, fastmath=True)
 def _apply_chemical_toning_jit(
     img: np.ndarray,
     sel_strength: float,

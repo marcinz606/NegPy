@@ -31,6 +31,10 @@ qt_platform = "auto"
 # Override HQ preview on startup. Uncomment to force a value.
 # force_hq_preview = false
 
+# Multi-core CPU rendering kernels. Defaults to true except on macOS, where it
+# defaults to false while crash reports are investigated. Uncomment to force.
+# cpu_parallel = true
+
 # Cap GPU texture dimensions in pixels.
 # "auto" lets wgpu/hardware decide the maximum. Set a number (e.g. 4096) to cap it.
 max_texture_size = "auto"
@@ -58,6 +62,7 @@ class OverrideConfig:
     qt_rhi_backend: str = "auto"
     qt_platform: str = "auto"
     force_hq_preview: bool | None = None
+    cpu_parallel: bool | None = None
     max_texture_size: int | None = None
     preview_cache_max_bytes: int | None = None
     preview_cache_max_entries: int | None = None
@@ -119,6 +124,9 @@ def _parse(data: dict) -> OverrideConfig:
     raw_hq = performance.get("force_hq_preview")
     force_hq: bool | None = bool(raw_hq) if isinstance(raw_hq, bool) else None
 
+    raw_par = performance.get("cpu_parallel")
+    cpu_parallel: bool | None = bool(raw_par) if isinstance(raw_par, bool) else None
+
     raw_tex = performance.get("max_texture_size")
     max_tex: int | None = int(raw_tex) if isinstance(raw_tex, int) and raw_tex > 0 else None
 
@@ -137,6 +145,7 @@ def _parse(data: dict) -> OverrideConfig:
         qt_rhi_backend=qt_rhi,
         qt_platform=qt_platform,
         force_hq_preview=force_hq,
+        cpu_parallel=cpu_parallel,
         max_texture_size=max_tex,
         preview_cache_max_bytes=cache_b,
         preview_cache_max_entries=cache_n,
@@ -196,6 +205,9 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.force_hq_preview is not None:
         app_config.force_hq_preview = cfg.force_hq_preview
+
+    if cfg.cpu_parallel is not None:
+        app_config.cpu_parallel = cfg.cpu_parallel
 
     if cfg.preview_cache_max_bytes is not None:
         app_config.preview_cache_max_bytes = cfg.preview_cache_max_bytes
