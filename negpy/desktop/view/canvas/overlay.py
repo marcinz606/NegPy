@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QKeySequence, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QShortcut
+from PyQt6.QtGui import QColor, QCursor, QImage, QKeySequence, QMouseEvent, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QShortcut
 from PyQt6.QtWidgets import QWidget
 
 from negpy.desktop.converters import ImageConverter
@@ -87,6 +87,7 @@ class CanvasOverlay(QWidget):
         self._rotate_start_fine: float = 0.0
         self._rotate_current: Optional[float] = None
         self._rot_handle_pixmap: Optional[QPixmap] = None
+        self._rotate_cursor: Optional[QCursor] = None
 
         # Freehand analysis-region interaction (transformed-normalized, like the crop rect).
         self._analysis_rect_norm: Optional[Tuple[float, float, float, float]] = None
@@ -178,6 +179,8 @@ class CanvasOverlay(QWidget):
         else:
             self._crop_rect_norm = None
             self._end_crop_drag()
+            # Drop any contextual crop cursor so the widget inherits the tool default.
+            self.unsetCursor()
         if mode == ToolMode.ANALYSIS_DRAW:
             self._analysis_rect_norm = self.state.config.process.analysis_rect
         else:
@@ -567,6 +570,36 @@ class CanvasOverlay(QWidget):
                 return True
         return False
 
+    def _rotation_cursor(self) -> QCursor:
+        """A rotate-icon cursor for hovering the crop rotation handles."""
+        if self._rotate_cursor is None:
+            pix = qta.icon("fa5s.sync-alt", color="white").pixmap(22, 22)
+            self._rotate_cursor = QCursor(pix)
+        return self._rotate_cursor
+
+    def _update_crop_hover_cursor(self, pos: QPointF) -> None:
+        """Set a contextual cursor while hovering the crop tool (not dragging), so the
+        available action — rotate, resize, move, or draw — is obvious without clicking."""
+        if self._crop_rect_norm is None or self._view_rect.isEmpty():
+            self.unsetCursor()
+            return
+        if self._hit_test_rotation_handle(pos):
+            self.setCursor(self._rotation_cursor())
+            return
+        corners = self._crop_corner_screen_points()
+        corner = self._hit_test_crop_corner(pos, corners) if corners else None
+        if corner is not None:
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ("tl", "br") else Qt.CursorShape.SizeBDiagCursor)
+            return
+        if corners is not None and QPolygonF(list(corners.values())).containsPoint(pos, Qt.FillRule.OddEvenFill):
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            return
+        # Outside the box: a fresh rectangle would be drawn — keep the crosshair.
+        if self._view_rect.contains(pos):
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self.unsetCursor()
+
     def _rotation_handle_pixmap(self) -> QPixmap:
         if self._rot_handle_pixmap is None:
             # Rendered at 2x the drawn size so it stays crisp on hi-DPI screens.
@@ -926,6 +959,11 @@ class CanvasOverlay(QWidget):
             self.parent()._sync_transform()
             event.accept()
             return
+
+        # Hovering the crop tool (no drag in progress): reflect the action under the
+        # cursor — rotate handle, corner resize, interior move, or draw — right away.
+        if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
+            self._update_crop_hover_cursor(event.position())
 
         if self._analysis_drag_mode == "move" and self._analysis_press_norm is not None and self._analysis_orig_rect is not None:
             curr_norm = self._screen_to_norm(event.position())
