@@ -10,9 +10,9 @@ class ThemeConfig:
 
     # Fonts
     font_family: str = "Inter, Segoe UI, Roboto, sans-serif"
-    font_size_base: int = 12
+    font_size_base: int = 13
     font_size_small: int = 12
-    font_size_header: int = 13
+    font_size_header: int = 14
     font_size_title: int = 16
 
     # Colors

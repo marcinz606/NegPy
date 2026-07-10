@@ -41,7 +41,7 @@ class CollapsibleSection(QWidget):
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(expanded)
         self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_button.setFixedHeight(32)
+        self.toggle_button.setFixedHeight(36)
 
         # Styled by the QPushButton#collapsible_header rules in modern_dark.qss;
         # overlay="true" = header stacked over a preview widget (translucent bg).
@@ -84,7 +84,7 @@ class CollapsibleSection(QWidget):
         if background_widget:
             background_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             header_container = QWidget()
-            header_container.setFixedHeight(32)
+            header_container.setFixedHeight(36)
             stacked = QStackedLayout(header_container)
             stacked.setStackingMode(QStackedLayout.StackingMode.StackAll)
             stacked.setContentsMargins(0, 0, 0, 0)
@@ -97,8 +97,8 @@ class CollapsibleSection(QWidget):
         self.content_area = QFrame()
         self.content_area.setObjectName("collapsible_content")
         self.content_layout = QVBoxLayout(self.content_area)
-        self.content_layout.setContentsMargins(0, 5, 0, 10)
-        self.content_layout.setSpacing(5)
+        self.content_layout.setContentsMargins(0, 4, 0, 8)
+        self.content_layout.setSpacing(4)
         self.content_area.setVisible(expanded)
 
         self.main_layout.addWidget(self.content_area)

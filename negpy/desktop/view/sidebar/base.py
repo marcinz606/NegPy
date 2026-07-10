@@ -41,7 +41,7 @@ class BaseSidebar(QWidget):
         """Sets up the default QVBoxLayout."""
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(5, 0, 5, 5)
-        self.layout.setSpacing(10)
+        self.layout.setSpacing(THEME.space_md)
 
     def _init_ui(self) -> None:
         """Override to add widgets to self.layout."""
