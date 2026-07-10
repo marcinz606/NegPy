@@ -238,6 +238,9 @@ QComboBox QAbstractItemView::item:selected,
 QComboBox QAbstractItemView::item:hover {
     background-color: #2E2E2E;
     color: #FFFFFF;
+    /* Override the generic QListView::item:selected 1px #555 border so the
+       highlight is a flat fill exactly like the QMenu one (no bordered box). */
+    border: none;
 }
 
 QPushButton:disabled, QToolButton:disabled { color: #555555; }
