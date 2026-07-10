@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.styles.templates import slider_label_qss, slider_handle_qss, wrap_tooltip
+from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, slider_handle_qss, wrap_tooltip
 
 
 class _NoScrollSlider(QSlider):
@@ -248,10 +248,7 @@ class CompactSlider(BaseSlider):
         self.label.setStyleSheet(slider_label_qss(self._label_color))
         self.label.setToolTip(f"{label} (double-click to reset)")
 
-        self._edited_dot = QLabel()
-        self._edited_dot.setFixedSize(8, 8)
-        self._edited_dot.setStyleSheet(f"background-color: {THEME.channel_red}; border-radius: 4px;")
-        self._edited_dot.hide()
+        self._edited_dot = EditedDot()
 
         self.spin.setSingleStep(step)
         if step >= 1.0:

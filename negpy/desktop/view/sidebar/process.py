@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import field_label, labeled_toggle_qss, section_subheader
+from negpy.desktop.view.styles.templates import field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -386,9 +386,7 @@ class ProcessSidebar(BaseSidebar):
                 self.white_point_slider.setValue(getattr(conf, f"white_point_trim_{ch}"))
                 self.black_point_slider.setValue(getattr(conf, f"black_point_trim_{ch}"))
             for btn, fields in self._channel_buttons:
-                edited = any(getattr(conf, f) != 0.0 for f in fields)
-                color = THEME.accent_edited if edited else THEME.text_primary
-                btn.setStyleSheet(labeled_toggle_qss(color))
+                btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
 
             is_e6 = conf.process_mode == ProcessMode.E6
             self.normalize_e6_btn.setVisible(is_e6)

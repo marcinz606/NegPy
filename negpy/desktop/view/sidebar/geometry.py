@@ -4,7 +4,6 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSizePolicy,
 )
@@ -12,7 +11,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import default_button_height
+from negpy.desktop.view.styles.templates import EditedDot, default_button_height
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
@@ -25,22 +24,10 @@ class CropToolButton(QPushButton):
 
     def __init__(self, text: str = "") -> None:
         super().__init__(text)
-        self._dot = QLabel(self)
-        self._dot.setFixedSize(8, 8)
-        self._dot.setStyleSheet(f"background-color: {THEME.channel_red}; border-radius: 4px;")
-        self._dot.hide()
+        self._dot = EditedDot(self)
 
     def set_crop_active(self, active: bool) -> None:
-        self._dot.setVisible(active)
-        self._position_dot()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._position_dot()
-
-    def _position_dot(self) -> None:
-        margin = 4
-        self._dot.move(self.width() - self._dot.width() - margin, margin)
+        self._dot.set_active(active)
 
 
 class GeometrySidebar(BaseSidebar):

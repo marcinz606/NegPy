@@ -28,7 +28,6 @@ class ThemeConfig:
     text_unit: str = "#666666"
     accent_primary: str = "#B71C1C"
     accent_secondary: str = "#C62828"
-    accent_edited: str = accent_primary
 
     slider_height_compact: int = 18
     header_padding: int = 10

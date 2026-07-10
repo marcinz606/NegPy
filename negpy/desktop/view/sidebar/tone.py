@@ -3,8 +3,7 @@ from PyQt6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import labeled_toggle_qss, section_subheader
-from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
 
 _CH_SUFFIX = ("red", "green", "blue")
@@ -60,7 +59,7 @@ class ToneSidebar(BaseSidebar):
         self.ch_btn_group.setExclusive(True)
         for i, btn in enumerate((self.ch_global_btn, self.ch_r_btn, self.ch_g_btn, self.ch_b_btn)):
             self.ch_btn_group.addButton(btn, i)
-        # (button, that channel's trim fields) for the edited-text tint.
+        # (button, that channel's trim fields) for the edited dot.
         self._channel_buttons = tuple(
             (
                 btn,
@@ -365,9 +364,7 @@ class ToneSidebar(BaseSidebar):
                 w.setEnabled(global_mode)
 
             for btn, fields in self._channel_buttons:
-                edited = any(getattr(conf, f) != 0.0 for f in fields)
-                color = THEME.accent_edited if edited else THEME.text_primary
-                btn.setStyleSheet(labeled_toggle_qss(color))
+                btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
 
             self.density_slider.setValue(conf.density)
             self.grade_slider.setValue(conf.grade)

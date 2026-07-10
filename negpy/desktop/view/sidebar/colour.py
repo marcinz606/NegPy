@@ -4,7 +4,6 @@ from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import labeled_toggle_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
@@ -32,7 +31,7 @@ class ColourSidebar(BaseSidebar):
         self.region_btn_group.addButton(self.region_global_btn, 0)
         self.region_btn_group.addButton(self.region_shadow_btn, 1)
         self.region_btn_group.addButton(self.region_highlight_btn, 2)
-        # (button, region CMY fields) — label text turns edited-yellow when any field is set.
+        # (button, region CMY fields) — the edited dot shows when any field is set.
         self._region_buttons = (
             (self.region_global_btn, ("wb_cyan", "wb_magenta", "wb_yellow")),
             (self.region_shadow_btn, ("shadow_cyan", "shadow_magenta", "shadow_yellow")),
@@ -107,15 +106,6 @@ class ColourSidebar(BaseSidebar):
             "colour layer so greys stay neutral from deep shadows through highlights (C-41). 0 = off, "
             "1 = full."
         )
-        self.auto_cast_btn = self._small_toggle(
-            "fa5s.palette",
-            "Auto Cast",
-            conf.auto_cast_removal,
-            "Auto Cast Removal: bias the strength by the frame's own neutral references — clean greys "
-            "get full correction, scenes with few true neutrals get a gentler touch to avoid over-correcting. "
-            "The slider still trims on top.",
-        )
-        self.layout.addWidget(self.auto_cast_btn)
         self.layout.addWidget(self.cast_removal_slider)
 
         self.layout.addStretch()
@@ -162,11 +152,6 @@ class ColourSidebar(BaseSidebar):
         self.cast_removal_slider.valueCommitted.connect(
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, cast_removal_strength=v)
         )
-        self.auto_cast_btn.toggled.connect(
-            lambda checked: self.update_config_section(
-                "exposure", render=True, persist=True, readback_metrics=True, auto_cast_removal=checked
-            )
-        )
 
     def _on_temp_drag_started(self) -> None:
         # Anchor (M, Y) for the whole drag: re-projecting an already-clipped
@@ -188,7 +173,6 @@ class ColourSidebar(BaseSidebar):
     def _on_temp_lock_toggled(self, checked: bool) -> None:
         key = self._LOCK_KEYS[self._region_index()]
         self.controller.session.repo.save_global_setting(key, float(self.temp_slider.value()) if checked else None)
-        self.temp_lock_btn.setIcon(qta.icon("fa5s.thermometer-half", color=THEME.accent_edited if checked else THEME.text_primary))
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:
         field = ("wb_cyan", "shadow_cyan", "highlight_cyan")[self._region_index()]
@@ -222,16 +206,12 @@ class ColourSidebar(BaseSidebar):
             self.temp_slider.setValue(wb_to_kelvin(*self._region_my(conf)))
             locked = self.controller.session.repo.get_global_setting(self._LOCK_KEYS[idx]) is not None
             self.temp_lock_btn.setChecked(locked)
-            self.temp_lock_btn.setIcon(qta.icon("fa5s.thermometer-half", color=THEME.accent_edited if locked else THEME.text_primary))
 
             for btn, fields in self._region_buttons:
-                edited = any(getattr(conf, f) != 0.0 for f in fields)
-                color = THEME.accent_edited if edited else THEME.text_primary
-                btn.setStyleSheet(labeled_toggle_qss(color))
+                btn.edited_dot.set_active(any(getattr(conf, f) != 0.0 for f in fields))
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
-            self.auto_cast_btn.setChecked(conf.auto_cast_removal)
         finally:
             self.block_signals(False)
 
@@ -247,6 +227,5 @@ class ColourSidebar(BaseSidebar):
             self.yellow_slider,
             self.pick_wb_btn,
             self.cast_removal_slider,
-            self.auto_cast_btn,
         ):
             w.blockSignals(blocked)

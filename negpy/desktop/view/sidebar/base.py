@@ -5,7 +5,7 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QPushButton, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.styles.templates import default_button_height, labeled_toggle_qss, tool_toggle_qss, wrap_tooltip
+from negpy.desktop.view.styles.templates import EditedDot, default_button_height, labeled_toggle_qss, tool_toggle_qss, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -89,6 +89,7 @@ class BaseSidebar(QWidget):
         btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
         btn.setStyleSheet(labeled_toggle_qss())
         btn.setToolTip(wrap_tooltip(tooltip))
+        btn.edited_dot = EditedDot(btn)
         return btn
 
     def update_config_section(

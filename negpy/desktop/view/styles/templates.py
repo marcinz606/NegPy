@@ -2,7 +2,8 @@ import dataclasses
 import html
 
 import qtawesome as qta
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtCore import QEvent
+from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 
@@ -78,11 +79,37 @@ def dialog_pane_qss() -> str:
     return f"background: {THEME.bg_panel}; border-right: 1px solid {THEME.border_primary};"
 
 
-def labeled_toggle_qss(color: str | None = None) -> str:
-    """Segmented/selector toggle (channel rows, intent rows): base type, 8px
-    padding; optional text colour carries the edited-state tint."""
-    suffix = f" color: {color};" if color else ""
-    return f"font-size: {THEME.font_size_base}px; padding: 8px;{suffix}"
+def labeled_toggle_qss() -> str:
+    """Segmented/selector toggle (channel rows, intent rows): base type, 8px padding."""
+    return f"font-size: {THEME.font_size_base}px; padding: 8px;"
+
+
+class EditedDot(QLabel):
+    """Red dot marking an edited (non-default) control. Standalone for layouts;
+    pass overlay_on to pin it to a widget's top-right corner instead."""
+
+    def __init__(self, overlay_on: QWidget | None = None, margin: int = 4) -> None:
+        super().__init__(overlay_on)
+        self._margin = margin
+        self.setFixedSize(8, 8)
+        self.setStyleSheet(f"background-color: {THEME.channel_red}; border-radius: 4px;")
+        self.hide()
+        if overlay_on is not None:
+            overlay_on.installEventFilter(self)
+
+    def set_active(self, active: bool) -> None:
+        self.setVisible(active)
+        if self.parent() is not None:
+            self._reposition()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if obj is self.parent() and event.type() == QEvent.Type.Resize:
+            self._reposition()
+        return False
+
+    def _reposition(self) -> None:
+        parent = self.parent()
+        self.move(parent.width() - self.width() - self._margin, self._margin)
 
 
 def section_subheader(text: str) -> QLabel:
