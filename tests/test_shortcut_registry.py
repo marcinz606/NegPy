@@ -61,17 +61,20 @@ def test_tooltip_with_multiple_shortcuts_renders_all_keys():
 def test_tooltip_places_shortcut_on_its_own_right_aligned_line():
     tooltip = tooltip_with_shortcut("Density up", "density_up", {"density_up": "Q"})
 
-    # Shortcut sits on its own right-aligned line below the tooltip text, inside the box.
-    text_part, sep, shortcut_part = tooltip.partition('<div align="right">')
+    # Shortcut sits on its own right-aligned line below the text, as a bordered keycap.
+    text_part, sep, shortcut_part = tooltip.partition('<table align="right"')
     assert text_part == "Density up"
-    assert sep == '<div align="right">'
+    assert sep == '<table align="right"'
+    # The key renders as a bordered <td> so it reads like a physical keyboard key.
+    assert "border:1px solid" in shortcut_part
+    assert "<td" in shortcut_part
     assert "Q" in shortcut_part
 
 
 def test_tooltip_joins_two_shortcuts_with_ampersand():
     tooltip = tooltip_with_shortcut("Density", ["density_up", "density_down"], {"density_up": "Q", "density_down": "A"})
 
-    assert '<div align="right">' in tooltip
+    assert '<table align="right"' in tooltip
     assert "&amp;" in tooltip
 
 
