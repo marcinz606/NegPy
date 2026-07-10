@@ -1,6 +1,8 @@
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -17,9 +19,10 @@ from negpy.desktop.view.styles.theme import THEME
 
 
 class ShortcutEditorDialog(QDialog):
-    def __init__(self, bindings: dict[str, str], parent=None):
+    def __init__(self, bindings: dict[str, str], parent=None, session=None):
         super().__init__(parent)
         self._initial_bindings = dict(bindings)
+        self._session = session
         self._edits: dict[str, QKeySequenceEdit] = {}
         self.setWindowTitle("Customize Shortcuts")
         self.resize(760, 720)
@@ -39,6 +42,22 @@ class ShortcutEditorDialog(QDialog):
         intro = QLabel("Set a shortcut for any action. Duplicate bindings are rejected. Reset All restores the defaults.")
         intro.setWordWrap(True)
         root.addWidget(intro)
+
+        # Mouse / general viewer preferences, kept up top for easy access.
+        self._invert_zoom_chk = QCheckBox("Reverse scroll-to-zoom direction (scroll up zooms out)")
+        self._invert_zoom_chk.setToolTip(
+            "Flip the mouse-wheel zoom direction on the image viewer: scroll up to zoom out, scroll down to zoom in."
+        )
+        if self._session is not None:
+            self._invert_zoom_chk.setChecked(bool(getattr(self._session.state, "invert_zoom_scroll", False)))
+        else:
+            self._invert_zoom_chk.setEnabled(False)
+        root.addWidget(self._invert_zoom_chk)
+
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setStyleSheet(f"color: {THEME.border_color};")
+        root.addWidget(divider)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -112,4 +131,12 @@ class ShortcutEditorDialog(QDialog):
                 )
                 return
             seen[key] = action_id
+
+        # Persist the viewer preferences alongside the shortcut bindings. The state is
+        # shared with the canvas, so the change takes effect immediately (no restart).
+        if self._session is not None:
+            invert = self._invert_zoom_chk.isChecked()
+            self._session.state.invert_zoom_scroll = invert
+            self._session.repo.save_global_setting("invert_zoom_scroll", invert)
+
         self.accept()

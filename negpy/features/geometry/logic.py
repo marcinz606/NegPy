@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 from typing import NamedTuple, Optional, Tuple
 
 import cv2
@@ -6,7 +7,7 @@ import numpy as np
 
 from negpy.domain.models import AspectRatio
 from negpy.domain.types import ROI, ImageBuffer
-from negpy.features.geometry.models import AutocropMode
+from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode, GeometryConfig
 from negpy.kernel.image.logic import get_luminance
 from negpy.kernel.image.validation import ensure_image
 
@@ -1096,6 +1097,88 @@ def translate_manual_crop_rect(
     nx1 = min(max(x1 + dx, 0.0), max_x1)
     ny1 = min(max(y1 + dy, 0.0), max_y1)
     return (nx1, ny1, nx1 + w, ny1 + h)
+
+
+def mirror_normalized_rect(
+    rect: Tuple[float, float, float, float],
+    horizontal: bool,
+) -> Tuple[float, float, float, float]:
+    """
+    Mirrors a normalized (x1, y1, x2, y2) rect across the image's vertical
+    (horizontal=True) or horizontal (horizontal=False) center line, keeping
+    corners ordered.
+    """
+    x1, y1, x2, y2 = rect
+    if horizontal:
+        return (1.0 - x2, y1, 1.0 - x1, y2)
+    return (x1, 1.0 - y2, x2, 1.0 - y1)
+
+
+def rotate_normalized_rect(
+    rect: Tuple[float, float, float, float],
+    quarter_turns_ccw: int,
+) -> Tuple[float, float, float, float]:
+    """
+    Rotates a normalized (x1, y1, x2, y2) rect by whole quarter-turns within the
+    display (transformed) image, keeping corners ordered.
+
+    `quarter_turns_ccw` counts 90° counter-clockwise turns (negative = clockwise) —
+    the same handedness as the geometry `rotation` field, where k=1 turns the display
+    CCW. When the image content rotates one quarter CCW, a feature at (u, v) moves to
+    (v, 1 - u); this rotates the crop/analysis rect along with the content it frames so
+    it keeps outlining the same area after a 90°/180° rotate.
+    """
+    x1, y1, x2, y2 = rect
+    corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+    for _ in range(quarter_turns_ccw % 4):
+        corners = [(v, 1.0 - u) for (u, v) in corners]
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
+    """
+    Toggles a mirror on the geometry so the result is an exact mirror of the
+    CURRENTLY rendered image. The pipeline applies flips BEFORE fine rotation,
+    and mirror(rotate(+a, img)) == rotate(-a, mirror(img)) — so each single
+    mirror must negate the fine-rotation angle, or toggling a flip visibly
+    changes the horizon (the tilt doubles instead of mirroring). The manual
+    crop rect lives in transformed space and mirrors along with the content
+    it frames.
+    """
+    if horizontal:
+        new_geo = replace(geo, flip_horizontal=not geo.flip_horizontal)
+    else:
+        new_geo = replace(geo, flip_vertical=not geo.flip_vertical)
+    if geo.fine_rotation != 0.0:
+        new_geo = replace(new_geo, fine_rotation=-geo.fine_rotation)
+    if geo.manual_crop_rect is not None:
+        new_geo = replace(new_geo, manual_crop_rect=mirror_normalized_rect(geo.manual_crop_rect, horizontal))
+    return new_geo
+
+
+def rotation_drag_angle(
+    start_angle_deg: float,
+    center: Tuple[float, float],
+    press: Tuple[float, float],
+    cursor: Tuple[float, float],
+    sensitivity: float = 1.0,
+    limit: float = FINE_ROTATION_LIMIT,
+) -> float:
+    """
+    Fine-rotation angle for a crop-tool rotation-handle drag: the signed arc the
+    cursor swept around `center` (screen coords), scaled by `sensitivity` and added
+    to the drag-start angle. Screen y grows downward while positive fine rotation
+    is counter-clockwise on screen, so the arc is negated — the image follows the
+    cursor like a grabbed wheel. Result is clamped to ±limit degrees.
+    """
+    a0 = math.atan2(press[1] - center[1], press[0] - center[0])
+    a1 = math.atan2(cursor[1] - center[1], cursor[0] - center[0])
+    # Shortest signed difference, robust across the ±180° atan2 seam.
+    delta = math.degrees(math.atan2(math.sin(a1 - a0), math.cos(a1 - a0)))
+    new_angle = start_angle_deg - delta * sensitivity
+    return float(np.clip(new_angle, -limit, limit))
 
 
 def _closest_standard_ratio(roi: ROI, img_shape: Tuple[int, int], fallback: str = "3:2") -> AspectRatio:

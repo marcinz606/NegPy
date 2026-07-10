@@ -3,6 +3,12 @@ from enum import StrEnum
 from typing import Optional, Tuple
 
 
+# Valid fine_rotation span (degrees): shared by the sidebar slider and the crop
+# tool's rotation handles so both controls cover the same range. Anything beyond
+# ±45° is an orientation change and belongs to the 90° rotate buttons.
+FINE_ROTATION_LIMIT = 45.0
+
+
 class AutocropMode(StrEnum):
     IMAGE = "image"  # crop to exposed image area (default)
     FILM = "film"  # crop to film extent, keep rebate/sprockets

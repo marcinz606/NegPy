@@ -656,6 +656,23 @@ class AppController(QObject):
         else:
             self._render_debounce.start()
 
+    def handle_crop_rotation_changed(self, angle: float, persist: bool) -> None:
+        """Live-updates (persist=False) or commits (persist=True) fine rotation from the
+        crop tool's edge rotation handles. Writes the same geometry.fine_rotation the
+        sidebar slider drives, so handle drag and slider fine-tuning compose; the crop
+        rect is display-space and stays put while the image rotates under it."""
+        if self.state.active_tool != ToolMode.CROP_MANUAL:
+            return
+        new_geo = replace(self.state.config.geometry, fine_rotation=angle)
+        # Defer the bounds recompute to crop-tool close, like the rect drag.
+        self._crop_bounds_dirty = True
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=persist)
+        self.rotation_guide_requested.emit()
+        if persist:
+            self.request_render()
+        else:
+            self._render_debounce.start()
+
     def confirm_manual_crop(self) -> None:
         """Close the crop tool (committing the current rect) — invoked by a double-click
         inside the crop box so the user needn't return to the Crop button."""
@@ -1039,7 +1056,7 @@ class AppController(QObject):
             "Set both on the current frame before running.\n\n"
             "Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -1696,7 +1713,7 @@ class AppController(QObject):
             "Export",
             text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
         return reply == QMessageBox.StandardButton.Yes
 

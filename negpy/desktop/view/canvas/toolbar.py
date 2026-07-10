@@ -72,12 +72,12 @@ class ActionToolbar(QWidget):
         self.btn_toggle_left.setCheckable(True)
         self.btn_toggle_left.setChecked(True)
         self.btn_toggle_left.setIcon(qta.icon("fa5s.columns", color=icon_color))
-        self.btn_toggle_left.setToolTip("Toggle Session Panel  Ctrl+[")
+        self.btn_toggle_left.setToolTip(tooltip_with_shortcut("Toggle Session Panel", "toggle_left_panel"))
         self.btn_toggle_right = QToolButton()
         self.btn_toggle_right.setCheckable(True)
         self.btn_toggle_right.setChecked(True)
         self.btn_toggle_right.setIcon(qta.icon("fa5s.sliders-h", color=icon_color))
-        self.btn_toggle_right.setToolTip("Toggle Controls Panel  Ctrl+]")
+        self.btn_toggle_right.setToolTip(tooltip_with_shortcut("Toggle Controls Panel", "toggle_right_panel"))
 
         # 1. Navigation
         self.btn_prev = QToolButton()
@@ -87,9 +87,16 @@ class ActionToolbar(QWidget):
         self.btn_next.setIcon(qta.icon("fa5s.chevron-right", color=icon_color))
         self.btn_next.setToolTip("Next")
 
+        # Undo / Redo live in the main toolbar (mdi arrows, distinct from the
+        # circular rotate icons which reuse fa5s.undo/redo).
+        self.btn_undo = QToolButton()
+        self.btn_undo.setIcon(qta.icon("mdi.undo", color=icon_color))
+        self.btn_undo.setToolTip(tooltip_with_shortcut("Undo", "undo"))
+        self.btn_redo = QToolButton()
+        self.btn_redo.setIcon(qta.icon("mdi.redo", color=icon_color))
+        self.btn_redo.setToolTip(tooltip_with_shortcut("Redo", "redo"))
+
         # (kept as internal state holders — not added to layout)
-        self.btn_undo = QPushButton()
-        self.btn_redo = QPushButton()
         self.btn_copy = QPushButton()
         self.btn_paste = QPushButton()
         self.btn_reset = QPushButton()
@@ -98,18 +105,18 @@ class ActionToolbar(QWidget):
         # 2. Geometry
         self.btn_rot_l = QToolButton()
         self.btn_rot_l.setIcon(qta.icon("fa5s.undo", color=icon_color))
-        self.btn_rot_l.setToolTip("Rotate CCW  [")
+        self.btn_rot_l.setToolTip(tooltip_with_shortcut("Rotate CCW", "rotate_ccw"))
         self.btn_rot_r = QToolButton()
         self.btn_rot_r.setIcon(qta.icon("fa5s.redo", color=icon_color))
-        self.btn_rot_r.setToolTip("Rotate CW  ]")
+        self.btn_rot_r.setToolTip(tooltip_with_shortcut("Rotate CW", "rotate_cw"))
         self.btn_flip_h = QToolButton()
         self.btn_flip_h.setCheckable(True)
         self.btn_flip_h.setIcon(qta.icon("fa5s.arrows-alt-h", color=icon_color))
-        self.btn_flip_h.setToolTip("Flip Horizontal  H")
+        self.btn_flip_h.setToolTip(tooltip_with_shortcut("Flip Horizontal", "flip_h"))
         self.btn_flip_v = QToolButton()
         self.btn_flip_v.setCheckable(True)
         self.btn_flip_v.setIcon(qta.icon("fa5s.arrows-alt-v", color=icon_color))
-        self.btn_flip_v.setToolTip("Flip Vertical  V")
+        self.btn_flip_v.setToolTip(tooltip_with_shortcut("Flip Vertical", "flip_v"))
 
         # 3. Zoom (range matches APP_CONFIG canvas_zoom_min/max, percent)
         self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
@@ -143,7 +150,7 @@ class ActionToolbar(QWidget):
         self.btn_compare = QToolButton()
         self.btn_compare.setCheckable(True)
         self.btn_compare.setIcon(qta.icon("fa5s.adjust", color=icon_color))
-        self.btn_compare.setToolTip("Before / After — show the auto baseline  \\")
+        self.btn_compare.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
 
         # GPU acceleration toggle (details surfaced via tooltip, refreshed by the dashboard)
         self.btn_gpu = QToolButton()
@@ -170,11 +177,6 @@ class ActionToolbar(QWidget):
             self.canvas_color_group.addButton(btn, i)
             self.canvas_color_btns.append(btn)
         self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
-
-        # 5. Save
-        self.btn_save = QToolButton()
-        self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
-        self.btn_save.setToolTip("Save Edits")
 
         # 6. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
@@ -211,8 +213,9 @@ class ActionToolbar(QWidget):
         self._ov_sep_rotate = overflow_menu.addSeparator()
         self._ov_sep_rotate.setVisible(False)
 
-        self._action_undo = overflow_menu.addAction(qta.icon("fa5s.arrow-left", color=icon_color), "Undo  Ctrl+Z", self.session.undo)
-        self._action_redo = overflow_menu.addAction(qta.icon("fa5s.arrow-right", color=icon_color), "Redo  Ctrl+Y", self.session.redo)
+        # Edits auto-save to the DB (and surface in History), so an explicit Save
+        # lives here in the overflow rather than the main toolbar.
+        overflow_menu.addAction(qta.icon("fa5s.save", color=icon_color), "Save Edits", self.controller.save_current_edits)
         overflow_menu.addSeparator()
         self._action_copy = overflow_menu.addAction(
             qta.icon("fa5s.copy", color=icon_color), "Copy Settings  Ctrl+C", self.session.copy_settings
@@ -226,7 +229,7 @@ class ActionToolbar(QWidget):
         overflow_menu.addSeparator()
         overflow_menu.addAction(qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings)
         overflow_menu.addSeparator()
-        overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self.session.remove_current_file)
+        overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self._on_overflow_unload)
         overflow_menu.addSeparator()
         scale_menu = overflow_menu.addMenu(qta.icon("fa5s.search-plus", color=icon_color), "UI Scale")
         self._ui_scale_group = QActionGroup(self)
@@ -254,7 +257,8 @@ class ActionToolbar(QWidget):
             self.btn_rot_r,
             self.btn_flip_h,
             self.btn_flip_v,
-            self.btn_save,
+            self.btn_undo,
+            self.btn_redo,
             self.btn_hq,
             self.btn_compare,
             self.btn_gpu,
@@ -265,7 +269,7 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · save · overflow · toggle_right
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · gpu · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
@@ -286,7 +290,8 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_flip_v)
         self._sep3 = self._create_separator()
         row_layout.addWidget(self._sep3)
-        row_layout.addWidget(self.btn_save)
+        row_layout.addWidget(self.btn_undo)
+        row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_gpu)
         row_layout.addWidget(self.btn_overflow)
@@ -309,7 +314,8 @@ class ActionToolbar(QWidget):
         self.btn_flip_h.clicked.connect(lambda: self.flip("horizontal"))
         self.btn_flip_v.clicked.connect(lambda: self.flip("vertical"))
 
-        self.btn_save.clicked.connect(self.controller.save_current_edits)
+        self.btn_undo.clicked.connect(self.session.undo)
+        self.btn_redo.clicked.connect(self.session.redo)
 
         self.canvas_color_group.idToggled.connect(self._on_canvas_color_changed)
 
@@ -333,6 +339,14 @@ class ActionToolbar(QWidget):
         self._ov_rot_r_action.triggered.connect(lambda: self.rotate(-1))
         self._ov_flip_h_action.triggered.connect(lambda: self.flip("horizontal"))
         self._ov_flip_v_action.triggered.connect(lambda: self.flip("vertical"))
+
+    def _on_overflow_unload(self) -> None:
+        from negpy.desktop.view.confirm import confirm_unload
+
+        if self.session.state.selected_file_idx < 0:
+            return
+        if confirm_unload(self):
+            self.session.remove_current_file()
 
     def _on_gpu_toggled(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:
@@ -398,26 +412,46 @@ class ActionToolbar(QWidget):
     def rotate(self, direction: int) -> None:
         from dataclasses import replace
 
-        geo = self.session.state.config.geometry
+        from negpy.features.geometry.logic import rotate_normalized_rect
+
+        config = self.session.state.config
+        geo = config.geometry
+        # The button's labelled direction is the visual rotation the user sees (the
+        # handedness fix below only keeps that promise under a flip). Crop/analysis
+        # rects live in display space, so they rotate by that visual quarter-turn.
+        visual_turns_ccw = direction
         # Pipeline applies rotate-then-flip; a single mirror inverts rotation handedness.
         if geo.flip_horizontal != geo.flip_vertical:
             direction = -direction
         new_rot = (geo.rotation + direction) % 4
         new_geo = replace(geo, rotation=new_rot)
-        new_config = replace(self.session.state.config, geometry=new_geo)
+        # Rotate the manual crop rect with the content so it keeps framing the same area
+        # (without this it stayed put and misaligned after a 90°/180° turn).
+        if geo.manual_crop_rect is not None:
+            new_geo = replace(new_geo, manual_crop_rect=rotate_normalized_rect(geo.manual_crop_rect, visual_turns_ccw))
+        new_config = replace(config, geometry=new_geo)
+        # The freehand analysis region is display-space too; rotate it alongside.
+        if config.process.analysis_rect is not None:
+            new_rect = rotate_normalized_rect(config.process.analysis_rect, visual_turns_ccw)
+            new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
         self.session.update_config(new_config, persist=True)
         self.controller.request_render()
 
     def flip(self, axis: str) -> None:
         from dataclasses import replace
 
-        geo = self.session.state.config.geometry
-        if axis == "horizontal":
-            new_geo = replace(geo, flip_horizontal=not geo.flip_horizontal)
-        else:
-            new_geo = replace(geo, flip_vertical=not geo.flip_vertical)
+        from negpy.features.geometry.logic import mirror_normalized_rect, toggle_flip
 
-        new_config = replace(self.session.state.config, geometry=new_geo)
+        horizontal = axis == "horizontal"
+        config = self.session.state.config
+        # toggle_flip negates fine rotation and mirrors the crop rect so the
+        # result is a true mirror of the current render (see its docstring).
+        new_config = replace(config, geometry=toggle_flip(config.geometry, horizontal))
+        # The freehand analysis region is transformed-space like the crop rect;
+        # mirroring it keeps the meters reading the same picture content.
+        if config.process.analysis_rect is not None:
+            new_rect = mirror_normalized_rect(config.process.analysis_rect, horizontal)
+            new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
         self.session.update_config(new_config, persist=True)
         self.controller.request_render()
 
@@ -449,8 +483,8 @@ class ActionToolbar(QWidget):
         self._ov_flip_h_action.setChecked(geo.flip_horizontal)
         self._ov_flip_v_action.setChecked(geo.flip_vertical)
 
-        self._action_undo.setEnabled(state.undo_index > 0)
-        self._action_redo.setEnabled(state.undo_index < state.max_history_index)
+        self.btn_undo.setEnabled(state.undo_index > 0)
+        self.btn_redo.setEnabled(state.undo_index < state.max_history_index)
         self._action_paste.setEnabled(state.clipboard is not None)
 
     def set_available_width(self, w: int) -> None:

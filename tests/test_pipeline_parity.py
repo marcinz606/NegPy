@@ -328,15 +328,9 @@ class TestLabParity:
         assert np.allclose(cpu_result, gpu_result, atol=0.5, rtol=0.2), f"Max diff: {np.max(np.abs(cpu_result - gpu_result)):.6f}"
 
     def test_chroma_denoise(self):
-        # Isolate chroma denoise: disable the sharpen default
-        # NOTE: This test is expected to fail because the GPU chroma denoise shader
-        # uses a fixed 5×5 Gaussian kernel regardless of the radius parameter,
-        # while the CPU implementation adapts kernel size and sigma based on
-        # radius * scale_factor. The GPU shader needs to be updated to use the
-        # radius parameter to control blur strength.
-        import pytest
-
-        pytest.xfail("GPU chroma denoise ignores radius param — uses fixed 5×5 kernel")
+        # Isolate chroma denoise: disable the sharpen default. The GPU shader scales
+        # its a*/b* blur radius by chroma_denoise * scale_factor (Fibonacci-disk taps
+        # approximating the CPU GaussianBlur sigma), so the two paths now track.
         s = replace(
             _make_base_settings(),
             lab=LabConfig(chroma_denoise=3.0, sharpen=0.0),

@@ -16,7 +16,7 @@ from negpy.desktop.view.styles.templates import default_button_height, small_tog
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
-from negpy.features.geometry.models import AutocropMode
+from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
 
 
@@ -116,8 +116,10 @@ class GeometrySidebar(BaseSidebar):
             unit=" px",
         )
         self.offset_slider.setToolTip(tooltip_with_shortcut("Insets the crop border from the auto-detected film edge (px)", "offset_inc"))
-        self.fine_rot_slider = CompactSlider("Fine Rotation", -5.0, 5.0, conf.fine_rotation, unit="°")
-        self.fine_rot_slider.setToolTip("Fine-tunes rotation to correct slight tilt (degrees)")
+        self.fine_rot_slider = CompactSlider("Fine Rotation", -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, conf.fine_rotation, unit="°")
+        self.fine_rot_slider.setToolTip(
+            "Fine-tunes rotation to correct tilt (degrees). For quick rotation, drag the round handles outside the crop box in the Crop tool."
+        )
         slider_row.addWidget(self.offset_slider)
         slider_row.addWidget(self.fine_rot_slider)
         self.layout.addLayout(slider_row)

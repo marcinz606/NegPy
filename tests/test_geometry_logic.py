@@ -293,6 +293,41 @@ def test_translate_full_size_rect_no_movement():
     assert translate_manual_crop_rect(rect, 0.5, -0.5) == rect
 
 
+def test_rotate_rect_ccw_quarter_turn():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    # A rect in the top-left maps to the bottom-left after one CCW turn: content at
+    # (u, v) moves to (v, 1 - u), so (0.1,0.1)->(0.1,0.9) and (0.4,0.3)->(0.3,0.6).
+    rect = (0.1, 0.1, 0.4, 0.3)
+    assert rotate_normalized_rect(rect, 1) == approx((0.1, 0.6, 0.3, 0.9))
+
+
+def test_rotate_rect_cw_is_inverse_of_ccw():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    rect = (0.15, 0.2, 0.6, 0.55)
+    ccw = rotate_normalized_rect(rect, 1)
+    assert rotate_normalized_rect(ccw, -1) == approx(rect)
+
+
+def test_rotate_rect_180_flips_both_axes():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    rect = (0.1, 0.2, 0.4, 0.5)
+    assert rotate_normalized_rect(rect, 2) == approx((0.6, 0.5, 0.9, 0.8))
+
+
+def test_rotate_rect_four_turns_is_identity():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    rect = (0.15, 0.2, 0.6, 0.55)
+    assert rotate_normalized_rect(rect, 4) == approx(rect)
+
+
 def test_offset_only_insets_full_image():
     config = GeometryConfig(autocrop_offset=10)
     processor = GeometryProcessor(config)
@@ -863,3 +898,146 @@ def test_autocrop_specific_ratio_holds_in_both_modes():
         y1, y2, x1, x2 = roi
         aspect = (x2 - x1) / (y2 - y1)
         assert abs(aspect - 1.5) < 0.05, f"mode={mode}: aspect {aspect} not ~3:2"
+
+
+# ── flip toggle (mirror parity under fine rotation) ──────────────────────
+
+
+def test_toggle_flip_toggles_flag_and_negates_fine_rotation():
+    from negpy.features.geometry.logic import toggle_flip
+
+    geo = GeometryConfig(fine_rotation=5.0)
+    flipped = toggle_flip(geo, horizontal=True)
+    assert flipped.flip_horizontal is True
+    assert flipped.fine_rotation == -5.0
+
+    flipped_v = toggle_flip(geo, horizontal=False)
+    assert flipped_v.flip_vertical is True
+    assert flipped_v.fine_rotation == -5.0
+
+    # Toggling the same axis again restores the original geometry exactly.
+    assert toggle_flip(flipped, horizontal=True) == geo
+
+
+def test_toggle_flip_zero_fine_rotation_stays_zero():
+    from negpy.features.geometry.logic import toggle_flip
+
+    assert toggle_flip(GeometryConfig(), horizontal=True).fine_rotation == 0.0
+
+
+def test_mirror_normalized_rect():
+    from pytest import approx
+    from negpy.features.geometry.logic import mirror_normalized_rect
+
+    assert mirror_normalized_rect((0.1, 0.2, 0.5, 0.7), horizontal=True) == approx((0.5, 0.2, 0.9, 0.7))
+    assert mirror_normalized_rect((0.1, 0.2, 0.5, 0.7), horizontal=False) == approx((0.1, 0.3, 0.5, 0.8))
+
+
+def test_toggle_flip_mirrors_manual_crop_rect():
+    from pytest import approx
+    from negpy.features.geometry.logic import toggle_flip
+
+    geo = GeometryConfig(fine_rotation=3.0, manual_crop_rect=(0.1, 0.2, 0.5, 0.7))
+    flipped_h = toggle_flip(geo, horizontal=True)
+    assert flipped_h.manual_crop_rect == approx((0.5, 0.2, 0.9, 0.7))
+    flipped_v = toggle_flip(geo, horizontal=False)
+    assert flipped_v.manual_crop_rect == approx((0.1, 0.3, 0.5, 0.8))
+    # Round trip restores the rect (corner order preserved).
+    assert toggle_flip(flipped_h, horizontal=True).manual_crop_rect == approx(geo.manual_crop_rect)
+
+
+@pytest.mark.parametrize("horizontal", [True, False])
+def test_flip_with_negated_angle_is_exact_display_mirror_in_mapper(horizontal):
+    # The reported bug: flipping while fine rotation is set must mirror the DISPLAYED
+    # (rotated) image. The pipeline applies flip BEFORE fine rotation, and
+    # mirror(rotate(+a, x)) == rotate(-a, mirror(x)) — so a raw-space point mapped
+    # through (flip, -a) must land at the mirror of its (+a, no flip) position.
+    from negpy.features.geometry.logic import map_coords_to_geometry
+
+    orig_shape = (1000, 1500)
+    for nx, ny in [(0.5, 0.5), (0.35, 0.4), (0.62, 0.58), (0.45, 0.3)]:
+        bx, by = map_coords_to_geometry(nx, ny, orig_shape, fine_rotation=5.0)
+        fx, fy = map_coords_to_geometry(
+            nx,
+            ny,
+            orig_shape,
+            fine_rotation=-5.0,
+            flip_horizontal=horizontal,
+            flip_vertical=not horizontal,
+        )
+        if horizontal:
+            assert abs(fx - (1.0 - bx)) < 1e-6 and abs(fy - by) < 1e-6
+        else:
+            assert abs(fx - bx) < 1e-6 and abs(fy - (1.0 - by)) < 1e-6
+
+
+# ── crop-tool rotation handles ───────────────────────────────────────────
+
+
+def test_rotation_drag_angle_follows_cursor_like_a_wheel():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotation_drag_angle
+
+    # Right-side handle dragged upward (screen y decreases): the wheel turns
+    # counter-clockwise, which is positive fine rotation.
+    center, press = (0.0, 0.0), (100.0, 0.0)
+    assert rotation_drag_angle(0.0, center, press, (100.0, -100.0)) == approx(45.0)
+    # Same magnitude downward turns clockwise (negative).
+    assert rotation_drag_angle(0.0, center, press, (100.0, 100.0)) == approx(-45.0)
+    # Adds to the drag-start angle.
+    assert rotation_drag_angle(2.0, center, press, (100.0, -100.0)) == approx(45.0)  # clamped
+    assert rotation_drag_angle(2.0, center, press, (100.0, -10.0)) == approx(2.0 + np.degrees(np.arctan2(10.0, 100.0)))
+
+
+def test_rotation_drag_angle_clamps_to_limit():
+    from negpy.features.geometry.logic import rotation_drag_angle
+    from negpy.features.geometry.models import FINE_ROTATION_LIMIT
+
+    center, press = (0.0, 0.0), (100.0, 0.0)
+    assert rotation_drag_angle(0.0, center, press, (-10.0, -100.0)) == FINE_ROTATION_LIMIT
+    assert rotation_drag_angle(0.0, center, press, (-10.0, 100.0)) == -FINE_ROTATION_LIMIT
+
+
+def test_rotation_drag_angle_robust_across_atan2_seam():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotation_drag_angle
+
+    # Left-side handle crossing the ±180° atan2 seam: a tiny upward move must
+    # produce a tiny clockwise (negative) delta, not a ±360° jump.
+    center = (0.0, 0.0)
+    angle = rotation_drag_angle(0.0, center, (-100.0, 1.0), (-100.0, -1.0))
+    assert angle == approx(-np.degrees(np.arctan2(1.0, 100.0)) * 2.0, abs=1e-6)
+    assert abs(angle) < 2.0
+
+
+def test_rotation_drag_angle_sensitivity():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotation_drag_angle
+
+    center, press = (0.0, 0.0), (100.0, 0.0)
+    full = rotation_drag_angle(0.0, center, press, (100.0, -20.0))
+    fine = rotation_drag_angle(0.0, center, press, (100.0, -20.0), sensitivity=0.2)
+    assert fine == approx(full * 0.2)
+
+
+def test_flip_with_negated_angle_mirrors_rendered_image():
+    # Pixel-level check on GeometryProcessor: toggling a horizontal flip on a
+    # fine-rotated image must produce the mirror of the previous render.
+    from negpy.features.geometry.logic import toggle_flip
+
+    # Smooth asymmetric image so sub-pixel interpolation differences stay small.
+    h, w = 240, 360
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    base = 0.2 + 0.6 * (xx / w) * (yy / h) + 0.15 * np.sin(xx / 40.0)
+    img = np.repeat(base[..., None], 3, axis=2).astype(np.float32)
+
+    geo = GeometryConfig(fine_rotation=4.0)
+    ctx_a = PipelineContext(scale_factor=1.0, original_size=(h, w))
+    out_a = GeometryProcessor(geo).process(img, ctx_a)
+
+    ctx_b = PipelineContext(scale_factor=1.0, original_size=(h, w))
+    out_b = GeometryProcessor(toggle_flip(geo, horizontal=True)).process(img, ctx_b)
+
+    # Interior comparison: the rotation's border-replicate wedges differ at the edges.
+    m = 40
+    np.testing.assert_allclose(out_b[m:-m, m:-m], np.fliplr(out_a)[m:-m, m:-m], atol=0.01)

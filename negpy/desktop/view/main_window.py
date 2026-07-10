@@ -316,9 +316,11 @@ class MainWindow(QMainWindow):
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)
         self.controller.session.file_selected.connect(lambda _: self._refresh_image_info())
+        self.controller.session.session_emptied.connect(self._on_session_emptied)
 
         self.canvas.clicked.connect(self.controller.handle_canvas_clicked)
         self.canvas.crop_rect_changed.connect(self.controller.handle_crop_rect_changed)
+        self.canvas.crop_rotation_changed.connect(self.controller.handle_crop_rotation_changed)
         self.canvas.crop_confirmed.connect(self.controller.confirm_manual_crop)
         self.canvas.analysis_rect_changed.connect(self.controller.handle_analysis_rect_changed)
         self.canvas.analysis_confirmed.connect(self.controller.confirm_analysis_region)
@@ -372,8 +374,20 @@ class MainWindow(QMainWindow):
         self.loading_overlay.stop()
         self.canvas.clear()
 
+    def _on_session_emptied(self) -> None:
+        """Last file was unloaded/cleared: blank the viewer (the removed image must
+        not linger with no way to dismiss it) and bring the empty-state hint back."""
+        self.loading_overlay.stop()
+        self.canvas.clear()
+        self.empty_state.setVisible(True)
+        self._refresh_image_info()
+
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
+        if not self.state.uploaded_files:
+            # A render that was in flight when the session emptied — the frame
+            # belongs to a removed file; keep the viewer blank.
+            return
         self.empty_state.setVisible(False)
         metrics = self.state.last_metrics
         if "base_positive" not in metrics:

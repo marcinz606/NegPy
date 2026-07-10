@@ -81,6 +81,9 @@ class AppState:
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
 
+    # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
+    invert_zoom_scroll: bool = False
+
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
     show_local_overlay: bool = True
@@ -366,6 +369,7 @@ class DesktopSessionManager(QObject):
     settings_pasted = pyqtSignal()
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
+    session_emptied = pyqtSignal()  # Last file removed — the viewer must blank the stale frame
 
     @property
     def _config_dirty(self) -> bool:
@@ -400,6 +404,10 @@ class DesktopSessionManager(QObject):
         saved_bg = self.repo.get_global_setting("canvas_bg_index")
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
+
+        saved_invert_zoom = self.repo.get_global_setting("invert_zoom_scroll")
+        if saved_invert_zoom is not None:
+            self.state.invert_zoom_scroll = bool(saved_invert_zoom)
 
         saved_icc_in = self.repo.get_global_setting("icc_input_path")
         if saved_icc_in and os.path.exists(saved_icc_in):
@@ -979,17 +987,30 @@ class DesktopSessionManager(QObject):
         self.files_changed.emit()
         self.select_file(index)
 
+    def _reset_active_image_state(self) -> None:
+        """Clears everything tied to the previously displayed image after the session
+        emptied, then announces it via `session_emptied` so the viewer blanks the
+        stale frame instead of keeping an image that can no longer be removed."""
+        self.state.selected_file_idx = -1
+        self.state.selected_indices = []
+        self.state.current_file_path = None
+        self.state.current_file_hash = None
+        self.state.preview_raw = None
+        self.state.preview_ir = None
+        self.state.has_ir = False
+        self.state.config = WorkspaceConfig()
+        self._config_dirty = False
+        with self.state.metrics_lock:
+            self.state.last_metrics.clear()
+        self.session_emptied.emit()
+
     def clear_files(self) -> None:
         """
         Purges all loaded files from the session.
         """
         self.state.uploaded_files.clear()
         self.state.thumbnails.clear()
-        self.state.selected_file_idx = -1
-        self.state.current_file_path = None
-        self.state.current_file_hash = None
-        self.state.config = WorkspaceConfig()
-        self._config_dirty = False
+        self._reset_active_image_state()
 
         self.asset_model.refresh()
         self.state_changed.emit()
@@ -1005,14 +1026,7 @@ class DesktopSessionManager(QObject):
             self.state.thumbnails.pop(file_info["name"], None)
 
             if not self.state.uploaded_files:
-                self.state.selected_file_idx = -1
-                self.state.selected_indices = []
-                self.state.current_file_path = None
-                self.state.current_file_hash = None
-                self.state.preview_raw = None
-                self.state.preview_ir = None
-                self.state.has_ir = False
-                self.state.config = WorkspaceConfig()
+                self._reset_active_image_state()
             else:
                 new_idx = min(idx, len(self.state.uploaded_files) - 1)
                 self.select_file(new_idx)
@@ -1035,14 +1049,7 @@ class DesktopSessionManager(QObject):
                 self.state.thumbnails.pop(file_info["name"], None)
 
         if not self.state.uploaded_files:
-            self.state.selected_file_idx = -1
-            self.state.selected_indices = []
-            self.state.current_file_path = None
-            self.state.current_file_hash = None
-            self.state.preview_raw = None
-            self.state.preview_ir = None
-            self.state.has_ir = False
-            self.state.config = WorkspaceConfig()
+            self._reset_active_image_state()
         else:
             new_idx = min(min(indices), len(self.state.uploaded_files) - 1)
             self.select_file(new_idx)
