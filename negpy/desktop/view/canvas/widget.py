@@ -402,6 +402,10 @@ class ImageCanvas(QWidget):
             event.ignore()
             return
 
+        # User preference: reverse scroll-to-zoom direction (set in Customize Shortcuts).
+        if getattr(self.state, "invert_zoom_scroll", False):
+            u = -u
+
         zmin = APP_CONFIG.canvas_zoom_min
         zmax = APP_CONFIG.canvas_zoom_max
         old_zoom = self.zoom_level

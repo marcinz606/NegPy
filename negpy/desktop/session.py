@@ -78,6 +78,9 @@ class AppState:
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
 
+    # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
+    invert_zoom_scroll: bool = False
+
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
     show_local_overlay: bool = True
@@ -398,6 +401,10 @@ class DesktopSessionManager(QObject):
         saved_bg = self.repo.get_global_setting("canvas_bg_index")
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
+
+        saved_invert_zoom = self.repo.get_global_setting("invert_zoom_scroll")
+        if saved_invert_zoom is not None:
+            self.state.invert_zoom_scroll = bool(saved_invert_zoom)
 
         saved_icc_in = self.repo.get_global_setting("icc_input_path")
         if saved_icc_in and os.path.exists(saved_icc_in):

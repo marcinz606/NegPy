@@ -178,7 +178,7 @@ class ShortcutManager:
     def open_editor(self, parent=None) -> bool:
         from negpy.desktop.view.widgets.shortcut_editor import ShortcutEditorDialog
 
-        dlg = ShortcutEditorDialog(self.bindings, parent or self.window)
+        dlg = ShortcutEditorDialog(self.bindings, parent or self.window, session=self.window.controller.session)
         if dlg.exec():
             self.update_bindings(dlg.bindings())
             return True
