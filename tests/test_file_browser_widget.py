@@ -210,16 +210,32 @@ def test_remove_from_menu_routes_single_vs_multi(browser, session):
     session.remove_current_file = MagicMock()
     session.remove_selected_files = MagicMock()
 
-    session.state.selected_indices = [1]
-    browser._on_remove_from_menu()
-    session.remove_current_file.assert_called_once()
-    session.remove_selected_files.assert_not_called()
+    # confirm_unload opens a blocking QMessageBox — must be patched headless.
+    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=True):
+        session.state.selected_indices = [1]
+        browser._on_remove_from_menu()
+        session.remove_current_file.assert_called_once()
+        session.remove_selected_files.assert_not_called()
 
-    session.remove_current_file.reset_mock()
-    session.state.selected_indices = [0, 1]
-    browser._on_remove_from_menu()
-    session.remove_selected_files.assert_called_once()
+        session.remove_current_file.reset_mock()
+        session.state.selected_indices = [0, 1]
+        browser._on_remove_from_menu()
+        session.remove_selected_files.assert_called_once()
+        session.remove_current_file.assert_not_called()
+
+
+def test_remove_from_menu_cancelled_confirm_removes_nothing(browser, session):
+    session.remove_current_file = MagicMock()
+    session.remove_selected_files = MagicMock()
+
+    with patch("negpy.desktop.view.sidebar.files.confirm_unload", return_value=False):
+        session.state.selected_indices = [1]
+        browser._on_remove_from_menu()
+        session.state.selected_indices = [0, 1]
+        browser._on_remove_from_menu()
+
     session.remove_current_file.assert_not_called()
+    session.remove_selected_files.assert_not_called()
 
 
 def test_add_files_uses_and_saves_last_folder(browser, session):
