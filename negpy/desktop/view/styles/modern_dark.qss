@@ -241,6 +241,49 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0px;
 }
 
+/* Menus (right-click context menus + dropdowns). Fusion draws no hover state on
+   this dark palette, so an item under the cursor looks identical to the rest —
+   users can't tell the options are clickable. Give the hovered/selected item a
+   clear highlight fill. */
+QMenu {
+    background-color: #161616;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+QMenu::item {
+    background-color: transparent;
+    color: #D4D4D4;
+    padding: 5px 24px 5px 12px;
+    border-radius: 3px;
+}
+
+QMenu::item:selected {
+    background-color: #2E2E2E;
+    color: #FFFFFF;
+}
+
+QMenu::item:disabled {
+    color: #555555;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #333333;
+    margin: 4px 8px;
+}
+
+/* Tooltip box — match the panel surface and give it a subtle border so the
+   rich-text keycap chips sit on a consistent backdrop. */
+QToolTip {
+    background-color: #161616;
+    color: #D4D4D4;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+
 /* Phase 2A — objectName-based rules */
 
 QFrame#collapsible_content {
