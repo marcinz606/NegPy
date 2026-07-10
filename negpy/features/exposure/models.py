@@ -11,7 +11,7 @@ class RenderIntent(StrEnum):
     FLAT  — a low-contrast, neutral "digital intermediate" master intended for
             further editing in Lightroom/Darktable/Photoshop. The mask-neutralized
             inversion is kept, but the creative print decisions (auto density/grade,
-            cast removal, toe/shoulder, surround) and the downstream creative
+            cast removal, toe/shoulder) and the downstream creative
             stages (lab, local, toning, finish) are bypassed so maximal tonal and
             colour information is preserved with gentle highlight/shadow roll-off.
     """
@@ -41,6 +41,11 @@ class ExposureConfig:
     highlight_cyan: float = 0.0
     highlight_magenta: float = 0.0
     highlight_yellow: float = 0.0
+    # Neutral zone density offsets (ΔD, achromatic): + = denser = darker print.
+    # Slider ranges are asymmetric — an equal ΔD reads far smaller near d_max
+    # than near d_min (density is log10).
+    shadow_density: float = 0.0
+    highlight_density: float = 0.0
     toe: float = 0.0
     toe_width: float = 2.5
     shoulder: float = 0.0
@@ -70,7 +75,6 @@ class ExposureConfig:
     midtone_gamma_trim_blue: float = 0.0
     cast_removal_strength: float = 0.5
     auto_cast_removal: bool = True
-    surround: bool = False
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
     render_intent: str = RenderIntent.PRINT
@@ -100,6 +104,12 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Target density where the reference tone (assumed_anchor) should print on paper.
     # ↑ reference tone prints darker; ↓ reference tone prints brighter.
     "anchor_target_density": 0.74,
+    # Zone Density (ΔD) weights: mid-sparing sigmoids centred in the three-quarter/
+    # quarter tones (offsets from anchor_target_density), so midtones get neither
+    # offset. Mirrored as literals in exposure.wgsl — change both together.
+    "zone_density_sharpness": 4.0,
+    "zone_density_shadow_offset": 0.75,
+    "zone_density_highlight_offset": -0.40,
     # Default normalized midtone reference in [0,1] log space (used when auto_exposure=False).
     # ↑ curve pivots brighter (assumes denser negative); ↓ pivots darker.
     "assumed_anchor": 0.46,
@@ -227,10 +237,6 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Reference floor_ceil/textural ratio for a "normal" negative (used as Auto Grade blend anchor).
     # ↑ system treats denser negatives as normal (grades down harder frames); ↓ expects flatter negatives.
     "auto_grade_nominal_ratio": 2.0,
-    # Preferred dim-surround print gamma (Bartleson-Breneman ~1.1); applied when surround is on.
-    # Contrast expansion about paper white when dim-surround is enabled: density = d_min + γ·(D − d_min).
-    # ↑ more midtone contrast boost in dim surround; ↓ less expansion (closer to flat).
-    "target_system_gamma": 1.10,
     # Percentile margin for measuring the "textural" scene range (rejects specular highlights and dust).
     # ↑ includes more histogram (wider textural range); ↓ tighter (more robust to extreme outliers).
     "textural_range_clip": 10.0,

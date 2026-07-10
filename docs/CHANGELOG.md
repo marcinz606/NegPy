@@ -5,11 +5,14 @@
 
 - New: **Per-layer curve trims (crossover correction)** — a **Global / Red / Green / Blue** selector on the Tone page scopes Grade, Toe, Shoulder, knee Widths and Snap to a single dye layer. Filtration can only *shift* a layer's curve; these trims change its *shape*, fixing casts that differ between shadows, mids and highlights — the correction a real colour darkroom never had. The H&D chart draws the diverged per-layer curves live. (#390)
 - New: **Per-channel White / Black Point** — the Process page's White and Black Point sliders get the same **Global / Red / Green / Blue** selector: per-layer trims on the normalization bounds (film-base/Dmax correction), like a scanner's per-channel levels.
-- New: **True Black** — black point compensation toggle beside Toe: maps the paper's D-max to display black, like an ICC relative-colorimetric soft-proof. Blacks previously floored at ~5% grey; pulling Toe negative now clips deep shadows to exact 0. Off by default; existing edits render identically.
+- New: **Shadows / Highlights Density** — two sliders under Print Density brighten or darken each zone directly, in real density units (ΔD), without reshaping the toe/shoulder knees. Midtones stay put, and both are bounded by paper black and paper white like a darkroom print — a burn rolls into the paper limit instead of clipping. The H&D chart shows the shift live. (#430)
+- New: **True Black** — black point compensation toggle beside Shadows Density: maps the paper's D-max to display black, like an ICC relative-colorimetric soft-proof. Blacks previously floored at ~5% grey; pulling Toe negative now clips deep shadows to exact 0. Off by default; existing edits render identically.
 - New: **Snap** slider — the paper's variable midtone gamma, now user-adjustable: steepens or flattens the S-curve around the reference tone while paper white, paper black and the exposure anchor stay put.
 - Change: **Toe slider recalibrated** — full toe throw was perceptually ~9× weaker than the same shoulder throw (density is logarithmic; a shift near paper black barely registers). Toe +1 now lands on a clearly faded black; the automatic grade-coupled baseline is rescaled to compensate, so frames without a manual toe render identically.
 - Change: **Colour page redesigned to match the Tone page** — full-width **Global / Shadows / Highlights** buttons on top; Temperature, the WB picker, the roll lock and a new reset button are all region-scoped.
-- Removed: **Flare** — the veiling-glare floor is gone; its slot next to Snap now holds Contrast Lift. Old edits that used it load cleanly and render without the shadow lift.
+- Change: **Paper Response section** — the paper profile dropdown and the H&D curve-shape controls (Snap, Toe, Shoulder, knee Widths) move out of Tone into their own collapsible with its own modified count and reset.
+- Removed: **Flare** — the veiling-glare floor is gone. Old edits that used it load cleanly and render without the shadow lift.
+- Removed: **Contrast Lift** — the fixed dim-surround contrast expansion is gone; Snap and the new zone density sliders cover the same ground with real control. Old edits that used it load cleanly and render without the lift.
 
 ## 0.35.0
 

@@ -27,6 +27,24 @@ def test_paper_combo_rebuilt_only_when_entries_change(qapp):
     assert _combo_items(sidebar.paper_combo) == items
 
 
+def test_paper_response_widgets_live_in_paper_panel(qapp):
+    controller = MagicMock()
+    controller.state = AppState()
+    sidebar = ToneSidebar(controller)
+
+    for w in (
+        sidebar.paper_combo,
+        sidebar.midtone_gamma_slider,
+        sidebar.toe_slider,
+        sidebar.sh_slider,
+        sidebar.toe_w_slider,
+        sidebar.sh_w_slider,
+    ):
+        assert sidebar.paper_panel.isAncestorOf(w)
+    for w in (sidebar.density_slider, sidebar.grade_slider, sidebar.shadow_density_slider, sidebar.ch_global_btn):
+        assert not sidebar.paper_panel.isAncestorOf(w)
+
+
 def test_channel_selector_retargets_and_syncs(qapp):
     controller = MagicMock()
     controller.state = AppState()
@@ -45,6 +63,8 @@ def test_channel_selector_retargets_and_syncs(qapp):
             shoulder_width_trim_red=-0.6,
             true_black=True,
             midtone_gamma=0.25,
+            shadow_density=-0.45,
+            highlight_density=0.2,
         ),
     )
     sidebar.sync_ui()
@@ -57,6 +77,10 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert sidebar.toe_w_trim_slider.isHidden()
     assert sidebar.true_black_btn.isChecked()
     assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
+    assert abs(sidebar.shadow_density_slider.value() - (-0.45)) < 1e-9
+    assert abs(sidebar.highlight_density_slider.value() - 0.2) < 1e-9
+    assert sidebar.shadow_density_slider in sidebar._global_only
+    assert sidebar.highlight_density_slider in sidebar._global_only
 
     # Red page: sliders retarget to the red trims; global-only controls grey out.
     sidebar.ch_r_btn.setChecked(True)

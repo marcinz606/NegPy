@@ -225,8 +225,7 @@ class PhotometricProcessor:
             grade_trims=(self.config.grade_trim_red, self.config.grade_trim_green, self.config.grade_trim_blue),
         )
 
-        c = EXPOSURE_CONSTANTS
-        cmy_max = c["cmy_max_density"]
+        cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(
             (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
             final_bounds,
@@ -266,7 +265,6 @@ class PhotometricProcessor:
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
             d_min=d_min,
-            surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
             midtone_gamma=effective_midtone_gamma(paper, self.config.midtone_gamma),
             curvatures=curvatures,
             paper=paper,
@@ -290,6 +288,8 @@ class PhotometricProcessor:
                 self.config.shoulder_width_trim_green,
                 self.config.shoulder_width_trim_blue,
             ),
+            shadow_density=self.config.shadow_density,
+            highlight_density=self.config.highlight_density,
         )
 
         if context.process_mode == ProcessMode.BW:
@@ -303,7 +303,7 @@ class PhotometricProcessor:
         """
         Flat log-master render: emits the normalized log signal directly (a flat,
         milky log-video look), dropping all creative print decisions — no auto
-        density/grade, cast removal, toe/shoulder, surround. A fixed gain/lift
+        density/grade, cast removal, toe/shoulder. A fixed gain/lift
         keeps the master consistent across a roll and holds maximal editing latitude.
 
         Manual global white balance (the WB picker / CMY global) is still honoured

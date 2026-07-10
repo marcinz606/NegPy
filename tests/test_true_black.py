@@ -7,7 +7,6 @@ import unittest
 import numpy as np
 
 from negpy.features.exposure.logic import CharacteristicCurve, apply_characteristic_curve
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
 _PARAMS = (0.5, 5.375)  # pivot pushes a val=1 pixel deep into paper black
 _SHADOW = np.full((2, 2, 3), 1.0, dtype=np.float32)
@@ -33,11 +32,6 @@ class TestTrueBlack(unittest.TestCase):
         self.assertGreater(_render(_SHADOW, toe=-1.0), 0.0)  # without BPC: never zero
         self.assertEqual(_render(_SHADOW, toe=-1.0, bpc=True), 0.0)
 
-    def test_zero_with_surround(self):
-        """The BPC reference rides through the same surround transform."""
-        gamma = float(EXPOSURE_CONSTANTS["target_system_gamma"])
-        self.assertEqual(_render(_SHADOW, toe=-1.0, surround_gamma=gamma, bpc=True), 0.0)
-
     def test_paper_white_preserved(self):
         base = _render(_HIGHLIGHT)
         compensated = _render(_HIGHLIGHT, bpc=True)
@@ -51,10 +45,9 @@ class TestTrueBlack(unittest.TestCase):
     def test_chart_matches_kernel(self):
         ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
         pivot, slope = _PARAMS
-        gamma = float(EXPOSURE_CONSTANTS["target_system_gamma"])
-        for toe, surround in ((0.0, 1.0), (-0.6, 1.0), (-1.0, gamma)):
-            res_kernel = apply_characteristic_curve(ramp, _PARAMS, _PARAMS, _PARAMS, toe=toe, surround_gamma=surround, bpc=True)
-            curve = CharacteristicCurve(contrast=slope, pivot=pivot, toe=toe, surround_gamma=surround, bpc=True)
+        for toe in (0.0, -0.6, -1.0):
+            res_kernel = apply_characteristic_curve(ramp, _PARAMS, _PARAMS, _PARAMS, toe=toe, bpc=True)
+            curve = CharacteristicCurve(contrast=slope, pivot=pivot, toe=toe, bpc=True)
             density = np.asarray(curve(ramp[0, :, 0].astype(np.float32)))
             expected = np.clip(10.0 ** (-density), 0.0, 1.0)
             np.testing.assert_allclose(res_kernel[0, :, 0], expected, atol=1e-4)

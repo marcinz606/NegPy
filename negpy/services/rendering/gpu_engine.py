@@ -1133,7 +1133,9 @@ class GPUEngine:
                 _tw3[1],
                 _tw3[2],
                 _sw3[0],
-                d_min,
+                # Zone Density ΔD shadow offset in the ex-d_min slot; the
+                # highlight offset rides d_min_rgb.w.
+                exp.shadow_density,
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
@@ -1142,19 +1144,20 @@ class GPUEngine:
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
                 _sw3[1],
-                float(EXPOSURE_CONSTANTS["target_system_gamma"]) if exp.surround else 1.0,
+                # Free slot (ex-surround_gamma).
+                0.0,
                 mode_val,
                 _reference_linear_value(d_min, paper),
                 _sw3[2],
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
                 # BPC flag (former pad). Block is full at 256B; per-channel toe/
-                # shoulder/Snap ride the vec4 w-lanes and the widths the ex-scalar
-                # slots, leaving only d_min_rgb.w free — beyond that, new uniforms
-                # need real multi-slot offsets.
+                # shoulder/Snap ride the vec4 w-lanes, the widths the ex-scalar
+                # slots, and Zone Density ΔD the ex-d_min slot + d_min_rgb.w —
+                # no lane is free; new uniforms need real multi-slot offsets.
                 1.0 if exp.true_black else 0.0,
             )
-            + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)
+            + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density)
             # Dye-row w-lanes carry the per-channel midtone gamma (Snap).
             + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], _mg3[0])
             + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], _mg3[1])

@@ -67,6 +67,11 @@ def _apply_print_curve_kernel(
     toe_height: float,
     sh_height: float,
     zone_center: float,
+    shadow_density: float,
+    highlight_density: float,
+    zone_sh_center: float,
+    zone_hi_center: float,
+    zone_k: float,
     v_star: float,
     midtone_gamma: np.ndarray,
     gamma_width: float,
@@ -75,7 +80,6 @@ def _apply_print_curve_kernel(
     ev_map: np.ndarray,
     ev_scale: np.ndarray,
     use_ev: bool,
-    surround_gamma: float = 1.0,
     bpc: bool = False,
 ) -> np.ndarray:
     """
@@ -136,8 +140,6 @@ def _apply_print_curve_kernel(
         db = d_max
         if t_ch < 0.0:
             db = d_max + t_ch * toe_height
-        if surround_gamma != 1.0:
-            db = d_min_rgb[ch] + surround_gamma * (db - d_min_rgb[ch])
         bpc_black[ch] = 10.0**-db
 
     # Rows are independent, so parallelise over y. `dens` is allocated per row so
@@ -163,6 +165,13 @@ def _apply_print_curve_kernel(
                 w_hi = 1.0 - w_sh
                 v = v + shadow_cmy[ch] * w_sh + highlight_cmy[ch] * w_hi
 
+                # Zone Density (ΔD): neutral brightness offsets, mid-sparing
+                # weights centred in the three-quarter/quarter tones.
+                if shadow_density != 0.0 or highlight_density != 0.0:
+                    w_zsh = _fast_sigmoid(zone_k * (v - zone_sh_center))
+                    w_zhi = 1.0 - _fast_sigmoid(zone_k * (v - zone_hi_center))
+                    v = v + shadow_density * w_zsh + highlight_density * w_zhi
+
                 # Shoulder: smooth lower bound at paper white (highlights).
                 v1 = d_min_eff[ch] + _softplus(a_hl[ch] * (v - d_min_eff[ch])) / a_hl[ch]
                 # Toe: smooth upper bound at paper black (shadows).
@@ -178,11 +187,7 @@ def _apply_print_curve_kernel(
                 dens[2] = d_min_rgb[2] + dye_mix[2, 0] * e0 + dye_mix[2, 1] * e1 + dye_mix[2, 2] * e2
 
             for ch in range(3):
-                density = dens[ch]
-                if surround_gamma != 1.0:
-                    density = d_min_rgb[ch] + surround_gamma * (density - d_min_rgb[ch])
-
-                transmittance = 10.0 ** (-density)
+                transmittance = 10.0 ** (-dens[ch])
                 if bpc:
                     transmittance = (transmittance - bpc_black[ch]) / (1.0 - bpc_black[ch])
 
@@ -200,7 +205,8 @@ class CharacteristicCurve:
     Asymmetric H&D print curve (toe-linear-shoulder) in density space — the NumPy
     mirror of _apply_print_curve_kernel, used by the curve chart so the displayed
     curve matches the render. Returns density (pre-transmittance/encode). Neutral
-    (no regional CMY), since the chart shows the achromatic transfer.
+    (no regional CMY colour), since the chart shows the achromatic transfer; the
+    achromatic zone density offsets (shadow/highlight ΔD) are included.
     """
 
     def __init__(
@@ -212,10 +218,11 @@ class CharacteristicCurve:
         toe_width: float = 2.5,
         shoulder: float = 0.0,
         shoulder_width: float = 2.5,
-        surround_gamma: float = 1.0,
         paper: Optional[PaperProfile] = None,
         midtone_gamma: Optional[float] = None,
         bpc: bool = False,
+        shadow_density: float = 0.0,
+        highlight_density: float = 0.0,
     ):
         c = effective_constants(paper)
         ts = float(c["toe_shoulder_strength"])
@@ -225,15 +232,17 @@ class CharacteristicCurve:
         self.v_star = _reference_linear_value(d_min, paper)
         self.midtone_gamma = float(c["paper_midtone_gamma"]) if midtone_gamma is None else float(midtone_gamma)
         self.gamma_width = float(c["paper_gamma_width"])
+        self.zone_sh_center = float(c["anchor_target_density"]) + float(c["zone_density_shadow_offset"])
+        self.zone_hi_center = float(c["anchor_target_density"]) + float(c["zone_density_highlight_offset"])
+        self.zone_k = float(c["zone_density_sharpness"])
+        self.shadow_density = float(shadow_density)
+        self.highlight_density = float(highlight_density)
         self.d_max = float(c["d_max"])
-        self.surround_gamma = float(surround_gamma)
         # BPC reference mirrors the kernel prologue (achromatic: d_min for the tint).
         self.bpc = bool(bpc)
         db = self.d_max
         if toe * ts < 0.0:
             db = self.d_max + toe * ts * float(c["toe_height"])
-        if surround_gamma != 1.0:
-            db = self.d_min + surround_gamma * (db - self.d_min)
         self.bpc_black = 10.0**-db
         wr = float(c["toeshoulder_width_ref"])
         # toe -> shadow (upper) bound; shoulder -> highlight (lower) bound.
@@ -254,11 +263,12 @@ class CharacteristicCurve:
         v = self.k * (np.asarray(x, dtype=np.float64) - self.x0)
         if self.midtone_gamma != 0.0:
             v = v + self.midtone_gamma * self.gamma_width * np.tanh((v - self.v_star) / self.gamma_width)
+        if self.shadow_density != 0.0 or self.highlight_density != 0.0:
+            w_zsh = _expit(self.zone_k * (v - self.zone_sh_center))
+            w_zhi = 1.0 - _expit(self.zone_k * (v - self.zone_hi_center))
+            v = v + self.shadow_density * w_zsh + self.highlight_density * w_zhi
         v1 = self.d_min_eff + np.logaddexp(0.0, self.a_hl * (v - self.d_min_eff)) / self.a_hl
         res = self.d_max_eff - np.logaddexp(0.0, self.a_sh * (self.d_max_eff - v1)) / self.a_sh
-
-        if self.surround_gamma != 1.0:
-            res = self.d_min + self.surround_gamma * (res - self.d_min)
 
         if self.bpc:
             t = 10.0 ** (-res)
@@ -339,7 +349,6 @@ def apply_characteristic_curve(
     highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     d_min: float = 0.0,
-    surround_gamma: float = 1.0,
     midtone_gamma: Optional[float] = None,
     curvatures: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     paper: Optional[PaperProfile] = None,
@@ -351,6 +360,8 @@ def apply_characteristic_curve(
     snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     toe_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shadow_density: float = 0.0,
+    highlight_density: float = 0.0,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -394,6 +405,11 @@ def apply_characteristic_curve(
         toe_height=float(c["toe_height"]),
         sh_height=float(c["shoulder_height"]),
         zone_center=float(c["anchor_target_density"]),
+        shadow_density=float(shadow_density),
+        highlight_density=float(highlight_density),
+        zone_sh_center=float(c["anchor_target_density"]) + float(c["zone_density_shadow_offset"]),
+        zone_hi_center=float(c["anchor_target_density"]) + float(c["zone_density_highlight_offset"]),
+        zone_k=float(c["zone_density_sharpness"]),
         v_star=float(v_star),
         midtone_gamma=np.array([float(midtone_gamma) + snap_trims[ch] for ch in range(3)], dtype=np.float64),
         gamma_width=float(c["paper_gamma_width"]),
@@ -402,7 +418,6 @@ def apply_characteristic_curve(
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
-        surround_gamma=float(surround_gamma),
         bpc=bool(bpc),
     )
     return ensure_image(res)

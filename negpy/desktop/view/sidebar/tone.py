@@ -1,5 +1,5 @@
 import qtawesome as qta
-from PyQt6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout
+from PyQt6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout, QVBoxLayout, QWidget
 
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -13,15 +13,16 @@ _CH_COLORS = ("#ff5a5a", "#5adc78", "#5f96ff")
 
 
 class ToneSidebar(BaseSidebar):
-    """Density, Grade, H&D curve (toe/shoulder), paper white, contrast lift,
-    paper profile — with a [Global/R/G/B] channel selector scoping Grade/Toe/Shoulder
-    to per-layer trims (crossover correction)."""
+    """Print/zone density, Grade, paper white — with a [Global/R/G/B] channel
+    selector scoping Grade/Toe/Shoulder to per-layer trims (crossover correction).
+    Also owns `paper_panel` (paper profile + Snap/Toe/Shoulder), which ControlsPanel
+    wraps in its own "Paper Response" collapsible."""
 
     def _init_ui(self) -> None:
         self.layout.setSpacing(12)
         conf = self.state.config.exposure
 
-        self.density_slider = CompactSlider("Density", 0.0, 2.0, conf.density)
+        self.density_slider = CompactSlider("Print Density", 0.0, 2.0, conf.density)
         self.density_slider.setToolTip(
             tooltip_with_shortcut(
                 "Overall exposure — higher values darken the print; full throw ≈ ±0.9 stop on a ΔD 1.3 negative",
@@ -43,14 +44,13 @@ class ToneSidebar(BaseSidebar):
         )
         self.grade_trim_slider.setVisible(False)
 
-        self.surround_btn = self._icon_toggle(
-            "fa5s.eye",
-            conf.surround,
-            "Contrast Lift: a gentle fixed contrast expansion about paper white. Prints viewed in a "
-            "normal (dim) surround read flatter than a 1:1 reproduction, so preferred tone "
-            "reproduction (Bartleson-Breneman) calls for a slightly higher system gamma (~1.1) — "
-            "this darkens midtones a touch and adds snap, uniformly on every frame.",
-        )
+        # Parented here so the base-class wheel guards catch paper_combo;
+        # ControlsPanel reparents it into the "Paper Response" collapsible.
+        self.paper_panel = QWidget(self)
+        paper_layout = QVBoxLayout(self.paper_panel)
+        paper_layout.setContentsMargins(5, 0, 5, 5)
+        paper_layout.setSpacing(12)
+
         self.paper_label = field_label("Paper")
         self.paper_combo = QComboBox()
         self.paper_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
@@ -65,7 +65,7 @@ class ToneSidebar(BaseSidebar):
         top_row = QHBoxLayout()
         top_row.addWidget(self.paper_label)
         top_row.addWidget(self.paper_combo, 1)
-        self.layout.addLayout(top_row)
+        paper_layout.addLayout(top_row)
 
         # Channel selector: Global = the shared curve; R/G/B = per-layer trims.
         self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — edit the shared H&D curve (all layers)")
@@ -115,6 +115,39 @@ class ToneSidebar(BaseSidebar):
         density_row.addWidget(self.density_slider)
         self.layout.addLayout(density_row)
 
+        self.true_black_btn = self._icon_toggle(
+            "fa5s.circle",
+            conf.true_black,
+            "True Black — black point compensation: maps the paper's Dmax to display black, like an "
+            "ICC relative-colorimetric soft-proof; the adapted eye reads paper black as black. "
+            "A lifted toe and shadow colour survive; pull Toe negative to clip deep shadows to exact black.",
+        )
+        self.paper_dmin_btn = self._icon_toggle(
+            "fa5s.file",
+            conf.paper_dmin,
+            "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
+        )
+        self.shadow_density_slider = CompactSlider("Shadows Density", -0.9, 0.9, conf.shadow_density)
+        self.shadow_density_slider.setToolTip(
+            "Shadow zone density (ΔD): density offset weighted to the deep shadows, easing out "
+            "before the midtone and bounded by paper black. Positive prints denser — darker "
+            "shadows; negative lifts them brighter."
+        )
+        self.highlight_density_slider = CompactSlider("Highlights Density", -0.5, 0.5, conf.highlight_density)
+        self.highlight_density_slider.setToolTip(
+            "Highlight zone density (ΔD): density offset weighted to the highlights, easing out "
+            "past the midtone and bounded by paper white. Positive prints denser — darker, "
+            "burned-in highlights; negative bleaches them brighter."
+        )
+        shadow_density_row = QHBoxLayout()
+        shadow_density_row.addWidget(self.true_black_btn)
+        shadow_density_row.addWidget(self.shadow_density_slider)
+        self.layout.addLayout(shadow_density_row)
+        highlight_density_row = QHBoxLayout()
+        highlight_density_row.addWidget(self.paper_dmin_btn)
+        highlight_density_row.addWidget(self.highlight_density_slider)
+        self.layout.addLayout(highlight_density_row)
+
         self.auto_grade_btn = self._icon_toggle(
             "fa5s.balance-scale",
             conf.auto_normalize_contrast,
@@ -134,17 +167,9 @@ class ToneSidebar(BaseSidebar):
             "In R/G/B mode: this layer's Snap trim (midtone crossover)."
         )
         snap_row = QHBoxLayout()
-        snap_row.addWidget(self.surround_btn)
         snap_row.addWidget(self.midtone_gamma_slider)
-        self.layout.addLayout(snap_row)
+        paper_layout.addLayout(snap_row)
 
-        self.true_black_btn = self._icon_toggle(
-            "fa5s.circle",
-            conf.true_black,
-            "True Black — black point compensation: maps the paper's Dmax to display black, like an "
-            "ICC relative-colorimetric soft-proof; the adapted eye reads paper black as black. "
-            "A lifted toe and shadow colour survive; pull Toe negative to clip deep shadows to exact black.",
-        )
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_slider.setToolTip("Width of the shadow toe transition zone")
@@ -159,17 +184,11 @@ class ToneSidebar(BaseSidebar):
             "Shadow toe lift: positive raises shadows, negative deepens blacks (with True Black on, "
             "negative toe clips deep shadows to exact black). In R/G/B mode: this layer's toe trim."
         )
-        toe_row.addWidget(self.true_black_btn)
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         toe_row.addWidget(self.toe_w_trim_slider)
-        self.layout.addLayout(toe_row)
+        paper_layout.addLayout(toe_row)
 
-        self.paper_dmin_btn = self._icon_toggle(
-            "fa5s.file",
-            conf.paper_dmin,
-            "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
-        )
         sh_row = QHBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
         self.sh_slider.setToolTip(
@@ -183,11 +202,10 @@ class ToneSidebar(BaseSidebar):
             "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
         )
         self.sh_w_trim_slider.setVisible(False)
-        sh_row.addWidget(self.paper_dmin_btn)
         sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
         sh_row.addWidget(self.sh_w_trim_slider)
-        self.layout.addLayout(sh_row)
+        paper_layout.addLayout(sh_row)
 
         self.layout.addStretch()
 
@@ -198,8 +216,9 @@ class ToneSidebar(BaseSidebar):
             self.auto_grade_btn,
             self.paper_dmin_btn,
             self.true_black_btn,
-            self.surround_btn,
             self.paper_combo,
+            self.shadow_density_slider,
+            self.highlight_density_slider,
         )
 
     def _channel_index(self) -> int:
@@ -237,6 +256,8 @@ class ToneSidebar(BaseSidebar):
             (self.grade_slider, "grade"),
             (self.toe_w_slider, "toe_width"),
             (self.sh_w_slider, "shoulder_width"),
+            (self.shadow_density_slider, "shadow_density"),
+            (self.highlight_density_slider, "highlight_density"),
         ):
             slider.valueChanged.connect(
                 lambda v, f=field: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, **{f: v})
@@ -286,7 +307,6 @@ class ToneSidebar(BaseSidebar):
         for btn, field in (
             (self.paper_dmin_btn, "paper_dmin"),
             (self.true_black_btn, "true_black"),
-            (self.surround_btn, "surround"),
             (self.auto_density_btn, "auto_exposure"),
             (self.auto_grade_btn, "auto_normalize_contrast"),
         ):
@@ -356,10 +376,11 @@ class ToneSidebar(BaseSidebar):
             self.grade_slider.setValue(conf.grade)
             self.toe_w_slider.setValue(conf.toe_width)
             self.sh_w_slider.setValue(conf.shoulder_width)
+            self.shadow_density_slider.setValue(conf.shadow_density)
+            self.highlight_density_slider.setValue(conf.highlight_density)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.true_black_btn.setChecked(conf.true_black)
-            self.surround_btn.setChecked(conf.surround)
             self.auto_density_btn.setChecked(conf.auto_exposure)
             self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
         finally:
@@ -382,9 +403,10 @@ class ToneSidebar(BaseSidebar):
             self.sh_w_slider,
             self.sh_w_trim_slider,
             self.midtone_gamma_slider,
+            self.shadow_density_slider,
+            self.highlight_density_slider,
             self.paper_dmin_btn,
             self.true_black_btn,
-            self.surround_btn,
             self.auto_density_btn,
             self.auto_grade_btn,
         ):

@@ -442,7 +442,6 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
         auto_normalize_contrast=False,
         cast_removal_strength=0.0,
         auto_cast_removal=False,
-        surround=False,
         paper_dmin=False,
         toe=0.0,
         shoulder=0.0,

@@ -12,7 +12,8 @@ struct ExposureUniforms {
     toe_width_g: f32,
     toe_width_b: f32,
     shoulder_width_r: f32,
-    d_min: f32,
+    // Zone Density ΔD shadow offset in the ex-d_min slot (the curve reads d_min_rgb).
+    shadow_density: f32,
     d_max: f32,
     a_toe_base: f32,
     a_sh_base: f32,
@@ -21,7 +22,8 @@ struct ExposureUniforms {
     sh_height: f32,
     zone_center: f32,
     shoulder_width_g: f32,
-    surround_gamma: f32,
+    // Free slot (ex-surround_gamma); keep so the 256B layout stands.
+    pad0: f32,
     mode: u32,
     v_star: f32,
     shoulder_width_b: f32,
@@ -29,7 +31,8 @@ struct ExposureUniforms {
     use_dye: u32,
     // Black point compensation flag (0/1); was the 16B pad before d_min_rgb.
     bpc: f32,
-    // Per-channel paper-white floor (base+fog incl. tint); the curve reads this, not d_min.
+    // Per-channel paper-white floor (base+fog incl. tint) in xyz; w carries the
+    // Zone Density ΔD highlight offset (the block is full at 256B).
     d_min_rgb: vec4<f32>,
     // Row-normalized dye coupling rows (D_rgb = M * D_dye above base).
     dye_r: vec4<f32>,
@@ -131,6 +134,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let w_hi = 1.0 - w_sh;
         v = v + params.shadow_cmy[ch] * w_sh + params.highlight_cmy[ch] * w_hi;
 
+        // Zone Density (ΔD), mid-sparing weights; +0.75 / -0.40 / 4.0 mirror
+        // the zone_density_* constants in models.py — change together.
+        let w_zsh = fast_sigmoid(4.0 * (v - (params.zone_center + 0.75)));
+        let w_zhi = 1.0 - fast_sigmoid(4.0 * (v - (params.zone_center - 0.40)));
+        v = v + params.shadow_density * w_zsh + params.d_min_rgb.w * w_zhi;
+
         // Shoulder: smooth lower bound at paper white (highlights).
         let v1 = d_min_eff[ch] + softplus(a_hl[ch] * (v - d_min_eff[ch])) / a_hl[ch];
         // Toe: smooth upper bound at paper black (shadows).
@@ -147,19 +156,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         );
     }
 
-    var density = dens;
-    if (params.surround_gamma != 1.0) {
-        density = d_min_rgb + params.surround_gamma * (density - d_min_rgb);
-    }
-
-    var transmittance = pow(vec3<f32>(10.0), -density);
+    var transmittance = pow(vec3<f32>(10.0), -dens);
     // BPC: physical paper black -> display 0; mirrors the CPU kernel prologue
     // (negative toe raises the clip point). oetf_encode clamps the tail to 0.
     if (params.bpc != 0.0) {
-        var db = vec3<f32>(params.d_max) + select(vec3<f32>(0.0), toe3 * params.toe_height, toe_neg);
-        if (params.surround_gamma != 1.0) {
-            db = d_min_rgb + params.surround_gamma * (db - d_min_rgb);
-        }
+        let db = vec3<f32>(params.d_max) + select(vec3<f32>(0.0), toe3 * params.toe_height, toe_neg);
         let tb = pow(vec3<f32>(10.0), -db);
         transmittance = (transmittance - tb) / (vec3<f32>(1.0) - tb);
     }

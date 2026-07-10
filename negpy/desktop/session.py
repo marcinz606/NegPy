@@ -588,7 +588,6 @@ class DesktopSessionManager(QObject):
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
             ("last_auto_cast_removal", "auto_cast_removal"),
             ("last_paper_dmin", "paper_dmin"),
-            ("last_surround", "surround"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
@@ -636,7 +635,6 @@ class DesktopSessionManager(QObject):
                 "last_cast_removal_strength": config.exposure.cast_removal_strength,
                 "last_auto_cast_removal": config.exposure.auto_cast_removal,
                 "last_paper_dmin": config.exposure.paper_dmin,
-                "last_surround": config.exposure.surround,
                 "last_paper_profile": config.exposure.paper_profile,
                 "last_toe": config.exposure.toe,
                 "last_toe_width": config.exposure.toe_width,

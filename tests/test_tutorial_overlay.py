@@ -16,6 +16,7 @@ _VALID_SECTION_ATTRS = {
     "roll_section",
     "colour_section",
     "tone_section",
+    "paper_section",
     "lab_section",
     "toning_section",
     "retouch_section",

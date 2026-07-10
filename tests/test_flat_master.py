@@ -92,7 +92,6 @@ class TestFlatPhotometric(unittest.TestCase):
                 "toe": 0.9,
                 "shoulder": 0.9,
                 "paper_dmin": True,
-                "surround": True,
             }
         )
         np.testing.assert_allclose(base, varied, atol=1e-6)
@@ -173,7 +172,6 @@ class TestFlatConfigHelpers(unittest.TestCase):
         self.assertFalse(cfg.exposure.auto_exposure)
         self.assertFalse(cfg.exposure.auto_normalize_contrast)
         self.assertEqual(cfg.exposure.cast_removal_strength, 0.0)
-        self.assertFalse(cfg.exposure.surround)
         self.assertFalse(cfg.exposure.paper_dmin)
         self.assertEqual(cfg.exposure.toe, 0.0)
         self.assertEqual(cfg.exposure.shoulder, 0.0)

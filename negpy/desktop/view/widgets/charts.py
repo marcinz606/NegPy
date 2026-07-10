@@ -392,7 +392,6 @@ class PhotometricCurveWidget(QWidget):
             per_channel_toe_shoulder,
             per_channel_widths,
         )
-        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.papers import effective_paper_profile
         from negpy.kernel.image.validation import ensure_image
 
@@ -406,8 +405,6 @@ class PhotometricCurveWidget(QWidget):
             slope = grade_to_slope(params.grade, None)
         if pivot is None:
             pivot = compute_pivot(slope, params.density, d_min=d_min, paper=paper)
-
-        surround_gamma = EXPOSURE_CONSTANTS["target_system_gamma"] if params.surround else 1.0
 
         # Grade-coupled knees — same helper as the render path, so the plotted
         # curve matches the engine at hard grades. Flat has no print knees.
@@ -440,9 +437,10 @@ class PhotometricCurveWidget(QWidget):
                 toe_width=params.toe_width if tw_ch is None else tw_ch,
                 shoulder=shoulder_eff if sh_ch is None else sh_ch,
                 shoulder_width=params.shoulder_width if sw_ch is None else sw_ch,
-                surround_gamma=surround_gamma,
                 midtone_gamma=effective_midtone_gamma(None, params.midtone_gamma) if mg_ch is None else mg_ch,
                 bpc=params.true_black,
+                shadow_density=params.shadow_density,
+                highlight_density=params.highlight_density,
             )
             d = curve(ensure_image(x_log_exp))
             t = np.power(10.0, -d)
