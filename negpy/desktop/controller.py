@@ -1032,7 +1032,7 @@ class AppController(QObject):
             "Set both on the current frame before running.\n\n"
             "Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -1689,7 +1689,7 @@ class AppController(QObject):
             "Export",
             text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
         return reply == QMessageBox.StandardButton.Yes
 

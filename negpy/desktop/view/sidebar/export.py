@@ -365,7 +365,7 @@ class ExportSidebar(BaseSidebar):
                 "Overwrite Template",
                 f'A template named "{name}" already exists. Replace it?',
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
