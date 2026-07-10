@@ -213,6 +213,33 @@ QComboBox:disabled, QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabl
     border: 1px solid #1A1A1A;
 }
 
+/* Combo-box dropdown popup. Its a QListView-based view, so without this rule it
+   inherits the generic (faint) QListView::item highlight. Match the QMenu
+   highlight so hovering a dropdown item reads the same as a right-click menu. */
+QComboBox QAbstractItemView {
+    background-color: #161616;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    padding: 4px;
+    outline: none;
+    selection-background-color: #2E2E2E;
+    selection-color: #FFFFFF;
+}
+
+QComboBox QAbstractItemView::item {
+    background-color: transparent;
+    color: #D4D4D4;
+    border: none;
+    border-radius: 3px;
+    padding: 5px 12px;
+}
+
+QComboBox QAbstractItemView::item:selected,
+QComboBox QAbstractItemView::item:hover {
+    background-color: #2E2E2E;
+    color: #FFFFFF;
+}
+
 QPushButton:disabled, QToolButton:disabled { color: #555555; }
 QCheckBox:disabled { color: #555555; }
 
