@@ -245,8 +245,13 @@ class CompactSlider(BaseSlider):
         header = QHBoxLayout()
         header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.label = QLabel(label)
-        self.label.setStyleSheet(slider_label_qss(self._label_color, False))
+        self.label.setStyleSheet(slider_label_qss(self._label_color))
         self.label.setToolTip(f"{label} (double-click to reset)")
+
+        self._edited_dot = QLabel()
+        self._edited_dot.setFixedSize(8, 8)
+        self._edited_dot.setStyleSheet(f"background-color: {THEME.channel_red}; border-radius: 4px;")
+        self._edited_dot.hide()
 
         self.spin.setSingleStep(step)
         if step >= 1.0:
@@ -272,6 +277,7 @@ class CompactSlider(BaseSlider):
         self._scrub_start_val = 0.0
 
         header.addWidget(self.label)
+        header.addWidget(self._edited_dot)
         header.addStretch()
         header.addWidget(self.spin)
 
@@ -301,10 +307,11 @@ class CompactSlider(BaseSlider):
 
     def _update_edited_state(self) -> None:
         if not self.isEnabled():
-            self.label.setStyleSheet(slider_label_qss(THEME.text_muted, edited=False))
+            self.label.setStyleSheet(slider_label_qss(THEME.text_muted))
+            self._edited_dot.setVisible(False)
             return
-        edited = abs(self.spin.value() - self._default) > 1e-6
-        self.label.setStyleSheet(slider_label_qss(self._label_color, edited))
+        self.label.setStyleSheet(slider_label_qss(self._label_color))
+        self._edited_dot.setVisible(abs(self.spin.value() - self._default) > 1e-6)
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.spin:

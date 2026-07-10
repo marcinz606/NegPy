@@ -114,9 +114,8 @@ def tool_toggle_qss(icon_only: bool = False) -> str:
     return "QPushButton {padding: 6px;}" if icon_only else ""
 
 
-def slider_label_qss(color: str, edited: bool) -> str:
-    label_color = THEME.accent_edited if edited else color
-    return f"font-size: {THEME.font_size_base}px; color: {label_color};"
+def slider_label_qss(color: str) -> str:
+    return f"font-size: {THEME.font_size_base}px; color: {color};"
 
 
 def slider_handle_qss(color: str) -> str:
