@@ -5,7 +5,7 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QPushButton, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
-from negpy.desktop.view.styles.templates import default_button_height, labeled_toggle_qss, small_toggle_qss, tool_toggle_qss, wrap_tooltip
+from negpy.desktop.view.styles.templates import default_button_height, labeled_toggle_qss, tool_toggle_qss, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -56,9 +56,9 @@ class BaseSidebar(QWidget):
         pass
 
     def _tool_toggle(self, icon_name: str, label: str, tooltip: str) -> QPushButton:
-        """Checkable tool-mode button — arms a transient canvas tool or preview.
-        The armed state reads loud (accent red), unlike _small_toggle's quiet
-        settings amber. Empty label keeps it icon-only."""
+        """Checkable button — the armed/on state is the app-wide red
+        QPushButton:checked rule in modern_dark.qss. Empty label keeps it
+        icon-only."""
         btn = QPushButton((" " + label) if label else "")
         btn.setCheckable(True)
         btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
@@ -68,19 +68,10 @@ class BaseSidebar(QWidget):
         return btn
 
     def _small_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
-        """Compact labeled toggle for persistent settings — visually lighter than
-        action/tool/selector buttons: subtle checked state (the app-wide 2px
-        border reads heavy at this size) and an amber icon while enabled.
-        Empty label keeps it icon-only."""
-        btn = QPushButton((" " + label) if label else "")
-        btn.setCheckable(True)
+        """Persistent-setting toggle — same style as _tool_toggle, the name only
+        documents the role at the call site."""
+        btn = self._tool_toggle(icon_name, label, tooltip)
         btn.setChecked(checked)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_secondary, color_on=THEME.accent_edited, color_disabled=THEME.text_muted))
-        btn.setStyleSheet(small_toggle_qss())
-        # Match the default/tool button height so mixed rows (e.g. Auto Dust
-        # beside Heal Tool) don't stair-step.
-        btn.setFixedHeight(default_button_height())
-        btn.setToolTip(wrap_tooltip(tooltip))
         return btn
 
     def _icon_action(self, icon_name: str, tooltip: str, width: int = 36) -> QPushButton:

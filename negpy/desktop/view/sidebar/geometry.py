@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import default_button_height, small_toggle_qss
+from negpy.desktop.view.styles.templates import default_button_height
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
@@ -77,13 +77,9 @@ class GeometrySidebar(BaseSidebar):
         self.clear_crop_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
         self.clear_crop_btn.setToolTip("Reset crop: clear the manual crop and disable auto crop")
 
-        # Auto crop is a persistent setting (quiet style), unlike the armed Crop tool.
         self.reset_crop_btn = CropToolButton(" Auto")
         self.reset_crop_btn.setCheckable(True)
-        self.reset_crop_btn.setIcon(
-            qta.icon("fa5s.magic", color=THEME.text_secondary, color_on=THEME.accent_edited, color_disabled=THEME.text_muted)
-        )
-        self.reset_crop_btn.setStyleSheet(small_toggle_qss())
+        self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
         self.reset_crop_btn.setFixedHeight(default_button_height())
         self.reset_crop_btn.setToolTip(tooltip_with_shortcut("Apply automatic crop using the current ratio and offset", "auto_crop"))
         btn_row.addWidget(self.manual_crop_btn, 1)
