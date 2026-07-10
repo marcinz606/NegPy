@@ -1163,15 +1163,18 @@ class GPUEngine:
         lab = settings.lab
         l_data = (
             struct.pack(
-                "ffffff",
+                "fffffff",
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
                 float(lab.saturation),
                 float(lab.vibrance),
                 float(lab.glow_amount),
                 float(lab.halation_strength),
+                # Chroma-denoise scales its blur radius by the preview downsample ratio,
+                # mirroring the CPU path (radius * scale_factor).
+                float(scale_factor),
             )
-            + b"\x00" * 8
+            + b"\x00" * 4
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0

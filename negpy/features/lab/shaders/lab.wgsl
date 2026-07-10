@@ -7,7 +7,7 @@ struct LabUniforms {
     vibrance: f32,
     glow_amount: f32,
     halation_strength: f32,
-    _pad0: f32,
+    scale_factor: f32,
     _pad1: f32,
 };
 
@@ -202,18 +202,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var color = load_lin(coords);
 
     // 1. Chroma Denoise
+    // Variable-radius blur of the CIELAB a*/b* channels. The Fibonacci-disk taps
+    // (weighted exp(-r^2 * 2), normalised by BLOOM_GAUSS_SUM) approximate a Gaussian
+    // of sigma = radius / 2, so radius = 2 * chroma_denoise * scale_factor matches the
+    // CPU path's GaussianBlur sigma of (chroma_denoise * scale_factor). This previously
+    // used a fixed 5x5 kernel that ignored the slider, so the strength never changed on
+    // GPU — inadequate for the heavy chroma noise of inverted C41 negatives.
     if (params.chroma_denoise > 0.0) {
-        let current_lab = rgb_to_lab(color);
-        var blur_ab = vec2<f32>(0.0);
-        for (var j = -2; j <= 2; j++) {
-            for (var i = -2; i <= 2; i++) {
-                let sample_coords = clamp(coords + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(dims) - 1);
-                let sample_lab = rgb_to_lab(load_lin(sample_coords));
-                let weight = gauss_kernel[(j + 2) * 5 + (i + 2)];
-                blur_ab += sample_lab.yz * weight;
+        let radius = 2.0 * params.chroma_denoise * params.scale_factor;
+        if (radius >= 0.5) {
+            let current_lab = rgb_to_lab(color);
+            var blur_ab = vec2<f32>(0.0);
+            for (var tap = 0; tap < 64; tap++) {
+                let offset = FIBONACCI_64[tap];
+                let s_coord = clamp(coords + vec2<i32>(offset * radius), vec2<i32>(0), vec2<i32>(dims) - 1);
+                let s_lab = rgb_to_lab(load_lin(s_coord));
+                let r = length(offset);
+                let w = exp(-r * r * 2.0);
+                blur_ab += s_lab.yz * w;
             }
+            blur_ab = blur_ab / BLOOM_GAUSS_SUM;
+            color = lab_to_rgb(vec3<f32>(current_lab.x, blur_ab.x, blur_ab.y));
         }
-        color = lab_to_rgb(vec3<f32>(current_lab.x, blur_ab.x, blur_ab.y));
     }
 
     // 3. Vibrance
