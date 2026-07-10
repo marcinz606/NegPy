@@ -293,6 +293,41 @@ def test_translate_full_size_rect_no_movement():
     assert translate_manual_crop_rect(rect, 0.5, -0.5) == rect
 
 
+def test_rotate_rect_ccw_quarter_turn():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    # A rect in the top-left maps to the bottom-left after one CCW turn: content at
+    # (u, v) moves to (v, 1 - u), so (0.1,0.1)->(0.1,0.9) and (0.4,0.3)->(0.3,0.6).
+    rect = (0.1, 0.1, 0.4, 0.3)
+    assert rotate_normalized_rect(rect, 1) == approx((0.1, 0.6, 0.3, 0.9))
+
+
+def test_rotate_rect_cw_is_inverse_of_ccw():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    rect = (0.15, 0.2, 0.6, 0.55)
+    ccw = rotate_normalized_rect(rect, 1)
+    assert rotate_normalized_rect(ccw, -1) == approx(rect)
+
+
+def test_rotate_rect_180_flips_both_axes():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    rect = (0.1, 0.2, 0.4, 0.5)
+    assert rotate_normalized_rect(rect, 2) == approx((0.6, 0.5, 0.9, 0.8))
+
+
+def test_rotate_rect_four_turns_is_identity():
+    from pytest import approx
+    from negpy.features.geometry.logic import rotate_normalized_rect
+
+    rect = (0.15, 0.2, 0.6, 0.55)
+    assert rotate_normalized_rect(rect, 4) == approx(rect)
+
+
 def test_offset_only_insets_full_image():
     config = GeometryConfig(autocrop_offset=10)
     processor = GeometryProcessor(config)

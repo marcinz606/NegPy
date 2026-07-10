@@ -1114,6 +1114,29 @@ def mirror_normalized_rect(
     return (x1, 1.0 - y2, x2, 1.0 - y1)
 
 
+def rotate_normalized_rect(
+    rect: Tuple[float, float, float, float],
+    quarter_turns_ccw: int,
+) -> Tuple[float, float, float, float]:
+    """
+    Rotates a normalized (x1, y1, x2, y2) rect by whole quarter-turns within the
+    display (transformed) image, keeping corners ordered.
+
+    `quarter_turns_ccw` counts 90° counter-clockwise turns (negative = clockwise) —
+    the same handedness as the geometry `rotation` field, where k=1 turns the display
+    CCW. When the image content rotates one quarter CCW, a feature at (u, v) moves to
+    (v, 1 - u); this rotates the crop/analysis rect along with the content it frames so
+    it keeps outlining the same area after a 90°/180° rotate.
+    """
+    x1, y1, x2, y2 = rect
+    corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+    for _ in range(quarter_turns_ccw % 4):
+        corners = [(v, 1.0 - u) for (u, v) in corners]
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
 def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     """
     Toggles a mirror on the geometry so the result is an exact mirror of the

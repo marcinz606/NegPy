@@ -178,7 +178,6 @@ class ActionToolbar(QWidget):
             self.canvas_color_btns.append(btn)
         self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
 
-
         # 6. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
         self.btn_overflow.setIcon(qta.icon("fa5s.ellipsis-h", color=icon_color))
@@ -413,13 +412,28 @@ class ActionToolbar(QWidget):
     def rotate(self, direction: int) -> None:
         from dataclasses import replace
 
-        geo = self.session.state.config.geometry
+        from negpy.features.geometry.logic import rotate_normalized_rect
+
+        config = self.session.state.config
+        geo = config.geometry
+        # The button's labelled direction is the visual rotation the user sees (the
+        # handedness fix below only keeps that promise under a flip). Crop/analysis
+        # rects live in display space, so they rotate by that visual quarter-turn.
+        visual_turns_ccw = direction
         # Pipeline applies rotate-then-flip; a single mirror inverts rotation handedness.
         if geo.flip_horizontal != geo.flip_vertical:
             direction = -direction
         new_rot = (geo.rotation + direction) % 4
         new_geo = replace(geo, rotation=new_rot)
-        new_config = replace(self.session.state.config, geometry=new_geo)
+        # Rotate the manual crop rect with the content so it keeps framing the same area
+        # (without this it stayed put and misaligned after a 90°/180° turn).
+        if geo.manual_crop_rect is not None:
+            new_geo = replace(new_geo, manual_crop_rect=rotate_normalized_rect(geo.manual_crop_rect, visual_turns_ccw))
+        new_config = replace(config, geometry=new_geo)
+        # The freehand analysis region is display-space too; rotate it alongside.
+        if config.process.analysis_rect is not None:
+            new_rect = rotate_normalized_rect(config.process.analysis_rect, visual_turns_ccw)
+            new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
         self.session.update_config(new_config, persist=True)
         self.controller.request_render()
 
