@@ -15,20 +15,26 @@ class ToningSidebar(BaseSidebar):
         self.layout.setSpacing(12)
         conf = self.state.config.toning
 
-        self.layout.addWidget(section_subheader("TONERS"))
+        self.chemical_header = section_subheader("CHEMICAL TONING")
+        self.layout.addWidget(self.chemical_header)
 
-        self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength, color="#444466")
+        self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength)
         self.selenium_slider.setToolTip(
             "Simulates selenium toning — converts the densest silver first: deeper blacks, cool eggplant shadows (B&W only)"
         )
-        self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength, color="#664422")
+        self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength)
         self.sepia_slider.setToolTip(
             "Simulates sepia bleach-redevelop toning — warms the highlights first, shadows hold; partial strength gives the classic split-sepia look (B&W only)"
         )
+        self.gold_slider = CompactSlider("Gold", 0.0, 2.0, conf.gold_strength)
+        self.gold_slider.setToolTip(
+            "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W only)"
+        )
         self.layout.addWidget(self.selenium_slider)
         self.layout.addWidget(self.sepia_slider)
+        self.layout.addWidget(self.gold_slider)
 
-        self.layout.addWidget(section_subheader("SPLIT TONE"))
+        self.layout.addWidget(section_subheader("SPLIT TONING"))
 
         row_sh = QHBoxLayout()
         self.shadow_hue_slider = HueSlider("Shadow Hue", conf.shadow_tint_hue)
@@ -63,6 +69,12 @@ class ToningSidebar(BaseSidebar):
         self.sepia_slider.valueCommitted.connect(
             lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, sepia_strength=v)
         )
+        self.gold_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, gold_strength=v)
+        )
+        self.gold_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, gold_strength=v)
+        )
         self.shadow_hue_slider.valueChanged.connect(
             lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, shadow_tint_hue=v)
         )
@@ -96,13 +108,16 @@ class ToningSidebar(BaseSidebar):
         try:
             self.selenium_slider.setValue(conf.selenium_strength)
             self.sepia_slider.setValue(conf.sepia_strength)
+            self.gold_slider.setValue(conf.gold_strength)
             self.shadow_hue_slider.setValue(conf.shadow_tint_hue)
             self.shadow_str_slider.setValue(conf.shadow_tint_strength)
             self.highlight_hue_slider.setValue(conf.highlight_tint_hue)
             self.highlight_str_slider.setValue(conf.highlight_tint_strength)
 
+            self.chemical_header.setVisible(is_bw)
             self.selenium_slider.setVisible(is_bw)
             self.sepia_slider.setVisible(is_bw)
+            self.gold_slider.setVisible(is_bw)
         finally:
             self.block_signals(False)
 
@@ -110,6 +125,7 @@ class ToningSidebar(BaseSidebar):
         widgets = [
             self.selenium_slider,
             self.sepia_slider,
+            self.gold_slider,
             self.shadow_hue_slider,
             self.shadow_str_slider,
             self.highlight_hue_slider,

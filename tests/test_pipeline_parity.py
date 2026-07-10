@@ -438,6 +438,12 @@ class TestToningParity:
     def test_chemical_both(self):
         self._run_and_compare(self._bw_settings(selenium_strength=0.5, sepia_strength=0.5))
 
+    def test_chemical_gold(self):
+        self._run_and_compare(self._bw_settings(gold_strength=0.8))
+
+    def test_chemical_gold_over_sepia(self):
+        self._run_and_compare(self._bw_settings(sepia_strength=0.5, gold_strength=0.8))
+
 
 class TestRetouchParity:
     """CPU vs GPU parity for the dust-removal shader (detect-encoded, heal-linear)."""

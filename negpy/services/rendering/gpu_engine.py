@@ -1224,7 +1224,13 @@ class GPUEngine:
                 float(settings.toning.sepia_strength),
                 2.2,
             )
-            + struct.pack("iiIf", crop_offset[0], crop_offset[1], is_bw, 0.0)
+            + struct.pack(
+                "iiIf",
+                crop_offset[0],
+                crop_offset[1],
+                is_bw,
+                float(settings.toning.gold_strength),
+            )
             + struct.pack(
                 "ffff",
                 float(settings.toning.shadow_tint_hue),

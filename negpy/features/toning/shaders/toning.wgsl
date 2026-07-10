@@ -5,7 +5,7 @@ struct ToningUniforms {
     gamma: f32,
     crop_offset: vec2<i32>,    // x, y offset in input texture
     is_bw: u32,                // 1 if B&W mode
-    pad2: f32,
+    gold_strength: f32,
     shadow_tint_hue: f32,
     shadow_tint_strength: f32,
     highlight_tint_hue: f32,
@@ -87,21 +87,31 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = vec3<f32>(luma);
     }
 
-    // 2. Chemical Toning (Selenium/Sepia) — B&W only, density-driven on the linear
-    // print; mirrors _apply_chemical_toning_jit / TONING_CONSTANTS: a density-
+    // 2. Chemical Toning (Selenium/Sepia/Gold) — B&W only, density-driven on the
+    // linear print; mirrors _apply_chemical_toning_jit / TONING_CONSTANTS: a density-
     // dependent fraction c of the silver converts, D' = D*(1-c) + c*D*gain.
-    if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0)) {
+    if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0 || params.gold_strength > 0.0)) {
         let sel_gain = vec3<f32>(1.04, 1.10, 1.02);
         let sep_gain = vec3<f32>(0.82, 0.94, 1.12);
+        let gold_gain = vec3<f32>(1.08, 1.03, 1.00);
+        let gold_sepia_gain = vec3<f32>(0.80, 0.95, 1.20);
         var d = -log(clamp(color, vec3<f32>(1e-6), vec3<f32>(1.0))) / log(10.0);
         // Conversion caps at 1: all the silver is toned (slider > 1 = longer bath).
         if (params.selenium_strength > 0.0) {
             let c_sel = min(params.selenium_strength * pow(min(d / 2.0, vec3<f32>(1.0)), vec3<f32>(1.5)), vec3<f32>(1.0));
             d = d * (1.0 - c_sel) + c_sel * d * sel_gain;
         }
+        var c_sep = vec3<f32>(0.0);
         if (params.sepia_strength > 0.0) {
-            let c_sep = min(params.sepia_strength * pow(1.0 - min(d / 1.8, vec3<f32>(1.0)), vec3<f32>(2.0)), vec3<f32>(1.0));
+            c_sep = min(params.sepia_strength * pow(1.0 - min(d / 1.8, vec3<f32>(1.0)), vec3<f32>(2.0)), vec3<f32>(1.0));
             d = d * (1.0 - c_sep) + c_sep * d * sep_gain;
+        }
+        // Gold runs last; its covering power blends by the sulfide fraction —
+        // orange-red where sepia toned, blue-black on plain silver.
+        if (params.gold_strength > 0.0) {
+            let c_au = min(params.gold_strength * pow(1.0 - min(d / 1.6, vec3<f32>(1.0)), vec3<f32>(1.5)), vec3<f32>(1.0));
+            let gain = gold_gain * (1.0 - c_sep) + gold_sepia_gain * c_sep;
+            d = d * (1.0 - c_au) + c_au * d * gain;
         }
         color = clamp(pow(vec3<f32>(10.0), -d), vec3<f32>(0.0), vec3<f32>(1.0));
     }

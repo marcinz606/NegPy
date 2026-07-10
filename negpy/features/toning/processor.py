@@ -28,6 +28,7 @@ class ToningProcessor:
                 img,
                 selenium_strength=self.config.selenium_strength,
                 sepia_strength=self.config.sepia_strength,
+                gold_strength=self.config.gold_strength,
             )
             p = working_oetf_encode(img)
             p = apply_chromaticity_preserving_black_point(p, 0.05)

@@ -570,6 +570,9 @@ class ControlsPanel(QWidget):
 
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
+        from negpy.features.process.models import ProcessMode
+
+        self.colour_section.setVisible(self.controller.state.config.process.process_mode != ProcessMode.BW)
         self.process_sidebar.sync_ui()
         self.roll_sidebar.sync_ui()
         self.colour_sidebar.sync_ui()
