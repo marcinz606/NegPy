@@ -52,6 +52,13 @@ class ExposureConfig:
     shoulder_trim_red: float = 0.0
     shoulder_trim_green: float = 0.0
     shoulder_trim_blue: float = 0.0
+    # Per-layer knee width trims (roll-off extent, sharpness crossover).
+    toe_width_trim_red: float = 0.0
+    toe_width_trim_green: float = 0.0
+    toe_width_trim_blue: float = 0.0
+    shoulder_width_trim_red: float = 0.0
+    shoulder_width_trim_green: float = 0.0
+    shoulder_width_trim_blue: float = 0.0
     paper_dmin: bool = True
     # Black point compensation: map paper Dmax to display black.
     true_black: bool = False
@@ -137,7 +144,10 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # +shoulder = compressed (greyer) highlights.
     # Density lift of the paper-black ceiling per positive toe unit: d_max_eff = d_max − toe·this.
     # ↑ toe slider lifts blacks more aggressively; ↓ gentler shadow lift.
-    "toe_height": 0.35,
+    # Larger than shoulder_height: density is log10, so a ΔD near d_max is
+    # perceptually far smaller than the same ΔD near d_min — this evens out the
+    # toe vs shoulder slider strength in L*.
+    "toe_height": 0.90,
     # Density lift of the paper-white floor per positive shoulder unit: d_min_eff = d_min + shoulder·this.
     # ↑ shoulder slider compresses highlights more per unit; ↓ gentler compression.
     "shoulder_height": 0.35,
@@ -199,7 +209,9 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Grade-coupled baseline toe/shoulder: hard grades (high slope) get more roll-off by default.
     # Adds slope-proportional toe to hard grades: toe_eff += this · slope_norm.
     # ↑ hard grades get more automatic shadow roll-off; ↓ decouples toe from grade.
-    "toe_grade_strength": 0.15,
+    # 0.15 · (0.35 / 0.90): holds the baseline ΔD (this · toe_height) at its
+    # calibrated value, independent of the perceptual toe_height.
+    "toe_grade_strength": 0.15 * 0.35 / 0.90,
     # Adds slope-proportional shoulder to hard grades: shoulder_eff += this · slope_norm.
     # ↑ hard grades compress highlights more automatically; ↓ decouples shoulder from grade.
     "shoulder_grade_strength": 0.12,

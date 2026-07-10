@@ -70,13 +70,13 @@ class ToneSidebar(BaseSidebar):
         # Channel selector: Global = the shared curve; R/G/B = per-layer trims.
         self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — edit the shared H&D curve (all layers)")
         self.ch_r_btn = self._labeled_toggle(
-            "fa5s.circle", " Red", False, "Red layer — per-layer Grade/Toe/Shoulder/Snap trims for the cyan-dye emulsion"
+            "fa5s.circle", " Red", False, "Red layer — per-layer Grade/Toe/Shoulder/Width/Snap trims for the cyan-dye emulsion"
         )
         self.ch_g_btn = self._labeled_toggle(
-            "fa5s.circle", " Green", False, "Green layer — per-layer Grade/Toe/Shoulder/Snap trims for the magenta-dye emulsion"
+            "fa5s.circle", " Green", False, "Green layer — per-layer Grade/Toe/Shoulder/Width/Snap trims for the magenta-dye emulsion"
         )
         self.ch_b_btn = self._labeled_toggle(
-            "fa5s.circle", " Blue", False, "Blue layer — per-layer Grade/Toe/Shoulder/Snap trims for the yellow-dye emulsion"
+            "fa5s.circle", " Blue", False, "Blue layer — per-layer Grade/Toe/Shoulder/Width/Snap trims for the yellow-dye emulsion"
         )
         for btn, color in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_COLORS):
             btn.setIcon(qta.icon("fa5s.circle", color=color))
@@ -86,7 +86,17 @@ class ToneSidebar(BaseSidebar):
             self.ch_btn_group.addButton(btn, i)
         # (button, that channel's trim fields) for the edited-text tint.
         self._channel_buttons = tuple(
-            (btn, (f"grade_trim_{ch}", f"toe_trim_{ch}", f"shoulder_trim_{ch}", f"midtone_gamma_trim_{ch}"))
+            (
+                btn,
+                (
+                    f"grade_trim_{ch}",
+                    f"toe_trim_{ch}",
+                    f"shoulder_trim_{ch}",
+                    f"midtone_gamma_trim_{ch}",
+                    f"toe_width_trim_{ch}",
+                    f"shoulder_width_trim_{ch}",
+                ),
+            )
             for btn, ch in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_SUFFIX)
         )
         ch_row = QHBoxLayout()
@@ -138,6 +148,12 @@ class ToneSidebar(BaseSidebar):
         toe_row = QHBoxLayout()
         self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
         self.toe_w_slider.setToolTip("Width of the shadow toe transition zone")
+        self.toe_w_trim_slider = CompactSlider("Width", -2.0, 2.0, 0.0)
+        self.toe_w_trim_slider.setToolTip(
+            "This layer's toe width trim on top of the global Width — per-layer roll-off extent "
+            "(sharpness crossover): how far this layer's shadow knee reaches up the tonal scale."
+        )
+        self.toe_w_trim_slider.setVisible(False)
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
         self.toe_slider.setToolTip(
             "Shadow toe lift: positive raises shadows, negative deepens blacks (with True Black on, "
@@ -146,6 +162,7 @@ class ToneSidebar(BaseSidebar):
         toe_row.addWidget(self.true_black_btn)
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
+        toe_row.addWidget(self.toe_w_trim_slider)
         self.layout.addLayout(toe_row)
 
         self.paper_dmin_btn = self._icon_toggle(
@@ -160,9 +177,16 @@ class ToneSidebar(BaseSidebar):
         )
         self.sh_w_slider = CompactSlider("Width", 0.1, 5.0, conf.shoulder_width)
         self.sh_w_slider.setToolTip("Width of the highlight shoulder transition zone")
+        self.sh_w_trim_slider = CompactSlider("Width", -2.0, 2.0, 0.0)
+        self.sh_w_trim_slider.setToolTip(
+            "This layer's shoulder width trim on top of the global Width — per-layer roll-off extent "
+            "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
+        )
+        self.sh_w_trim_slider.setVisible(False)
         sh_row.addWidget(self.paper_dmin_btn)
         sh_row.addWidget(self.sh_slider)
         sh_row.addWidget(self.sh_w_slider)
+        sh_row.addWidget(self.sh_w_trim_slider)
         self.layout.addLayout(sh_row)
 
         self.layout.addStretch()
@@ -172,8 +196,6 @@ class ToneSidebar(BaseSidebar):
             self.density_slider,
             self.auto_density_btn,
             self.auto_grade_btn,
-            self.toe_w_slider,
-            self.sh_w_slider,
             self.paper_dmin_btn,
             self.true_black_btn,
             self.surround_btn,
@@ -248,6 +270,19 @@ class ToneSidebar(BaseSidebar):
             lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, **{grade_trim_field(): v})
         )
 
+        # Width trims live on separate sliders (trim domain ±2 vs global 0.1–5).
+        for slider, base in ((self.toe_w_trim_slider, "toe_width"), (self.sh_w_trim_slider, "shoulder_width")):
+            slider.valueChanged.connect(
+                lambda v, b=base: self.update_config_section(
+                    "exposure", render=True, persist=False, readback_metrics=False, **{self._curve_field(b): v}
+                )
+            )
+            slider.valueCommitted.connect(
+                lambda v, b=base: self.update_config_section(
+                    "exposure", render=True, persist=True, readback_metrics=True, **{self._curve_field(b): v}
+                )
+            )
+
         for btn, field in (
             (self.paper_dmin_btn, "paper_dmin"),
             (self.true_black_btn, "true_black"),
@@ -287,6 +322,10 @@ class ToneSidebar(BaseSidebar):
             suffix = _CH_LABEL[idx]
             self.grade_slider.setVisible(global_mode)
             self.grade_trim_slider.setVisible(not global_mode)
+            self.toe_w_slider.setVisible(global_mode)
+            self.toe_w_trim_slider.setVisible(not global_mode)
+            self.sh_w_slider.setVisible(global_mode)
+            self.sh_w_trim_slider.setVisible(not global_mode)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)
@@ -301,6 +340,10 @@ class ToneSidebar(BaseSidebar):
                 self.toe_slider.setValue(getattr(conf, f"toe_trim_{ch}"))
                 self.sh_slider.setValue(getattr(conf, f"shoulder_trim_{ch}"))
                 self.midtone_gamma_slider.setValue(getattr(conf, f"midtone_gamma_trim_{ch}"))
+                self.toe_w_trim_slider.label.setText("Width" + suffix)
+                self.toe_w_trim_slider.setValue(getattr(conf, f"toe_width_trim_{ch}"))
+                self.sh_w_trim_slider.label.setText("Width" + suffix)
+                self.sh_w_trim_slider.setValue(getattr(conf, f"shoulder_width_trim_{ch}"))
             for w in self._global_only:
                 w.setEnabled(global_mode)
 
@@ -334,8 +377,10 @@ class ToneSidebar(BaseSidebar):
             self.grade_trim_slider,
             self.toe_slider,
             self.toe_w_slider,
+            self.toe_w_trim_slider,
             self.sh_slider,
             self.sh_w_slider,
+            self.sh_w_trim_slider,
             self.midtone_gamma_slider,
             self.paper_dmin_btn,
             self.true_black_btn,

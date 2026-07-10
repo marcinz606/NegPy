@@ -107,6 +107,16 @@ class TestCalibration(unittest.TestCase):
         for i, g in zip(idx, golden):
             self.assertAlmostEqual(out[i], g, delta=0.03, msg=f"x={x[i]:.2f}")
 
+    def test_full_toe_lift_strength(self):
+        """Pin the toe strength: toe=1 lands paper black at
+        d_max − strength·toe_height ≈ 1.54 (a clearly faded black)."""
+        _, out = _curve(toe=1.0)
+        d = _output_to_density(out)
+        ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
+        expected = EXPOSURE_CONSTANTS["d_max"] - ts * EXPOSURE_CONSTANTS["toe_height"]
+        self.assertAlmostEqual(float(d[-1]), expected, delta=0.1)
+        self.assertLess(expected, 1.7, "full toe throw should land well below paper black")
+
 
 class TestPivotAndGrade(unittest.TestCase):
     def test_reference_prints_at_target_grade_invariant(self):

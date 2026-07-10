@@ -390,6 +390,7 @@ class PhotometricCurveWidget(QWidget):
             grade_to_slope,
             per_channel_midtone_gamma,
             per_channel_toe_shoulder,
+            per_channel_widths,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.papers import effective_paper_profile
@@ -417,7 +418,13 @@ class PhotometricCurveWidget(QWidget):
         x_log_exp = 1.0 - plt_x
 
         def _curve_points(
-            s: float, p: float, toe_ch: float | None = None, sh_ch: float | None = None, mg_ch: float | None = None
+            s: float,
+            p: float,
+            toe_ch: float | None = None,
+            sh_ch: float | None = None,
+            mg_ch: float | None = None,
+            tw_ch: float | None = None,
+            sw_ch: float | None = None,
         ) -> list[tuple[float, float]]:
             if flat:
                 # True log master: code value linear in the log signal (1 - val),
@@ -430,9 +437,9 @@ class PhotometricCurveWidget(QWidget):
                 pivot=p,
                 d_min=d_min,
                 toe=toe_eff if toe_ch is None else toe_ch,
-                toe_width=params.toe_width,
+                toe_width=params.toe_width if tw_ch is None else tw_ch,
                 shoulder=shoulder_eff if sh_ch is None else sh_ch,
-                shoulder_width=params.shoulder_width,
+                shoulder_width=params.shoulder_width if sw_ch is None else sw_ch,
                 surround_gamma=surround_gamma,
                 midtone_gamma=effective_midtone_gamma(None, params.midtone_gamma) if mg_ch is None else mg_ch,
                 bpc=params.true_black,
@@ -463,15 +470,26 @@ class PhotometricCurveWidget(QWidget):
                 params.midtone_gamma_trim_green,
                 params.midtone_gamma_trim_blue,
             )
+            width_trims = (
+                params.toe_width_trim_red,
+                params.toe_width_trim_green,
+                params.toe_width_trim_blue,
+                params.shoulder_width_trim_red,
+                params.shoulder_width_trim_green,
+                params.shoulder_width_trim_blue,
+            )
             diverged = (
-                (max(slopes) - min(slopes) > 1e-9) or (max(pivots) - min(pivots) > 1e-9) or any(t != 0.0 for t in knee_trims + snap_trims)
+                (max(slopes) - min(slopes) > 1e-9)
+                or (max(pivots) - min(pivots) > 1e-9)
+                or any(t != 0.0 for t in knee_trims + snap_trims + width_trims)
             )
             if diverged:
                 toe3, sh3 = per_channel_toe_shoulder(toe_eff, shoulder_eff, knee_trims[:3], knee_trims[3:])
                 mg3 = per_channel_midtone_gamma(None, params.midtone_gamma, snap_trims)
+                tw3, sw3 = per_channel_widths(params.toe_width, params.shoulder_width, width_trims[:3], width_trims[3:])
                 ch_colors = (QColor(255, 90, 90), QColor(90, 220, 120), QColor(95, 150, 255))
                 self._channel_curves = [
-                    (ch_colors[ch], _curve_points(slopes[ch], pivots[ch], toe3[ch], sh3[ch], mg3[ch])) for ch in range(3)
+                    (ch_colors[ch], _curve_points(slopes[ch], pivots[ch], toe3[ch], sh3[ch], mg3[ch], tw3[ch], sw3[ch])) for ch in range(3)
                 ]
 
         # Zone shading: toe rolls the shadows (input above the pivot), shoulder

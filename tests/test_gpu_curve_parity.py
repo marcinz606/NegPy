@@ -87,6 +87,8 @@ class TestGpuCurveParity(unittest.TestCase):
                 midtone_gamma=0.3,
                 midtone_gamma_trim_red=0.4,
                 midtone_gamma_trim_blue=-0.3,
+                toe_width_trim_red=1.5,
+                shoulder_width_trim_blue=-1.0,
                 toe=-0.6,
                 paper_profile="fuji_crystal",
             ),

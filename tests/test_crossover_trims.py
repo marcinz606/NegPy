@@ -13,6 +13,7 @@ from negpy.features.exposure.logic import (
     per_channel_curve_params,
     per_channel_midtone_gamma,
     per_channel_toe_shoulder,
+    per_channel_widths,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -170,6 +171,61 @@ class TestKneeTrims(unittest.TestCase):
         toe3, sh3 = per_channel_toe_shoulder(0.0, 0.0, toe_trims, sh_trims)
         for ch in range(3):
             curve = CharacteristicCurve(contrast=slope, pivot=pivot, toe=toe3[ch], shoulder=sh3[ch])
+            density = np.asarray(curve(ramp[0, :, ch].astype(np.float32)))
+            expected = np.clip(10.0 ** (-density), 0.0, 1.0)
+            np.testing.assert_allclose(res_kernel[0, :, ch], expected, atol=1e-4)
+
+
+class TestWidthTrims(unittest.TestCase):
+    """Per-layer toe/shoulder width trims: sharpness crossover — one layer's
+    knee softens/sharpens, the other layers stay put."""
+
+    _PARAMS = (0.79, 5.375)
+
+    def _render(self, value, **kwargs):
+        img = np.full((2, 2, 3), value, dtype=np.float32)
+        out = apply_characteristic_curve(img, self._PARAMS, self._PARAMS, self._PARAMS, **kwargs)
+        return np.asarray(out)[0, 0, :]
+
+    def test_toe_width_trim_acts_on_channel_only(self):
+        base = self._render(0.95)
+        trimmed = self._render(0.95, toe_width_trims=(2.0, 0.0, 0.0))
+        self.assertGreater(abs(trimmed[0] - base[0]), 0.001, "red toe width trim did not reshape the red knee")
+        np.testing.assert_allclose(trimmed[1:], base[1:], atol=1e-7, err_msg="toe width trim leaked into other channels")
+
+    def test_shoulder_width_trim_acts_on_channel_only(self):
+        base = self._render(0.05)
+        trimmed = self._render(0.05, shoulder_width_trims=(2.0, 0.0, 0.0))
+        self.assertGreater(abs(trimmed[0] - base[0]), 0.001, "red shoulder width trim did not reshape the red knee")
+        np.testing.assert_allclose(trimmed[1:], base[1:], atol=1e-7, err_msg="shoulder width trim leaked into other channels")
+
+    def test_effective_widths_clamped_to_slider_domain(self):
+        tw3, sw3 = per_channel_widths(0.5, 4.0, (-2.0, 0.0, 2.0), (2.0, 0.0, -2.0))
+        self.assertEqual(tw3, (0.1, 0.5, 2.5))
+        self.assertEqual(sw3, (5.0, 4.0, 2.0))
+
+    def test_monotonic_at_extreme_width_trims(self):
+        ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
+        for tw_trims, sw_trims in (((-2.0, 0.0, 2.0), (0.0, 0.0, 0.0)), ((0.0, 0.0, 0.0), (2.0, -2.0, 0.0))):
+            out = apply_characteristic_curve(
+                ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_width_trims=tw_trims, shoulder_width_trims=sw_trims
+            )
+            for ch in range(3):
+                self.assertTrue(
+                    np.all(np.diff(out[0, :, ch]) <= 1e-5),
+                    f"tone reversal ch={ch} tw={tw_trims} sw={sw_trims}",
+                )
+
+    def test_chart_matches_kernel_per_channel(self):
+        ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
+        pivot, slope = self._PARAMS
+        tw_trims, sw_trims = (1.5, 0.0, -1.0), (-1.5, 1.0, 0.0)
+        res_kernel = apply_characteristic_curve(
+            ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_width_trims=tw_trims, shoulder_width_trims=sw_trims
+        )
+        tw3, sw3 = per_channel_widths(2.5, 2.5, tw_trims, sw_trims)
+        for ch in range(3):
+            curve = CharacteristicCurve(contrast=slope, pivot=pivot, toe_width=tw3[ch], shoulder_width=sw3[ch])
             density = np.asarray(curve(ramp[0, :, ch].astype(np.float32)))
             expected = np.clip(10.0 ** (-density), 0.0, 1.0)
             np.testing.assert_allclose(res_kernel[0, :, ch], expected, atol=1e-4)

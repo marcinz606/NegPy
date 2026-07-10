@@ -1021,7 +1021,6 @@ class GPUEngine:
         from negpy.features.exposure.logic import (
             _reference_linear_value,
             effective_cast_strength,
-            effective_midtone_gamma,
             filtration_offsets,
             per_channel_toe_shoulder,
             grade_coupled_shape,
@@ -1030,6 +1029,7 @@ class GPUEngine:
             paper_dmin_rgb,
             per_channel_curve_params,
             per_channel_midtone_gamma,
+            per_channel_widths,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
@@ -1088,6 +1088,12 @@ class GPUEngine:
             exp.midtone_gamma,
             (exp.midtone_gamma_trim_red, exp.midtone_gamma_trim_green, exp.midtone_gamma_trim_blue),
         )
+        _tw3, _sw3 = per_channel_widths(
+            exp.toe_width,
+            exp.shoulder_width,
+            (exp.toe_width_trim_red, exp.toe_width_trim_green, exp.toe_width_trim_blue),
+            (exp.shoulder_width_trim_red, exp.shoulder_width_trim_green, exp.shoulder_width_trim_blue),
+        )
         # Mirrors apply_characteristic_curve (absolute CC, paper base, dye mix).
         wb_offsets = filtration_offsets(
             (exp.wb_cyan, exp.wb_magenta, exp.wb_yellow),
@@ -1119,12 +1125,14 @@ class GPUEngine:
                 _sh3[2],
             )
             # Asymmetric H&D print-curve scalars; mirrors _apply_print_curve_kernel.
+            # Per-channel knee widths occupy the dead scalar toe/shoulder/
+            # midtone_gamma slots and the former flare pad (see exposure.wgsl).
             + struct.pack(
                 "14fI3fIf",
-                _toe_eff * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
-                _shoulder_eff * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
-                exp.toe_width,
-                exp.shoulder_width,
+                _tw3[0],
+                _tw3[1],
+                _tw3[2],
+                _sw3[0],
                 d_min,
                 pc["d_max"],
                 pc["toe_sharpness_base"],
@@ -1133,16 +1141,17 @@ class GPUEngine:
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
-                0.0,  # pad (former flare slot)
+                _sw3[1],
                 float(EXPOSURE_CONSTANTS["target_system_gamma"]) if exp.surround else 1.0,
                 mode_val,
                 _reference_linear_value(d_min, paper),
-                effective_midtone_gamma(paper, exp.midtone_gamma),
+                _sw3[2],
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                # BPC flag (former pad). Block is full at 256B; per-channel Snap
-                # rides the dye-row w-lanes, leaving only pad0 and d_min_rgb.w
-                # free — beyond that, new uniforms need real multi-slot offsets.
+                # BPC flag (former pad). Block is full at 256B; per-channel toe/
+                # shoulder/Snap ride the vec4 w-lanes and the widths the ex-scalar
+                # slots, leaving only d_min_rgb.w free — beyond that, new uniforms
+                # need real multi-slot offsets.
                 1.0 if exp.true_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)

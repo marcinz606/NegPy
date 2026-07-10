@@ -5,10 +5,13 @@ struct ExposureUniforms {
     cmy_offsets: vec4<f32>,
     shadow_cmy: vec4<f32>,
     highlight_cmy: vec4<f32>,
-    toe: f32,
-    shoulder: f32,
-    toe_width: f32,
-    shoulder_width: f32,
+    // Per-channel knee widths (per_channel_widths, pre-clamped CPU-side): six
+    // lanes in the ex-scalar toe/shoulder/midtone_gamma slots (those values ride
+    // the vec4 w-lanes) and the former flare pad, keeping the 256B layout.
+    toe_width_r: f32,
+    toe_width_g: f32,
+    toe_width_b: f32,
+    shoulder_width_r: f32,
     d_min: f32,
     d_max: f32,
     a_toe_base: f32,
@@ -17,11 +20,11 @@ struct ExposureUniforms {
     toe_height: f32,
     sh_height: f32,
     zone_center: f32,
-    pad0: f32,  // former flare slot, kept to preserve the 256B layout
+    shoulder_width_g: f32,
     surround_gamma: f32,
     mode: u32,
     v_star: f32,
-    midtone_gamma: f32,
+    shoulder_width_b: f32,
     gamma_width: f32,
     use_dye: u32,
     // Black point compensation flag (0/1); was the 16B pad before d_min_rgb.
@@ -85,11 +88,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // _apply_print_curve_kernel. toe -> shadow (paper-black) bound, shoulder ->
     // highlight (paper-white) bound. a_toe_base/a_sh_base carry shadow/highlight
     // sharpness; width sets gentleness, slider sets roll-off height.
-    let a_hl = params.a_sh_base * params.width_ref / max(params.shoulder_width, eps);
-    let a_sh_base = params.a_toe_base * params.width_ref / max(params.toe_width, eps);
+    let toe_w3 = vec3<f32>(params.toe_width_r, params.toe_width_g, params.toe_width_b);
+    let sh_w3 = vec3<f32>(params.shoulder_width_r, params.shoulder_width_g, params.shoulder_width_b);
+    let a_hl = params.a_sh_base * params.width_ref / max(sh_w3, vec3<f32>(eps));
+    let a_sh_base = params.a_toe_base * params.width_ref / max(toe_w3, vec3<f32>(eps));
     // Per-channel toe/shoulder, pre-scaled CPU-side (per_channel_toe_shoulder).
-    // The uniform block is full at 256B, so the vec4 w-lanes carry them; the
-    // scalar toe/shoulder fields exist for layout only.
+    // The uniform block is full at 256B, so the vec4 w-lanes carry them.
     let toe3 = vec3<f32>(params.pivots.w, params.slopes.w, params.curvatures.w);
     let sh3 = vec3<f32>(params.cmy_offsets.w, params.shadow_cmy.w, params.highlight_cmy.w);
     // Per-channel Snap rides the dye-row w-lanes; scalar midtone_gamma is layout-only.
@@ -97,7 +101,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let toe_neg = toe3 < vec3<f32>(0.0);
     // Negative toe: tighten shadow roll-off (sharper knee) rather than extending
     // d_max_eff beyond paper black (perceptually near-zero effect above d_max).
-    let a_sh = select(vec3<f32>(a_sh_base), a_sh_base * (1.0 - toe3 * 4.0), toe_neg);
+    let a_sh = select(a_sh_base, a_sh_base * (1.0 - toe3 * 4.0), toe_neg);
     let d_min_rgb = params.d_min_rgb.xyz;
     let d_min_eff = max(d_min_rgb + sh3 * params.sh_height, vec3<f32>(0.0));
     let d_max_base = select(vec3<f32>(params.d_max) - toe3 * params.toe_height, vec3<f32>(params.d_max), toe_neg);
@@ -128,7 +132,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         v = v + params.shadow_cmy[ch] * w_sh + params.highlight_cmy[ch] * w_hi;
 
         // Shoulder: smooth lower bound at paper white (highlights).
-        let v1 = d_min_eff[ch] + softplus(a_hl * (v - d_min_eff[ch])) / a_hl;
+        let v1 = d_min_eff[ch] + softplus(a_hl[ch] * (v - d_min_eff[ch])) / a_hl[ch];
         // Toe: smooth upper bound at paper black (shadows).
         dens[ch] = d_max_eff[ch] - softplus(a_sh[ch] * (d_max_eff[ch] - v1)) / a_sh[ch];
     }

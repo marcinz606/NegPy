@@ -54,8 +54,8 @@ def _apply_print_curve_kernel(
     curvatures: np.ndarray,
     toe: np.ndarray,
     shoulder: np.ndarray,
-    toe_width: float,
-    shoulder_width: float,
+    toe_width: np.ndarray,
+    shoulder_width: np.ndarray,
     cmy_offsets: np.ndarray,
     shadow_cmy: np.ndarray,
     highlight_cmy: np.ndarray,
@@ -105,14 +105,14 @@ def _apply_print_curve_kernel(
     # Roll-off sharpness from width (larger width = gentler); slider sets height.
     # toe -> shadow (upper / paper-black) bound; shoulder -> highlight (lower /
     # paper-white) bound. a_toe_base/a_sh_base carry the shadow/highlight sharpness.
-    a_hl = a_sh_base * width_ref / max(shoulder_width, eps)
-    a_sh_w = a_toe_base * width_ref / max(toe_width, eps)
-
+    a_hl = np.empty(3, dtype=np.float64)
     a_sh = np.empty(3, dtype=np.float64)
     d_min_eff = np.empty(3, dtype=np.float64)
     d_max_eff = np.empty(3, dtype=np.float64)
     bpc_black = np.empty(3, dtype=np.float64)
     for ch in range(3):
+        a_hl[ch] = a_sh_base * width_ref / max(shoulder_width[ch], eps)
+        a_sh_w = a_toe_base * width_ref / max(toe_width[ch], eps)
         t_ch = toe[ch]
         if t_ch >= 0.0:
             d_max_base = d_max - t_ch * toe_height
@@ -164,7 +164,7 @@ def _apply_print_curve_kernel(
                 v = v + shadow_cmy[ch] * w_sh + highlight_cmy[ch] * w_hi
 
                 # Shoulder: smooth lower bound at paper white (highlights).
-                v1 = d_min_eff[ch] + _softplus(a_hl * (v - d_min_eff[ch])) / a_hl
+                v1 = d_min_eff[ch] + _softplus(a_hl[ch] * (v - d_min_eff[ch])) / a_hl[ch]
                 # Toe: smooth upper bound at paper black (shadows).
                 dens[ch] = d_max_eff[ch] - _softplus(a_sh[ch] * (d_max_eff[ch] - v1)) / a_sh[ch]
 
@@ -291,6 +291,29 @@ def per_channel_toe_shoulder(
     return toe3, sh3
 
 
+def per_channel_widths(
+    toe_width: float,
+    shoulder_width: float,
+    toe_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Per-layer effective toe/shoulder widths: global width + per-layer trim,
+    clamped to the width slider domain. Single source of truth for CPU / GPU / chart.
+    """
+
+    def _clamp(v: float) -> float:
+        return min(max(v, 0.1), 5.0)
+
+    tw3 = (_clamp(toe_width + toe_width_trims[0]), _clamp(toe_width + toe_width_trims[1]), _clamp(toe_width + toe_width_trims[2]))
+    sw3 = (
+        _clamp(shoulder_width + shoulder_width_trims[0]),
+        _clamp(shoulder_width + shoulder_width_trims[1]),
+        _clamp(shoulder_width + shoulder_width_trims[2]),
+    )
+    return tw3, sw3
+
+
 def paper_dmin_rgb(d_min: float, paper: Optional[PaperProfile]) -> Tuple[float, float, float]:
     """
     Per-channel paper-white floor: d_min plus the paper's base tint (a minimum
@@ -326,6 +349,8 @@ def apply_characteristic_curve(
     toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    toe_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -348,6 +373,7 @@ def apply_characteristic_curve(
     ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
 
     toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
+    tw3, sw3 = per_channel_widths(toe_width, shoulder_width, toe_width_trims, shoulder_width_trims)
     res = _apply_print_curve_kernel(
         np.ascontiguousarray(img.astype(np.float32)),
         pivots,
@@ -355,8 +381,8 @@ def apply_characteristic_curve(
         curvs,
         np.array([t * ts for t in toe3], dtype=np.float64),
         np.array([s * ts for s in sh3], dtype=np.float64),
-        float(toe_width),
-        float(shoulder_width),
+        np.array(tw3, dtype=np.float64),
+        np.array(sw3, dtype=np.float64),
         offsets,
         s_cmy,
         h_cmy,

@@ -73,6 +73,12 @@ class TestConfigDeserialization(unittest.TestCase):
                 midtone_gamma_trim_red=0.15,
                 midtone_gamma_trim_green=-0.25,
                 midtone_gamma_trim_blue=0.4,
+                toe_width_trim_red=1.2,
+                toe_width_trim_green=-0.8,
+                toe_width_trim_blue=0.4,
+                shoulder_width_trim_red=-1.5,
+                shoulder_width_trim_green=0.6,
+                shoulder_width_trim_blue=2.0,
             ),
         )
         reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
@@ -90,6 +96,12 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_red, 0.15)
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_green, -0.25)
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_blue, 0.4)
+        self.assertEqual(reloaded.exposure.toe_width_trim_red, 1.2)
+        self.assertEqual(reloaded.exposure.toe_width_trim_green, -0.8)
+        self.assertEqual(reloaded.exposure.toe_width_trim_blue, 0.4)
+        self.assertEqual(reloaded.exposure.shoulder_width_trim_red, -1.5)
+        self.assertEqual(reloaded.exposure.shoulder_width_trim_green, 0.6)
+        self.assertEqual(reloaded.exposure.shoulder_width_trim_blue, 2.0)
         self.assertEqual(reloaded.process.white_point_trim_red, 0.05)
         self.assertEqual(reloaded.process.white_point_trim_green, -0.1)
         self.assertEqual(reloaded.process.white_point_trim_blue, 0.02)

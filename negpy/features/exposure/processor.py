@@ -280,6 +280,16 @@ class PhotometricProcessor:
                 self.config.midtone_gamma_trim_green,
                 self.config.midtone_gamma_trim_blue,
             ),
+            toe_width_trims=(
+                self.config.toe_width_trim_red,
+                self.config.toe_width_trim_green,
+                self.config.toe_width_trim_blue,
+            ),
+            shoulder_width_trims=(
+                self.config.shoulder_width_trim_red,
+                self.config.shoulder_width_trim_green,
+                self.config.shoulder_width_trim_blue,
+            ),
         )
 
         if context.process_mode == ProcessMode.BW:
