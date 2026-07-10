@@ -172,12 +172,16 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
     keys = [key_for(action_id, bindings) for action_id in ids if action_id in REGISTRY and key_for(action_id, bindings)]
     if not keys:
         return text
-    chips = [
-        f'<span style="color:#888;background:#1A1A1A;padding:1px 5px;border-radius:3px;font-size:10px;">{key}</span>'
+    # Each key is a bordered table cell so it reads like a physical keycap: a thin,
+    # lighter-than-background border boxing the label. Qt's rich-text engine ignores
+    # `border` on inline <span> elements (background/padding render, the outline does
+    # not) but honours it on table cells, so the chips must be <td>s, not spans.
+    cells = [
+        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;'
+        f'padding:1px 6px;font-size:10px;">{key}</td>'
         for key in keys
     ]
-    # The " & " separator carries no colour of its own, so it inherits the
-    # tooltip's text colour (unlike the greyed chips). The shortcut row is
-    # right-aligned on its own line to balance the tooltip box.
-    chips_html = " &amp; ".join(chips)
-    return f'{text}<div align="right">{chips_html}</div>'
+    # The " & " separator sits in its own borderless cell so it doesn't inherit a
+    # keycap outline. The whole row is right-aligned on its own line below the text.
+    row = '<td>&nbsp;&amp;&nbsp;</td>'.join(cells)
+    return f'{text}<table align="right" cellspacing="0" cellpadding="0"><tr>{row}</tr></table>'
