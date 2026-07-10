@@ -87,9 +87,16 @@ class ActionToolbar(QWidget):
         self.btn_next.setIcon(qta.icon("fa5s.chevron-right", color=icon_color))
         self.btn_next.setToolTip("Next")
 
+        # Undo / Redo live in the main toolbar (mdi arrows, distinct from the
+        # circular rotate icons which reuse fa5s.undo/redo).
+        self.btn_undo = QToolButton()
+        self.btn_undo.setIcon(qta.icon("mdi.undo", color=icon_color))
+        self.btn_undo.setToolTip(tooltip_with_shortcut("Undo", "undo"))
+        self.btn_redo = QToolButton()
+        self.btn_redo.setIcon(qta.icon("mdi.redo", color=icon_color))
+        self.btn_redo.setToolTip(tooltip_with_shortcut("Redo", "redo"))
+
         # (kept as internal state holders — not added to layout)
-        self.btn_undo = QPushButton()
-        self.btn_redo = QPushButton()
         self.btn_copy = QPushButton()
         self.btn_paste = QPushButton()
         self.btn_reset = QPushButton()
@@ -171,10 +178,6 @@ class ActionToolbar(QWidget):
             self.canvas_color_btns.append(btn)
         self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
 
-        # 5. Save
-        self.btn_save = QToolButton()
-        self.btn_save.setIcon(qta.icon("fa5s.save", color=icon_color))
-        self.btn_save.setToolTip("Save Edits")
 
         # 6. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
@@ -211,8 +214,9 @@ class ActionToolbar(QWidget):
         self._ov_sep_rotate = overflow_menu.addSeparator()
         self._ov_sep_rotate.setVisible(False)
 
-        self._action_undo = overflow_menu.addAction(qta.icon("fa5s.arrow-left", color=icon_color), "Undo  Ctrl+Z", self.session.undo)
-        self._action_redo = overflow_menu.addAction(qta.icon("fa5s.arrow-right", color=icon_color), "Redo  Ctrl+Y", self.session.redo)
+        # Edits auto-save to the DB (and surface in History), so an explicit Save
+        # lives here in the overflow rather than the main toolbar.
+        overflow_menu.addAction(qta.icon("fa5s.save", color=icon_color), "Save Edits", self.controller.save_current_edits)
         overflow_menu.addSeparator()
         self._action_copy = overflow_menu.addAction(
             qta.icon("fa5s.copy", color=icon_color), "Copy Settings  Ctrl+C", self.session.copy_settings
@@ -254,7 +258,8 @@ class ActionToolbar(QWidget):
             self.btn_rot_r,
             self.btn_flip_h,
             self.btn_flip_v,
-            self.btn_save,
+            self.btn_undo,
+            self.btn_redo,
             self.btn_hq,
             self.btn_compare,
             self.btn_gpu,
@@ -265,7 +270,7 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · save · overflow · toggle_right
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · gpu · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
@@ -286,7 +291,8 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_flip_v)
         self._sep3 = self._create_separator()
         row_layout.addWidget(self._sep3)
-        row_layout.addWidget(self.btn_save)
+        row_layout.addWidget(self.btn_undo)
+        row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_gpu)
         row_layout.addWidget(self.btn_overflow)
@@ -309,7 +315,8 @@ class ActionToolbar(QWidget):
         self.btn_flip_h.clicked.connect(lambda: self.flip("horizontal"))
         self.btn_flip_v.clicked.connect(lambda: self.flip("vertical"))
 
-        self.btn_save.clicked.connect(self.controller.save_current_edits)
+        self.btn_undo.clicked.connect(self.session.undo)
+        self.btn_redo.clicked.connect(self.session.redo)
 
         self.canvas_color_group.idToggled.connect(self._on_canvas_color_changed)
 
@@ -454,8 +461,8 @@ class ActionToolbar(QWidget):
         self._ov_flip_h_action.setChecked(geo.flip_horizontal)
         self._ov_flip_v_action.setChecked(geo.flip_vertical)
 
-        self._action_undo.setEnabled(state.undo_index > 0)
-        self._action_redo.setEnabled(state.undo_index < state.max_history_index)
+        self.btn_undo.setEnabled(state.undo_index > 0)
+        self.btn_redo.setEnabled(state.undo_index < state.max_history_index)
         self._action_paste.setEnabled(state.clipboard is not None)
 
     def set_available_width(self, w: int) -> None:
