@@ -177,11 +177,9 @@ def tooltip_with_shortcut(text: str, action_ids: str | Iterable[str] | None = No
     # `border` on inline <span> elements (background/padding render, the outline does
     # not) but honours it on table cells, so the chips must be <td>s, not spans.
     cells = [
-        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;'
-        f'padding:1px 6px;font-size:10px;">{key}</td>'
-        for key in keys
+        f'<td style="border:1px solid #5A5A5A;background:#242424;color:#C8C8C8;padding:1px 6px;font-size:10px;">{key}</td>' for key in keys
     ]
     # The " & " separator sits in its own borderless cell so it doesn't inherit a
     # keycap outline. The whole row is right-aligned on its own line below the text.
-    row = '<td>&nbsp;&amp;&nbsp;</td>'.join(cells)
+    row = "<td>&nbsp;&amp;&nbsp;</td>".join(cells)
     return f'{text}<table align="right" cellspacing="0" cellpadding="0"><tr>{row}</tr></table>'

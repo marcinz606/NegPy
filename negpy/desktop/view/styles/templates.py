@@ -1,3 +1,4 @@
+import dataclasses
 import html
 
 import qtawesome as qta
@@ -6,6 +7,24 @@ from PyQt6.QtWidgets import QLabel, QPushButton
 from negpy.desktop.view.styles.theme import THEME
 
 _default_btn_height: int | None = None
+
+
+def load_stylesheet() -> str:
+    """modern_dark.qss with @theme tokens and icon placeholders resolved."""
+    from negpy.kernel.system.paths import get_resource_path
+
+    qss_path = get_resource_path("negpy/desktop/view/styles/modern_dark.qss")
+    with open(qss_path, "r", encoding="utf-8") as f:
+        qss = f.read()
+    # Longest token name first so a shorter one can't clobber its prefix.
+    for f_ in sorted(dataclasses.fields(THEME), key=lambda f_: -len(f_.name)):
+        value = getattr(THEME, f_.name)
+        if isinstance(value, str):
+            qss = qss.replace(f"@{f_.name}", value)
+    # QSS url() can't resolve relative paths reliably across dev/frozen runs,
+    # so bake in the absolute icon path (forward slashes, Qt-friendly).
+    check_icon = get_resource_path("media/icons/checkbox_check.svg").replace("\\", "/")
+    return qss.replace("__CHECKBOX_CHECK_ICON__", check_icon)
 
 
 def default_button_height() -> int:
@@ -91,8 +110,7 @@ def field_label(text: str) -> QLabel:
 
 
 def tool_toggle_qss(icon_only: bool = False) -> str:
-    """Padding tweaks for canvas-tool toggles. The armed (checked) look itself
-    comes from the app-wide QPushButton:checked rule in modern_dark.qss."""
+    """Icon-only padding; the checked look is the app-wide rule in modern_dark.qss."""
     return "QPushButton {padding: 6px;}" if icon_only else ""
 
 

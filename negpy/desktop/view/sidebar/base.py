@@ -56,9 +56,7 @@ class BaseSidebar(QWidget):
         pass
 
     def _tool_toggle(self, icon_name: str, label: str, tooltip: str) -> QPushButton:
-        """Checkable button — the armed/on state is the app-wide red
-        QPushButton:checked rule in modern_dark.qss. Empty label keeps it
-        icon-only."""
+        """Checkable button; empty label keeps it icon-only."""
         btn = QPushButton((" " + label) if label else "")
         btn.setCheckable(True)
         btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
@@ -68,8 +66,7 @@ class BaseSidebar(QWidget):
         return btn
 
     def _small_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
-        """Persistent-setting toggle — same style as _tool_toggle, the name only
-        documents the role at the call site."""
+        """_tool_toggle with an initial checked state; the name marks the role."""
         btn = self._tool_toggle(icon_name, label, tooltip)
         btn.setChecked(checked)
         return btn
