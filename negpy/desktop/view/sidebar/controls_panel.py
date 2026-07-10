@@ -44,7 +44,6 @@ _COLOUR_FIELDS = (
     "highlight_magenta",
     "highlight_yellow",
     "cast_removal_strength",
-    "auto_cast_removal",
 )
 _TONE_FIELDS = (
     "density",

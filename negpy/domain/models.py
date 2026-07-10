@@ -338,6 +338,8 @@ class WorkspaceConfig:
         data.pop("DEFAULT_MATRIX", None)
         # Flare (veiling-glare floor) was removed; drop the key from old edits silently.
         data.pop("flare", None)
+        # Auto cast removal became always-on; drop the old toggle key.
+        data.pop("auto_cast_removal", None)
 
         if "use_original_res" in data and "export_resolution_mode" not in data:
             data["export_resolution_mode"] = (
@@ -441,7 +443,6 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
         auto_exposure=False,
         auto_normalize_contrast=False,
         cast_removal_strength=0.0,
-        auto_cast_removal=False,
         paper_dmin=False,
         toe=0.0,
         shoulder=0.0,

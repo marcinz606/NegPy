@@ -644,10 +644,10 @@ def normalized_neutral_axis(bounds: Any, refs: Any) -> Any:
     return (norm(mid), norm(shadow), norm(highlight))
 
 
-def effective_cast_strength(strength: float, auto: bool, confidence: Optional[float]) -> float:
-    """Applied cast-removal strength. Auto biases the slider by the neutral-reference
-    confidence (clean greys → full, ambiguous → gentler); the slider trims on top."""
-    if auto and confidence is not None:
+def effective_cast_strength(strength: float, confidence: Optional[float]) -> float:
+    """Applied cast-removal strength: the neutral-reference confidence biases the
+    slider (clean greys → full, ambiguous → gentler); the slider trims on top."""
+    if confidence is not None:
         return confidence * strength
     return strength
 

@@ -207,7 +207,6 @@ class TestGPUEngine(unittest.TestCase):
                 auto_exposure=False,
                 auto_normalize_contrast=False,
                 cast_removal_strength=0.0,
-                auto_cast_removal=False,
             ),
         )
 

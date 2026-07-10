@@ -594,15 +594,11 @@ class DesktopSessionManager(QObject):
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
-            ("last_auto_cast_removal", "auto_cast_removal"),
             ("last_paper_dmin", "paper_dmin"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
                 new_exp = replace(new_exp, **{attr: bool(val)})
-        sticky_cast_strength = self.repo.get_global_setting("last_cast_removal_strength")
-        if sticky_cast_strength is not None:
-            new_exp = replace(new_exp, cast_removal_strength=float(sticky_cast_strength))
         config = replace(config, exposure=new_exp)
 
         # Paper stock is roll-wide; render guards cross-mode leak.
@@ -640,8 +636,6 @@ class DesktopSessionManager(QObject):
                 "last_linear_raw": config.process.linear_raw,
                 "last_auto_exposure": config.exposure.auto_exposure,
                 "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
-                "last_cast_removal_strength": config.exposure.cast_removal_strength,
-                "last_auto_cast_removal": config.exposure.auto_cast_removal,
                 "last_paper_dmin": config.exposure.paper_dmin,
                 "last_paper_profile": config.exposure.paper_profile,
                 "last_toe": config.exposure.toe,

@@ -74,7 +74,6 @@ class ExposureConfig:
     midtone_gamma_trim_green: float = 0.0
     midtone_gamma_trim_blue: float = 0.0
     cast_removal_strength: float = 0.5
-    auto_cast_removal: bool = True
     auto_exposure: bool = True
     auto_normalize_contrast: bool = True
     render_intent: str = RenderIntent.PRINT

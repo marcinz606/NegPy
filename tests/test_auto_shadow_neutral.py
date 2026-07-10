@@ -38,14 +38,14 @@ class TestCastRemoval(unittest.TestCase):
     solve) that neutralizes a negative's residual color cast across the range.
     """
 
-    def _render(self, img: np.ndarray, strength: float, mode: str = "C41", auto: bool = False) -> np.ndarray:
+    def _render(self, img: np.ndarray, strength: float, mode: str = "C41") -> np.ndarray:
         config = WorkspaceConfig()
         # No analysis border crop — the fixture's cast fade sits near the
         # extreme and must stay inside the analyzed region.
         process = replace(config.process, analysis_buffer=0.0)
         ctx = PipelineContext(scale_factor=1.0, original_size=img.shape[:2], process_mode=mode)
         norm = NormalizationProcessor(process).process(img, ctx)
-        exp = replace(config.exposure, cast_removal_strength=strength, auto_cast_removal=auto)
+        exp = replace(config.exposure, cast_removal_strength=strength)
         return PhotometricProcessor(exp).process(norm, ctx)
 
     @staticmethod
@@ -84,24 +84,23 @@ class TestCastRemoval(unittest.TestCase):
         # A clean-neutral frame yields near-full auto correction; a casted frame's
         # near-neutral set is less tight, so auto applies a gentler correction.
         clean, casted = _cast_negative(cast=0.0), _cast_negative(cast=0.06)
-        auto_clean = self._spread(self._render(clean, strength=1.0, auto=True))
+        auto_clean = self._spread(self._render(clean, strength=1.0))
         # Clean frame has no cast to begin with; confirm auto is a near-no-op there.
         self.assertLess(auto_clean, 1e-3)
         # On a casted frame, auto still reduces the spread vs. uncorrected.
-        auto_cast = self._spread(self._render(casted, strength=1.0, auto=True))
+        auto_cast = self._spread(self._render(casted, strength=1.0))
         off_cast = self._spread(self._render(casted, strength=0.0))
         self.assertLess(auto_cast, off_cast)
 
     def test_auto_slider_still_trims(self):
         # With Auto on, the slider trims on top of the confidence ceiling.
         img = _cast_negative()
-        full = self._spread(self._render(img, strength=1.0, auto=True))
-        half = self._spread(self._render(img, strength=0.5, auto=True))
+        full = self._spread(self._render(img, strength=1.0))
+        half = self._spread(self._render(img, strength=0.5))
         self.assertGreater(half, full)
 
     def test_default_on(self):
         self.assertEqual(WorkspaceConfig().exposure.cast_removal_strength, 0.5)
-        self.assertTrue(WorkspaceConfig().exposure.auto_cast_removal)
 
     def test_serialization_roundtrip(self):
         config = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, cast_removal_strength=0.5))

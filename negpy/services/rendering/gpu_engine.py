@@ -127,7 +127,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
         analysis_source_hash,
         settings.process,
         settings.geometry,
-        e.cast_removal_strength > 0.0 or e.auto_cast_removal,
+        e.cast_removal_strength > 0.0,
         e.auto_exposure,
         e.auto_normalize_contrast,
     )
@@ -476,7 +476,7 @@ class GPUEngine:
         needs_refs = (
             shadow_refs_override is None
             and not tiling_mode
-            and (settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal)
+            and settings.exposure.cast_removal_strength > 0.0
             and settings.process.process_mode == ProcessMode.C41
         )
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
@@ -1055,7 +1055,7 @@ class GPUEngine:
             cast_confidence = neutral_axis_refs[3]
             nf = lambda r: normalize_refs(r, adj_floors, adj_ceils) if r is not None else None  # noqa: E731
             neutral_axis_norm = (nf(mid_refs), nf(sh_refs), nf(hl_refs))
-        strength = effective_cast_strength(exp.cast_removal_strength, exp.auto_cast_removal, cast_confidence)
+        strength = effective_cast_strength(exp.cast_removal_strength, cast_confidence)
         slopes, pivots, curvatures = per_channel_curve_params(
             exp.grade,
             exp.density,
@@ -1729,9 +1729,7 @@ class GPUEngine:
 
         global_shadow_refs = None
         global_neutral_axis = None
-        if (
-            settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal
-        ) and settings.process.process_mode == ProcessMode.C41:
+        if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode == ProcessMode.C41:
             global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0)
             global_neutral_axis = measure_neutral_axis_from_log(_prefiltered(), global_bounds, None, 0.0)
 

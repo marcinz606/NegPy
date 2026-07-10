@@ -209,7 +209,7 @@ class PhotometricProcessor:
         neutral_axis_refs = context.metrics.get("neutral_axis_refs")
         neutral_axis_norm = normalized_neutral_axis(final_bounds, neutral_axis_refs)
         confidence = neutral_axis_refs[3] if neutral_axis_refs is not None else None
-        strength = effective_cast_strength(self.config.cast_removal_strength, self.config.auto_cast_removal, confidence)
+        strength = effective_cast_strength(self.config.cast_removal_strength, confidence)
         slopes, pivots, curvatures = per_channel_curve_params(
             self.config.grade,
             self.config.density,
