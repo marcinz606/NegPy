@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.templates import labeled_toggle_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
@@ -42,31 +43,29 @@ class ColourSidebar(BaseSidebar):
             region_row.addWidget(btn, 1)
         self.layout.addLayout(region_row)
 
-        self.pick_wb_btn = self._icon_toggle(
+        self.pick_wb_btn = self._tool_toggle(
             "fa5s.eye-dropper",
-            False,
+            "Pick WB",
             tooltip_with_shortcut(
                 "Pick a neutral grey from the canvas — solves the selected region's CMY so the patch prints neutral",
                 "pick_wb",
             ),
         )
-        self.temp_lock_btn = self._icon_toggle(
+        self.temp_lock_btn = self._small_toggle(
             "fa5s.thermometer-half",
+            "Roll Lock",
             self.controller.session.repo.get_global_setting("wb_temp_lock") is not None,
             "Roll lock — every newly opened frame re-aims this region's temperature to the target "
             "(its own tint preserved); committing the slider while locked updates the target. "
             "Each region (Global/Shadows/Highlights) holds its own lock.",
         )
-        self.region_reset_btn = QPushButton()
+        self.region_reset_btn = QPushButton(" Reset")
         self.region_reset_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary, color_disabled=THEME.text_muted))
-        self.region_reset_btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 6px;")
-        self.region_reset_btn.setFixedWidth(36)
         self.region_reset_btn.setToolTip("Reset the selected region's white balance — Temperature and Cyan/Magenta/Yellow back to neutral")
         tools_row = QHBoxLayout()
-        tools_row.addStretch()
-        tools_row.addWidget(self.pick_wb_btn)
-        tools_row.addWidget(self.temp_lock_btn)
-        tools_row.addWidget(self.region_reset_btn)
+        tools_row.addWidget(self.pick_wb_btn, 1)
+        tools_row.addWidget(self.temp_lock_btn, 1)
+        tools_row.addWidget(self.region_reset_btn, 1)
         self.layout.addLayout(tools_row)
 
         # Temperature lever over the selected region's M/Y pair (real darkroom: cyan stays 0).
@@ -108,17 +107,16 @@ class ColourSidebar(BaseSidebar):
             "colour layer so greys stay neutral from deep shadows through highlights (C-41). 0 = off, "
             "1 = full."
         )
-        self.auto_cast_btn = self._icon_toggle(
+        self.auto_cast_btn = self._small_toggle(
             "fa5s.palette",
+            "Auto Cast",
             conf.auto_cast_removal,
             "Auto Cast Removal: bias the strength by the frame's own neutral references — clean greys "
             "get full correction, scenes with few true neutrals get a gentler touch to avoid over-correcting. "
             "The slider still trims on top.",
         )
-        cast_row = QHBoxLayout()
-        cast_row.addWidget(self.auto_cast_btn)
-        cast_row.addWidget(self.cast_removal_slider)
-        self.layout.addLayout(cast_row)
+        self.layout.addWidget(self.auto_cast_btn)
+        self.layout.addWidget(self.cast_removal_slider)
 
         self.layout.addStretch()
 
@@ -229,7 +227,7 @@ class ColourSidebar(BaseSidebar):
             for btn, fields in self._region_buttons:
                 edited = any(getattr(conf, f) != 0.0 for f in fields)
                 color = THEME.accent_edited if edited else THEME.text_primary
-                btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px; color: {color};")
+                btn.setStyleSheet(labeled_toggle_qss(color))
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
             self.cast_removal_slider.setValue(conf.cast_removal_strength)

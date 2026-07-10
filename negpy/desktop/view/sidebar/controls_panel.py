@@ -31,9 +31,8 @@ from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
-# Exposure field partitions — the Colour, Tone and Paper Response sections split ExposureConfig;
-# used for both per-section modified counts and scoped resets. render_intent is in none of them
-# (flat-master output).
+# Exposure field partitions — the Colour and Tone sections split ExposureConfig; used for both
+# per-section modified counts and scoped resets. render_intent is in neither (flat-master output).
 _COLOUR_FIELDS = (
     "wb_cyan",
     "wb_magenta",
@@ -59,8 +58,6 @@ _TONE_FIELDS = (
     "paper_dmin",
     "auto_exposure",
     "auto_normalize_contrast",
-)
-_PAPER_FIELDS = (
     "paper_profile",
     "midtone_gamma",
     "midtone_gamma_trim_red",
@@ -171,19 +168,6 @@ class ControlsPanel(QWidget):
             background_widget=self.tone_histogram,
         )
 
-        self.paper_section = self._make_section(
-            "Paper Response",
-            "paper",
-            self.tone_sidebar.paper_panel,
-            icon=qta.icon("fa5s.chart-line", color=icon_color),
-        )
-        self.paper_section.toggle_button.setToolTip(
-            "The paper's characteristic (Hurter–Driffield) curve: how print density responds to "
-            "exposure. Snap bends the midtone gamma, Toe shapes the shadow roll-off into paper "
-            "black, Shoulder the highlight roll-off into paper white — each knee with its own "
-            "Width, per dye layer via the Global/R/G/B selector."
-        )
-
         self.lab_sidebar = LabSidebar(self.controller)
         self.lab_section = self._make_section(
             "Lab",
@@ -243,9 +227,9 @@ class ControlsPanel(QWidget):
             (
                 "tone",
                 "fa5s.sun",
-                "Exposure — Colour, Tone, Paper Response, Dodge & Burn",
-                [self.colour_section, self.tone_section, self.paper_section, self.local_section],
-                ["colour_section", "tone_section", "paper_section", "local_section"],
+                "Exposure — Colour, Tone, Dodge & Burn",
+                [self.colour_section, self.tone_section, self.local_section],
+                ["colour_section", "tone_section", "local_section"],
             ),
             ("color", "fa5s.palette", "Color — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
             (
@@ -312,7 +296,6 @@ class ControlsPanel(QWidget):
 
         self.colour_section.reset_requested.connect(lambda: self._reset_exposure_fields(_COLOUR_FIELDS))
         self.tone_section.reset_requested.connect(lambda: self._reset_exposure_fields(_TONE_FIELDS))
-        self.paper_section.reset_requested.connect(lambda: self._reset_exposure_fields(_PAPER_FIELDS))
         self.lab_section.reset_requested.connect(lambda: self.controller.session.reset_section("lab"))
         self.toning_section.reset_requested.connect(lambda: self.controller.session.reset_section("toning"))
         self.geometry_section.reset_requested.connect(lambda: self.controller.session.reset_section("geometry"))
@@ -632,7 +615,6 @@ class ControlsPanel(QWidget):
         exp = cfg.exposure
         colour_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _COLOUR_FIELDS)
         tone_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _TONE_FIELDS)
-        paper_count = sum(getattr(exp, f) != getattr(_exp, f) for f in _PAPER_FIELDS)
 
         lab = cfg.lab
         lab_count = sum(
@@ -709,7 +691,6 @@ class ControlsPanel(QWidget):
 
         self.colour_section.set_modified(colour_count)
         self.tone_section.set_modified(tone_count)
-        self.paper_section.set_modified(paper_count)
         self.lab_section.set_modified(lab_count)
         self.toning_section.set_modified(toning_count)
         self.geometry_section.set_modified(geometry_count)

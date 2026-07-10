@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import field_label, section_subheader
+from negpy.desktop.view.styles.templates import field_label, labeled_toggle_qss, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -74,25 +74,23 @@ class ProcessSidebar(BaseSidebar):
         self.mode_combo.addItems([m.value for m in ProcessMode])
         self.mode_combo.setCurrentText(conf.process_mode)
         self.mode_combo.setToolTip("Film process mode: C41 (colour negative), B&W (panchromatic), E-6 (slide/reversal)")
-        self.lock_bounds_btn = QPushButton(" Lock Bounds")
-        self.lock_bounds_btn.setCheckable(True)
-        self.lock_bounds_btn.setIcon(qta.icon("fa5s.lock", color=THEME.text_primary))
-        self.lock_bounds_btn.setToolTip("Freeze normalization bounds — crop and analysis sliders no longer re-analyze")
-        self.autodetect_btn = QPushButton()
-        self.autodetect_btn.setCheckable(True)
-        self.autodetect_btn.setIcon(qta.icon("mdi6.auto-fix", color=THEME.text_primary))
-        self.autodetect_btn.setToolTip("Auto-detect film process (C41/B&W/E-6) on load")
+        self.lock_bounds_btn = self._small_toggle(
+            "fa5s.lock",
+            "Lock Bounds",
+            False,
+            "Freeze normalization bounds — crop and analysis sliders no longer re-analyze",
+        )
+        self.autodetect_btn = self._small_toggle("mdi6.auto-fix", "", False, "Auto-detect film process (C41/B&W/E-6) on load")
         self.autodetect_btn.setFixedWidth(28)
         mode_row.addWidget(self.mode_combo, stretch=1)
         mode_row.addWidget(self.autodetect_btn)
         self.layout.addLayout(mode_row)
 
-        self.linear_raw_btn = QPushButton(" Linear RAW")
-        self.linear_raw_btn.setCheckable(True)
-        self.linear_raw_btn.setChecked(conf.linear_raw)
-        self.linear_raw_btn.setIcon(qta.icon("fa5s.sliders-h", color=THEME.text_primary))
-        self.linear_raw_btn.setToolTip(
-            "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point"
+        self.linear_raw_btn = self._small_toggle(
+            "fa5s.sliders-h",
+            "Linear RAW",
+            conf.linear_raw,
+            "Decode RAW with neutral multipliers (1,1,1,1) — bypasses as-shot camera white balance for a clean starting point",
         )
         raw_row = QHBoxLayout()
         raw_row.addWidget(self.linear_raw_btn, 1)
@@ -104,18 +102,16 @@ class ProcessSidebar(BaseSidebar):
         self.analysis_buffer_slider.setToolTip(
             "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
         )
-        self.analysis_region_btn = QPushButton()
-        self.analysis_region_btn.setCheckable(True)
-        self.analysis_region_btn.setIcon(qta.icon("fa5s.vector-square", color=THEME.text_primary))
-        self.analysis_region_btn.setFixedWidth(32)
-        self.analysis_region_btn.setToolTip(
+        self.analysis_region_btn = self._tool_toggle(
+            "fa5s.vector-square",
+            "",
             "Draw a freehand analysis region on the image — the meters read exactly that area "
-            "(overrides the Analysis Buffer). Double-click inside it to confirm."
+            "(overrides the Analysis Buffer). Double-click inside it to confirm.",
         )
-        self.clear_analysis_region_btn = QPushButton()
-        self.clear_analysis_region_btn.setIcon(qta.icon("fa5s.times", color=THEME.text_primary))
-        self.clear_analysis_region_btn.setFixedWidth(32)
-        self.clear_analysis_region_btn.setToolTip("Clear the freehand analysis region (fall back to the Analysis Buffer)")
+        self.analysis_region_btn.setFixedWidth(32)
+        self.clear_analysis_region_btn = self._icon_action(
+            "fa5s.times", "Clear the freehand analysis region (fall back to the Analysis Buffer)", width=32
+        )
         buf_row.addWidget(self.analysis_buffer_slider)
         buf_row.addWidget(self.analysis_region_btn)
         buf_row.addWidget(self.clear_analysis_region_btn)
@@ -392,7 +388,7 @@ class ProcessSidebar(BaseSidebar):
             for btn, fields in self._channel_buttons:
                 edited = any(getattr(conf, f) != 0.0 for f in fields)
                 color = THEME.accent_edited if edited else THEME.text_primary
-                btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px; color: {color};")
+                btn.setStyleSheet(labeled_toggle_qss(color))
 
             is_e6 = conf.process_mode == ProcessMode.E6
             self.normalize_e6_btn.setVisible(is_e6)

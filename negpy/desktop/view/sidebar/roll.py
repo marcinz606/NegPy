@@ -32,20 +32,18 @@ class RollAnalysisSidebar(BaseSidebar):
         self.layout.addLayout(btns_row)
 
         avg_row = QHBoxLayout()
-        self.use_luma_avg_btn = QPushButton(" Use Luma Average")
-        self.use_luma_avg_btn.setCheckable(True)
-        self.use_luma_avg_btn.setChecked(conf.use_luma_average)
-        self.use_luma_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
-        self.use_luma_avg_btn.setToolTip(
-            "Take the tonal-range (black/white-point) baseline from Batch Analysis; colour still re-derives per frame"
+        self.use_luma_avg_btn = self._small_toggle(
+            "mdi6.film",
+            "Use Luma Average",
+            conf.use_luma_average,
+            "Take the tonal-range (black/white-point) baseline from Batch Analysis; colour still re-derives per frame",
         )
 
-        self.use_colour_avg_btn = QPushButton(" Use Colour Average")
-        self.use_colour_avg_btn.setCheckable(True)
-        self.use_colour_avg_btn.setChecked(conf.use_colour_average)
-        self.use_colour_avg_btn.setIcon(qta.icon("mdi6.film", color=THEME.text_primary))
-        self.use_colour_avg_btn.setToolTip(
-            "Take the per-channel colour-balance baseline from Batch Analysis; luma range still re-derives per frame"
+        self.use_colour_avg_btn = self._small_toggle(
+            "mdi6.film",
+            "Use Colour Average",
+            conf.use_colour_average,
+            "Take the per-channel colour-balance baseline from Batch Analysis; luma range still re-derives per frame",
         )
 
         avg_row.addWidget(self.use_luma_avg_btn)

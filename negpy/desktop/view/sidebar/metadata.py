@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, section_subheader
+from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.gear_library_dialog import GearLibraryDialog
@@ -61,99 +61,94 @@ class MetadataSidebar(BaseSidebar):
         self._metadata_controls = QWidget()
         controls = QVBoxLayout(self._metadata_controls)
         controls.setContentsMargins(0, 0, 0, 0)
-        controls.setSpacing(10)
-        self._controls_layout = controls
+        controls.setSpacing(THEME.space_lg)
 
-        # ── ORIGINAL ANALOG GEAR ─────────────────────────────────────────
-        controls.addWidget(section_subheader("ORIGINAL ANALOG GEAR"))
-
-        gear_hint = QLabel("Type in any field to search the gear library.")
-        gear_hint.setStyleSheet(f"font-size: {THEME.font_size_xs}px; color: {THEME.text_muted};")
-        controls.addWidget(gear_hint)
+        # ── ANALOG GEAR ──────────────────────────────────────────────────
+        gear_body, gear = self._card_body()
+        gear.addWidget(hint_label("Type in any field to search the gear library."))
 
         preset_row = QHBoxLayout()
-        preset_row.setSpacing(4)
-        controls.addWidget(field_label("Preset"))
+        preset_row.setSpacing(THEME.space_sm)
+        gear.addWidget(field_label("Preset"))
         self.preset_combo = SearchableGearCombo(placeholder="Search presets…")
         self.preset_combo.setToolTip("Reusable camera + lens + film combination. Click and type to search.")
         preset_row.addWidget(self.preset_combo, 1)
         self.preset_clear_btn = QPushButton("Clear")
         self.preset_clear_btn.setToolTip("Clear gear preset selection")
         preset_row.addWidget(self.preset_clear_btn)
-        controls.addLayout(preset_row)
+        gear.addLayout(preset_row)
 
-        controls.addWidget(field_label("Camera"))
+        gear.addWidget(field_label("Camera"))
         self.camera_combo = SearchableGearCombo(placeholder="Search cameras…")
         self.camera_combo.setToolTip("Original film camera body. Click and type to search.")
-        controls.addWidget(self.camera_combo)
+        gear.addWidget(self.camera_combo)
 
-        controls.addWidget(field_label("Lens"))
+        gear.addWidget(field_label("Lens"))
         self.lens_combo = SearchableGearCombo(placeholder="Search lenses…")
         self.lens_combo.setToolTip("Original lens used on the film camera. Click and type to search.")
-        controls.addWidget(self.lens_combo)
+        gear.addWidget(self.lens_combo)
 
-        controls.addWidget(field_label("Film stock"))
+        gear.addWidget(field_label("Film stock"))
         self.film_stock_combo = SearchableGearCombo(placeholder="Search film stocks…")
         self.film_stock_combo.setToolTip("Film stock used for the original capture. Click and type to search.")
-        controls.addWidget(self.film_stock_combo)
+        gear.addWidget(self.film_stock_combo)
 
         self.manage_btn = QPushButton(" Manage…")
         self.manage_btn.setIcon(qta.icon("fa5s.cog", color=THEME.text_primary))
         self.manage_btn.setToolTip("Edit cameras, lenses, film stocks, and gear presets")
-        controls.addWidget(self.manage_btn)
+        gear.addWidget(self.manage_btn)
+        controls.addWidget(self._card("Analog Gear", "gear", gear_body, "fa5s.camera-retro"))
 
         # ── PROCESS ──────────────────────────────────────────────────────
-        controls.addWidget(section_subheader("PROCESS"))
-
-        controls.addWidget(field_label("Format"))
+        proc_body, proc = self._card_body()
+        proc.addWidget(field_label("Format"))
         self.format_combo = QComboBox()
         self.format_combo.addItems(FORMAT_OPTIONS)
         if conf.format in FORMAT_OPTIONS:
             self.format_combo.setCurrentText(conf.format)
-        controls.addWidget(self.format_combo)
+        proc.addWidget(self.format_combo)
 
         self.format_other_edit = QLineEdit()
         self.format_other_edit.setPlaceholderText("e.g. 6×7")
         self.format_other_edit.setText(conf.format_other)
         self.format_other_edit.setVisible(conf.format == "Other")
-        controls.addWidget(self.format_other_edit)
+        proc.addWidget(self.format_other_edit)
 
-        controls.addWidget(field_label("Developer"))
+        proc.addWidget(field_label("Developer"))
         self.developer_edit = QLineEdit()
         self.developer_edit.setPlaceholderText("e.g. D-76 1+1")
         self.developer_edit.setText(conf.developer)
-        controls.addWidget(self.developer_edit)
+        proc.addWidget(self.developer_edit)
 
-        controls.addWidget(field_label("Push / Pull"))
+        proc.addWidget(field_label("Push / Pull"))
         self.push_pull_combo = QComboBox()
         self.push_pull_combo.addItems(PUSH_PULL_OPTIONS)
         idx = PUSH_PULL_VALUES.index(conf.push_pull) if conf.push_pull in PUSH_PULL_VALUES else 3
         self.push_pull_combo.setCurrentIndex(idx)
-        controls.addWidget(self.push_pull_combo)
+        proc.addWidget(self.push_pull_combo)
+        controls.addWidget(self._card("Process", "process", proc_body, "fa5s.flask"))
 
         # ── SCANNING ─────────────────────────────────────────────────────
-        controls.addWidget(section_subheader("SCANNING"))
-
-        controls.addWidget(field_label("Scanning"))
+        scan_body, scan = self._card_body()
+        scan.addWidget(field_label("Scanning"))
         self.scanning_edit = QLineEdit()
         self.scanning_edit.setPlaceholderText("e.g. DSLR copy-stand scan")
         self.scanning_edit.setText(conf.scanning)
-        controls.addWidget(self.scanning_edit)
+        scan.addWidget(self.scanning_edit)
 
         self.sync_check = QCheckBox("Sync custom metadata to all files in batch export")
         self.sync_check.setChecked(conf.sync_to_batch)
-        controls.addWidget(self.sync_check)
+        scan.addWidget(self.sync_check)
+        controls.addWidget(self._card("Scanning", "scanning", scan_body, "mdi6.scanner"))
 
         # ── EXPOSURE ─────────────────────────────────────────────────────
-        controls.addWidget(section_subheader("EXPOSURE"))
-
-        hint = QLabel("Optional original capture exposure — click 🔓 to edit")
-        hint.setStyleSheet(f"font-size: {THEME.font_size_xs}px; color: {THEME.text_muted};")
-        controls.addWidget(hint)
+        exp_body, exp = self._card_body()
+        exp.addWidget(hint_label("Optional original capture exposure — click 🔓 to edit"))
 
         self.exposure_label = field_label("Exposure")
-        controls.addWidget(self.exposure_label)
-        self.exposure_edit = self._make_exif_field("exposure")
+        exp.addWidget(self.exposure_label)
+        self.exposure_edit = self._make_exif_field("exposure", exp)
+        controls.addWidget(self._card("Exposure", "exposure", exp_body, "fa5s.stopwatch"))
 
         self._refresh_gear_combos()
         controls.addStretch()
@@ -165,18 +160,14 @@ class MetadataSidebar(BaseSidebar):
         preview_layout.setContentsMargins(0, 0, 0, 0)
         preview_layout.setSpacing(4)
 
-        preview_hint = QLabel("Written to exported files on export.")
-        preview_hint.setWordWrap(True)
-        preview_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        preview_hint = hint_label("Written to exported files on export.")
         preview_layout.addWidget(preview_hint)
 
         self.preview_rows = QVBoxLayout()
         self.preview_rows.setSpacing(2)
         preview_layout.addLayout(self.preview_rows)
 
-        self.preview_empty = QLabel("Select gear or enter process metadata to see a preview.")
-        self.preview_empty.setWordWrap(True)
-        self.preview_empty.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        self.preview_empty = hint_label("Select gear or enter process metadata to see a preview.")
         preview_layout.addWidget(self.preview_empty)
 
         self.preview_section = CollapsibleSection("Metadata preview", expanded=True)
@@ -185,9 +176,25 @@ class MetadataSidebar(BaseSidebar):
 
         self._set_metadata_controls_enabled(not conf.protect_original_metadata)
 
-    def _make_exif_field(self, key: str) -> QLineEdit:
+    def _card_body(self) -> tuple[QWidget, QVBoxLayout]:
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(THEME.space_md)
+        return body, layout
+
+    def _card(self, title: str, key: str, content: QWidget, icon_name: str) -> CollapsibleSection:
+        repo = self.controller.session.repo
+        setting = f"section_expanded_metadata_{key}"
+        expanded = bool(repo.get_global_setting(setting, default=True))
+        section = CollapsibleSection(title, expanded=expanded, icon=qta.icon(icon_name, color="#aaa"))
+        section.set_content(content)
+        section.expanded_changed.connect(lambda checked, s=setting: repo.save_global_setting(s, checked))
+        return section
+
+    def _make_exif_field(self, key: str, layout: QVBoxLayout) -> QLineEdit:
         row = QHBoxLayout()
-        row.setSpacing(4)
+        row.setSpacing(THEME.space_sm)
 
         edit = QLineEdit()
         edit.setReadOnly(True)
@@ -202,7 +209,7 @@ class MetadataSidebar(BaseSidebar):
 
         row.addWidget(edit)
         row.addWidget(lock_btn)
-        self._controls_layout.addLayout(row)
+        layout.addLayout(row)
         setattr(self, f"_{key}_lock_btn", lock_btn)
         return edit
 
@@ -517,7 +524,7 @@ class MetadataSidebar(BaseSidebar):
 
         for title, rows in sections:
             header = QLabel(title)
-            header.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: 600;")
+            header.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px; font-weight: {THEME.weight_semibold};")
             self.preview_rows.addWidget(header)
             for label, value in rows:
                 row = QWidget()

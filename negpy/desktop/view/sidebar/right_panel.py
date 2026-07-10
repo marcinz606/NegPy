@@ -76,7 +76,6 @@ class RightPanel(QWidget):
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setWidget(widget)
-            scroll.setStyleSheet("QScrollArea { border: none; }")
             return scroll
 
         # Tab content widgets
@@ -122,30 +121,14 @@ class RightPanel(QWidget):
         self._active_index = 0
         self._scan_index = -1
 
-        tab_style = """
-            QPushButton {
-                background-color: #0D0D0D;
-                border: none;
-                border-bottom: 1px solid #262626;
-                border-right: 1px solid #262626;
-            }
-            QPushButton:hover {
-                background-color: #262626;
-            }
-            QPushButton:checked {
-                background-color: #222222;
-                border-bottom: none;
-            }
-        """
-
         for i, (key, icon_name, tooltip, content, section_attrs) in enumerate(tab_specs):
             btn = QPushButton()
+            btn.setObjectName("right_tab_btn")
             btn.setIcon(qta.icon(icon_name, color=THEME.text_secondary))
             btn.setIconSize(QSize(18, 18))
             btn.setToolTip(tooltip)
             btn.setCheckable(True)
             btn.setFixedHeight(38)
-            btn.setStyleSheet(tab_style)
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_tab(idx))
             switcher_layout.addWidget(btn, 1)
 

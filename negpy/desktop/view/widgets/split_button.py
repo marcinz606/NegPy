@@ -2,6 +2,7 @@ import qtawesome as qta
 from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QSizePolicy, QToolButton, QWidget
 
+from negpy.desktop.view.styles.templates import default_button_height
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -19,7 +20,7 @@ def make_split_button(text: str, icon_name: str, menu: QMenu, *, primary: bool =
     main_btn.setObjectName("split_main_btn")
     main_btn.setIcon(qta.icon(icon_name, color=icon_color))
     main_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-    main_btn.setFixedHeight(36)
+    main_btn.setFixedHeight(default_button_height())
 
     menu_btn = QToolButton()
     menu_btn.setObjectName("split_menu_btn")
@@ -27,7 +28,7 @@ def make_split_button(text: str, icon_name: str, menu: QMenu, *, primary: bool =
     menu_btn.setIcon(qta.icon("fa5s.chevron-down", color=icon_color))
     menu_btn.setIconSize(QSize(18, 18))
     menu_btn.setFixedWidth(36)
-    menu_btn.setFixedHeight(36)
+    menu_btn.setFixedHeight(default_button_height())
     menu_btn.clicked.connect(lambda: menu.exec(menu_btn.mapToGlobal(menu_btn.rect().bottomLeft())))
 
     if primary:

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from negpy.desktop.view.styles.templates import dialog_pane_qss, hint_label, pane_header_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm
 from negpy.domain.models import ColorSpace, ExportFormat, ExportPreset, ExportResolutionMode, preset_display_name
@@ -52,21 +53,17 @@ class ExportPresetsDialog(QDialog):
         # Left: preset list + action buttons
         left = QWidget()
         left.setFixedWidth(220)
-        left.setStyleSheet(f"background: {THEME.bg_panel}; border-right: 1px solid {THEME.border_primary};")
+        left.setStyleSheet(dialog_pane_qss())
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(6)
 
         list_label = QLabel("PRESETS")
-        list_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px; font-weight: bold; letter-spacing: 1px;")
+        list_label.setStyleSheet(pane_header_qss())
         left_layout.addWidget(list_label)
 
         self.preset_list = QListWidget()
-        self.preset_list.setStyleSheet(f"""
-            QListWidget {{ background: {THEME.bg_dark}; border: 1px solid {THEME.border_primary}; }}
-            QListWidget::item {{ padding: 8px; color: {THEME.text_primary}; }}
-            QListWidget::item:selected {{ background: #2a2a2a; color: white; }}
-        """)
+        self.preset_list.setObjectName("preset_list")
         self.preset_list.currentRowChanged.connect(self._on_list_selection_changed)
         left_layout.addWidget(self.preset_list)
 
@@ -111,7 +108,6 @@ class ExportPresetsDialog(QDialog):
         # Right: edit form in a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {THEME.bg_dark}; }}")
 
         form_widget = QWidget()
         form_widget.setStyleSheet(f"background: {THEME.bg_dark};")
@@ -130,8 +126,7 @@ class ExportPresetsDialog(QDialog):
     def _build_form(self) -> None:
         fl = self._form_layout
 
-        self._no_preset_label = QLabel("No preset selected. Add one with the + button.")
-        self._no_preset_label.setStyleSheet(f"color: {THEME.text_muted};")
+        self._no_preset_label = hint_label("No preset selected. Add one with the + button.")
         fl.addWidget(self._no_preset_label)
 
         self._form_container = QWidget()
@@ -150,8 +145,7 @@ class ExportPresetsDialog(QDialog):
         row.addWidget(self.enabled_check)
         form.addLayout(row)
 
-        self.intent_label = QLabel()
-        self.intent_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px; border: none;")
+        self.intent_label = hint_label()
         form.addWidget(self.intent_label)
 
         # Shared FORMAT / SIZE / COLOR / DESTINATION rows.

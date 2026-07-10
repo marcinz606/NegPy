@@ -251,6 +251,33 @@ QFrame#collapsible_content {
     border-top: none;
 }
 
+/* Section content must not repaint over the card: plain QWidget bodies would
+   otherwise pick up the global `QWidget` #0D0D0D fill and read darker than
+   sections whose content is a custom subclass. */
+QWidget#collapsible_content_body {
+    background: transparent;
+}
+
+/* Hint labels (templates.hint_label): small informational text under controls.
+   Colours: #555555 = text_muted, #C79A3A = accent_edited, #D32F2F = channel_red. */
+QLabel[hint="muted"] {
+    color: #555555;
+    font-size: 11px;
+    border: none;
+}
+
+QLabel[hint="warning"] {
+    color: #C79A3A;
+    font-size: 11px;
+    border: none;
+}
+
+QLabel[hint="error"] {
+    color: #D32F2F;
+    font-size: 11px;
+    border: none;
+}
+
 QPushButton#collapsible_reset_btn {
     background: transparent;
     border: none;
@@ -302,6 +329,100 @@ QPushButton[primary="true"]:disabled, QToolButton[primary="true"]:disabled {
     background-color: transparent;
     border: 1px solid #262626;
     color: #555555;
+}
+
+/* Right-panel tab strip (see sidebar/right_panel.py). */
+QPushButton#right_tab_btn {
+    background-color: #0D0D0D;
+    border: none;
+    border-bottom: 1px solid #262626;
+    border-right: 1px solid #262626;
+    border-radius: 0;
+}
+
+QPushButton#right_tab_btn:hover {
+    background-color: #262626;
+}
+
+QPushButton#right_tab_btn:checked {
+    background-color: #222222;
+    border-bottom: none;
+}
+
+/* Collapsible section header (see widgets/collapsible.py). [overlay="true"] =
+   header stacked over a preview widget (Tone/Colour histogram strip). */
+QPushButton#collapsible_header {
+    text-align: left;
+    background-color: #161616;
+    border: none;
+    border-bottom: 1px solid #262626;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    color: #FFFFFF;
+    padding: 0;
+}
+
+QPushButton#collapsible_header:hover {
+    background-color: #222222;
+}
+
+QPushButton#collapsible_header:checked {
+    background-color: #161616;
+}
+
+QPushButton#collapsible_header[overlay="true"] {
+    background-color: rgba(26, 26, 26, 0.82);
+}
+
+QPushButton#collapsible_header[overlay="true"]:hover {
+    background-color: rgba(34, 34, 34, 0.88);
+}
+
+QPushButton#collapsible_header[overlay="true"]:checked {
+    background-color: rgba(26, 26, 26, 0.82);
+}
+
+/* Preset list in the Export Presets dialog. */
+QListWidget#preset_list {
+    background: #0D0D0D;
+    border: 1px solid #262626;
+}
+
+QListWidget#preset_list::item {
+    padding: 8px;
+    color: #D4D4D4;
+}
+
+QListWidget#preset_list::item:selected {
+    background: #2a2a2a;
+    color: white;
+}
+
+/* Searchable gear combo (widgets/searchable_gear_combo.py): inline arrow + completer popup. */
+QToolButton#gear_combo_arrow {
+    border: none;
+    color: #A0A0A0;
+    background: transparent;
+}
+
+QToolButton#gear_combo_arrow:hover {
+    color: #D4D4D4;
+}
+
+QAbstractItemView#gear_combo_popup {
+    background: #161616;
+    color: #D4D4D4;
+    border: 1px solid #333333;
+    outline: 0;
+}
+
+QAbstractItemView#gear_combo_popup::item {
+    padding: 4px 6px;
+}
+
+QAbstractItemView#gear_combo_popup::item:selected {
+    background: #B71C1C;
+    color: #FFFFFF;
 }
 
 /* Darker red divider between the two halves of a primary split button. */

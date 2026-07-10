@@ -238,7 +238,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "with it on to clip deep shadows to exact black."
             ),
             target=_toe,
-            section_attr="paper_section",
+            section_attr="tone_section",
         ),
         TutorialStep(
             title="Per-Layer Trims — Crossover Correction",
@@ -293,7 +293,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "Density still trim on top."
             ),
             target=_paper,
-            section_attr="paper_section",
+            section_attr="tone_section",
         ),
         TutorialStep(
             title="Dodge & Burn",

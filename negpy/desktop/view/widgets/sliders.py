@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.styles.templates import slider_label_qss, slider_handle_qss
+from negpy.desktop.view.styles.templates import slider_label_qss, slider_handle_qss, wrap_tooltip
 
 
 class _NoScrollSlider(QSlider):
@@ -91,6 +91,9 @@ class BaseSlider(QWidget):
     # Handle grab/release, independent of whether the value actually changed.
     dragStarted = pyqtSignal()
     dragEnded = pyqtSignal()
+
+    def setToolTip(self, text: str) -> None:
+        super().setToolTip(wrap_tooltip(text))
 
     def __init__(
         self,
@@ -242,7 +245,7 @@ class CompactSlider(BaseSlider):
         header = QHBoxLayout()
         header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.label = QLabel(label)
-        self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {self._label_color};")
+        self.label.setStyleSheet(slider_label_qss(self._label_color, False))
         self.label.setToolTip(f"{label} (double-click to reset)")
 
         self.spin.setSingleStep(step)

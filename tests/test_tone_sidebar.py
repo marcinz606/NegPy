@@ -27,24 +27,6 @@ def test_paper_combo_rebuilt_only_when_entries_change(qapp):
     assert _combo_items(sidebar.paper_combo) == items
 
 
-def test_paper_response_widgets_live_in_paper_panel(qapp):
-    controller = MagicMock()
-    controller.state = AppState()
-    sidebar = ToneSidebar(controller)
-
-    for w in (
-        sidebar.paper_combo,
-        sidebar.midtone_gamma_slider,
-        sidebar.toe_slider,
-        sidebar.sh_slider,
-        sidebar.toe_w_slider,
-        sidebar.sh_w_slider,
-    ):
-        assert sidebar.paper_panel.isAncestorOf(w)
-    for w in (sidebar.density_slider, sidebar.grade_slider, sidebar.shadow_density_slider, sidebar.ch_global_btn):
-        assert not sidebar.paper_panel.isAncestorOf(w)
-
-
 def test_channel_selector_retargets_and_syncs(qapp):
     controller = MagicMock()
     controller.state = AppState()
@@ -81,6 +63,11 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert abs(sidebar.highlight_density_slider.value() - 0.2) < 1e-9
     assert sidebar.shadow_density_slider in sidebar._global_only
     assert sidebar.highlight_density_slider in sidebar._global_only
+    # Long tooltips must be rich text so Qt word-wraps them; tooltips that carry
+    # their own markup (shortcut chips) must not get double-escaped.
+    assert sidebar.shadow_density_slider.toolTip().startswith("<qt>")
+    assert sidebar.true_black_btn.toolTip().startswith("<qt>")
+    assert "&lt;" not in sidebar.density_slider.toolTip()
 
     # Red page: sliders retarget to the red trims; global-only controls grey out.
     sidebar.ch_r_btn.setChecked(True)

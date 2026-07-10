@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QLineEdit,
     QMenu,
     QMessageBox,
@@ -22,7 +21,14 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, section_subheader
+from negpy.desktop.view.styles.templates import (
+    default_button_height,
+    field_label,
+    hint_label,
+    labeled_toggle_qss,
+    section_subheader,
+    set_hint_kind,
+)
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
 from negpy.desktop.view.widgets.export_settings_form import ExportSettingsForm, constrain_combo
@@ -105,15 +111,15 @@ class ExportSidebar(BaseSidebar):
         content_layout.setSpacing(6)
 
         self._presets_container = QWidget()
-        self._presets_container.setStyleSheet(f"border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark};")
+        # Border-only grouping — a filled box reads as a darker plate behind the
+        # buttons against the section card.
+        self._presets_container.setStyleSheet(f"border: 1px solid {THEME.border_primary}; background: transparent;")
         self._presets_inner = QVBoxLayout(self._presets_container)
         self._presets_inner.setContentsMargins(4, 4, 4, 4)
         self._presets_inner.setSpacing(2)
         content_layout.addWidget(self._presets_container)
 
-        self._no_presets_label = QLabel("No presets — click Manage to add some.")
-        self._no_presets_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
-        self._no_presets_label.setWordWrap(True)
+        self._no_presets_label = hint_label("No presets — click Manage to add some.")
         self._presets_inner.addWidget(self._no_presets_label)
         self._preset_checkboxes: list[QCheckBox] = []
 
@@ -220,7 +226,7 @@ class ExportSidebar(BaseSidebar):
         self.contact_sheet_btn = QPushButton(" Export contact sheet")
         self.contact_sheet_btn.setObjectName("contact_sheet_btn")
         self.contact_sheet_btn.setProperty("primary", True)
-        self.contact_sheet_btn.setFixedHeight(36)
+        self.contact_sheet_btn.setFixedHeight(default_button_height())
         self.contact_sheet_btn.setIcon(qta.icon("fa5s.th", color="white"))
         self.contact_sheet_btn.setToolTip("Render all visible frames into a contact sheet")
         content_layout.addWidget(self.contact_sheet_btn)
@@ -397,14 +403,13 @@ class ExportSidebar(BaseSidebar):
         # it reads as one unit. objectName-scoped so the border doesn't cascade.
         container = QWidget()
         container.setObjectName("flat_intent_box")
-        container.setStyleSheet(f"#flat_intent_box {{ border: 1px solid {THEME.border_primary}; background: {THEME.bg_dark}; }}")
+        container.setStyleSheet(f"#flat_intent_box {{ border: 1px solid {THEME.border_primary}; background: transparent; }}")
         box = QVBoxLayout(container)
         box.setContentsMargins(6, 6, 6, 6)
         box.setSpacing(6)
 
         intent_row = QHBoxLayout()
         intent_row.setSpacing(4)
-        btn_style = f"font-size: {THEME.font_size_base}px; padding: 8px;"
         self.intent_print_btn = QPushButton("Print")
         self.intent_flat_btn = QPushButton("Flat")
         self.intent_flat_btn.setToolTip(
@@ -415,7 +420,7 @@ class ExportSidebar(BaseSidebar):
         )
         for btn in (self.intent_print_btn, self.intent_flat_btn):
             btn.setCheckable(True)
-            btn.setStyleSheet(btn_style)
+            btn.setStyleSheet(labeled_toggle_qss())
             intent_row.addWidget(btn)
         self.intent_btn_group = QButtonGroup(self)
         self.intent_btn_group.setExclusive(True)
@@ -444,11 +449,10 @@ class ExportSidebar(BaseSidebar):
 
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(4)
-        self.flat_peek_btn = QPushButton(" Preview Flat")
-        self.flat_peek_btn.setCheckable(True)
+        self.flat_peek_btn = self._tool_toggle(
+            "fa5s.eye", "Preview Flat", "Temporarily show the flat master in the canvas (does not change your edit)"
+        )
         self.flat_peek_btn.setChecked(self.state.flat_peek)
-        self.flat_peek_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
-        self.flat_peek_btn.setToolTip("Temporarily show the flat master in the canvas (does not change your edit)")
         self.flat_bake_btn = QPushButton(" Roll Baseline")
         self.flat_bake_btn.setIcon(qta.icon("fa5s.link", color=THEME.text_primary))
         self.flat_bake_btn.setToolTip(
@@ -459,19 +463,15 @@ class ExportSidebar(BaseSidebar):
         peek_bake_row.addWidget(self.flat_bake_btn)
         box.addLayout(peek_bake_row)
 
-        self.flat_hint_label = QLabel(
+        self.flat_hint_label = hint_label(
             "Exports a flat master in the selected color space at full resolution by default. Choose Print or Pixels below to downscale."
         )
-        self.flat_hint_label.setWordWrap(True)
-        self.flat_hint_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px; border: none;")
         box.addWidget(self.flat_hint_label)
 
         # Roll-consistency nudge: a flat master is only identical across frames
         # once the roll shares one normalization baseline (locked bounds). Until
         # then, per-frame auto bounds make each frame's tones drift.
-        self.flat_roll_warning = QLabel("For consistent masters across a roll, lock one baseline for every frame.")
-        self.flat_roll_warning.setWordWrap(True)
-        self.flat_roll_warning.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px; border: none;")
+        self.flat_roll_warning = hint_label("For consistent masters across a roll, lock one baseline for every frame.", kind="warning")
         box.addWidget(self.flat_roll_warning)
 
         self.layout.addWidget(container)
@@ -564,17 +564,13 @@ class ExportSidebar(BaseSidebar):
         disp_row.addWidget(self.display_combo)
         content_layout.addLayout(disp_row)
 
-        self.display_detected_label = QLabel()
-        self.display_detected_label.setWordWrap(True)
-        self.display_detected_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
+        self.display_detected_label = hint_label("")
         content_layout.addWidget(self.display_detected_label)
         self._refresh_display_info()
 
         # Warns when the preview won't reflect the export's gamut clamp (soft
         # proof off + export space narrower than the working space).
-        self.proof_mismatch_label = QLabel("Soft proof is off — preview won't show the export's color clipping")
-        self.proof_mismatch_label.setWordWrap(True)
-        self.proof_mismatch_label.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
+        self.proof_mismatch_label = hint_label("Soft proof is off — preview won't show the export's color clipping", kind="warning")
         content_layout.addWidget(self.proof_mismatch_label)
         self._refresh_proof_mismatch_warning()
 
@@ -598,20 +594,18 @@ class ExportSidebar(BaseSidebar):
 
         btn_row = QHBoxLayout()
 
-        self.sidecars_enabled_btn = QPushButton(" Save on export")
-        self.sidecars_enabled_btn.setCheckable(True)
-        self.sidecars_enabled_btn.setChecked(conf.export_sidecars_enabled)
-        self.sidecars_enabled_btn.setFixedHeight(36)
-        self.sidecars_enabled_btn.setIcon(qta.icon("fa5s.file-export", color=THEME.text_primary))
-        self.sidecars_enabled_btn.setToolTip(
-            "When on, every export also writes a .negpy edit sidecar next to each source frame. Edits stay in the database too."
+        self.sidecars_enabled_btn = self._small_toggle(
+            "fa5s.file-export",
+            "Save on export",
+            conf.export_sidecars_enabled,
+            "When on, every export also writes a .negpy edit sidecar next to each source frame. Edits stay in the database too.",
         )
         btn_row.addWidget(self.sidecars_enabled_btn)
 
         self.export_sidecars_btn = QPushButton(" Export sidecars")
         self.export_sidecars_btn.setObjectName("export_sidecars_btn")
         self.export_sidecars_btn.setProperty("primary", True)
-        self.export_sidecars_btn.setFixedHeight(36)
+        self.export_sidecars_btn.setFixedHeight(default_button_height())
         self.export_sidecars_btn.setIcon(qta.icon("fa5s.file-code", color="white"))
         self.export_sidecars_btn.setToolTip("Write edit sidecars for all visible frames now")
         btn_row.addWidget(self.export_sidecars_btn)
@@ -857,10 +851,10 @@ class ExportSidebar(BaseSidebar):
         self.display_combo.setItemText(0, f"As detected ({desc})")
         if detected is None:
             self.display_detected_label.setText("Auto-detection failed — select your monitor's color space above.")
-            self.display_detected_label.setStyleSheet(f"color: {THEME.channel_red}; font-size: 10px;")
+            set_hint_kind(self.display_detected_label, "error")
         else:
             self.display_detected_label.setText(f"Detected: {desc}")
-            self.display_detected_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px;")
+            set_hint_kind(self.display_detected_label, "muted")
 
     def _refresh_proof_mismatch_warning(self) -> None:
         """Show a hint when soft proof is off and export will clamp to a

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import hint_label, labeled_toggle_qss, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
@@ -126,9 +126,7 @@ class ExportSettingsForm(QWidget):
         self.jxl_effort_spin.valueChanged.connect(self._on_changed)
         jxl_box.addWidget(self.jxl_effort_spin)
 
-        self.jxl_cs_warning = QLabel()
-        self.jxl_cs_warning.setWordWrap(True)
-        self.jxl_cs_warning.setStyleSheet(f"color: {THEME.accent_edited}; font-size: 10px;")
+        self.jxl_cs_warning = hint_label(kind="warning")
         jxl_box.addWidget(self.jxl_cs_warning)
 
         root.addWidget(self._jxl_container)
@@ -165,10 +163,9 @@ class ExportSettingsForm(QWidget):
         self.mode_original_btn = QPushButton("Original")
         self.mode_print_btn = QPushButton("Print")
         self.mode_target_px_btn = QPushButton("Pixels")
-        btn_style = f"font-size: {THEME.font_size_base}px; padding: 8px;"
         for btn in (self.mode_original_btn, self.mode_print_btn, self.mode_target_px_btn):
             btn.setCheckable(True)
-            btn.setStyleSheet(btn_style)
+            btn.setStyleSheet(labeled_toggle_qss())
             mode_row.addWidget(btn)
         self.mode_btn_group = QButtonGroup(self)
         self.mode_btn_group.setExclusive(True)

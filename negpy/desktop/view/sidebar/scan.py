@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import hint_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.settings import ScannerSettings
@@ -83,8 +83,7 @@ class ScanSidebar(QWidget):
         layout.addLayout(device_row)
 
         # ── CAPS INFO ───────────────────────────────────────
-        self.frame_label = QLabel("")
-        self.frame_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.frame_label = hint_label("")
         layout.addWidget(self.frame_label)
 
         # ── SETTINGS ────────────────────────────────────────
@@ -138,9 +137,7 @@ class ScanSidebar(QWidget):
         layout.addWidget(self.progress_bar)
 
         # ── STATUS ──────────────────────────────────────────
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
-        self.status_label.setWordWrap(True)
+        self.status_label = hint_label("")
         layout.addWidget(self.status_label)
 
         # ── SCAN BUTTON ─────────────────────────────────────

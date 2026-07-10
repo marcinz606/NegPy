@@ -25,10 +25,12 @@ class FlatFieldSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.enable_btn = QPushButton(" Flatfield Correction")
-        self.enable_btn.setCheckable(True)
-        self.enable_btn.setIcon(qta.icon("fa5s.lightbulb", color=THEME.text_primary))
-        self.enable_btn.setToolTip("Apply the active flat-field reference to this image")
+        self.enable_btn = self._small_toggle(
+            "fa5s.lightbulb",
+            "Flatfield Correction",
+            False,
+            "Apply the active flat-field reference to this image",
+        )
         self.layout.addWidget(self.enable_btn)
 
         self.layout.addWidget(section_subheader("REFERENCE PROFILE"))

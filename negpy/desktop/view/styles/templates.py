@@ -1,6 +1,69 @@
-from PyQt6.QtWidgets import QLabel
+import html
+
+import qtawesome as qta
+from PyQt6.QtWidgets import QLabel, QPushButton
 
 from negpy.desktop.view.styles.theme import THEME
+
+_default_btn_height: int | None = None
+
+
+def default_button_height() -> int:
+    """Height a default-styled button renders at under the live app font/QSS —
+    measured from a reference button, not hardcoded (a wrong constant makes
+    mixed button rows stair-step)."""
+    global _default_btn_height
+    if _default_btn_height is None:
+        ref = QPushButton(" Ref")
+        ref.setIcon(qta.icon("fa5s.circle"))
+        _default_btn_height = ref.sizeHint().height()
+    return _default_btn_height
+
+
+def wrap_tooltip(text: str) -> str:
+    """Plain-text tooltips never word-wrap in Qt; rich text does. Wrap in <qt> so
+    long tooltips break into lines instead of spanning the screen. Text that
+    already carries markup (e.g. tooltip_with_shortcut's chips) must pass through
+    unescaped or its tags render as literal text."""
+    if text.startswith("<qt>"):
+        return text
+    if "<" in text and ">" in text:
+        return f"<qt>{text}</qt>"
+    return f"<qt>{html.escape(text)}</qt>"
+
+
+def hint_label(text: str = "", kind: str = "muted") -> QLabel:
+    """Small informational label under a control. kind: "muted" | "warning" |
+    "error" — styled by the QLabel[hint=...] rules in modern_dark.qss. Change
+    kind at runtime with set_hint_kind (a plain setProperty won't repolish)."""
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    lbl.setProperty("hint", kind)
+    return lbl
+
+
+def set_hint_kind(lbl: QLabel, kind: str) -> None:
+    lbl.setProperty("hint", kind)
+    style = lbl.style()
+    style.unpolish(lbl)
+    style.polish(lbl)
+
+
+def pane_header_qss() -> str:
+    """Bold mini-header for dialog panes (preset list / gear library columns)."""
+    return f"color: {THEME.text_muted}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+
+
+def dialog_pane_qss() -> str:
+    """Left column pane in two-pane dialogs: panel fill + right divider."""
+    return f"background: {THEME.bg_panel}; border-right: 1px solid {THEME.border_primary};"
+
+
+def labeled_toggle_qss(color: str | None = None) -> str:
+    """Segmented/selector toggle (channel rows, intent rows): base type, 8px
+    padding; optional text colour carries the edited-state tint."""
+    suffix = f" color: {color};" if color else ""
+    return f"font-size: {THEME.font_size_base}px; padding: 8px;{suffix}"
 
 
 def section_subheader(text: str) -> QLabel:
@@ -25,6 +88,30 @@ def field_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(field_label_qss())
     return lbl
+
+
+def tool_toggle_qss(icon_only: bool = False) -> str:
+    """Armed (checked) state for canvas-tool toggles: loud accent tint, unlike
+    the quiet amber of persistent-setting toggles."""
+    pad = "QPushButton {padding: 6px;}" if icon_only else ""
+    return pad + f"QPushButton:checked {{background-color: #3A1414; border: 1px solid {THEME.accent_primary}; color: #FFFFFF;}}"
+
+
+def small_toggle_qss() -> str:
+    """Persistent-setting toggle: quiet — muted at rest, subtle fill when on.
+    Same type size as neighbouring buttons; the quietness comes from colour
+    (pair with an amber color_on icon), not from shrinking the text."""
+    # Checked fill matches the app-wide checked bg with a visible (but 1px)
+    # border — on the dark panel a fainter box reads smaller than solid
+    # neighbours (e.g. a primary button in the same row) even at equal height.
+    # Rest colour must stay above the #555 disabled tone or the unchecked
+    # state is indistinguishable from a disabled button.
+    return (
+        f"QPushButton {{font-size: {THEME.font_size_base}px; padding: 4px; color: {THEME.text_secondary};}}"
+        "QPushButton:checked {background-color: #222222; "
+        f"border: 1px solid #3A3A3A; color: {THEME.text_primary};}}"
+        f"QPushButton:disabled {{color: {THEME.text_muted};}}"
+    )
 
 
 def slider_label_qss(color: str, edited: bool) -> str:
