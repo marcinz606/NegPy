@@ -3,7 +3,7 @@ Negative statistics for the Analysis panel.
 
 Pure presentation logic: turns the metrics already measured every render
 (density range, metered anchor, effective slope, histogram clipping) into
-human-readable rows. No pipeline math here — just labelling.
+read-out rows. No pipeline math here — just formatting.
 
 Densities are *relative* (normalized decode), meaningful for contrast and across
 a roll, not absolute scanner D.
@@ -14,12 +14,6 @@ from typing import List, Optional, Tuple
 
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
-# Qualitative band thresholds (display-only, tune to taste).
-_DENSITY_LOW = 0.95  # luminance ΔD below this reads flat
-_DENSITY_HIGH = 1.75  # above this reads contrasty
-_KEY_DEV = 0.04  # metered-anchor deviation from neutral for low/high key
-_SLOPE_SOFT = 3.5  # effective slope below this prints soft
-_SLOPE_HARD = 6.0  # above this prints hard
 _CLIP_WARN = 0.01  # >1% of a channel clipped flags a warning
 
 _EMPTY = "—"
@@ -27,46 +21,30 @@ _EMPTY = "—"
 
 @dataclass(frozen=True)
 class StatRow:
-    """One labelled read-out row. `tag` is an optional qualitative chip."""
+    """One labelled read-out row."""
 
     name: str
     value: str
-    tag: str = ""
     warn: bool = False
 
 
 def _density_row(norm_density_range: Optional[float]) -> StatRow:
     if norm_density_range is None:
         return StatRow("Density range", _EMPTY)
-    dr = float(norm_density_range)
-    if dr < _DENSITY_LOW:
-        tag = "Low contrast"
-    elif dr > _DENSITY_HIGH:
-        tag = "High contrast"
-    else:
-        tag = "Normal"
-    return StatRow("Density range", f"{dr:.2f}", tag)
+    return StatRow("Density range", f"{float(norm_density_range):.2f}")
 
 
 _LOG10_2 = 0.30103  # one stop in log10-density
 
 
 def _exposure_row(metered_anchor: Optional[float], norm_density_range: Optional[float]) -> StatRow:
-    if metered_anchor is None:
+    if metered_anchor is None or not norm_density_range:
         return StatRow("Exposure", _EMPTY)
     dev = float(metered_anchor) - float(EXPOSURE_CONSTANTS["assumed_anchor"])
-    if dev < -_KEY_DEV:
-        tag = "Low-key"
-    elif dev > _KEY_DEV:
-        tag = "High-key"
-    else:
-        tag = "Balanced"
     # Express the midtone offset as stops, scaling the normalized deviation by the
     # negative's density range. Positive = brighter (high-key). Approximate.
-    if norm_density_range:
-        ev = dev * float(norm_density_range) / _LOG10_2
-        return StatRow("Exposure", f"{ev:+.1f} EV", tag)
-    return StatRow("Exposure", "", tag)
+    ev = dev * float(norm_density_range) / _LOG10_2
+    return StatRow("Exposure", f"{ev:+.1f} EV")
 
 
 def _contrast_row(slope: Optional[float], effective_range: Optional[float]) -> StatRow:
@@ -74,17 +52,10 @@ def _contrast_row(slope: Optional[float], effective_range: Optional[float]) -> S
         return StatRow("Contrast", _EMPTY)
     from negpy.features.exposure.logic import slope_to_grade
 
-    k = float(slope)
-    if k < _SLOPE_SOFT:
-        tag = "Soft"
-    elif k > _SLOPE_HARD:
-        tag = "Hard"
-    else:
-        tag = "Normal"
     # Effective slope expressed on the ISO R paper scale (same as the Grade
     # slider), rounded to a tidy R step.
-    r = slope_to_grade(k, effective_range)
-    return StatRow("Contrast", f"R{int(round(r / 5.0) * 5)}", tag)
+    r = slope_to_grade(float(slope), effective_range)
+    return StatRow("Contrast", f"R{int(round(r / 5.0) * 5)}")
 
 
 # Dichroic-head complements for negative CC values: less cyan = red, etc.
@@ -139,8 +110,7 @@ def _scan_clip_row(scan_clip: Optional[Tuple[float, float, float]]) -> StatRow:
         return StatRow("Scan clip", _EMPTY)
     r, g, b = (float(v) for v in scan_clip)
     warn = max(r, g, b) > float(EXPOSURE_CONSTANTS["scan_clip_warn"])
-    tag = "Blown scan" if warn else ""
-    return StatRow("Scan clip", f"R {r * 100:.1f}% · G {g * 100:.1f}% · B {b * 100:.1f}%", tag, warn=warn)
+    return StatRow("Scan clip", f"R {r * 100:.1f}% · G {g * 100:.1f}% · B {b * 100:.1f}%", warn=warn)
 
 
 def negative_statistics(
