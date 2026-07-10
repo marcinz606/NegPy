@@ -24,6 +24,12 @@ from negpy.desktop.workers.render import (
     ThumbnailWorker,
 )
 from negpy.desktop.workers.scan_worker import ScanRequest, ScanWorker
+from negpy.desktop.workers.capture_worker import (
+    CalibrationRequest,
+    CaptureRequest,
+    CaptureWorker,
+    LiveViewRequest,
+)
 from negpy.domain.models import (
     ExportFormat,
     ExportPreset,
@@ -132,6 +138,26 @@ class AppController(QObject):
     scan_finished = pyqtSignal(str)
     scan_error = pyqtSignal(str)
     scan_started = pyqtSignal()
+    capture_light_requested = pyqtSignal(int, int, int, int, str)
+    capture_requested = pyqtSignal(CaptureRequest)
+    capture_light_set = pyqtSignal(int, int, int, int)
+    capture_progress = pyqtSignal(float)
+    capture_finished = pyqtSignal(list)
+    capture_error = pyqtSignal(str)
+    capture_status = pyqtSignal(str)
+    live_view_requested = pyqtSignal(LiveViewRequest)
+    live_view_stop_requested = pyqtSignal()
+    live_view_focus_magnifier_requested = pyqtSignal(bool)
+    live_view_focus_magnifier_pos_requested = pyqtSignal(int, int)
+    live_view_camera_setting_requested = pyqtSignal(str, int)
+    capture_live_view_started = pyqtSignal(str)
+    calibration_requested = pyqtSignal(CalibrationRequest)
+    capture_calibration_progress = pyqtSignal(float, str)
+    capture_calibration_finished = pyqtSignal(object)
+    poll_connection_requested = pyqtSignal(str)  # light port (auto-poll)
+    connection_polled = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
+    poll_light_temp_requested = pyqtSignal(str)  # light port (temp-only poll, runs even mid-live-view)
+    light_temp_polled = pyqtSignal(object)  # Scanlight LED temperature °C, or None
 
     def __init__(self, session_manager: DesktopSessionManager):
         super().__init__()
@@ -189,6 +215,16 @@ class AppController(QObject):
         self.scan_worker = ScanWorker()
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.start()
+
+        self.capture_thread = QThread()
+        self.capture_worker = CaptureWorker()
+        self.capture_worker.moveToThread(self.capture_thread)
+        # Started lazily on first capture use (_ensure_capture_thread): a *running* QThread aborts
+        # if destroyed without quit(), and controller unit tests build AppController without ever
+        # scanning — leaving the thread unstarted keeps it invisible to their teardown loops (so
+        # upstream tests needn't know about it), and the app starts it the moment the Camera
+        # Scanning tab polls or the user acts.
+        self._capture_thread_started = False
 
         self.canvas: Any = None
         self._is_rendering = False
@@ -299,6 +335,26 @@ class AppController(QObject):
         self.scan_worker.finished.connect(self._on_scan_finished)
         self.scan_worker.error.connect(self.scan_error.emit)
         self.scan_requested.connect(self.scan_worker.run_scan)
+        self.capture_light_requested.connect(self.capture_worker.set_light)
+        self.capture_requested.connect(self.capture_worker.run_capture)
+        self.capture_worker.light_set.connect(self.capture_light_set.emit)
+        self.capture_worker.progress.connect(self.capture_progress.emit)
+        self.capture_worker.finished.connect(self._on_capture_finished)
+        self.capture_worker.error.connect(self.capture_error.emit)
+        self.capture_worker.status.connect(self.capture_status.emit)
+        self.live_view_requested.connect(self.capture_worker.start_live_view)
+        self.live_view_stop_requested.connect(self.capture_worker.stop_live_view)
+        self.live_view_focus_magnifier_requested.connect(self.capture_worker.set_focus_magnifier)
+        self.live_view_focus_magnifier_pos_requested.connect(self.capture_worker.set_focus_magnifier_pos)
+        self.live_view_camera_setting_requested.connect(self.capture_worker.set_camera_setting)
+        self.capture_worker.live_view_started.connect(self.capture_live_view_started.emit)
+        self.calibration_requested.connect(self.capture_worker.run_calibration)
+        self.capture_worker.calibration_progress.connect(self.capture_calibration_progress.emit)
+        self.capture_worker.calibration_finished.connect(self.capture_calibration_finished.emit)
+        self.poll_connection_requested.connect(self.capture_worker.poll_connection)
+        self.capture_worker.poll_status.connect(self.connection_polled.emit)
+        self.poll_light_temp_requested.connect(self.capture_worker.poll_light_temp)
+        self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
 
         self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
         self.session.file_selected.connect(self.load_file)
@@ -1220,6 +1276,86 @@ class AppController(QObject):
                 self.session.select_file(i)
                 return
 
+    # ── Scanlight capture integration ─────────────────────────────────
+
+    def _ensure_capture_thread(self) -> None:
+        """Start the capture worker's thread on first use (lazy). Every capture entry point that
+        emits to the worker calls this first, so the thread is running when the queued cross-thread
+        signal is delivered. The live-view sub-controls and cancel skip it: they only run once a
+        session is already up (started here) or touch the worker's thread-safe cancel Event."""
+        if not self._capture_thread_started:
+            self.capture_thread.start()
+            self._capture_thread_started = True
+
+    def set_scanlight_color(self, r: int, g: int, b: int, w: int = 0, port: str = "") -> None:
+        """Live light control (no capture): RGB for preview, or white (w) for focus."""
+        self._ensure_capture_thread()
+        self.capture_light_requested.emit(r, g, b, w, port)
+
+    def start_capture(self, req: CaptureRequest) -> None:
+        """Start a capture; the Scanlight sidebar tracks state via signals."""
+        self._ensure_capture_thread()
+        self._last_capture_req = req
+        self.capture_requested.emit(req)
+
+    def cancel_capture(self) -> None:
+        self.capture_worker.cancel()
+
+    def start_live_view(self, req: LiveViewRequest) -> None:
+        self._ensure_capture_thread()
+        self.live_view_requested.emit(req)
+
+    def stop_live_view(self) -> None:
+        self.live_view_stop_requested.emit()
+
+    def set_focus_magnifier(self, on: bool) -> None:
+        self.live_view_focus_magnifier_requested.emit(on)
+
+    def set_focus_magnifier_pos(self, x: int, y: int) -> None:
+        self.live_view_focus_magnifier_pos_requested.emit(x, y)
+
+    def set_camera_setting(self, which: str, raw: int) -> None:
+        self.live_view_camera_setting_requested.emit(which, raw)
+
+    def start_calibration(self, req: CalibrationRequest) -> None:
+        self._ensure_capture_thread()
+        self.calibration_requested.emit(req)
+
+    def poll_connection(self, port: str) -> None:
+        self._ensure_capture_thread()
+        self.poll_connection_requested.emit(port)
+
+    def poll_light_temp(self, port: str) -> None:
+        self._ensure_capture_thread()
+        self.poll_light_temp_requested.emit(port)
+
+    def _on_capture_finished(self, paths: list) -> None:
+        """Feed the captured frame(s) into NegPy. A 3-file RGB triplet → RGB-Scan negative
+        (C-41) pipeline; a single white-light slide → E-6/positive; a normal white-light
+        camera scan → an ordinary single RAW (RGB-Scan off, process left to NegPy)."""
+        self.capture_finished.emit(paths)
+        if not paths:
+            return
+        req = getattr(self, "_last_capture_req", None)
+        white = bool(req is not None and req.white_mode)
+        rgb = bool(req is not None and getattr(req, "rgb_mode", True))
+        # RGB-Scan (triplet merge) is on only for an actual RGB triplet — off for a single
+        # white-light slide OR a normal (non-Scanlight) camera scan.
+        self.session.repo.save_global_setting("rgbscan_mode", rgb and not white)
+        if white:  # slides/B&W force a positive process
+            mode = (req.white_process_mode or "auto").lower()
+            target = {"e-6": ProcessMode.E6, "b&w": ProcessMode.BW}.get(mode)
+            if target is not None:
+                new_proc = replace(
+                    self.state.config.process,
+                    process_mode=target,
+                    **invalidate_local_bounds(self.state.config.process),
+                )
+                self.state.config = replace(self.state.config, process=new_proc)
+                self.state.is_dirty = True
+        self._pending_scanned_file = paths[0]
+        self.request_asset_discovery(list(paths))
+
     def effective_output_icc(self) -> Optional[str]:
         """Output profile the preview proofs through: a custom override, else the
         profile for the selected export color space. None means no proof (Same as Source)."""
@@ -2062,6 +2198,10 @@ class AppController(QObject):
         if self.scan_thread.isRunning():
             self.scan_thread.quit()
             self.scan_thread.wait()
+        self.capture_worker.shutdown()
+        if self.capture_thread.isRunning():
+            self.capture_thread.quit()
+            self.capture_thread.wait()
         self.render_worker.destroy_all()
 
         # All GPU-touching threads are now joined; release the wgpu device.

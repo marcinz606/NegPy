@@ -52,6 +52,9 @@ params = [
     # in /usr/lib/sane/. See libs_to_remove in package_linux().
     # Requires: uv sync --group scanner before building on Linux/macOS.
     *([] if is_windows else ["--hidden-import=sane", "--hidden-import=_sane"]),
+    # Camera scanning: see collect_gphoto2_plugins() — the plugin trees need their
+    # directory layout preserved, which --collect-all does not do.
+    *([] if is_windows else ["--collect-all=gphoto2"]),
     # Exclude unused modules
     # Metadata
     "--copy-metadata=imageio",
@@ -74,6 +77,36 @@ params = [
     "--add-data=gear:gear",
     "--add-data=VERSION:.",
 ]
+
+
+def collect_gphoto2_plugins() -> None:
+    """Ship libgphoto2's camera and I/O drivers with their directory layout intact.
+
+    python-gphoto2 points `CAMLIBS`/`IOLIBS` at `<package>/libgphoto2/{camlibs,iolibs}`
+    when it is imported, and libgphoto2 dlopen's every driver from there. PyInstaller's
+    --collect-all flattens those .so files in among the other binaries, so the tree the
+    library actually looks for is missing and *every* camera fails to connect. Re-add the
+    two directories verbatim, at the path the env vars will resolve to.
+
+    Camera scanning is an optional extra: `uv sync --group camera` before building, or the
+    packaged app simply shows its setup hint.
+    """
+    if is_windows:
+        return  # libgphoto2 has no Windows build
+    try:
+        import gphoto2
+    except ImportError:
+        print("gphoto2 not installed — packaging without camera scanning")
+        return
+    plugins = os.path.join(os.path.dirname(gphoto2.__file__), "libgphoto2")
+    if not os.path.isdir(plugins):
+        print(f"WARNING: gphoto2 plugins not found at {plugins} — camera scanning will not work")
+        return
+    params.append(f"--add-data={plugins}:gphoto2/libgphoto2")
+    print(f"Bundling libgphoto2 drivers from {plugins}")
+
+
+collect_gphoto2_plugins()
 
 # Add platform-specific icon
 if is_windows:

@@ -92,6 +92,14 @@ class RightPanel(QWidget):
         else:
             self.scan_sidebar = ScanSidebar(self.controller)
 
+        from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
+
+        self.scanlight_sidebar = ScanlightSidebar(self.controller)
+
+        # One "Scan" tab hosting both the SANE scanner and the RGB-Scan capture as
+        # collapsible sections (mirrors the "Color — Lab, Toning" tab).
+        self.scan_page = self._build_scan_page()
+
         # Tab descriptors: workflow control-group pages first, then Export / Metadata / Scan.
         # (key, icon_name, tooltip, content_widget, [section_attrs])
         tab_specs = [
@@ -101,7 +109,7 @@ class RightPanel(QWidget):
             ("history", "fa5s.history", "History", self.history_panel, []),
             ("export", "fa5s.file-export", "Export", self.export_sidebar, []),
             ("metadata", "fa5s.tags", "Metadata", self.metadata_sidebar, []),
-            ("scan", "fa5s.camera-retro", "Scan", self.scan_sidebar, []),
+            ("scan", "fa5s.camera-retro", "Scan", self.scan_page, []),
         ]
 
         # Icon-only tab switcher
@@ -214,6 +222,31 @@ class RightPanel(QWidget):
             top = max(1, self.analysis_section.sizeHint().height())
         self.splitter.setSizes([top, max(0, total - top)])
 
+    def _build_scan_page(self) -> QWidget:
+        """The 'Scan' tab hosts two collapsible sections (like Color's Lab / Toning): the
+        SANE flatbed/film scanner on top, the RGB-Scan trichromatic capture below."""
+        repo = self.controller.session.repo
+
+        def make(title: str, key: str, icon_name: str, content: QWidget, default_expanded: bool) -> CollapsibleSection:
+            persisted = repo.get_global_setting(f"section_expanded_{key}")
+            expanded = bool(persisted) if persisted is not None else default_expanded
+            section = CollapsibleSection(title, expanded=expanded, icon=qta.icon(icon_name, color="#aaa"))
+            section.set_content(content)
+            section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
+            return section
+
+        self.scan_sane_section = make("Scanner (SANE)", "scan_sane", "fa5s.camera-retro", self.scan_sidebar, False)
+        self.scan_rgb_section = make("Camera Scanning", "scan_rgb", "fa5s.camera", self.scanlight_sidebar, True)
+
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(8)
+        page_layout.addWidget(self.scan_sane_section)
+        page_layout.addWidget(self.scan_rgb_section)
+        return page
+
     def apply_shortcut_tooltips(self) -> None:
         """Append the current keyboard shortcut (action id `tab_<key>`) to each tab tooltip."""
         for btn, key, base in zip(self._tab_buttons, self._tab_keys, self._tab_tooltips):
@@ -251,9 +284,13 @@ class RightPanel(QWidget):
             btn.setChecked(i == index)
         self._refresh_tab_icons()
 
-        # Trigger device detection when the Scan tab is selected
-        if index == self._scan_index and hasattr(self.scan_sidebar, "on_activated"):
-            self.scan_sidebar.on_activated()
+        # Trigger device detection + gating refresh when the Scan tab is selected — it now
+        # hosts both the SANE scanner and the RGB-Scan capture as collapsible sections.
+        if index == self._scan_index:
+            if hasattr(self.scan_sidebar, "on_activated"):
+                self.scan_sidebar.on_activated()
+            if hasattr(self.scanlight_sidebar, "on_activated"):
+                self.scanlight_sidebar.on_activated()
 
     def reveal_section(self, section_attr: str) -> None:
         """Switch to the tab containing the given ControlsPanel section."""
