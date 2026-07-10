@@ -203,6 +203,19 @@ class GPUEngine:
             "finish",
             "layout",
         ]
+        # Packed byte size per stage. A stage may exceed the 256B dynamic-offset
+        # alignment (exposure, 288B) — it then occupies multiple aligned slots.
+        self._uniform_sizes = {
+            "geometry": 32,
+            "normalization": 112,
+            "exposure": 288,
+            "clahe_u": 32,
+            "retouch_u": 64,
+            "lab": 96,
+            "toning": 64,
+            "finish": 32,
+            "layout": 48,
+        }
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
         self._current_source_hash: Optional[str] = None
         # Once-per-source guard so the analysis timing log fires on load, not every slider.
@@ -308,7 +321,7 @@ class GPUEngine:
 
         # Unified Uniform Buffer (UBO)
         self._buffers["unified_u"] = GPUBuffer(
-            self._alignment * len(self._uniform_names),
+            sum(self._slot_bytes(n) for n in self._uniform_names),
             wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST,
         )
 
@@ -341,24 +354,22 @@ class GPUEngine:
             logger.exception(f"Failed to compile pipeline: {shader_path}")
             raise
 
+    def _slot_bytes(self, name: str) -> int:
+        """Aligned bytes a stage occupies in the unified UBO (>= 1 slot)."""
+        return -(-self._uniform_sizes[name] // self._alignment) * self._alignment
+
     def _get_uniform_binding(self, name: str) -> Dict[str, Any]:
-        """Calculates UBO offset and size for a specific pipeline stage."""
-        idx = self._uniform_names.index(name)
-        sizes = {
-            "geometry": 32,
-            "normalization": 112,
-            "exposure": 256,
-            "clahe_u": 32,
-            "retouch_u": 64,
-            "lab": 96,
-            "toning": 64,
-            "finish": 32,
-            "layout": 48,
-        }
+        """Calculates UBO offset and size for a specific pipeline stage.
+        Offsets are cumulative so an oversized stage spans multiple slots."""
+        offset = 0
+        for n in self._uniform_names:
+            if n == name:
+                break
+            offset += self._slot_bytes(n)
         return {
             "buffer": self._buffers["unified_u"].buffer,
-            "offset": idx * self._alignment,
-            "size": sizes[name],
+            "offset": offset,
+            "size": self._uniform_sizes[name],
         }
 
     def process_to_texture(
@@ -1030,6 +1041,7 @@ class GPUEngine:
             per_channel_curve_params,
             per_channel_midtone_gamma,
             per_channel_widths,
+            split_grade_deltas,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
@@ -1072,6 +1084,13 @@ class GPUEngine:
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
+        _sg3, _hg3 = split_grade_deltas(
+            exp.grade,
+            exp.shadow_grade,
+            exp.highlight_grade,
+            shadow_trims=(exp.shadow_grade_trim_red, exp.shadow_grade_trim_green, exp.shadow_grade_trim_blue),
+            highlight_trims=(exp.highlight_grade_trim_red, exp.highlight_grade_trim_green, exp.highlight_grade_trim_blue),
+        )
         # Per-channel effective toe/shoulder, pre-scaled; the uniform block is
         # full at 256B so these ride the vec4 w-lanes.
         _ts_k = float(EXPOSURE_CONSTANTS["toe_shoulder_strength"])
@@ -1139,7 +1158,8 @@ class GPUEngine:
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                pc["toeshoulder_width_ref"],
+                # Free slot (ex-width_ref; toeshoulder_width_ref is a WGSL literal).
+                0.0,
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
@@ -1151,10 +1171,10 @@ class GPUEngine:
                 _sw3[2],
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                # BPC flag (former pad). Block is full at 256B; per-channel toe/
-                # shoulder/Snap ride the vec4 w-lanes, the widths the ex-scalar
-                # slots, and Zone Density ΔD the ex-d_min slot + d_min_rgb.w —
-                # no lane is free; new uniforms need real multi-slot offsets.
+                # BPC flag (former pad). Per-channel toe/shoulder/Snap ride the
+                # vec4 w-lanes, widths the ex-scalar slots, Zone Density ΔD the
+                # ex-d_min slot + d_min_rgb.w, Split Grade the split_sh/split_hi
+                # rows past 256B (exposure spans two UBO slots).
                 1.0 if exp.true_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density)
@@ -1164,6 +1184,9 @@ class GPUEngine:
             + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], _mg3[2])
             # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
             + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
+            # Split Grade per-channel zone contrast gains (split_grade_deltas).
+            + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], 0.0)
+            + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -1269,8 +1292,8 @@ class GPUEngine:
         )
 
         full_buffer = bytearray()
-        for d in [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data]:
-            full_buffer += d + b"\x00" * (self._alignment - len(d))
+        for name, d in zip(self._uniform_names, [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data]):
+            full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")

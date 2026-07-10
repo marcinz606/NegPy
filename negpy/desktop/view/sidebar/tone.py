@@ -65,6 +65,8 @@ class ToneSidebar(BaseSidebar):
                 btn,
                 (
                     f"grade_trim_{ch}",
+                    f"shadow_grade_trim_{ch}",
+                    f"highlight_grade_trim_{ch}",
                     f"toe_trim_{ch}",
                     f"shoulder_trim_{ch}",
                     f"midtone_gamma_trim_{ch}",
@@ -125,13 +127,34 @@ class ToneSidebar(BaseSidebar):
             "past the midtone and bounded by paper white. Positive prints denser — darker, "
             "burned-in highlights; negative bleaches them brighter."
         )
-        self.layout.addWidget(self.shadow_density_slider)
-        self.layout.addWidget(self.highlight_density_slider)
+        zone_density_row = QHBoxLayout()
+        zone_density_row.addWidget(self.shadow_density_slider)
+        zone_density_row.addWidget(self.highlight_density_slider)
+        self.layout.addLayout(zone_density_row)
 
         grade_row = QHBoxLayout()
         grade_row.addWidget(self.grade_slider)
         grade_row.addWidget(self.grade_trim_slider)
         self.layout.addLayout(grade_row)
+
+        self.shadow_grade_slider = CompactSlider("Shadows Grade", -50.0, 50.0, conf.shadow_grade, step=1.0, inverted=True)
+        self.shadow_grade_slider.setToolTip(
+            "Split grade — shadow zone contrast trim in ISO-R points: rotates the curve locally "
+            "in the deep shadows, easing out before the midtone and bounded by paper black. "
+            "Like a hard-filter split-grade exposure for the shadows. "
+            "In R/G/B mode: this layer's shadow-grade trim (zone contrast crossover)."
+        )
+        self.highlight_grade_slider = CompactSlider("Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True)
+        self.highlight_grade_slider.setToolTip(
+            "Split grade — highlight zone contrast trim in ISO-R points: rotates the curve locally "
+            "in the highlights, easing out past the midtone and bounded by paper white. "
+            "Like a soft-filter split-grade exposure for the highlights. "
+            "In R/G/B mode: this layer's highlight-grade trim (zone contrast crossover)."
+        )
+        split_grade_row = QHBoxLayout()
+        split_grade_row.addWidget(self.shadow_grade_slider)
+        split_grade_row.addWidget(self.highlight_grade_slider)
+        self.layout.addLayout(split_grade_row)
 
         paper_header = section_subheader("PAPER RESPONSE")
         paper_header.setToolTip(
@@ -266,8 +289,14 @@ class ToneSidebar(BaseSidebar):
             slider.dragStarted.connect(lambda f=field: self.controller.tone_drag_changed.emit(f))
             slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
 
-        # Toe/shoulder/snap retarget to the selected channel's trim field at emit time.
-        for slider, base in ((self.toe_slider, "toe"), (self.sh_slider, "shoulder"), (self.midtone_gamma_slider, "midtone_gamma")):
+        # Toe/shoulder/snap/split-grade retarget to the selected channel's trim field at emit time.
+        for slider, base in (
+            (self.toe_slider, "toe"),
+            (self.sh_slider, "shoulder"),
+            (self.midtone_gamma_slider, "midtone_gamma"),
+            (self.shadow_grade_slider, "shadow_grade"),
+            (self.highlight_grade_slider, "highlight_grade"),
+        ):
             slider.valueChanged.connect(
                 lambda v, b=base: self.update_config_section(
                     "exposure", render=True, persist=False, readback_metrics=False, **{self._curve_field(b): v}
@@ -345,10 +374,14 @@ class ToneSidebar(BaseSidebar):
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
             self.midtone_gamma_slider.label.setText("Snap" + suffix)
+            self.shadow_grade_slider.label.setText("Shadows Grade" + suffix)
+            self.highlight_grade_slider.label.setText("Highlights Grade" + suffix)
             if global_mode:
                 self.toe_slider.setValue(conf.toe)
                 self.sh_slider.setValue(conf.shoulder)
                 self.midtone_gamma_slider.setValue(conf.midtone_gamma)
+                self.shadow_grade_slider.setValue(conf.shadow_grade)
+                self.highlight_grade_slider.setValue(conf.highlight_grade)
             else:
                 ch = _CH_SUFFIX[idx - 1]
                 self.grade_trim_slider.label.setText("Grade" + suffix)
@@ -356,6 +389,8 @@ class ToneSidebar(BaseSidebar):
                 self.toe_slider.setValue(getattr(conf, f"toe_trim_{ch}"))
                 self.sh_slider.setValue(getattr(conf, f"shoulder_trim_{ch}"))
                 self.midtone_gamma_slider.setValue(getattr(conf, f"midtone_gamma_trim_{ch}"))
+                self.shadow_grade_slider.setValue(getattr(conf, f"shadow_grade_trim_{ch}"))
+                self.highlight_grade_slider.setValue(getattr(conf, f"highlight_grade_trim_{ch}"))
                 self.toe_w_trim_slider.label.setText("Width" + suffix)
                 self.toe_w_trim_slider.setValue(getattr(conf, f"toe_width_trim_{ch}"))
                 self.sh_w_trim_slider.label.setText("Width" + suffix)
@@ -399,6 +434,8 @@ class ToneSidebar(BaseSidebar):
             self.midtone_gamma_slider,
             self.shadow_density_slider,
             self.highlight_density_slider,
+            self.shadow_grade_slider,
+            self.highlight_grade_slider,
             self.paper_dmin_btn,
             self.true_black_btn,
             self.auto_density_btn,

@@ -81,6 +81,14 @@ class TestConfigDeserialization(unittest.TestCase):
                 shoulder_width_trim_blue=2.0,
                 shadow_density=-0.45,
                 highlight_density=0.25,
+                shadow_grade=-18.0,
+                highlight_grade=22.0,
+                shadow_grade_trim_red=6.0,
+                shadow_grade_trim_green=-4.0,
+                shadow_grade_trim_blue=9.0,
+                highlight_grade_trim_red=-7.0,
+                highlight_grade_trim_green=3.0,
+                highlight_grade_trim_blue=-2.0,
             ),
         )
         reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
@@ -106,6 +114,14 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.exposure.shoulder_width_trim_blue, 2.0)
         self.assertEqual(reloaded.exposure.shadow_density, -0.45)
         self.assertEqual(reloaded.exposure.highlight_density, 0.25)
+        self.assertEqual(reloaded.exposure.shadow_grade, -18.0)
+        self.assertEqual(reloaded.exposure.highlight_grade, 22.0)
+        self.assertEqual(reloaded.exposure.shadow_grade_trim_red, 6.0)
+        self.assertEqual(reloaded.exposure.shadow_grade_trim_green, -4.0)
+        self.assertEqual(reloaded.exposure.shadow_grade_trim_blue, 9.0)
+        self.assertEqual(reloaded.exposure.highlight_grade_trim_red, -7.0)
+        self.assertEqual(reloaded.exposure.highlight_grade_trim_green, 3.0)
+        self.assertEqual(reloaded.exposure.highlight_grade_trim_blue, -2.0)
         self.assertEqual(reloaded.process.white_point_trim_red, 0.05)
         self.assertEqual(reloaded.process.white_point_trim_green, -0.1)
         self.assertEqual(reloaded.process.white_point_trim_blue, 0.02)

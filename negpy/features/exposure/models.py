@@ -46,6 +46,16 @@ class ExposureConfig:
     # than near d_min (density is log10).
     shadow_density: float = 0.0
     highlight_density: float = 0.0
+    # Split grade: zone contrast in ISO-R points (negative = harder), global
+    # value + per-layer trims like Grade.
+    shadow_grade: float = 0.0
+    highlight_grade: float = 0.0
+    shadow_grade_trim_red: float = 0.0
+    shadow_grade_trim_green: float = 0.0
+    shadow_grade_trim_blue: float = 0.0
+    highlight_grade_trim_red: float = 0.0
+    highlight_grade_trim_green: float = 0.0
+    highlight_grade_trim_blue: float = 0.0
     toe: float = 0.0
     toe_width: float = 2.5
     shoulder: float = 0.0

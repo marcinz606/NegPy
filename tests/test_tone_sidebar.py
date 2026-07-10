@@ -47,6 +47,10 @@ def test_channel_selector_retargets_and_syncs(qapp):
             midtone_gamma=0.25,
             shadow_density=-0.45,
             highlight_density=0.2,
+            shadow_grade=-12.0,
+            highlight_grade=8.0,
+            shadow_grade_trim_red=5.0,
+            highlight_grade_trim_red=-3.0,
         ),
     )
     sidebar.sync_ui()
@@ -61,8 +65,13 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
     assert abs(sidebar.shadow_density_slider.value() - (-0.45)) < 1e-9
     assert abs(sidebar.highlight_density_slider.value() - 0.2) < 1e-9
+    assert abs(sidebar.shadow_grade_slider.value() - (-12.0)) < 1e-9
+    assert abs(sidebar.highlight_grade_slider.value() - 8.0) < 1e-9
     assert sidebar.shadow_density_slider in sidebar._global_only
     assert sidebar.highlight_density_slider in sidebar._global_only
+    # Split grade follows the channel selector (per-layer trims), not global-only.
+    assert sidebar.shadow_grade_slider not in sidebar._global_only
+    assert sidebar.highlight_grade_slider not in sidebar._global_only
     # Long tooltips must be rich text so Qt word-wraps them; tooltips that carry
     # their own markup (shortcut chips) must not get double-escaped.
     assert sidebar.shadow_density_slider.toolTip().startswith("<qt>")
@@ -75,6 +84,8 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert sidebar._curve_field("toe") == "toe_trim_red"
     assert sidebar._curve_field("shoulder") == "shoulder_trim_red"
     assert sidebar._curve_field("midtone_gamma") == "midtone_gamma_trim_red"
+    assert sidebar._curve_field("shadow_grade") == "shadow_grade_trim_red"
+    assert sidebar._curve_field("highlight_grade") == "highlight_grade_trim_red"
     assert sidebar._curve_field("toe_width") == "toe_width_trim_red"
     assert sidebar._curve_field("shoulder_width") == "shoulder_width_trim_red"
     assert sidebar.grade_slider.isHidden()
@@ -87,6 +98,9 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert abs(sidebar.midtone_gamma_slider.value() - 0.15) < 1e-9
     assert abs(sidebar.toe_w_trim_slider.value() - 1.2) < 1e-9
     assert abs(sidebar.sh_w_trim_slider.value() - (-0.6)) < 1e-9
+    assert abs(sidebar.shadow_grade_slider.value() - 5.0) < 1e-9
+    assert abs(sidebar.highlight_grade_slider.value() - (-3.0)) < 1e-9
+    assert sidebar.shadow_grade_slider.label.text() == "Shadows Grade R"
     assert sidebar.toe_slider.label.text() == "Toe R"
     assert sidebar.midtone_gamma_slider.label.text() == "Snap R"
     assert sidebar.toe_w_trim_slider.label.text() == "Width R"

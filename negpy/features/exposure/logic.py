@@ -69,6 +69,8 @@ def _apply_print_curve_kernel(
     zone_center: float,
     shadow_density: float,
     highlight_density: float,
+    shadow_grade: np.ndarray,
+    highlight_grade: np.ndarray,
     zone_sh_center: float,
     zone_hi_center: float,
     zone_k: float,
@@ -142,6 +144,15 @@ def _apply_print_curve_kernel(
             db = d_max + t_ch * toe_height
         bpc_black[ch] = 10.0**-db
 
+    use_split = (
+        shadow_grade[0] != 0.0
+        or shadow_grade[1] != 0.0
+        or shadow_grade[2] != 0.0
+        or highlight_grade[0] != 0.0
+        or highlight_grade[1] != 0.0
+        or highlight_grade[2] != 0.0
+    )
+
     # Rows are independent, so parallelise over y. `dens` is allocated per row so
     # each worker thread has its own scratch (no cross-iteration sharing).
     for y in prange(h):
@@ -164,6 +175,14 @@ def _apply_print_curve_kernel(
                 w_sh = _fast_sigmoid(3.0 * (v - zone_center))
                 w_hi = 1.0 - w_sh
                 v = v + shadow_cmy[ch] * w_sh + highlight_cmy[ch] * w_hi
+
+                # Split Grade: local contrast rotation about the zone centers,
+                # mid-sparing. Must run as its own block before Zone Density
+                # (sequential stays monotone; shared weights do not).
+                if use_split:
+                    w_gsh = _fast_sigmoid(zone_k * (v - zone_sh_center))
+                    w_ghi = 1.0 - _fast_sigmoid(zone_k * (v - zone_hi_center))
+                    v = v + shadow_grade[ch] * w_gsh * (v - zone_sh_center) + highlight_grade[ch] * w_ghi * (v - zone_hi_center)
 
                 # Zone Density (ΔD): neutral brightness offsets, mid-sparing
                 # weights centred in the three-quarter/quarter tones.
@@ -223,6 +242,8 @@ class CharacteristicCurve:
         bpc: bool = False,
         shadow_density: float = 0.0,
         highlight_density: float = 0.0,
+        shadow_grade_delta: float = 0.0,
+        highlight_grade_delta: float = 0.0,
     ):
         c = effective_constants(paper)
         ts = float(c["toe_shoulder_strength"])
@@ -237,6 +258,8 @@ class CharacteristicCurve:
         self.zone_k = float(c["zone_density_sharpness"])
         self.shadow_density = float(shadow_density)
         self.highlight_density = float(highlight_density)
+        self.shadow_grade_delta = float(shadow_grade_delta)
+        self.highlight_grade_delta = float(highlight_grade_delta)
         self.d_max = float(c["d_max"])
         # BPC reference mirrors the kernel prologue (achromatic: d_min for the tint).
         self.bpc = bool(bpc)
@@ -263,6 +286,14 @@ class CharacteristicCurve:
         v = self.k * (np.asarray(x, dtype=np.float64) - self.x0)
         if self.midtone_gamma != 0.0:
             v = v + self.midtone_gamma * self.gamma_width * np.tanh((v - self.v_star) / self.gamma_width)
+        if self.shadow_grade_delta != 0.0 or self.highlight_grade_delta != 0.0:
+            w_gsh = _expit(self.zone_k * (v - self.zone_sh_center))
+            w_ghi = 1.0 - _expit(self.zone_k * (v - self.zone_hi_center))
+            v = (
+                v
+                + self.shadow_grade_delta * w_gsh * (v - self.zone_sh_center)
+                + self.highlight_grade_delta * w_ghi * (v - self.zone_hi_center)
+            )
         if self.shadow_density != 0.0 or self.highlight_density != 0.0:
             w_zsh = _expit(self.zone_k * (v - self.zone_sh_center))
             w_zhi = 1.0 - _expit(self.zone_k * (v - self.zone_hi_center))
@@ -362,6 +393,8 @@ def apply_characteristic_curve(
     shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shadow_density: float = 0.0,
     highlight_density: float = 0.0,
+    shadow_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    highlight_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -407,6 +440,8 @@ def apply_characteristic_curve(
         zone_center=float(c["anchor_target_density"]),
         shadow_density=float(shadow_density),
         highlight_density=float(highlight_density),
+        shadow_grade=np.array(shadow_grade_deltas, dtype=np.float64),
+        highlight_grade=np.array(highlight_grade_deltas, dtype=np.float64),
         zone_sh_center=float(c["anchor_target_density"]) + float(c["zone_density_shadow_offset"]),
         zone_hi_center=float(c["anchor_target_density"]) + float(c["zone_density_highlight_offset"]),
         zone_k=float(c["zone_density_sharpness"]),
@@ -525,6 +560,36 @@ def _grade_trim_mult(grade: float, trim: float, c: Dict[str, Any]) -> float:
     r0 = min(max(float(grade), float(c["iso_r_min"])), float(c["iso_r_max"]))
     r1 = min(max(r0 + float(trim), float(c["iso_r_min"])), float(c["iso_r_max"]))
     return r0 / r1
+
+
+def split_grade_deltas(
+    grade: float,
+    shadow_grade: float,
+    highlight_grade: float,
+    shadow_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    highlight_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Split-grade ISO-R trims -> per-layer local contrast gains (multiplier - 1)
+    about the zone centers: global value + per-layer trim, like grade trims.
+    Single source of truth for CPU / GPU / chart. ISO-R bounds are
+    paper-independent, so EXPOSURE_CONSTANTS applies.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    return (
+        (
+            _grade_trim_mult(grade, shadow_grade + shadow_trims[0], c) - 1.0,
+            _grade_trim_mult(grade, shadow_grade + shadow_trims[1], c) - 1.0,
+            _grade_trim_mult(grade, shadow_grade + shadow_trims[2], c) - 1.0,
+        ),
+        (
+            _grade_trim_mult(grade, highlight_grade + highlight_trims[0], c) - 1.0,
+            _grade_trim_mult(grade, highlight_grade + highlight_trims[1], c) - 1.0,
+            _grade_trim_mult(grade, highlight_grade + highlight_trims[2], c) - 1.0,
+        ),
+    )
 
 
 def grade_coupled_shape(slope_g: float, toe: float, shoulder: float) -> Tuple[float, float]:

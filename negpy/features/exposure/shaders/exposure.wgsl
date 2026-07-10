@@ -17,13 +17,14 @@ struct ExposureUniforms {
     d_max: f32,
     a_toe_base: f32,
     a_sh_base: f32,
-    width_ref: f32,
+    // Free slot (ex-width_ref; toeshoulder_width_ref is the 2.5 literal below).
+    pad0: f32,
     toe_height: f32,
     sh_height: f32,
     zone_center: f32,
     shoulder_width_g: f32,
-    // Free slot (ex-surround_gamma); keep so the 256B layout stands.
-    pad0: f32,
+    // Free slot (ex-surround_gamma).
+    pad1: f32,
     mode: u32,
     v_star: f32,
     shoulder_width_b: f32,
@@ -41,6 +42,10 @@ struct ExposureUniforms {
     // Dodge/burn: xyz = per-channel normalized-space size of one EV stop
     // (local_ev_scale), w = enable flag (0 -> ev_tex is a dummy, skip it).
     ev_scale: vec4<f32>,
+    // Split Grade per-channel zone contrast gains (split_grade_deltas), w free.
+    // These rows push the block past 256B: exposure spans two UBO slots.
+    split_sh: vec4<f32>,
+    split_hi: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -93,8 +98,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // sharpness; width sets gentleness, slider sets roll-off height.
     let toe_w3 = vec3<f32>(params.toe_width_r, params.toe_width_g, params.toe_width_b);
     let sh_w3 = vec3<f32>(params.shoulder_width_r, params.shoulder_width_g, params.shoulder_width_b);
-    let a_hl = params.a_sh_base * params.width_ref / max(sh_w3, vec3<f32>(eps));
-    let a_sh_base = params.a_toe_base * params.width_ref / max(toe_w3, vec3<f32>(eps));
+    // 2.5 mirrors toeshoulder_width_ref in models.py — change together.
+    let a_hl = params.a_sh_base * 2.5 / max(sh_w3, vec3<f32>(eps));
+    let a_sh_base = params.a_toe_base * 2.5 / max(toe_w3, vec3<f32>(eps));
     // Per-channel toe/shoulder, pre-scaled CPU-side (per_channel_toe_shoulder).
     // The uniform block is full at 256B, so the vec4 w-lanes carry them.
     let toe3 = vec3<f32>(params.pivots.w, params.slopes.w, params.curvatures.w);
@@ -133,6 +139,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let w_sh = fast_sigmoid(3.0 * (v - params.zone_center));
         let w_hi = 1.0 - w_sh;
         v = v + params.shadow_cmy[ch] * w_sh + params.highlight_cmy[ch] * w_hi;
+
+        // Split Grade: local contrast rotation about the zone centers, mid-
+        // sparing. Own block before Zone Density (sequential stays monotone).
+        let w_gsh = fast_sigmoid(4.0 * (v - (params.zone_center + 0.75)));
+        let w_ghi = 1.0 - fast_sigmoid(4.0 * (v - (params.zone_center - 0.40)));
+        v = v + params.split_sh[ch] * w_gsh * (v - (params.zone_center + 0.75)) + params.split_hi[ch] * w_ghi * (v - (params.zone_center - 0.40));
 
         // Zone Density (ΔD), mid-sparing weights; +0.75 / -0.40 / 4.0 mirror
         // the zone_density_* constants in models.py — change together.

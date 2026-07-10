@@ -12,6 +12,7 @@ from negpy.features.exposure.logic import (
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
+    split_grade_deltas,
     local_ev_scale,
     normalized_neutral_axis,
     normalized_shadow_refs,
@@ -243,6 +244,21 @@ class PhotometricProcessor:
         )
 
         toe_eff, shoulder_eff = grade_coupled_shape(slopes[1], self.config.toe, self.config.shoulder)
+        sg_deltas, hg_deltas = split_grade_deltas(
+            self.config.grade,
+            self.config.shadow_grade,
+            self.config.highlight_grade,
+            shadow_trims=(
+                self.config.shadow_grade_trim_red,
+                self.config.shadow_grade_trim_green,
+                self.config.shadow_grade_trim_blue,
+            ),
+            highlight_trims=(
+                self.config.highlight_grade_trim_red,
+                self.config.highlight_grade_trim_green,
+                self.config.highlight_grade_trim_blue,
+            ),
+        )
 
         if context.process_mode == ProcessMode.BW:
             # Panchromatic response: collapse to a single density BEFORE the
@@ -290,6 +306,8 @@ class PhotometricProcessor:
             ),
             shadow_density=self.config.shadow_density,
             highlight_density=self.config.highlight_density,
+            shadow_grade_deltas=sg_deltas,
+            highlight_grade_deltas=hg_deltas,
         )
 
         if context.process_mode == ProcessMode.BW:
