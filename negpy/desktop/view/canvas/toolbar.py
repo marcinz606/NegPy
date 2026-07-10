@@ -230,7 +230,7 @@ class ActionToolbar(QWidget):
         overflow_menu.addSeparator()
         overflow_menu.addAction(qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings)
         overflow_menu.addSeparator()
-        overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self.session.remove_current_file)
+        overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self._on_overflow_unload)
         overflow_menu.addSeparator()
         scale_menu = overflow_menu.addMenu(qta.icon("fa5s.search-plus", color=icon_color), "UI Scale")
         self._ui_scale_group = QActionGroup(self)
@@ -340,6 +340,14 @@ class ActionToolbar(QWidget):
         self._ov_rot_r_action.triggered.connect(lambda: self.rotate(-1))
         self._ov_flip_h_action.triggered.connect(lambda: self.flip("horizontal"))
         self._ov_flip_v_action.triggered.connect(lambda: self.flip("vertical"))
+
+    def _on_overflow_unload(self) -> None:
+        from negpy.desktop.view.confirm import confirm_unload
+
+        if self.session.state.selected_file_idx < 0:
+            return
+        if confirm_unload(self):
+            self.session.remove_current_file()
 
     def _on_gpu_toggled(self, checked: bool) -> None:
         if checked != self.session.state.gpu_enabled:

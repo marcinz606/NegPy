@@ -2,7 +2,7 @@ import os
 
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QItemSelectionModel, QModelIndex, QRect, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QActionGroup, QColor, QPainter, QPen
+from PyQt6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPen, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.confirm import confirm_unload
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sync_settings_dialog import SyncSettingsDialog
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -309,11 +310,20 @@ class FileBrowser(QWidget):
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
 
+        # Delete key unloads the selected frame(s) — scoped to the thumbnail list so it
+        # doesn't fire while typing in the filter box or editing elsewhere.
+        del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.list_view)
+        del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        del_shortcut.activated.connect(self._on_delete_key)
+
     def _on_unload_clicked(self) -> None:
-        if len(self.session.state.selected_indices) > 1:
-            self.session.remove_selected_files()
+        count = len(self.session.state.selected_indices)
+        if count > 1:
+            if confirm_unload(self, count=count):
+                self.session.remove_selected_files()
         else:
-            self.session.clear_files()
+            if confirm_unload(self, clear_all=True):
+                self.session.clear_files()
 
     def _update_unload_button(self) -> None:
         if len(self.session.state.selected_indices) > 1:
@@ -564,10 +574,20 @@ class FileBrowser(QWidget):
                 self.session.set_triplet(idx, red, green, blue, dlg.align())
 
     def _on_remove_from_menu(self) -> None:
-        if len(self.session.state.selected_indices) > 1:
-            self.session.remove_selected_files()
+        count = len(self.session.state.selected_indices)
+        if count > 1:
+            if confirm_unload(self, count=count):
+                self.session.remove_selected_files()
         else:
-            self.session.remove_current_file()
+            if confirm_unload(self):
+                self.session.remove_current_file()
+
+    def _on_delete_key(self) -> None:
+        """Delete key in the thumbnail list unloads the selected frame(s)."""
+        state = self.session.state
+        if not state.uploaded_files or state.selected_file_idx < 0:
+            return
+        self._on_remove_from_menu()
 
 
 class _RgbTripletDialog(QDialog):
