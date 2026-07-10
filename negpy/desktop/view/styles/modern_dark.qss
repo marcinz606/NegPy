@@ -496,20 +496,29 @@ QToolButton#gear_combo_arrow:hover {
     color: #D4D4D4;
 }
 
+/* Gear-picker completer popup — mirrors the QMenu / combo-dropdown look above
+   (it's a QCompleter view, so neither of those rules reaches it). */
 QAbstractItemView#gear_combo_popup {
     background: #161616;
     color: #D4D4D4;
     border: 1px solid #333333;
+    border-radius: 4px;
+    padding: 4px;
     outline: 0;
 }
 
 QAbstractItemView#gear_combo_popup::item {
-    padding: 4px 6px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    padding: 5px 12px;
 }
 
-QAbstractItemView#gear_combo_popup::item:selected {
-    background: #B71C1C;
+QAbstractItemView#gear_combo_popup::item:selected,
+QAbstractItemView#gear_combo_popup::item:hover {
+    background: #2E2E2E;
     color: #FFFFFF;
+    border: none;
 }
 
 /* Darker red divider between the two halves of a primary split button. */

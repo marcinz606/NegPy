@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import default_button_height, small_toggle_qss, tool_toggle_qss
+from negpy.desktop.view.styles.templates import default_button_height, small_toggle_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
@@ -71,7 +71,6 @@ class GeometrySidebar(BaseSidebar):
         self.manual_crop_btn = CropToolButton(" Crop")
         self.manual_crop_btn.setCheckable(True)
         self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary, color_on="#FFFFFF"))
-        self.manual_crop_btn.setStyleSheet(tool_toggle_qss())
         self.manual_crop_btn.setToolTip(tooltip_with_shortcut("Crop: drag corners to resize, drag inside to move", "manual_crop"))
 
         self.clear_crop_btn = QPushButton(" Reset")

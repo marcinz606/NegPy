@@ -91,25 +91,24 @@ def field_label(text: str) -> QLabel:
 
 
 def tool_toggle_qss(icon_only: bool = False) -> str:
-    """Armed (checked) state for canvas-tool toggles: loud accent tint, unlike
-    the quiet amber of persistent-setting toggles."""
-    pad = "QPushButton {padding: 6px;}" if icon_only else ""
-    return pad + f"QPushButton:checked {{background-color: #3A1414; border: 1px solid {THEME.accent_primary}; color: #FFFFFF;}}"
+    """Padding tweaks for canvas-tool toggles. The armed (checked) look itself
+    comes from the app-wide QPushButton:checked rule in modern_dark.qss."""
+    return "QPushButton {padding: 6px;}" if icon_only else ""
 
 
 def small_toggle_qss() -> str:
     """Persistent-setting toggle: quiet — muted at rest, subtle fill when on.
     Same type size as neighbouring buttons; the quietness comes from colour
     (pair with an amber color_on icon), not from shrinking the text."""
-    # Checked fill matches the app-wide checked bg with a visible (but 1px)
-    # border — on the dark panel a fainter box reads smaller than solid
-    # neighbours (e.g. a primary button in the same row) even at equal height.
+    # The :checked block must pin every property the app-wide armed rule sets
+    # (background, border, color, font-weight) — Qt merges app+widget sheets
+    # per-property, so anything left unset here inherits the loud red look.
     # Rest colour must stay above the #555 disabled tone or the unchecked
     # state is indistinguishable from a disabled button.
     return (
         f"QPushButton {{font-size: {THEME.font_size_base}px; padding: 4px; color: {THEME.text_secondary};}}"
         "QPushButton:checked {background-color: #222222; "
-        f"border: 1px solid #3A3A3A; color: {THEME.text_primary};}}"
+        f"border: 1px solid #3A3A3A; color: {THEME.text_primary}; font-weight: normal;}}"
         f"QPushButton:disabled {{color: {THEME.text_muted};}}"
     )
 
