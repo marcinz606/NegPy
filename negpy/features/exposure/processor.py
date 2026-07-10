@@ -38,7 +38,7 @@ from negpy.features.exposure.normalization import (
 )
 from negpy.features.local.logic import compute_local_ev_map
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets
 from negpy.kernel.image.logic import get_luminance
 
 
@@ -137,23 +137,17 @@ class NormalizationProcessor:
                 context.metrics["shadow_refs_rect_val"] = self.config.analysis_rect
                 context.metrics["shadow_refs_crosstalk_val"] = (self.config.crosstalk_strength, self.config.crosstalk_matrix)
 
-        if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
-            wp_offset = self.config.white_point_offset
-            bp_offset = self.config.black_point_offset
-
-            if context.process_mode == ProcessMode.E6:
-                wp_offset = -wp_offset
-                bp_offset = -bp_offset
-
+        wp3, bp3 = per_channel_point_offsets(self.config, context.process_mode == ProcessMode.E6)
+        if any(v != 0.0 for v in wp3 + bp3):
             adj_floors = (
-                bounds.floors[0] + wp_offset,
-                bounds.floors[1] + wp_offset,
-                bounds.floors[2] + wp_offset,
+                bounds.floors[0] + wp3[0],
+                bounds.floors[1] + wp3[1],
+                bounds.floors[2] + wp3[2],
             )
             adj_ceils = (
-                bounds.ceils[0] + bp_offset,
-                bounds.ceils[1] + bp_offset,
-                bounds.ceils[2] + bp_offset,
+                bounds.ceils[0] + bp3[0],
+                bounds.ceils[1] + bp3[1],
+                bounds.ceils[2] + bp3[2],
             )
             bounds = LogNegativeBounds(floors=adj_floors, ceils=adj_ceils)
 
@@ -281,6 +275,11 @@ class PhotometricProcessor:
             bpc=self.config.true_black,
             toe_trims=(self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
             shoulder_trims=(self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),
+            snap_trims=(
+                self.config.midtone_gamma_trim_red,
+                self.config.midtone_gamma_trim_green,
+                self.config.midtone_gamma_trim_blue,
+            ),
         )
 
         if context.process_mode == ProcessMode.BW:

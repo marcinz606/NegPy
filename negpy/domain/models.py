@@ -457,6 +457,9 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
         grade_trim_blue=0.0,
         true_black=False,
         midtone_gamma=0.0,
+        midtone_gamma_trim_red=0.0,
+        midtone_gamma_trim_green=0.0,
+        midtone_gamma_trim_blue=0.0,
     )
     return replace(config, exposure=flat_exposure)
 

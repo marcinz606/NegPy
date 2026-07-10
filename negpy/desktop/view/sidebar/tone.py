@@ -70,13 +70,13 @@ class ToneSidebar(BaseSidebar):
         # Channel selector: Global = the shared curve; R/G/B = per-layer trims.
         self.ch_global_btn = self._labeled_toggle("fa5s.globe", " Global", True, "Global — edit the shared H&D curve (all layers)")
         self.ch_r_btn = self._labeled_toggle(
-            "fa5s.circle", " Red", False, "Red layer — per-layer Grade/Toe/Shoulder trims for the cyan-dye emulsion"
+            "fa5s.circle", " Red", False, "Red layer — per-layer Grade/Toe/Shoulder/Snap trims for the cyan-dye emulsion"
         )
         self.ch_g_btn = self._labeled_toggle(
-            "fa5s.circle", " Green", False, "Green layer — per-layer Grade/Toe/Shoulder trims for the magenta-dye emulsion"
+            "fa5s.circle", " Green", False, "Green layer — per-layer Grade/Toe/Shoulder/Snap trims for the magenta-dye emulsion"
         )
         self.ch_b_btn = self._labeled_toggle(
-            "fa5s.circle", " Blue", False, "Blue layer — per-layer Grade/Toe/Shoulder trims for the yellow-dye emulsion"
+            "fa5s.circle", " Blue", False, "Blue layer — per-layer Grade/Toe/Shoulder/Snap trims for the yellow-dye emulsion"
         )
         for btn, color in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_COLORS):
             btn.setIcon(qta.icon("fa5s.circle", color=color))
@@ -86,7 +86,7 @@ class ToneSidebar(BaseSidebar):
             self.ch_btn_group.addButton(btn, i)
         # (button, that channel's trim fields) for the edited-text tint.
         self._channel_buttons = tuple(
-            (btn, (f"grade_trim_{ch}", f"toe_trim_{ch}", f"shoulder_trim_{ch}"))
+            (btn, (f"grade_trim_{ch}", f"toe_trim_{ch}", f"shoulder_trim_{ch}", f"midtone_gamma_trim_{ch}"))
             for btn, ch in zip((self.ch_r_btn, self.ch_g_btn, self.ch_b_btn), _CH_SUFFIX)
         )
         ch_row = QHBoxLayout()
@@ -120,7 +120,8 @@ class ToneSidebar(BaseSidebar):
         self.midtone_gamma_slider = CompactSlider("Snap", -0.5, 0.5, conf.midtone_gamma)
         self.midtone_gamma_slider.setToolTip(
             "Snap — the paper's midtone gamma trim: steepens or flattens the variable-gamma S-curve "
-            "around the reference tone; paper white, paper black and the anchor stay put"
+            "around the reference tone; paper white, paper black and the anchor stay put. "
+            "In R/G/B mode: this layer's Snap trim (midtone crossover)."
         )
         snap_row = QHBoxLayout()
         snap_row.addWidget(self.surround_btn)
@@ -173,7 +174,6 @@ class ToneSidebar(BaseSidebar):
             self.auto_grade_btn,
             self.toe_w_slider,
             self.sh_w_slider,
-            self.midtone_gamma_slider,
             self.paper_dmin_btn,
             self.true_black_btn,
             self.surround_btn,
@@ -213,7 +213,6 @@ class ToneSidebar(BaseSidebar):
         for slider, field in (
             (self.density_slider, "density"),
             (self.grade_slider, "grade"),
-            (self.midtone_gamma_slider, "midtone_gamma"),
             (self.toe_w_slider, "toe_width"),
             (self.sh_w_slider, "shoulder_width"),
         ):
@@ -226,8 +225,8 @@ class ToneSidebar(BaseSidebar):
             slider.dragStarted.connect(lambda f=field: self.controller.tone_drag_changed.emit(f))
             slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
 
-        # Toe/shoulder retarget to the selected channel's trim field at emit time.
-        for slider, base in ((self.toe_slider, "toe"), (self.sh_slider, "shoulder")):
+        # Toe/shoulder/snap retarget to the selected channel's trim field at emit time.
+        for slider, base in ((self.toe_slider, "toe"), (self.sh_slider, "shoulder"), (self.midtone_gamma_slider, "midtone_gamma")):
             slider.valueChanged.connect(
                 lambda v, b=base: self.update_config_section(
                     "exposure", render=True, persist=False, readback_metrics=False, **{self._curve_field(b): v}
@@ -290,15 +289,18 @@ class ToneSidebar(BaseSidebar):
             self.grade_trim_slider.setVisible(not global_mode)
             self.toe_slider.label.setText("Toe" + suffix)
             self.sh_slider.label.setText("Shoulder" + suffix)
+            self.midtone_gamma_slider.label.setText("Snap" + suffix)
             if global_mode:
                 self.toe_slider.setValue(conf.toe)
                 self.sh_slider.setValue(conf.shoulder)
+                self.midtone_gamma_slider.setValue(conf.midtone_gamma)
             else:
                 ch = _CH_SUFFIX[idx - 1]
                 self.grade_trim_slider.label.setText("Grade" + suffix)
                 self.grade_trim_slider.setValue(getattr(conf, f"grade_trim_{ch}"))
                 self.toe_slider.setValue(getattr(conf, f"toe_trim_{ch}"))
                 self.sh_slider.setValue(getattr(conf, f"shoulder_trim_{ch}"))
+                self.midtone_gamma_slider.setValue(getattr(conf, f"midtone_gamma_trim_{ch}"))
             for w in self._global_only:
                 w.setEnabled(global_mode)
 
@@ -311,7 +313,6 @@ class ToneSidebar(BaseSidebar):
             self.grade_slider.setValue(conf.grade)
             self.toe_w_slider.setValue(conf.toe_width)
             self.sh_w_slider.setValue(conf.shoulder_width)
-            self.midtone_gamma_slider.setValue(conf.midtone_gamma)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
             self.true_black_btn.setChecked(conf.true_black)

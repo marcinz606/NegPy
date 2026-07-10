@@ -57,6 +57,10 @@ class ExposureConfig:
     true_black: bool = False
     # Additive trim on the paper's variable midtone gamma (tanh S-curve).
     midtone_gamma: float = 0.0
+    # Per-layer Snap trims on top of the global midtone gamma (midtone crossover).
+    midtone_gamma_trim_red: float = 0.0
+    midtone_gamma_trim_green: float = 0.0
+    midtone_gamma_trim_blue: float = 0.0
     cast_removal_strength: float = 0.5
     auto_cast_removal: bool = True
     surround: bool = False

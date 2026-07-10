@@ -54,6 +54,9 @@ _TONE_FIELDS = (
     "grade_trim_blue",
     "true_black",
     "midtone_gamma",
+    "midtone_gamma_trim_red",
+    "midtone_gamma_trim_green",
+    "midtone_gamma_trim_blue",
     "toe",
     "toe_width",
     "toe_trim_red",
@@ -656,6 +659,12 @@ class ControlsPanel(QWidget):
                 proc.color_range_clip != _proc.color_range_clip,
                 proc.white_point_offset != _proc.white_point_offset,
                 proc.black_point_offset != _proc.black_point_offset,
+                proc.white_point_trim_red != _proc.white_point_trim_red,
+                proc.white_point_trim_green != _proc.white_point_trim_green,
+                proc.white_point_trim_blue != _proc.white_point_trim_blue,
+                proc.black_point_trim_red != _proc.black_point_trim_red,
+                proc.black_point_trim_green != _proc.black_point_trim_green,
+                proc.black_point_trim_blue != _proc.black_point_trim_blue,
             ]
         )
 

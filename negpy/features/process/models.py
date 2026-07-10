@@ -45,6 +45,14 @@ class ProcessConfig:
 
     white_point_offset: float = 0.0
     black_point_offset: float = 0.0
+    # Per-layer trims on top of the global white/black point (per-dye-layer
+    # film-base / Dmax correction — scanner-style per-channel levels).
+    white_point_trim_red: float = 0.0
+    white_point_trim_green: float = 0.0
+    white_point_trim_blue: float = 0.0
+    black_point_trim_red: float = 0.0
+    black_point_trim_green: float = 0.0
+    black_point_trim_blue: float = 0.0
 
     # Spectral crosstalk (dye unmix), applied to the raw NEGATIVE densities
     # before bounds analysis and the stretch — the physically correct domain
@@ -90,3 +98,23 @@ def invalidate_local_bounds(process: ProcessConfig) -> dict:
     if process.lock_bounds:
         return {}
     return {"local_floors": (0.0, 0.0, 0.0), "local_ceils": (0.0, 0.0, 0.0)}
+
+
+def per_channel_point_offsets(process: ProcessConfig, e6: bool) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """
+    Signed per-channel white/black point offsets: global + per-layer trim.
+    E6 negates (positive film reverses the floor/ceil roles). Single source of
+    truth for the CPU normalization and the GPU uniform pack.
+    """
+    sign = -1.0 if e6 else 1.0
+    wp3 = (
+        sign * (process.white_point_offset + process.white_point_trim_red),
+        sign * (process.white_point_offset + process.white_point_trim_green),
+        sign * (process.white_point_offset + process.white_point_trim_blue),
+    )
+    bp3 = (
+        sign * (process.black_point_offset + process.black_point_trim_red),
+        sign * (process.black_point_offset + process.black_point_trim_green),
+        sign * (process.black_point_offset + process.black_point_trim_blue),
+    )
+    return wp3, bp3

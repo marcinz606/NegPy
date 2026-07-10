@@ -35,7 +35,7 @@ from negpy.features.geometry.logic import (
     get_manual_rect_coords,
 )
 from negpy.features.local.logic import compute_local_ev_map
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.features.retouch.logic import build_heal_regions
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -991,8 +991,12 @@ class GPUEngine:
         elif settings.process.process_mode == ProcessMode.E6:
             mode_val = 2
 
-        # E6 mirrors the CPU path (NormalizationProcessor), which negates the offsets.
-        offset_sign = -1.0 if mode_val == 2 else 1.0
+        # Per-channel WP/BP (global + layer trims, E6-signed) mirror the CPU path.
+        # Baked into the packed floors/ceils so the shader's scalar wp/bp offsets
+        # (kept at 0.0 for layout) need no per-channel lanes.
+        wp3, bp3 = per_channel_point_offsets(settings.process, mode_val == 2)
+        adj_floors = (f[0] + wp3[0], f[1] + wp3[1], f[2] + wp3[2])
+        adj_ceils = (c[0] + bp3[0], c[1] + bp3[1], c[2] + bp3[2])
 
         # Capture-side dye-unmix rows, resolved once per frame by the caller
         # (shared with NormalizationProcessor); identity when off.
@@ -1000,14 +1004,14 @@ class GPUEngine:
             unmix = np.eye(3)
 
         n_data = (
-            struct.pack("ffff", f[0], f[1], f[2], 0.0)
-            + struct.pack("ffff", c[0], c[1], c[2], 0.0)
+            struct.pack("ffff", adj_floors[0], adj_floors[1], adj_floors[2], 0.0)
+            + struct.pack("ffff", adj_ceils[0], adj_ceils[1], adj_ceils[2], 0.0)
             + struct.pack(
                 "IIff",
                 mode_val,
                 (1 if settings.process.e6_normalize else 0),
-                offset_sign * settings.process.white_point_offset,
-                offset_sign * settings.process.black_point_offset,
+                0.0,
+                0.0,
             )
             + struct.pack("ffff", unmix[0, 0], unmix[0, 1], unmix[0, 2], 0.0)
             + struct.pack("ffff", unmix[1, 0], unmix[1, 1], unmix[1, 2], 0.0)
@@ -1025,6 +1029,7 @@ class GPUEngine:
             normalize_refs,
             paper_dmin_rgb,
             per_channel_curve_params,
+            per_channel_midtone_gamma,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
@@ -1038,12 +1043,8 @@ class GPUEngine:
         # only let it move the render when the toggle is on.
         render_anchor = metered_anchor if exp.auto_exposure else None
         lum_range = luminance_density_range(bounds)
-        # Final bounds the shader normalizes with (after WP/BP offsets); shared by
-        # the Cast Removal shadow refs, mirroring the CPU path.
-        wp = offset_sign * settings.process.white_point_offset
-        bp = offset_sign * settings.process.black_point_offset
-        adj_floors = (f[0] + wp, f[1] + wp, f[2] + wp)
-        adj_ceils = (c[0] + bp, c[1] + bp, c[2] + bp)
+        # adj_floors/adj_ceils (packed above) are the final bounds the shader
+        # normalizes with; shared by the Cast Removal shadow refs (CPU mirror).
         shadow_refs_norm = None
         if shadow_refs is not None:
             shadow_refs_norm = normalize_refs(shadow_refs, adj_floors, adj_ceils)
@@ -1082,6 +1083,11 @@ class GPUEngine:
         )
         _toe3 = tuple(t * _ts_k for t in _toe3)
         _sh3 = tuple(s * _ts_k for s in _sh3)
+        _mg3 = per_channel_midtone_gamma(
+            paper,
+            exp.midtone_gamma,
+            (exp.midtone_gamma_trim_red, exp.midtone_gamma_trim_green, exp.midtone_gamma_trim_blue),
+        )
         # Mirrors apply_characteristic_curve (absolute CC, paper base, dye mix).
         wb_offsets = filtration_offsets(
             (exp.wb_cyan, exp.wb_magenta, exp.wb_yellow),
@@ -1134,14 +1140,16 @@ class GPUEngine:
                 effective_midtone_gamma(paper, exp.midtone_gamma),
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                # BPC flag (former pad). Block is full at 256B and all w-lanes
-                # are taken — new uniforms need real multi-slot offsets.
+                # BPC flag (former pad). Block is full at 256B; per-channel Snap
+                # rides the dye-row w-lanes, leaving only pad0 and d_min_rgb.w
+                # free — beyond that, new uniforms need real multi-slot offsets.
                 1.0 if exp.true_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)
-            + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], 0.0)
-            + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], 0.0)
-            + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], 0.0)
+            # Dye-row w-lanes carry the per-channel midtone gamma (Snap).
+            + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], _mg3[0])
+            + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], _mg3[1])
+            + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], _mg3[2])
             # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
             + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
         )

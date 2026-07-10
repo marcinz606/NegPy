@@ -68,7 +68,7 @@ def _apply_print_curve_kernel(
     sh_height: float,
     zone_center: float,
     v_star: float,
-    midtone_gamma: float,
+    midtone_gamma: np.ndarray,
     gamma_width: float,
     dye_mix: np.ndarray,
     use_dye_mix: bool,
@@ -155,8 +155,8 @@ def _apply_print_curve_kernel(
                 # Variable-gamma paper S-curve: extra local gamma at the midtone
                 # centre (v_star), easing to zero toward toe/shoulder. Centred on
                 # v_star so the reference tone is preserved.
-                if midtone_gamma != 0.0:
-                    v = v + midtone_gamma * gamma_width * np.tanh((v - v_star) / gamma_width)
+                if midtone_gamma[ch] != 0.0:
+                    v = v + midtone_gamma[ch] * gamma_width * np.tanh((v - v_star) / gamma_width)
 
                 # Regional CMY: shadow weight rises with density, highlight falls.
                 w_sh = _fast_sigmoid(3.0 * (v - zone_center))
@@ -325,6 +325,7 @@ def apply_characteristic_curve(
     bpc: bool = False,
     toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -368,7 +369,7 @@ def apply_characteristic_curve(
         sh_height=float(c["shoulder_height"]),
         zone_center=float(c["anchor_target_density"]),
         v_star=float(v_star),
-        midtone_gamma=float(midtone_gamma),
+        midtone_gamma=np.array([float(midtone_gamma) + snap_trims[ch] for ch in range(3)], dtype=np.float64),
         gamma_width=float(c["paper_gamma_width"]),
         dye_mix=dye_mix,
         use_dye_mix=dye is not None,
@@ -459,6 +460,20 @@ def effective_midtone_gamma(paper: Optional[PaperProfile], trim: float) -> float
     of truth for CPU / GPU / chart.
     """
     return float(effective_constants(paper)["paper_midtone_gamma"]) + float(trim)
+
+
+def per_channel_midtone_gamma(
+    paper: Optional[PaperProfile],
+    trim: float,
+    snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[float, float, float]:
+    """
+    Per-layer effective midtone gamma: paper baseline + global trim + Snap trim.
+    Single source of truth for CPU / GPU / chart. Unclamped: the slider domains
+    keep |gamma| < 1, the kernel's monotonicity bound.
+    """
+    base = effective_midtone_gamma(paper, trim)
+    return (base + snap_trims[0], base + snap_trims[1], base + snap_trims[2])
 
 
 def _grade_trim_mult(grade: float, trim: float, c: Dict[str, Any]) -> float:

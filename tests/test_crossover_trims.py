@@ -11,6 +11,7 @@ from negpy.features.exposure.logic import (
     _grade_trim_mult,
     apply_characteristic_curve,
     per_channel_curve_params,
+    per_channel_midtone_gamma,
     per_channel_toe_shoulder,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -169,6 +170,54 @@ class TestKneeTrims(unittest.TestCase):
         toe3, sh3 = per_channel_toe_shoulder(0.0, 0.0, toe_trims, sh_trims)
         for ch in range(3):
             curve = CharacteristicCurve(contrast=slope, pivot=pivot, toe=toe3[ch], shoulder=sh3[ch])
+            density = np.asarray(curve(ramp[0, :, ch].astype(np.float32)))
+            expected = np.clip(10.0 ** (-density), 0.0, 1.0)
+            np.testing.assert_allclose(res_kernel[0, :, ch], expected, atol=1e-4)
+
+
+class TestSnapTrims(unittest.TestCase):
+    """Per-layer Snap trims: midtone crossover — one layer's midtone gamma moves,
+    the other layers stay put and the reference tone (v_star) is preserved."""
+
+    _PARAMS = (0.79, 5.375)
+
+    def _render(self, value, **kwargs):
+        img = np.full((2, 2, 3), value, dtype=np.float32)
+        out = apply_characteristic_curve(img, self._PARAMS, self._PARAMS, self._PARAMS, **kwargs)
+        return np.asarray(out)[0, 0, :]
+
+    def test_snap_trim_acts_on_channel_only(self):
+        base = self._render(0.95)
+        trimmed = self._render(0.95, snap_trims=(0.4, 0.0, 0.0))
+        self.assertGreater(abs(trimmed[0] - base[0]), 0.003, "red snap trim did not move red midtones")
+        np.testing.assert_allclose(trimmed[1:], base[1:], atol=1e-7, err_msg="snap trim leaked into other channels")
+
+    def test_snap_trim_preserves_reference_tone(self):
+        pivot, slope = self._PARAMS
+        v_star = CharacteristicCurve(contrast=slope, pivot=pivot).v_star
+        val = pivot + v_star / slope  # input that lands exactly on the S-curve centre
+        base = self._render(val)
+        trimmed = self._render(val, snap_trims=(0.5, -0.5, 0.3))
+        np.testing.assert_allclose(trimmed, base, atol=1e-3, err_msg="snap trim moved the reference tone")
+
+    def test_monotonic_at_extreme_snap_trims(self):
+        ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
+        for mg, trims in ((-0.35, (-0.5, 0.0, 0.5)), (0.65, (0.5, -0.5, 0.0))):
+            out = apply_characteristic_curve(ramp, self._PARAMS, self._PARAMS, self._PARAMS, midtone_gamma=mg, snap_trims=trims)
+            for ch in range(3):
+                self.assertTrue(
+                    np.all(np.diff(out[0, :, ch]) <= 1e-5),
+                    f"tone reversal ch={ch} mg={mg} trims={trims}",
+                )
+
+    def test_chart_matches_kernel_per_channel(self):
+        ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
+        pivot, slope = self._PARAMS
+        snap_trims = (0.3, 0.0, -0.2)
+        res_kernel = apply_characteristic_curve(ramp, self._PARAMS, self._PARAMS, self._PARAMS, snap_trims=snap_trims)
+        mg3 = per_channel_midtone_gamma(None, 0.0, snap_trims)
+        for ch in range(3):
+            curve = CharacteristicCurve(contrast=slope, pivot=pivot, midtone_gamma=mg3[ch])
             density = np.asarray(curve(ramp[0, :, ch].astype(np.float32)))
             expected = np.clip(10.0 ** (-density), 0.0, 1.0)
             np.testing.assert_allclose(res_kernel[0, :, ch], expected, atol=1e-4)

@@ -40,6 +40,7 @@ def test_channel_selector_retargets_and_syncs(qapp):
             grade_trim_red=15.0,
             toe_trim_red=0.4,
             shoulder_trim_red=-0.2,
+            midtone_gamma_trim_red=0.15,
             true_black=True,
             midtone_gamma=0.25,
         ),
@@ -58,18 +59,24 @@ def test_channel_selector_retargets_and_syncs(qapp):
 
     assert sidebar._curve_field("toe") == "toe_trim_red"
     assert sidebar._curve_field("shoulder") == "shoulder_trim_red"
+    assert sidebar._curve_field("midtone_gamma") == "midtone_gamma_trim_red"
     assert sidebar.grade_slider.isHidden()
     assert not sidebar.grade_trim_slider.isHidden()
     assert sidebar.grade_trim_slider.value() == 15.0
     assert abs(sidebar.toe_slider.value() - 0.4) < 1e-9
     assert abs(sidebar.sh_slider.value() - (-0.2)) < 1e-9
+    assert abs(sidebar.midtone_gamma_slider.value() - 0.15) < 1e-9
     assert sidebar.toe_slider.label.text() == "Toe R"
+    assert sidebar.midtone_gamma_slider.label.text() == "Snap R"
+    assert sidebar.midtone_gamma_slider.isEnabled()
+    assert sidebar.midtone_gamma_slider not in sidebar._global_only
     for w in sidebar._global_only:
         assert not w.isEnabled()
 
     # Back to Global: values and enablement restore.
     sidebar.ch_global_btn.setChecked(True)
     assert sidebar.toe_slider.value() == 0.0
+    assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
     for w in sidebar._global_only:
         assert w.isEnabled()
 

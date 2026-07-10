@@ -49,6 +49,53 @@ class TestBatchNormalization(unittest.TestCase):
 
         self.assertLess(float(np.mean(res_wp)), float(np.mean(res_neutral)))
 
+    def _neutral_process(self):
+        return replace(self.config.process, local_floors=(-0.8, -0.8, -0.8), local_ceils=(-0.2, -0.2, -0.2))
+
+    def test_white_point_trim_moves_channel_only(self):
+        img = np.full((10, 10, 3), 10**-0.5, dtype=np.float32)
+        p_neutral = self._neutral_process()
+        res_neutral = NormalizationProcessor(p_neutral).process(img, self.context)
+
+        p_trim = replace(p_neutral, white_point_trim_red=0.1)
+        res_trim = NormalizationProcessor(p_trim).process(img, self.context)
+
+        self.assertLess(float(np.mean(res_trim[..., 0])), float(np.mean(res_neutral[..., 0])))
+        np.testing.assert_allclose(res_trim[..., 1:], res_neutral[..., 1:], atol=1e-7)
+
+    def test_black_point_trim_moves_channel_only(self):
+        img = np.full((10, 10, 3), 10**-0.5, dtype=np.float32)
+        p_neutral = self._neutral_process()
+        res_neutral = NormalizationProcessor(p_neutral).process(img, self.context)
+
+        p_trim = replace(p_neutral, black_point_trim_blue=0.1)
+        res_trim = NormalizationProcessor(p_trim).process(img, self.context)
+
+        # Raising the ceil widens the span -> the blue value drops.
+        self.assertLess(float(np.mean(res_trim[..., 2])), float(np.mean(res_neutral[..., 2])))
+        np.testing.assert_allclose(res_trim[..., :2], res_neutral[..., :2], atol=1e-7)
+
+    def test_trim_stacks_with_global_offset(self):
+        img = np.full((10, 10, 3), 10**-0.5, dtype=np.float32)
+        p_combined = replace(self._neutral_process(), white_point_offset=0.05, white_point_trim_red=0.05)
+        p_equivalent = replace(self._neutral_process(), white_point_trim_red=0.1)
+        res_a = NormalizationProcessor(p_combined).process(img, self.context)
+        res_b = NormalizationProcessor(p_equivalent).process(img, self.context)
+        np.testing.assert_allclose(res_a[..., 0], res_b[..., 0], atol=1e-7)
+
+    def test_e6_negates_trims(self):
+        img = np.full((10, 10, 3), 10**-0.5, dtype=np.float32)
+        ctx_e6 = PipelineContext(scale_factor=1.0, original_size=(100, 100), process_mode="E-6")
+        p_neutral = replace(self._neutral_process(), e6_normalize=True)
+        res_neutral = NormalizationProcessor(p_neutral).process(img, ctx_e6)
+
+        p_trim = replace(p_neutral, white_point_trim_red=0.1)
+        res_trim = NormalizationProcessor(p_trim).process(img, ctx_e6)
+
+        # Negated sign: the red channel must move the opposite way to C41.
+        self.assertGreater(float(np.mean(res_trim[..., 0])), float(np.mean(res_neutral[..., 0])))
+        np.testing.assert_allclose(res_trim[..., 1:], res_neutral[..., 1:], atol=1e-7)
+
     def test_photometric_processor_is_independent_of_roll_average(self):
         """
         Verify that PhotometricProcessor no longer applies extra shifts in roll average mode.

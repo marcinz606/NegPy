@@ -92,6 +92,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // scalar toe/shoulder fields exist for layout only.
     let toe3 = vec3<f32>(params.pivots.w, params.slopes.w, params.curvatures.w);
     let sh3 = vec3<f32>(params.cmy_offsets.w, params.shadow_cmy.w, params.highlight_cmy.w);
+    // Per-channel Snap rides the dye-row w-lanes; scalar midtone_gamma is layout-only.
+    let mg3 = vec3<f32>(params.dye_r.w, params.dye_g.w, params.dye_b.w);
     let toe_neg = toe3 < vec3<f32>(0.0);
     // Negative toe: tighten shadow roll-off (sharper knee) rather than extending
     // d_max_eff beyond paper black (perceptually near-zero effect above d_max).
@@ -116,8 +118,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         // Variable-gamma paper S-curve: extra local gamma at the midtone centre
         // (v_star), easing to zero toward toe/shoulder. Mirrors the CPU kernel.
-        if (params.midtone_gamma != 0.0) {
-            v = v + params.midtone_gamma * params.gamma_width * tanh((v - params.v_star) / params.gamma_width);
+        if (mg3[ch] != 0.0) {
+            v = v + mg3[ch] * params.gamma_width * tanh((v - params.v_star) / params.gamma_width);
         }
 
         // Regional CMY: shadow weight rises with density, highlight falls.

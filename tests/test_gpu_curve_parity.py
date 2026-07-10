@@ -69,6 +69,13 @@ class TestGpuCurveParity(unittest.TestCase):
         settings = WorkspaceConfig()
         settings = replace(
             settings,
+            # WP/BP trims bake into the GPU normalization floors/ceils — parity
+            # guards that pack against the CPU per-channel offset path.
+            process=replace(
+                settings.process,
+                white_point_trim_red=0.08,
+                black_point_trim_blue=-0.06,
+            ),
             exposure=replace(
                 settings.exposure,
                 grade_trim_red=25.0,
@@ -78,6 +85,8 @@ class TestGpuCurveParity(unittest.TestCase):
                 shoulder_trim_green=0.3,
                 true_black=True,
                 midtone_gamma=0.3,
+                midtone_gamma_trim_red=0.4,
+                midtone_gamma_trim_blue=-0.3,
                 toe=-0.6,
                 paper_profile="fuji_crystal",
             ),

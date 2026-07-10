@@ -48,6 +48,15 @@ class TestConfigDeserialization(unittest.TestCase):
         config = WorkspaceConfig()
         config = replace(
             config,
+            process=replace(
+                config.process,
+                white_point_trim_red=0.05,
+                white_point_trim_green=-0.1,
+                white_point_trim_blue=0.02,
+                black_point_trim_red=-0.03,
+                black_point_trim_green=0.07,
+                black_point_trim_blue=0.11,
+            ),
             exposure=replace(
                 config.exposure,
                 grade_trim_red=12.0,
@@ -61,6 +70,9 @@ class TestConfigDeserialization(unittest.TestCase):
                 shoulder_trim_blue=0.05,
                 true_black=True,
                 midtone_gamma=-0.2,
+                midtone_gamma_trim_red=0.15,
+                midtone_gamma_trim_green=-0.25,
+                midtone_gamma_trim_blue=0.4,
             ),
         )
         reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
@@ -75,6 +87,15 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.exposure.shoulder_trim_blue, 0.05)
         self.assertTrue(reloaded.exposure.true_black)
         self.assertEqual(reloaded.exposure.midtone_gamma, -0.2)
+        self.assertEqual(reloaded.exposure.midtone_gamma_trim_red, 0.15)
+        self.assertEqual(reloaded.exposure.midtone_gamma_trim_green, -0.25)
+        self.assertEqual(reloaded.exposure.midtone_gamma_trim_blue, 0.4)
+        self.assertEqual(reloaded.process.white_point_trim_red, 0.05)
+        self.assertEqual(reloaded.process.white_point_trim_green, -0.1)
+        self.assertEqual(reloaded.process.white_point_trim_blue, 0.02)
+        self.assertEqual(reloaded.process.black_point_trim_red, -0.03)
+        self.assertEqual(reloaded.process.black_point_trim_green, 0.07)
+        self.assertEqual(reloaded.process.black_point_trim_blue, 0.11)
 
     def test_use_original_res_true_migrates_to_original_mode(self):
         data = {"use_original_res": True, "export_print_size": 30.0}
