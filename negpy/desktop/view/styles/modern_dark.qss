@@ -63,10 +63,19 @@ QPushButton:pressed {
     color: white;
 }
 
+/* Active/checked toggle tools (e.g. "Linear RAW", "Lock Bounds"). Low-key but
+   clearly engaged: a warm-tinted fill and a safelight-accent border so the user
+   can tell at a glance which tools are currently on. */
 QPushButton:checked {
-    background-color: #222222;
+    background-color: #2A1D1D;
     color: #FFFFFF;
-    border: 2px solid #555555;
+    border: 1px solid #B71C1C;
+    font-weight: 600;
+}
+
+QPushButton:checked:hover {
+    background-color: #351F1F;
+    border: 1px solid #C62828;
 }
 
 QToolButton {
@@ -82,8 +91,13 @@ QToolButton:hover {
 }
 
 QToolButton:checked {
-    background-color: #222222;
-    border: 2px solid #555555;
+    background-color: #2A1D1D;
+    border: 1px solid #B71C1C;
+}
+
+QToolButton:checked:hover {
+    background-color: #351F1F;
+    border: 1px solid #C62828;
 }
 
 QSlider::groove:horizontal {
