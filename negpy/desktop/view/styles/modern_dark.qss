@@ -346,7 +346,7 @@ QWidget#collapsible_content_body {
 }
 
 /* Hint labels (templates.hint_label): small informational text under controls.
-   Colours: #555555 = text_muted, #C79A3A = accent_edited, #D32F2F = channel_red. */
+   Colours: #555555 = text_muted, #C79A3A = warning amber, #D32F2F = channel_red. */
 QLabel[hint="muted"] {
     color: #555555;
     font-size: 11px;
