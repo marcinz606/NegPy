@@ -477,9 +477,9 @@ _TIFFFILE_RESERVED_TAGS: set[int] = set(tifffile.TIFF.TAG_FILTERED) | {270, 282,
 
 def _decode_ascii(value: object) -> str | None:
     if isinstance(value, bytes):
-        return value.rstrip(b"\x00").decode("ascii", "replace")
+        value = value.rstrip(b"\x00").decode("ascii", "replace")
     if isinstance(value, str):
-        return value
+        return value.encode("ascii", "replace").decode("ascii")
     return None
 
 

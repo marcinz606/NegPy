@@ -7,7 +7,7 @@ import piexif
 import tifffile
 
 from negpy.features.metadata.models import MetadataConfig
-from negpy.features.metadata.writer import _sanitize_exif, embed_metadata, preserve_source_metadata
+from negpy.features.metadata.writer import _decode_ascii, _sanitize_exif, embed_metadata, preserve_source_metadata
 
 
 def _make_tiff_bytes() -> bytes:
@@ -235,3 +235,46 @@ class TestPreserveSourceMetadata:
         loaded = piexif.load(out)
         assert loaded["0th"].get(piexif.ImageIFD.Orientation) == 6
         assert loaded["0th"].get(piexif.ImageIFD.Make) == b"Nikon"
+
+
+class TestDecodeAscii:
+    """_decode_ascii must always return pure-ASCII str (#452)."""
+
+    def test_bytes_with_non_ascii(self) -> None:
+        assert _decode_ascii(b"4\xd75 negative") == "4?5 negative"
+
+    def test_str_with_non_ascii(self) -> None:
+        assert _decode_ascii("4\u00d75 negative") == "4?5 negative"
+
+    def test_pure_ascii_bytes_unchanged(self) -> None:
+        assert _decode_ascii(b"Portra 400") == "Portra 400"
+
+    def test_pure_ascii_str_unchanged(self) -> None:
+        assert _decode_ascii("Portra 400") == "Portra 400"
+
+    def test_null_terminated_bytes_stripped(self) -> None:
+        assert _decode_ascii(b"Hello\x00World\x00") == "Hello\x00World"
+
+    def test_none_returns_none(self) -> None:
+        assert _decode_ascii(None) is None
+        assert _decode_ascii(42) is None
+
+    def test_non_ascii_exif_does_not_crash_tiff_metadata_embed(self) -> None:
+        """Regression: non-ASCII EXIF description must not crash tifffile (#452)."""
+        image_bytes = _make_tiff_bytes()
+        source_exif = {
+            "0th": {
+                piexif.ImageIFD.Make: b"Nikon",
+                piexif.ImageIFD.ImageDescription: "4\u00d75 - Portra 400",
+            },
+            "Exif": {},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        out = embed_metadata(image_bytes, MetadataConfig(), source_exif)
+        assert out != image_bytes
+        with tifffile.TiffFile(io.BytesIO(out)) as tf:
+            desc = tf.pages[0].tags.get("ImageDescription")
+            # ASCII-safe -- tifffile would reject non-ASCII
+            desc.value.encode("ascii")
