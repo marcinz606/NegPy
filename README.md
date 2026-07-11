@@ -80,7 +80,6 @@ sudo pacman -S libgphoto2        # Arch
 ```
 Or look up your distro's equivalent package.
 
-You can also clone the repo and build it yourself, instruction here: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 #### Unsigned Software Warning
 Since this is a free hobby project, I don't pay Apple or Microsoft ransom for their developer certificates. You'll get a scary warning the first time you run it.
@@ -108,6 +107,10 @@ brew install libgphoto2
 Scanner and camera scanning are **not available on Windows**. Both ride on Unix-first free-software libraries — SANE for scanners, libgphoto2 for cameras — that just don't build there. It's not really their fault: the open world spent decades writing generic, vendor-neutral drivers for hundreds of devices, while Windows stuck with closed per-vendor blobs and never grew an equivalent. So the free stack NegPy leans on has nowhere to stand on Windows. Everything else works fine.
 
 Good news: you can install Linux on pretty much any Windows machine. 🐧
+
+---
+
+You can also clone the repo and build it yourself, instruction here: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
