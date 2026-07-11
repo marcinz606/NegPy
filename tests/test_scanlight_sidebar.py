@@ -8,6 +8,7 @@ at app launch.
 import sys
 from unittest.mock import MagicMock
 
+import pytest
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
@@ -334,6 +335,63 @@ def test_frame_number_auto_derived_from_roll_subfolder(tmp_path):
     w._start_capture(retake=True)
     w.set_scanning(False)  # the finished signal would do this
     assert captured_req().frame_number == 2
+
+
+@pytest.mark.parametrize(
+    "roll_name",
+    [
+        pytest.param("2026/07", id="posix-separator"),
+        pytest.param("/Volumes/scans/Roll007", id="posix-absolute"),
+        pytest.param(r"2026\07", id="windows-separator"),
+        pytest.param(r"C:\Scans\Roll007", id="windows-absolute"),
+        pytest.param(".", id="current-directory"),
+        pytest.param("..", id="parent-directory"),
+        pytest.param("Roll\0escape", id="nul"),
+    ],
+)
+def test_capture_rejects_unsafe_roll_name(tmp_path, roll_name):
+    w = _sidebar()
+    w.folder_edit.setText(str(tmp_path))
+    w.roll_edit.setText(roll_name)
+
+    w._start_capture(retake=False)
+
+    assert not w.controller.start_capture.called
+    assert "single safe name" in w.status_label.text().lower()
+
+
+def test_blank_roll_name_falls_back_consistently(tmp_path):
+    w = _sidebar()
+    w.folder_edit.setText(str(tmp_path))
+    w.roll_edit.clear()
+
+    w._start_capture(retake=False)
+
+    req = w.controller.start_capture.call_args.args[0]
+    assert req.roll_name == "Roll001"
+    assert req.output_folder == str(tmp_path / "Roll001")
+    assert w.roll_edit.text() == "Roll001"
+    assert w._settings.roll_name == "Roll001"
+    key, saved = w.controller.session.repo.save_global_setting.call_args.args
+    assert key == "scanlight_settings"
+    assert saved["roll_name"] == "Roll001"
+
+
+def test_safe_roll_name_is_trimmed_consistently(tmp_path):
+    w = _sidebar()
+    w.folder_edit.setText(str(tmp_path))
+    w.roll_edit.setText("  Summer 2026  ")
+
+    w._start_capture(retake=False)
+
+    req = w.controller.start_capture.call_args.args[0]
+    assert req.roll_name == "Summer 2026"
+    assert req.output_folder == str(tmp_path / "Summer 2026")
+    assert w.roll_edit.text() == "Summer 2026"
+    assert w._settings.roll_name == "Summer 2026"
+    key, saved = w.controller.session.repo.save_global_setting.call_args.args
+    assert key == "scanlight_settings"
+    assert saved["roll_name"] == "Summer 2026"
 
 
 def test_temp_label_hides_when_no_reading():

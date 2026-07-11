@@ -252,7 +252,7 @@ class ScanlightSidebar(QWidget):
         folder_row.addWidget(self.folder_browse)
         out_form.addRow("Folder", folder_row)
         self.roll_edit = QLineEdit(self._settings.roll_name)
-        self.roll_edit.setToolTip("Roll name — prefixes captured files; the frame number is assigned automatically per roll")
+        self.roll_edit.setToolTip("Roll name — one folder/file name (no / or \\); the frame number is assigned automatically per roll")
         out_form.addRow("Roll", self.roll_edit)
         layout.addLayout(out_form)
 
@@ -798,6 +798,13 @@ class ScanlightSidebar(QWidget):
             return 0
         return hi
 
+    def _capture_roll_name(self) -> str | None:
+        roll = self.roll_edit.text().strip() or "Roll001"
+        if roll in {".", ".."} or any(separator in roll for separator in ("/", "\\", "\0")):
+            self._set_status('Roll name must be a single safe name (not "." or "..", and no path separators).')
+            return None
+        return roll
+
     def _start_capture(self, retake: bool) -> None:
         if self._calibrating_preset:
             # Both ride one worker thread, so this would merely queue — and then fire with
@@ -813,6 +820,12 @@ class ScanlightSidebar(QWidget):
             if not output_folder:
                 return
 
+        roll = self._capture_roll_name()
+        if roll is None:
+            return
+        if self.roll_edit.text() != roll:
+            self.roll_edit.setText(roll)
+
         # Capture happens *inside* the live-view session — the body grants one PTP claim, so
         # the preview simply pauses for the shot and resumes. No teardown, no reconnect.
         self._update_settings_from_ui()
@@ -821,7 +834,6 @@ class ScanlightSidebar(QWidget):
         from negpy.desktop.workers.capture_worker import CaptureRequest
 
         s = self._settings
-        roll = s.roll_name or "Roll001"
         roll_folder = os.path.join(output_folder, roll)  # one subfolder per roll
         # Frame numbers are derived from the roll's folder (no manual field): a fresh scan
         # takes the next free number, a retake re-shoots the last one (overwrite). The
