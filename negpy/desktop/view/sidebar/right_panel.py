@@ -36,6 +36,8 @@ class RightPanel(QWidget):
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
+        # Heal/scratch tool suspended by leaving the Retouch tab; restored on return.
+        self._suspended_retouch_tool = None
 
         self._init_ui()
         self._connect_signals()
@@ -264,6 +266,25 @@ class RightPanel(QWidget):
         for i, btn in enumerate(self._tab_buttons):
             btn.setChecked(i == index)
         self._refresh_tab_icons()
+
+        # The heal/scratch tools live on the tab hosting the Retouch section;
+        # navigating to another tab suspends the active one so clicks on the
+        # canvas don't keep placing heals with their controls out of sight.
+        # Returning to the tab restores the suspended tool (and its overlay) —
+        # unless nothing was active when the user left, or another tool has
+        # been picked up in the meantime.
+        from negpy.desktop.session import ToolMode
+
+        state = self.controller.session.state
+        retouch_tab = self._section_tab_index.get("retouch_section")
+        if index != retouch_tab:
+            if state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+                self._suspended_retouch_tool = state.active_tool
+                self.controller.cancel_active_tool()
+        else:
+            if self._suspended_retouch_tool is not None and state.active_tool == ToolMode.NONE:
+                self.controller.set_active_tool(self._suspended_retouch_tool)
+            self._suspended_retouch_tool = None
 
         # Trigger device detection + gating refresh when the Scan tab is selected — it now
         # hosts both the SANE scanner and the RGB-Scan capture as collapsible sections.

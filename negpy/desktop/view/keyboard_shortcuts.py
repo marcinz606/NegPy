@@ -2,7 +2,17 @@ from collections.abc import Callable
 
 from PyQt6.QtGui import QKeySequence, QShortcut
 
+from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import REGISTRY, load_bindings, save_bindings, set_current_bindings
+
+
+def _context_undo(controller) -> None:
+    """Ctrl+Z targets what the user is working on: while a heal/scratch tool is
+    active it removes the last placed heal; otherwise it's the normal edit undo."""
+    if controller.session.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+        controller.undo_last_retouch()
+    else:
+        controller.session.undo()
 
 
 def _show_shortcuts(window) -> None:
@@ -68,7 +78,7 @@ class ShortcutManager:
             "copy": controller.session.copy_settings,
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
             "paste": controller.session.paste_settings,
-            "undo": controller.session.undo,
+            "undo": lambda: _context_undo(controller),
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),
         }

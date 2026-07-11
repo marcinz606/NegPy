@@ -27,3 +27,19 @@ def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
     box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
     box.setDefaultButton(QMessageBox.StandardButton.Yes)
     return box.exec() == QMessageBox.StandardButton.Yes
+
+
+def confirm_clear_heals(parent, count: int) -> bool:
+    """Ask before wiping every manual heal/scratch on the frame.
+
+    Unlike single-heal undo this is not step-recoverable, so gate it like the
+    session Clear All. Enter confirms (default button); Esc cancels.
+    """
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("Clear All Heals")
+    box.setText(f"Remove all {count} manual heal{'s' if count != 1 else ''} from this image?")
+    box.setInformativeText("Every heal and scratch repair placed on this frame will be removed.")
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes

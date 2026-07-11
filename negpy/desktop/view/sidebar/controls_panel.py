@@ -750,3 +750,8 @@ class ControlsPanel(QWidget):
         self.geometry_sidebar.sync_ui()
         self.local_sidebar.sync_ui()
         self.process_sidebar.sync_ui()
+        # Retouch hosts two tool toggles (heal + scratch); without this sync,
+        # activating one left the other highlighted as if both were live. The
+        # colour sidebar's WB picker had the same latent stale-check bug.
+        self.retouch_sidebar.sync_ui()
+        self.colour_sidebar.sync_ui()

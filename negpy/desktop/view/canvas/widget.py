@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Optional, Tuple
 import math
 import sys
 from PyQt6.QtWidgets import QStackedLayout, QMenu, QWidget, QPinchGesture, QGestureEvent
-from PyQt6.QtGui import QMouseEvent, QNativeGestureEvent, QPainter, QColor, QWheelEvent
+from PyQt6.QtGui import QCursor, QMouseEvent, QNativeGestureEvent, QPainter, QColor, QWheelEvent
 from PyQt6.QtCore import QEvent, pyqtSignal, Qt, QPointF
 from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
@@ -37,6 +37,27 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
 }
+
+_scratch_pen_cursor: Optional[QCursor] = None
+
+
+def _cursor_for_tool(mode: ToolMode) -> QCursor | Qt.CursorShape:
+    """Cursor for a tool mode. The scratch tool gets a pen-nib cursor so it's
+    obvious the canvas is in click-points line-drawing mode (built lazily —
+    QCursor pixmaps need a live QGuiApplication)."""
+    if mode == ToolMode.SCRATCH_PICK:
+        global _scratch_pen_cursor
+        if _scratch_pen_cursor is None:
+            import qtawesome as qta
+
+            pix = qta.icon("fa5s.pen-nib", color="white").pixmap(22, 22)
+            # The nib tip sits at the glyph's bottom-left; hotspot there so
+            # points land where the pen visually touches.
+            _scratch_pen_cursor = QCursor(pix, 3, 19)
+        return _scratch_pen_cursor
+    return _TOOL_CURSORS.get(mode, Qt.CursorShape.ArrowCursor)
+
+
 # Do not apply more than this many notch-equivalents in a single event (huge flings).
 _WHEEL_MAX_NOTCHES = 4.0
 
@@ -171,11 +192,11 @@ class ImageCanvas(QWidget):
             self._floating_toolbar.raise_()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
-        self.setCursor(_TOOL_CURSORS.get(mode, Qt.CursorShape.ArrowCursor))
+        self.setCursor(_cursor_for_tool(mode))
         self.overlay.set_tool_mode(mode)
 
     def reset_tool_cursor(self) -> None:
-        self.setCursor(_TOOL_CURSORS.get(self.state.active_tool, Qt.CursorShape.ArrowCursor))
+        self.setCursor(_cursor_for_tool(self.state.active_tool))
 
     def set_controller(self, controller: "AppController") -> None:
         self._controller = controller
@@ -497,6 +518,12 @@ class ImageCanvas(QWidget):
             event.ignore()
             return
 
+        # While a heal tool is live, the menu serves that tool — the general
+        # settings menu would be noise mid-retouch.
+        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+            self._exec_retouch_menu(event)
+            return
+
         menu = QMenu(self)
         act_wb = menu.addAction("Pick WB  Shift+W")
         act_wb.triggered.connect(lambda: self._controller.set_active_tool(ToolMode.WB_PICK))  # type: ignore[union-attr]
@@ -513,4 +540,38 @@ class ImageCanvas(QWidget):
         menu.addSeparator()
         act_reset = menu.addAction("Reset View")
         act_reset.triggered.connect(self.fit_to_window)
+        menu.exec(event.globalPos())
+
+    def _exec_retouch_menu(self, event) -> None:
+        """Context menu while the heal or scratch tool is active."""
+        controller = self._controller
+        assert controller is not None
+        conf = self.state.config.retouch
+        num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+        pos = QPointF(event.pos())
+
+        menu = QMenu(self)
+
+        if self.state.active_tool == ToolMode.SCRATCH_PICK:
+            act_confirm = menu.addAction("Confirm Scratch  Enter")
+            act_confirm.triggered.connect(self.overlay.confirm_scratch)
+            act_confirm.setEnabled(self.overlay.has_scratch_points())
+            act_point = menu.addAction("Undo Last Point  Backspace")
+            act_point.triggered.connect(self.overlay.undo_last_scratch_point)
+            act_point.setEnabled(self.overlay.has_scratch_points())
+            menu.addSeparator()
+
+        hit = self.overlay.heal_hit_test(pos)
+        if hit is not None:
+            kind, index = hit
+            act_delete = menu.addAction("Delete This Heal")
+            act_delete.triggered.connect(lambda _=False, k=kind, i=index: controller.delete_heal(k, i))
+            menu.addSeparator()
+
+        act_undo = menu.addAction("Undo Last Heal  Ctrl+Z")
+        act_undo.triggered.connect(controller.undo_last_retouch)
+        act_undo.setEnabled(num_heals > 0)
+        act_clear = menu.addAction("Clear All Heals…")
+        act_clear.triggered.connect(controller.clear_retouch)
+        act_clear.setEnabled(num_heals > 0)
         menu.exec(event.globalPos())

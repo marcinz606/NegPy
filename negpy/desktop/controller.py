@@ -926,10 +926,38 @@ class AppController(QObject):
             self._update_thumbnail_from_state(force_readback=True)
 
     def clear_retouch(self) -> None:
+        from negpy.desktop.view.confirm import confirm_clear_heals
+
+        conf = self.state.config.retouch
+        count = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+        if count == 0:
+            return
+        # Wiping every heal is not step-recoverable like single-heal undo — confirm.
+        if not confirm_clear_heals(None, count):
+            return
         self.session.update_config(
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[]),
+            )
+        )
+        self.request_render()
+
+    def delete_heal(self, kind: str, index: int) -> None:
+        """Removes one placed heal by identity ("stroke"/"spot", index) — lets the
+        user pick off a bad patch directly instead of unwinding newer heals first."""
+        strokes = list(self.state.config.retouch.manual_heal_strokes)
+        spots = list(self.state.config.retouch.manual_dust_spots)
+        if kind == "stroke" and 0 <= index < len(strokes):
+            strokes.pop(index)
+        elif kind == "spot" and 0 <= index < len(spots):
+            spots.pop(index)
+        else:
+            return
+        self.session.update_config(
+            replace(
+                self.state.config,
+                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
             )
         )
         self.request_render()
