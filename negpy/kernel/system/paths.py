@@ -21,6 +21,25 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)
 
 
+def _usable_user_dir(base: Path) -> Optional[str]:
+    """
+    The NegPy dir under `base` if `base` is usable, else None.
+
+    When `base` already exists this touches nothing (the app creates its
+    subdirectories at startup). When it's missing, creatability has to be proven
+    by actually creating — a registered-but-absent folder is indistinguishable
+    from a creatable one until CreateDirectory runs.
+    """
+    target = base / "NegPy"
+    try:
+        if os.path.isdir(base):
+            return str(target.absolute())
+        os.makedirs(target, exist_ok=True)
+        return str(target.absolute())
+    except OSError:
+        return None
+
+
 def get_default_user_dir() -> str:
     """Resolve the user directory, defaulting to Documents/NegPy with platform-native detection."""
     env_path = os.getenv("NEGPY_USER_DIR")
@@ -36,8 +55,8 @@ def get_default_user_dir() -> str:
 
             buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
             # CSIDL_PERSONAL = 5
-            ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf)
-            if buf.value:
+            res = ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf)
+            if res == 0 and buf.value:
                 docs_dir = Path(buf.value)
         except Exception:
             pass
@@ -78,11 +97,20 @@ def get_default_user_dir() -> str:
     elif sys.platform == "darwin":
         docs_dir = Path.home() / "Documents"
 
-    # fallback
+    home = Path(os.path.expanduser("~"))
     if not docs_dir:
-        try:
-            docs_dir = Path.home() / "Documents"
-        except RuntimeError:
-            docs_dir = Path(os.path.expanduser("~")) / "Documents"
+        docs_dir = home / "Documents"
 
-    return str((docs_dir / "NegPy").absolute())
+    # The registered Documents folder can point at a location that does not exist
+    # on disk — most commonly a OneDrive-backed Documents (...\OneDrive\Documents)
+    # after OneDrive is unlinked, signed out, or not yet synced. Trusting it blindly
+    # made the startup os.makedirs die with WinError 2 (#441). Validate the
+    # candidate and fall back to plain local locations that always exist.
+    candidates = list(dict.fromkeys([docs_dir, home / "Documents", home]))
+    for base in candidates:
+        usable = _usable_user_dir(base)
+        if usable is not None:
+            return usable
+
+    # Last resort: home always exists in practice; let startup surface any error.
+    return str((home / "NegPy").absolute())
