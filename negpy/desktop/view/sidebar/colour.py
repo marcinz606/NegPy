@@ -13,7 +13,6 @@ class ColourSidebar(BaseSidebar):
     """White balance (region CMY + Pick WB) and Cast Removal."""
 
     def _init_ui(self) -> None:
-        self.layout.setSpacing(12)
         conf = self.state.config.exposure
 
         # Region selector, same idiom as the tone page's channel selector.

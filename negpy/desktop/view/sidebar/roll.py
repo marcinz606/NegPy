@@ -18,7 +18,6 @@ class RollAnalysisSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.layout.setSpacing(12)
         conf = self.state.config.process
 
         self.layout.addWidget(section_subheader("BATCH"))

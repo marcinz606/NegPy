@@ -32,8 +32,9 @@ PUSH_PULL_VALUES = [3, 2, 1, 0, -1, -2, -3]
 class MetadataSidebar(BaseSidebar):
     """Panel for analog gear metadata written to exported files."""
 
+    SIDE_MARGIN = THEME.space_xl
+
     def _init_ui(self) -> None:
-        self.layout.setSpacing(10)
         conf = self.state.config.metadata
         self._gear_library: GearLibrary = GearProfiles.load_library()
 

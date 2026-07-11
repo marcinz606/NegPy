@@ -15,6 +15,9 @@ class BaseSidebar(QWidget):
     Handles common setup and configuration updates.
     """
 
+    # 0 = the card owns horizontal inset; standalone panels override.
+    SIDE_MARGIN = 0
+
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
@@ -40,8 +43,8 @@ class BaseSidebar(QWidget):
     def _init_layout(self) -> None:
         """Sets up the default QVBoxLayout."""
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(5, 0, 5, 5)
-        self.layout.setSpacing(THEME.space_md)
+        self.layout.setContentsMargins(self.SIDE_MARGIN, 0, self.SIDE_MARGIN, 5)
+        self.layout.setSpacing(THEME.space_lg)
 
     def _init_ui(self) -> None:
         """Override to add widgets to self.layout."""

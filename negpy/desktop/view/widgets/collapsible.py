@@ -49,7 +49,7 @@ class CollapsibleSection(QWidget):
         self.toggle_button.setProperty("overlay", "true" if background_widget else "false")
 
         btn_layout = QHBoxLayout(self.toggle_button)
-        btn_layout.setContentsMargins(12, 8, 12, 8)
+        btn_layout.setContentsMargins(THEME.space_xl, 8, THEME.space_xl, 8)
         btn_layout.setSpacing(10)
 
         if icon:
@@ -97,7 +97,7 @@ class CollapsibleSection(QWidget):
         self.content_area = QFrame()
         self.content_area.setObjectName("collapsible_content")
         self.content_layout = QVBoxLayout(self.content_area)
-        self.content_layout.setContentsMargins(0, 4, 0, 8)
+        self.content_layout.setContentsMargins(THEME.space_xl, 4, THEME.space_xl, 8)  # same inset as header
         self.content_layout.setSpacing(4)
         self.content_area.setVisible(expanded)
 

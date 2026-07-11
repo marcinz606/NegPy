@@ -42,8 +42,9 @@ class ExportSidebar(BaseSidebar):
     Panel for export settings, presets and batch processing.
     """
 
+    SIDE_MARGIN = THEME.space_xl
+
     def _init_ui(self) -> None:
-        self.layout.setSpacing(10)
 
         self.update_timer = QTimer()
         self.update_timer.setSingleShot(True)

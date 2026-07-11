@@ -17,7 +17,6 @@ class ToneSidebar(BaseSidebar):
     selector scoping Grade/Toe/Shoulder to per-layer trims (crossover correction)."""
 
     def _init_ui(self) -> None:
-        self.layout.setSpacing(12)
         conf = self.state.config.exposure
 
         self.density_slider = CompactSlider("Print Density", 0.0, 2.0, conf.density)

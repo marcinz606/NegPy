@@ -12,7 +12,6 @@ class FinishSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.layout.setSpacing(12)
         conf = self.state.config.finish
 
         self.layout.addWidget(section_subheader("VIGNETTE"))

@@ -4,12 +4,15 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QMenu
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.theme import THEME
 
 _INDEX_ROLE = Qt.ItemDataRole.UserRole
 
 
 class HistoryPanel(BaseSidebar):
     """Scrollable list of edit-history steps; click to jump, right-click to export."""
+
+    SIDE_MARGIN = THEME.space_xl
 
     def _init_ui(self) -> None:
         self.layout.addWidget(section_subheader("EDIT HISTORY"))

@@ -14,7 +14,6 @@ class RetouchSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.layout.setSpacing(10)
         conf = self.state.config.retouch
 
         auto_row = QHBoxLayout()

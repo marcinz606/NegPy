@@ -14,8 +14,6 @@ class LocalSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.layout.setSpacing(10)
-
         self.draw_btn = self._tool_toggle(
             "fa5s.draw-polygon",
             "Draw Mask",

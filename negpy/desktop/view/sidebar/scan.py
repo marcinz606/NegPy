@@ -62,8 +62,8 @@ class ScanSidebar(QWidget):
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 0, 5, 5)
-        layout.setSpacing(10)
+        layout.setContentsMargins(THEME.space_xl, 0, THEME.space_xl, 5)
+        layout.setSpacing(THEME.space_lg)
 
         # ── DEVICE ───────────────────────────────────────────
         layout.addWidget(section_subheader("DEVICE"))

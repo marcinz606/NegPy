@@ -12,7 +12,6 @@ class LabSidebar(BaseSidebar):
     """
 
     def _init_ui(self) -> None:
-        self.layout.setSpacing(12)
         conf = self.state.config.lab
 
         self.color_header = section_subheader("COLOR")
