@@ -337,6 +337,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
         self.controller.capture_finished.connect(self._on_finished)
+        self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
         self.controller.capture_status.connect(self._on_status)
         self.controller.capture_live_view_started.connect(self._on_live_view_started)
@@ -553,13 +554,18 @@ class ScanlightSidebar(QWidget):
         """Cancel: abort any in-progress calibration, stop the calib live-view, and route
         frames back to the scan pop-up."""
         if self._lv_target is self.calib_window.image:
-            if self._calibrating_preset:
+            calibration_running = bool(self._calibrating_preset)
+            if calibration_running:
                 self.controller.cancel_capture()  # calibration runs in this live view → abort it cleanly
             self.controller.stop_live_view()
             self._lv_timer.stop()
             self._lv_target = self.lv_image
-            self._calibrating_preset = ""
-            self._apply_gating()  # calibration is over → Scan is allowed again
+            # Keep the job marker until the worker acknowledges a terminal outcome. The
+            # shared capture thread is still occupied, so re-enabling Scan here could queue
+            # another frame behind work that has not actually stopped yet.
+            if not calibration_running:
+                self._calibrating_preset = ""
+            self._apply_gating()
             self._push_light()
 
     # ── live view ─────────────────────────────────────────────────────
@@ -874,21 +880,39 @@ class ScanlightSidebar(QWidget):
         self._set_status(f"Captured frame {frame} — inverting in NegPy…")
         self._after_capture_live_view()  # re-light the still-running preview
 
+    @pyqtSlot()
+    def _on_cancelled(self) -> None:
+        self.set_scanning(False)
+        self.progress_bar.setVisible(False)
+        if self._calibrating_preset:
+            self._finish_calibration_terminal("Calibration cancelled.")
+            self._set_status("Calibration cancelled.")
+            return
+        self._set_status("Capture cancelled.")
+        self._after_capture_live_view()
+
+    def _finish_calibration_terminal(self, status: str) -> None:
+        """Restore the scan UI after calibration stops without producing a preset."""
+        self._calibrating_preset = ""
+        self.calib_window.set_status(status)
+        self.calib_window.progress.setVisible(False)
+        self._lv_target = self.lv_image
+        self._stop_calibration_live_view()
+        self._apply_gating()
+
     @pyqtSlot(str)
     def _on_error(self, msg: str) -> None:
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
         if self._calibrating_preset:
             # New-preset calibration failed: report in the pop-up, drop back to the scan target.
-            self._calibrating_preset = ""
-            self._apply_gating()  # calibration is over → Scan is allowed again
-            self.calib_window.set_status(f"Calibration failed: {msg}")
-            self.calib_window.progress.setVisible(False)
-            self._lv_target = self.lv_image
-            self._stop_calibration_live_view()  # calibration ran inside live view → tear it down
+            self._finish_calibration_terminal(f"Calibration failed: {msg}")
         else:
+            if self.lv_btn.isChecked():
+                # CaptureWorker discards its camera session on errors. Close the frozen
+                # preview honestly; the operator can reopen it to establish a fresh session.
+                self.lv_btn.setChecked(False)
             self._set_status(f"Error: {msg}")
-            self._after_capture_live_view()  # scan: re-light the still-running preview
 
     @pyqtSlot(str)
     def _on_status(self, msg: str) -> None:
@@ -987,8 +1011,8 @@ class ScanlightSidebar(QWidget):
         can_scan = not missing
         # keep enabled while live view is open so it can be toggled off
         self.lv_btn.setEnabled(can_scan or self.lv_btn.isChecked())
-        # Calibration needs camera + light, and the worker to itself.
-        can_calibrate = self._camera_verified and self._light_verified and not self._scanning
+        # Calibration needs camera + light and an idle capture worker.
+        can_calibrate = self._camera_verified and self._light_verified and not self._scanning and not self._calibrating_preset
         self.preset_new_btn.setEnabled(can_calibrate)
         self.calib_window.calibrate_btn.setEnabled(can_calibrate)  # the pop-up may already be open
         for btn in (self.lv_window.scan_btn, self.lv_window.retake_btn):

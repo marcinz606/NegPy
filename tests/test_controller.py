@@ -62,6 +62,14 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_called_once_with(1.0)
         self.assertFalse(self.controller.state.hq_preview)
 
+    def test_capture_worker_cancelled_is_forwarded(self):
+        cancelled = MagicMock()
+        self.controller.capture_cancelled.connect(cancelled)
+
+        self.controller.capture_worker.cancelled.emit()
+
+        cancelled.assert_called_once_with()
+
     def test_thumbnail_refreshes_on_config_changed_settle(self):
         """Filmstrip thumbnail is re-captured on every settled render whose config
         differs from the last capture (covers in-place edits and reset), but not on a
@@ -875,8 +883,8 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
         self.controller.asset_discovery_requested.connect(tasks.append)
         self.controller.generate_missing_thumbnails = MagicMock()
         state = self.mock_session_manager.state
-        self.mock_session_manager.add_files.side_effect = (
-            lambda _paths, validated_info=None: state.uploaded_files.extend(validated_info or [])
+        self.mock_session_manager.add_files.side_effect = lambda _paths, validated_info=None: state.uploaded_files.extend(
+            validated_info or []
         )
         req = MagicMock()
         req.white_mode = False

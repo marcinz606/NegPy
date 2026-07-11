@@ -149,6 +149,84 @@ def test_set_scanning_mirrors_to_popup_button():
     assert "Scan" in w.lv_window.scan_btn.text()
 
 
+def test_cancelled_scan_returns_sidebar_to_a_terminal_idle_state():
+    w = _sidebar()
+    w.set_scanning(True)
+    w.progress_bar.setValue(67)
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)
+    w.lv_btn.blockSignals(False)
+    w.controller.set_scanlight_color.reset_mock()
+
+    w._on_cancelled()
+
+    assert not w._scanning
+    assert w.progress_bar.isHidden()
+    assert "cancelled" in w.status_label.text().lower()
+    assert w.lv_btn.isChecked()  # capture cancellation preserves the live-view session
+    assert w.controller.set_scanlight_color.called  # restore the framing light
+
+
+def test_cancelled_calibration_restores_scan_target_and_gates():
+    w = _sidebar()
+    w._camera_verified = True
+    w._light_verified = True
+    w._calibrating_preset = "Portra 400"
+    w._lv_target = w.calib_window.image
+    w.calib_window.set_progress(0.67)
+    w._lv_timer.start()
+    w._apply_gating()
+    assert not w.preset_new_btn.isEnabled()
+
+    w._on_cancelled()
+
+    assert w._calibrating_preset == ""
+    assert w._lv_target is w.lv_image
+    assert w.calib_window.progress.isHidden()
+    assert "cancelled" in w.calib_window.status.text().lower()
+    assert not w._lv_timer.isActive()
+    w.controller.stop_live_view.assert_called_once_with()
+    assert w.preset_new_btn.isEnabled()
+    assert w.calib_window.calibrate_btn.isEnabled()
+
+
+def test_closing_running_calibration_waits_for_worker_terminal_signal():
+    w = _sidebar()
+    w._calibrating_preset = "Portra 400"
+    w._lv_target = w.calib_window.image
+
+    w._on_calib_window_closed()
+
+    w.controller.cancel_capture.assert_called_once_with()
+    assert w._calibrating_preset == "Portra 400"  # worker still owns the capture session
+
+    w._on_cancelled()
+
+    assert w._calibrating_preset == ""
+    assert w._lv_target is w.lv_image
+
+
+def test_capture_error_closes_the_stale_live_view_session():
+    w = _sidebar()
+    w.set_scanning(True)
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)
+    w.lv_btn.blockSignals(False)
+    w.lv_window.show()
+    w._lv_timer.start()
+    w.controller.stop_live_view.reset_mock()
+
+    w._on_error("camera disconnected")
+
+    assert not w._scanning
+    assert w.progress_bar.isHidden()
+    assert not w.lv_btn.isChecked()
+    assert w.lv_window.isHidden()
+    assert not w._lv_timer.isActive()
+    w.controller.stop_live_view.assert_called_once_with()
+    assert "camera disconnected" in w.status_label.text().lower()
+
+
 def test_status_is_mirrored_into_popup():
     w = _sidebar()
     w._set_status("metering base…")

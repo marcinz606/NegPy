@@ -68,6 +68,7 @@ class CaptureWorker(QObject):
     light_set = pyqtSignal(int, int, int, int)  # r, g, b, w actually applied
     progress = pyqtSignal(float)  # 0.0..1.0
     finished = pyqtSignal(list)  # [red_path, green_path, blue_path]
+    cancelled = pyqtSignal()
     error = pyqtSignal(str)
     status = pyqtSignal(str)
     live_view_started = pyqtSignal(str)  # jpeg path being refreshed
@@ -170,8 +171,6 @@ class CaptureWorker(QObject):
                     shutter=(req.shutters[0] or None),
                     cancel=self._cancel,
                 )
-                if self._cancel.is_set():
-                    return
                 self.finished.emit([path])
                 return
 
@@ -189,8 +188,6 @@ class CaptureWorker(QObject):
                     settle_s=req.settle_s,
                     cancel=self._cancel,
                 )
-                if self._cancel.is_set():
-                    return
                 self.finished.emit([path])
                 return
 
@@ -211,13 +208,12 @@ class CaptureWorker(QObject):
                 on_channel=lambda letter: self.status.emit(f"Capturing {_names.get(letter, letter)} channel…"),
             )
 
-            if self._cancel.is_set():
-                return
             self.finished.emit(result.paths)
         except Exception as e:
             self._close_camera()  # discard a possibly-broken held session
             self._cleanup_partial_frame(req)  # keep the folder a clean multiple of 3 for NegPy's grouper
             if self._cancel.is_set():
+                self.cancelled.emit()
                 return
             logger.exception("capture failed")
             self.error.emit(str(e))
@@ -380,12 +376,11 @@ class CaptureWorker(QObject):
                     progress=self.calibration_progress.emit,
                     cancel=self._cancel,
                 )
-            if self._cancel.is_set():
-                return
             self.calibration_finished.emit(result)
         except Exception as e:
             self._close_camera()  # discard a possibly-broken held session
             if self._cancel.is_set():
+                self.cancelled.emit()
                 return
             logger.exception("calibration failed")
             self.error.emit(f"Calibration: {e}")
