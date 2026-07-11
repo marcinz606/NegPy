@@ -389,6 +389,41 @@ class ControlsPanel(QWidget):
                 ["shoulder_width_inc", "shoulder_width_dec"],
             )
         )
+        exp.midtone_gamma_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Snap — paper midtone gamma trim: steepens or flattens the S-curve around the reference "
+                "tone; paper white/black stay put. In R/G/B mode: this layer's Snap trim",
+                ["snap_inc", "snap_dec"],
+            )
+        )
+        exp.shadow_density_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Shadow zone density (ΔD): weighted to the deep shadows, bounded by paper black. "
+                "Positive darkens shadows; negative lifts them",
+                ["shadow_density_inc", "shadow_density_dec"],
+            )
+        )
+        exp.highlight_density_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Highlight zone density (ΔD): weighted to the highlights, bounded by paper white. "
+                "Positive burns highlights in; negative bleaches them",
+                ["highlight_density_inc", "highlight_density_dec"],
+            )
+        )
+        exp.shadow_grade_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Split grade — shadow zone contrast trim (ISO-R): rotates the curve locally in the deep "
+                "shadows. In R/G/B mode: this layer's shadow-grade trim",
+                ["shadow_grade_inc", "shadow_grade_dec"],
+            )
+        )
+        exp.highlight_grade_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Split grade — highlight zone contrast trim (ISO-R): rotates the curve locally in the "
+                "highlights. In R/G/B mode: this layer's highlight-grade trim",
+                ["highlight_grade_inc", "highlight_grade_dec"],
+            )
+        )
 
         geo.manual_crop_btn.setToolTip(
             tooltip_with_shortcut(
