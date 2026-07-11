@@ -388,7 +388,13 @@ class WorkspaceConfig:
         for cc in config_classes:
             valid_keys.update(cc.__dataclass_fields__.keys())
 
-        unknown = set(data) - valid_keys
+        # Fields deliberately removed from the config over time. Every edit saved
+        # before the removal still carries them, so they'd otherwise warn on every
+        # file load; drop silently and keep the warning for truly unknown keys.
+        #   surround: dim-surround print gamma, removed in #432 (replaced by Snap).
+        legacy_keys = {"surround"}
+
+        unknown = set(data) - valid_keys - legacy_keys
         if unknown:
             logger.warning("Dropping unknown config keys: %s", sorted(unknown))
 
