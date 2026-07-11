@@ -134,6 +134,7 @@ class AppController(QObject):
     normalization_requested = pyqtSignal(NormalizationTask)
     analysis_buffer_preview_requested = pyqtSignal(float)
     rotation_guide_requested = pyqtSignal()
+    crop_guide_changed = pyqtSignal()
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -765,6 +766,14 @@ class AppController(QObject):
     def show_rotation_guide(self) -> None:
         """Request the canvas show the fine-rotation alignment grid."""
         self.rotation_guide_requested.emit()
+
+    def set_crop_guide(self, guide: str) -> None:
+        self.session.set_crop_guide(guide)
+        self.crop_guide_changed.emit()
+
+    def cycle_crop_guide_orientation(self) -> None:
+        self.session.set_crop_guide_orientation((self.state.crop_guide_orientation + 1) % 8)
+        self.crop_guide_changed.emit()
 
     def handle_crop_rect_changed(self, nx1: float, ny1: float, nx2: float, ny2: float, persist: bool) -> None:
         """Live-updates (persist=False) or commits (persist=True) the manual crop rect

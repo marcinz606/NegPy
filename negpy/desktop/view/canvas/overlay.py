@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QWidget
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
+from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.geometry.logic import rotation_drag_angle, translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
@@ -376,6 +377,19 @@ class CanvasOverlay(QWidget):
         """Dense leveling grid shown while Fine Rot is adjusted (Lightroom-style)."""
         self._draw_grid(painter, visible_rect, _ROTATION_GRID_DIVISIONS, _GRID_ALPHA)
 
+    def _draw_crop_guides(self, painter: QPainter, rect: QRectF) -> None:
+        """Selected composition guide (thirds, phi, spiral, ...) inside the crop rect."""
+        shapes = guide_shapes(CropGuide(self.state.crop_guide), rect.width(), rect.height(), self.state.crop_guide_orientation)
+        if not shapes:
+            return
+        pen = QPen(QColor(255, 255, 255, _GRID_ALPHA), 1, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        ox, oy = rect.left(), rect.top()
+        for poly in shapes:
+            painter.drawPolyline(QPolygonF([QPointF(ox + x, oy + y) for x, y in poly]))
+
     def _draw_compare_badge(self, painter: QPainter, visible_rect: QRectF) -> None:
         badge = QRectF(visible_rect.x() + 12, visible_rect.y() + 12, 78, 22)
         painter.setBrush(QColor(0, 0, 0, 170))
@@ -663,7 +677,7 @@ class CanvasOverlay(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(pen)
             painter.drawRect(rect)
-            self._draw_grid(painter, rect, 3, _GRID_ALPHA)
+            self._draw_crop_guides(painter, rect)
             return
 
         corners = self._crop_corner_screen_points()
@@ -686,7 +700,7 @@ class CanvasOverlay(QWidget):
         painter.setPen(pen)
         painter.drawPolygon(poly)
 
-        self._draw_grid(painter, QRectF(corners["tl"], corners["br"]), 3, _GRID_ALPHA)
+        self._draw_crop_guides(painter, QRectF(corners["tl"], corners["br"]))
 
         handle_pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
         handle_pen.setCosmetic(True)

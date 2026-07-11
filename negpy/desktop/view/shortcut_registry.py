@@ -23,6 +23,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "fine_rot_inc": ShortcutEntry("Alt+R", "Fine rotation up", "Geometry"),
     "pick_wb": ShortcutEntry("Shift+W", "Toggle WB picker", "Tools"),
     "manual_crop": ShortcutEntry("Shift+C", "Toggle manual crop", "Tools"),
+    "crop_guide_next": ShortcutEntry("O", "Next crop guide overlay", "Geometry"),
+    "crop_guide_orient": ShortcutEntry("Shift+O", "Rotate crop guide orientation", "Geometry"),
     "auto_crop": ShortcutEntry("Shift+A", "Toggle autocrop", "Geometry"),
     "pick_dust": ShortcutEntry("Shift+D", "Toggle heal tool", "Tools"),
     "cancel_tool": ShortcutEntry("Esc", "Cancel active tool", "Tools"),

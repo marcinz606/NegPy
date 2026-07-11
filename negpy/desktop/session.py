@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
+from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -80,6 +81,10 @@ class AppState:
 
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
+
+    # Crop tool composition guide (CropGuide value); display-only, so not in GeometryConfig
+    crop_guide: str = "thirds"
+    crop_guide_orientation: int = 0
 
     # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
     invert_zoom_scroll: bool = False
@@ -405,6 +410,13 @@ class DesktopSessionManager(QObject):
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
 
+        saved_guide = self.repo.get_global_setting("crop_guide")
+        if saved_guide in set(CropGuide):
+            self.state.crop_guide = str(saved_guide)
+        saved_guide_orient = self.repo.get_global_setting("crop_guide_orientation")
+        if saved_guide_orient is not None:
+            self.state.crop_guide_orientation = int(saved_guide_orient) % 8
+
         saved_invert_zoom = self.repo.get_global_setting("invert_zoom_scroll")
         if saved_invert_zoom is not None:
             self.state.invert_zoom_scroll = bool(saved_invert_zoom)
@@ -457,6 +469,18 @@ class DesktopSessionManager(QObject):
         if self.state.canvas_bg_index != index:
             self.state.canvas_bg_index = index
             self.repo.save_global_setting("canvas_bg_index", index)
+
+    def set_crop_guide(self, guide: str) -> None:
+        """Updates and persists the crop composition guide."""
+        if self.state.crop_guide != guide:
+            self.state.crop_guide = guide
+            self.repo.save_global_setting("crop_guide", guide)
+
+    def set_crop_guide_orientation(self, orientation: int) -> None:
+        """Updates and persists the crop guide orientation step."""
+        if self.state.crop_guide_orientation != orientation:
+            self.state.crop_guide_orientation = orientation
+            self.repo.save_global_setting("crop_guide_orientation", orientation)
 
     def save_icc_prefs(self) -> None:
         """Persists current ICC profile settings."""
