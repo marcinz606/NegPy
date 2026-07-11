@@ -106,7 +106,9 @@ class SettingStepper(QWidget):
     def hasFocus(self) -> bool:
         # Treat a just-pressed arrow as "busy" so the ~1 Hz settings refresh doesn't snap the
         # value back while the camera's reported `cur` catches up to the step the user made.
-        return (time.monotonic() - self._last_step) < 1.2 or super().hasFocus()
+        # The window must outlast a debounced (~0.25 s) + verified (~1-2 s) camera write, or
+        # the stepper flickers back to the old value mid-write.
+        return (time.monotonic() - self._last_step) < 2.5 or super().hasFocus()
 
 
 class LiveViewWindow(QDialog):

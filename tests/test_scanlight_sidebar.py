@@ -315,10 +315,40 @@ def test_camera_settings_populate_and_set(tmp_path, monkeypatch):
     assert w.lv_window.iso_stepper.count() == 2
     assert w.lv_window.iso_stepper.currentData() == 200  # reflects the camera's current value
     assert not w.lv_window.aperture_stepper.isEnabled()  # unavailable → disabled
-    # user steps ISO to 100 → controller gets the raw value
+    # user steps ISO to 100 → controller gets the raw value (after the debounce flushes)
     w.lv_window.iso_stepper.setCurrentIndex(w.lv_window.iso_stepper.findData(100))
     w._on_camera_setting("iso", w.lv_window.iso_stepper)
+    w._flush_camera_settings()
     w.controller.set_camera_setting.assert_called_with("iso", 100)
+
+
+def test_camera_setting_writes_are_debounced_to_the_final_value(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "shutter": {
+                    "cur": 0,
+                    "writable": True,
+                    "options": [{"raw": 0, "label": "1/5"}, {"raw": 1, "label": "1/60"}, {"raw": 2, "label": "1/125"}],
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._refresh_camera_settings()
+    st = w.lv_window.shutter_stepper
+    for raw in (1, 2):  # rapid stepping 1/5 → 1/60 → 1/125
+        st.setCurrentIndex(st.findData(raw))
+        w._on_camera_setting("shutter", st)
+    w.controller.set_camera_setting.assert_not_called()  # nothing written until the user pauses
+    w._flush_camera_settings()
+    w.controller.set_camera_setting.assert_called_once_with("shutter", 2)  # only the final value
 
 
 def test_setting_stepper_steps_and_clamps():

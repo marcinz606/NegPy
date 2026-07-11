@@ -95,6 +95,14 @@ class ScanlightSidebar(QWidget):
         self._light_debounce.setInterval(60)
         self._light_debounce.timeout.connect(self._push_light)
 
+        # Coalesce rapid ISO/shutter/aperture stepping into one verified camera write per setting
+        # (each write is ~1-2 s, so writing every intermediate step made 1/5 → 1/125 take ~30 s).
+        self._cam_setting_debounce = QTimer()
+        self._cam_setting_debounce.setSingleShot(True)
+        self._cam_setting_debounce.setInterval(250)
+        self._cam_setting_debounce.timeout.connect(self._flush_camera_settings)
+        self._cam_pending: dict[str, int] = {}
+
         # Live-view: the camera's preview thread rewrites a JPEG; this timer polls it. It
         # runs a bit faster than the frame interval and skips re-decoding an unchanged
         # frame (mtime guard), so new frames show promptly without wasting CPU.
@@ -691,7 +699,16 @@ class ScanlightSidebar(QWidget):
     def _on_camera_setting(self, which: str, combo) -> None:
         raw = combo.currentData()
         if raw is not None:
-            self.controller.set_camera_setting(which, int(raw))
+            # Buffer the latest value and write once the user pauses (debounced), so rapid
+            # stepping doesn't queue a ~1-2 s verified write per intermediate step.
+            self._cam_pending[which] = int(raw)
+            self._cam_setting_debounce.start()
+
+    def _flush_camera_settings(self) -> None:
+        """Apply the buffered ISO/shutter/aperture changes — one verified write per setting."""
+        pending, self._cam_pending = self._cam_pending, {}
+        for which, raw in pending.items():
+            self.controller.set_camera_setting(which, raw)
 
     def _refresh_camera_settings(self) -> None:
         """Poll the stream's settings JSON → populate/refresh the ISO/Shutter/aperture steppers."""
