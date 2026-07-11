@@ -607,6 +607,30 @@ class CanvasOverlay(QWidget):
             self._rot_handle_pixmap = qta.icon("fa5s.sync-alt", color="white").pixmap(size, size)
         return self._rot_handle_pixmap
 
+    def _oriented_target_ratio(self, dx: float, dy: float) -> Optional[float]:
+        """Aspect-ratio constraint (w/h) for a crop drag, or None when unconstrained.
+
+        The configured ratio string (e.g. "4:3") names a shape, not an orientation.
+        After a 90° canvas rotation the crop box is portrait, so the same constraint
+        must act as 3:4 — applying it as fixed landscape collapsed the box into a
+        small sideways one on the first corner-adjust (#442). Orient by the drag's
+        dominant axis: dragging taller than wide yields the portrait variant, wider
+        yields landscape, so adjusting an existing box keeps its orientation.
+        """
+        ratio_str = self.state.config.geometry.autocrop_ratio
+        if ratio_str == "Free":
+            return None
+        try:
+            w_r, h_r = map(float, ratio_str.split(":"))
+            ratio = w_r / h_r
+        except (ValueError, ZeroDivisionError):
+            return None
+        if ratio <= 0.0:
+            return None
+        if abs(dy) > abs(dx):
+            return min(ratio, 1.0 / ratio)
+        return max(ratio, 1.0 / ratio)
+
     def _apply_aspect_and_min(self, anchor_screen: QPointF, cur_screen: QPointF) -> Tuple[float, float, float, float]:
         """Resizes a rect anchored at `anchor_screen` towards `cur_screen`, honoring the
         configured aspect ratio (if any) and a minimum rect size.
@@ -619,17 +643,9 @@ class CanvasOverlay(QWidget):
         ax, ay = anchor_screen.x(), anchor_screen.y()
         nx, ny = cur_screen.x(), cur_screen.y()
 
-        ratio_str = self.state.config.geometry.autocrop_ratio
-        target_ratio: Optional[float] = None
-        if ratio_str != "Free":
-            try:
-                w_r, h_r = map(float, ratio_str.split(":"))
-                target_ratio = w_r / h_r
-            except Exception:
-                target_ratio = None
-
         dx = nx - ax
         dy = ny - ay
+        target_ratio = self._oriented_target_ratio(dx, dy)
 
         if target_ratio:
             if abs(dx) > abs(dy) * target_ratio:
@@ -1033,25 +1049,18 @@ class CanvasOverlay(QWidget):
             mx = np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())
             my = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
 
-            ratio_str = self.state.config.geometry.autocrop_ratio
-            if ratio_str == "Free":
+            dx = mx - self._crop_draw_p1.x()
+            dy = my - self._crop_draw_p1.y()
+            target_ratio = self._oriented_target_ratio(dx, dy)
+            if target_ratio is None:
                 self._crop_draw_p2 = QPointF(mx, my)
             else:
-                try:
-                    w_r, h_r = map(float, ratio_str.split(":"))
-                    target_ratio = w_r / h_r
+                if abs(dx) > abs(dy) * target_ratio:
+                    dx = abs(dy) * target_ratio * (1 if dx >= 0 else -1)
+                else:
+                    dy = abs(dx) / target_ratio * (1 if dy >= 0 else -1)
 
-                    dx = mx - self._crop_draw_p1.x()
-                    dy = my - self._crop_draw_p1.y()
-
-                    if abs(dx) > abs(dy) * target_ratio:
-                        dx = abs(dy) * target_ratio * (1 if dx >= 0 else -1)
-                    else:
-                        dy = abs(dx) / target_ratio * (1 if dy >= 0 else -1)
-
-                    self._crop_draw_p2 = QPointF(self._crop_draw_p1.x() + dx, self._crop_draw_p1.y() + dy)
-                except Exception:
-                    self._crop_draw_p2 = QPointF(mx, my)
+                self._crop_draw_p2 = QPointF(self._crop_draw_p1.x() + dx, self._crop_draw_p1.y() + dy)
             self.update()
             return
 
