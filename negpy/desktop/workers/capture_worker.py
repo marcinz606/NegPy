@@ -168,6 +168,7 @@ class CaptureWorker(QObject):
                     frame_number=req.frame_number,
                     output_folder=req.output_folder,
                     shutter=(req.shutters[0] or None),
+                    cancel=self._cancel,
                 )
                 if self._cancel.is_set():
                     return
@@ -186,6 +187,7 @@ class CaptureWorker(QObject):
                     w_level=req.w_level,
                     shutter=req.shutter_w or None,
                     settle_s=req.settle_s,
+                    cancel=self._cancel,
                 )
                 if self._cancel.is_set():
                     return

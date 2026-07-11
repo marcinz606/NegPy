@@ -1,6 +1,7 @@
 """White-light single capture and RAW size-guard checks."""
 
 import os
+import threading
 
 import pytest
 
@@ -76,6 +77,35 @@ def test_failed_white_retake_preserves_existing_file(tmp_path):
     assert light.off_called
 
 
+def test_cancelled_white_retake_preserves_existing_file(tmp_path):
+    existing = tmp_path / "Slide01_Frame003.ARW"
+    existing.write_bytes(b"existing-good-raw")
+    cancel = threading.Event()
+
+    class CancellingCamera(FakeCamera):
+        def capture(self, out_path, shutter=None):
+            path = super().capture(out_path, shutter=shutter)
+            cancel.set()  # Stop pressed while the camera is downloading the RAW.
+            return path
+
+    light = FakeLight()
+    svc = CaptureService(light, CancellingCamera(size=10), sleep=lambda _s: None)
+
+    with pytest.raises(CaptureError, match="capture cancelled"):
+        svc.capture_white(
+            roll_name="Slide01",
+            frame_number=3,
+            output_folder=str(tmp_path),
+            w_level=200,
+            min_raw_bytes=1,
+            max_raw_bytes=100,
+            cancel=cancel,
+        )
+
+    assert existing.read_bytes() == b"existing-good-raw"
+    assert light.off_called
+
+
 def test_capture_single_no_light(tmp_path):
     # Normal white-light scanning: camera-only, one file, no Scanlight involved.
     cam = FakeCamera()
@@ -97,6 +127,31 @@ def test_failed_single_retake_preserves_existing_file(tmp_path):
             output_folder=str(tmp_path),
             min_raw_bytes=1,
             max_raw_bytes=100,
+        )
+
+    assert existing.read_bytes() == b"existing-good-raw"
+
+
+def test_cancelled_single_retake_preserves_existing_file(tmp_path):
+    existing = tmp_path / "Roll01_Frame007.ARW"
+    existing.write_bytes(b"existing-good-raw")
+    cancel = threading.Event()
+
+    class CancellingCamera(FakeCamera):
+        def capture(self, out_path, shutter=None):
+            path = super().capture(out_path, shutter=shutter)
+            cancel.set()  # Stop pressed while the camera is downloading the RAW.
+            return path
+
+    with pytest.raises(CaptureError, match="capture cancelled"):
+        capture_single(
+            CancellingCamera(size=10),
+            roll_name="Roll01",
+            frame_number=7,
+            output_folder=str(tmp_path),
+            min_raw_bytes=1,
+            max_raw_bytes=100,
+            cancel=cancel,
         )
 
     assert existing.read_bytes() == b"existing-good-raw"

@@ -60,6 +60,7 @@ def _capture_validated_single(
     shutter: Optional[str],
     min_raw_bytes: int,
     max_raw_bytes: int,
+    cancel: Optional[threading.Event] = None,
 ) -> str:
     """Capture beside the destination and replace it only after size validation."""
     output_folder = os.path.dirname(final_stem)
@@ -69,6 +70,8 @@ def _capture_validated_single(
         staged_path = camera.capture(staged_stem + _RAW_SUFFIX, shutter=shutter)
         verify_raw_size(staged_path, min_raw_bytes, max_raw_bytes)
         final_path = os.path.join(output_folder, os.path.basename(staged_path))
+        if cancel is not None and cancel.is_set():
+            raise CaptureError("capture cancelled")
         os.replace(staged_path, final_path)
         return final_path
     finally:
@@ -84,6 +87,7 @@ def capture_single(
     shutter: Optional[str] = None,
     min_raw_bytes: int = 8 * 1024 * 1024,
     max_raw_bytes: int = 200 * 1024 * 1024,
+    cancel: Optional[threading.Event] = None,
 ) -> str:
     """One camera exposure with NO light control — for normal white-light scanning without the
     Scanlight (the operator's own high-CRI light stays on). One file, no R/G/B split; imported
@@ -97,6 +101,7 @@ def capture_single(
         shutter=shutter,
         min_raw_bytes=min_raw_bytes,
         max_raw_bytes=max_raw_bytes,
+        cancel=cancel,
     )
 
 
@@ -242,6 +247,7 @@ class CaptureService:
         settle_s: float = 0.4,
         min_raw_bytes: int = 8 * 1024 * 1024,
         max_raw_bytes: int = 200 * 1024 * 1024,
+        cancel: Optional[threading.Event] = None,
     ) -> str:
         """Single white-light exposure for slide / E-6 film (one file, no R/G/B split)."""
         os.makedirs(output_folder, exist_ok=True)
@@ -256,6 +262,7 @@ class CaptureService:
                 shutter=shutter,
                 min_raw_bytes=min_raw_bytes,
                 max_raw_bytes=max_raw_bytes,
+                cancel=cancel,
             )
         finally:
             try:
