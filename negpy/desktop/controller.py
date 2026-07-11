@@ -81,6 +81,16 @@ def _capture_import_key(path: str) -> str:
     return os.path.normcase(os.path.abspath(path))
 
 
+@dataclass(frozen=True)
+class _DiscoveryRequest:
+    paths: tuple[str, ...]
+    auto_open: bool
+    restore_triplets: Optional[dict]
+    replace_existing: bool
+    reselect_path: Optional[str]
+    rgb_scan: bool
+
+
 def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
     """
     The 'before' config for the before/after view: reset the creative sections to defaults
@@ -184,6 +194,8 @@ class AppController(QObject):
         self._replace_after_discovery = False
         self._reselect_after_discovery: Optional[str] = None
         self._pending_capture_imports: Dict[str, _PendingCaptureImport] = {}
+        self._pending_asset_discoveries: List[_DiscoveryRequest] = []
+        self._pending_scanned_file: Optional[str] = None
         self._gpu_fallback_notified = False
         self._cleaned_up = False
         self._active_batch: Optional[str] = None
@@ -449,31 +461,48 @@ class AppController(QObject):
     ) -> None:
         """
         Starts asynchronous discovery of supported assets.
-        Silently skips if a discovery task is already in progress.
+        Requests arriving while hashing is in progress are queued in order.
 
         `replace_existing` rebuilds the asset list from the results (instead of
         appending) and reselects `reselect_path` — used when re-running discovery
         over already-loaded files (e.g. an RGB-scan mode toggle).
         """
+        request = _DiscoveryRequest(
+            paths=tuple(paths),
+            auto_open=auto_open,
+            restore_triplets=restore_triplets,
+            replace_existing=replace_existing,
+            reselect_path=reselect_path,
+            rgb_scan=bool(self.session.repo.get_global_setting("rgbscan_mode", False)),
+        )
         if self._discovery_running:
+            self._pending_asset_discoveries.append(request)
             return
+
+        self._start_asset_discovery(request)
+
+    def _start_asset_discovery(self, request: _DiscoveryRequest) -> None:
+        """Start one request; callers ensure only one discovery is active."""
 
         from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 
         self._discovery_running = True
-        self._auto_open_after_discovery = auto_open
-        self._replace_after_discovery = replace_existing
-        self._reselect_after_discovery = reselect_path
+        self._auto_open_after_discovery = request.auto_open
+        self._replace_after_discovery = request.replace_existing
+        self._reselect_after_discovery = request.reselect_path
         self.set_status("SCANNING FOR ASSETS...")
         self._begin_batch("Hashing files", abortable=False)
-        rgb_scan = bool(self.session.repo.get_global_setting("rgbscan_mode", False))
         task = AssetDiscoveryTask(
-            paths=paths,
+            paths=list(request.paths),
             supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS),
-            rgb_scan=rgb_scan,
-            restore_triplets=restore_triplets,
+            rgb_scan=request.rgb_scan,
+            restore_triplets=request.restore_triplets,
         )
         self.asset_discovery_requested.emit(task)
+
+    def _start_next_asset_discovery(self) -> None:
+        if self._pending_asset_discoveries:
+            self._start_asset_discovery(self._pending_asset_discoveries.pop(0))
 
     def set_rgb_scan_mode(self, enabled: bool) -> None:
         """Persist the RGB-scan toggle and re-discover already-loaded assets so the
@@ -525,24 +554,21 @@ class AppController(QObject):
                 0,
             )
             self.session.select_file(idx)
+            self._start_next_asset_discovery()
             return
 
         if valid_assets:
             first_new_idx = len(self.session.state.uploaded_files)
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
-            if pending_scan:
-                self._select_file_by_path(pending_scan)
+            if pending_scan and self._select_file_by_path(pending_scan):
+                self._pending_scanned_file = None
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
                 self.session.select_file(first_new_idx)
         else:
             self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
             self.status_progress_requested.emit(0, 0)
-        if pending_scan:
-            # Selection emits load_file synchronously, which normally consumes the intent.
-            # Drop it here as well so a failed/mismatched discovery cannot affect a later import.
-            self._pending_capture_imports.pop(_capture_import_key(pending_scan), None)
-            self._pending_scanned_file = None
+        self._start_next_asset_discovery()
 
     def _file_hash_for_path(self, file_path: str) -> Optional[str]:
         if self.state.current_file_path == file_path and self.state.current_file_hash:
@@ -1342,12 +1368,13 @@ class AppController(QObject):
         self._pending_scanned_file = path
         self.request_asset_discovery([path])
 
-    def _select_file_by_path(self, path: str) -> None:
+    def _select_file_by_path(self, path: str) -> bool:
         """Find a file by path in uploaded_files and select it."""
         for i, f_info in enumerate(self.session.state.uploaded_files):
             if f_info.get("path") == path:
                 self.session.select_file(i)
-                return
+                return True
+        return False
 
     # ── Scanlight capture integration ─────────────────────────────────
 

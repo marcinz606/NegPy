@@ -39,6 +39,20 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(self.session.state.selected_file_idx, 1)
         self.assertEqual(self.session.state.selected_indices, [1])
 
+    def test_rediscovery_refreshes_same_path_in_place(self):
+        refreshed = {
+            "name": "file1 (RGB)",
+            "path": "path1",
+            "hash": "fresh-hash",
+            "green_path": "path1-g",
+            "blue_path": "path1-b",
+        }
+
+        self.session.add_files([], validated_info=[refreshed])
+
+        self.assertEqual(len(self.session.state.uploaded_files), 2)
+        self.assertEqual(self.session.state.uploaded_files[0], refreshed)
+
     def test_set_autodetect_enabled_persists(self):
         self.assertFalse(self.session.state.autodetect_enabled)
         self.session.set_autodetect_enabled(True)

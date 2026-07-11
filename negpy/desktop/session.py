@@ -937,6 +937,15 @@ class DesktopSessionManager(QObject):
 
         if validated_info:
             for info in validated_info:
+                same_path_idx = next(
+                    (i for i, existing in enumerate(self.state.uploaded_files) if existing["path"] == info["path"]),
+                    None,
+                )
+                if same_path_idx is not None:
+                    old = self.state.uploaded_files[same_path_idx]
+                    self.state.thumbnails.pop(old["name"], None)
+                    self.state.uploaded_files[same_path_idx] = info
+                    continue
                 if any(f["hash"] == info["hash"] for f in self.state.uploaded_files):
                     continue
                 self.state.uploaded_files.append(info)

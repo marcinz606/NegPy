@@ -1,4 +1,5 @@
 import io
+import os
 import time
 from typing import Any, Optional, Tuple
 
@@ -19,6 +20,15 @@ from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
 
 logger = get_logger(__name__)
+
+
+def _file_revision(path: str) -> str:
+    """Cheap cache identity for companion exposures that do not have their own asset hash."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return f"{path}|missing"
+    return f"{path}|{stat.st_size}|{stat.st_mtime_ns}"
 
 
 def _output_dimensions_from_raw(raw: Any, postprocessed_h: int, postprocessed_w: int) -> Tuple[int, int]:
@@ -332,8 +342,10 @@ class PreviewManager:
         a triplet skips the green/blue decode and the phase-correlate align."""
         merged_key = None
         if file_hash and color_space is not None:
+            green_revision = _file_revision(green_path)
+            blue_revision = _file_revision(blue_path)
             merged_key = PreviewCacheKey(
-                file_hash=f"rgb|{file_hash}|{green_path}|{blue_path}|{align}",
+                file_hash=f"rgb|{file_hash}|{green_revision}|{blue_revision}|{align}",
                 use_camera_wb=use_camera_wb,
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,

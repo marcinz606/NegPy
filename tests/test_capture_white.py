@@ -56,13 +56,50 @@ def test_capture_white_single_file(tmp_path):
     assert light.off_called
 
 
+def test_failed_white_retake_preserves_existing_file(tmp_path):
+    existing = tmp_path / "Slide01_Frame003.ARW"
+    existing.write_bytes(b"existing-good-raw")
+    light = FakeLight()
+    svc = CaptureService(light, FakeCamera(size=0), sleep=lambda _s: None)
+
+    with pytest.raises(CaptureError):
+        svc.capture_white(
+            roll_name="Slide01",
+            frame_number=3,
+            output_folder=str(tmp_path),
+            w_level=200,
+            min_raw_bytes=1,
+            max_raw_bytes=100,
+        )
+
+    assert existing.read_bytes() == b"existing-good-raw"
+    assert light.off_called
+
+
 def test_capture_single_no_light(tmp_path):
     # Normal white-light scanning: camera-only, one file, no Scanlight involved.
     cam = FakeCamera()
     path = capture_single(cam, roll_name="Roll01", frame_number=7, output_folder=str(tmp_path), shutter="1/60")
     assert os.path.basename(path) == "Roll01_Frame007.ARW"  # single file, no _R/_G/_B suffix
     assert os.path.exists(path)
-    assert cam.captured[0] == (path, "1/60")
+    assert cam.captured[0][1] == "1/60"
+
+
+def test_failed_single_retake_preserves_existing_file(tmp_path):
+    existing = tmp_path / "Roll01_Frame007.ARW"
+    existing.write_bytes(b"existing-good-raw")
+
+    with pytest.raises(CaptureError):
+        capture_single(
+            FakeCamera(size=0),
+            roll_name="Roll01",
+            frame_number=7,
+            output_folder=str(tmp_path),
+            min_raw_bytes=1,
+            max_raw_bytes=100,
+        )
+
+    assert existing.read_bytes() == b"existing-good-raw"
 
 
 def test_verify_raw_size_rejects_small(tmp_path):

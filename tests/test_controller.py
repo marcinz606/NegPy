@@ -869,6 +869,34 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
 
         self.assertEqual(order, ["finished", "thumbs"])
 
+    def test_back_to_back_capture_completions_are_discovered_in_order(self):
+        self.controller.asset_discovery_requested.disconnect(self.controller.discovery_worker.process)
+        tasks = []
+        self.controller.asset_discovery_requested.connect(tasks.append)
+        self.controller.generate_missing_thumbnails = MagicMock()
+        state = self.mock_session_manager.state
+        self.mock_session_manager.add_files.side_effect = (
+            lambda _paths, validated_info=None: state.uploaded_files.extend(validated_info or [])
+        )
+        req = MagicMock()
+        req.white_mode = False
+        req.rgb_mode = True
+        self.controller._last_capture_req = req
+
+        first_paths = ["/roll/frame1_R.dng", "/roll/frame1_G.dng", "/roll/frame1_B.dng"]
+        second_paths = ["/roll/frame2_R.dng", "/roll/frame2_G.dng", "/roll/frame2_B.dng"]
+        self.controller._on_capture_finished(first_paths)
+        self.controller._on_capture_finished(second_paths)
+
+        self.assertEqual([task.paths for task in tasks], [first_paths])
+
+        self.controller._on_discovery_finished([{"name": "frame1", "path": first_paths[0], "hash": "h1"}])
+        self.assertEqual([task.paths for task in tasks], [first_paths, second_paths])
+
+        self.controller._on_discovery_finished([{"name": "frame2", "path": second_paths[0], "hash": "h2"}])
+        self.assertEqual([f["path"] for f in state.uploaded_files], [first_paths[0], second_paths[0]])
+        self.mock_session_manager.select_file.assert_called_with(1)
+
 
 class TestBatchAnalysisFiltering(unittest.TestCase):
     def setUp(self):

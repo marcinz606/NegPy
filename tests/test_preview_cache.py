@@ -83,3 +83,27 @@ def test_cache_warm_task_does_not_emit_finished() -> None:
     w.process(t)
     fin.assert_not_called()
     pm.load_linear_preview.assert_called_once()
+
+
+def test_rgb_preview_cache_invalidates_when_companion_content_changes(tmp_path) -> None:
+    paths = [tmp_path / name for name in ("r.dng", "g.dng", "b.dng")]
+    for path in paths:
+        path.write_bytes(b"old")
+
+    pm = PreviewManager()
+
+    def decode(path, *_args, **_kwargs):
+        value = {str(paths[0]): 0.2, str(paths[1]): 0.4, str(paths[2]): 0.6}[path]
+        return np.full((4, 4, 3), value, dtype=np.float32), (4, 4), {}
+
+    pm.load_linear_preview = MagicMock(side_effect=decode)
+    args = (*map(str, paths), "Adobe RGB")
+
+    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash", align=False)
+    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash", align=False)
+    assert pm.load_linear_preview.call_count == 3  # unchanged triplet reuses the merge
+
+    paths[1].write_bytes(b"new-green-content")
+    pm.load_linear_preview_rgb(*args, file_hash="same-red-hash", align=False)
+
+    assert pm.load_linear_preview.call_count == 6

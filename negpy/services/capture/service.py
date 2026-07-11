@@ -9,6 +9,8 @@ whole flow is unit-testable with fakes.
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import threading
 import time
 from typing import Callable, Optional
@@ -51,6 +53,28 @@ def verify_raw_size(path: str, min_bytes: int, max_bytes: int) -> None:
         )
 
 
+def _capture_validated_single(
+    camera: Camera,
+    *,
+    final_stem: str,
+    shutter: Optional[str],
+    min_raw_bytes: int,
+    max_raw_bytes: int,
+) -> str:
+    """Capture beside the destination and replace it only after size validation."""
+    output_folder = os.path.dirname(final_stem)
+    staging_dir = tempfile.mkdtemp(prefix=f".{os.path.basename(final_stem)}-", suffix=".capture", dir=output_folder)
+    try:
+        staged_stem = os.path.join(staging_dir, os.path.basename(final_stem))
+        staged_path = camera.capture(staged_stem + _RAW_SUFFIX, shutter=shutter)
+        verify_raw_size(staged_path, min_raw_bytes, max_raw_bytes)
+        final_path = os.path.join(output_folder, os.path.basename(staged_path))
+        os.replace(staged_path, final_path)
+        return final_path
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+
 def capture_single(
     camera: Camera,
     *,
@@ -67,9 +91,55 @@ def capture_single(
     os.makedirs(output_folder, exist_ok=True)
     stem = os.path.join(output_folder, f"{roll_name}_Frame{frame_number:03d}")
     logger.info("capturing single (white-light) frame → %s", stem)
-    out_path = camera.capture(stem + _RAW_SUFFIX, shutter=shutter)  # the camera picks the suffix
-    verify_raw_size(out_path, min_raw_bytes, max_raw_bytes)
-    return out_path
+    return _capture_validated_single(
+        camera,
+        final_stem=stem,
+        shutter=shutter,
+        min_raw_bytes=min_raw_bytes,
+        max_raw_bytes=max_raw_bytes,
+    )
+
+
+def _promote_triplet(staged_paths: dict[Channel, str], output_folder: str) -> dict[Channel, str]:
+    """Replace a frame's three channel files as one recoverable operation.
+
+    All captures have already passed validation before this runs. Existing files are
+    backed up inside the staging directory so an I/O failure during promotion can roll
+    every channel back to the prior complete triplet.
+    """
+    final_paths = {channel: os.path.join(output_folder, os.path.basename(path)) for channel, path in staged_paths.items()}
+    staging_dir = os.path.dirname(next(iter(staged_paths.values())))
+    backups: dict[Channel, str] = {}
+    promoted: list[Channel] = []
+
+    try:
+        for channel in CAPTURE_ORDER:
+            final_path = final_paths[channel]
+            if os.path.exists(final_path):
+                backup_path = os.path.join(staging_dir, f".previous-{os.path.basename(final_path)}")
+                try:
+                    os.link(final_path, backup_path)
+                except OSError:
+                    shutil.copy2(final_path, backup_path)
+                backups[channel] = backup_path
+
+        for channel in CAPTURE_ORDER:
+            os.replace(staged_paths[channel], final_paths[channel])
+            promoted.append(channel)
+    except OSError as exc:
+        for channel in reversed(promoted):
+            final_path = final_paths[channel]
+            backup_path = backups.get(channel)
+            try:
+                if backup_path is not None and os.path.exists(backup_path):
+                    os.replace(backup_path, final_path)
+                else:
+                    os.remove(final_path)
+            except OSError:
+                logger.exception("could not roll back channel %s after promotion failure", channel.letter)
+        raise CaptureError(f"could not promote completed triplet: {exc}") from exc
+
+    return final_paths
 
 
 class CaptureService:
@@ -104,7 +174,10 @@ class CaptureService:
         `CaptureError` on cancel or an implausibly sized file.
         """
         os.makedirs(settings.output_folder, exist_ok=True)
+        frame_name = f"{settings.roll_name}_Frame{settings.frame_number:03d}"
+        staging_dir = tempfile.mkdtemp(prefix=f".{frame_name}-", suffix=".capture", dir=settings.output_folder)
         level = {Channel.RED: settings.levels[0], Channel.GREEN: settings.levels[1], Channel.BLUE: settings.levels[2]}
+        staged_paths: dict[Channel, str] = {}
         paths: dict[Channel, str] = {}
 
         try:
@@ -121,13 +194,13 @@ class CaptureService:
                 _t1 = time.perf_counter()
 
                 stem = os.path.join(
-                    settings.output_folder,
-                    f"{settings.roll_name}_Frame{settings.frame_number:03d}_{ch.letter}",
+                    staging_dir,
+                    f"{frame_name}_{ch.letter}",
                 )
                 shutter = settings.shutters[i] if settings.shutters is not None else None
                 out_path = self._camera.capture(stem + _RAW_SUFFIX, shutter=shutter)
                 self._verify_size(out_path, settings)
-                paths[ch] = out_path
+                staged_paths[ch] = out_path
                 # Per-channel timing so the scan-speed bottleneck (settle vs. shutter+RAW download)
                 # is visible in the log: settle is a fixed wait, capture+download is transport-bound.
                 logger.info(
@@ -140,11 +213,16 @@ class CaptureService:
 
                 if progress is not None:
                     progress((i + 1) / len(CAPTURE_ORDER))
+
+            if cancel is not None and cancel.is_set():
+                raise CaptureError("capture cancelled")
+            paths = _promote_triplet(staged_paths, settings.output_folder)
         finally:
             try:
                 self._light.off()
             except Exception:
                 logger.exception("failed to turn the Scanlight off after capture")
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
         return CaptureResult(
             frame_number=settings.frame_number,
@@ -172,9 +250,13 @@ class CaptureService:
             self._sleep(settle_s)
             stem = os.path.join(output_folder, f"{roll_name}_Frame{frame_number:03d}")
             logger.info("capturing white frame → %s", stem)
-            out_path = self._camera.capture(stem + _RAW_SUFFIX, shutter=shutter)
-            verify_raw_size(out_path, min_raw_bytes, max_raw_bytes)
-            return out_path
+            return _capture_validated_single(
+                self._camera,
+                final_stem=stem,
+                shutter=shutter,
+                min_raw_bytes=min_raw_bytes,
+                max_raw_bytes=max_raw_bytes,
+            )
         finally:
             try:
                 self._light.off()

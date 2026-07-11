@@ -103,6 +103,34 @@ def test_capture_triplet_turns_light_off_on_error(tmp_path):
     assert light.off_called  # finally-block always kills the light
 
 
+def test_failed_retake_preserves_complete_existing_triplet(tmp_path):
+    """A bad late channel must not leave a new R/G paired with the previous B."""
+    existing = {}
+    for channel in "RGB":
+        path = tmp_path / f"Roll001_Frame001_{channel}.ARW"
+        path.write_bytes(f"old-{channel}".encode())
+        existing[channel] = path
+
+    class FailingBlueCamera(FakeCamera):
+        def capture(self, out_path, shutter=None):
+            out_path = os.path.splitext(out_path)[0] + ".ARW"
+            channel = os.path.splitext(out_path)[0].rsplit("_", 1)[-1]
+            with open(out_path, "wb") as f:
+                f.write(b"new-channel" if channel != "B" else b"")
+            return out_path
+
+    svc = CaptureService(FakeLight(), FailingBlueCamera(), sleep=lambda _s: None)
+
+    with pytest.raises(CaptureError):
+        svc.capture_triplet(_settings(tmp_path, min_raw_bytes=1, max_raw_bytes=100))
+
+    assert {channel: path.read_bytes() for channel, path in existing.items()} == {
+        "R": b"old-R",
+        "G": b"old-G",
+        "B": b"old-B",
+    }
+
+
 def test_capture_triplet_cancel_before_first_channel(tmp_path):
     light, cam = FakeLight(), FakeCamera()
     svc = CaptureService(light, cam, sleep=lambda _s: None)
