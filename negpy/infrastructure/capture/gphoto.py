@@ -216,6 +216,10 @@ class GphotoCamera:
         # Raised while a still is in flight, so the preview thread doesn't queue another
         # ~40 ms frame grab ahead of the next channel of a triplet.
         self._busy = threading.Event()
+        self._reset_body_state()
+
+    def _reset_body_state(self) -> None:
+        """Forget controls whose names and semantics belong to one camera body."""
         self._magnifier: Optional[_Magnifier] = None
         self._magnifier_ratios: Optional[tuple[str, str]] = None
         self._magnifier_off = ""
@@ -270,6 +274,7 @@ class GphotoCamera:
                 except Exception as exc:  # noqa: BLE001 — teardown must not raise
                     logger.warning("gphoto2 exit: %s", exc)
                 self._camera = None
+            self._reset_body_state()
 
     def _require(self) -> Any:
         if self._camera is None:
@@ -310,7 +315,11 @@ class GphotoCamera:
 
         deadline = time.monotonic() + settle_s
         while time.monotonic() < deadline:
-            got = _safe_value(self._gp, camera.get_single_config(name))
+            try:
+                got = _safe_value(self._gp, camera.get_single_config(name))
+            except self._gp.GPhoto2Error as exc:
+                logger.warning("gphoto2: could not verify %s at %r: %s", name, value, exc)
+                return False
             if got is not None and accepts(got):
                 return True
             time.sleep(0.1)

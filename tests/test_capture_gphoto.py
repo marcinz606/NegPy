@@ -86,6 +86,8 @@ class _Camera:
 
     def get_single_config(self, name):
         self._check()
+        if self._fake.readback_error and self._fake.writes and self._fake.writes[-1][0] == name:
+            raise _Err("[-7] I/O problem during readback")
         if name not in self._fake.props:
             raise _Err(f"no property {name}")
         return self._fake.props[name]
@@ -153,6 +155,7 @@ class FakeGP:
         self.undrained = False
         self.gone = False  # set by unplug(): the body stops answering, as on a pulled cable
         self.reject_writes = False  # a value this body does not offer
+        self.readback_error = False
         self.captures = self.previews = 0
         self.writes: list[tuple[str, str]] = []
         self.init_error = init_error
@@ -312,6 +315,13 @@ def test_a_write_that_never_settles_is_reported_not_raised(fake, caplog):
     assert "did not settle" in caplog.text
 
 
+def test_a_readback_error_is_reported_not_raised(cam, fake, caplog):
+    fake.readback_error = True
+
+    assert cam._set_verified("iso", "200", settle_s=0.05) is False
+    assert "could not verify iso" in caplog.text
+
+
 # ---- focus magnifier --------------------------------------------------------
 
 
@@ -348,6 +358,22 @@ def test_aperture_is_found_under_the_vendor_s_own_name():
     assert camera._property("aperture") == "aperture"
     assert camera.read_settings()["aperture"]["cur"] == 1
     camera.set_aperture(2)
+    assert ("aperture", "8") in fake.writes
+    camera.close()
+
+
+def test_reopening_for_another_body_reprobes_property_names():
+    fake = FakeGP(aperture_name="f-number")
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+    assert "aperture" not in camera.read_settings()
+    camera.close()
+
+    del fake.props["f-number"]
+    fake.props["aperture"] = _Widget(fake, "aperture", "5.6", ["2.8", "5.6", "8"])
+    camera.open()
+    camera.set_aperture(2)
+
     assert ("aperture", "8") in fake.writes
     camera.close()
 
@@ -402,6 +428,56 @@ def test_a_canon_style_magnifier_zooms_without_aiming(caplog):
 
     camera.set_focus_magnifier(False)
     assert fake.writes[-1] == ("eoszoom", "1")
+    camera.close()
+
+
+def test_reopening_for_another_body_reprobes_the_magnifier():
+    fake = FakeGP(magnifier="sony")
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+    camera.set_focus_magnifier(True)
+    assert fake.writes[-1][0] == "focusmagnifier"
+    camera.close()
+
+    del fake.props["focusmagnifier"]
+    fake.props["eoszoom"] = _Widget(fake, "eoszoom", "1", ["1", "5", "10"])
+    fake.writes.clear()
+    camera.open()
+    camera.set_focus_magnifier(True)
+
+    assert fake.writes[-1] == ("eoszoom", "5")
+    camera.close()
+
+
+def test_reopening_resets_the_magnifier_aim_to_centre():
+    fake = FakeGP(magnifier="sony")
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+    camera.set_focus_magnifier_at(100, 100)
+    camera.close()
+
+    fake.writes.clear()
+    camera.open()
+    camera.set_focus_magnifier(True)
+
+    assert fake.writes[-1] == ("focusmagnifier", "6.9,320,240")
+    camera.close()
+
+
+def test_reopening_resets_the_unavailable_aim_warning(caplog):
+    caplog.set_level(logging.INFO)
+    fake = FakeGP(magnifier="canon")
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+    camera.set_focus_magnifier_at(100, 100)
+    assert "cannot be aimed" in caplog.text
+    camera.close()
+
+    caplog.clear()
+    camera.open()
+    camera.set_focus_magnifier_at(100, 100)
+
+    assert "cannot be aimed" in caplog.text
     camera.close()
 
 

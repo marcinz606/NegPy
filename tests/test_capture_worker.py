@@ -30,6 +30,55 @@ class FakeLight:
         pass
 
 
+class FailingControlCamera:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def is_open(self) -> bool:
+        return not self.closed
+
+    def close(self) -> None:
+        self.closed = True
+
+    def set_focus_magnifier(self, _on: bool) -> None:
+        raise RuntimeError("USB disconnected")
+
+    def set_focus_magnifier_at(self, _x: int, _y: int) -> None:
+        raise RuntimeError("USB disconnected")
+
+    def set_iso(self, _raw: int) -> None:
+        raise RuntimeError("USB disconnected")
+
+    def set_shutter(self, _raw: int) -> None:
+        pass
+
+    def set_aperture(self, _raw: int) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    ("slot", "args"),
+    [
+        ("set_focus_magnifier", (True,)),
+        ("set_focus_magnifier_pos", (320, 240)),
+        ("set_camera_setting", ("iso", 1)),
+    ],
+)
+def test_camera_control_slot_failure_is_recoverable(slot, args, caplog):
+    worker = CaptureWorker()
+    camera = FailingControlCamera()
+    worker._camera = camera
+    errors = []
+    worker.error.connect(errors.append)
+
+    getattr(worker, slot)(*args)
+
+    assert camera.closed
+    assert errors and "USB disconnected" in errors[-1]
+    assert "Reconnect" in errors[-1]
+    assert f"{slot} failed" in caplog.text
+
+
 def test_normal_capture_cancel_before_promotion_preserves_retake(tmp_path, monkeypatch):
     existing = tmp_path / "Roll01_Frame007.ARW"
     existing.write_bytes(b"existing-good-raw")

@@ -309,29 +309,44 @@ class CaptureWorker(QObject):
             except Exception:
                 logger.exception("error stopping live view")
 
+    def _camera_control_failed(self, action: str, exc: Exception) -> None:
+        """Turn a failed Qt camera-control callback into a recoverable disconnect."""
+        logger.exception("%s failed", action)
+        self._close_camera()
+        self.error.emit(f"Camera control failed: {exc}. Reconnect and try again.")
+
     @pyqtSlot(bool)
     def set_focus_magnifier(self, on: bool) -> None:
         """Toggle the camera's hardware focus magnifier."""
-        if self._holds_camera():
-            self._camera.set_focus_magnifier(on)
+        try:
+            if self._holds_camera():
+                self._camera.set_focus_magnifier(on)
+        except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
+            self._camera_control_failed("set_focus_magnifier", exc)
 
     @pyqtSlot(int, int)
     def set_focus_magnifier_pos(self, x: int, y: int) -> None:
         """Aim the magnifier at (x, y) on the 640x480 preview grid."""
-        if self._holds_camera():
-            self._camera.set_focus_magnifier_at(x, y)
+        try:
+            if self._holds_camera():
+                self._camera.set_focus_magnifier_at(x, y)
+        except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
+            self._camera_control_failed("set_focus_magnifier_pos", exc)
 
     @pyqtSlot(str, int)
     def set_camera_setting(self, which: str, raw: int) -> None:
         """Change a live camera setting (iso/shutter/wb/aperture); `raw` is a choice index."""
-        if not self._holds_camera():
-            return
-        cam = self._camera
-        {
-            "iso": cam.set_iso,
-            "shutter": cam.set_shutter,
-            "aperture": cam.set_aperture,
-        }.get(which, lambda _r: None)(raw)
+        try:
+            if not self._holds_camera():
+                return
+            cam = self._camera
+            {
+                "iso": cam.set_iso,
+                "shutter": cam.set_shutter,
+                "aperture": cam.set_aperture,
+            }.get(which, lambda _r: None)(raw)
+        except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
+            self._camera_control_failed("set_camera_setting", exc)
 
     # ----- calibration -----
 
