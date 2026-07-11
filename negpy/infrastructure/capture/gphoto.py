@@ -127,7 +127,7 @@ def _pin_locale() -> None:
     on a German desktop and 'Manual' on an English one. Only the *message* locale is
     pinned — touching `LC_ALL` would also change number formatting for the rest of the app.
     """
-    os.environ.setdefault("LANGUAGE", "C")
+    os.environ["LANGUAGE"] = "C"
 
 
 def _gp() -> Any:

@@ -7,11 +7,12 @@ fails unless the event queue was drained.
 
 import json
 import logging
+import os
 
 import pytest
 
 from negpy.infrastructure.capture.base import Camera
-from negpy.infrastructure.capture.gphoto import GphotoCamera, GphotoError, _safe_value
+from negpy.infrastructure.capture.gphoto import GphotoCamera, GphotoError, _pin_locale, _safe_value
 
 # ---- fake libgphoto2 --------------------------------------------------------
 
@@ -561,3 +562,12 @@ def test_setting_a_value_the_body_rejects_warns_instead_of_raising(cam, fake, ca
     fake.reject_writes = True
     assert cam._set_verified("iso", "999") is False
     assert "could not set iso" in caplog.text
+
+
+def test_pin_locale_overrides_a_preset_language(monkeypatch):
+    """Linux desktops ship LANGUAGE preset (e.g. 'de_DE:de'); it must be overridden, not
+    left in place, or gphoto's choice strings stay translated and the word-matched lookups
+    miss."""
+    monkeypatch.setenv("LANGUAGE", "de_DE:de")
+    _pin_locale()
+    assert os.environ["LANGUAGE"] == "C"
