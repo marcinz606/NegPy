@@ -76,6 +76,15 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _cast_removal(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.colour_sidebar.cast_removal_slider
 
+    def _split_grade(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.tone_sidebar.shadow_grade_slider
+
+    def _zone_density(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.tone_sidebar.shadow_density_slider
+
+    def _gear_manage(w: "MainWindow") -> Optional[QWidget]:
+        return w.right_panel.metadata_sidebar.manage_btn
+
     return [
         TutorialStep(
             title="Welcome to NegPy",
@@ -132,6 +141,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "click outside to draw a fresh rectangle. <b>Auto</b> detects the film edge, "
                 "<b>Fine Rot</b> straightens tilted scans, and <b>Detect Aspect Ratio</b> snaps "
                 "to the nearest standard ratio.<br><br>"
+                "The <b>Guide</b> dropdown swaps the overlay grid — Thirds, Phi Grid, Diagonals, "
+                "Golden Spiral and more (<b>O</b> cycles guides, <b>Shift+O</b> flips "
+                "orientation) — and four <b>rotation handles</b> just outside the crop box spin "
+                "the frame freehand (±45°), composing with Fine Rot for fine-tuning.<br><br>"
                 "Crop matters for more than framing: the conversion <b>meters what's inside "
                 "the crop</b> to find the black and white points. Unexposed rebate sits at "
                 "film-base density (a false brightest highlight); sprocket holes and scanner "
@@ -153,7 +166,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "percentile black/white points.<br><br>"
                 "Rule of thumb: the analysis area should contain image and nothing else. Use "
                 "the buffer when you deliberately keep a border in frame; a tight crop is the "
-                "cleaner fix."
+                "cleaner fix.<br><br>"
+                "For odd frames, the <b>draw region</b> tool next to it goes further: draw the "
+                "metering area freehand on the canvas, and the meter reads exactly that — "
+                "no centered inset."
             ),
             target=_analysis_buffer,
             section_attr="process_section",
@@ -173,7 +189,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "per dye layer via their <b>Global / R / G / B</b> selector, like a scanner's "
                 "per-channel levels.<br><br>"
                 "The stretch is <b>unclamped</b>: tones outside the bounds survive and roll "
-                "off later in the print curve's toe and shoulder."
+                "off later in the print curve's toe and shoulder.<br><br>"
+                "<b>Linear RAW</b> also lives here: it decodes the RAW with neutral "
+                "multipliers, bypassing the camera's as-shot white balance."
             ),
             target=_process,
             section_attr="process_section",
@@ -235,17 +253,47 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Width</b>: how far each knee's roll-off reaches.<br>"
                 "<b>Snap</b>: the paper's variable midtone gamma — endpoints and anchor stay put.<br><br>"
                 "<b>True Black</b> maps the paper's D-max to display black; pull Toe negative "
-                "with it on to clip deep shadows to exact black."
+                "with it on to clip deep shadows to exact black.<br><br>"
+                "Snap and True Black sit with the zone controls (next) under the "
+                "<b>Paper Response</b> header."
             ),
             target=_toe,
+            section_attr="tone_section",
+        ),
+        TutorialStep(
+            title="Split Grade — Zone Contrast",
+            body=(
+                "Split-grade printing: <b>Shadows Grade</b> and <b>Highlights Grade</b> trim "
+                "each zone's contrast in ISO-R points on top of the main Grade — harder "
+                "shadows without blowing the highlights, or softer highlights without "
+                "flattening the shadows, like a second enlarger exposure through a different "
+                "filter.<br><br>"
+                "Both trims spare the midtones and stay bounded by the paper's black and "
+                "white, and they scope per colour layer through the <b>Global / R / G / B</b> "
+                "selector like the main Grade."
+            ),
+            target=_split_grade,
+            section_attr="tone_section",
+        ),
+        TutorialStep(
+            title="Zone Density — Shadows & Highlights",
+            body=(
+                "Where Split Grade is zone <i>contrast</i>, these are zone <i>brightness</i>: "
+                "<b>Shadows Density</b> and <b>Highlights Density</b> darken or brighten each "
+                "zone while rolling into the paper's black and white limits instead of "
+                "clipping — burning in a sky without blocking it up.<br><br>"
+                "They live under the <b>Paper Response</b> header with Snap and True Black — "
+                "the deeper print-curve controls."
+            ),
+            target=_zone_density,
             section_attr="tone_section",
         ),
         TutorialStep(
             title="Per-Layer Trims — Crossover Correction",
             body=(
                 "The <b>Global / Red / Green / Blue</b> selector scopes the curve controls to a "
-                "single dye layer: in a channel mode, Grade, Toe, Shoulder, Width and Snap become "
-                "that layer's trims.<br><br>"
+                "single dye layer: in a channel mode, Grade, the Split Grades, Toe, Shoulder, "
+                "Width and Snap become that layer's trims.<br><br>"
                 "Colour filtration can only <i>shift</i> a layer's curve; trims change its "
                 "<i>shape</i> — fixing crossover casts that differ between shadows, mids and "
                 "highlights, the correction a real colour darkroom never had. The H&D chart "
@@ -257,11 +305,16 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Exposure — Color Balance",
             body=(
-                "Three CMY sliders operate in three <b>regions</b> — Global, Shadows, and Highlights — "
-                "giving you precise split-toning control over colour balance.<br><br>"
-                "<b>Pick WB</b>: click a neutral area in the preview to auto-calculate white balance shifts.<br><br>"
-                "<b>Linear RAW</b>: bypasses the camera's as-shot white balance and starts from neutral "
-                "multipliers. Leave it off for a sensible default starting point."
+                "White balance is real CC filtration — ±1.0 on a slider is ±20cc of dichroic "
+                "density. The <b>Global / Shadows / Highlights</b> buttons on top scope the "
+                "CMY sliders to a region for precise split-toning control.<br><br>"
+                "The <b>Temperature</b> slider re-dials the filter pack along the warm–cool "
+                "axis: Magenta and Yellow move together in the right ratio while your "
+                "green–magenta tint stays put. Travel is mired-linear (equal drag, equal "
+                "perceived shift), <b>T</b>/<b>G</b> nudge it, and the thermometer button "
+                "locks the temperature for the whole roll.<br><br>"
+                "<b>Pick WB</b>: click a neutral area in the preview and the filtration is "
+                "calculated for you."
             ),
             target=_region_btn,
             section_attr="colour_section",
@@ -275,8 +328,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Cast Removal</b> measures each channel's deep-shadow reference and gives "
                 "it its own slope, pivoting on the midtone — greys read neutral from deep "
                 "shadows through highlights, not just at one point.<br><br>"
-                "The auto toggle meters it per frame; the slider sets how much of the "
-                "measured correction is applied."
+                "Its strength adapts per frame to how confidently the neutral greys read — "
+                "clean greys get the full correction, few-neutral scenes gentler — and the "
+                "slider (default 0.5) trims on top; 0 turns it off."
             ),
             target=_cast_removal,
             section_attr="colour_section",
@@ -338,7 +392,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "silver density (B&W mode only): selenium converts the densest silver first — "
                 "deeper blacks and cool eggplant shadows; sepia bleach-redevelops the thinnest "
                 "silver first — warm highlights that hold the shadows (partial strength gives the "
-                "classic split-sepia look)."
+                "classic split-sepia look).<br><br>"
+                "<b>Gold</b> is the archival gold bath: a cool blue-black shift in the "
+                "highlights and mids with a slight density boost, while dense shadows hold. "
+                "Run it over Sepia for the classic combination — toned highlights pushed from "
+                "yellow-brown toward orange-red."
             ),
             target=_toning,
             section_attr="toning_section",
@@ -348,8 +406,12 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             body=(
                 "<b>Auto Dust</b> detects and removes small particles based on a density threshold. "
                 "Lower the threshold to be more aggressive.<br><br>"
-                "<b>Heal Tool</b>: click to enable, then click individual dust spots in the preview "
-                "for manual removal. Use <b>Undo Last</b> or <b>Clear All</b> to manage spots."
+                "<b>Heal Tool</b>: click individual dust spots in the preview — each heal "
+                "clones a matching patch from elsewhere in the frame and blends the seam, so "
+                "grain stays intact.<br><br>"
+                "<b>Scratch Tool</b>: click a polyline along a hair or scratch, double-click "
+                "or <b>Enter</b> to commit. <b>Undo Last</b> / <b>Clear All</b> manage the "
+                "spots."
             ),
             target=_retouch,
             section_attr="retouch_section",
@@ -376,6 +438,20 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             ),
             target=_history,
             pre_hook=lambda w: w.right_panel.show_tab_by_key("history"),
+        ),
+        TutorialStep(
+            title="Metadata & Gear Library",
+            body=(
+                "The <b>Metadata</b> tab writes film and scan info — stock, format, "
+                "developer, push/pull, scanner — into the EXIF/XMP of exported files.<br><br>"
+                "<b>Manage…</b> opens the <b>Gear Library</b>: a searchable, user-extendable "
+                "library of cameras, lenses and film stocks; gear picked for a frame rides "
+                "into the exported XMP.<br><br>"
+                "<b>Protect original metadata</b> keeps the source file's EXIF/XMP untouched "
+                "instead of NegPy rewriting it."
+            ),
+            target=_gear_manage,
+            pre_hook=lambda w: w.right_panel.show_tab_by_key("metadata"),
         ),
         TutorialStep(
             title="Export",
@@ -412,6 +488,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             body=(
                 "That's the core workflow. A few more things worth knowing:<br><br>"
                 "• Press <b>?</b> or use the ⋯ menu for keyboard shortcuts.<br>"
+                "• Scanning with a tethered camera? The <b>Camera Scanning</b> section on the "
+                "Scan tab drives the body and Scanlight directly (macOS/Linux) — see "
+                "<code>docs/CAMERA_SCANNING.md</code>.<br>"
                 "• See <code>docs/USER_GUIDE.md</code> for the full reference.<br>"
                 "• Having GPU or rendering issues? Edit "
                 "<code>Documents/NegPy/override.toml</code> to switch backends "
