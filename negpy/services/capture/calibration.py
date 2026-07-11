@@ -35,6 +35,11 @@ PROBE_LEVEL = 200
 PROBE_SHUTTER = "1/15"
 TARGET_FRACTION = 0.9  # aim the film base at 90% of usable range
 MIN_SIGNAL = 10.0  # counts; below this the channel read no real signal
+# A clean clip-guard adjustment can intentionally land a little below the ETTR target.
+# Beyond this margin the preset is materially mis-exposed and must not be saved.
+MAX_TARGET_UNDER_FRACTION = 0.2
+# There is much less safe headroom above a 90% ETTR target; 10% is already near clipping.
+MAX_TARGET_OVER_FRACTION = 0.1
 
 # Fallback shutter ladder, fastest first (third-stops). The body's own ladder is
 # preferred when live view has published it.
@@ -243,14 +248,17 @@ class CalibrationService:
     def _source_clip_fraction(self, path: str, channel_index: int, roi: Roi) -> float:
         """Raw-Bayer source clip for one channel (catches clipped photosites the demosaic hides)."""
         if self._source_clip is not None:
-            return float(self._source_clip(path, channel_index, roi))
-        from negpy.infrastructure.capture.raw_demosaic import raw_channel_clip_fraction
+            measured = float(self._source_clip(path, channel_index, roi))
+        else:
+            from negpy.infrastructure.capture.raw_demosaic import raw_channel_clip_fraction
 
-        try:
-            return raw_channel_clip_fraction(path, channel_index, roi)
-        except Exception:
-            logger.exception("raw source-clip check failed for %s", path)
-            return 0.0
+            try:
+                measured = raw_channel_clip_fraction(path, channel_index, roi)
+            except Exception as exc:
+                raise RuntimeError(f"calibration failed: raw source-clip check failed for {path}") from exc
+        if not np.isfinite(measured):
+            raise RuntimeError(f"calibration failed: non-finite raw source-clip measurement for {path}")
+        return measured
 
     def calibrate(
         self,
@@ -304,7 +312,9 @@ class CalibrationService:
                 _check_cancel()
                 _report(0.1 + 0.1 * i, f"Probing {ch.letter}…")
                 signal, _ = _shoot(ch, i, black[ch.letter], probe_level, probe_shutter)
-                k[ch.letter] = max(signal, MIN_SIGNAL) / (probe_level * shutter_seconds(probe_shutter))
+                if not np.isfinite(signal) or signal < MIN_SIGNAL:
+                    raise RuntimeError(f"calibration failed: no signal from {ch.letter} channel")
+                k[ch.letter] = signal / (probe_level * shutter_seconds(probe_shutter))
 
             # 3) One shutter, shared across R/G/B: slow enough that the dimmest channel reaches
             #    its target at LED ≤ PWM_MAX; the LED alone then balances each channel.
@@ -362,8 +372,18 @@ class CalibrationService:
                 shutter = step
 
             for c in channels.values():
+                if not np.isfinite(c.signal) or not np.isfinite(c.clip_fraction):
+                    raise RuntimeError(f"calibration failed: {c.channel} channel produced a non-finite final measurement")
                 if c.clip_fraction > MAX_CLIP_FRACTION:
-                    logger.warning("channel %s clipping at shared shutter %s — LED spread exceeds range", c.channel, c.shutter)
+                    raise RuntimeError(f"calibration failed: {c.channel} channel is still clipping at shared shutter {c.shutter}")
+                if c.signal < (1.0 - MAX_TARGET_UNDER_FRACTION) * c.target:
+                    raise RuntimeError(
+                        f"calibration failed: {c.channel} channel remains materially below target ({c.signal:.0f} vs {c.target})"
+                    )
+                if c.signal > (1.0 + MAX_TARGET_OVER_FRACTION) * c.target:
+                    raise RuntimeError(
+                        f"calibration failed: {c.channel} channel remains materially above target ({c.signal:.0f} vs {c.target})"
+                    )
 
             _report(1.0, "Calibration done")
             return CalibrationResult(channels=channels, black_levels=black)

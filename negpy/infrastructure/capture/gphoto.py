@@ -491,8 +491,8 @@ class GphotoCamera:
                 camera = self._require()
                 if shutter:
                     name = self._property("shutter")
-                    if name:
-                        self._set_verified(name, shutter)
+                    if name is None or not self._set_verified(name, shutter):
+                        raise GphotoError(f"could not set shutter to {shutter!r}: camera rejected it or it did not settle")
                 try:
                     path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
                     camera_file = camera.file_get(path.folder, path.name, self._gp.GP_FILE_TYPE_NORMAL)

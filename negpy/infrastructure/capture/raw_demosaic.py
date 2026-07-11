@@ -17,11 +17,12 @@ def linear_demosaic(path: str, half_size: bool = False) -> np.ndarray:
     `half_size=True` bins each 2×2 Bayer quad straight into one RGB pixel (no interpolation)
     for a ~4× faster decode — used by calibration, which only meters a uniform base patch, so
     full resolution is wasted (and the raw-Bayer clip check reads full-res separately). Bayer
-    only: it would alias an X-Trans CFA, but the a7C II is Bayer.
+    only: X-Trans automatically falls back to a full-size decode because 2×2 binning aliases
+    its 6×6 CFA.
     """
     import rawpy
 
-    from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm
+    from negpy.infrastructure.loaders.helpers import get_best_demosaic_algorithm, is_xtrans
 
     with rawpy.imread(path) as raw:
         algo = get_best_demosaic_algorithm(raw)
@@ -33,7 +34,7 @@ def linear_demosaic(path: str, half_size: bool = False) -> np.ndarray:
             output_bps=16,
             output_color=rawpy.ColorSpace.raw,
             demosaic_algorithm=algo,
-            half_size=half_size,
+            half_size=half_size and not is_xtrans(raw),
             user_flip=0,
         )
     return np.asarray(rgb)

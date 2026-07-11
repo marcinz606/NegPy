@@ -2,6 +2,7 @@
 
 import os
 import numpy as np
+import pytest
 
 from negpy.services.capture.calibration import (
     MAX_CLIP_FRACTION,
@@ -168,6 +169,35 @@ def test_source_clip_reads_the_file_the_camera_actually_wrote():
     assert all(p.endswith(".ARW") for p in seen), seen  # the fake camera's suffix, not ".raw"
 
 
+def test_calibrate_fails_closed_when_the_raw_clip_check_errors(monkeypatch):
+    light, cam = FakeLight(), FakeCamera()
+
+    def unavailable(*_args):
+        raise OSError("RAW decode failed")
+
+    monkeypatch.setattr("negpy.infrastructure.capture.raw_demosaic.raw_channel_clip_fraction", unavailable)
+    service = CalibrationService(light, cam, _make_demosaic(light, cam), sleep=lambda _s: None)
+
+    with pytest.raises(RuntimeError, match="raw source-clip check failed") as caught:
+        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+
+    assert isinstance(caught.value.__cause__, OSError)
+
+
+def test_calibrate_fails_closed_on_a_nonfinite_raw_clip_measurement():
+    light, cam = FakeLight(), FakeCamera()
+    service = CalibrationService(
+        light,
+        cam,
+        _make_demosaic(light, cam),
+        source_clip=lambda *_args: np.nan,
+        sleep=lambda _s: None,
+    )
+
+    with pytest.raises(RuntimeError, match="non-finite raw source-clip"):
+        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+
+
 def test_calibrate_converges_with_one_shared_shutter():
     light, cam = FakeLight(), FakeCamera()
     result = _service(light, cam).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
@@ -181,6 +211,20 @@ def test_calibrate_converges_with_one_shared_shutter():
     assert r == g == b  # ONE shutter shared across R/G/B — the whole point of the rebuild
     assert result.channels["B"].level > result.channels["R"].level  # blue dimmest → most LED
     assert light.last == (0, 0, 0)  # light off when done
+
+
+def test_calibrate_rejects_a_probe_with_no_signal():
+    light, cam = FakeLight(), FakeCamera()
+
+    def dark_frame(_path):
+        return np.full((16, 16, 3), BLACK)
+
+    service = CalibrationService(light, cam, dark_frame, source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
+
+    with pytest.raises(RuntimeError, match="no signal from R"):
+        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+
+    assert light.last == (0, 0, 0)
 
 
 def test_calibrate_clip_guard_pulls_led_down():
@@ -234,3 +278,75 @@ def test_calibrate_escalates_shared_shutter_when_led_saturates():
     # shutter escalates to a slower one, and every channel is re-solved onto target.
     assert shutter_seconds(b) > shutter_seconds(clean.shutters[2])
     assert abs(capped.channels["B"].signal - capped.channels["B"].target) < 0.1 * capped.channels["B"].target
+
+
+def test_calibrate_rejects_a_channel_below_target_at_the_hardware_limit():
+    light, cam = FakeLight(), FakeCamera()
+    service = CalibrationService(
+        light,
+        cam,
+        _make_capped_demosaic(light, cam, level_cap=1),
+        source_clip=lambda *_a: 0.0,
+        sleep=lambda _s: None,
+    )
+
+    with pytest.raises(RuntimeError, match="R channel.*below target"):
+        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+
+
+def test_calibrate_rejects_a_final_channel_materially_above_target():
+    light, cam = FakeLight(), FakeCamera()
+    ordinary = _make_demosaic(light, cam)
+    calls = 0
+
+    def nonlinear_response(path):
+        nonlocal calls
+        calls += 1
+        if calls <= 4:  # dark frame + the three response probes
+            return ordinary(path)
+        img = np.full((32, 32, 3), BLACK)
+        for i, level in enumerate(light.last):
+            if level:
+                img[..., i] = BLACK + 64500.0  # above ETTR, just below SATURATION_VALUE
+        return img
+
+    service = CalibrationService(light, cam, nonlinear_response, source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
+
+    with pytest.raises(RuntimeError, match="R channel.*above target"):
+        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+
+
+def test_calibrate_rejects_a_final_channel_that_is_still_clipping():
+    light, cam = FakeLight(), FakeCamera()
+    service = CalibrationService(
+        light,
+        cam,
+        _make_demosaic(light, cam),
+        source_clip=lambda *_a: 0.02,
+        sleep=lambda _s: None,
+    )
+
+    with pytest.raises(RuntimeError, match="R channel.*still clipping"):
+        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+
+
+def test_calibrate_rejects_a_nonfinite_final_channel():
+    light, cam = FakeLight(), FakeCamera()
+    ordinary = _make_demosaic(light, cam)
+    calls = 0
+
+    def nonfinite_response(path):
+        nonlocal calls
+        calls += 1
+        if calls <= 4:  # dark frame + the three response probes
+            return ordinary(path)
+        img = np.full((32, 32, 3), BLACK)
+        for i, level in enumerate(light.last):
+            if level:
+                img[..., i] = np.nan
+        return img
+
+    service = CalibrationService(light, cam, nonfinite_response, source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
+
+    with pytest.raises(RuntimeError, match="R channel.*non-finite"):
+        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")

@@ -247,6 +247,26 @@ def test_capture_sets_the_shutter_first(cam, fake, tmp_path):
     assert ("shutterspeed", "1/10") in fake.writes
 
 
+def test_capture_rejects_a_shutter_the_camera_will_not_accept(cam, fake, tmp_path):
+    fake.reject_writes = True
+
+    with pytest.raises(GphotoError, match="could not set shutter"):
+        cam.capture(str(tmp_path / "f.ARW"), shutter="1/10")
+
+    assert fake.captures == 0
+
+
+def test_capture_rejects_a_shutter_that_never_settles(cam, fake, tmp_path, monkeypatch):
+    fake._settle_writes = False
+    clock = iter((0.0, 4.0))
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto.time.monotonic", lambda: next(clock))
+
+    with pytest.raises(GphotoError, match="did not settle"):
+        cam.capture(str(tmp_path / "f.ARW"), shutter="1/10")
+
+    assert fake.captures == 0
+
+
 def test_capture_skips_an_unchanged_shutter(cam, fake, tmp_path):
     cam.capture(str(tmp_path / "f.ARW"), shutter="1/5")  # already 1/5
     assert fake.writes == []
