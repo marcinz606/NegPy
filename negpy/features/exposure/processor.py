@@ -8,9 +8,11 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
     effective_cast_strength,
+    effective_midtone_gamma,
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
+    split_grade_deltas,
     local_ev_scale,
     normalized_neutral_axis,
     normalized_shadow_refs,
@@ -37,7 +39,7 @@ from negpy.features.exposure.normalization import (
 )
 from negpy.features.local.logic import compute_local_ev_map
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.process.models import ProcessConfig, ProcessMode
+from negpy.features.process.models import ProcessConfig, ProcessMode, per_channel_point_offsets
 from negpy.kernel.image.logic import get_luminance
 
 
@@ -136,23 +138,17 @@ class NormalizationProcessor:
                 context.metrics["shadow_refs_rect_val"] = self.config.analysis_rect
                 context.metrics["shadow_refs_crosstalk_val"] = (self.config.crosstalk_strength, self.config.crosstalk_matrix)
 
-        if self.config.white_point_offset != 0.0 or self.config.black_point_offset != 0.0:
-            wp_offset = self.config.white_point_offset
-            bp_offset = self.config.black_point_offset
-
-            if context.process_mode == ProcessMode.E6:
-                wp_offset = -wp_offset
-                bp_offset = -bp_offset
-
+        wp3, bp3 = per_channel_point_offsets(self.config, context.process_mode == ProcessMode.E6)
+        if any(v != 0.0 for v in wp3 + bp3):
             adj_floors = (
-                bounds.floors[0] + wp_offset,
-                bounds.floors[1] + wp_offset,
-                bounds.floors[2] + wp_offset,
+                bounds.floors[0] + wp3[0],
+                bounds.floors[1] + wp3[1],
+                bounds.floors[2] + wp3[2],
             )
             adj_ceils = (
-                bounds.ceils[0] + bp_offset,
-                bounds.ceils[1] + bp_offset,
-                bounds.ceils[2] + bp_offset,
+                bounds.ceils[0] + bp3[0],
+                bounds.ceils[1] + bp3[1],
+                bounds.ceils[2] + bp3[2],
             )
             bounds = LogNegativeBounds(floors=adj_floors, ceils=adj_ceils)
 
@@ -214,7 +210,7 @@ class PhotometricProcessor:
         neutral_axis_refs = context.metrics.get("neutral_axis_refs")
         neutral_axis_norm = normalized_neutral_axis(final_bounds, neutral_axis_refs)
         confidence = neutral_axis_refs[3] if neutral_axis_refs is not None else None
-        strength = effective_cast_strength(self.config.cast_removal_strength, self.config.auto_cast_removal, confidence)
+        strength = effective_cast_strength(self.config.cast_removal_strength, confidence)
         slopes, pivots, curvatures = per_channel_curve_params(
             self.config.grade,
             self.config.density,
@@ -227,10 +223,10 @@ class PhotometricProcessor:
             anchor=anchor,
             paper=paper,
             neutral_axis_norm=neutral_axis_norm,
+            grade_trims=(self.config.grade_trim_red, self.config.grade_trim_green, self.config.grade_trim_blue),
         )
 
-        c = EXPOSURE_CONSTANTS
-        cmy_max = c["cmy_max_density"]
+        cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(
             (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
             final_bounds,
@@ -248,6 +244,21 @@ class PhotometricProcessor:
         )
 
         toe_eff, shoulder_eff = grade_coupled_shape(slopes[1], self.config.toe, self.config.shoulder)
+        sg_deltas, hg_deltas = split_grade_deltas(
+            self.config.grade,
+            self.config.shadow_grade,
+            self.config.highlight_grade,
+            shadow_trims=(
+                self.config.shadow_grade_trim_red,
+                self.config.shadow_grade_trim_green,
+                self.config.shadow_grade_trim_blue,
+            ),
+            highlight_trims=(
+                self.config.highlight_grade_trim_red,
+                self.config.highlight_grade_trim_green,
+                self.config.highlight_grade_trim_blue,
+            ),
+        )
 
         if context.process_mode == ProcessMode.BW:
             # Panchromatic response: collapse to a single density BEFORE the
@@ -270,12 +281,33 @@ class PhotometricProcessor:
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
             d_min=d_min,
-            flare=EXPOSURE_CONSTANTS["flare_fraction"] if self.config.flare else 0.0,
-            surround_gamma=EXPOSURE_CONSTANTS["target_system_gamma"] if self.config.surround else 1.0,
+            midtone_gamma=effective_midtone_gamma(paper, self.config.midtone_gamma),
             curvatures=curvatures,
             paper=paper,
             ev_map=ev_map,
             ev_scale=local_ev_scale(final_bounds),
+            bpc=self.config.true_black,
+            toe_trims=(self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
+            shoulder_trims=(self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),
+            snap_trims=(
+                self.config.midtone_gamma_trim_red,
+                self.config.midtone_gamma_trim_green,
+                self.config.midtone_gamma_trim_blue,
+            ),
+            toe_width_trims=(
+                self.config.toe_width_trim_red,
+                self.config.toe_width_trim_green,
+                self.config.toe_width_trim_blue,
+            ),
+            shoulder_width_trims=(
+                self.config.shoulder_width_trim_red,
+                self.config.shoulder_width_trim_green,
+                self.config.shoulder_width_trim_blue,
+            ),
+            shadow_density=self.config.shadow_density,
+            highlight_density=self.config.highlight_density,
+            shadow_grade_deltas=sg_deltas,
+            highlight_grade_deltas=hg_deltas,
         )
 
         if context.process_mode == ProcessMode.BW:
@@ -289,7 +321,7 @@ class PhotometricProcessor:
         """
         Flat log-master render: emits the normalized log signal directly (a flat,
         milky log-video look), dropping all creative print decisions — no auto
-        density/grade, cast removal, toe/shoulder, surround/flare. A fixed gain/lift
+        density/grade, cast removal, toe/shoulder. A fixed gain/lift
         keeps the master consistent across a roll and holds maximal editing latitude.
 
         Manual global white balance (the WB picker / CMY global) is still honoured

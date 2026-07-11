@@ -89,20 +89,14 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_export_config": {},
             "last_auto_exposure": True,
             "last_auto_normalize_contrast": True,
-            "last_cast_removal_strength": 0.5,
-            "last_auto_cast_removal": True,
             "last_paper_dmin": True,
-            "last_surround": True,
             "last_paper_profile": "ilford_mg_rc",
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertTrue(config.exposure.auto_exposure)
         self.assertTrue(config.exposure.auto_normalize_contrast)
-        self.assertEqual(config.exposure.cast_removal_strength, 0.5)
-        self.assertTrue(config.exposure.auto_cast_removal)
         self.assertTrue(config.exposure.paper_dmin)
-        self.assertTrue(config.exposure.surround)
         self.assertEqual(config.exposure.paper_profile, "ilford_mg_rc")
 
     def test_roll_average_not_seeded_onto_fresh_files(self):
@@ -553,6 +547,65 @@ class TestNavButtonBoundaries(unittest.TestCase):
         prev_enabled, next_enabled = self._enabled(0)  # c.dng no longer visible
         self.assertFalse(prev_enabled)
         self.assertFalse(next_enabled)
+
+
+class TestSessionEmptied(unittest.TestCase):
+    """Removing the last file must fully reset the active-image state and emit
+    session_emptied, so the viewer blanks instead of keeping an unremovable frame."""
+
+    def setUp(self):
+        self.mock_repo = MagicMock(spec=StorageRepository)
+        self.mock_repo.load_file_settings.return_value = None
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: default
+        self.mock_repo.get_max_history_index.return_value = 0
+        self.session = DesktopSessionManager(self.mock_repo)
+
+        self.session.state.uploaded_files = [{"name": "file1.dng", "path": "path1", "hash": "hash1"}]
+        self.session.state.selected_file_idx = 0
+        self.session.state.selected_indices = [0]
+        self.session.state.current_file_path = "path1"
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.preview_raw = object()
+        self.session.state.last_metrics["base_positive"] = object()
+
+        self.emptied_count = 0
+        self.session.session_emptied.connect(self._on_emptied)
+
+    def _on_emptied(self):
+        self.emptied_count += 1
+
+    def _assert_active_image_reset(self):
+        state = self.session.state
+        self.assertEqual(state.selected_file_idx, -1)
+        self.assertEqual(state.selected_indices, [])
+        self.assertIsNone(state.current_file_path)
+        self.assertIsNone(state.current_file_hash)
+        self.assertIsNone(state.preview_raw)
+        self.assertEqual(state.last_metrics, {})
+        self.assertEqual(state.config, WorkspaceConfig())
+
+    def test_remove_current_last_file_emits_and_resets(self):
+        self.session.remove_current_file()
+        self.assertEqual(self.emptied_count, 1)
+        self.assertEqual(self.session.state.uploaded_files, [])
+        self._assert_active_image_reset()
+
+    def test_clear_files_emits_and_resets(self):
+        self.session.clear_files()
+        self.assertEqual(self.emptied_count, 1)
+        self._assert_active_image_reset()
+
+    def test_remove_selected_last_files_emits_and_resets(self):
+        self.session.remove_selected_files()
+        self.assertEqual(self.emptied_count, 1)
+        self._assert_active_image_reset()
+
+    def test_remove_with_remaining_files_does_not_emit(self):
+        self.session.state.uploaded_files.append({"name": "file2.dng", "path": "path2", "hash": "hash2"})
+        self.session.remove_current_file()
+        self.assertEqual(self.emptied_count, 0)
+        self.assertEqual(len(self.session.state.uploaded_files), 1)
+        self.assertEqual(self.session.state.selected_file_idx, 0)
 
 
 if __name__ == "__main__":

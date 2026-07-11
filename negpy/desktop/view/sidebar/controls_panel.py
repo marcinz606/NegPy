@@ -44,21 +44,48 @@ _COLOUR_FIELDS = (
     "highlight_magenta",
     "highlight_yellow",
     "cast_removal_strength",
-    "auto_cast_removal",
 )
 _TONE_FIELDS = (
     "density",
     "grade",
-    "toe",
-    "toe_width",
-    "shoulder",
-    "shoulder_width",
-    "flare",
-    "surround",
+    "grade_trim_red",
+    "grade_trim_green",
+    "grade_trim_blue",
+    "true_black",
+    "shadow_density",
+    "highlight_density",
+    "shadow_grade",
+    "highlight_grade",
+    "shadow_grade_trim_red",
+    "shadow_grade_trim_green",
+    "shadow_grade_trim_blue",
+    "highlight_grade_trim_red",
+    "highlight_grade_trim_green",
+    "highlight_grade_trim_blue",
     "paper_dmin",
     "auto_exposure",
     "auto_normalize_contrast",
     "paper_profile",
+    "midtone_gamma",
+    "midtone_gamma_trim_red",
+    "midtone_gamma_trim_green",
+    "midtone_gamma_trim_blue",
+    "toe",
+    "toe_width",
+    "toe_trim_red",
+    "toe_trim_green",
+    "toe_trim_blue",
+    "toe_width_trim_red",
+    "toe_width_trim_green",
+    "toe_width_trim_blue",
+    "shoulder",
+    "shoulder_width",
+    "shoulder_trim_red",
+    "shoulder_trim_green",
+    "shoulder_trim_blue",
+    "shoulder_width_trim_red",
+    "shoulder_width_trim_green",
+    "shoulder_width_trim_blue",
 )
 
 # Constant frozen-dataclass defaults — build once, not per resync.
@@ -551,6 +578,9 @@ class ControlsPanel(QWidget):
 
     def _sync_all_sidebars(self) -> None:
         """Force all sidebar panels to update their widgets from current AppState."""
+        from negpy.features.process.models import ProcessMode
+
+        self.colour_section.setVisible(self.controller.state.config.process.process_mode != ProcessMode.BW)
         self.process_sidebar.sync_ui()
         self.roll_sidebar.sync_ui()
         self.colour_sidebar.sync_ui()
@@ -646,6 +676,12 @@ class ControlsPanel(QWidget):
                 proc.color_range_clip != _proc.color_range_clip,
                 proc.white_point_offset != _proc.white_point_offset,
                 proc.black_point_offset != _proc.black_point_offset,
+                proc.white_point_trim_red != _proc.white_point_trim_red,
+                proc.white_point_trim_green != _proc.white_point_trim_green,
+                proc.white_point_trim_blue != _proc.white_point_trim_blue,
+                proc.black_point_trim_red != _proc.black_point_trim_red,
+                proc.black_point_trim_green != _proc.black_point_trim_green,
+                proc.black_point_trim_blue != _proc.black_point_trim_blue,
             ]
         )
 

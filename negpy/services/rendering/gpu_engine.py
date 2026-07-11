@@ -35,7 +35,7 @@ from negpy.features.geometry.logic import (
     get_manual_rect_coords,
 )
 from negpy.features.local.logic import compute_local_ev_map
-from negpy.features.process.models import ProcessMode
+from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.features.retouch.logic import build_heal_regions
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
@@ -127,7 +127,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
         analysis_source_hash,
         settings.process,
         settings.geometry,
-        e.cast_removal_strength > 0.0 or e.auto_cast_removal,
+        e.cast_removal_strength > 0.0,
         e.auto_exposure,
         e.auto_normalize_contrast,
     )
@@ -203,6 +203,19 @@ class GPUEngine:
             "finish",
             "layout",
         ]
+        # Packed byte size per stage. A stage may exceed the 256B dynamic-offset
+        # alignment (exposure, 288B) — it then occupies multiple aligned slots.
+        self._uniform_sizes = {
+            "geometry": 32,
+            "normalization": 112,
+            "exposure": 288,
+            "clahe_u": 32,
+            "retouch_u": 64,
+            "lab": 96,
+            "toning": 64,
+            "finish": 32,
+            "layout": 48,
+        }
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
         self._current_source_hash: Optional[str] = None
         # Once-per-source guard so the analysis timing log fires on load, not every slider.
@@ -308,7 +321,7 @@ class GPUEngine:
 
         # Unified Uniform Buffer (UBO)
         self._buffers["unified_u"] = GPUBuffer(
-            self._alignment * len(self._uniform_names),
+            sum(self._slot_bytes(n) for n in self._uniform_names),
             wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST,
         )
 
@@ -341,24 +354,22 @@ class GPUEngine:
             logger.exception(f"Failed to compile pipeline: {shader_path}")
             raise
 
+    def _slot_bytes(self, name: str) -> int:
+        """Aligned bytes a stage occupies in the unified UBO (>= 1 slot)."""
+        return -(-self._uniform_sizes[name] // self._alignment) * self._alignment
+
     def _get_uniform_binding(self, name: str) -> Dict[str, Any]:
-        """Calculates UBO offset and size for a specific pipeline stage."""
-        idx = self._uniform_names.index(name)
-        sizes = {
-            "geometry": 32,
-            "normalization": 112,
-            "exposure": 256,
-            "clahe_u": 32,
-            "retouch_u": 64,
-            "lab": 96,
-            "toning": 64,
-            "finish": 32,
-            "layout": 48,
-        }
+        """Calculates UBO offset and size for a specific pipeline stage.
+        Offsets are cumulative so an oversized stage spans multiple slots."""
+        offset = 0
+        for n in self._uniform_names:
+            if n == name:
+                break
+            offset += self._slot_bytes(n)
         return {
             "buffer": self._buffers["unified_u"].buffer,
-            "offset": idx * self._alignment,
-            "size": sizes[name],
+            "offset": offset,
+            "size": self._uniform_sizes[name],
         }
 
     def process_to_texture(
@@ -476,7 +487,7 @@ class GPUEngine:
         needs_refs = (
             shadow_refs_override is None
             and not tiling_mode
-            and (settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal)
+            and settings.exposure.cast_removal_strength > 0.0
             and settings.process.process_mode == ProcessMode.C41
         )
         _roll_luma = settings.process.use_luma_average and settings.process.is_locked_initialized
@@ -991,8 +1002,12 @@ class GPUEngine:
         elif settings.process.process_mode == ProcessMode.E6:
             mode_val = 2
 
-        # E6 mirrors the CPU path (NormalizationProcessor), which negates the offsets.
-        offset_sign = -1.0 if mode_val == 2 else 1.0
+        # Per-channel WP/BP (global + layer trims, E6-signed) mirror the CPU path.
+        # Baked into the packed floors/ceils so the shader's scalar wp/bp offsets
+        # (kept at 0.0 for layout) need no per-channel lanes.
+        wp3, bp3 = per_channel_point_offsets(settings.process, mode_val == 2)
+        adj_floors = (f[0] + wp3[0], f[1] + wp3[1], f[2] + wp3[2])
+        adj_ceils = (c[0] + bp3[0], c[1] + bp3[1], c[2] + bp3[2])
 
         # Capture-side dye-unmix rows, resolved once per frame by the caller
         # (shared with NormalizationProcessor); identity when off.
@@ -1000,14 +1015,14 @@ class GPUEngine:
             unmix = np.eye(3)
 
         n_data = (
-            struct.pack("ffff", f[0], f[1], f[2], 0.0)
-            + struct.pack("ffff", c[0], c[1], c[2], 0.0)
+            struct.pack("ffff", adj_floors[0], adj_floors[1], adj_floors[2], 0.0)
+            + struct.pack("ffff", adj_ceils[0], adj_ceils[1], adj_ceils[2], 0.0)
             + struct.pack(
                 "IIff",
                 mode_val,
                 (1 if settings.process.e6_normalize else 0),
-                offset_sign * settings.process.white_point_offset,
-                offset_sign * settings.process.black_point_offset,
+                0.0,
+                0.0,
             )
             + struct.pack("ffff", unmix[0, 0], unmix[0, 1], unmix[0, 2], 0.0)
             + struct.pack("ffff", unmix[1, 0], unmix[1, 1], unmix[1, 2], 0.0)
@@ -1018,11 +1033,15 @@ class GPUEngine:
             _reference_linear_value,
             effective_cast_strength,
             filtration_offsets,
+            per_channel_toe_shoulder,
             grade_coupled_shape,
             local_ev_scale,
             normalize_refs,
             paper_dmin_rgb,
             per_channel_curve_params,
+            per_channel_midtone_gamma,
+            per_channel_widths,
+            split_grade_deltas,
         )
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
         from negpy.features.exposure.normalization import LogNegativeBounds, luminance_density_range
@@ -1036,12 +1055,8 @@ class GPUEngine:
         # only let it move the render when the toggle is on.
         render_anchor = metered_anchor if exp.auto_exposure else None
         lum_range = luminance_density_range(bounds)
-        # Final bounds the shader normalizes with (after WP/BP offsets); shared by
-        # the Cast Removal shadow refs, mirroring the CPU path.
-        wp = offset_sign * settings.process.white_point_offset
-        bp = offset_sign * settings.process.black_point_offset
-        adj_floors = (f[0] + wp, f[1] + wp, f[2] + wp)
-        adj_ceils = (c[0] + bp, c[1] + bp, c[2] + bp)
+        # adj_floors/adj_ceils (packed above) are the final bounds the shader
+        # normalizes with; shared by the Cast Removal shadow refs (CPU mirror).
         shadow_refs_norm = None
         if shadow_refs is not None:
             shadow_refs_norm = normalize_refs(shadow_refs, adj_floors, adj_ceils)
@@ -1052,7 +1067,7 @@ class GPUEngine:
             cast_confidence = neutral_axis_refs[3]
             nf = lambda r: normalize_refs(r, adj_floors, adj_ceils) if r is not None else None  # noqa: E731
             neutral_axis_norm = (nf(mid_refs), nf(sh_refs), nf(hl_refs))
-        strength = effective_cast_strength(exp.cast_removal_strength, exp.auto_cast_removal, cast_confidence)
+        strength = effective_cast_strength(exp.cast_removal_strength, cast_confidence)
         slopes, pivots, curvatures = per_channel_curve_params(
             exp.grade,
             exp.density,
@@ -1065,9 +1080,39 @@ class GPUEngine:
             anchor=render_anchor,
             paper=paper,
             neutral_axis_norm=neutral_axis_norm,
+            grade_trims=(exp.grade_trim_red, exp.grade_trim_green, exp.grade_trim_blue),
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
         _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
+        _sg3, _hg3 = split_grade_deltas(
+            exp.grade,
+            exp.shadow_grade,
+            exp.highlight_grade,
+            shadow_trims=(exp.shadow_grade_trim_red, exp.shadow_grade_trim_green, exp.shadow_grade_trim_blue),
+            highlight_trims=(exp.highlight_grade_trim_red, exp.highlight_grade_trim_green, exp.highlight_grade_trim_blue),
+        )
+        # Per-channel effective toe/shoulder, pre-scaled; the uniform block is
+        # full at 256B so these ride the vec4 w-lanes.
+        _ts_k = float(EXPOSURE_CONSTANTS["toe_shoulder_strength"])
+        _toe3, _sh3 = per_channel_toe_shoulder(
+            _toe_eff,
+            _shoulder_eff,
+            (exp.toe_trim_red, exp.toe_trim_green, exp.toe_trim_blue),
+            (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
+        )
+        _toe3 = tuple(t * _ts_k for t in _toe3)
+        _sh3 = tuple(s * _ts_k for s in _sh3)
+        _mg3 = per_channel_midtone_gamma(
+            paper,
+            exp.midtone_gamma,
+            (exp.midtone_gamma_trim_red, exp.midtone_gamma_trim_green, exp.midtone_gamma_trim_blue),
+        )
+        _tw3, _sw3 = per_channel_widths(
+            exp.toe_width,
+            exp.shoulder_width,
+            (exp.toe_width_trim_red, exp.toe_width_trim_green, exp.toe_width_trim_blue),
+            (exp.shoulder_width_trim_red, exp.shoulder_width_trim_green, exp.shoulder_width_trim_blue),
+        )
         # Mirrors apply_characteristic_curve (absolute CC, paper base, dye mix).
         wb_offsets = filtration_offsets(
             (exp.wb_cyan, exp.wb_magenta, exp.wb_yellow),
@@ -1077,55 +1122,71 @@ class GPUEngine:
         dye = resolve_dye_matrix(paper)
         dye_rows = np.eye(3) if dye is None else dye
 
+        # The w-lanes carry per-channel toe (first three vec4s) and shoulder
+        # (next three) — see the toe3/sh3 reads in exposure.wgsl.
         e_data = (
-            struct.pack("ffff", pivots[0], pivots[1], pivots[2], 0.0)
-            + struct.pack("ffff", slopes[0], slopes[1], slopes[2], 0.0)
-            + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], 0.0)
-            + struct.pack("ffff", wb_offsets[0], wb_offsets[1], wb_offsets[2], 0.0)
+            struct.pack("ffff", pivots[0], pivots[1], pivots[2], _toe3[0])
+            + struct.pack("ffff", slopes[0], slopes[1], slopes[2], _toe3[1])
+            + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], _toe3[2])
+            + struct.pack("ffff", wb_offsets[0], wb_offsets[1], wb_offsets[2], _sh3[0])
             + struct.pack(
                 "ffff",
                 exp.shadow_cyan * cmy_m,
                 exp.shadow_magenta * cmy_m,
                 exp.shadow_yellow * cmy_m,
-                0.0,
+                _sh3[1],
             )
             + struct.pack(
                 "ffff",
                 exp.highlight_cyan * cmy_m,
                 exp.highlight_magenta * cmy_m,
                 exp.highlight_yellow * cmy_m,
-                0.0,
+                _sh3[2],
             )
             # Asymmetric H&D print-curve scalars; mirrors _apply_print_curve_kernel.
+            # Per-channel knee widths occupy the dead scalar toe/shoulder/
+            # midtone_gamma slots and the former flare pad (see exposure.wgsl).
             + struct.pack(
                 "14fI3fIf",
-                _toe_eff * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
-                _shoulder_eff * EXPOSURE_CONSTANTS["toe_shoulder_strength"],
-                exp.toe_width,
-                exp.shoulder_width,
-                d_min,
+                _tw3[0],
+                _tw3[1],
+                _tw3[2],
+                _sw3[0],
+                # Zone Density ΔD shadow offset in the ex-d_min slot; the
+                # highlight offset rides d_min_rgb.w.
+                exp.shadow_density,
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                pc["toeshoulder_width_ref"],
+                # Free slot (ex-width_ref; toeshoulder_width_ref is a WGSL literal).
+                0.0,
                 pc["toe_height"],
                 pc["shoulder_height"],
                 pc["anchor_target_density"],
-                float(EXPOSURE_CONSTANTS["flare_fraction"]) if exp.flare else 0.0,
-                float(EXPOSURE_CONSTANTS["target_system_gamma"]) if exp.surround else 1.0,
+                _sw3[1],
+                # Free slot (ex-surround_gamma).
+                0.0,
                 mode_val,
                 _reference_linear_value(d_min, paper),
-                float(pc["paper_midtone_gamma"]),
+                _sw3[2],
                 float(pc["paper_gamma_width"]),
                 1 if dye is not None else 0,
-                0.0,  # pad to 16B before the vec4s
+                # BPC flag (former pad). Per-channel toe/shoulder/Snap ride the
+                # vec4 w-lanes, widths the ex-scalar slots, Zone Density ΔD the
+                # ex-d_min slot + d_min_rgb.w, Split Grade the split_sh/split_hi
+                # rows past 256B (exposure spans two UBO slots).
+                1.0 if exp.true_black else 0.0,
             )
-            + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], 0.0)
-            + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], 0.0)
-            + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], 0.0)
-            + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], 0.0)
+            + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density)
+            # Dye-row w-lanes carry the per-channel midtone gamma (Snap).
+            + struct.pack("ffff", dye_rows[0, 0], dye_rows[0, 1], dye_rows[0, 2], _mg3[0])
+            + struct.pack("ffff", dye_rows[1, 0], dye_rows[1, 1], dye_rows[1, 2], _mg3[1])
+            + struct.pack("ffff", dye_rows[2, 0], dye_rows[2, 1], dye_rows[2, 2], _mg3[2])
             # Dodge/burn EV-stop size per channel (local_ev_scale); w = enable flag.
             + struct.pack("ffff", *local_ev_scale(LogNegativeBounds(adj_floors, adj_ceils)), 1.0 if settings.local.masks else 0.0)
+            # Split Grade per-channel zone contrast gains (split_grade_deltas).
+            + struct.pack("ffff", _sg3[0], _sg3[1], _sg3[2], 0.0)
+            + struct.pack("ffff", _hg3[0], _hg3[1], _hg3[2], 0.0)
         )
 
         cls = float(settings.lab.clahe_strength)
@@ -1163,15 +1224,18 @@ class GPUEngine:
         lab = settings.lab
         l_data = (
             struct.pack(
-                "ffffff",
+                "fffffff",
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
                 float(lab.saturation),
                 float(lab.vibrance),
                 float(lab.glow_amount),
                 float(lab.halation_strength),
+                # Chroma-denoise scales its blur radius by the preview downsample ratio,
+                # mirroring the CPU path (radius * scale_factor).
+                float(scale_factor),
             )
-            + b"\x00" * 8
+            + b"\x00" * 4
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
@@ -1183,7 +1247,13 @@ class GPUEngine:
                 float(settings.toning.sepia_strength),
                 2.2,
             )
-            + struct.pack("iiIf", crop_offset[0], crop_offset[1], is_bw, 0.0)
+            + struct.pack(
+                "iiIf",
+                crop_offset[0],
+                crop_offset[1],
+                is_bw,
+                float(settings.toning.gold_strength),
+            )
             + struct.pack(
                 "ffff",
                 float(settings.toning.shadow_tint_hue),
@@ -1222,8 +1292,8 @@ class GPUEngine:
         )
 
         full_buffer = bytearray()
-        for d in [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data]:
-            full_buffer += d + b"\x00" * (self._alignment - len(d))
+        for name, d in zip(self._uniform_names, [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data]):
+            full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
@@ -1688,9 +1758,7 @@ class GPUEngine:
 
         global_shadow_refs = None
         global_neutral_axis = None
-        if (
-            settings.exposure.cast_removal_strength > 0.0 or settings.exposure.auto_cast_removal
-        ) and settings.process.process_mode == ProcessMode.C41:
+        if settings.exposure.cast_removal_strength > 0.0 and settings.process.process_mode == ProcessMode.C41:
             global_shadow_refs = measure_shadow_refs_from_log(_prefiltered(), None, 0.0)
             global_neutral_axis = measure_neutral_axis_from_log(_prefiltered(), global_bounds, None, 0.0)
 

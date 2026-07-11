@@ -336,6 +336,10 @@ class WorkspaceConfig:
             data["crosstalk_strength"] = min(max(float(data.pop("color_separation")) - 1.0, 0.0), 1.0)
         data.pop("color_separation", None)
         data.pop("DEFAULT_MATRIX", None)
+        # Flare (veiling-glare floor) was removed; drop the key from old edits silently.
+        data.pop("flare", None)
+        # Auto cast removal became always-on; drop the old toggle key.
+        data.pop("auto_cast_removal", None)
 
         if "use_original_res" in data and "export_resolution_mode" not in data:
             data["export_resolution_mode"] = (
@@ -439,12 +443,29 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
         auto_exposure=False,
         auto_normalize_contrast=False,
         cast_removal_strength=0.0,
-        auto_cast_removal=False,
-        surround=False,
-        flare=False,
         paper_dmin=False,
         toe=0.0,
         shoulder=0.0,
+        toe_trim_red=0.0,
+        toe_trim_green=0.0,
+        toe_trim_blue=0.0,
+        shoulder_trim_red=0.0,
+        shoulder_trim_green=0.0,
+        shoulder_trim_blue=0.0,
+        toe_width_trim_red=0.0,
+        toe_width_trim_green=0.0,
+        toe_width_trim_blue=0.0,
+        shoulder_width_trim_red=0.0,
+        shoulder_width_trim_green=0.0,
+        shoulder_width_trim_blue=0.0,
+        grade_trim_red=0.0,
+        grade_trim_green=0.0,
+        grade_trim_blue=0.0,
+        true_black=False,
+        midtone_gamma=0.0,
+        midtone_gamma_trim_red=0.0,
+        midtone_gamma_trim_green=0.0,
+        midtone_gamma_trim_blue=0.0,
     )
     return replace(config, exposure=flat_exposure)
 

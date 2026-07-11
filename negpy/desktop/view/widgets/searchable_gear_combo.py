@@ -31,7 +31,6 @@ from PyQt6.QtCore import QEvent, QModelIndex, QSortFilterProxyModel, Qt, QTimer,
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QToolButton, QWidget
 
-from negpy.desktop.view.styles.theme import THEME
 
 _NONE_LABEL = "— None —"
 
@@ -94,10 +93,7 @@ class SearchableGearCombo(QWidget):
         self._arrow.setCursor(Qt.CursorShape.ArrowCursor)
         self._arrow.setFixedWidth(20)
         self._arrow.clicked.connect(self._toggle_popup)
-        self._arrow.setStyleSheet(
-            f"QToolButton {{ border: none; color: {THEME.text_secondary}; background: transparent; }}"
-            f"QToolButton:hover {{ color: {THEME.text_primary}; }}"
-        )
+        self._arrow.setObjectName("gear_combo_arrow")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -117,12 +113,7 @@ class SearchableGearCombo(QWidget):
         self._completer.setWidget(self._line)
         self._completer.activated[QModelIndex].connect(self._on_completer_activated)
         popup = self._completer.popup()
-        popup.setStyleSheet(
-            f"QAbstractItemView {{ background: {THEME.bg_header}; color: {THEME.text_primary};"
-            f" border: 1px solid {THEME.border_color}; outline: 0; }}"
-            f"QAbstractItemView::item {{ padding: 4px 6px; }}"
-            f"QAbstractItemView::item:selected {{ background: {THEME.accent_primary}; color: #FFFFFF; }}"
-        )
+        popup.setObjectName("gear_combo_popup")
 
         self._load_entries([])
 

@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPainter, QColor, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QEvent
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.styles.templates import slider_label_qss, slider_handle_qss
+from negpy.desktop.view.styles.templates import EditedDot, slider_label_qss, slider_handle_qss, wrap_tooltip
 
 
 class _NoScrollSlider(QSlider):
@@ -91,6 +91,9 @@ class BaseSlider(QWidget):
     # Handle grab/release, independent of whether the value actually changed.
     dragStarted = pyqtSignal()
     dragEnded = pyqtSignal()
+
+    def setToolTip(self, text: str) -> None:
+        super().setToolTip(wrap_tooltip(text))
 
     def __init__(
         self,
@@ -242,8 +245,10 @@ class CompactSlider(BaseSlider):
         header = QHBoxLayout()
         header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.label = QLabel(label)
-        self.label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {self._label_color};")
+        self.label.setStyleSheet(slider_label_qss(self._label_color))
         self.label.setToolTip(f"{label} (double-click to reset)")
+
+        self._edited_dot = EditedDot()
 
         self.spin.setSingleStep(step)
         if step >= 1.0:
@@ -269,6 +274,7 @@ class CompactSlider(BaseSlider):
         self._scrub_start_val = 0.0
 
         header.addWidget(self.label)
+        header.addWidget(self._edited_dot)
         header.addStretch()
         header.addWidget(self.spin)
 
@@ -298,10 +304,11 @@ class CompactSlider(BaseSlider):
 
     def _update_edited_state(self) -> None:
         if not self.isEnabled():
-            self.label.setStyleSheet(slider_label_qss(THEME.text_muted, edited=False))
+            self.label.setStyleSheet(slider_label_qss(THEME.text_muted))
+            self._edited_dot.setVisible(False)
             return
-        edited = abs(self.spin.value() - self._default) > 1e-6
-        self.label.setStyleSheet(slider_label_qss(self._label_color, edited))
+        self.label.setStyleSheet(slider_label_qss(self._label_color))
+        self._edited_dot.setVisible(abs(self.spin.value() - self._default) > 1e-6)
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.spin:

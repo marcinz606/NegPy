@@ -10,9 +10,9 @@ class ThemeConfig:
 
     # Fonts
     font_family: str = "Inter, Segoe UI, Roboto, sans-serif"
-    font_size_base: int = 12
+    font_size_base: int = 13
     font_size_small: int = 12
-    font_size_header: int = 13
+    font_size_header: int = 14
     font_size_title: int = 16
 
     # Colors
@@ -28,7 +28,6 @@ class ThemeConfig:
     text_unit: str = "#666666"
     accent_primary: str = "#B71C1C"
     accent_secondary: str = "#C62828"
-    accent_edited: str = "#C79A3A"
 
     slider_height_compact: int = 18
     header_padding: int = 10

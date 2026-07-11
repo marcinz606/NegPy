@@ -1,6 +1,17 @@
 # Change Log
 
 
+## 0.36.0
+
+- New: **Split grade** — **Shadows Grade / Highlights Grade** sliders on the Tone page trim each zone's contrast in ISO-R points, like a split-grade darkroom exposure: harder shadows without blowing the highlights, or softer highlights without flattening the shadows. Mid-sparing and bounded by the paper's black and white, like the zone density sliders, and scoped per colour layer through the Global/R/G/B selector like the main Grade.
+- New: **Gold toner** — a third chemical toner on the Toning page (B&W only). Alone it works like the archival gold bath: a cool blue-black shift in the highlights and mids with a slight density boost, dense shadows hold. Over sepia it recreates the classic gold-over-sepia combination, pushing the toned highlights from yellow-brown toward orange-red.
+- New: **Per-layer trims (crossover correction)** — a **Global / Red / Green / Blue** selector on the Tone and Process pages scopes the curve controls (Grade, Toe, Shoulder, Widths, Snap) and the White/Black Point sliders to a single colour layer. Filtration can only *shift* a layer; these trims re-shape it, fixing casts that differ between shadows, mids and highlights. The H&D chart tracks the per-layer curves live.
+- New: **Deeper control over the print curve**, grouped under a **Paper Response** header on the Tone page: **Snap** adjusts the paper's midtone punch, **Shadows / Highlights Density** darken or brighten each zone while rolling into the paper's black and white limits instead of clipping, and **True Black** (off by default) anchors the deepest print black to true display black instead of ~5% grey. The **Toe** slider is recalibrated so its full throw is felt as clearly as the Shoulder's — frames without a manual toe render identically.
+- Change: **Colour page redesigned to match the Tone page** — full-width **Global / Shadows / Highlights** buttons on top; Temperature, the WB picker, the roll lock and a new reset button all follow the selected region.
+- Change: **Auto Cast is built in** — the toggle is gone: Cast Removal always adapts its strength to how confidently the frame's neutral greys read, and the slider (default 0.5) trims on top; 0 = off. Frames that had Auto Cast off will shift slightly.
+- Change: **One visual language across the app** — all panels share the same section cards, button styles and sizes; every active tool and toggle uses the same red armed state; edited sliders, selectors and tabs are marked with a small red dot instead of coloured text; tooltips word-wrap; the Metadata page uses collapsible sections like the rest; the Analysis stats read-out shows plain values without the qualitative labels.
+- Removed: **Flare** and **Contrast Lift** — Snap and the zone density sliders cover the same ground with real control. Old edits load cleanly and render without them.
+
 ## 0.35.0
 
 - New: **Gear Library** — a searchable library of cameras, lenses and film stocks; picking gear for a frame writes scan-rig and film metadata into the exported XMP. There are some bundled items but library is easily user-extendable. @jboneng

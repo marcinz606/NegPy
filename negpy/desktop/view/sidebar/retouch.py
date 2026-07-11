@@ -27,21 +27,23 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addLayout(auto_row)
 
         buttons_row = QHBoxLayout()
-        self.auto_dust_btn = QPushButton(" Auto Dust")
-        self.auto_dust_btn.setCheckable(True)
-        self.auto_dust_btn.setChecked(conf.dust_remove)
-        self.auto_dust_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
-        self.auto_dust_btn.setToolTip("Enable automatic dust removal using the Threshold and Auto Size settings above")
+        self.auto_dust_btn = self._small_toggle(
+            "fa5s.magic",
+            "Auto Dust",
+            conf.dust_remove,
+            "Enable automatic dust removal using the Threshold and Auto Size settings above",
+        )
 
-        self.pick_dust_btn = QPushButton(" Heal Tool")
-        self.pick_dust_btn.setCheckable(True)
-        self.pick_dust_btn.setIcon(qta.icon("fa5s.eye-dropper", color=THEME.text_primary))
-        self.pick_dust_btn.setToolTip(tooltip_with_shortcut("Toggle heal tool — click a dust spot to heal it", "pick_dust"))
-
-        self.pick_scratch_btn = QPushButton(" Scratch Tool")
-        self.pick_scratch_btn.setCheckable(True)
-        self.pick_scratch_btn.setIcon(qta.icon("fa5s.pen-nib", color=THEME.text_primary))
-        self.pick_scratch_btn.setToolTip("Heal a scratch or hair: click points along it, double-click or Enter to finish, Esc cancels")
+        self.pick_dust_btn = self._tool_toggle(
+            "fa5s.eye-dropper",
+            "Heal Tool",
+            tooltip_with_shortcut("Toggle heal tool — click a dust spot to heal it", "pick_dust"),
+        )
+        self.pick_scratch_btn = self._tool_toggle(
+            "fa5s.pen-nib",
+            "Scratch Tool",
+            "Heal a scratch or hair: click points along it, double-click or Enter to finish, Esc cancels",
+        )
 
         buttons_row.addWidget(self.auto_dust_btn)
         buttons_row.addWidget(self.pick_dust_btn)
@@ -72,11 +74,12 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addWidget(self.ir_subheader)
 
         ir_row = QHBoxLayout()
-        self.ir_dust_btn = QPushButton(" IR Dust")
-        self.ir_dust_btn.setCheckable(True)
-        self.ir_dust_btn.setChecked(conf.ir_dust_remove)
-        self.ir_dust_btn.setIcon(qta.icon("fa5s.broom", color=THEME.text_primary))
-        self.ir_dust_btn.setToolTip("Use scanner IR channel to detect and inpaint dust/scratches")
+        self.ir_dust_btn = self._small_toggle(
+            "fa5s.broom",
+            "IR Dust",
+            conf.ir_dust_remove,
+            "Use scanner IR channel to detect and inpaint dust/scratches",
+        )
         self.ir_threshold_slider = CompactSlider("IR Thresh", 0.05, 0.95, float(conf.ir_threshold))
         self.ir_threshold_slider.setToolTip("IR dust sensitivity — lower catches more (risk false positives); higher is conservative")
         ir_row.addWidget(self.ir_dust_btn, stretch=1)

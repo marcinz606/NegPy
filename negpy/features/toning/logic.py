@@ -29,6 +29,19 @@ TONING_CONSTANTS: Dict[str, Any] = {
     # Per-channel density multipliers of converted silver: red < 1 (sulfide's
     # lower covering power lifts/warms), blue > 1 -> yellow-brown hue.
     "sep_gain": (0.82, 0.94, 1.12),
+    # ── Gold (colloidal gold plates onto silver, finest grain first) ──────────
+    # Density above which gold no longer deposits (c = strength·(1 − D/this)^power).
+    # ↑ toning creeps into deeper shadows; ↓ holds toning to the highlights.
+    "gold_d_ref": 1.6,
+    # Exponent shaping the highlight-first falloff; gentler than sepia's, so
+    # gold creeps further into the midtones.
+    "gold_power": 1.5,
+    # Per-channel density multipliers on plain silver: all ≥1 (slight
+    # intensification), red highest -> cool blue-black hue.
+    "gold_gain": (1.08, 1.03, 1.00),
+    # Per-channel multipliers where gold plates silver *sulfide* (sepia-toned):
+    # the classic gold-over-sepia orange-red shift, redder than sulfide alone.
+    "gold_sepia_gain": (0.80, 0.95, 1.20),
 }
 
 
@@ -37,18 +50,26 @@ def _apply_chemical_toning_jit(
     img: np.ndarray,
     sel_strength: float,
     sep_strength: float,
+    gold_strength: float,
     sel_d_ref: float,
     sel_power: float,
     sel_gain: np.ndarray,
     sep_d_bleach: float,
     sep_power: float,
     sep_gain: np.ndarray,
+    gold_d_ref: float,
+    gold_power: float,
+    gold_gain: np.ndarray,
+    gold_sepia_gain: np.ndarray,
 ) -> np.ndarray:
     """
     Density-driven chemical toning on linear reflectance. Silver density
     D = -log10(t); a density-dependent fraction c of it converts to the toner's
     dye, whose per-channel covering power reshapes D: D_ch = D·(1−c) + c·D·gain.
-    Selenium converts the densest silver first, sepia the thinnest.
+    Selenium converts the densest silver first, sepia and gold the thinnest;
+    gold runs last (real workflow: sepia first, gold after) and blends its
+    covering power by the sulfide fraction — orange-red where sepia toned,
+    blue-black on plain silver.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -74,6 +95,7 @@ def _apply_chemical_toning_jit(
                         c_sel = 1.0
                     d = d * (1.0 - c_sel) + c_sel * d * sel_gain[ch]
 
+                c_sep = 0.0
                 if sep_strength > 0.0:
                     frac = d / sep_d_bleach
                     if frac > 1.0:
@@ -82,6 +104,16 @@ def _apply_chemical_toning_jit(
                     if c_sep > 1.0:
                         c_sep = 1.0
                     d = d * (1.0 - c_sep) + c_sep * d * sep_gain[ch]
+
+                if gold_strength > 0.0:
+                    frac = d / gold_d_ref
+                    if frac > 1.0:
+                        frac = 1.0
+                    c_au = gold_strength * (1.0 - frac) ** gold_power
+                    if c_au > 1.0:
+                        c_au = 1.0
+                    gain = gold_gain[ch] * (1.0 - c_sep) + gold_sepia_gain[ch] * c_sep
+                    d = d * (1.0 - c_au) + c_au * d * gain
 
                 pixel = 10.0**-d
                 if pixel < 0.0:
@@ -128,11 +160,12 @@ def apply_chemical_toning(
     img: ImageBuffer,
     selenium_strength: float = 0.0,
     sepia_strength: float = 0.0,
+    gold_strength: float = 0.0,
 ) -> ImageBuffer:
     """
-    Selenium / sepia toning of a linear-reflectance print (density domain).
+    Selenium / sepia / gold toning of a linear-reflectance print (density domain).
     """
-    if selenium_strength == 0 and sepia_strength == 0:
+    if selenium_strength == 0 and sepia_strength == 0 and gold_strength == 0:
         return img
 
     c = TONING_CONSTANTS
@@ -141,11 +174,16 @@ def apply_chemical_toning(
             np.ascontiguousarray(img.astype(np.float32)),
             float(selenium_strength),
             float(sepia_strength),
+            float(gold_strength),
             float(c["sel_d_ref"]),
             float(c["sel_power"]),
             np.array(c["sel_gain"], dtype=np.float32),
             float(c["sep_d_bleach"]),
             float(c["sep_power"]),
             np.array(c["sep_gain"], dtype=np.float32),
+            float(c["gold_d_ref"]),
+            float(c["gold_power"]),
+            np.array(c["gold_gain"], dtype=np.float32),
+            np.array(c["gold_sepia_gain"], dtype=np.float32),
         )
     )

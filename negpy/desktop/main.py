@@ -107,15 +107,10 @@ def main() -> None:
         if os.path.exists(icon_path):
             app.setWindowIcon(QIcon(icon_path))
 
-        qss_path = get_resource_path("negpy/desktop/view/styles/modern_dark.qss")
-        if os.path.exists(qss_path):
-            with open(qss_path, "r", encoding="utf-8") as f:
-                qss = f.read()
-            # QSS url() can't resolve relative paths reliably across dev/frozen runs,
-            # so bake in the absolute icon path (forward slashes, Qt-friendly).
-            check_icon = get_resource_path("media/icons/checkbox_check.svg").replace("\\", "/")
-            qss = qss.replace("__CHECKBOX_CHECK_ICON__", check_icon)
-            app.setStyleSheet(qss)
+        if os.path.exists(get_resource_path("negpy/desktop/view/styles/modern_dark.qss")):
+            from negpy.desktop.view.styles.templates import load_stylesheet
+
+            app.setStyleSheet(load_stylesheet())
 
         session_manager = DesktopSessionManager(repo)
         controller = AppController(session_manager)

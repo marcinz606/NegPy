@@ -10,7 +10,8 @@ from negpy.features.toning.logic import (
 class TestChemicalToning(unittest.TestCase):
     """Density-driven chemical toners on the linear print: selenium converts the
     densest silver first (Dmax boost, cool shadows); sepia bleach-redevelop
-    converts the thinnest silver first (warm highlights, shadows hold)."""
+    converts the thinnest silver first (warm highlights, shadows hold); gold
+    plates the finest grain first (cool blue-black, orange-red over sepia)."""
 
     @staticmethod
     def _gray(t: float) -> np.ndarray:
@@ -64,10 +65,46 @@ class TestChemicalToning(unittest.TestCase):
         self.assertGreater(warmth_light, 0.01)
         self.assertAlmostEqual(warmth_dark, 0.0, places=3)
 
+    def test_gold_cools_and_deepens_highlights(self):
+        """Colloidal gold adds density (R most) -> cool blue-black, slight Dmax boost."""
+        light = self._gray(0.6)
+        res = apply_chemical_toning(light, gold_strength=1.0)
+        self.assertLess(float(res[0, 0, 0]), float(res[0, 0, 2]))  # R darker than B (cool)
+        self.assertLess(float(res.mean()), 0.6)  # net intensification
+
+    def test_gold_converts_thinnest_first(self):
+        """Gold plates the finest grain first — highlights cool, dense shadows hold."""
+        res_light = apply_chemical_toning(self._gray(0.6), gold_strength=1.0)
+        res_dark = apply_chemical_toning(self._gray(0.01), gold_strength=1.0)
+        cool_light = float(res_light[0, 0, 2] - res_light[0, 0, 0])
+        cool_dark = float(res_dark[0, 0, 2] - res_dark[0, 0, 0])
+        self.assertGreater(cool_light, 0.005)
+        self.assertAlmostEqual(cool_dark, 0.0, places=3)
+
+    def test_gold_over_sepia_shifts_red(self):
+        """Gold on sulfide (the classic gold-over-sepia combo) pushes the warm
+        sepia hue further toward orange-red instead of cooling it."""
+        light = self._gray(0.6)
+        res_sep = apply_chemical_toning(light, sepia_strength=1.0)
+        res_both = apply_chemical_toning(light, sepia_strength=1.0, gold_strength=1.0)
+        warmth_sep = float(res_sep[0, 0, 0] - res_sep[0, 0, 2])
+        warmth_both = float(res_both[0, 0, 0] - res_both[0, 0, 2])
+        self.assertGreater(warmth_sep, 0.01)
+        self.assertGreater(warmth_both, warmth_sep)
+
+    def test_gold_monotone_with_strength(self):
+        """Longer gold bath -> deeper print, output stays sane."""
+        light = self._gray(0.6)
+        res_1 = apply_chemical_toning(light, gold_strength=1.0)
+        res_2 = apply_chemical_toning(light, gold_strength=2.0)
+        self.assertGreaterEqual(float(res_2.min()), 0.0)
+        self.assertLessEqual(float(res_2.max()), 1.0)
+        self.assertLessEqual(float(res_2.mean()), float(res_1.mean()))
+
     def test_paper_white_stays_white(self):
         """No silver at paper white — nothing to tone."""
         white = self._gray(1.0)
-        res = apply_chemical_toning(white, selenium_strength=1.0, sepia_strength=1.0)
+        res = apply_chemical_toning(white, selenium_strength=1.0, sepia_strength=1.0, gold_strength=1.0)
         np.testing.assert_allclose(res, white, atol=1e-3)
 
     def test_output_range_combined(self):

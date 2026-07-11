@@ -22,6 +22,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _toe(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.toe_slider
 
+    def _channel_selector(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.tone_sidebar.ch_global_btn
+
     def _region_btn(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.colour_sidebar.region_global_btn
 
@@ -166,7 +169,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Luma Range Clip</b> tunes the tonal span (positive = tighter recovery, "
                 "negative = outward headroom); <b>Colour Clip</b> sets the per-channel balance "
                 "independently. <b>White Point</b> / <b>Black Point</b> fine-tune the detected "
-                "bounds without re-analysis — highlight recovery or shadow crush.<br><br>"
+                "bounds without re-analysis — highlight recovery or shadow crush — globally or "
+                "per dye layer via their <b>Global / R / G / B</b> selector, like a scanner's "
+                "per-channel levels.<br><br>"
                 "The stretch is <b>unclamped</b>: tones outside the bounds survive and roll "
                 "off later in the print curve's toe and shoulder."
             ),
@@ -223,13 +228,30 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Exposure — H&D Curve (Toe & Shoulder)",
             body=(
                 "The <b>Toe</b> and <b>Shoulder</b> controls shape the shadow and highlight roll-off "
-                "of the H&D characteristic curve — not a generic tone curve, but a model of how "
-                "photographic paper responds to light, with independent softplus knees at each end.<br><br>"
-                "<b>Toe</b>: lifts the paper-black ceiling, adding depth to the darkest areas.<br>"
-                "<b>Shoulder</b>: compresses highlights for a softer fade to paper white.<br>"
-                "<b>Width</b>: how sharply each transition knee bends."
+                "of the H&D characteristic curve — a model of how photographic paper responds to "
+                "light, not a generic tone curve.<br><br>"
+                "<b>Toe</b>: lifts the paper-black ceiling.<br>"
+                "<b>Shoulder</b>: compresses highlights toward paper white.<br>"
+                "<b>Width</b>: how far each knee's roll-off reaches.<br>"
+                "<b>Snap</b>: the paper's variable midtone gamma — endpoints and anchor stay put.<br><br>"
+                "<b>True Black</b> maps the paper's D-max to display black; pull Toe negative "
+                "with it on to clip deep shadows to exact black."
             ),
             target=_toe,
+            section_attr="tone_section",
+        ),
+        TutorialStep(
+            title="Per-Layer Trims — Crossover Correction",
+            body=(
+                "The <b>Global / Red / Green / Blue</b> selector scopes the curve controls to a "
+                "single dye layer: in a channel mode, Grade, Toe, Shoulder, Width and Snap become "
+                "that layer's trims.<br><br>"
+                "Colour filtration can only <i>shift</i> a layer's curve; trims change its "
+                "<i>shape</i> — fixing crossover casts that differ between shadows, mids and "
+                "highlights, the correction a real colour darkroom never had. The H&D chart "
+                "draws the diverged per-layer curves live."
+            ),
+            target=_channel_selector,
             section_attr="tone_section",
         ),
         TutorialStep(

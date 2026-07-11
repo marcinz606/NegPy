@@ -5,6 +5,7 @@ import qtawesome as qta
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QPushButton, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.styles.templates import EditedDot, default_button_height, labeled_toggle_qss, tool_toggle_qss, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -40,7 +41,7 @@ class BaseSidebar(QWidget):
         """Sets up the default QVBoxLayout."""
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(5, 0, 5, 5)
-        self.layout.setSpacing(10)
+        self.layout.setSpacing(THEME.space_md)
 
     def _init_ui(self) -> None:
         """Override to add widgets to self.layout."""
@@ -54,15 +55,30 @@ class BaseSidebar(QWidget):
         """Override to update widgets from current AppState."""
         pass
 
-    def _icon_toggle(self, icon_name: str, checked: bool, tooltip: str) -> QPushButton:
-        """Compact icon-only checkable button placed beside a slider."""
-        btn = QPushButton()
+    def _tool_toggle(self, icon_name: str, label: str, tooltip: str) -> QPushButton:
+        """Checkable button; empty label keeps it icon-only."""
+        btn = QPushButton((" " + label) if label else "")
         btn.setCheckable(True)
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
+        btn.setStyleSheet(tool_toggle_qss(icon_only=not label))
+        btn.setFixedHeight(default_button_height())
+        btn.setToolTip(wrap_tooltip(tooltip))
+        return btn
+
+    def _small_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
+        """_tool_toggle with an initial checked state; the name marks the role."""
+        btn = self._tool_toggle(icon_name, label, tooltip)
         btn.setChecked(checked)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
-        btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 6px;")
-        btn.setFixedWidth(36)
-        btn.setToolTip(tooltip)
+        return btn
+
+    def _icon_action(self, icon_name: str, tooltip: str, width: int = 36) -> QPushButton:
+        """Icon-only one-shot action button, sized to sit flush beside toggles."""
+        btn = QPushButton()
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
+        btn.setStyleSheet("QPushButton {padding: 6px;}")
+        btn.setFixedWidth(width)
+        btn.setFixedHeight(default_button_height())
+        btn.setToolTip(wrap_tooltip(tooltip))
         return btn
 
     def _labeled_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
@@ -70,9 +86,10 @@ class BaseSidebar(QWidget):
         btn = QPushButton(label)
         btn.setCheckable(True)
         btn.setChecked(checked)
-        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary))
-        btn.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 8px;")
-        btn.setToolTip(tooltip)
+        btn.setIcon(qta.icon(icon_name, color=THEME.text_primary, color_disabled=THEME.text_muted))
+        btn.setStyleSheet(labeled_toggle_qss())
+        btn.setToolTip(wrap_tooltip(tooltip))
+        btn.edited_dot = EditedDot(btn)
         return btn
 
     def update_config_section(

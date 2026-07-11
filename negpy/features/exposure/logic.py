@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from numba import njit, prange  # type: ignore
@@ -52,10 +52,10 @@ def _apply_print_curve_kernel(
     pivots: np.ndarray,
     slopes: np.ndarray,
     curvatures: np.ndarray,
-    toe: float,
-    shoulder: float,
-    toe_width: float,
-    shoulder_width: float,
+    toe: np.ndarray,
+    shoulder: np.ndarray,
+    toe_width: np.ndarray,
+    shoulder_width: np.ndarray,
     cmy_offsets: np.ndarray,
     shadow_cmy: np.ndarray,
     highlight_cmy: np.ndarray,
@@ -67,16 +67,22 @@ def _apply_print_curve_kernel(
     toe_height: float,
     sh_height: float,
     zone_center: float,
+    shadow_density: float,
+    highlight_density: float,
+    shadow_grade: np.ndarray,
+    highlight_grade: np.ndarray,
+    zone_sh_center: float,
+    zone_hi_center: float,
+    zone_k: float,
     v_star: float,
-    midtone_gamma: float,
+    midtone_gamma: np.ndarray,
     gamma_width: float,
     dye_mix: np.ndarray,
     use_dye_mix: bool,
     ev_map: np.ndarray,
     ev_scale: np.ndarray,
     use_ev: bool,
-    flare: float = 0.0,
-    surround_gamma: float = 1.0,
+    bpc: bool = False,
 ) -> np.ndarray:
     """
     Asymmetric H&D print curve: a straight line of slope `slope` through the
@@ -84,7 +90,8 @@ def _apply_print_curve_kernel(
     d_max) and below by the shoulder (highlights -> paper white d_min). Toe and
     shoulder are independent softplus bounds, so the `toe` slider shapes only
     shadows and `shoulder` only highlights (film/print convention). `toe`/`shoulder`
-    arrive pre-scaled by toe_shoulder_strength.
+    are per-channel 3-arrays (global value + per-layer trims — endpoint crossover),
+    pre-scaled by toe_shoulder_strength.
 
     d_min_rgb: per-channel paper-white floor (base+fog incl. tint). dye_mix:
     dye coupling above that floor (D_rgb = M · D_dye) when use_dye_mix is set.
@@ -93,6 +100,9 @@ def _apply_print_curve_kernel(
 
     Output is linear reflectance (transmittance = 10^-D); the working-space OETF is
     applied at the engine output, not here.
+
+    bpc: black point compensation — paper Dmax maps to display black (ICC
+    relative-colorimetric style).
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -101,21 +111,24 @@ def _apply_print_curve_kernel(
     # Roll-off sharpness from width (larger width = gentler); slider sets height.
     # toe -> shadow (upper / paper-black) bound; shoulder -> highlight (lower /
     # paper-white) bound. a_toe_base/a_sh_base carry the shadow/highlight sharpness.
-    a_hl = a_sh_base * width_ref / max(shoulder_width, eps)
-    a_sh = a_toe_base * width_ref / max(toe_width, eps)
-    if toe >= 0.0:
-        d_max_base = d_max - toe * toe_height
-    else:
-        # Negative toe: tighten the shadow roll-off (sharper knee) rather than
-        # extending d_max_eff beyond paper black (perceptually near-zero effect).
-        d_max_base = d_max
-        a_sh = a_sh * (1.0 - toe * 4.0)
-
+    a_hl = np.empty(3, dtype=np.float64)
+    a_sh = np.empty(3, dtype=np.float64)
     d_min_eff = np.empty(3, dtype=np.float64)
     d_max_eff = np.empty(3, dtype=np.float64)
-    flare_white = np.empty(3, dtype=np.float64)
+    bpc_black = np.empty(3, dtype=np.float64)
     for ch in range(3):
-        dmn = d_min_rgb[ch] + shoulder * sh_height
+        a_hl[ch] = a_sh_base * width_ref / max(shoulder_width[ch], eps)
+        a_sh_w = a_toe_base * width_ref / max(toe_width[ch], eps)
+        t_ch = toe[ch]
+        if t_ch >= 0.0:
+            d_max_base = d_max - t_ch * toe_height
+            a_sh[ch] = a_sh_w
+        else:
+            # Negative toe: tighten the shadow roll-off (sharper knee) rather than
+            # extending d_max_eff beyond paper black (perceptually near-zero effect).
+            d_max_base = d_max
+            a_sh[ch] = a_sh_w * (1.0 - t_ch * 4.0)
+        dmn = d_min_rgb[ch] + shoulder[ch] * sh_height
         if dmn < 0.0:
             dmn = 0.0
         dmx = d_max_base
@@ -123,7 +136,22 @@ def _apply_print_curve_kernel(
             dmx = dmn + 0.1
         d_min_eff[ch] = dmn
         d_max_eff[ch] = dmx
-        flare_white[ch] = 10.0 ** (-d_min_rgb[ch])
+        # BPC references the physical d_max (not d_max_eff) so toe lifts survive;
+        # negative toe raises the clip point — the bound reaches d_max only
+        # asymptotically, so exact 0 needs the clip inside the shadow range.
+        db = d_max
+        if t_ch < 0.0:
+            db = d_max + t_ch * toe_height
+        bpc_black[ch] = 10.0**-db
+
+    use_split = (
+        shadow_grade[0] != 0.0
+        or shadow_grade[1] != 0.0
+        or shadow_grade[2] != 0.0
+        or highlight_grade[0] != 0.0
+        or highlight_grade[1] != 0.0
+        or highlight_grade[2] != 0.0
+    )
 
     # Rows are independent, so parallelise over y. `dens` is allocated per row so
     # each worker thread has its own scratch (no cross-iteration sharing).
@@ -140,18 +168,33 @@ def _apply_print_curve_kernel(
                 # Variable-gamma paper S-curve: extra local gamma at the midtone
                 # centre (v_star), easing to zero toward toe/shoulder. Centred on
                 # v_star so the reference tone is preserved.
-                if midtone_gamma != 0.0:
-                    v = v + midtone_gamma * gamma_width * np.tanh((v - v_star) / gamma_width)
+                if midtone_gamma[ch] != 0.0:
+                    v = v + midtone_gamma[ch] * gamma_width * np.tanh((v - v_star) / gamma_width)
 
                 # Regional CMY: shadow weight rises with density, highlight falls.
                 w_sh = _fast_sigmoid(3.0 * (v - zone_center))
                 w_hi = 1.0 - w_sh
                 v = v + shadow_cmy[ch] * w_sh + highlight_cmy[ch] * w_hi
 
+                # Split Grade: local contrast rotation about the zone centers,
+                # mid-sparing. Must run as its own block before Zone Density
+                # (sequential stays monotone; shared weights do not).
+                if use_split:
+                    w_gsh = _fast_sigmoid(zone_k * (v - zone_sh_center))
+                    w_ghi = 1.0 - _fast_sigmoid(zone_k * (v - zone_hi_center))
+                    v = v + shadow_grade[ch] * w_gsh * (v - zone_sh_center) + highlight_grade[ch] * w_ghi * (v - zone_hi_center)
+
+                # Zone Density (ΔD): neutral brightness offsets, mid-sparing
+                # weights centred in the three-quarter/quarter tones.
+                if shadow_density != 0.0 or highlight_density != 0.0:
+                    w_zsh = _fast_sigmoid(zone_k * (v - zone_sh_center))
+                    w_zhi = 1.0 - _fast_sigmoid(zone_k * (v - zone_hi_center))
+                    v = v + shadow_density * w_zsh + highlight_density * w_zhi
+
                 # Shoulder: smooth lower bound at paper white (highlights).
-                v1 = d_min_eff[ch] + _softplus(a_hl * (v - d_min_eff[ch])) / a_hl
+                v1 = d_min_eff[ch] + _softplus(a_hl[ch] * (v - d_min_eff[ch])) / a_hl[ch]
                 # Toe: smooth upper bound at paper black (shadows).
-                dens[ch] = d_max_eff[ch] - _softplus(a_sh * (d_max_eff[ch] - v1)) / a_sh
+                dens[ch] = d_max_eff[ch] - _softplus(a_sh[ch] * (d_max_eff[ch] - v1)) / a_sh[ch]
 
             if use_dye_mix:
                 # Dye unwanted absorptions: mix the densities above paper base.
@@ -163,13 +206,9 @@ def _apply_print_curve_kernel(
                 dens[2] = d_min_rgb[2] + dye_mix[2, 0] * e0 + dye_mix[2, 1] * e1 + dye_mix[2, 2] * e2
 
             for ch in range(3):
-                density = dens[ch]
-                if surround_gamma != 1.0:
-                    density = d_min_rgb[ch] + surround_gamma * (density - d_min_rgb[ch])
-
-                transmittance = 10.0 ** (-density)
-                if flare != 0.0:
-                    transmittance = (transmittance + flare * flare_white[ch]) / (1.0 + flare)
+                transmittance = 10.0 ** (-dens[ch])
+                if bpc:
+                    transmittance = (transmittance - bpc_black[ch]) / (1.0 - bpc_black[ch])
 
                 final_val = transmittance
                 if final_val < 0.0:
@@ -185,7 +224,8 @@ class CharacteristicCurve:
     Asymmetric H&D print curve (toe-linear-shoulder) in density space — the NumPy
     mirror of _apply_print_curve_kernel, used by the curve chart so the displayed
     curve matches the render. Returns density (pre-transmittance/encode). Neutral
-    (no regional CMY), since the chart shows the achromatic transfer.
+    (no regional CMY colour), since the chart shows the achromatic transfer; the
+    achromatic zone density offsets (shadow/highlight ΔD) are included.
     """
 
     def __init__(
@@ -197,9 +237,13 @@ class CharacteristicCurve:
         toe_width: float = 2.5,
         shoulder: float = 0.0,
         shoulder_width: float = 2.5,
-        flare: float = 0.0,
-        surround_gamma: float = 1.0,
         paper: Optional[PaperProfile] = None,
+        midtone_gamma: Optional[float] = None,
+        bpc: bool = False,
+        shadow_density: float = 0.0,
+        highlight_density: float = 0.0,
+        shadow_grade_delta: float = 0.0,
+        highlight_grade_delta: float = 0.0,
     ):
         c = effective_constants(paper)
         ts = float(c["toe_shoulder_strength"])
@@ -207,11 +251,22 @@ class CharacteristicCurve:
         self.x0 = float(pivot)
         self.d_min = float(d_min)
         self.v_star = _reference_linear_value(d_min, paper)
-        self.midtone_gamma = float(c["paper_midtone_gamma"])
+        self.midtone_gamma = float(c["paper_midtone_gamma"]) if midtone_gamma is None else float(midtone_gamma)
         self.gamma_width = float(c["paper_gamma_width"])
+        self.zone_sh_center = float(c["anchor_target_density"]) + float(c["zone_density_shadow_offset"])
+        self.zone_hi_center = float(c["anchor_target_density"]) + float(c["zone_density_highlight_offset"])
+        self.zone_k = float(c["zone_density_sharpness"])
+        self.shadow_density = float(shadow_density)
+        self.highlight_density = float(highlight_density)
+        self.shadow_grade_delta = float(shadow_grade_delta)
+        self.highlight_grade_delta = float(highlight_grade_delta)
         self.d_max = float(c["d_max"])
-        self.flare = float(flare)
-        self.surround_gamma = float(surround_gamma)
+        # BPC reference mirrors the kernel prologue (achromatic: d_min for the tint).
+        self.bpc = bool(bpc)
+        db = self.d_max
+        if toe * ts < 0.0:
+            db = self.d_max + toe * ts * float(c["toe_height"])
+        self.bpc_black = 10.0**-db
         wr = float(c["toeshoulder_width_ref"])
         # toe -> shadow (upper) bound; shoulder -> highlight (lower) bound.
         self.a_hl = float(c["shoulder_sharpness_base"]) * wr / max(shoulder_width, 1e-6)
@@ -231,19 +286,73 @@ class CharacteristicCurve:
         v = self.k * (np.asarray(x, dtype=np.float64) - self.x0)
         if self.midtone_gamma != 0.0:
             v = v + self.midtone_gamma * self.gamma_width * np.tanh((v - self.v_star) / self.gamma_width)
+        if self.shadow_grade_delta != 0.0 or self.highlight_grade_delta != 0.0:
+            w_gsh = _expit(self.zone_k * (v - self.zone_sh_center))
+            w_ghi = 1.0 - _expit(self.zone_k * (v - self.zone_hi_center))
+            v = (
+                v
+                + self.shadow_grade_delta * w_gsh * (v - self.zone_sh_center)
+                + self.highlight_grade_delta * w_ghi * (v - self.zone_hi_center)
+            )
+        if self.shadow_density != 0.0 or self.highlight_density != 0.0:
+            w_zsh = _expit(self.zone_k * (v - self.zone_sh_center))
+            w_zhi = 1.0 - _expit(self.zone_k * (v - self.zone_hi_center))
+            v = v + self.shadow_density * w_zsh + self.highlight_density * w_zhi
         v1 = self.d_min_eff + np.logaddexp(0.0, self.a_hl * (v - self.d_min_eff)) / self.a_hl
         res = self.d_max_eff - np.logaddexp(0.0, self.a_sh * (self.d_max_eff - v1)) / self.a_sh
 
-        if self.surround_gamma != 1.0:
-            res = self.d_min + self.surround_gamma * (res - self.d_min)
-
-        if self.flare != 0.0:
-            white = 10.0 ** (-self.d_min)
+        if self.bpc:
             t = 10.0 ** (-res)
-            t = (t + self.flare * white) / (1.0 + self.flare)
+            t = (t - self.bpc_black) / (1.0 - self.bpc_black)
             res = -np.log10(np.maximum(t, 1e-12))
 
         return ensure_image(res)
+
+
+def per_channel_toe_shoulder(
+    toe_eff: float,
+    shoulder_eff: float,
+    toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Per-layer effective toe/shoulder: grade-coupled global value + per-layer trim,
+    clamped to the slider domain. Single source of truth for CPU / GPU / chart.
+    """
+
+    def _clamp(v: float) -> float:
+        return min(max(v, -1.0), 1.0)
+
+    toe3 = (_clamp(toe_eff + toe_trims[0]), _clamp(toe_eff + toe_trims[1]), _clamp(toe_eff + toe_trims[2]))
+    sh3 = (
+        _clamp(shoulder_eff + shoulder_trims[0]),
+        _clamp(shoulder_eff + shoulder_trims[1]),
+        _clamp(shoulder_eff + shoulder_trims[2]),
+    )
+    return toe3, sh3
+
+
+def per_channel_widths(
+    toe_width: float,
+    shoulder_width: float,
+    toe_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Per-layer effective toe/shoulder widths: global width + per-layer trim,
+    clamped to the width slider domain. Single source of truth for CPU / GPU / chart.
+    """
+
+    def _clamp(v: float) -> float:
+        return min(max(v, 0.1), 5.0)
+
+    tw3 = (_clamp(toe_width + toe_width_trims[0]), _clamp(toe_width + toe_width_trims[1]), _clamp(toe_width + toe_width_trims[2]))
+    sw3 = (
+        _clamp(shoulder_width + shoulder_width_trims[0]),
+        _clamp(shoulder_width + shoulder_width_trims[1]),
+        _clamp(shoulder_width + shoulder_width_trims[2]),
+    )
+    return tw3, sw3
 
 
 def paper_dmin_rgb(d_min: float, paper: Optional[PaperProfile]) -> Tuple[float, float, float]:
@@ -271,13 +380,21 @@ def apply_characteristic_curve(
     highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     d_min: float = 0.0,
-    flare: float = 0.0,
-    surround_gamma: float = 1.0,
     midtone_gamma: Optional[float] = None,
     curvatures: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     paper: Optional[PaperProfile] = None,
     ev_map: Optional[np.ndarray] = None,
     ev_scale: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    bpc: bool = False,
+    toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    toe_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shadow_density: float = 0.0,
+    highlight_density: float = 0.0,
+    shadow_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    highlight_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
 
@@ -299,15 +416,17 @@ def apply_characteristic_curve(
     use_ev = ev_map is not None
     ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
 
+    toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
+    tw3, sw3 = per_channel_widths(toe_width, shoulder_width, toe_width_trims, shoulder_width_trims)
     res = _apply_print_curve_kernel(
         np.ascontiguousarray(img.astype(np.float32)),
         pivots,
         slopes,
         curvs,
-        float(toe * ts),
-        float(shoulder * ts),
-        float(toe_width),
-        float(shoulder_width),
+        np.array([t * ts for t in toe3], dtype=np.float64),
+        np.array([s * ts for s in sh3], dtype=np.float64),
+        np.array(tw3, dtype=np.float64),
+        np.array(sw3, dtype=np.float64),
         offsets,
         s_cmy,
         h_cmy,
@@ -319,16 +438,22 @@ def apply_characteristic_curve(
         toe_height=float(c["toe_height"]),
         sh_height=float(c["shoulder_height"]),
         zone_center=float(c["anchor_target_density"]),
+        shadow_density=float(shadow_density),
+        highlight_density=float(highlight_density),
+        shadow_grade=np.array(shadow_grade_deltas, dtype=np.float64),
+        highlight_grade=np.array(highlight_grade_deltas, dtype=np.float64),
+        zone_sh_center=float(c["anchor_target_density"]) + float(c["zone_density_shadow_offset"]),
+        zone_hi_center=float(c["anchor_target_density"]) + float(c["zone_density_highlight_offset"]),
+        zone_k=float(c["zone_density_sharpness"]),
         v_star=float(v_star),
-        midtone_gamma=float(midtone_gamma),
+        midtone_gamma=np.array([float(midtone_gamma) + snap_trims[ch] for ch in range(3)], dtype=np.float64),
         gamma_width=float(c["paper_gamma_width"]),
         dye_mix=dye_mix,
         use_dye_mix=dye is not None,
         ev_map=ev_arr,
         ev_scale=np.ascontiguousarray(np.array(ev_scale, dtype=np.float32)),
         use_ev=use_ev,
-        flare=float(flare),
-        surround_gamma=float(surround_gamma),
+        bpc=bool(bpc),
     )
     return ensure_image(res)
 
@@ -403,6 +528,68 @@ def slope_to_grade(slope: float, density_range: Optional[float]) -> float:
         return float(c["iso_r_max"])
     er = float(c["grade_contrast_scale"]) * rng / float(slope)
     return float(min(max(er * 100.0, c["iso_r_min"]), c["iso_r_max"]))
+
+
+def effective_midtone_gamma(paper: Optional[PaperProfile], trim: float) -> float:
+    """
+    Paper's variable midtone gamma plus the user's additive trim. Single source
+    of truth for CPU / GPU / chart.
+    """
+    return float(effective_constants(paper)["paper_midtone_gamma"]) + float(trim)
+
+
+def per_channel_midtone_gamma(
+    paper: Optional[PaperProfile],
+    trim: float,
+    snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[float, float, float]:
+    """
+    Per-layer effective midtone gamma: paper baseline + global trim + Snap trim.
+    Single source of truth for CPU / GPU / chart. Unclamped: the slider domains
+    keep |gamma| < 1, the kernel's monotonicity bound.
+    """
+    base = effective_midtone_gamma(paper, trim)
+    return (base + snap_trims[0], base + snap_trims[1], base + snap_trims[2])
+
+
+def _grade_trim_mult(grade: float, trim: float, c: Dict[str, Any]) -> float:
+    """
+    Per-layer ISO-R trim -> slope ratio: k ∝ 1/R, so a ΔR trim is the pure
+    ratio R/(R+ΔR), with both grades clamped to the R ladder.
+    """
+    r0 = min(max(float(grade), float(c["iso_r_min"])), float(c["iso_r_max"]))
+    r1 = min(max(r0 + float(trim), float(c["iso_r_min"])), float(c["iso_r_max"]))
+    return r0 / r1
+
+
+def split_grade_deltas(
+    grade: float,
+    shadow_grade: float,
+    highlight_grade: float,
+    shadow_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    highlight_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """
+    Split-grade ISO-R trims -> per-layer local contrast gains (multiplier - 1)
+    about the zone centers: global value + per-layer trim, like grade trims.
+    Single source of truth for CPU / GPU / chart. ISO-R bounds are
+    paper-independent, so EXPOSURE_CONSTANTS applies.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    return (
+        (
+            _grade_trim_mult(grade, shadow_grade + shadow_trims[0], c) - 1.0,
+            _grade_trim_mult(grade, shadow_grade + shadow_trims[1], c) - 1.0,
+            _grade_trim_mult(grade, shadow_grade + shadow_trims[2], c) - 1.0,
+        ),
+        (
+            _grade_trim_mult(grade, highlight_grade + highlight_trims[0], c) - 1.0,
+            _grade_trim_mult(grade, highlight_grade + highlight_trims[1], c) - 1.0,
+            _grade_trim_mult(grade, highlight_grade + highlight_trims[2], c) - 1.0,
+        ),
+    )
 
 
 def grade_coupled_shape(slope_g: float, toe: float, shoulder: float) -> Tuple[float, float]:
@@ -522,10 +709,10 @@ def normalized_neutral_axis(bounds: Any, refs: Any) -> Any:
     return (norm(mid), norm(shadow), norm(highlight))
 
 
-def effective_cast_strength(strength: float, auto: bool, confidence: Optional[float]) -> float:
-    """Applied cast-removal strength. Auto biases the slider by the neutral-reference
-    confidence (clean greys → full, ambiguous → gentler); the slider trims on top."""
-    if auto and confidence is not None:
+def effective_cast_strength(strength: float, confidence: Optional[float]) -> float:
+    """Applied cast-removal strength: the neutral-reference confidence biases the
+    slider (clean greys → full, ambiguous → gentler); the slider trims on top."""
+    if confidence is not None:
         return confidence * strength
     return strength
 
@@ -542,6 +729,7 @@ def per_channel_curve_params(
     anchor: Optional[float] = None,
     paper: Optional[PaperProfile] = None,
     neutral_axis_norm: Any = None,
+    grade_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
     """
     Per-channel (slopes, pivots, curvatures); single source of truth for CPU/GPU/chart.
@@ -557,6 +745,14 @@ def per_channel_curve_params(
     # pivot is re-solved per channel so neutrals stay neutral and colour diverges
     # only away from the midtone.
     cg = paper.channel_gamma if paper is not None else (1.0, 1.0, 1.0)
+    if grade_trims != (0.0, 0.0, 0.0):
+        # Per-layer ISO-R trims fold in as user channel_gammas; the pivot
+        # re-solve keeps the anchor neutral.
+        cg = (
+            cg[0] * _grade_trim_mult(grade, grade_trims[0], c),
+            cg[1] * _grade_trim_mult(grade, grade_trims[1], c),
+            cg[2] * _grade_trim_mult(grade, grade_trims[2], c),
+        )
     slope_min = float(c["slope_min"])
     slope_max = float(c["slope_max"])
     r_eff = effective_grade_range(auto_normalize_contrast, lum_range, textural_range)

@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import field_label
+from negpy.desktop.view.styles.templates import dialog_pane_qss, field_label, pane_header_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
 from negpy.features.metadata.gear_logic import matches_gear_filter
@@ -85,12 +85,12 @@ class GearLibraryDialog(QDialog):
         # Category list
         left = QWidget()
         left.setFixedWidth(140)
-        left.setStyleSheet(f"background: {THEME.bg_panel}; border-right: 1px solid {THEME.border_primary};")
+        left.setStyleSheet(dialog_pane_qss())
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(8, 8, 8, 8)
 
         cat_label = QLabel("LIBRARY")
-        cat_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px; font-weight: bold;")
+        cat_label.setStyleSheet(pane_header_qss())
         left_layout.addWidget(cat_label)
 
         self.category_list = QListWidget()
@@ -104,12 +104,12 @@ class GearLibraryDialog(QDialog):
         # Item list
         mid = QWidget()
         mid.setFixedWidth(220)
-        mid.setStyleSheet(f"background: {THEME.bg_panel}; border-right: 1px solid {THEME.border_primary};")
+        mid.setStyleSheet(dialog_pane_qss())
         mid_layout = QVBoxLayout(mid)
         mid_layout.setContentsMargins(8, 8, 8, 8)
 
         self.items_label = QLabel("ITEMS")
-        self.items_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: 10px; font-weight: bold;")
+        self.items_label.setStyleSheet(pane_header_qss())
         mid_layout.addWidget(self.items_label)
 
         self.item_search = QLineEdit()

@@ -14,6 +14,7 @@ from negpy.features.exposure.logic import (
     compute_pivot,
     grade_to_slope,
     slope_to_grade,
+    split_grade_deltas,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
@@ -24,11 +25,22 @@ def _ramp(n=257):
     return x, np.stack([x, x, x], axis=-1)[None, :, :]
 
 
-def _curve(toe=0.0, shoulder=0.0, grade=115.0, density=1.0, lum_range=1.3):
+def _curve(
+    toe=0.0,
+    shoulder=0.0,
+    grade=115.0,
+    density=1.0,
+    lum_range=1.3,
+    shadow_density=0.0,
+    highlight_density=0.0,
+    shadow_grade=0.0,
+    highlight_grade=0.0,
+):
     x, ramp = _ramp()
     d_min = EXPOSURE_CONSTANTS["d_min"]
     slope = grade_to_slope(grade, lum_range)
     pivot = compute_pivot(slope, density=density, d_min=d_min)
+    sg3, hg3 = split_grade_deltas(grade, shadow_grade, highlight_grade)
     out = apply_characteristic_curve(
         ramp,
         (pivot, slope),
@@ -36,6 +48,10 @@ def _curve(toe=0.0, shoulder=0.0, grade=115.0, density=1.0, lum_range=1.3):
         (pivot, slope),
         toe=toe,
         shoulder=shoulder,
+        shadow_density=shadow_density,
+        highlight_density=highlight_density,
+        shadow_grade_deltas=sg3,
+        highlight_grade_deltas=hg3,
         d_min=d_min,
     )
     # Stage outputs linear; compare in the displayed space where goldens are calibrated.
@@ -106,6 +122,181 @@ class TestCalibration(unittest.TestCase):
         golden = [0.904, 0.739, 0.327, 0.114, 0.059]
         for i, g in zip(idx, golden):
             self.assertAlmostEqual(out[i], g, delta=0.03, msg=f"x={x[i]:.2f}")
+
+    def test_full_toe_lift_strength(self):
+        """Pin the toe strength: toe=1 lands paper black at
+        d_max − strength·toe_height ≈ 1.54 (a clearly faded black)."""
+        _, out = _curve(toe=1.0)
+        d = _output_to_density(out)
+        ts = EXPOSURE_CONSTANTS["toe_shoulder_strength"]
+        expected = EXPOSURE_CONSTANTS["d_max"] - ts * EXPOSURE_CONSTANTS["toe_height"]
+        self.assertAlmostEqual(float(d[-1]), expected, delta=0.1)
+        self.assertLess(expected, 1.7, "full toe throw should land well below paper black")
+
+
+class TestZoneDensity(unittest.TestCase):
+    """Neutral zone density offsets (ΔD): mid-sparing shadow/highlight brightness
+    sliders, bounded by paper black/white."""
+
+    def _zone(self, sd=0.0, hd=0.0):
+        return _curve(shadow_density=sd, highlight_density=hd)
+
+    def test_shadow_lift_acts_on_shadows_spares_mids(self):
+        x, base = _curve()
+        _, out = self._zone(sd=-0.9)
+        sh = x > 0.8
+        hi = x < 0.2
+        mid = (x > 0.35) & (x < 0.55)
+        d_sh = float(np.max(np.abs(out[sh] - base[sh])))
+        d_hi = float(np.max(np.abs(out[hi] - base[hi])))
+        d_mid = float(np.max(np.abs(out[mid] - base[mid])))
+        self.assertGreater(d_sh, 0.1, "full shadow lift too weak")
+        self.assertGreater(d_sh, 10.0 * d_hi, "shadow slider leaked into highlights")
+        self.assertGreater(d_sh, 3.0 * d_mid, "shadow slider not mid-sparing")
+        self.assertGreater(float(np.mean(out[sh])), float(np.mean(base[sh])), "negative ΔD must lift")
+
+    def test_highlight_burn_acts_on_highlights_spares_shadows(self):
+        x, base = _curve()
+        _, out = self._zone(hd=0.5)
+        sh = x > 0.8
+        hi = x < 0.3
+        d_sh = float(np.max(np.abs(out[sh] - base[sh])))
+        d_hi = float(np.max(np.abs(out[hi] - base[hi])))
+        self.assertGreater(d_hi, 0.1, "full highlight burn too weak")
+        self.assertGreater(d_hi, 20.0 * d_sh, "highlight slider not highlight-local")
+        self.assertLess(float(np.mean(out[hi])), float(np.mean(base[hi])), "positive ΔD must darken")
+
+    def test_bounded_by_paper_limits(self):
+        """Offsets are applied before the softplus bounds: a shadow burn cannot
+        exceed paper black, a highlight bleach cannot exceed paper white."""
+        x, base = _curve()
+        for sd, hd in ((0.9, 0.0), (0.0, -0.5)):
+            _, out = self._zone(sd=sd, hd=hd)
+            d = _output_to_density(out)
+            self.assertLessEqual(float(np.max(d)), EXPOSURE_CONSTANTS["d_max"] + 1e-6)
+            self.assertGreaterEqual(float(np.min(d)), 0.0)
+            self.assertTrue(np.all(np.diff(out) <= 1e-6), "zone offset broke monotonicity")
+
+    def test_chart_mirror_parity(self):
+        """CharacteristicCurve must draw the same zone shift the kernel renders."""
+        from negpy.features.exposure.logic import CharacteristicCurve
+        from negpy.kernel.image.logic import working_oetf_encode
+
+        d_min = EXPOSURE_CONSTANTS["d_min"]
+        slope = grade_to_slope(115.0, 1.3)
+        pivot = compute_pivot(slope, density=1.0, d_min=d_min)
+        for sd, hd in ((0.5, -0.2), (-0.9, 0.3)):
+            x, kernel = self._zone(sd=sd, hd=hd)
+            cc = CharacteristicCurve(contrast=slope, pivot=pivot, d_min=d_min, shadow_density=sd, highlight_density=hd)
+            d = cc(x.astype(np.float32))
+            enc = np.asarray(working_oetf_encode(np.power(10.0, -np.asarray(d)).astype(np.float32))).reshape(-1)
+            np.testing.assert_allclose(enc, kernel, atol=1e-4, err_msg=f"sd={sd} hd={hd}")
+
+
+class TestSplitGrade(unittest.TestCase):
+    """Split grade (ISO-R zone contrast trims): local slope rotation about the
+    zone centers, mid-sparing, bounded by paper black/white."""
+
+    def test_delta_sign_convention(self):
+        """Negative trim = harder = positive contrast gain (grade-trim convention)."""
+        sg3, hg3 = split_grade_deltas(115.0, -30.0, 30.0)
+        self.assertGreater(sg3[0], 0.0)
+        self.assertLess(hg3[0], 0.0)
+        self.assertEqual(split_grade_deltas(115.0, 0.0, 0.0), ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)))
+
+    def test_per_layer_trims_stack_on_global(self):
+        """Per-layer trims add to the global value per channel, like grade trims."""
+        sg3, hg3 = split_grade_deltas(115.0, -10.0, 5.0, shadow_trims=(-10.0, 0.0, 10.0), highlight_trims=(0.0, -5.0, 0.0))
+        base_sg, base_hg = split_grade_deltas(115.0, -10.0, 5.0)
+        self.assertGreater(sg3[0], base_sg[0])  # extra hard on red
+        self.assertEqual(sg3[1], base_sg[1])
+        self.assertLess(sg3[2], base_sg[2])  # softened back on blue
+        self.assertEqual(hg3[0], base_hg[0])
+        self.assertEqual(hg3[1], 0.0)  # -5 cancels the +5 global
+        self.assertEqual(hg3[2], base_hg[2])
+
+    def test_per_layer_trim_is_channel_local(self):
+        """A red-only shadow-grade trim moves only the red channel."""
+        _, ramp = _ramp()
+        d_min = EXPOSURE_CONSTANTS["d_min"]
+        slope = grade_to_slope(115.0, 1.3)
+        pivot = compute_pivot(slope, density=1.0, d_min=d_min)
+        sg3, hg3 = split_grade_deltas(115.0, 0.0, 0.0, shadow_trims=(-20.0, 0.0, 0.0))
+        params = ((pivot, slope), (pivot, slope), (pivot, slope))
+        base = np.asarray(apply_characteristic_curve(ramp, *params, d_min=d_min))
+        out = np.asarray(apply_characteristic_curve(ramp, *params, d_min=d_min, shadow_grade_deltas=sg3, highlight_grade_deltas=hg3))
+        diff = np.abs(out - base)[0]
+        self.assertGreater(float(diff[:, 0].max()), 1e-4, "red trim had no effect")
+        self.assertEqual(float(diff[:, 1].max()), 0.0, "leaked into green")
+        self.assertEqual(float(diff[:, 2].max()), 0.0, "leaked into blue")
+
+    def test_shadow_grade_acts_on_shadows_spares_mids(self):
+        x, base = _curve()
+        _, out = _curve(shadow_grade=30.0)  # softer shadows lift toward mid
+        d_base, d_out = _output_to_density(base), _output_to_density(out)
+        sh = x > 0.8
+        hi = x < 0.2
+        mid = (x > 0.35) & (x < 0.55)
+        d_sh = float(np.max(np.abs(d_out[sh] - d_base[sh])))
+        d_hi = float(np.max(np.abs(d_out[hi] - d_base[hi])))
+        d_mid = float(np.max(np.abs(d_out[mid] - d_base[mid])))
+        self.assertGreater(d_sh, 0.05, "full shadow softening too weak")
+        self.assertGreater(d_sh, 10.0 * d_hi, "shadow grade leaked into highlights")
+        self.assertGreater(d_sh, 3.0 * d_mid, "shadow grade not mid-sparing")
+        self.assertLess(float(np.mean(d_out[sh])), float(np.mean(d_base[sh])), "softer shadows must lift (less dense)")
+
+    def test_highlight_grade_acts_on_highlights_spares_shadows(self):
+        x, base = _curve()
+        _, out = _curve(highlight_grade=30.0)  # softer highlights sink toward mid
+        d_base, d_out = _output_to_density(base), _output_to_density(out)
+        sh = x > 0.8
+        hi = x < 0.3
+        d_sh = float(np.max(np.abs(d_out[sh] - d_base[sh])))
+        d_hi = float(np.max(np.abs(d_out[hi] - d_base[hi])))
+        # Gentler than the shadow side: the rotation arm |v - hi_center| is short
+        # near paper white and the shoulder bound compresses the rest.
+        self.assertGreater(d_hi, 0.03, "full highlight softening too weak")
+        self.assertGreater(d_hi, 10.0 * d_sh, "highlight grade not highlight-local")
+        self.assertGreater(float(np.mean(d_out[hi])), float(np.mean(d_base[hi])), "softer highlights must darken (denser)")
+
+    def test_monotone_and_bounded_incl_stacked_zone_density(self):
+        """Sequential split-grade -> zone-density composition stays monotone and
+        inside paper limits at the extremes of both feature pairs."""
+        for grade in (50.0, 115.0, 180.0):
+            for sg in (-50.0, 50.0):
+                for hg in (-50.0, 50.0):
+                    for sd, hd in ((0.0, 0.0), (-0.9, -0.5), (0.9, 0.5)):
+                        _, out = _curve(grade=grade, shadow_grade=sg, highlight_grade=hg, shadow_density=sd, highlight_density=hd)
+                        self.assertTrue(
+                            np.all(np.diff(out) <= 1e-6),
+                            f"non-monotone at grade={grade} sg={sg} hg={hg} sd={sd} hd={hd}",
+                        )
+                        d = _output_to_density(out)
+                        self.assertLessEqual(float(np.max(d)), EXPOSURE_CONSTANTS["d_max"] + 1e-6)
+                        self.assertGreaterEqual(float(np.min(d)), 0.0)
+
+    def test_chart_mirror_parity(self):
+        """CharacteristicCurve must draw the same split-grade rotation the kernel renders."""
+        from negpy.features.exposure.logic import CharacteristicCurve
+
+        d_min = EXPOSURE_CONSTANTS["d_min"]
+        slope = grade_to_slope(115.0, 1.3)
+        pivot = compute_pivot(slope, density=1.0, d_min=d_min)
+        for sg, hg, sd, hd in ((-30.0, 20.0, 0.0, 0.0), (25.0, -15.0, 0.4, -0.2)):
+            x, kernel = _curve(shadow_grade=sg, highlight_grade=hg, shadow_density=sd, highlight_density=hd)
+            sg3, hg3 = split_grade_deltas(115.0, sg, hg)
+            cc = CharacteristicCurve(
+                contrast=slope,
+                pivot=pivot,
+                d_min=d_min,
+                shadow_density=sd,
+                highlight_density=hd,
+                shadow_grade_delta=sg3[0],
+                highlight_grade_delta=hg3[0],
+            )
+            d = cc(x.astype(np.float32))
+            enc = np.asarray(working_oetf_encode(np.power(10.0, -np.asarray(d)).astype(np.float32))).reshape(-1)
+            np.testing.assert_allclose(enc, kernel, atol=1e-4, err_msg=f"sg={sg} hg={hg}")
 
 
 class TestPivotAndGrade(unittest.TestCase):

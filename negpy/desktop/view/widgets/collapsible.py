@@ -41,31 +41,12 @@ class CollapsibleSection(QWidget):
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(expanded)
         self.toggle_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_button.setFixedHeight(32)
+        self.toggle_button.setFixedHeight(36)
 
-        bg_normal = THEME.surface_overlay_strong if background_widget else THEME.bg_header
-        bg_hover = THEME.surface_overlay_hover if background_widget else "#222222"
-
-        self.toggle_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                text-align: left;
-                background-color: {bg_normal};
-                border: none;
-                border-bottom: 1px solid #262626;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                color: #FFFFFF;
-                padding: 0;
-            }}
-            QPushButton:hover {{
-                background-color: {bg_hover};
-            }}
-            QPushButton:checked {{
-                background-color: {bg_normal};
-            }}
-        """
-        )
+        # Styled by the QPushButton#collapsible_header rules in modern_dark.qss;
+        # overlay="true" = header stacked over a preview widget (translucent bg).
+        self.toggle_button.setObjectName("collapsible_header")
+        self.toggle_button.setProperty("overlay", "true" if background_widget else "false")
 
         btn_layout = QHBoxLayout(self.toggle_button)
         btn_layout.setContentsMargins(12, 8, 12, 8)
@@ -103,7 +84,7 @@ class CollapsibleSection(QWidget):
         if background_widget:
             background_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             header_container = QWidget()
-            header_container.setFixedHeight(32)
+            header_container.setFixedHeight(36)
             stacked = QStackedLayout(header_container)
             stacked.setStackingMode(QStackedLayout.StackingMode.StackAll)
             stacked.setContentsMargins(0, 0, 0, 0)
@@ -116,8 +97,8 @@ class CollapsibleSection(QWidget):
         self.content_area = QFrame()
         self.content_area.setObjectName("collapsible_content")
         self.content_layout = QVBoxLayout(self.content_area)
-        self.content_layout.setContentsMargins(0, 5, 0, 10)
-        self.content_layout.setSpacing(5)
+        self.content_layout.setContentsMargins(0, 4, 0, 8)
+        self.content_layout.setSpacing(4)
         self.content_area.setVisible(expanded)
 
         self.main_layout.addWidget(self.content_area)
@@ -125,6 +106,10 @@ class CollapsibleSection(QWidget):
         self.toggle_button.toggled.connect(self._on_toggle)
 
     def set_content(self, widget: QWidget) -> None:
+        # Plain QWidget content gets painted #0D0D0D by the global `QWidget {}`
+        # QSS rule, covering the #121212 card frame (custom subclasses aren't
+        # auto-painted). The objectName rule forces it transparent either way.
+        widget.setObjectName("collapsible_content_body")
         self.content_layout.addWidget(widget)
 
     def _update_chevron(self, expanded: bool) -> None:

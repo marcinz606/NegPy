@@ -712,6 +712,23 @@ class AppController(QObject):
         else:
             self._render_debounce.start()
 
+    def handle_crop_rotation_changed(self, angle: float, persist: bool) -> None:
+        """Live-updates (persist=False) or commits (persist=True) fine rotation from the
+        crop tool's edge rotation handles. Writes the same geometry.fine_rotation the
+        sidebar slider drives, so handle drag and slider fine-tuning compose; the crop
+        rect is display-space and stays put while the image rotates under it."""
+        if self.state.active_tool != ToolMode.CROP_MANUAL:
+            return
+        new_geo = replace(self.state.config.geometry, fine_rotation=angle)
+        # Defer the bounds recompute to crop-tool close, like the rect drag.
+        self._crop_bounds_dirty = True
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=persist)
+        self.rotation_guide_requested.emit()
+        if persist:
+            self.request_render()
+        else:
+            self._render_debounce.start()
+
     def confirm_manual_crop(self) -> None:
         """Close the crop tool (committing the current rect) — invoked by a double-click
         inside the crop box so the user needn't return to the Crop button."""
@@ -997,9 +1014,8 @@ class AppController(QObject):
             return
 
         exp = self.state.config.exposure
+        bounds = metrics.get("final_bounds") or metrics.get("log_bounds")  # CPU/GPU key names
         if is_log:
-            # CPU stores "final_bounds", GPU stores "log_bounds".
-            bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
             new_m, new_y = calculate_wb_shifts_from_log(sampled[:3], bounds)
         else:
             delta_m, delta_y = calculate_wb_shifts(sampled[:3])
@@ -1007,12 +1023,37 @@ class AppController(QObject):
             new_m = exp.wb_magenta + delta_m * damping
             new_y = exp.wb_yellow + delta_y * damping
 
-        new_exp = replace(
-            exp,
-            wb_cyan=0.0,
-            wb_magenta=float(np.clip(new_m, -1.0, 1.0)),
-            wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
-        )
+        region = self.state.wb_pick_region
+        if region == 0:
+            new_exp = replace(
+                exp,
+                wb_cyan=0.0,
+                wb_magenta=float(np.clip(new_m, -1.0, 1.0)),
+                wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
+            )
+        else:
+            # Store the residual over the global pair in the region's fields.
+            # Filtration offsets are range-normalized, regional ones absolute
+            # density — convert by the stretch range. Assumes the picked patch
+            # sits in its region (weight ~1).
+            c_field, m_field, y_field = (
+                ("shadow_cyan", "shadow_magenta", "shadow_yellow"),
+                ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
+            )[region - 1]
+            rng_m = rng_y = 1.0
+            if is_log and bounds is not None:
+                rng_m = max(abs(bounds.ceils[1] - bounds.floors[1]), 1e-6)
+                rng_y = max(abs(bounds.ceils[2] - bounds.floors[2]), 1e-6)
+            dm = (new_m - exp.wb_magenta) / rng_m
+            dy = (new_y - exp.wb_yellow) / rng_y
+            new_exp = replace(
+                exp,
+                **{
+                    c_field: 0.0,
+                    m_field: float(np.clip(dm, -1.0, 1.0)),
+                    y_field: float(np.clip(dy, -1.0, 1.0)),
+                },
+            )
         self.session.update_config(replace(self.state.config, exposure=new_exp), persist=True, record_history=True)
         self.request_render()
 
@@ -1071,7 +1112,7 @@ class AppController(QObject):
             "Set both on the current frame before running.\n\n"
             "Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -1808,7 +1849,7 @@ class AppController(QObject):
             "Export",
             text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
         return reply == QMessageBox.StandardButton.Yes
 

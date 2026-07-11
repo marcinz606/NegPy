@@ -3,6 +3,7 @@ import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
+from negpy.desktop.view.styles.templates import field_label_qss
 from negpy.desktop.view.styles.theme import THEME
 
 
@@ -15,17 +16,13 @@ class LocalSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         self.layout.setSpacing(10)
 
-        self.draw_btn = QPushButton(" Draw Mask")
-        self.draw_btn.setCheckable(True)
-        self.draw_btn.setIcon(qta.icon("fa5s.draw-polygon", color=THEME.text_primary))
-        self.draw_btn.setToolTip(
+        self.draw_btn = self._tool_toggle(
+            "fa5s.draw-polygon",
+            "Draw Mask",
             "Click to place vertices; double-click, Enter, or a click near the start closes. "
-            "Click inside an existing mask to select it. Esc cancels the current shape."
+            "Click inside an existing mask to select it. Esc cancels the current shape.",
         )
-        self.show_btn = QPushButton(" Show Masks")
-        self.show_btn.setCheckable(True)
-        self.show_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
-        self.show_btn.setToolTip("Show or hide the mask outlines on the canvas")
+        self.show_btn = self._small_toggle("fa5s.eye", "Show Masks", False, "Show or hide the mask outlines on the canvas")
 
         button_row = QHBoxLayout()
         button_row.addWidget(self.draw_btn)
@@ -45,7 +42,7 @@ class LocalSidebar(BaseSidebar):
 
         status_row = QHBoxLayout()
         self.mask_count_label = QLabel("0 masks")
-        self.mask_count_label.setStyleSheet(f"font-size: {THEME.font_size_base}px; color: {THEME.text_secondary};")
+        self.mask_count_label.setStyleSheet(field_label_qss())
         self.delete_btn = QPushButton(" Delete")
         self.delete_btn.setIcon(qta.icon("fa5s.times", color=THEME.text_primary))
         self.delete_btn.setToolTip("Delete the selected mask")

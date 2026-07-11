@@ -37,6 +37,9 @@ class AppState:
     workspace_color_space: str = "Adobe RGB"
     is_processing: bool = False
     active_tool: ToolMode = ToolMode.NONE
+    # Colour page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
+    # picker so a pick writes the selected region's CMY fields.
+    wb_pick_region: int = 0
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     thumbnails: Dict[str, Any] = field(default_factory=dict)  # filename -> QIcon/QPixmap
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
@@ -77,6 +80,9 @@ class AppState:
 
     # Canvas background color swatch index (0=Black, 1=Dark Grey, 2=Mid Grey)
     canvas_bg_index: int = 0
+
+    # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
+    invert_zoom_scroll: bool = False
 
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
@@ -363,6 +369,7 @@ class DesktopSessionManager(QObject):
     settings_pasted = pyqtSignal()
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
+    session_emptied = pyqtSignal()  # Last file removed — the viewer must blank the stale frame
 
     @property
     def _config_dirty(self) -> bool:
@@ -397,6 +404,10 @@ class DesktopSessionManager(QObject):
         saved_bg = self.repo.get_global_setting("canvas_bg_index")
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
+
+        saved_invert_zoom = self.repo.get_global_setting("invert_zoom_scroll")
+        if saved_invert_zoom is not None:
+            self.state.invert_zoom_scroll = bool(saved_invert_zoom)
 
         saved_icc_in = self.repo.get_global_setting("icc_input_path")
         if saved_icc_in and os.path.exists(saved_icc_in):
@@ -497,14 +508,19 @@ class DesktopSessionManager(QObject):
         ff_path, ff_k1 = ff_rec if ff_rec else ("", 0.0)
         config = replace(config, flatfield=replace(config.flatfield, reference_path=ff_path, k1=ff_k1))
 
-        # Temperature roll-lock: re-aim global WB at the locked Kelvin, keeping
-        # the frame's own off-locus tint.
-        locked_k = self.repo.get_global_setting("wb_temp_lock")
-        if locked_k is not None:
-            from negpy.features.exposure.logic import kelvin_to_wb
+        # Temperature roll-locks (per region): re-aim each locked region's M/Y
+        # pair at its Kelvin target, keeping the frame's own off-locus tint.
+        for lock_key, m_field, y_field in (
+            ("wb_temp_lock", "wb_magenta", "wb_yellow"),
+            ("wb_temp_lock_shadow", "shadow_magenta", "shadow_yellow"),
+            ("wb_temp_lock_highlight", "highlight_magenta", "highlight_yellow"),
+        ):
+            locked_k = self.repo.get_global_setting(lock_key)
+            if locked_k is not None:
+                from negpy.features.exposure.logic import kelvin_to_wb
 
-            m2, y2 = kelvin_to_wb(float(locked_k), config.exposure.wb_magenta, config.exposure.wb_yellow)
-            config = replace(config, exposure=replace(config.exposure, wb_magenta=m2, wb_yellow=y2))
+                m2, y2 = kelvin_to_wb(float(locked_k), getattr(config.exposure, m_field), getattr(config.exposure, y_field))
+                config = replace(config, exposure=replace(config.exposure, **{m_field: m2, y_field: y2}))
 
         if only_global:
             return config
@@ -578,16 +594,11 @@ class DesktopSessionManager(QObject):
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
-            ("last_auto_cast_removal", "auto_cast_removal"),
             ("last_paper_dmin", "paper_dmin"),
-            ("last_surround", "surround"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
                 new_exp = replace(new_exp, **{attr: bool(val)})
-        sticky_cast_strength = self.repo.get_global_setting("last_cast_removal_strength")
-        if sticky_cast_strength is not None:
-            new_exp = replace(new_exp, cast_removal_strength=float(sticky_cast_strength))
         config = replace(config, exposure=new_exp)
 
         # Paper stock is roll-wide; render guards cross-mode leak.
@@ -625,10 +636,7 @@ class DesktopSessionManager(QObject):
                 "last_linear_raw": config.process.linear_raw,
                 "last_auto_exposure": config.exposure.auto_exposure,
                 "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
-                "last_cast_removal_strength": config.exposure.cast_removal_strength,
-                "last_auto_cast_removal": config.exposure.auto_cast_removal,
                 "last_paper_dmin": config.exposure.paper_dmin,
-                "last_surround": config.exposure.surround,
                 "last_paper_profile": config.exposure.paper_profile,
                 "last_toe": config.exposure.toe,
                 "last_toe_width": config.exposure.toe_width,
@@ -973,17 +981,30 @@ class DesktopSessionManager(QObject):
         self.files_changed.emit()
         self.select_file(index)
 
+    def _reset_active_image_state(self) -> None:
+        """Clears everything tied to the previously displayed image after the session
+        emptied, then announces it via `session_emptied` so the viewer blanks the
+        stale frame instead of keeping an image that can no longer be removed."""
+        self.state.selected_file_idx = -1
+        self.state.selected_indices = []
+        self.state.current_file_path = None
+        self.state.current_file_hash = None
+        self.state.preview_raw = None
+        self.state.preview_ir = None
+        self.state.has_ir = False
+        self.state.config = WorkspaceConfig()
+        self._config_dirty = False
+        with self.state.metrics_lock:
+            self.state.last_metrics.clear()
+        self.session_emptied.emit()
+
     def clear_files(self) -> None:
         """
         Purges all loaded files from the session.
         """
         self.state.uploaded_files.clear()
         self.state.thumbnails.clear()
-        self.state.selected_file_idx = -1
-        self.state.current_file_path = None
-        self.state.current_file_hash = None
-        self.state.config = WorkspaceConfig()
-        self._config_dirty = False
+        self._reset_active_image_state()
 
         self.asset_model.refresh()
         self.state_changed.emit()
@@ -999,14 +1020,7 @@ class DesktopSessionManager(QObject):
             self.state.thumbnails.pop(file_info["name"], None)
 
             if not self.state.uploaded_files:
-                self.state.selected_file_idx = -1
-                self.state.selected_indices = []
-                self.state.current_file_path = None
-                self.state.current_file_hash = None
-                self.state.preview_raw = None
-                self.state.preview_ir = None
-                self.state.has_ir = False
-                self.state.config = WorkspaceConfig()
+                self._reset_active_image_state()
             else:
                 new_idx = min(idx, len(self.state.uploaded_files) - 1)
                 self.select_file(new_idx)
@@ -1029,14 +1043,7 @@ class DesktopSessionManager(QObject):
                 self.state.thumbnails.pop(file_info["name"], None)
 
         if not self.state.uploaded_files:
-            self.state.selected_file_idx = -1
-            self.state.selected_indices = []
-            self.state.current_file_path = None
-            self.state.current_file_hash = None
-            self.state.preview_raw = None
-            self.state.preview_ir = None
-            self.state.has_ir = False
-            self.state.config = WorkspaceConfig()
+            self._reset_active_image_state()
         else:
             new_idx = min(min(indices), len(self.state.uploaded_files) - 1)
             self.select_file(new_idx)

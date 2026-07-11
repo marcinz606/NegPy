@@ -19,6 +19,7 @@ from negpy.desktop.view.sidebar.controls_panel import ControlsPanel
 from negpy.desktop.view.sidebar.export import ExportSidebar
 from negpy.desktop.view.sidebar.history import HistoryPanel
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
+from negpy.desktop.view.styles.templates import EditedDot
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
@@ -76,7 +77,6 @@ class RightPanel(QWidget):
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setWidget(widget)
-            scroll.setStyleSheet("QScrollArea { border: none; }")
             return scroll
 
         # Tab content widgets
@@ -130,30 +130,15 @@ class RightPanel(QWidget):
         self._active_index = 0
         self._scan_index = -1
 
-        tab_style = """
-            QPushButton {
-                background-color: #0D0D0D;
-                border: none;
-                border-bottom: 1px solid #262626;
-                border-right: 1px solid #262626;
-            }
-            QPushButton:hover {
-                background-color: #262626;
-            }
-            QPushButton:checked {
-                background-color: #222222;
-                border-bottom: none;
-            }
-        """
-
         for i, (key, icon_name, tooltip, content, section_attrs) in enumerate(tab_specs):
             btn = QPushButton()
+            btn.setObjectName("right_tab_btn")
             btn.setIcon(qta.icon(icon_name, color=THEME.text_secondary))
             btn.setIconSize(QSize(18, 18))
             btn.setToolTip(tooltip)
             btn.setCheckable(True)
             btn.setFixedHeight(38)
-            btn.setStyleSheet(tab_style)
+            btn.edited_dot = EditedDot(btn)
             btn.clicked.connect(lambda _checked=False, idx=i: self._switch_tab(idx))
             switcher_layout.addWidget(btn, 1)
 
@@ -262,20 +247,16 @@ class RightPanel(QWidget):
         self.controls_panel.modified_synced.connect(self._sync_tab_edited)
 
     def _sync_tab_edited(self) -> None:
-        """Mark control-group tabs whose sections have edits (yellow icon, like edited sliders)."""
+        """Mark control-group tabs whose sections have edits (corner dot, like edited sliders)."""
         for i, attrs in self._tab_sections.items():
             self._tab_edited[i] = any(getattr(getattr(self.controls_panel, a), "modified_count", 0) for a in attrs)
         self._refresh_tab_icons()
 
     def _refresh_tab_icons(self) -> None:
         for i, btn in enumerate(self._tab_buttons):
-            if i == self._active_index:
-                color = "white"
-            elif self._tab_edited[i]:
-                color = THEME.accent_edited
-            else:
-                color = THEME.text_secondary
+            color = "white" if i == self._active_index else THEME.text_secondary
             btn.setIcon(qta.icon(self._tab_icons[i], color=color))
+            btn.edited_dot.set_active(self._tab_edited[i])
 
     def _switch_tab(self, index: int) -> None:
         self._active_index = index
@@ -371,6 +352,7 @@ class RightPanel(QWidget):
                 d_min=d_min,
                 anchor=anchor,
                 paper=paper,
+                grade_trims=(config.grade_trim_red, config.grade_trim_green, config.grade_trim_blue),
             )
             # Green channel is the base curve (white reference + stats slope).
             slope, pivot = slopes[1], pivots[1]

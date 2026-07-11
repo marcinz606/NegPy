@@ -93,16 +93,22 @@ def test_kelvin_slider_handle_tracks_temperature(qapp):
     s.timer.stop()
 
 
-def test_compact_slider_locked_style_overrides_edited(qapp):
+def test_compact_slider_edited_dot_and_locked_style(qapp):
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    assert not slider._edited_dot.isVisibleTo(slider)
+
     slider.setValue(1.5)  # edited (differs from default)
+    assert slider._edited_dot.isVisibleTo(slider)
 
     slider.setEnabled(False)
     assert THEME.text_muted in slider.label.styleSheet()
-    assert THEME.accent_edited not in slider.label.styleSheet()
+    assert not slider._edited_dot.isVisibleTo(slider)
 
     slider.setEnabled(True)
-    assert THEME.accent_edited in slider.label.styleSheet()
+    assert slider._edited_dot.isVisibleTo(slider)
+
+    slider.setValue(1.0)
+    assert not slider._edited_dot.isVisibleTo(slider)
 
 
 def test_kelvin_slider_locked_handle_is_muted(qapp):

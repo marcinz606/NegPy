@@ -381,8 +381,18 @@ class PhotometricCurveWidget(QWidget):
         process_mode: str | None = None,
         flat: bool = False,
     ) -> None:
-        from negpy.features.exposure.logic import CharacteristicCurve, _expit, compute_pivot, grade_coupled_shape, grade_to_slope
-        from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+        from negpy.features.exposure.logic import (
+            CharacteristicCurve,
+            _expit,
+            compute_pivot,
+            effective_midtone_gamma,
+            grade_coupled_shape,
+            grade_to_slope,
+            per_channel_midtone_gamma,
+            per_channel_toe_shoulder,
+            per_channel_widths,
+            split_grade_deltas,
+        )
         from negpy.features.exposure.papers import effective_paper_profile
         from negpy.kernel.image.validation import ensure_image
 
@@ -397,18 +407,30 @@ class PhotometricCurveWidget(QWidget):
         if pivot is None:
             pivot = compute_pivot(slope, params.density, d_min=d_min, paper=paper)
 
-        flare = EXPOSURE_CONSTANTS["flare_fraction"] if params.flare else 0.0
-        surround_gamma = EXPOSURE_CONSTANTS["target_system_gamma"] if params.surround else 1.0
-
         # Grade-coupled knees — same helper as the render path, so the plotted
         # curve matches the engine at hard grades. Flat has no print knees.
         toe_eff, shoulder_eff = (params.toe, params.shoulder) if flat else grade_coupled_shape(slope, params.toe, params.shoulder)
+        split_sh_trims = (params.shadow_grade_trim_red, params.shadow_grade_trim_green, params.shadow_grade_trim_blue)
+        split_hi_trims = (params.highlight_grade_trim_red, params.highlight_grade_trim_green, params.highlight_grade_trim_blue)
+        sg3, hg3 = split_grade_deltas(params.grade, params.shadow_grade, params.highlight_grade, split_sh_trims, split_hi_trims)
+        # Base (achromatic) trace uses the trim-free global deltas.
+        sg_base, hg_base = split_grade_deltas(params.grade, params.shadow_grade, params.highlight_grade)
 
         n = 300
         plt_x = np.linspace(self._X_MIN, self._X_MAX, n)
         x_log_exp = 1.0 - plt_x
 
-        def _curve_points(s: float, p: float) -> list[tuple[float, float]]:
+        def _curve_points(
+            s: float,
+            p: float,
+            toe_ch: float | None = None,
+            sh_ch: float | None = None,
+            mg_ch: float | None = None,
+            tw_ch: float | None = None,
+            sw_ch: float | None = None,
+            sg_ch: float | None = None,
+            hg_ch: float | None = None,
+        ) -> list[tuple[float, float]]:
             if flat:
                 # True log master: code value linear in the log signal (1 - val),
                 # emitted directly with no 10^-D/sRGB. s=gain, p=lift.
@@ -419,12 +441,16 @@ class PhotometricCurveWidget(QWidget):
                 contrast=s,
                 pivot=p,
                 d_min=d_min,
-                toe=toe_eff,
-                toe_width=params.toe_width,
-                shoulder=shoulder_eff,
-                shoulder_width=params.shoulder_width,
-                flare=flare,
-                surround_gamma=surround_gamma,
+                toe=toe_eff if toe_ch is None else toe_ch,
+                toe_width=params.toe_width if tw_ch is None else tw_ch,
+                shoulder=shoulder_eff if sh_ch is None else sh_ch,
+                shoulder_width=params.shoulder_width if sw_ch is None else sw_ch,
+                midtone_gamma=effective_midtone_gamma(None, params.midtone_gamma) if mg_ch is None else mg_ch,
+                bpc=params.true_black,
+                shadow_density=params.shadow_density,
+                highlight_density=params.highlight_density,
+                shadow_grade_delta=sg_base[0] if sg_ch is None else sg_ch,
+                highlight_grade_delta=hg_base[0] if hg_ch is None else hg_ch,
             )
             d = curve(ensure_image(x_log_exp))
             t = np.power(10.0, -d)
@@ -435,13 +461,48 @@ class PhotometricCurveWidget(QWidget):
         # Base (white) reference curve — also the fill/pivot/zone geometry.
         self._curve_pts = _curve_points(slope, pivot)
 
-        # Per-channel traces only when Cast Removal diverges the channels; else one white curve.
+        # Per-channel traces when Cast Removal / grade trims diverge the channels
+        # or the knee trims split toe/shoulder; else one white curve.
         self._channel_curves = []
         if slopes is not None and pivots is not None:
-            diverged = (max(slopes) - min(slopes) > 1e-9) or (max(pivots) - min(pivots) > 1e-9)
+            knee_trims = (
+                params.toe_trim_red,
+                params.toe_trim_green,
+                params.toe_trim_blue,
+                params.shoulder_trim_red,
+                params.shoulder_trim_green,
+                params.shoulder_trim_blue,
+            )
+            snap_trims = (
+                params.midtone_gamma_trim_red,
+                params.midtone_gamma_trim_green,
+                params.midtone_gamma_trim_blue,
+            )
+            width_trims = (
+                params.toe_width_trim_red,
+                params.toe_width_trim_green,
+                params.toe_width_trim_blue,
+                params.shoulder_width_trim_red,
+                params.shoulder_width_trim_green,
+                params.shoulder_width_trim_blue,
+            )
+            diverged = (
+                (max(slopes) - min(slopes) > 1e-9)
+                or (max(pivots) - min(pivots) > 1e-9)
+                or any(t != 0.0 for t in knee_trims + snap_trims + width_trims + split_sh_trims + split_hi_trims)
+            )
             if diverged:
+                toe3, sh3 = per_channel_toe_shoulder(toe_eff, shoulder_eff, knee_trims[:3], knee_trims[3:])
+                mg3 = per_channel_midtone_gamma(None, params.midtone_gamma, snap_trims)
+                tw3, sw3 = per_channel_widths(params.toe_width, params.shoulder_width, width_trims[:3], width_trims[3:])
                 ch_colors = (QColor(255, 90, 90), QColor(90, 220, 120), QColor(95, 150, 255))
-                self._channel_curves = [(ch_colors[ch], _curve_points(slopes[ch], pivots[ch])) for ch in range(3)]
+                self._channel_curves = [
+                    (
+                        ch_colors[ch],
+                        _curve_points(slopes[ch], pivots[ch], toe3[ch], sh3[ch], mg3[ch], tw3[ch], sw3[ch], sg3[ch], hg3[ch]),
+                    )
+                    for ch in range(3)
+                ]
 
         # Zone shading: toe rolls the shadows (input above the pivot), shoulder
         # rolls the highlights (input below the pivot); smaller width = sharper split.

@@ -44,6 +44,91 @@ class TestConfigDeserialization(unittest.TestCase):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(data)
 
+    def test_crossover_true_black_roundtrip(self):
+        config = WorkspaceConfig()
+        config = replace(
+            config,
+            process=replace(
+                config.process,
+                white_point_trim_red=0.05,
+                white_point_trim_green=-0.1,
+                white_point_trim_blue=0.02,
+                black_point_trim_red=-0.03,
+                black_point_trim_green=0.07,
+                black_point_trim_blue=0.11,
+            ),
+            exposure=replace(
+                config.exposure,
+                grade_trim_red=12.0,
+                grade_trim_green=-8.0,
+                grade_trim_blue=30.0,
+                toe_trim_red=0.3,
+                toe_trim_green=-0.1,
+                toe_trim_blue=0.7,
+                shoulder_trim_red=-0.5,
+                shoulder_trim_green=0.2,
+                shoulder_trim_blue=0.05,
+                true_black=True,
+                midtone_gamma=-0.2,
+                midtone_gamma_trim_red=0.15,
+                midtone_gamma_trim_green=-0.25,
+                midtone_gamma_trim_blue=0.4,
+                toe_width_trim_red=1.2,
+                toe_width_trim_green=-0.8,
+                toe_width_trim_blue=0.4,
+                shoulder_width_trim_red=-1.5,
+                shoulder_width_trim_green=0.6,
+                shoulder_width_trim_blue=2.0,
+                shadow_density=-0.45,
+                highlight_density=0.25,
+                shadow_grade=-18.0,
+                highlight_grade=22.0,
+                shadow_grade_trim_red=6.0,
+                shadow_grade_trim_green=-4.0,
+                shadow_grade_trim_blue=9.0,
+                highlight_grade_trim_red=-7.0,
+                highlight_grade_trim_green=3.0,
+                highlight_grade_trim_blue=-2.0,
+            ),
+        )
+        reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
+        self.assertEqual(reloaded.exposure.grade_trim_red, 12.0)
+        self.assertEqual(reloaded.exposure.grade_trim_green, -8.0)
+        self.assertEqual(reloaded.exposure.grade_trim_blue, 30.0)
+        self.assertEqual(reloaded.exposure.toe_trim_red, 0.3)
+        self.assertEqual(reloaded.exposure.toe_trim_green, -0.1)
+        self.assertEqual(reloaded.exposure.toe_trim_blue, 0.7)
+        self.assertEqual(reloaded.exposure.shoulder_trim_red, -0.5)
+        self.assertEqual(reloaded.exposure.shoulder_trim_green, 0.2)
+        self.assertEqual(reloaded.exposure.shoulder_trim_blue, 0.05)
+        self.assertTrue(reloaded.exposure.true_black)
+        self.assertEqual(reloaded.exposure.midtone_gamma, -0.2)
+        self.assertEqual(reloaded.exposure.midtone_gamma_trim_red, 0.15)
+        self.assertEqual(reloaded.exposure.midtone_gamma_trim_green, -0.25)
+        self.assertEqual(reloaded.exposure.midtone_gamma_trim_blue, 0.4)
+        self.assertEqual(reloaded.exposure.toe_width_trim_red, 1.2)
+        self.assertEqual(reloaded.exposure.toe_width_trim_green, -0.8)
+        self.assertEqual(reloaded.exposure.toe_width_trim_blue, 0.4)
+        self.assertEqual(reloaded.exposure.shoulder_width_trim_red, -1.5)
+        self.assertEqual(reloaded.exposure.shoulder_width_trim_green, 0.6)
+        self.assertEqual(reloaded.exposure.shoulder_width_trim_blue, 2.0)
+        self.assertEqual(reloaded.exposure.shadow_density, -0.45)
+        self.assertEqual(reloaded.exposure.highlight_density, 0.25)
+        self.assertEqual(reloaded.exposure.shadow_grade, -18.0)
+        self.assertEqual(reloaded.exposure.highlight_grade, 22.0)
+        self.assertEqual(reloaded.exposure.shadow_grade_trim_red, 6.0)
+        self.assertEqual(reloaded.exposure.shadow_grade_trim_green, -4.0)
+        self.assertEqual(reloaded.exposure.shadow_grade_trim_blue, 9.0)
+        self.assertEqual(reloaded.exposure.highlight_grade_trim_red, -7.0)
+        self.assertEqual(reloaded.exposure.highlight_grade_trim_green, 3.0)
+        self.assertEqual(reloaded.exposure.highlight_grade_trim_blue, -2.0)
+        self.assertEqual(reloaded.process.white_point_trim_red, 0.05)
+        self.assertEqual(reloaded.process.white_point_trim_green, -0.1)
+        self.assertEqual(reloaded.process.white_point_trim_blue, 0.02)
+        self.assertEqual(reloaded.process.black_point_trim_red, -0.03)
+        self.assertEqual(reloaded.process.black_point_trim_green, 0.07)
+        self.assertEqual(reloaded.process.black_point_trim_blue, 0.11)
+
     def test_use_original_res_true_migrates_to_original_mode(self):
         data = {"use_original_res": True, "export_print_size": 30.0}
         config = WorkspaceConfig.from_flat_dict(data)

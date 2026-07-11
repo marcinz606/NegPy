@@ -4,7 +4,6 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSizePolicy,
 )
@@ -12,10 +11,11 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.styles.templates import EditedDot, default_button_height
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import AspectRatio
-from negpy.features.geometry.models import AutocropMode
+from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
 
 
@@ -24,22 +24,10 @@ class CropToolButton(QPushButton):
 
     def __init__(self, text: str = "") -> None:
         super().__init__(text)
-        self._dot = QLabel(self)
-        self._dot.setFixedSize(8, 8)
-        self._dot.setStyleSheet(f"background-color: {THEME.channel_red}; border-radius: 4px;")
-        self._dot.hide()
+        self._dot = EditedDot(self)
 
     def set_crop_active(self, active: bool) -> None:
-        self._dot.setVisible(active)
-        self._position_dot()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._position_dot()
-
-    def _position_dot(self) -> None:
-        margin = 4
-        self._dot.move(self.width() - self._dot.width() - margin, margin)
+        self._dot.set_active(active)
 
 
 class GeometrySidebar(BaseSidebar):
@@ -58,13 +46,9 @@ class GeometrySidebar(BaseSidebar):
         self.ratio_combo.addItems(ratios)
         self.ratio_combo.setCurrentText(conf.autocrop_ratio)
         self.ratio_combo.setPlaceholderText("Select Ratio...")
-        self.ratio_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
         ratio_row.addWidget(self.ratio_combo, 1)
 
-        self.detect_ratio_btn = QPushButton()
-        self.detect_ratio_btn.setIcon(qta.icon("fa5s.crosshairs", color=THEME.text_primary))
-        self.detect_ratio_btn.setToolTip("Detect closest aspect ratio from the film frame")
-        self.detect_ratio_btn.setFixedWidth(36)
+        self.detect_ratio_btn = self._icon_action("fa5s.crosshairs", "Detect closest aspect ratio from the film frame")
         ratio_row.addWidget(self.detect_ratio_btn)
 
         self.layout.addLayout(ratio_row)
@@ -73,7 +57,7 @@ class GeometrySidebar(BaseSidebar):
         btn_row = QHBoxLayout()
         self.manual_crop_btn = CropToolButton(" Crop")
         self.manual_crop_btn.setCheckable(True)
-        self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary))
+        self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary, color_on="#FFFFFF"))
         self.manual_crop_btn.setToolTip(tooltip_with_shortcut("Crop: drag corners to resize, drag inside to move", "manual_crop"))
 
         self.clear_crop_btn = QPushButton(" Reset")
@@ -82,7 +66,8 @@ class GeometrySidebar(BaseSidebar):
 
         self.reset_crop_btn = CropToolButton(" Auto")
         self.reset_crop_btn.setCheckable(True)
-        self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary))
+        self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
+        self.reset_crop_btn.setFixedHeight(default_button_height())
         self.reset_crop_btn.setToolTip(tooltip_with_shortcut("Apply automatic crop using the current ratio and offset", "auto_crop"))
         btn_row.addWidget(self.manual_crop_btn, 1)
         btn_row.addWidget(self.clear_crop_btn, 1)
@@ -95,7 +80,6 @@ class GeometrySidebar(BaseSidebar):
         self.mode_combo.addItem("Film edge", AutocropMode.FILM.value)
         self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
         self.mode_combo.setToolTip("Auto crop target: exposed image only, or full film including rebate/sprockets")
-        self.mode_combo.setStyleSheet(f"font-size: {THEME.font_size_base}px; padding: 4px;")
         self.reset_crop_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.mode_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         auto_row.addWidget(self.reset_crop_btn, 1)
@@ -114,8 +98,10 @@ class GeometrySidebar(BaseSidebar):
             unit=" px",
         )
         self.offset_slider.setToolTip(tooltip_with_shortcut("Insets the crop border from the auto-detected film edge (px)", "offset_inc"))
-        self.fine_rot_slider = CompactSlider("Fine Rotation", -5.0, 5.0, conf.fine_rotation, unit="°")
-        self.fine_rot_slider.setToolTip("Fine-tunes rotation to correct slight tilt (degrees)")
+        self.fine_rot_slider = CompactSlider("Fine Rotation", -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, conf.fine_rotation, unit="°")
+        self.fine_rot_slider.setToolTip(
+            "Fine-tunes rotation to correct tilt (degrees). For quick rotation, drag the round handles outside the crop box in the Crop tool."
+        )
         slider_row.addWidget(self.offset_slider)
         slider_row.addWidget(self.fine_rot_slider)
         self.layout.addLayout(slider_row)

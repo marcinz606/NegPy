@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from PyQt6.QtWidgets import QComboBox, QLabel, QSizePolicy
 
 from negpy.desktop.view.sidebar.export import ExportSidebar
-from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.export_settings_form import constrain_combo
 
 
@@ -23,7 +22,7 @@ def test_no_profile_shows_red_prompt() -> None:
     s = _stub(None)
     ExportSidebar._refresh_display_info(s)
     assert "select your monitor" in s.display_detected_label.text().lower()
-    assert THEME.channel_red in s.display_detected_label.styleSheet()
+    assert s.display_detected_label.property("hint") == "error"
 
 
 def test_detected_profile_shows_muted_label() -> None:
@@ -33,8 +32,7 @@ def test_detected_profile_shows_muted_label() -> None:
     s = _stub(data)
     ExportSidebar._refresh_display_info(s)
     assert s.display_detected_label.text().startswith("Detected:")
-    assert THEME.text_muted in s.display_detected_label.styleSheet()
-    assert THEME.channel_red not in s.display_detected_label.styleSheet()
+    assert s.display_detected_label.property("hint") == "muted"
 
 
 def test_constrain_combo_bounds_width_for_long_items() -> None:

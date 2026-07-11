@@ -14,17 +14,8 @@ class TestNegativeStatistics(unittest.TestCase):
     def _rows(self, dr=1.3, anchor=0.46, slope=4.0, lo=0.0, hi=0.0):
         return negative_statistics(dr, anchor, slope, lo, hi)
 
-    def test_density_bands(self):
-        self.assertEqual(_by_name(self._rows(dr=0.6), "Density range").tag, "Low contrast")
-        self.assertEqual(_by_name(self._rows(dr=1.3), "Density range").tag, "Normal")
-        self.assertEqual(_by_name(self._rows(dr=2.2), "Density range").tag, "High contrast")
+    def test_density_value(self):
         self.assertEqual(_by_name(self._rows(dr=1.82), "Density range").value, "1.82")
-
-    def test_exposure_key(self):
-        a = EXPOSURE_CONSTANTS["assumed_anchor"]
-        self.assertEqual(_by_name(self._rows(anchor=a), "Exposure").tag, "Balanced")
-        self.assertEqual(_by_name(self._rows(anchor=a - 0.1), "Exposure").tag, "Low-key")
-        self.assertEqual(_by_name(self._rows(anchor=a + 0.1), "Exposure").tag, "High-key")
 
     def test_exposure_ev_number(self):
         a = EXPOSURE_CONSTANTS["assumed_anchor"]
@@ -32,13 +23,8 @@ class TestNegativeStatistics(unittest.TestCase):
         row = _by_name(self._rows(anchor=a + 0.1, dr=1.3), "Exposure")
         self.assertIn("EV", row.value)
         self.assertTrue(row.value.startswith("+"))
-        # No density range → label only, no EV number.
-        self.assertEqual(_by_name(self._rows(anchor=a + 0.1, dr=None), "Exposure").value, "")
-
-    def test_contrast_bands(self):
-        self.assertEqual(_by_name(self._rows(slope=2.5), "Contrast").tag, "Soft")
-        self.assertEqual(_by_name(self._rows(slope=4.5), "Contrast").tag, "Normal")
-        self.assertEqual(_by_name(self._rows(slope=8.0), "Contrast").tag, "Hard")
+        # No density range → no EV number to show.
+        self.assertEqual(_by_name(self._rows(anchor=a + 0.1, dr=None), "Exposure").value, "—")
 
     def test_contrast_iso_r_number(self):
         # ISO R: harder (higher slope) → lower R; softer → higher R.
