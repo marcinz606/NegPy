@@ -1,8 +1,13 @@
 """CaptureWorker cancellation behavior at the camera/service boundary."""
 
 import os
+from pathlib import Path
+from types import SimpleNamespace
 
-from negpy.desktop.workers.capture_worker import CaptureRequest, CaptureWorker
+import pytest
+
+from negpy.desktop.workers.capture_worker import CalibrationRequest, CaptureRequest, CaptureWorker
+from negpy.services.capture.calibration import Roi
 
 
 class CancellingCamera:
@@ -71,3 +76,40 @@ def test_scanlight_white_cancel_before_promotion_preserves_retake(tmp_path, monk
 
     assert existing.read_bytes() == b"existing-good-raw"
     assert finished == []
+
+
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+def test_calibration_uses_disposable_scratch_without_touching_roll(tmp_path, monkeypatch, outcome):
+    import negpy.desktop.workers.capture_worker as capture_worker_module
+
+    user_file = tmp_path / "_negpy_calibration.ARW"
+    user_file.write_bytes(b"user-owned-raw")
+    worker = CaptureWorker()
+
+    class FakeCalibrationService:
+        written_path: Path | None = None
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def calibrate(self, _roi, scratch_path, **_kwargs):
+            written = Path(scratch_path).with_suffix(".ARW")
+            written.write_bytes(b"temporary-calibration-raw")
+            FakeCalibrationService.written_path = written
+            if outcome == "cancel":
+                worker.cancel()
+                raise RuntimeError("calibration cancelled")
+            if outcome == "error":
+                raise RuntimeError("decode failed")
+            return SimpleNamespace(levels=(1, 2, 3), shutters=("1/15",) * 3)
+
+    monkeypatch.setattr(capture_worker_module, "CalibrationService", FakeCalibrationService)
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: FakeLight())
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: object())
+
+    worker.run_calibration(CalibrationRequest(roi=Roi(0, 0, 1, 1), output_folder=str(tmp_path), settle_s=0))
+
+    assert user_file.read_bytes() == b"user-owned-raw"
+    assert FakeCalibrationService.written_path is not None
+    assert not FakeCalibrationService.written_path.exists()
+    assert not FakeCalibrationService.written_path.parent.exists()

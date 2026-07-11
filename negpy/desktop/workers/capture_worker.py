@@ -350,15 +350,21 @@ class CaptureWorker(QObject):
             # Half-res decode: calibration only meters a uniform base patch, so it's ~4× faster
             # (the raw-Bayer clip check stays full-res, and the actual scans still decode full-res).
             service = CalibrationService(light, camera, lambda p: linear_demosaic(p, half_size=True), settle_s=req.settle_s)
-            scratch = os.path.join(req.output_folder or tempfile.gettempdir(), "_negpy_calibration.raw")
-            result = service.calibrate(
-                req.roi,
-                scratch,
-                target_fraction=req.target_fraction,
-                candidates=req.shutter_candidates,  # empty → calibrate falls back to the built-in ladder
-                progress=self.calibration_progress.emit,
-                cancel=self._cancel,
-            )
+            # Calibration fires several throwaway RAWs. Keep them outside the user's roll:
+            # the camera replaces `.raw` with its own suffix, so deleting one guessed filename
+            # is insufficient and used to leave `_negpy_calibration.ARW` behind (or overwrite a
+            # user-owned file with that name). The directory boundary cleans every suffix and
+            # every success/error/cancel path.
+            with tempfile.TemporaryDirectory(prefix="negpy-calibration-") as scratch_dir:
+                scratch = os.path.join(scratch_dir, "capture.raw")
+                result = service.calibrate(
+                    req.roi,
+                    scratch,
+                    target_fraction=req.target_fraction,
+                    candidates=req.shutter_candidates,  # empty → calibrate falls back to the built-in ladder
+                    progress=self.calibration_progress.emit,
+                    cancel=self._cancel,
+                )
             if self._cancel.is_set():
                 return
             self.calibration_finished.emit(result)
