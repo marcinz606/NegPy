@@ -16,7 +16,19 @@ def test_capture_worker_emits_cancelled_once_when_capture_aborts(monkeypatch, tm
     worker.cancelled.connect(lambda: cancelled.append(True))
     worker.finished.connect(finished.append)
     worker.error.connect(errors.append)
-    monkeypatch.setattr(worker, "_acquire_camera", lambda: object())
+
+    class HeldCamera:
+        closed = False
+
+        def is_open(self):
+            return not self.closed
+
+        def close(self):
+            self.closed = True
+
+    camera = HeldCamera()
+    worker._camera = camera
+    monkeypatch.setattr(worker, "_acquire_camera", lambda: camera)
 
     def abort_capture(*_args, **_kwargs):
         worker.cancel()
@@ -37,6 +49,8 @@ def test_capture_worker_emits_cancelled_once_when_capture_aborts(monkeypatch, tm
     assert cancelled == [True]
     assert finished == []
     assert errors == []
+    assert not camera.closed  # a deliberate cancel keeps the healthy live-view session
+    assert worker._camera is camera
 
 
 def test_capture_worker_finishes_a_committed_capture_if_cancel_arrives_afterward(monkeypatch, tmp_path):

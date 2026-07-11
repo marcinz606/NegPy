@@ -210,11 +210,13 @@ class CaptureWorker(QObject):
 
             self.finished.emit(result.paths)
         except Exception as e:
-            self._close_camera()  # discard a possibly-broken held session
             self._cleanup_partial_frame(req)  # keep the folder a clean multiple of 3 for NegPy's grouper
             if self._cancel.is_set():
+                # Deliberate cancellation is not a camera failure. The staged capture was
+                # discarded before promotion, so preserve the healthy live-view/PTP session.
                 self.cancelled.emit()
                 return
+            self._close_camera()  # discard a possibly-broken held session
             logger.exception("capture failed")
             self.error.emit(str(e))
 
