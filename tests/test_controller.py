@@ -892,10 +892,14 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
 
         self.controller._on_discovery_finished([{"name": "frame1", "path": first_paths[0], "hash": "h1"}])
         self.assertEqual([task.paths for task in tasks], [first_paths, second_paths])
+        self.assertIn(os.path.normcase(os.path.abspath(first_paths[0])), self.controller._pending_capture_imports)
+        self.assertIn(os.path.normcase(os.path.abspath(second_paths[0])), self.controller._pending_capture_imports)
 
         self.controller._on_discovery_finished([{"name": "frame2", "path": second_paths[0], "hash": "h2"}])
         self.assertEqual([f["path"] for f in state.uploaded_files], [first_paths[0], second_paths[0]])
         self.mock_session_manager.select_file.assert_called_with(1)
+        self.assertIn(os.path.normcase(os.path.abspath(first_paths[0])), self.controller._pending_capture_imports)
+        self.assertNotIn(os.path.normcase(os.path.abspath(second_paths[0])), self.controller._pending_capture_imports)
 
 
 class TestBatchAnalysisFiltering(unittest.TestCase):

@@ -195,6 +195,7 @@ class AppController(QObject):
         self._reselect_after_discovery: Optional[str] = None
         self._pending_capture_imports: Dict[str, _PendingCaptureImport] = {}
         self._pending_asset_discoveries: List[_DiscoveryRequest] = []
+        self._active_discovery_keys: frozenset[str] = frozenset()
         self._pending_scanned_file: Optional[str] = None
         self._gpu_fallback_notified = False
         self._cleaned_up = False
@@ -490,6 +491,7 @@ class AppController(QObject):
         self._auto_open_after_discovery = request.auto_open
         self._replace_after_discovery = request.replace_existing
         self._reselect_after_discovery = request.reselect_path
+        self._active_discovery_keys = frozenset(_capture_import_key(path) for path in request.paths)
         self.set_status("SCANNING FOR ASSETS...")
         self._begin_batch("Hashing files", abortable=False)
         task = AssetDiscoveryTask(
@@ -537,6 +539,8 @@ class AppController(QObject):
         reselect_path = self._reselect_after_discovery
         self._replace_after_discovery = False
         self._reselect_after_discovery = None
+        active_discovery_keys = self._active_discovery_keys
+        self._active_discovery_keys = frozenset()
         pending_scan = getattr(self, "_pending_scanned_file", None)
 
         if replace_existing and valid_assets:
@@ -557,17 +561,31 @@ class AppController(QObject):
             self._start_next_asset_discovery()
             return
 
+        selected_pending_scan = False
         if valid_assets:
             first_new_idx = len(self.session.state.uploaded_files)
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
             if pending_scan and self._select_file_by_path(pending_scan):
-                self._pending_scanned_file = None
+                selected_pending_scan = True
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
                 self.session.select_file(first_new_idx)
         else:
             self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
             self.status_progress_requested.emit(0, 0)
+
+        if pending_scan:
+            pending_key = _capture_import_key(pending_scan)
+            if selected_pending_scan:
+                # select_file emits load_file synchronously in the real session. Pop again
+                # as a fallback for alternate session implementations and tests.
+                self._pending_capture_imports.pop(pending_key, None)
+                self._pending_scanned_file = None
+            elif pending_key in active_discovery_keys:
+                # This request finished without the intended primary asset. Drop only its
+                # metadata; a later capture may already be waiting in the FIFO queue.
+                self._pending_capture_imports.pop(pending_key, None)
+                self._pending_scanned_file = None
         self._start_next_asset_discovery()
 
     def _file_hash_for_path(self, file_path: str) -> Optional[str]:

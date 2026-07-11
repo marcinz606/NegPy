@@ -10,6 +10,7 @@ Calls the capture and load seams against a mock controller (no full AppControlle
 GPU needed), with an AppState standing in for session hydration.
 """
 
+import os
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -114,6 +115,7 @@ def test_failed_discovery_discards_capture_intent():
     c._auto_open_after_discovery = False
     c._replace_after_discovery = False
     c._reselect_after_discovery = None
+    c._active_discovery_keys = frozenset({os.path.normcase(os.path.abspath("missing.ARW"))})
 
     AppController._on_discovery_finished(c, [])
 
