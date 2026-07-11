@@ -1,6 +1,6 @@
 import os
 import time
-from dataclasses import fields, replace
+from dataclasses import dataclass, fields, replace
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -67,6 +67,18 @@ from negpy.services.rendering.preview_manager import PreviewManager
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _PendingCaptureImport:
+    """Capture intent carried across asynchronous discovery and session hydration."""
+
+    process_mode: Optional[ProcessMode] = None
+    detect_mode: bool = False
+
+
+def _capture_import_key(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
 
 
 def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
@@ -171,6 +183,7 @@ class AppController(QObject):
         self._auto_open_after_discovery = False
         self._replace_after_discovery = False
         self._reselect_after_discovery: Optional[str] = None
+        self._pending_capture_imports: Dict[str, _PendingCaptureImport] = {}
         self._gpu_fallback_notified = False
         self._cleaned_up = False
         self._active_batch: Optional[str] = None
@@ -520,12 +533,16 @@ class AppController(QObject):
             self.generate_missing_thumbnails()
             if pending_scan:
                 self._select_file_by_path(pending_scan)
-                self._pending_scanned_file = None
             elif auto_open and not self.state.current_file_path and len(self.session.state.uploaded_files) > first_new_idx:
                 self.session.select_file(first_new_idx)
         else:
             self.set_status("NO SUPPORTED ASSETS FOUND", 3000)
             self.status_progress_requested.emit(0, 0)
+        if pending_scan:
+            # Selection emits load_file synchronously, which normally consumes the intent.
+            # Drop it here as well so a failed/mismatched discovery cannot affect a later import.
+            self._pending_capture_imports.pop(_capture_import_key(pending_scan), None)
+            self._pending_scanned_file = None
 
     def _file_hash_for_path(self, file_path: str) -> Optional[str]:
         if self.state.current_file_path == file_path and self.state.current_file_hash:
@@ -555,6 +572,17 @@ class AppController(QObject):
         self.state.has_ir = False
         self.state.original_res = (0, 0)
 
+        pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
+        if pending_import is not None and pending_import.process_mode is not None:
+            process = self.state.config.process
+            process = replace(
+                process,
+                process_mode=pending_import.process_mode,
+                **invalidate_local_bounds(process),
+            )
+            self.state.config = replace(self.state.config, process=process)
+            self.state.is_dirty = True
+
         rgbscan = self.state.config.rgbscan
         self.preview_load_requested.emit(
             PreviewLoadTask(
@@ -563,7 +591,11 @@ class AppController(QObject):
                 use_camera_wb=not self.state.config.process.linear_raw,
                 full_resolution=self.state.hq_preview,
                 file_hash=self._file_hash_for_path(file_path),
-                detect_mode=force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new),
+                detect_mode=(
+                    pending_import.detect_mode
+                    if pending_import is not None
+                    else force_detect or (self.state.autodetect_enabled and self.state.current_file_is_new)
+                ),
                 green_path=rgbscan.green_path if rgbscan.enabled else "",
                 blue_path=rgbscan.blue_path if rgbscan.enabled else "",
                 align=rgbscan.align,
@@ -1386,14 +1418,15 @@ class AppController(QObject):
         if white:  # slides/B&W force a positive process
             mode = (req.white_process_mode or "auto").lower()
             target = {"e-6": ProcessMode.E6, "b&w": ProcessMode.BW}.get(mode)
-            if target is not None:
-                new_proc = replace(
-                    self.state.config.process,
-                    process_mode=target,
-                    **invalidate_local_bounds(self.state.config.process),
-                )
-                self.state.config = replace(self.state.config, process=new_proc)
-                self.state.is_dirty = True
+            self._pending_capture_imports[_capture_import_key(paths[0])] = _PendingCaptureImport(
+                process_mode=target,
+                detect_mode=target is None,
+            )
+        elif rgb:
+            # Independently exposed RGB channels have no broadband orange-mask signal for
+            # the normal classifier. They are negative scans unless capture metadata says
+            # otherwise, so carry C-41 through discovery instead of guessing from the merge.
+            self._pending_capture_imports[_capture_import_key(paths[0])] = _PendingCaptureImport(process_mode=ProcessMode.C41)
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(list(paths))
 
