@@ -32,6 +32,11 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from negpy.infrastructure.loaders.constants import (
+    SUPPORTED_JPEG_EXTENSIONS,
+    SUPPORTED_RAW_EXTENSIONS,
+    SUPPORTED_TIFF_EXTENSIONS,
+)
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -100,6 +105,11 @@ _SETTINGS_INTERVAL_S = 2.0
 #: Consecutive preview failures before the session is treated as gone. One dropped frame
 #: is normal; three in a row means the camera was unplugged, powered off, or taken away.
 _MAX_PREVIEW_FAILURES = 3
+
+# General NegPy imports also accept JPEG/TIFF, but camera scanning promises a linear RAW
+# source. A body left in JPEG mode can easily produce an 8+ MB file that passes the size
+# guard while permanently discarding highlight/color information.
+_CAMERA_RAW_EXTENSIONS = frozenset(SUPPORTED_RAW_EXTENSIONS - SUPPORTED_JPEG_EXTENSIONS - SUPPORTED_TIFF_EXTENSIONS)
 
 
 class CameraUnavailable(RuntimeError):
@@ -495,6 +505,10 @@ class GphotoCamera:
                         raise GphotoError(f"could not set shutter to {shutter!r}: camera rejected it or it did not settle")
                 try:
                     path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
+                    suffix = os.path.splitext(path.name)[1]
+                    if suffix.lower() not in _CAMERA_RAW_EXTENSIONS:
+                        shown = suffix or "(no extension)"
+                        raise GphotoError(f"camera returned {shown}, not a RAW file; set the camera to RAW-only image quality and retry")
                     camera_file = camera.file_get(path.folder, path.name, self._gp.GP_FILE_TYPE_NORMAL)
                     data = bytes(memoryview(camera_file.get_data_and_size()))
                 except self._gp.GPhoto2Error as exc:

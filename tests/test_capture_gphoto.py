@@ -278,6 +278,19 @@ def test_capture_failure_raises_gphoto_error(cam, fake, tmp_path):
         cam.capture(str(tmp_path / "f.ARW"))
 
 
+def test_capture_rejects_processed_jpeg_instead_of_accepting_it_as_raw(tmp_path):
+    fake = FakeGP(raw_name="IMG_0001.JPG")
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+
+    with pytest.raises(GphotoError, match="camera to RAW"):
+        camera.capture(str(tmp_path / "Roll1_Frame001_R.raw"))
+
+    assert not (tmp_path / "Roll1_Frame001_R.JPG").exists()
+    assert not fake.undrained
+    camera.close()
+
+
 # ---- properties -------------------------------------------------------------
 
 
