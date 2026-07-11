@@ -14,7 +14,7 @@ def _make_tiff_bytes() -> bytes:
     """16-bit RGB TIFF in the shape produced by the real export pipeline."""
     arr = np.random.randint(0, 65535, (16, 16, 3), dtype=np.uint16)
     buf = io.BytesIO()
-    tifffile.imwrite(buf, arr, photometric="rgb", compression="lzw")
+    tifffile.imwrite(buf, arr, photometric="rgb", compression="zlib", predictor=True)
     return buf.getvalue()
 
 

@@ -65,7 +65,8 @@ def test_image_service_tiff_export_format() -> None:
         img_16,
         photometric="rgb",
         iccprofile=b"fake_icc_bytes",
-        compression="lzw",
+        compression="zlib",
+        predictor=True,
     )
     res = out_buf.getvalue()
     assert len(res) > 0

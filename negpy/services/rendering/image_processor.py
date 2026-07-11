@@ -361,7 +361,8 @@ class ImageProcessor:
                 img_out,
                 photometric="rgb" if img_out.ndim == 3 else "minisblack",
                 iccprofile=icc_bytes,
-                compression="lzw",
+                compression="zlib",
+                predictor=True,
             )
             return output_buf.getvalue(), "tiff"
         elif fmt == ExportFormat.DNG:

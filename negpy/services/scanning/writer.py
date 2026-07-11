@@ -37,7 +37,7 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
     fd, tmp_path = tempfile.mkstemp(suffix=".tif", dir=os.path.dirname(path) or ".")
     os.close(fd)
     try:
-        tifffile.imwrite(tmp_path, rgb, photometric="rgb", compression="lzw")
+        tifffile.imwrite(tmp_path, rgb, photometric="rgb", compression="zlib", predictor=True)
         os.replace(tmp_path, path)
     except Exception:
         if os.path.exists(tmp_path):
@@ -51,7 +51,7 @@ def write_tiff_16bit(result: ScanResult, path: str) -> str:
         fd_ir, tmp_ir = tempfile.mkstemp(suffix=".tif", dir=os.path.dirname(ir_path) or ".")
         os.close(fd_ir)
         try:
-            tifffile.imwrite(tmp_ir, ir_data, photometric="minisblack", compression="lzw")
+            tifffile.imwrite(tmp_ir, ir_data, photometric="minisblack", compression="zlib", predictor=True)
             os.replace(tmp_ir, ir_path)
         except Exception:
             if os.path.exists(tmp_ir):
