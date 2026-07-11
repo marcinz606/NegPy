@@ -27,6 +27,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 *   **Positive/Slide Support**: Dedicated **E-6 mode** with optional normalization to save expired or faded film.
 
 **Capture & Input**
+*   **Camera Scanning**: Capture negatives with a tethered camera straight into NegPy — a single RAW, or automated red/green/blue narrowband triplets driven by an RGB [Scanlight](https://github.com/jackw01/scanlight) that feed the RGB Scan merge. macOS/Linux, optional dependency. [Camera Scanning guide](docs/CAMERA_SCANNING.md)
 *   **Scanner Support**: Direct control of SANE-compatible scanners. [supported devices](http://www.sane-project.org/sane-supported-devices.html)
 *   **RGB Scan (Trichromatic Capture)**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise colour scan, with automatic sub-pixel alignment to kill fringing.
 *   **Flat-Field Correction**: Correct illumination falloff / vignetting from your light source or scanner via a reference scan of the bare light. Named profiles, toggle per image.
@@ -47,6 +48,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 *   **Non-destructive**: Original files never touched; edits stored as recipes.
 *   **Database**: Edits in a local SQLite db keyed by file hash — move or rename files without losing work.
 *   **Persistent Undo/Redo & History**: Up to 100 edits per file. **History panel** lists every step — jump to any state, branch, or export an earlier version. Survives restarts.
+*   **Metadata & Gear Library**: Archival metadata for the original analog capture — manage a library of cameras, lenses, and film stocks, apply gear presets per frame, and write real camera/lens/ISO EXIF (plus XMP scan tags) into exports so Lightroom shows your film gear. [see the guide](docs/USER_GUIDE.md#11-metadata-panel)
 *   **Keyboard Shortcuts**: [see here](docs/KEYBOARD.md)
 
 ---
@@ -72,6 +74,12 @@ sudo pacman -S sane             # Arch
 ```
 Or your distro's equivalent. The app launches fine without so you can ignore that if you don't plan to use a scanner.
 
+**Camera scanning support** (optional) uses `python-gphoto2` for tethered capture, and may need the system `libgphoto2` installed:
+```
+sudo pacman -S libgphoto2        # Arch
+```
+Or look up your distro's equivalent package. Building from source, add the Python dependency with `uv sync --group camera`. See the [Camera Scanning guide](docs/CAMERA_SCANNING.md) for setup and supported cameras. Not available on Windows (libgphoto2 has no Windows build).
+
 You can also clone the repo and build it yourself, instruction here: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 #### Unsigned Software Warning
@@ -88,9 +96,19 @@ brew install sane-backends
 ```
 The app launches fine without so you can ignore that if you don't plan to use a scanner.
 
+**Camera scanning support** (optional) uses `python-gphoto2`, and may need `libgphoto2` from [Homebrew](https://brew.sh/):
+```
+brew install libgphoto2
+```
+Building from source, add the Python dependency with `uv sync --group camera` — see the [Camera Scanning guide](docs/CAMERA_SCANNING.md). Quit **Preview / Photos / Image Capture** before scanning so macOS releases the camera.
+
 **Windows**:
 1. Run the installer (ignore the warnings)
 2. Start the app and click through the warnings.
+
+Scanner and camera scanning are **not available on Windows**. Both ride on Unix-first free-software libraries — SANE for scanners, libgphoto2 for cameras — that just don't build there (they're happy on macOS too, not only Linux). It's not really their fault: the open world spent decades writing generic, vendor-neutral drivers for hundreds of devices, while Windows stuck with closed per-vendor blobs and never grew an equivalent. So the free stack NegPy leans on has nowhere to stand on Windows. Everything else works fine.
+
+Good news: you can install Linux on pretty much any Windows machine. 🐧
 
 ---
 
