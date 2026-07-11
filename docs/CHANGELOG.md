@@ -22,6 +22,7 @@
 - Fix: **manual crop and freehand analysis region rotate with 90/180 turns** — they stayed put before, so a quarter-turn left the crop framing the wrong area. @linkmodo
 - Fix: **viewer clears when the session empties** — Clear All or Unloading the last frame left the previous image on screen with no way to dismiss it. @linkmodo
 - Fix: **startup no longer crashes when the Documents folder is missing** — a OneDrive-backed Documents path that doesn't exist on disk (OneDrive unlinked or signed out) now falls back to `~/Documents` and then the home directory instead of failing to launch. @linkmodo
+- Fix: **Apply Settings counts only the frames you can see** — with a filename filter active, "Whole roll" counted (and would apply to) every loaded file instead of just the visible ones. It now matches the filtered list.
 
 ## 0.35.0
 

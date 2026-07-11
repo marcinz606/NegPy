@@ -529,12 +529,14 @@ class FileBrowser(QWidget):
 
     def _open_apply_dialog(self) -> None:
         state = self.session.state
-        n_files = len(state.uploaded_files)
         src = state.selected_file_idx
         if src == -1:
             return
-        sel_targets = len([i for i in set(state.selected_indices) if i != src and 0 <= i < n_files])
-        roll_targets = max(0, n_files - 1)
+        # "Whole roll" means the visible (filtered) frames, not every loaded file —
+        # a filename filter is a non-destructive view, so hidden files aren't counted.
+        visible = self.session.asset_model.visible_actual_indices()
+        sel_targets = len([i for i in set(state.selected_indices) if i != src and i in visible])
+        roll_targets = len([i for i in visible if i != src])
 
         dlg = SyncSettingsDialog(self, self._source_name(), sel_targets, roll_targets)
         if dlg.exec() == QDialog.DialogCode.Accepted:

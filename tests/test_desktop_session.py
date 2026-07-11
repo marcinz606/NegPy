@@ -325,6 +325,38 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.sync_selected_settings(frozenset({"bogus"}))
         self.mock_repo.save_file_settings.assert_not_called()
 
+    def _seed_roll(self):
+        self.session.state.uploaded_files = [
+            {"name": "a.arw", "path": "pa", "hash": "hash1"},
+            {"name": "b.arw", "path": "pb", "hash": "hash2"},
+            {"name": "c.jpg", "path": "pc", "hash": "hash3"},
+        ]
+        self.session.state.selected_file_idx = 0
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = WorkspaceConfig()
+        self.mock_repo.load_file_settings.return_value = WorkspaceConfig()
+
+    def test_sync_roll_scope_respects_active_filter(self):
+        # A filename filter is a view; "whole roll" applies only to visible frames.
+        self._seed_roll()
+        self.session.asset_model.set_filter(".arw", regex=False)  # hides c.jpg
+
+        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+
+        saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(count, 1)
+        self.assertEqual(saved, {"hash2"})  # source + filtered-out c.jpg excluded
+
+    def test_sync_roll_scope_no_filter_covers_all(self):
+        self._seed_roll()
+        self.session.asset_model.refresh()  # no filter → every frame visible
+
+        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+
+        saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
+        self.assertEqual(count, 2)
+        self.assertEqual(saved, {"hash2", "hash3"})
+
     def test_undo_redo_persistence(self):
         self.session.select_file(0)
         initial_config = self.session.state.config

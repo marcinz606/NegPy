@@ -760,7 +760,7 @@ class DesktopSessionManager(QObject):
                 self.settings_synced.emit("Render the source frame before syncing bounds")
                 return 0
 
-        target_indices = range(len(self.state.uploaded_files)) if scope == "roll" else self.state.selected_indices
+        target_indices = self.asset_model.visible_actual_indices_ordered() if scope == "roll" else self.state.selected_indices
 
         count = 0
         for idx in target_indices:
