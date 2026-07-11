@@ -50,10 +50,10 @@ def _cursor_for_tool(mode: ToolMode) -> QCursor | Qt.CursorShape:
         if _scratch_pen_cursor is None:
             import qtawesome as qta
 
-            pix = qta.icon("fa5s.pen-nib", color="white").pixmap(22, 22)
-            # The nib tip sits at the glyph's bottom-left; hotspot there so
-            # points land where the pen visually touches.
-            _scratch_pen_cursor = QCursor(pix, 3, 19)
+            # Rotated 90°: the glyph's nib swings from bottom-left to top-left,
+            # tail to lower-right — reads like a normal pointer, tip up-left.
+            pix = qta.icon("fa5s.pen-nib", color="white", rotated=90).pixmap(18, 18)
+            _scratch_pen_cursor = QCursor(pix, 2, 2)
         return _scratch_pen_cursor
     return _TOOL_CURSORS.get(mode, Qt.CursorShape.ArrowCursor)
 

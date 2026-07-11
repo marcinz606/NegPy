@@ -510,12 +510,12 @@ class CanvasOverlay(QWidget):
         """
         Inverse UV-grid lookup: raw-normalised (0-1) -> screen position.
 
-        Downsamples the grid before the nearest-neighbour search so this stays
-        fast even for large preview buffers. `buckets` trades precision for
-        speed: the default is fine for one-shot mask-vertex rendering, but
-        anything redrawn continuously while being dragged (e.g. crop handles)
-        needs a much finer grid or the on-screen point visibly snaps between
-        buckets instead of tracking the cursor.
+        Two-stage nearest-neighbour: a coarse pass over a `buckets`-decimated grid
+        locates the neighbourhood cheaply, then a full-resolution pass over that
+        bucket's window pins the exact pixel. The coarse pass alone snapped results
+        to bucket centres (± step/2 grid pixels ≈ 3-20px depending on preview size,
+        magnified by zoom) — enough to draw a heal outline entirely off the healed
+        spot even though the heal itself landed exactly where clicked.
         """
         h_uv, w_uv = uv_grid.shape[:2]
         step = max(1, h_uv // buckets)
@@ -524,8 +524,18 @@ class CanvasOverlay(QWidget):
         idx = int(np.argmin(dist))
         h_s, w_s = small.shape[:2]
         vy, vx = divmod(idx, w_s)
-        nx = min((vx * step + step // 2) / w_uv, 1.0)
-        ny = min((vy * step + step // 2) / h_uv, 1.0)
+
+        # Refine: exact search across the coarse cell and its neighbours.
+        py, px = vy * step, vx * step
+        y0, y1 = max(0, py - step), min(h_uv, py + step + 1)
+        x0, x1 = max(0, px - step), min(w_uv, px + step + 1)
+        window = uv_grid[y0:y1, x0:x1]
+        wdist = (window[..., 0] - rx) ** 2 + (window[..., 1] - ry) ** 2
+        widx = int(np.argmin(wdist))
+        wy, wx = divmod(widx, window.shape[1])
+
+        nx = min((x0 + wx + 0.5) / w_uv, 1.0)
+        ny = min((y0 + wy + 0.5) / h_uv, 1.0)
         return QPointF(
             self._view_rect.x() + nx * self._view_rect.width(),
             self._view_rect.y() + ny * self._view_rect.height(),

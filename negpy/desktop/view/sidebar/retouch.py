@@ -36,12 +36,16 @@ class RetouchSidebar(BaseSidebar):
         self.pick_dust_btn = self._tool_toggle(
             "fa5s.eye-dropper",
             "Heal Tool",
-            tooltip_with_shortcut("Toggle heal tool — click a dust spot to heal it", "pick_dust"),
+            tooltip_with_shortcut(
+                "Toggle heal tool — click a dust spot to heal it. Right-click an existing heal overlay to delete it",
+                "pick_dust",
+            ),
         )
         self.pick_scratch_btn = self._tool_toggle(
             "fa5s.pen-nib",
             "Scratch Tool",
-            "Heal a scratch or hair: click points along it, double-click or Enter to finish, Esc cancels",
+            "Heal a scratch or hair: click points along it, double-click or Enter to finish, Esc cancels. "
+            "Backspace deletes the last entered point; right-click an existing scratch overlay to delete it",
         )
 
         buttons_row.addWidget(self.auto_dust_btn)
