@@ -67,7 +67,7 @@ automatically — there is no address to type, no login, no pairing.
 
 **Frame and focus.** Open **Live View & Scan**. Click anywhere on the image to aim the
 camera's *hardware* focus magnifier at that spot; click again to return to the full
-frame. ISO, shutter and white balance are adjustable live from the toolbar. A control the
+frame. ISO, shutter and electronic aperture are adjustable live from the toolbar. A control the
 body cannot offer — aperture on a lens with no electronic diaphragm, which is most
 enlarging and macro glass — is simply greyed out.
 
@@ -94,6 +94,7 @@ current frame without advancing the counter.
 | No camera found, and nothing else is running | The body isn't in PC Remote mode, or it's a mass-storage/MTP connection. | Set the camera's USB connection mode to **PC Remote**. |
 | `[-10] Timeout reading from or writing to the port`, and no other program is holding it | A program crashed while connected. The *camera* still thinks the session is open and refuses a new one. | Power-cycle the camera, or unplug and replug the cable. Nothing on the computer will fix it. |
 | Live view is black | The body dropped out of PC Remote, or the lens cap is on. | Power-cycle the camera. |
+| Capture says the camera returned JPEG instead of RAW | The camera's image-quality setting is JPEG or RAW+JPEG selected the processed file. | Set image quality to **RAW only**, then retry. |
 | The aperture stepper is greyed out | The lens has no electronic diaphragm. | Expected — set the aperture on the lens itself. |
 | A setting snaps back to its old value | Property writes are asynchronous; the body needs a moment. | NegPy already polls until the value lands and logs a warning if it never does. If it never does, that setting is not writable in the body's current mode (try **M**). |
 | Scanlight not detected | Wrong USB-C port. | The Scanlight has two: only one is the **data** port (the other is power-only). Use the data port. |
