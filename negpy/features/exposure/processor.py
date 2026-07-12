@@ -4,6 +4,7 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
+from negpy.features.exposure.analysis import density_histogram
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
@@ -167,6 +168,7 @@ class NormalizationProcessor:
 
         context.metrics["final_bounds"] = bounds
         context.metrics["normalized_log"] = res
+        context.metrics["histogram_density"] = density_histogram(res, context.active_roi)
         return res
 
 

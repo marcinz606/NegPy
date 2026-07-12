@@ -9,6 +9,7 @@ import numpy as np
 import wgpu  # type: ignore
 
 from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConfig
+from negpy.features.exposure.analysis import DENSITY_HIST_BINS
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
@@ -55,7 +56,12 @@ TILE_SIZE = 2048
 TILE_HALO = 32
 TILING_THRESHOLD_PX = 12_000_000
 HISTOGRAM_BINS = 256
-METRICS_BUFFER_SIZE = 4096
+# Metrics buffer layout in u32 words: RGBL histogram (metrics.wgsl), then the
+# density histogram (density_hist.wgsl). 256 B-aligned offsets, mirrored as
+# WGSL array lengths — append-only.
+_METRICS_HIST_WORDS = HISTOGRAM_BINS * 4
+_METRICS_DENSITY_BASE = 1024
+METRICS_BUFFER_SIZE = 1152 * 4
 
 # Per-frame metrics clear; write_buffer copies at call time, so sharing is safe.
 _METRICS_ZEROS = np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
@@ -186,6 +192,7 @@ class GPUEngine:
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
+            "density_hist": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "density_hist.wgsl")),
             "layout": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "layout.wgsl")),
         }
         self._pipelines: Dict[str, Any] = {}
@@ -203,6 +210,7 @@ class GPUEngine:
             "toning",
             "finish",
             "layout",
+            "density_hist",
         ]
         # Packed byte size per stage. A stage may exceed the 256B dynamic-offset
         # alignment (exposure, 288B) — it then occupies multiple aligned slots.
@@ -216,6 +224,7 @@ class GPUEngine:
             "toning": 64,
             "finish": 32,
             "layout": 48,
+            "density_hist": 16,
         }
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
         self._current_source_hash: Optional[str] = None
@@ -877,6 +886,25 @@ class GPUEngine:
                 crop_w,
                 crop_h,
             )
+            # Density histogram slice sits past the RGBL bins — one shared readback.
+            self._dispatch_pass(
+                enc,
+                "density_hist",
+                [
+                    (0, tex_norm.view),
+                    (
+                        1,
+                        {
+                            "buffer": self._buffers["metrics"].buffer,
+                            "offset": _METRICS_DENSITY_BASE * 4,
+                            "size": DENSITY_HIST_BINS * 4,
+                        },
+                    ),
+                    (2, self._get_uniform_binding("density_hist")),
+                ],
+                crop_w,
+                crop_h,
+            )
 
         # Output transform: scene-linear -> display-encoded, so every consumer
         # (readback, display LUT) reads encoded data.
@@ -890,12 +918,19 @@ class GPUEngine:
         tex_final = tex_output
 
         device.queue.submit([enc.finish()])
+        # The exact stretch the shader normalized with (mirrors the CPU "final_bounds").
+        _wp3, _bp3 = per_channel_point_offsets(settings.process, settings.process.process_mode == ProcessMode.E6)
+        final_bounds = LogNegativeBounds(
+            floors=(bounds.floors[0] + _wp3[0], bounds.floors[1] + _wp3[1], bounds.floors[2] + _wp3[2]),
+            ceils=(bounds.ceils[0] + _bp3[0], bounds.ceils[1] + _bp3[1], bounds.ceils[2] + _bp3[2]),
+        )
         metrics: Dict[str, Any] = {
             "active_roi": roi,
             "base_positive": tex_final,
             "normalized_log": tex_norm,
             "content_rect": content_rect,
             "log_bounds": bounds,
+            "final_bounds": final_bounds,
             "log_bounds_base": base_bounds,
             "norm_density_range": luminance_density_range(bounds),
             "metered_anchor": metered_anchor,
@@ -904,7 +939,9 @@ class GPUEngine:
         }
 
         if not tiling_mode and readback_metrics:
-            metrics["histogram_raw"] = self._readback_metrics()
+            raw_metrics = self._readback_metrics()
+            metrics["histogram_raw"] = raw_metrics[:_METRICS_HIST_WORDS].reshape((4, HISTOGRAM_BINS))
+            metrics["histogram_density"] = raw_metrics[_METRICS_DENSITY_BASE : _METRICS_DENSITY_BASE + DENSITY_HIST_BINS].astype(np.float64)
             try:
                 uv_key = (
                     h,
@@ -1262,8 +1299,11 @@ class GPUEngine:
             + b"\x00" * 4
         )
 
+        # ROI offset + crop dims for the density-histogram pass (tex_norm is uncropped).
+        dh_data = struct.pack("IIII", crop_offset[0], crop_offset[1], crop_w, crop_h)
+
         full_buffer = bytearray()
-        for name, d in zip(self._uniform_names, [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data]):
+        for name, d in zip(self._uniform_names, [g_data, n_data, e_data, c_data, r_u_data, l_data, t_data, f_data, y_data, dh_data]):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 
         if not self.gpu.device:
@@ -1423,10 +1463,10 @@ class GPUEngine:
         return data
 
     def _readback_metrics(self) -> np.ndarray:
-        """Synchronously reads back histogram data from GPU."""
+        """Synchronously reads back the flat metrics buffer (u32 words) from GPU."""
         device = self.gpu.device
         if not device:
-            return np.zeros((4, HISTOGRAM_BINS), dtype=np.uint32)
+            return np.zeros(METRICS_BUFFER_SIZE // 4, dtype=np.uint32)
         if self._metrics_staging is None:
             read_buf = device.create_buffer(
                 size=METRICS_BUFFER_SIZE,
@@ -1441,7 +1481,7 @@ class GPUEngine:
         read_buf.map_sync(wgpu.MapMode.READ)
         data = np.frombuffer(read_buf.read_mapped(), dtype=np.uint32).copy()
         read_buf.unmap()
-        return data.reshape((4, HISTOGRAM_BINS))
+        return data
 
     def _readback_downsampled(self, tex: GPUTexture) -> np.ndarray:
         """Reads back texture as float32 RGB array, handling hardware alignment."""
@@ -1485,7 +1525,7 @@ class GPUEngine:
         if not self.gpu.device:
             raise RuntimeError("GPU device lost")
 
-        wg_x, wg_y = (16, 16) if pipeline_name in ["autocrop", "metrics", "clahe_hist"] else (8, 8)
+        wg_x, wg_y = (16, 16) if pipeline_name in ["autocrop", "metrics", "clahe_hist", "density_hist"] else (8, 8)
 
         cache_key = (pipeline_name, tuple(_binding_identity(idx, res) for idx, res in bindings))
         bind_group = self._bind_group_cache.get(cache_key)

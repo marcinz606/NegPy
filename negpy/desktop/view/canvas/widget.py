@@ -292,6 +292,21 @@ class ImageCanvas(QWidget):
         self.gpu_widget.clear()
         self.overlay.update_buffer(None, "sRGB", None)
 
+    def content_rect(self) -> Optional[Tuple[int, int, int, int]]:
+        """Image content rect (off_x, off_y, w, h) inside the displayed buffer; None = no borders."""
+        return self.overlay._content_rect
+
+    def display_size(self) -> Optional[Tuple[int, int]]:
+        """(w, h) of the displayed buffer (borders included), or None."""
+        import numpy as np
+
+        buf = self._last_buffer
+        if isinstance(buf, GPUTexture):
+            return (buf.width, buf.height)
+        if isinstance(buf, np.ndarray):
+            return (buf.shape[1], buf.shape[0])
+        return None
+
     def get_pixel_rgb(self, nx: float, ny: float) -> Optional[Tuple[float, float, float]]:
         """Returns the displayed sRGB triplet in 0..1 at normalized image coords, or None."""
         import numpy as np

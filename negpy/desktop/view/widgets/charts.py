@@ -14,19 +14,24 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
-from negpy.kernel.image.logic import get_luminance, working_oetf_encode
+from negpy.kernel.image.logic import working_oetf_encode
 
 _CLIP_THRESH = 0.005  # fraction of pixels considered "clipping"
 
 
-class HistogramWidget(QWidget):
+class PhotometricCurveWidget(QWidget):
     """
-    Native high-performance histogram using QPainter.
-    Offers additive blending-like visuals and reliable updates.
+    The Analysis chart: H&D curve with the negative's density histogram on the
+    exposure axis and the print's RGB+L histogram behind the curve, plus pivot,
+    zone shading/ticks, clip marks, hover marker + curve dot, LIN/LOG toggle.
+    """
 
-    Raw per-channel bin counts are retained so the vertical scale can switch
-    between linear and logarithmic without re-deriving them from the source.
-    """
+    # Data coordinate ranges
+    _X_MIN, _X_MAX = -0.1, 1.1  # plt_x domain
+    _Y_MIN, _Y_MAX = -0.05, 1.05  # output domain
+
+    # Fraction of the widget height the density histogram may occupy.
+    _DENSITY_HIST_FRAC = 0.35
 
     # Emitted when the user flips the in-widget LIN/LOG toggle (True == log).
     scale_changed = pyqtSignal(bool)
@@ -35,28 +40,38 @@ class HistogramWidget(QWidget):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(40)
-        # Raw bin counts per channel (256-length arrays); empty until first frame.
-        self._counts: dict[str, np.ndarray] = {}
-        self._marker: tuple[int, int, int] | None = None
+        self._curve_pts: list[tuple[float, float]] = []
+        # Per-channel (color, points) traces; empty unless Cast Removal diverges the channels.
+        self._channel_curves: list[tuple[QColor, list[tuple[float, float]]]] = []
+        self._pivot_pt: tuple[float, float] | None = None
+        # Val-domain bins; DENSITY_HIST_RANGE mirrors _X_MIN/_X_MAX, so bin i
+        # maps to plt_x = 1 - val_center(i).
+        self._density_bins: np.ndarray | None = None
+        self._output_counts: np.ndarray | None = None  # (4, 256) [R, G, B, L]
         self._log_scale: bool = False
-        self._clip_low: dict[str, bool] = {}
-        self._clip_high: dict[str, bool] = {}
-        self._clip_low_frac: float = 0.0
-        self._clip_high_frac: float = 0.0
+        self._clip_low: dict[int, bool] = {}
+        self._clip_high: dict[int, bool] = {}
+        self._marker: tuple[int, int, int] | None = None
         # Hit rectangles for the LIN/LOG toggle, recomputed each paint.
         self._lin_rect = QRect()
         self._log_rect = QRect()
+        self._toe_mask: list[float] = []
+        self._shoulder_mask: list[float] = []
+        self._toe_strength: float = 0.0
+        self._shoulder_strength: float = 0.0
+        # Drag feedback: pre-drag curve snapshot + the exposure field being dragged.
+        self._active_param: str | None = None
+        self._ghost_pts: list[tuple[float, float]] = []
+        self._ghost_pivot: tuple[float, float] | None = None
+        # Spot-densitometer tracking dot: hovered pixel's val (None = hidden).
+        self._tracking_val: float | None = None
         self.setMouseTracking(True)
-
-    def clip_fractions(self) -> tuple[float, float]:
-        """Worst-channel shadow / highlight clipped fraction (0..1) of the last frame."""
-        return self._clip_low_frac, self._clip_high_frac
 
     def log_scale(self) -> bool:
         return self._log_scale
 
     def set_log_scale(self, enabled: bool) -> None:
-        """Switch the vertical axis between linear and logarithmic scaling."""
+        """Switch both histograms between linear and logarithmic count scaling."""
         enabled = bool(enabled)
         if enabled == self._log_scale:
             return
@@ -69,283 +84,6 @@ class HistogramWidget(QWidget):
             return
         self._marker = rgb
         self.update()
-
-    def update_data(self, buffer: Any) -> None:
-        """Calculates histograms and triggers repaint."""
-        if buffer is None:
-            self._counts = {}
-            self._clip_low = {}
-            self._clip_high = {}
-            self._clip_low_frac = 0.0
-            self._clip_high_frac = 0.0
-            self.update()
-            return
-
-        if isinstance(buffer, np.ndarray) and buffer.shape == (4, 256):
-            self._counts = {
-                "r": buffer[0].astype(float),
-                "g": buffer[1].astype(float),
-                "b": buffer[2].astype(float),
-                "l": buffer[3].astype(float),
-            }
-            totals = [max(1.0, float(buffer[c].sum())) for c in range(3)]
-            self._clip_low = {
-                "r": buffer[0][0] / totals[0] > _CLIP_THRESH,
-                "g": buffer[1][0] / totals[1] > _CLIP_THRESH,
-                "b": buffer[2][0] / totals[2] > _CLIP_THRESH,
-            }
-            self._clip_high = {
-                "r": buffer[0][255] / totals[0] > _CLIP_THRESH,
-                "g": buffer[1][255] / totals[1] > _CLIP_THRESH,
-                "b": buffer[2][255] / totals[2] > _CLIP_THRESH,
-            }
-            self._clip_low_frac = max(float(buffer[c][0]) / totals[c] for c in range(3))
-            self._clip_high_frac = max(float(buffer[c][255]) / totals[c] for c in range(3))
-            self.update()
-            return
-
-        if not isinstance(buffer, np.ndarray):
-            return
-
-        if buffer.shape[0] > 500:
-            buffer = buffer[::4, ::4]
-
-        lum = get_luminance(buffer)
-        self._counts = {
-            "r": self._hist_counts(buffer[..., 0]),
-            "g": self._hist_counts(buffer[..., 1]),
-            "b": self._hist_counts(buffer[..., 2]),
-            "l": self._hist_counts(lum),
-        }
-
-        n = max(1, buffer.shape[0] * buffer.shape[1])
-        self._clip_low = {
-            "r": float(np.sum(buffer[..., 0] <= 0.002)) / n > _CLIP_THRESH,
-            "g": float(np.sum(buffer[..., 1] <= 0.002)) / n > _CLIP_THRESH,
-            "b": float(np.sum(buffer[..., 2] <= 0.002)) / n > _CLIP_THRESH,
-        }
-        self._clip_high = {
-            "r": float(np.sum(buffer[..., 0] >= 0.998)) / n > _CLIP_THRESH,
-            "g": float(np.sum(buffer[..., 1] >= 0.998)) / n > _CLIP_THRESH,
-            "b": float(np.sum(buffer[..., 2] >= 0.998)) / n > _CLIP_THRESH,
-        }
-        self._clip_low_frac = max(float(np.sum(buffer[..., c] <= 0.002)) / n for c in range(3))
-        self._clip_high_frac = max(float(np.sum(buffer[..., c] >= 0.998)) / n for c in range(3))
-        self.update()
-
-    @staticmethod
-    def _hist_counts(data: np.ndarray) -> np.ndarray:
-        hist, _ = np.histogram(data, bins=256, range=(0, 1))
-        return hist.astype(float)
-
-    def _display(self, key: str) -> list:
-        """Normalized 0..1 plot values for a channel under the current scale mode."""
-        counts = self._counts.get(key)
-        if counts is None or counts.size == 0:
-            return []
-        vals = np.log1p(counts) if self._log_scale else counts
-        max_val = float(np.max(vals))
-        if max_val <= 0:
-            return []
-        return (vals / max_val).tolist()
-
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        w = self.width()
-        h = self.height()
-
-        # Background and border
-        rect = self.rect().adjusted(0, 0, -1, -1)
-        painter.fillRect(rect, QColor("#050505"))
-        painter.setPen(QPen(QColor("#262626"), 1))
-        painter.drawRect(rect)
-
-        # Quarter-tone grid lines
-        painter.setPen(QPen(QColor("#1A1A1A"), 1))
-        for i in range(1, 4):
-            x = int(w * i / 4)
-            painter.drawLine(x, 0, x, h)
-            y = int(h * i / 4)
-            painter.drawLine(0, y, w, y)
-
-        # Channels
-        self._draw_channel(painter, self._display("l"), "#D4D4D4", 30, 150, w, h)
-        self._draw_channel(painter, self._display("r"), THEME.channel_red, 80, 200, w, h)
-        self._draw_channel(painter, self._display("g"), THEME.channel_green, 80, 200, w, h)
-        self._draw_channel(painter, self._display("b"), THEME.channel_blue, 80, 200, w, h)
-
-        # H2: Zone tick marks at 0.1 intervals along the bottom
-        painter.setPen(QPen(QColor("#3A3A3A"), 1))
-        for i in range(1, 10):
-            x = int(w * i * 0.1)
-            painter.drawLine(x, h - 5, x, h - 1)
-
-        # Hovered-pixel marker lines
-        if self._marker is not None:
-            for value, color_hex in zip(self._marker, (THEME.channel_red, THEME.channel_green, THEME.channel_blue)):
-                c = QColor(color_hex)
-                c.setAlpha(220)
-                painter.setPen(QPen(c, 1, Qt.PenStyle.DashLine))
-                x = int(value / 255 * (w - 1))
-                painter.drawLine(x, 0, x, h)
-
-        # H1: Per-channel clipping indicators
-        self._draw_clip_indicators(painter, w, h)
-
-        # LIN/LOG scale toggle (bottom-right, clear of the top-corner clip marks)
-        self._draw_scale_toggle(painter, w, h)
-
-    def _draw_scale_toggle(self, painter: QPainter, w: int, h: int) -> None:
-        seg_w, seg_h = 24, 13
-        margin = 5
-        x0 = w - seg_w * 2 - margin
-        y0 = h - seg_h - margin
-        self._lin_rect = QRect(x0, y0, seg_w, seg_h)
-        self._log_rect = QRect(x0 + seg_w, y0, seg_w, seg_h)
-        outer = QRect(x0, y0, seg_w * 2, seg_h)
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(10, 10, 10, 200)))
-        painter.drawRoundedRect(outer, 3, 3)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#333333"), 1))
-        painter.drawRoundedRect(outer, 3, 3)
-
-        font = QFont()
-        font.setPixelSize(8)
-        font.setBold(True)
-        painter.setFont(font)
-
-        active = QColor("#E5E5E5")
-        inactive = QColor("#6B6B6B")
-        highlight = QColor(60, 130, 255, 70)
-
-        if not self._log_scale:
-            painter.fillRect(self._lin_rect.adjusted(1, 1, -1, -1), QBrush(highlight))
-        else:
-            painter.fillRect(self._log_rect.adjusted(1, 1, -1, -1), QBrush(highlight))
-
-        painter.setPen(QPen(active if not self._log_scale else inactive))
-        painter.drawText(self._lin_rect, Qt.AlignmentFlag.AlignCenter, "LIN")
-        painter.setPen(QPen(active if self._log_scale else inactive))
-        painter.drawText(self._log_rect, Qt.AlignmentFlag.AlignCenter, "LOG")
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            pos = event.position().toPoint()
-            if self._lin_rect.contains(pos) and self._log_scale:
-                self.set_log_scale(False)
-                self.scale_changed.emit(False)
-                return
-            if self._log_rect.contains(pos) and not self._log_scale:
-                self.set_log_scale(True)
-                self.scale_changed.emit(True)
-                return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event) -> None:
-        pos = event.position().toPoint()
-        over = self._lin_rect.contains(pos) or self._log_rect.contains(pos)
-        self.setCursor(Qt.CursorShape.PointingHandCursor if over else Qt.CursorShape.ArrowCursor)
-        super().mouseMoveEvent(event)
-
-    def _draw_clip_indicators(self, painter: QPainter, w: int, h: int) -> None:
-        channels = [("r", THEME.channel_red), ("g", THEME.channel_green), ("b", THEME.channel_blue)]
-        size = 5
-        gap = size + 2
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        for i, (ch, color) in enumerate(channels):
-            y = 4 + i * gap
-            c = QColor(color)
-
-            if self._clip_low.get(ch):
-                # Right-pointing triangle → shadows clipping to black
-                tri = QPainterPath()
-                tri.moveTo(3.0, float(y))
-                tri.lineTo(3.0, float(y + size))
-                tri.lineTo(3.0 + size, float(y + size / 2))
-                tri.closeSubpath()
-                painter.fillPath(tri, QBrush(c))
-
-            if self._clip_high.get(ch):
-                # Left-pointing triangle ← highlights clipping to white
-                tri = QPainterPath()
-                tri.moveTo(float(w - 3), float(y))
-                tri.lineTo(float(w - 3), float(y + size))
-                tri.lineTo(float(w - 3 - size), float(y + size / 2))
-                tri.closeSubpath()
-                painter.fillPath(tri, QBrush(c))
-
-    def _draw_channel(
-        self,
-        painter: QPainter,
-        data: list,
-        color_hex: str,
-        alpha_fill: int,
-        alpha_line: int,
-        w: int,
-        h: int,
-    ) -> None:
-        if len(data) < 2:
-            return
-
-        path = QPainterPath()
-        path.moveTo(0, h)
-
-        step = w / (len(data) - 1)
-        for i, val in enumerate(data):
-            path.lineTo(i * step, h - val * h)
-
-        path.lineTo(w, h)
-        path.closeSubpath()
-
-        c_fill = QColor(color_hex)
-        c_fill.setAlpha(alpha_fill)
-        painter.setBrush(QBrush(c_fill))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawPath(path)
-
-        path_line = QPainterPath()
-        path_line.moveTo(0, h - data[0] * h)
-        for i, val in enumerate(data):
-            path_line.lineTo(i * step, h - val * h)
-
-        c_line = QColor(color_hex)
-        c_line.setAlpha(alpha_line)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(c_line, 1.5))
-        painter.drawPath(path_line)
-
-
-class PhotometricCurveWidget(QWidget):
-    """
-    H&D sigmoid curve visualization using native QPainter.
-    Annotates the pivot point, toe/shoulder zones, gradient fill, and zone ticks.
-    """
-
-    # Data coordinate ranges
-    _X_MIN, _X_MAX = -0.1, 1.1  # plt_x domain
-    _Y_MIN, _Y_MAX = -0.05, 1.05  # output domain
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setMinimumHeight(40)
-        self._curve_pts: list[tuple[float, float]] = []
-        # Per-channel (color, points) traces; empty unless Cast Removal diverges the channels.
-        self._channel_curves: list[tuple[QColor, list[tuple[float, float]]]] = []
-        self._pivot_pt: tuple[float, float] | None = None
-        self._toe_mask: list[float] = []
-        self._shoulder_mask: list[float] = []
-        self._toe_strength: float = 0.0
-        self._shoulder_strength: float = 0.0
-        # Drag feedback: pre-drag curve snapshot + the exposure field being dragged.
-        self._active_param: str | None = None
-        self._ghost_pts: list[tuple[float, float]] = []
-        self._ghost_pivot: tuple[float, float] | None = None
 
     # ── coordinate helpers ────────────────────────────────────────────────────
 
@@ -370,6 +108,53 @@ class PhotometricCurveWidget(QWidget):
             self._ghost_pts = list(self._curve_pts)
             self._ghost_pivot = self._pivot_pt
         self.update()
+
+    def set_tracking_point(self, val: float | None) -> None:
+        """Marks the hovered pixel's val on the curve (spot densitometer); None hides."""
+        if val == self._tracking_val:
+            return
+        self._tracking_val = val
+        self.update()
+
+    def set_density_histogram(self, bins: Any) -> None:
+        """Negative-density occupancy along the curve's exposure axis; None clears."""
+        if bins is not None:
+            bins = np.asarray(bins, dtype=float)
+            if bins.size < 2 or float(bins.max()) <= 0.0:
+                bins = None
+        if bins is None and self._density_bins is None:
+            return
+        self._density_bins = bins
+        self.update()
+
+    def set_output_histogram(self, bins: Any) -> None:
+        """(4, 256) [R, G, B, L] print-tone counts drawn behind the curve; None clears."""
+        if bins is not None:
+            bins = np.asarray(bins, dtype=float)
+            if bins.ndim != 2 or bins.shape[0] != 4:
+                bins = None
+        if bins is None and self._output_counts is None:
+            return
+        self._output_counts = bins
+        if bins is None:
+            self._clip_low = {}
+            self._clip_high = {}
+        else:
+            totals = np.maximum(bins[:3].sum(axis=1), 1.0)
+            self._clip_low = {c: bool(bins[c, 0] / totals[c] > _CLIP_THRESH) for c in range(3)}
+            self._clip_high = {c: bool(bins[c, -1] / totals[c] > _CLIP_THRESH) for c in range(3)}
+        self.update()
+
+    def _hist_display(self, row: int) -> np.ndarray | None:
+        """Normalized 0..1 plot values for an output-histogram row under the scale mode."""
+        if self._output_counts is None:
+            return None
+        counts = self._output_counts[row]
+        vals = np.log1p(counts) if self._log_scale else counts
+        max_val = float(np.max(vals))
+        if max_val <= 0:
+            return None
+        return vals / max_val
 
     def update_curve(
         self,
@@ -554,6 +339,10 @@ class PhotometricCurveWidget(QWidget):
             int(self._wy(1.0, h)),
         )
 
+        # Histograms under everything else so the curve/zone tints stay readable.
+        self._draw_density_histogram(painter, w, h)
+        self._draw_output_histogram(painter, w, h)
+
         # Build the main curve path (reused for fill and line)
         curve_path = QPainterPath()
         curve_path.moveTo(self._wx(self._curve_pts[0][0], w), self._wy(self._curve_pts[0][1], h))
@@ -635,6 +424,178 @@ class PhotometricCurveWidget(QWidget):
             painter.setPen(QPen(QColor("#050505"), 1))
             painter.drawEllipse(QPointF(wpx, wpy), 3.5, 3.5)
 
+        # Spot-densitometer tracking dot
+        if self._tracking_val is not None:
+            plt_x = float(np.clip(1.0 - self._tracking_val, self._X_MIN, self._X_MAX))
+            idx = round((plt_x - self._X_MIN) / (self._X_MAX - self._X_MIN) * (len(self._curve_pts) - 1))
+            idx = max(0, min(len(self._curve_pts) - 1, idx))
+            tx, ty = self._curve_pts[idx]
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(255, 255, 255, 220), 1.5))
+            painter.drawEllipse(QPointF(self._wx(tx, w), self._wy(ty, h)), 4.0, 4.0)
+
+        # Hovered-pixel marker lines
+        if self._marker is not None:
+            for value, color_hex in zip(self._marker, (THEME.channel_red, THEME.channel_green, THEME.channel_blue)):
+                c = QColor(color_hex)
+                c.setAlpha(220)
+                painter.setPen(QPen(c, 1, Qt.PenStyle.DashLine))
+                mx = int(value / 255 * (w - 1))
+                painter.drawLine(mx, 0, mx, h)
+
+        self._draw_clip_indicators(painter, w, h)
+        self._draw_scale_toggle(painter, w, h)
+
+    def _draw_output_histogram(self, painter: QPainter, w: int, h: int) -> None:
+        """Output tones, black left → white right — same direction the curve rises."""
+        if self._output_counts is None:
+            return
+        specs = (
+            (3, "#D4D4D4", 26, 120),
+            (0, THEME.channel_red, 55, 160),
+            (1, THEME.channel_green, 55, 160),
+            (2, THEME.channel_blue, 55, 160),
+        )
+        for row, color_hex, alpha_fill, alpha_line in specs:
+            data = self._hist_display(row)
+            if data is None:
+                continue
+            step = w / (data.size - 1)
+            values = data.tolist()
+
+            path = QPainterPath()
+            path.moveTo(0, h)
+            for i, v in enumerate(values):
+                path.lineTo(i * step, h - v * h)
+            path.lineTo(w, h)
+            path.closeSubpath()
+            c_fill = QColor(color_hex)
+            c_fill.setAlpha(alpha_fill)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(c_fill))
+            painter.drawPath(path)
+
+            # Open polyline for the outline so the closing edges don't stroke.
+            path_line = QPainterPath()
+            path_line.moveTo(0, h - values[0] * h)
+            for i, v in enumerate(values):
+                path_line.lineTo(i * step, h - v * h)
+            c_line = QColor(color_hex)
+            c_line.setAlpha(alpha_line)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(c_line, 1.0))
+            painter.drawPath(path_line)
+
+    def _draw_clip_indicators(self, painter: QPainter, w: int, h: int) -> None:
+        channels = ((0, THEME.channel_red), (1, THEME.channel_green), (2, THEME.channel_blue))
+        size = 5
+        gap = size + 2
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        for i, (ch, color) in enumerate(channels):
+            y = 4 + i * gap
+            c = QColor(color)
+
+            if self._clip_low.get(ch):
+                # Right-pointing triangle → shadows clipping to black
+                tri = QPainterPath()
+                tri.moveTo(3.0, float(y))
+                tri.lineTo(3.0, float(y + size))
+                tri.lineTo(3.0 + size, float(y + size / 2))
+                tri.closeSubpath()
+                painter.fillPath(tri, QBrush(c))
+
+            if self._clip_high.get(ch):
+                # Left-pointing triangle ← highlights clipping to white
+                tri = QPainterPath()
+                tri.moveTo(float(w - 3), float(y))
+                tri.lineTo(float(w - 3), float(y + size))
+                tri.lineTo(float(w - 3 - size), float(y + size / 2))
+                tri.closeSubpath()
+                painter.fillPath(tri, QBrush(c))
+
+    def _draw_scale_toggle(self, painter: QPainter, w: int, h: int) -> None:
+        seg_w, seg_h = 24, 13
+        margin = 5
+        x0 = w - seg_w * 2 - margin
+        y0 = h - seg_h - margin
+        self._lin_rect = QRect(x0, y0, seg_w, seg_h)
+        self._log_rect = QRect(x0 + seg_w, y0, seg_w, seg_h)
+        outer = QRect(x0, y0, seg_w * 2, seg_h)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(10, 10, 10, 200)))
+        painter.drawRoundedRect(outer, 3, 3)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor("#333333"), 1))
+        painter.drawRoundedRect(outer, 3, 3)
+
+        font = QFont()
+        font.setPixelSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+
+        active = QColor("#E5E5E5")
+        inactive = QColor("#6B6B6B")
+        highlight = QColor(60, 130, 255, 70)
+
+        if not self._log_scale:
+            painter.fillRect(self._lin_rect.adjusted(1, 1, -1, -1), QBrush(highlight))
+        else:
+            painter.fillRect(self._log_rect.adjusted(1, 1, -1, -1), QBrush(highlight))
+
+        painter.setPen(QPen(active if not self._log_scale else inactive))
+        painter.drawText(self._lin_rect, Qt.AlignmentFlag.AlignCenter, "LIN")
+        painter.setPen(QPen(active if self._log_scale else inactive))
+        painter.drawText(self._log_rect, Qt.AlignmentFlag.AlignCenter, "LOG")
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint()
+            if self._lin_rect.contains(pos) and self._log_scale:
+                self.set_log_scale(False)
+                self.scale_changed.emit(False)
+                return
+            if self._log_rect.contains(pos) and not self._log_scale:
+                self.set_log_scale(True)
+                self.scale_changed.emit(True)
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        pos = event.position().toPoint()
+        over = self._lin_rect.contains(pos) or self._log_rect.contains(pos)
+        self.setCursor(Qt.CursorShape.PointingHandCursor if over else Qt.CursorShape.ArrowCursor)
+        super().mouseMoveEvent(event)
+
+    def _draw_density_histogram(self, painter: QPainter, w: int, h: int) -> None:
+        bins = self._density_bins
+        if bins is None:
+            return
+        from negpy.features.exposure.analysis import DENSITY_HIST_RANGE
+
+        lo, hi = DENSITY_HIST_RANGE
+        n = bins.size
+        vals = np.log1p(bins) if self._log_scale else bins
+        peak = float(vals.max())
+        bot = self._wy(self._Y_MIN, h)
+        scale = self._DENSITY_HIST_FRAC * h
+
+        path = QPainterPath()
+        xs = [self._wx(1.0 - (lo + (i + 0.5) * (hi - lo) / n), w) for i in range(n)]
+        path.moveTo(xs[0], bot)
+        for x, count in zip(xs, vals.tolist()):
+            path.lineTo(x, bot - count / peak * scale)
+        path.lineTo(xs[-1], bot)
+        path.closeSubpath()
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(200, 200, 200, 30)))
+        painter.drawPath(path)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(200, 200, 200, 80), 1))
+        painter.drawPath(path)
+
     def _draw_zone_shading(
         self,
         painter: QPainter,
@@ -668,6 +629,67 @@ class PhotometricCurveWidget(QWidget):
             c = QColor(color)
             c.setAlpha(alpha)
             painter.fillPath(strip, QBrush(c))
+
+
+class ZoneStripWidget(QWidget):
+    """
+    10-cell print-zone occupancy strip (0–IX): cell tone = zone brightness,
+    opacity = occupancy (√-scaled so small-but-real mass reads). Extreme cells
+    tint red on blocked shadows / blown highlights.
+    """
+
+    _LABELS = ("0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(24)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMouseTracking(True)
+        self._occ: np.ndarray | None = None
+        self._warn: tuple[bool, bool] = (False, False)
+
+    def update_data(self, occ: np.ndarray | None, warnings: tuple[bool, bool] = (False, False)) -> None:
+        self._occ = occ
+        self._warn = warnings
+        self.update()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._occ is not None and self.width() > 0:
+            cell = int(min(max(event.position().x() / self.width() * len(self._LABELS), 0), len(self._LABELS) - 1))
+            self.setToolTip(f"Zone {self._LABELS[cell]} — {float(self._occ[cell]) * 100:.1f}%")
+        super().mouseMoveEvent(event)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        w = self.width()
+        h = self.height()
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        painter.fillRect(rect, QColor("#050505"))
+
+        if self._occ is not None:
+            n = len(self._LABELS)
+            font = QFont()
+            font.setPixelSize(8)
+            painter.setFont(font)
+            shadow_warn, highlight_warn = self._warn
+            for i in range(n):
+                x0 = int(w * i / n)
+                x1 = int(w * (i + 1) / n)
+                frac = float(self._occ[i])
+                tone = 40 + int(215 * i / (n - 1))
+                alpha = int(min(1.0, np.sqrt(frac)) * 235)
+                painter.fillRect(x0, 0, x1 - x0, h, QColor(tone, tone, tone, alpha))
+                if (shadow_warn and i <= 1) or (highlight_warn and i == n - 1):
+                    painter.fillRect(x0, 0, x1 - x0, h, QColor(220, 80, 80, 90))
+                painter.setPen(QPen(QColor(130, 130, 130, 160)))
+                painter.drawText(QRect(x0, 0, x1 - x0, h), Qt.AlignmentFlag.AlignCenter, self._LABELS[i])
+                if i:
+                    painter.setPen(QPen(QColor("#1A1A1A"), 1))
+                    painter.drawLine(x0, 0, x0, h)
+
+        painter.setPen(QPen(QColor("#262626"), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect)
 
 
 class MiniHistogramWidget(QWidget):

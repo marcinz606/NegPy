@@ -7,21 +7,14 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.features.exposure.stats import StatRow
 
 _TOOLTIPS = {
-    "Density range": (
-        "Relative density range of the negative (luminance). Higher = more contrast — a product of "
-        "scene contrast and development. Relative scale, comparable across a roll, not absolute scanner density."
+    "Negative": (
+        "The negative itself: relative density range (luminance) and its development character vs a "
+        "nominal frame — flat (≈N−1), normal, contrasty (≈N+1). Relative scale, comparable across a "
+        "roll; a heuristic from this scan's normalized bounds, not a calibrated densitometer reading."
     ),
     "Exposure": (
         "Where the frame's midtone sits, in stops from neutral: positive = brighter (high-key), "
         "negative = darker (low-key). Approximate — read off the metered midtone, not a precise meter."
-    ),
-    "Contrast": (
-        "Contrast the conversion is applying, on the ISO R paper scale (R50 = hard … R180 = soft, "
-        "R110 ≈ grade 2). Reflects the effective grade including Auto Grade, not just the Grade slider."
-    ),
-    "Print": (
-        "Current print exposure in darkroom units: stops of print exposure (positive = darker print, "
-        "like f-stop printing) and the CMY white balance as dichroic-head CC filtration (slider ±1.0 = ±20cc)."
     ),
     "Clipping": ("Share of pixels crushed to black (shadows) or blown to white (highlights), worst channel. Turns red above 1%."),
     "Scan clip": (
@@ -32,10 +25,45 @@ _TOOLTIPS = {
 }
 
 
+_PROBE_EMPTY = "—"
+
+
+class DensitometerRow(QWidget):
+    """Hover spot-densitometer read-out shown between the H&D curve and the stats."""
+
+    _TOOLTIP = (
+        "Spot densitometer — hover the image to read the pixel: per-channel density above film base "
+        "(ΔD, relative to this scan's normalization, not absolute), the displayed tone's reflection "
+        "print density, and its print zone (0 = paper black, V = 18% mid-gray, X = paper white). "
+        "In B&W mode the ΔD channels read the pre-conversion colour record."
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        grid = QGridLayout(self)
+        grid.setContentsMargins(4, 0, 4, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setColumnStretch(1, 1)
+        name = QLabel("Probe")
+        name.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;")
+        self._value = QLabel(_PROBE_EMPTY)
+        self._value.setStyleSheet(f"color: {THEME.text_primary}; font-size: {THEME.font_size_xs}px;")
+        self._value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid.addWidget(name, 0, 0)
+        grid.addWidget(self._value, 0, 1)
+        name.setToolTip(self._TOOLTIP)
+        self._value.setToolTip(self._TOOLTIP)
+
+    def set_reading(self, reading) -> None:
+        from negpy.features.exposure.densitometer import format_reading
+
+        self._value.setText(_PROBE_EMPTY if reading is None else format_reading(reading))
+
+
 class NegativeStatsWidget(QWidget):
     """Compact numerical read-out of the negative under the Analysis charts."""
 
-    _ROWS = 6
+    _ROWS = 4
 
     def __init__(self, parent=None):
         super().__init__(parent)

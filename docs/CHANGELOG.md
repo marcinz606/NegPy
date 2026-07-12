@@ -10,6 +10,10 @@
 - Change: **Smoother masks and scratch heals** — Dodge & Burn mask outlines and Scratch heal strokes now follow smooth curves through their points instead of straight segments, and the line previews curved as you draw it.
 - New: **Auto Dust works on slides** — E-6 positives get automatic dust removal for the first time.
 - New: **Crosstalk matrix editor** — a Manage button beside the Process → Crosstalk dropdown opens an editor: browse the bundled matrices (read-only), make an editable copy, adjust the channel-mixing terms with live preview, and save your own profiles as `.toml` files in the NegPy/crosstalk folder.
+- Change: **One Analysis chart** — the histogram and the H&D curve merge into a single graph: the print's RGB histogram sits behind the curve, and a second grey histogram along the exposure axis shows where the negative's densities land on the paper curve — how much of the image rides the toe, the straight line or the shoulder, live as you drag Grade or Density. The LIN/LOG toggle scales both.
+- New: **Spot densitometer** — hover the image to read the pixel under the cursor: per-channel density above film base (ΔD), the print's reflection density, and its print zone (Zone V = 18% grey); a dot tracks the pixel along the H&D curve.
+- New: **Zone strip** — a Zone System bar under the chart shows how much of the print falls in each zone (0–IX) and flags blocked shadows or blown highlights in red.
+- Change: **Leaner stats read-out** — the numbers below the chart reduce to the essentials: the negative's density range with a development read (flat / normal / contrasty), exposure in EV, and clipping; the scan-clip warning appears only when the scan actually clips.
 - Fix: presets no longer embed the source frame's heal strokes, and Apply settings no longer overwrites other frames' heals.
 
 ## 0.36.0

@@ -154,6 +154,7 @@ class AppController(QObject):
     batch_progress = pyqtSignal(int, int, str)  # current, total, label
     batch_finished = pyqtSignal()
     pixel_readout_rgb = pyqtSignal(object)  # (r255, g255, b255) tuple or None
+    densitometer_readout = pyqtSignal(object)  # DensitometerReading or None
     tone_drag_changed = pyqtSignal(str)  # exposure field being slider-dragged; "" = drag ended
     scan_devices_requested = pyqtSignal()
     scan_requested = pyqtSignal(ScanRequest)
@@ -304,6 +305,7 @@ class AppController(QObject):
         self._pending_cursor_nx = None
         self._pending_cursor_ny = None
         self.pixel_readout_rgb.emit(None)
+        self.densitometer_readout.emit(None)
 
     def _emit_pixel_readout(self) -> None:
         nx, ny = self._pending_cursor_nx, self._pending_cursor_ny
@@ -317,6 +319,46 @@ class AppController(QObject):
         g255 = int(round(max(0.0, min(1.0, g)) * 255))
         b255 = int(round(max(0.0, min(1.0, b)) * 255))
         self.pixel_readout_rgb.emit((r255, g255, b255))
+        self.densitometer_readout.emit(self._compute_densitometer_reading(nx, ny, rgb))
+
+    def _compute_densitometer_reading(self, nx: float, ny: float, display_rgb: tuple) -> Optional[Any]:
+        """Probe the normalized-log frame under the cursor; None when unavailable."""
+        from negpy.features.exposure.densitometer import compute_reading, map_display_to_norm
+
+        metrics = self.state.last_metrics
+        nl = metrics.get("normalized_log")
+        bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
+        if nl is None or bounds is None or self.canvas is None:
+            return None
+        disp = self.canvas.display_size()
+        if disp is None:
+            return None
+        if isinstance(nl, np.ndarray):
+            norm_h, norm_w = nl.shape[:2]
+        else:
+            norm_w, norm_h = nl.width, nl.height
+        pos = map_display_to_norm(
+            nx,
+            ny,
+            disp[0],
+            disp[1],
+            self.canvas.content_rect(),
+            metrics.get("active_roi"),
+            self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            norm_w,
+            norm_h,
+        )
+        if pos is None:
+            return None
+        x, y = pos
+        try:
+            if isinstance(nl, np.ndarray):
+                val = nl[y, x]
+            else:
+                val = nl.readback_region(x, y, 1, 1)[0, 0]
+        except Exception:
+            return None
+        return compute_reading((float(val[0]), float(val[1]), float(val[2])), bounds, display_rgb)
 
     def set_status(self, message: str, timeout: int = 0) -> None:
         self.status_message_requested.emit(message, timeout)

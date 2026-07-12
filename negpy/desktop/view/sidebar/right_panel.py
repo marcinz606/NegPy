@@ -21,9 +21,9 @@ from negpy.desktop.view.sidebar.history import HistoryPanel
 from negpy.desktop.view.sidebar.metadata import MetadataSidebar
 from negpy.desktop.view.styles.templates import EditedDot
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
+from negpy.desktop.view.widgets.charts import PhotometricCurveWidget, ZoneStripWidget
 from negpy.desktop.view.widgets.collapsible import CollapsibleSection
-from negpy.desktop.view.widgets.stats import NegativeStatsWidget
+from negpy.desktop.view.widgets.stats import DensitometerRow, NegativeStatsWidget
 
 
 class RightPanel(QWidget):
@@ -52,16 +52,19 @@ class RightPanel(QWidget):
         analysis_layout = QVBoxLayout(analysis_content)
         analysis_layout.setContentsMargins(5, 5, 5, 5)
 
-        self.hist_widget = HistogramWidget()
         self.curve_widget = PhotometricCurveWidget()
+        self.zone_strip = ZoneStripWidget()
+        self.probe_row = DensitometerRow()
         self.stats_widget = NegativeStatsWidget()
+        self._clip_fracs: tuple = (None, None)
 
         repo = self.controller.session.repo
-        self.hist_widget.set_log_scale(bool(repo.get_global_setting("histogram_log_scale")))
-        self.hist_widget.scale_changed.connect(lambda enabled: repo.save_global_setting("histogram_log_scale", bool(enabled)))
+        self.curve_widget.set_log_scale(bool(repo.get_global_setting("histogram_log_scale")))
+        self.curve_widget.scale_changed.connect(lambda enabled: repo.save_global_setting("histogram_log_scale", bool(enabled)))
 
-        analysis_layout.addWidget(self.hist_widget, 1)
         analysis_layout.addWidget(self.curve_widget, 1)
+        analysis_layout.addWidget(self.zone_strip, 0)
+        analysis_layout.addWidget(self.probe_row, 0)
         analysis_layout.addWidget(self.stats_widget, 0)
 
         repo = self.controller.session.repo
@@ -241,8 +244,9 @@ class RightPanel(QWidget):
 
     def _connect_signals(self) -> None:
         self.controller.image_updated.connect(self._update_analysis)
-        self.controller.metrics_available.connect(self._on_metrics_available)
-        self.controller.pixel_readout_rgb.connect(self.hist_widget.set_marker)
+        self.controller.metrics_available.connect(self._update_histograms)
+        self.controller.pixel_readout_rgb.connect(self.curve_widget.set_marker)
+        self.controller.densitometer_readout.connect(self._on_densitometer)
         self.controller.tone_drag_changed.connect(self.curve_widget.set_active_param)
         self.controller.config_updated.connect(self.export_sidebar.sync_ui)
         self.controller.config_updated.connect(self.metadata_sidebar.sync_ui)
@@ -313,25 +317,44 @@ class RightPanel(QWidget):
                 return
             parent = parent.parent()
 
-    def _on_metrics_available(self, metrics: Dict[str, Any]) -> None:
-        hist_data = metrics.get("histogram_raw")
-        if hist_data is not None:
-            self.hist_widget.update_data(hist_data)
+    def _on_densitometer(self, reading: Any) -> None:
+        self.probe_row.set_reading(reading)
+        self.curve_widget.set_tracking_point(None if reading is None else reading.val_luma)
+
+    def _update_histograms(self, metrics: Dict[str, Any]) -> None:
+        """Feed the merged chart's two distributions, the zone strip and the clip stats."""
+        from negpy.features.exposure.analysis import (
+            output_clip_fractions,
+            output_histogram,
+            zone_occupancy,
+            zone_warnings,
+        )
+
+        source = metrics.get("histogram_raw")
+        if source is None:
+            source = metrics.get("analysis_buffer")
+        if source is None:
+            source = metrics.get("base_positive")
+        bins = output_histogram(source)
+
+        self.curve_widget.set_output_histogram(bins)
+        self.curve_widget.set_density_histogram(metrics.get("histogram_density"))
+        self._clip_fracs = output_clip_fractions(bins) if bins is not None else (None, None)
+
+        # A flat log master has no print zones — hide rather than mislead.
+        if bins is None or self.controller.state.flat_peek:
+            self.zone_strip.setVisible(False)
+        else:
+            occ = zone_occupancy(bins[3])
+            self.zone_strip.setVisible(True)
+            self.zone_strip.update_data(occ, zone_warnings(occ))
 
     def _update_analysis(self) -> None:
         metrics = self.controller.session.state.last_metrics
 
-        hist_data = metrics.get("histogram_raw")
-        if hist_data is not None:
-            self.hist_widget.update_data(hist_data)
-        else:
-            buffer = metrics.get("analysis_buffer")
-            if buffer is None:
-                buffer = metrics.get("base_positive")
-            if buffer is not None:
-                self.hist_widget.update_data(buffer)
+        self._update_histograms(metrics)
 
-        from negpy.features.exposure.logic import effective_grade_range, normalized_shadow_refs, per_channel_curve_params
+        from negpy.features.exposure.logic import normalized_shadow_refs, per_channel_curve_params
         from negpy.features.exposure.papers import effective_paper_profile
 
         config = self.controller.session.state.config.exposure
@@ -346,19 +369,12 @@ class RightPanel(QWidget):
 
             flat_cfg = flat_master_config(self.controller.session.state.config).exposure
             gain, lift = flat_curve_params()
-            # Flat log master has no print grade — the ISO-R contrast stat reads N/A.
-            slope, density_range = None, None
             self.curve_widget.update_curve(flat_cfg, slope=gain, pivot=lift, flat=True)
         else:
             # Mirror PhotometricProcessor so the plotted curve matches the render under
             # the Auto Grade / Auto Density / Cast Removal toggles. CPU stores
             # "final_bounds", GPU stores "log_bounds".
             anchor = metrics.get("metered_anchor") if config.auto_exposure else None
-            density_range = effective_grade_range(
-                config.auto_normalize_contrast,
-                metrics.get("norm_density_range"),
-                metrics.get("textural_range"),
-            )
             d_min = paper.d_min if config.paper_dmin else 0.0
             bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
             shadow_refs_norm = normalized_shadow_refs(bounds, metrics.get("shadow_log_refs"))
@@ -381,19 +397,13 @@ class RightPanel(QWidget):
 
         from negpy.features.exposure.stats import negative_statistics
 
-        clip_low, clip_high = self.hist_widget.clip_fractions()
-        # Flat peek bypasses the print curve — the darkroom-units row reads N/A.
-        flat = self.controller.state.flat_peek
+        clip_low, clip_high = self._clip_fracs
         self.stats_widget.update_stats(
             negative_statistics(
                 metrics.get("norm_density_range"),
                 metrics.get("metered_anchor"),
-                slope,
                 clip_low,
                 clip_high,
-                effective_range=density_range,
-                density=None if flat else config.density,
-                wb_cmy=None if flat else (config.wb_cyan, config.wb_magenta, config.wb_yellow),
                 scan_clip=metrics.get("scan_clip_fractions"),
             )
         )

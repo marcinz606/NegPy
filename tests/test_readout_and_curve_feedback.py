@@ -3,19 +3,22 @@ from dataclasses import replace
 
 import numpy as np
 
-from negpy.desktop.view.widgets.charts import HistogramWidget, PhotometricCurveWidget
+from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import ExposureConfig
 
 
 def test_histogram_marker_set_clear_and_paint() -> None:
-    widget = HistogramWidget()
+    from negpy.features.exposure.analysis import output_histogram
+
+    widget = PhotometricCurveWidget()
     widget.resize(256, 100)
-    widget.update_data(np.random.rand(64, 64, 3).astype(np.float32))
+    widget.update_curve(ExposureConfig())
+    widget.set_output_histogram(output_histogram(np.random.rand(64, 64, 3).astype(np.float32)))
 
     widget.set_marker((10, 128, 250))
     assert widget._marker == (10, 128, 250)
-    widget.grab()  # exercises paintEvent with the marker
+    widget.grab()  # exercises paintEvent with the marker + output histogram
 
     widget.set_marker(None)
     assert widget._marker is None
