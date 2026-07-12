@@ -29,6 +29,9 @@ class ToningProcessor:
                 selenium_strength=self.config.selenium_strength,
                 sepia_strength=self.config.sepia_strength,
                 gold_strength=self.config.gold_strength,
+                blue_strength=self.config.blue_strength,
+                copper_strength=self.config.copper_strength,
+                vanadium_strength=self.config.vanadium_strength,
             )
             p = working_oetf_encode(img)
             p = apply_chromaticity_preserving_black_point(p, 0.05)

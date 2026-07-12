@@ -10,6 +10,9 @@ class ToningConfig:
     selenium_strength: float = 0.0
     sepia_strength: float = 0.0
     gold_strength: float = 0.0
+    blue_strength: float = 0.0
+    copper_strength: float = 0.0
+    vanadium_strength: float = 0.0
     shadow_tint_hue: float = 0.0
     shadow_tint_strength: float = 0.0
     highlight_tint_hue: float = 0.0

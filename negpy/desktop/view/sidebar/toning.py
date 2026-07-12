@@ -29,9 +29,27 @@ class ToningSidebar(BaseSidebar):
         self.gold_slider.setToolTip(
             "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W only)"
         )
-        self.layout.addWidget(self.selenium_slider)
-        self.layout.addWidget(self.sepia_slider)
-        self.layout.addWidget(self.gold_slider)
+        self.blue_slider = CompactSlider("Iron Blue", 0.0, 2.0, conf.blue_strength)
+        self.blue_slider.setToolTip(
+            "Simulates iron blue (Prussian blue) toning — blues the image shadows-first and intensifies: deeper navy blacks (B&W only)"
+        )
+        self.copper_slider = CompactSlider("Copper", 0.0, 2.0, conf.copper_strength)
+        self.copper_slider.setToolTip(
+            "Simulates copper toning — pink to brick-red shift with the classic Dmax loss: blacks weaken as the bath bleaches (B&W only)"
+        )
+        self.vanadium_slider = CompactSlider("Vanadium", 0.0, 2.0, conf.vanadium_strength)
+        self.vanadium_slider.setToolTip(
+            "Simulates vanadium green toning — bleach-then-tone greens the mids and highlights while deep shadows keep their black silver (B&W only)"
+        )
+        for left, right in (
+            (self.selenium_slider, self.sepia_slider),
+            (self.gold_slider, self.blue_slider),
+            (self.copper_slider, self.vanadium_slider),
+        ):
+            row = QHBoxLayout()
+            row.addWidget(left)
+            row.addWidget(right)
+            self.layout.addLayout(row)
 
         self.layout.addWidget(section_subheader("SPLIT TONING"))
 
@@ -74,6 +92,24 @@ class ToningSidebar(BaseSidebar):
         self.gold_slider.valueCommitted.connect(
             lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, gold_strength=v)
         )
+        self.blue_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, blue_strength=v)
+        )
+        self.blue_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, blue_strength=v)
+        )
+        self.copper_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, copper_strength=v)
+        )
+        self.copper_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, copper_strength=v)
+        )
+        self.vanadium_slider.valueChanged.connect(
+            lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, vanadium_strength=v)
+        )
+        self.vanadium_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("toning", persist=True, readback_metrics=True, vanadium_strength=v)
+        )
         self.shadow_hue_slider.valueChanged.connect(
             lambda v: self.update_config_section("toning", persist=False, readback_metrics=False, shadow_tint_hue=v)
         )
@@ -108,6 +144,9 @@ class ToningSidebar(BaseSidebar):
             self.selenium_slider.setValue(conf.selenium_strength)
             self.sepia_slider.setValue(conf.sepia_strength)
             self.gold_slider.setValue(conf.gold_strength)
+            self.blue_slider.setValue(conf.blue_strength)
+            self.copper_slider.setValue(conf.copper_strength)
+            self.vanadium_slider.setValue(conf.vanadium_strength)
             self.shadow_hue_slider.setValue(conf.shadow_tint_hue)
             self.shadow_str_slider.setValue(conf.shadow_tint_strength)
             self.highlight_hue_slider.setValue(conf.highlight_tint_hue)
@@ -117,6 +156,9 @@ class ToningSidebar(BaseSidebar):
             self.selenium_slider.setVisible(is_bw)
             self.sepia_slider.setVisible(is_bw)
             self.gold_slider.setVisible(is_bw)
+            self.blue_slider.setVisible(is_bw)
+            self.copper_slider.setVisible(is_bw)
+            self.vanadium_slider.setVisible(is_bw)
         finally:
             self.block_signals(False)
 
@@ -125,6 +167,9 @@ class ToningSidebar(BaseSidebar):
             self.selenium_slider,
             self.sepia_slider,
             self.gold_slider,
+            self.blue_slider,
+            self.copper_slider,
+            self.vanadium_slider,
             self.shadow_hue_slider,
             self.shadow_str_slider,
             self.highlight_hue_slider,

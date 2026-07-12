@@ -42,6 +42,34 @@ TONING_CONSTANTS: Dict[str, Any] = {
     # Per-channel multipliers where gold plates silver *sulfide* (sepia-toned):
     # the classic gold-over-sepia orange-red shift, redder than sulfide alone.
     "gold_sepia_gain": (0.80, 0.95, 1.20),
+    # ── Iron blue (silver -> ferric ferrocyanide, silver-proportional) ────────
+    # Density at which conversion saturates (c = strength·(D/this)^power).
+    # Kept well below Dmax: the hue effect scales with D·c, so a Dmax-referenced
+    # saturation would confine the colour to the deep shadows.
+    "blue_d_ref": 0.9,
+    # Slightly sub-linear so the blue reaches the mids while shadows still lead.
+    "blue_power": 0.85,
+    # Prussian blue deposits more colouring matter than the silver it replaces:
+    # net gain > 1 (intensification), red absorbed most -> blue hue.
+    "blue_gain": (1.30, 1.08, 0.80),
+    # ── Copper (silver -> copper ferrocyanide, in-bath bleach) ────────────────
+    # Density at which conversion saturates (c = strength·(D/this)^power); low
+    # for the same mid-tone visibility reason as blue_d_ref.
+    "copper_d_ref": 0.9,
+    # Sub-linear exponent: conversion reaches mids/highlights early (broad tone).
+    "copper_power": 0.6,
+    # Net gain < 1: the ferricyanide bleaches while it tones (Dmax loss),
+    # red lifted most -> pink/brick-red hue.
+    "copper_gain": (0.72, 0.94, 1.18),
+    # ── Vanadium green (bleach-then-tone, thinnest silver first) ──────────────
+    # Density above which the bleach no longer reaches (c = strength·(1 − D/this)^power).
+    "van_d_ref": 1.8,
+    # Gentler falloff than sepia's 2.0 — the green creeps into the mids while
+    # deep shadows keep their black silver (green print, black blacks).
+    "van_power": 1.2,
+    # Vanadium yellow + Prussian blue deposit reads green: R and B absorbed,
+    # G spared; luma-weighted net < 1 (slight density loss).
+    "van_gain": (1.12, 0.85, 1.03),
 }
 
 
@@ -61,6 +89,18 @@ def _apply_chemical_toning_jit(
     gold_power: float,
     gold_gain: np.ndarray,
     gold_sepia_gain: np.ndarray,
+    blue_strength: float,
+    blue_d_ref: float,
+    blue_power: float,
+    blue_gain: np.ndarray,
+    copper_strength: float,
+    copper_d_ref: float,
+    copper_power: float,
+    copper_gain: np.ndarray,
+    van_strength: float,
+    van_d_ref: float,
+    van_power: float,
+    van_gain: np.ndarray,
 ) -> np.ndarray:
     """
     Density-driven chemical toning on linear reflectance. Silver density
@@ -69,7 +109,9 @@ def _apply_chemical_toning_jit(
     Selenium converts the densest silver first, sepia and gold the thinnest;
     gold runs last (real workflow: sepia first, gold after) and blends its
     covering power by the sulfide fraction — orange-red where sepia toned,
-    blue-black on plain silver.
+    blue-black on plain silver. Iron blue and copper convert silver-proportional
+    (shadows first), vanadium bleach-then-tone (thinnest first); all three run
+    after the silver toners, independent of them.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -114,6 +156,33 @@ def _apply_chemical_toning_jit(
                         c_au = 1.0
                     gain = gold_gain[ch] * (1.0 - c_sep) + gold_sepia_gain[ch] * c_sep
                     d = d * (1.0 - c_au) + c_au * d * gain
+
+                if blue_strength > 0.0:
+                    frac = d / blue_d_ref
+                    if frac > 1.0:
+                        frac = 1.0
+                    c_blue = blue_strength * frac**blue_power
+                    if c_blue > 1.0:
+                        c_blue = 1.0
+                    d = d * (1.0 - c_blue) + c_blue * d * blue_gain[ch]
+
+                if copper_strength > 0.0:
+                    frac = d / copper_d_ref
+                    if frac > 1.0:
+                        frac = 1.0
+                    c_cu = copper_strength * frac**copper_power
+                    if c_cu > 1.0:
+                        c_cu = 1.0
+                    d = d * (1.0 - c_cu) + c_cu * d * copper_gain[ch]
+
+                if van_strength > 0.0:
+                    frac = d / van_d_ref
+                    if frac > 1.0:
+                        frac = 1.0
+                    c_van = van_strength * (1.0 - frac) ** van_power
+                    if c_van > 1.0:
+                        c_van = 1.0
+                    d = d * (1.0 - c_van) + c_van * d * van_gain[ch]
 
                 pixel = 10.0**-d
                 if pixel < 0.0:
@@ -161,11 +230,22 @@ def apply_chemical_toning(
     selenium_strength: float = 0.0,
     sepia_strength: float = 0.0,
     gold_strength: float = 0.0,
+    blue_strength: float = 0.0,
+    copper_strength: float = 0.0,
+    vanadium_strength: float = 0.0,
 ) -> ImageBuffer:
     """
-    Selenium / sepia / gold toning of a linear-reflectance print (density domain).
+    Selenium / sepia / gold / iron-blue / copper / vanadium-green toning of a
+    linear-reflectance print (density domain).
     """
-    if selenium_strength == 0 and sepia_strength == 0 and gold_strength == 0:
+    if (
+        selenium_strength == 0
+        and sepia_strength == 0
+        and gold_strength == 0
+        and blue_strength == 0
+        and copper_strength == 0
+        and vanadium_strength == 0
+    ):
         return img
 
     c = TONING_CONSTANTS
@@ -185,5 +265,17 @@ def apply_chemical_toning(
             float(c["gold_power"]),
             np.array(c["gold_gain"], dtype=np.float32),
             np.array(c["gold_sepia_gain"], dtype=np.float32),
+            float(blue_strength),
+            float(c["blue_d_ref"]),
+            float(c["blue_power"]),
+            np.array(c["blue_gain"], dtype=np.float32),
+            float(copper_strength),
+            float(c["copper_d_ref"]),
+            float(c["copper_power"]),
+            np.array(c["copper_gain"], dtype=np.float32),
+            float(vanadium_strength),
+            float(c["van_d_ref"]),
+            float(c["van_power"]),
+            np.array(c["van_gain"], dtype=np.float32),
         )
     )

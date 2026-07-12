@@ -113,6 +113,140 @@ class TestChemicalToning(unittest.TestCase):
         self.assertGreaterEqual(float(res.min()), 0.0)
         self.assertLessEqual(float(res.max()), 1.0)
 
+    def test_blue_zero_strength_is_identity(self):
+        img = np.random.rand(10, 10, 3).astype(np.float32)
+        res = apply_chemical_toning(img, blue_strength=0.0, copper_strength=0.0)
+        np.testing.assert_array_equal(res, img)
+
+    def test_blue_deepens_shadows(self):
+        """Iron blue deposits ~3x colouring matter per unit silver — intensification.
+        The B channel alone lightens (that's the hue), so assert on luma."""
+        dark = self._gray(0.05)
+        res = apply_chemical_toning(dark, blue_strength=1.0)
+        luma = 0.2126 * res[0, 0, 0] + 0.7152 * res[0, 0, 1] + 0.0722 * res[0, 0, 2]
+        self.assertLess(float(luma), 0.05)
+
+    def test_blue_cools_image(self):
+        """Prussian blue absorbs red most -> blue cast where silver converted."""
+        res = apply_chemical_toning(self._gray(0.05), blue_strength=1.0)
+        self.assertGreater(float(res[0, 0, 2]), float(res[0, 0, 0]))  # B lighter than R
+
+    def test_blue_converts_proportionally(self):
+        """Conversion tracks silver density — shadows tone hardest, but broader
+        than selenium."""
+        d_dark_in, d_light_in = -np.log10(0.05), -np.log10(0.6)
+        res_dark = apply_chemical_toning(self._gray(0.05), blue_strength=1.0)
+        res_light = apply_chemical_toning(self._gray(0.6), blue_strength=1.0)
+        gain_dark = self._density(res_dark, 1) - d_dark_in
+        gain_light = self._density(res_light, 1) - d_light_in
+        self.assertGreater(gain_dark, gain_light * 10)
+        self.assertGreater(gain_light, 0.0)
+
+    def test_blue_monotone_with_strength(self):
+        """Longer bath -> more silver converted -> more total density (the B
+        channel alone lightens, so the claim is densitometric, not reflectance)."""
+        dark = self._gray(0.05)
+        res_1 = apply_chemical_toning(dark, blue_strength=1.0)
+        res_2 = apply_chemical_toning(dark, blue_strength=2.0)
+        self.assertGreaterEqual(float(res_2.min()), 0.0)
+        self.assertLessEqual(float(res_2.max()), 1.0)
+        d_1 = -np.log10(np.clip(res_1, 1e-6, 1.0)).mean()
+        d_2 = -np.log10(np.clip(res_2, 1e-6, 1.0)).mean()
+        self.assertGreaterEqual(float(d_2), float(d_1))
+
+    def test_blue_visible_in_midtones(self):
+        """A blue bath at normal strength colours the mids, not just the blacks
+        — regression: a Dmax-referenced d_ref pushed the colour into the deep
+        shadows only."""
+        res = apply_chemical_toning(self._gray(0.5), blue_strength=1.0)
+        self.assertGreater(float(res[0, 0, 2] - res[0, 0, 0]), 0.03)
+
+    def test_copper_visible_in_midtones(self):
+        res = apply_chemical_toning(self._gray(0.5), copper_strength=1.0)
+        self.assertGreater(float(res[0, 0, 0] - res[0, 0, 2]), 0.03)
+
+    def test_copper_warms_image(self):
+        """Copper ferrocyanide lifts red -> pink/brick-red cast."""
+        res = apply_chemical_toning(self._gray(0.3), copper_strength=1.0)
+        self.assertGreater(float(res[0, 0, 0]), float(res[0, 0, 2]))  # R lighter than B
+
+    def test_copper_loses_dmax(self):
+        """The in-bath ferricyanide bleaches while it tones — blacks weaken."""
+        black = self._gray(0.01)
+        res = apply_chemical_toning(black, copper_strength=1.0)
+        self.assertGreater(float(res.mean()), 0.01)
+
+    def test_copper_monotone_with_strength(self):
+        mid = self._gray(0.3)
+        res_1 = apply_chemical_toning(mid, copper_strength=1.0)
+        res_2 = apply_chemical_toning(mid, copper_strength=2.0)
+        self.assertGreaterEqual(float(res_2.min()), 0.0)
+        self.assertLessEqual(float(res_2.max()), 1.0)
+        warmth_1 = float(res_1[0, 0, 0] - res_1[0, 0, 2])
+        warmth_2 = float(res_2[0, 0, 0] - res_2[0, 0, 2])
+        self.assertGreaterEqual(warmth_2, warmth_1)
+
+    def test_vanadium_greens_image(self):
+        """Vanadium/iron green deposit absorbs red most, spares green."""
+        res = apply_chemical_toning(self._gray(0.5), vanadium_strength=1.0)
+        self.assertGreater(float(res[0, 0, 1]), float(res[0, 0, 0]))  # G lighter than R
+        self.assertGreater(float(res[0, 0, 1]), float(res[0, 0, 2]))  # G lighter than B
+
+    def test_vanadium_visible_in_midtones(self):
+        res = apply_chemical_toning(self._gray(0.5), vanadium_strength=1.0)
+        self.assertGreater(float(res[0, 0, 1] - res[0, 0, 0]), 0.03)
+
+    def test_vanadium_converts_thinnest_first(self):
+        """Bleach-then-tone like sepia — highlights and mids green, deep
+        shadows keep their black silver (the green-print-with-black-blacks look)."""
+        res_mid = apply_chemical_toning(self._gray(0.5), vanadium_strength=1.0)
+        res_dark = apply_chemical_toning(self._gray(0.01), vanadium_strength=1.0)
+        green_mid = float(res_mid[0, 0, 1] - res_mid[0, 0, 0])
+        green_dark = float(res_dark[0, 0, 1] - res_dark[0, 0, 0])
+        self.assertGreater(green_mid, 0.03)
+        self.assertAlmostEqual(green_dark, 0.0, places=3)
+
+    def test_vanadium_loses_density(self):
+        """The bleach component lifts luma where the toner converts."""
+        mid = self._gray(0.5)
+        res = apply_chemical_toning(mid, vanadium_strength=1.0)
+        luma = 0.2126 * res[0, 0, 0] + 0.7152 * res[0, 0, 1] + 0.0722 * res[0, 0, 2]
+        self.assertGreater(float(luma), 0.5)
+
+    def test_vanadium_monotone_with_strength(self):
+        mid = self._gray(0.5)
+        res_1 = apply_chemical_toning(mid, vanadium_strength=1.0)
+        res_2 = apply_chemical_toning(mid, vanadium_strength=2.0)
+        self.assertGreaterEqual(float(res_2.min()), 0.0)
+        self.assertLessEqual(float(res_2.max()), 1.0)
+        green_1 = float(res_1[0, 0, 1] - res_1[0, 0, 0])
+        green_2 = float(res_2[0, 0, 1] - res_2[0, 0, 0])
+        self.assertGreaterEqual(green_2, green_1)
+
+    def test_vanadium_paper_white_stays_white(self):
+        white = self._gray(1.0)
+        res = apply_chemical_toning(white, vanadium_strength=1.0)
+        np.testing.assert_allclose(res, white, atol=1e-3)
+
+    def test_output_range_all_toners(self):
+        img = np.random.rand(10, 10, 3).astype(np.float32)
+        res = apply_chemical_toning(
+            img,
+            selenium_strength=1.0,
+            sepia_strength=1.0,
+            gold_strength=1.0,
+            blue_strength=1.0,
+            copper_strength=1.0,
+            vanadium_strength=1.0,
+        )
+        self.assertGreaterEqual(float(res.min()), 0.0)
+        self.assertLessEqual(float(res.max()), 1.0)
+
+    def test_paper_white_stays_white_new_toners(self):
+        white = self._gray(1.0)
+        res = apply_chemical_toning(white, blue_strength=1.0, copper_strength=1.0)
+        np.testing.assert_allclose(res, white, atol=1e-3)
+
     def test_slider_max_saturates_conversion(self):
         """Sliders go to 2.0 — conversion caps at all-silver-toned, output stays
         sane and monotone with strength."""

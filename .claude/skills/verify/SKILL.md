@@ -36,6 +36,19 @@ parts rather than rewriting.
 
 ## Gotchas
 
+- **No Xvfb installed?** `QT_QPA_PLATFORM=offscreen` works, but every widget
+  grab (`window.canvas.grab()`, `window.grab()`) comes back black — take pixel
+  evidence from `controller.state.last_metrics["base_positive"]` instead
+  (readback via `main_window._display_buffer_for_canvas`; it's the exact
+  buffer `_on_image_updated` would hand the canvas). wgpu compute runs fine
+  offscreen.
+- A driver-side `controller.load_file(path)` does not populate
+  `state.uploaded_files`, so `_on_image_updated` early-returns and the canvas
+  never receives a buffer — another reason to probe `base_positive` directly.
+- `base_positive` is the post-soft-proof buffer when proofing is active
+  (default export space supplies an output ICC) — good, that's what the user
+  sees; but it means preview-path bugs like the `buffer_to_pil` B&W luma
+  collapse show up here and not in engine-level probes.
 - `samples/06.raw` is a dark graveyard scene — burn/dodge probes need the sky
   band (top of frame in raw coords) to see roll-off; mid-frame is near black.
 - Mask vertices are raw-image normalized coords, not canvas coords; analyze

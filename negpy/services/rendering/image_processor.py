@@ -256,7 +256,19 @@ class ImageProcessor:
         if not isinstance(buffer, np.ndarray):
             raise ValueError("Direct GPU textures cannot be converted to PIL without readback.")
 
-        is_toned = settings.toning.selenium_strength != 0.0 or settings.toning.sepia_strength != 0.0
+        t = settings.toning
+        # Any toner or split tint makes a B&W print chromatic — collapsing to a
+        # single luma plane here would silently discard the toning.
+        is_toned = (
+            t.selenium_strength != 0.0
+            or t.sepia_strength != 0.0
+            or t.gold_strength != 0.0
+            or t.blue_strength != 0.0
+            or t.copper_strength != 0.0
+            or t.vanadium_strength != 0.0
+            or t.shadow_tint_strength != 0.0
+            or t.highlight_tint_strength != 0.0
+        )
         is_bw = settings.process.process_mode == ProcessMode.BW and not is_toned
 
         if is_bw:

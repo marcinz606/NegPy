@@ -688,6 +688,10 @@ class ControlsPanel(QWidget):
             [
                 ton.selenium_strength != _ton.selenium_strength,
                 ton.sepia_strength != _ton.sepia_strength,
+                ton.gold_strength != _ton.gold_strength,
+                ton.blue_strength != _ton.blue_strength,
+                ton.copper_strength != _ton.copper_strength,
+                ton.vanadium_strength != _ton.vanadium_strength,
                 ton.shadow_tint_hue != _ton.shadow_tint_hue,
                 ton.shadow_tint_strength != _ton.shadow_tint_strength,
                 ton.highlight_tint_hue != _ton.highlight_tint_hue,

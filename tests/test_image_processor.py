@@ -35,6 +35,29 @@ def test_image_service_bw_conversion() -> None:
     assert img.mode == "L"
 
 
+def test_image_service_bw_toned_keeps_color() -> None:
+    """A toned or tinted B&W print is chromatic — buffer_to_pil must not
+    collapse it to a luma plane (regression: gate checked only selenium/sepia,
+    so blue/copper/gold-only toning silently rendered grey)."""
+    from dataclasses import replace
+
+    from negpy.features.toning.models import ToningConfig
+
+    service = ImageProcessor()
+    buffer = np.full((4, 4, 3), 0.5, dtype=np.float32)
+    bw = WorkspaceConfig.from_flat_dict({"process_mode": "B&W"})
+
+    for kw in (
+        {"blue_strength": 1.0},
+        {"copper_strength": 1.0},
+        {"vanadium_strength": 1.0},
+        {"gold_strength": 1.0},
+        {"highlight_tint_strength": 0.5},
+    ):
+        settings = replace(bw, toning=ToningConfig(**kw))
+        assert service.buffer_to_pil(buffer, settings, bit_depth=8).mode == "RGB", kw
+
+
 def test_image_service_jit_conversions() -> None:
     from negpy.kernel.image.logic import uint16_to_float32, uint8_to_float32
 

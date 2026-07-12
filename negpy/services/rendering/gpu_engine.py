@@ -1269,6 +1269,12 @@ class GPUEngine:
                 float(settings.toning.highlight_tint_hue),
                 float(settings.toning.highlight_tint_strength),
             )
+            + struct.pack(
+                "fff",
+                float(settings.toning.blue_strength),
+                float(settings.toning.copper_strength),
+                float(settings.toning.vanadium_strength),
+            )
         )
 
         if vignette_full_crop is None:

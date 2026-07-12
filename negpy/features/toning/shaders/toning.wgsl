@@ -10,6 +10,9 @@ struct ToningUniforms {
     shadow_tint_strength: f32,
     highlight_tint_hue: f32,
     highlight_tint_strength: f32,
+    blue_strength: f32,
+    copper_strength: f32,
+    vanadium_strength: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -87,14 +90,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = vec3<f32>(luma);
     }
 
-    // 2. Chemical Toning (Selenium/Sepia/Gold) — B&W only, density-driven on the
-    // linear print; mirrors _apply_chemical_toning_jit / TONING_CONSTANTS: a density-
-    // dependent fraction c of the silver converts, D' = D*(1-c) + c*D*gain.
-    if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0 || params.gold_strength > 0.0)) {
+    // 2. Chemical Toning (Selenium/Sepia/Gold/Blue/Copper/Vanadium) — B&W only,
+    // density-driven on the linear print; mirrors _apply_chemical_toning_jit /
+    // TONING_CONSTANTS: a density-dependent fraction c of the silver converts,
+    // D' = D*(1-c) + c*D*gain.
+    if (params.is_bw == 1u && (params.selenium_strength > 0.0 || params.sepia_strength > 0.0 || params.gold_strength > 0.0 || params.blue_strength > 0.0 || params.copper_strength > 0.0 || params.vanadium_strength > 0.0)) {
         let sel_gain = vec3<f32>(1.04, 1.10, 1.02);
         let sep_gain = vec3<f32>(0.82, 0.94, 1.12);
         let gold_gain = vec3<f32>(1.08, 1.03, 1.00);
         let gold_sepia_gain = vec3<f32>(0.80, 0.95, 1.20);
+        let blue_gain = vec3<f32>(1.30, 1.08, 0.80);
+        let copper_gain = vec3<f32>(0.72, 0.94, 1.18);
+        let van_gain = vec3<f32>(1.12, 0.85, 1.03);
         var d = -log(clamp(color, vec3<f32>(1e-6), vec3<f32>(1.0))) / log(10.0);
         // Conversion caps at 1: all the silver is toned (slider > 1 = longer bath).
         if (params.selenium_strength > 0.0) {
@@ -112,6 +119,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             let c_au = min(params.gold_strength * pow(1.0 - min(d / 1.6, vec3<f32>(1.0)), vec3<f32>(1.5)), vec3<f32>(1.0));
             let gain = gold_gain * (1.0 - c_sep) + gold_sepia_gain * c_sep;
             d = d * (1.0 - c_au) + c_au * d * gain;
+        }
+        // Iron blue and copper convert silver-proportional (shadows first),
+        // independent of the silver toners above.
+        if (params.blue_strength > 0.0) {
+            let c_blue = min(params.blue_strength * pow(min(d / 0.9, vec3<f32>(1.0)), vec3<f32>(0.85)), vec3<f32>(1.0));
+            d = d * (1.0 - c_blue) + c_blue * d * blue_gain;
+        }
+        if (params.copper_strength > 0.0) {
+            let c_cu = min(params.copper_strength * pow(min(d / 0.9, vec3<f32>(1.0)), vec3<f32>(0.6)), vec3<f32>(1.0));
+            d = d * (1.0 - c_cu) + c_cu * d * copper_gain;
+        }
+        // Vanadium green: bleach-then-tone, thinnest silver first (sepia-shaped).
+        if (params.vanadium_strength > 0.0) {
+            let c_van = min(params.vanadium_strength * pow(1.0 - min(d / 1.8, vec3<f32>(1.0)), vec3<f32>(1.2)), vec3<f32>(1.0));
+            d = d * (1.0 - c_van) + c_van * d * van_gain;
         }
         color = clamp(pow(vec3<f32>(10.0), -d), vec3<f32>(0.0), vec3<f32>(1.0));
     }

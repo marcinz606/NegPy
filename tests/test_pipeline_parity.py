@@ -444,6 +444,39 @@ class TestToningParity:
     def test_chemical_gold_over_sepia(self):
         self._run_and_compare(self._bw_settings(sepia_strength=0.5, gold_strength=0.8))
 
+    def _gpu_result(self, settings: WorkspaceConfig):
+        h, w = self.img.shape[:2]
+        tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=max(h, w) / 1024.0,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        return self.gpu._readback_downsampled(tex)
+
+    # The shared parity tolerance is wider than a toner's linear-reflectance
+    # footprint, so also assert the strength uniform actually reaches the shader
+    # (catches uniform-pack/struct misalignment that parity alone would absorb).
+
+    def test_chemical_blue(self):
+        s = self._bw_settings(blue_strength=0.8)
+        self._run_and_compare(s)
+        diff = np.abs(self._gpu_result(s) - self._gpu_result(self._bw_settings()))
+        assert float(diff.max()) > 1e-3
+
+    def test_chemical_copper(self):
+        s = self._bw_settings(copper_strength=0.8)
+        self._run_and_compare(s)
+        diff = np.abs(self._gpu_result(s) - self._gpu_result(self._bw_settings()))
+        assert float(diff.max()) > 1e-3
+
+    def test_chemical_vanadium(self):
+        s = self._bw_settings(vanadium_strength=0.8)
+        self._run_and_compare(s)
+        diff = np.abs(self._gpu_result(s) - self._gpu_result(self._bw_settings()))
+        assert float(diff.max()) > 1e-3
+
 
 class TestRetouchParity:
     """CPU vs GPU parity for the dust-removal shader (detect-encoded, heal-linear)."""
