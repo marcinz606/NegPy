@@ -446,16 +446,25 @@ class GphotoCamera:
         return None
 
     def _write_magnifier(self, ratio: str) -> None:
-        """Set the zoom ratio, carrying the aim point along on bodies that pack them together."""
+        """Set the zoom ratio (carrying the aim point on bodies that pack them together) and
+        return without waiting for the read-back.
+
+        The body takes ~1-2 s to engage the magnifier, and polling the property for that whole
+        time holds the single PTP claim — which freezes the live-view preview until it lands, and
+        that freeze *is* the click-to-zoom lag. Fire-and-forget instead: send the write, release
+        the lock, and the zoom shows up in the still-streaming preview as the body engages (the
+        reads no longer compete with that engage either). Nothing downstream depends on the
+        magnifier, so the confirmation isn't worth the freeze."""
         spec, (x, y) = self._magnifier, self._position
         assert spec is not None  # noqa: S101 — callers probe first
-        if not spec.packed:
-            self._set_verified(spec.ratio, ratio, match=lambda got: got == ratio)
-            return
-        value = f"{ratio},{x},{y}"
-        # Verify the ratio alone: the body echoes a position back, and clamps it so the
-        # magnified box stays inside the frame.
-        self._set_verified(spec.ratio, value, match=lambda got: got.split(",", 1)[0] == ratio)
+        value = ratio if not spec.packed else f"{ratio},{x},{y}"
+        camera = self._require()
+        try:
+            widget = camera.get_single_config(spec.ratio)
+            widget.set_value(value)
+            camera.set_single_config(spec.ratio, widget)
+        except self._gp.GPhoto2Error as exc:
+            logger.warning("gphoto2: could not set magnifier %r to %r: %s", spec.ratio, value, exc)
 
     def set_focus_magnifier(self, on: bool) -> None:
         with self._lock:

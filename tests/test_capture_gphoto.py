@@ -406,11 +406,20 @@ def test_magnifier_position_is_clamped_into_the_grid(cam, fake):
     assert int(x) <= 640 and int(y) <= 480
 
 
-def test_magnifier_off_is_verified_on_the_ratio_only(cam, fake, caplog):
-    # The body answers "Off,589,438" — comparing the whole string would never match.
-    cam.set_focus_magnifier(False)
+def test_magnifier_write_is_fire_and_forget(cam, fake, caplog):
+    # The body takes ~1-2 s to engage the magnifier, and polling the read-back for that whole time
+    # holds the single PTP claim and freezes the live preview (that freeze is the click-to-zoom
+    # lag). So the write is fire-and-forget: sent, then return without a read-back poll — even on a
+    # body that never echoes the value back, there is no settle timeout and no freeze.
+    fake._settle_writes = False  # the body would never confirm the write
+    cam.set_focus_magnifier_at(100, 100)
+    assert fake.writes[-1][0] == "focusmagnifier"  # the aim/zoom write was still sent
+    assert "did not settle" not in caplog.text  # but nothing waited on the read-back
+
+
+def test_magnifier_off_writes_the_packed_off_value(cam, fake):
+    cam.set_focus_magnifier(False)  # fresh session → default aim point (320, 240)
     assert ("focusmagnifier", "Off,320,240") in fake.writes
-    assert "did not settle" not in caplog.text
 
 
 def test_a_canon_style_magnifier_zooms_without_aiming(caplog):
