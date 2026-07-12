@@ -560,31 +560,35 @@ def _finalize_strokes(
     return strokes
 
 
+def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ...]:
+    """Threshold-independent detection stat maps (proxy + blur windows) — the
+    expensive ~2/3 of a detection pass, cacheable across threshold changes."""
+    proxy = _detection_proxy(img)
+    base_size = max(1.0, float(dust_size))
+    v_win = int(max(3, base_size * 3.0)) * 2 + 1
+    w_win = int(max(7, base_size * 4.0)) * 2 + 1
+    mean = cv2.blur(proxy, (v_win, v_win))
+    std = np.sqrt(np.clip(cv2.blur(proxy**2, (v_win, v_win)) - mean**2, 0, None))
+    w_std = np.sqrt(np.clip(cv2.blur(proxy**2, (w_win, w_win)) - cv2.blur(proxy, (w_win, w_win)) ** 2, 0, None))
+    return (
+        np.ascontiguousarray(proxy.astype(np.float32)),
+        np.ascontiguousarray(mean.astype(np.float32)),
+        np.ascontiguousarray(std.astype(np.float32)),
+        np.ascontiguousarray(w_std.astype(np.float32)),
+    )
+
+
 def detect_luma_regions(
     img: ImageBuffer,
     dust_threshold: float,
     dust_size: int,
     gate: float = 1.0,
     max_n: int = 512,
+    stats: Optional[Tuple[np.ndarray, ...]] = None,
 ) -> List[Tuple]:
     """Statistical dust detection on the linear source → synthesized heal strokes."""
-    proxy = _detection_proxy(img)
-
-    base_size = max(1.0, float(dust_size))
-    v_win = int(max(3, base_size * 3.0)) * 2 + 1
-    w_win = int(max(7, base_size * 4.0)) * 2 + 1
-    mean = cv2.blur(proxy, (v_win, v_win))
-    std = np.sqrt(np.clip(cv2.blur(proxy**2, (v_win, v_win)) - mean**2, 0, None))
-    w_mean = cv2.blur(proxy, (w_win, w_win))
-    w_std = np.sqrt(np.clip(cv2.blur(proxy**2, (w_win, w_win)) - w_mean**2, 0, None))
-
-    hit = _detect_dust_mask_jit(
-        np.ascontiguousarray(proxy.astype(np.float32)),
-        np.ascontiguousarray(mean.astype(np.float32)),
-        np.ascontiguousarray(std.astype(np.float32)),
-        np.ascontiguousarray(w_std.astype(np.float32)),
-        float(dust_threshold),
-    )
+    proxy, mean, std, w_std = stats if stats is not None else compute_dust_stats(img, dust_size)
+    hit = _detect_dust_mask_jit(proxy, mean, std, w_std, float(dust_threshold))
     if not np.any(hit):
         return []
     comps = _mask_to_strokes(hit, _DETECT_PAD_PX, max_n)
@@ -597,19 +601,17 @@ def detect_ir_regions(
     threshold: float,
     pad_px: float = 3.0,
     max_n: int = 512,
-    img: Optional[ImageBuffer] = None,
+    guide: Optional[np.ndarray] = None,
 ) -> List[Tuple]:
     """IR defects → synthesized heal strokes. Dye = high IR transmittance,
     defects = low, so ``ir < threshold`` marks them (caller passes
     1 − ir_threshold). Ungated: IR-confirmed defects clone unconditionally.
-    ``img`` (visible source, same dims) scores clone sources by content;
-    without it the IR plane itself is the guide."""
+    ``guide`` (the visible source's detection proxy, same dims) scores clone
+    sources by content; without it the IR plane itself is the guide."""
     mask = (ir < threshold).astype(np.uint8)
     if not np.any(mask):
         return []
-    if img is not None and img.shape[:2] == ir.shape[:2]:
-        guide = _detection_proxy(img)
-    else:
+    if guide is None or guide.shape[:2] != ir.shape[:2]:
         guide = np.ascontiguousarray(ir, dtype=np.float32)
     comps = _mask_to_strokes(mask, pad_px, max_n)
     offsets = _pick_source_offsets(mask, comps, guide)

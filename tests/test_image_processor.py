@@ -113,3 +113,28 @@ def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch, tmp_pa
 
     service._load_source_f32(str(r), cfg, fast_decode=True)
     assert calls and calls[0] is False
+
+
+def test_augment_retouch_reuses_stats_across_threshold_changes(monkeypatch) -> None:
+    from dataclasses import replace
+
+    import negpy.services.rendering.image_processor as ip
+    from negpy.features.retouch.models import RetouchConfig
+
+    rng = np.random.default_rng(42)
+    img = (np.full((160, 160, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (160, 160, 3)))).astype(np.float32)
+    img[80:83, 80:83] = 0.005
+
+    calls = []
+    real = ip.compute_dust_stats
+    monkeypatch.setattr(ip, "compute_dust_stats", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+
+    service = ImageProcessor()
+    for thr in (0.5, 0.6, 0.7):
+        cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=thr, dust_size=4))
+        service._augment_retouch(cfg, img, None, "same-source")
+    assert len(calls) == 1, "stat maps must survive threshold-only changes"
+
+    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.7, dust_size=6))
+    service._augment_retouch(cfg, img, None, "same-source")
+    assert len(calls) == 2, "dust_size changes the blur windows and must recompute"

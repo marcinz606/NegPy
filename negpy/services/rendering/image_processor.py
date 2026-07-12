@@ -21,7 +21,7 @@ from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import linear_raw_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
-from negpy.features.retouch.logic import detect_ir_regions, detect_luma_regions
+from negpy.features.retouch.logic import compute_dust_stats, detect_ir_regions, detect_luma_regions
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
@@ -93,6 +93,9 @@ class ImageProcessor:
         # export reuses the exact preview-detected regions.
         self._retouch_detect_key: Optional[tuple] = None
         self._retouch_detect_value: Optional[List[tuple]] = None
+        # Threshold-independent stat maps — survive threshold-slider drags.
+        self._dust_stats_key: Optional[tuple] = None
+        self._dust_stats_value: Optional[tuple] = None
 
         if APP_CONFIG.use_gpu:
             gpu = GPUDevice.get()
@@ -144,20 +147,27 @@ class ImageProcessor:
         if key == self._retouch_detect_key and self._retouch_detect_value is not None:
             synth = self._retouch_detect_value
         else:
+            stats_key = (source_key, int(ret.dust_size))
+            if stats_key == self._dust_stats_key and self._dust_stats_value is not None:
+                stats = self._dust_stats_value
+            else:
+                stats = compute_dust_stats(_detection_downsample(img), ret.dust_size)
+                self._dust_stats_key = stats_key
+                self._dust_stats_value = stats
             synth = []
             if do_ir and ir_buffer is not None:
                 synth += detect_ir_regions(
                     _detection_downsample(ir_buffer),
                     1.0 - ret.ir_threshold,
                     pad_px=float(ret.ir_inpaint_radius),
-                    img=_detection_downsample(img),
+                    guide=stats[0],
                 )
             if do_luma:
                 # Ungated like IR: the detector already confirmed the defect, and
                 # the bright-only gate leaves half-healed fringe rings (halos)
                 # around soft-edged specks (also, E6 dust is dark — gate would
                 # veto it entirely).
-                synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0)
+                synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0, stats=stats)
             self._retouch_detect_key = key
             self._retouch_detect_value = synth
 

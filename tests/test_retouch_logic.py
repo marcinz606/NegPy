@@ -412,3 +412,11 @@ def test_detected_regions_heal_end_to_end():
     regions = build_heal_regions(strokes, [], (160, 160), 0, 0.0, False, False, 0.0, (160, 160))
     out = apply_manual_heals(img, *regions)
     assert out[80:83, 80:83].mean() > 0.1, "speck not cloned over"
+
+
+def test_detect_luma_regions_precomputed_stats_equivalent():
+    from negpy.features.retouch.logic import compute_dust_stats
+
+    img = _dusty_source()
+    stats = compute_dust_stats(img, 4)
+    assert detect_luma_regions(img, 0.66, 4, stats=stats) == detect_luma_regions(img, 0.66, 4)
