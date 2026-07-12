@@ -27,7 +27,9 @@ _HEAL_GATE_HI = 0.12
 # being amplified to full range; dust sits ≥ ~1 density unit above surroundings.
 _PROXY_MIN_SPREAD = 0.8
 # Component padding so the membrane rim samples clean pixels outside the defect.
-_DETECT_PAD_PX = 1.5
+# Detected masks cover a speck's bright core only; the scanner-PSF skirt extends
+# ~2-3px further, and a boundary on the skirt poisons the membrane (halos).
+_DETECT_PAD_PX = 3.0
 
 
 @njit(cache=True, fastmath=True)
