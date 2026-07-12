@@ -58,17 +58,18 @@ class ShortcutsOverlay(QDialog):
 
         actions = QHBoxLayout()
         customize_btn = QPushButton("Customize")
-        customize_btn.setStyleSheet(
-            f"font-size: 12px; padding: 6px 20px; background: transparent; color: {THEME.text_primary}; border: 1px solid {THEME.border_primary}; border-radius: 3px;"
-        )
+        # Padding-only override: a widget-level `background:` would beat the app
+        # stylesheet in every state and kill the global hover/pressed feedback.
+        customize_btn.setStyleSheet("font-size: 12px; padding: 6px 20px;")
         customize_btn.clicked.connect(self._customize)
         actions.addWidget(customize_btn)
         actions.addStretch()
 
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(
-            f"font-size: 12px; padding: 6px 20px; background: {THEME.accent_primary}; color: white; border: none; border-radius: 3px;"
-        )
+        close_btn.setStyleSheet("font-size: 12px; padding: 6px 20px;")
+        # Primary action styling from the app stylesheet (accent fill with its own
+        # hover/pressed shades), same as the Export panel's call-to-action.
+        close_btn.setProperty("primary", True)
         close_btn.clicked.connect(self.accept)
         actions.addWidget(close_btn)
         root.addLayout(actions)
