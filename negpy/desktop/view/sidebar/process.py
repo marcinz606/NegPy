@@ -4,6 +4,7 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QComboBox,
+    QDialog,
     QHBoxLayout,
     QPushButton,
 )
@@ -197,8 +198,12 @@ class ProcessSidebar(BaseSidebar):
             "in the NegPy/crosstalk folder (see docs/CROSSTALK.md). Re-run Batch Analysis after changing this."
             "</td></tr></table>"
         )
+        self.manage_crosstalk_btn = self._icon_action(
+            "fa5s.sliders-h", "Open the crosstalk matrix editor — view, copy and edit density-unmix profiles", width=32
+        )
         matrix_row.addWidget(self.crosstalk_label)
         matrix_row.addWidget(self.crosstalk_combo, 1)
+        matrix_row.addWidget(self.manage_crosstalk_btn)
         self.layout.addLayout(matrix_row)
 
         self.crosstalk_strength_slider = CompactSlider("Separation", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
@@ -252,6 +257,7 @@ class ProcessSidebar(BaseSidebar):
         self.black_point_slider.valueCommitted.connect(lambda v: self._on_black_point_changed(v, persist=True))
 
         self.crosstalk_combo.currentTextChanged.connect(self._on_crosstalk_profile_changed)
+        self.manage_crosstalk_btn.clicked.connect(self._open_crosstalk_editor)
         self.crosstalk_strength_slider.valueChanged.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=False))
         self.crosstalk_strength_slider.valueCommitted.connect(lambda v: self._on_crosstalk_strength_changed(v, persist=True))
         self.normalize_e6_btn.toggled.connect(self._on_normalize_e6_toggled)
@@ -316,6 +322,56 @@ class ProcessSidebar(BaseSidebar):
             crosstalk_strength=val,
             **invalidate_local_bounds(self.state.config.process),
         )
+
+    def _open_crosstalk_editor(self) -> None:
+        from negpy.desktop.view.widgets.crosstalk_editor_dialog import CrosstalkEditorDialog
+
+        conf = self.state.config.process
+        self._crosstalk_snapshot = (conf.crosstalk_profile, conf.crosstalk_matrix, conf.crosstalk_strength)
+        dlg = CrosstalkEditorDialog(conf.crosstalk_profile, conf.crosstalk_strength, parent=self)
+        dlg.matrix_previewed.connect(self._on_crosstalk_preview)
+        dlg.profiles_changed.connect(self.sync_ui)
+        dlg.finished.connect(lambda result: self._on_crosstalk_editor_finished(dlg, result))
+        self._crosstalk_dialog = dlg  # keep a reference so the modeless dialog isn't GC'd
+        dlg.show()
+
+    def _on_crosstalk_preview(self, matrix: object, strength: float) -> None:
+        self.update_config_section(
+            "process",
+            persist=False,
+            render=True,
+            crosstalk_matrix=tuple(matrix) if matrix is not None else None,
+            crosstalk_strength=strength,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+
+    def _on_crosstalk_editor_finished(self, dlg, result: int) -> None:
+        if result == QDialog.DialogCode.Accepted:
+            name = dlg.selected_name() or CrosstalkProfiles.DEFAULT_NAME
+            snap_strength = self._crosstalk_snapshot[2]
+            self.update_config_section(
+                "process",
+                persist=True,
+                render=True,
+                crosstalk_profile=name,
+                # Default stores no matrix (falls back to the built-in) by convention.
+                crosstalk_matrix=None if name == CrosstalkProfiles.DEFAULT_NAME else tuple(dlg.working_matrix()),
+                # Preview strength is view-only; only adopt it if the edit had crosstalk off.
+                crosstalk_strength=dlg.preview_strength() if snap_strength == 0 else snap_strength,
+                **invalidate_local_bounds(self.state.config.process),
+            )
+        else:
+            profile, matrix, strength = self._crosstalk_snapshot
+            self.update_config_section(
+                "process",
+                persist=True,
+                render=True,
+                crosstalk_profile=profile,
+                crosstalk_matrix=matrix,
+                crosstalk_strength=strength,
+                **invalidate_local_bounds(self.state.config.process),
+            )
+        self.sync_ui()
 
     def _on_normalize_e6_toggled(self, checked: bool) -> None:
         self.update_config_section(
@@ -403,6 +459,7 @@ class ProcessSidebar(BaseSidebar):
             is_bw = conf.process_mode == ProcessMode.BW
             self.crosstalk_label.setVisible(not is_bw)
             self.crosstalk_combo.setVisible(not is_bw)
+            self.manage_crosstalk_btn.setVisible(not is_bw)
             self.crosstalk_strength_slider.setVisible(not is_bw)
             self.autodetect_btn.setChecked(self.state.autodetect_enabled)
 

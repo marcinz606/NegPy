@@ -92,6 +92,23 @@ presets stay reproducible even if you later move or delete the file.
 3. Pick your profile and raise **Crosstalk** above 0 to apply it.
 4. Pick **Default** to revert to the built-in matrix.
 
+### Editing matrices in the app
+
+The **sliders icon** next to the dropdown opens the **matrix editor**, so you don't
+have to hand-edit TOML:
+
+- Browse every profile — bundled matrices (and **Default**) show a lock and are
+  **read-only**; your own profiles are editable.
+- Drag the off-diagonal grid sliders (`out R/G/B` × `in R/G/B`) and the preview updates
+  live. The diagonal is fixed — the matrix is row-normalized on apply, which makes the
+  diagonal redundant, so only the six mixing terms are editable. The **Preview strength**
+  slider only controls how strongly the matrix previews here — it's view-only; use the
+  sidebar **Separation** slider to actually apply it.
+- **Make Editable Copy** clones the selected (locked) matrix into an editable profile.
+- **Save** writes the profile as a `.toml` into `<Documents>/NegPy/crosstalk/` — the same
+  folder profiles are read from — so it shows up in the dropdown.
+- **Apply & Close** keeps what you were previewing; **Cancel** reverts.
+
 > Crosstalk is a color operation and is hidden in B&W mode. Because it changes what
 > the normalization meters read, re-run **Batch Analysis** (and re-save locked bounds)
 > after changing the profile or strength.

@@ -7,6 +7,7 @@
 - Change: **Better heals across the board** — clone sources are picked by how well they match the surroundings, heal edges feather with brush size, and the halo around auto-fixed spots is gone.
 - Change: **Dust detection is stable and WYSIWYG** — defects are detected once on the source scan: the detected set no longer shifts while you drag sliders, and preview and export heal exactly the same spots.
 - New: **Auto Dust works on slides** — E-6 positives get automatic dust removal for the first time.
+- New: **Crosstalk matrix editor** — a Manage button beside the Process → Crosstalk dropdown opens an editor: browse the bundled matrices (read-only), make an editable copy, adjust the channel-mixing terms with live preview, and save your own profiles as `.toml` files in the NegPy/crosstalk folder.
 - Fix: presets no longer embed the source frame's heal strokes, and Apply settings no longer overwrites other frames' heals.
 
 ## 0.36.0

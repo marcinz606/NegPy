@@ -84,6 +84,64 @@ def test_list_profiles_merges_bundled_and_user(tmp_path, monkeypatch):
     assert CrosstalkProfiles.get_matrix("My Film") == [0.9, 0.1, 0.0, 0.0, 0.9, 0.1, 0.0, 0.0, 0.9]
 
 
+def test_save_round_trips_through_get_matrix(tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+    matrix = [1.004, -0.02, 0.001, -0.118, 1.01, -0.04, -0.042, -0.149, 1.006]
+
+    path = CrosstalkProfiles.save("My Film", matrix)
+
+    assert os.path.isfile(path)
+    assert path.startswith(str(tmp_path))
+    assert CrosstalkProfiles.get_matrix("My Film") == matrix
+    assert "My Film" in CrosstalkProfiles.list_profiles()
+
+
+def test_is_bundled_distinguishes_origin(tmp_path, monkeypatch):
+    user_dir = tmp_path / "user"
+    bundled_dir = tmp_path / "bundled"
+    user_dir.mkdir()
+    bundled_dir.mkdir()
+    _write(
+        os.path.join(bundled_dir, "portra.toml"),
+        'name = "Portra 400"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+    )
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(user_dir))
+    monkeypatch.setattr("negpy.services.assets.crosstalk.get_resource_path", lambda _: str(bundled_dir))
+    CrosstalkProfiles.save("My Film", [1, 0, 0, 0, 1, 0, 0, 0, 1])
+
+    assert CrosstalkProfiles.is_bundled("Default")
+    assert CrosstalkProfiles.is_bundled("Portra 400")
+    assert not CrosstalkProfiles.is_bundled("My Film")
+
+
+def test_delete_removes_only_matching_display_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+    CrosstalkProfiles.save("Alpha", [1, 0, 0, 0, 1, 0, 0, 0, 1])
+    CrosstalkProfiles.save("Beta", [1, 0, 0, 0, 1, 0, 0, 0, 1])
+
+    CrosstalkProfiles.delete("Alpha")
+
+    assert CrosstalkProfiles.get_matrix("Alpha") is None
+    assert CrosstalkProfiles.get_matrix("Beta") is not None
+    CrosstalkProfiles.delete("Nonexistent")  # no-op, no raise
+
+
+def test_dialog_pure_helpers():
+    from negpy.desktop.view.widgets.crosstalk_editor_dialog import (
+        flat_to_grid,
+        grid_to_flat,
+        unique_copy_name,
+    )
+
+    flat = [1.0, -0.05, -0.02, -0.04, 1.0, -0.08, -0.01, -0.1, 1.0]
+    assert grid_to_flat(flat_to_grid(flat)) == flat
+    assert flat_to_grid(flat)[1][2] == -0.08
+
+    assert unique_copy_name("Portra", []) == "Portra Copy"
+    assert unique_copy_name("Portra", ["Portra Copy"]) == "Portra Copy 2"
+    assert unique_copy_name("Portra", ["Portra Copy", "Portra Copy 2"]) == "Portra Copy 3"
+
+
 def test_bundled_wins_on_name_collision_dedup(tmp_path, monkeypatch):
     user_dir = tmp_path / "user"
     bundled_dir = tmp_path / "bundled"

@@ -1,4 +1,5 @@
 import os
+import re
 import tomllib
 from typing import List, Optional
 
@@ -6,6 +7,18 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
 
 DEFAULT_NAME = "Default"
+
+
+# ponytail: 2-line helpers duplicated from contact_sheet_templates; extract to a
+# shared module only if a third consumer appears.
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^\w\s-]", "", name.lower())
+    slug = re.sub(r"[-\s]+", "_", slug).strip("_")
+    return slug or "crosstalk"
+
+
+def _escape_toml_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 class CrosstalkProfiles:
@@ -39,11 +52,19 @@ class CrosstalkProfiles:
         return result
 
     @staticmethod
+    def scan_bundled() -> dict:
+        """Read-only matrices shipped with the app, keyed by display name."""
+        return CrosstalkProfiles._scan_dir(get_resource_path("crosstalk"))
+
+    @staticmethod
+    def scan_user() -> dict:
+        """User-editable matrices in the docs folder, keyed by display name."""
+        return CrosstalkProfiles._scan_dir(APP_CONFIG.crosstalk_dir)
+
+    @staticmethod
     def _scan() -> dict:
         """Bundled ∪ user custom matrices, keyed by display name; bundled wins."""
-        bundled = CrosstalkProfiles._scan_dir(get_resource_path("crosstalk"))
-        user = CrosstalkProfiles._scan_dir(APP_CONFIG.crosstalk_dir)
-        return {**user, **bundled}
+        return {**CrosstalkProfiles.scan_user(), **CrosstalkProfiles.scan_bundled()}
 
     @staticmethod
     def _parse_file(path: str) -> Optional[tuple]:
@@ -82,6 +103,47 @@ class CrosstalkProfiles:
         if name == DEFAULT_NAME:
             return None
         return CrosstalkProfiles._scan().get(name)
+
+    @staticmethod
+    def is_bundled(name: str) -> bool:
+        """True for read-only profiles: the built-in Default or any bundled matrix."""
+        return name == DEFAULT_NAME or name in CrosstalkProfiles.scan_bundled()
+
+    @staticmethod
+    def path_for_name(name: str) -> str:
+        """Filesystem path a user profile with this display name would use."""
+        return os.path.join(APP_CONFIG.crosstalk_dir, f"{_slugify(name)}.toml")
+
+    @staticmethod
+    def save(name: str, matrix: List[float]) -> str:
+        """Write a user profile TOML (row-major 3×3) and return its path."""
+        os.makedirs(APP_CONFIG.crosstalk_dir, exist_ok=True)
+        rows = "\n".join(
+            "  [{:.6g}, {:.6g}, {:.6g}],".format(*matrix[i * 3 : i * 3 + 3]) for i in range(3)
+        )
+        content = f'name = "{_escape_toml_string(name)}"\nmatrix = [\n{rows}\n]\n'
+        path = CrosstalkProfiles.path_for_name(name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return path
+
+    @staticmethod
+    def delete(name: str) -> None:
+        """Remove the user profile file whose display name matches (no-op if absent)."""
+        directory = APP_CONFIG.crosstalk_dir
+        if not os.path.isdir(directory):
+            return
+        for fname in os.listdir(directory):
+            if not fname.endswith(".toml"):
+                continue
+            path = os.path.join(directory, fname)
+            parsed = CrosstalkProfiles._parse_file(path)
+            if parsed is None:
+                continue
+            parsed_name = parsed[0] or fname[:-5]
+            if parsed_name == name:
+                os.remove(path)
+                return
 
     @staticmethod
     def ensure_user_dir() -> None:
