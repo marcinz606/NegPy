@@ -3,12 +3,11 @@
 
 ## 0.37.0
 
-- Change: **One healing engine for everything** — Auto Dust and IR dust removal now repair defects with the same texture-preserving clone as the manual Heal tool (a matching patch with real grain, seamlessly blended at the edges) instead of the old smoothed fill. Elongated IR defects (hairs, scratches) are traced along their length rather than blotted with a circle.
-- Change: **Dust detection is stable and WYSIWYG** — defects are detected once on the source scan, so the detected set no longer shifts while you drag exposure or contrast sliders, and preview and export now heal exactly the same spots (export used to heal specks the preview never showed).
-- New: **Auto Dust works on slides** — E-6 positives get automatic dust removal for the first time (dust is dark on a positive; the old detector only saw bright specks).
-- Change: **Cleaner auto heals** — the clone patch for each detected defect is now chosen by how well it matches the surrounding background, so a nearby patch containing real detail is no longer stamped over a plain area; heals also extend slightly further past the defect's soft fringe, removing the faint halo around auto-fixed spots. The manual Heal tool's automatic source pick now rejects patches containing dark detail too, not just dust; heal edges feather proportionally to the brush size, and the seamless-blend rim samples just outside the healed area so a snug brush no longer tints the whole patch.
-- Fix: **presets no longer carry heal strokes** — saving a preset from a healed frame embedded that frame's manual heals into the preset.
-- Fix: **Apply settings keeps each frame's heals** — applying Finish settings to other frames no longer overwrites their manual heal strokes.
+- Change: **One healing engine for everything** — Auto Dust and IR removal now use the same texture-preserving clone as the manual Heal tool: an auto-detected defect behaves like a manual brush placed over it, replacing only the dust pixels instead of overpainting a whole patch. Hairs and scratches are traced along their length.
+- Change: **Better heals across the board** — clone sources are picked by how well they match the surroundings, heal edges feather with brush size, and faint dust that was previously only half-removed now heals fully.
+- Change: **Dust detection is stable and WYSIWYG** — defects are detected once on the source scan: the detected set no longer shifts while you drag sliders, and preview and export heal exactly the same spots.
+- New: **Auto Dust works on slides** — E-6 positives get automatic dust removal for the first time.
+- Fix: presets no longer embed the source frame's heal strokes, and Apply settings no longer overwrites other frames' heals.
 
 ## 0.36.0
 

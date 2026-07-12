@@ -153,11 +153,9 @@ class ImageProcessor:
                     img=_detection_downsample(img),
                 )
             if do_luma:
-                # Ungated like IR: the detector already confirmed the defect, and
-                # the bright-only gate leaves half-healed fringe rings (halos)
-                # around soft-edged specks (also, E6 dust is dark — gate would
-                # veto it entirely).
-                synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0)
+                # E6 dust is dark on the positive — the bright-only gate would veto it.
+                gate = 0.0 if settings.process.process_mode == ProcessMode.E6 else 1.0
+                synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=gate)
             self._retouch_detect_key = key
             self._retouch_detect_value = synth
 

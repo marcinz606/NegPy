@@ -113,3 +113,31 @@ def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch, tmp_pa
 
     service._load_source_f32(str(r), cfg, fast_decode=True)
     assert calls and calls[0] is False
+
+
+def test_augment_retouch_gate_policy() -> None:
+    """Luma-auto gated on negatives; ungated on E6 (dark dust) and for IR."""
+    from dataclasses import replace
+
+    from negpy.features.process.models import ProcessMode
+    from negpy.features.retouch.models import RetouchConfig
+
+    rng = np.random.default_rng(42)
+    img = (np.full((160, 160, 3), 0.18) * (1.0 + rng.normal(0, 0.02, (160, 160, 3)))).astype(np.float32)
+    img[80:83, 80:83] = 0.005
+    ir = np.full((160, 160), 0.9, dtype=np.float32)
+    ir[40:43, 40:43] = 0.1
+
+    service = ImageProcessor()
+    base = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.66, dust_size=4))
+
+    c41 = service._augment_retouch(base, img, None, "k1")
+    assert c41.retouch.manual_heal_strokes and all(s[4] == 1.0 for s in c41.retouch.manual_heal_strokes)
+
+    e6 = replace(base, process=replace(base.process, process_mode=ProcessMode.E6))
+    e6_out = service._augment_retouch(e6, img, None, "k2")
+    assert e6_out.retouch.manual_heal_strokes and all(s[4] == 0.0 for s in e6_out.retouch.manual_heal_strokes)
+
+    ir_cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.5))
+    ir_out = service._augment_retouch(ir_cfg, img, ir, "k3")
+    assert ir_out.retouch.manual_heal_strokes and all(s[4] == 0.0 for s in ir_out.retouch.manual_heal_strokes)
