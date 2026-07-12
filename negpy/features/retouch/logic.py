@@ -3,9 +3,10 @@ import math
 import numpy as np
 import cv2
 from numba import njit  # type: ignore
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from negpy.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from negpy.features.geometry.logic import map_coords_to_geometry
+from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working_oetf_encode
 
@@ -22,194 +23,11 @@ _CLONE_GUARD_LUMA = 0.06
 # marks a search area, only the bright dust inside it gets replaced.
 _HEAL_GATE_LO = 0.04
 _HEAL_GATE_HI = 0.12
-
-
-@njit(cache=True, fastmath=True)
-def _hash2(x: float, y: float) -> float:
-    """Port of the WGSL hash() so degenerate-direction picks match the GPU."""
-    px = (x * 0.1031) % 1.0
-    py = (y * 0.1031) % 1.0
-    pz = (x * 0.1031) % 1.0
-    d = px * (py + 33.33) + py * (pz + 33.33) + pz * (px + 33.33)
-    px += d
-    py += d
-    pz += d
-    return ((px + py) * pz) % 1.0
-
-
-@njit(cache=True, fastmath=True)
-def _heal_with_mask_jit(
-    img: np.ndarray,
-    hit_mask: np.ndarray,
-    exp_rad: int,
-    p_rad: int,
-) -> np.ndarray:
-    """Guarded reflection-copy heal with cubic-smoothstep feather.
-
-    For each pixel, finds the nearest masked pixel within ``exp_rad`` and the
-    centroid of masked pixels in the window, then copies the pixel at
-    ``p + normalize(p - centroid) * p_rad`` — a coherent outward copy that
-    preserves grain/texture. If the source lands on another defect the
-    direction is rotated (±45°, ±90°); if all rotations fail it falls back to
-    the old 8-point trimmed mean, so the worst case equals the previous fill.
-    """
-    h, w, _ = img.shape
-    res = img.copy()
-
-    cos_a = np.empty(5, dtype=np.float64)
-    sin_a = np.empty(5, dtype=np.float64)
-    angles = (0.0, math.pi / 4.0, -math.pi / 4.0, math.pi / 2.0, -math.pi / 2.0)
-    for i in range(5):
-        cos_a[i] = math.cos(angles[i])
-        sin_a[i] = math.sin(angles[i])
-
-    for y in range(h):
-        for x in range(w):
-            min_d2 = 1e6
-            c_x = 0.0
-            c_y = 0.0
-            c_n = 0.0
-            for dy in range(-exp_rad, exp_rad + 1):
-                for dx in range(-exp_rad, exp_rad + 1):
-                    ry, rx = y + dy, x + dx
-                    if 0 <= ry < h and 0 <= rx < w and hit_mask[ry, rx] > 0.5:
-                        d2 = float(dy * dy + dx * dx)
-                        if d2 < min_d2:
-                            min_d2 = d2
-                        c_x += float(rx)
-                        c_y += float(ry)
-                        c_n += 1.0
-
-            if min_d2 < float(exp_rad * exp_rad + 1):
-                dist = np.sqrt(min_d2)
-                feather = 1.0 - (dist / float(exp_rad + 1.0))
-                if feather < 0.0:
-                    feather = 0.0
-                feather = feather * feather * (3.0 - 2.0 * feather)
-
-                if feather > 0.001:
-                    ux = float(x) - c_x / c_n
-                    uy = float(y) - c_y / c_n
-                    ul = math.sqrt(ux * ux + uy * uy)
-                    if ul < 1e-3:
-                        ang = _hash2(float(x), float(y)) * 6.28318530718
-                        ux = math.cos(ang)
-                        uy = math.sin(ang)
-                    else:
-                        ux /= ul
-                        uy /= ul
-
-                    found = False
-                    bg_r = 0.0
-                    bg_g = 0.0
-                    bg_b = 0.0
-                    for k in range(5):
-                        rx_dir = ux * cos_a[k] - uy * sin_a[k]
-                        ry_dir = ux * sin_a[k] + uy * cos_a[k]
-                        sx = int(round(float(x) + rx_dir * float(p_rad)))
-                        sy = int(round(float(y) + ry_dir * float(p_rad)))
-                        sx = max(0, min(w - 1, sx))
-                        sy = max(0, min(h - 1, sy))
-                        if hit_mask[sy, sx] < 0.5:
-                            bg_r = img[sy, sx, 0]
-                            bg_g = img[sy, sx, 1]
-                            bg_b = img[sy, sx, 2]
-                            found = True
-                            break
-
-                    if not found:
-                        s_r = np.zeros(8)
-                        s_g = np.zeros(8)
-                        s_b = np.zeros(8)
-                        s_l = np.zeros(8)
-
-                        dy_off = np.array([-p_rad, p_rad, 0, 0, -p_rad, -p_rad, p_rad, p_rad])
-                        dx_off = np.array([0, 0, -p_rad, p_rad, -p_rad, p_rad, -p_rad, p_rad])
-
-                        for i in range(8):
-                            sy2, sx2 = y + dy_off[i], x + dx_off[i]
-                            sy2, sx2 = max(0, min(h - 1, sy2)), max(0, min(w - 1, sx2))
-                            r, g, b = img[sy2, sx2, 0], img[sy2, sx2, 1], img[sy2, sx2, 2]
-                            s_r[i], s_g[i], s_b[i] = r, g, b
-                            s_l[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-                        for i in range(8):
-                            for j in range(i + 1, 8):
-                                if s_l[i] > s_l[j]:
-                                    s_l[i], s_l[j] = s_l[j], s_l[i]
-                                    s_r[i], s_r[j] = s_r[j], s_r[i]
-                                    s_g[i], s_g[j] = s_g[j], s_g[i]
-                                    s_b[i], s_b[j] = s_b[j], s_b[i]
-
-                        bg_r = (s_r[2] + s_r[3] + s_r[4] + s_r[5]) / 4.0
-                        bg_g = (s_g[2] + s_g[3] + s_g[4] + s_g[5]) / 4.0
-                        bg_b = (s_b[2] + s_b[3] + s_b[4] + s_b[5]) / 4.0
-
-                    res[y, x, 0] = img[y, x, 0] * (1.0 - feather) + bg_r * feather
-                    res[y, x, 1] = img[y, x, 1] * (1.0 - feather) + bg_g * feather
-                    res[y, x, 2] = img[y, x, 2] * (1.0 - feather) + bg_b * feather
-
-    return res
-
-
-@njit(cache=True, fastmath=True)
-def _apply_auto_retouch_jit(
-    img_det: np.ndarray,
-    img_heal: np.ndarray,
-    mean: np.ndarray,
-    std: np.ndarray,
-    w_std: np.ndarray,
-    dust_threshold: float,
-    dust_size: float,
-    scale_factor: float,
-) -> np.ndarray:
-    """Detect on the display-encoded ``img_det`` (perceptual), heal ``img_heal`` (linear)."""
-    h, w, _ = img_det.shape
-    hit_mask = np.zeros((h, w), dtype=np.float32)
-
-    # 1. Detection Pass
-    for y in range(h):
-        for x in range(w):
-            l_curr = LUMA_R * img_det[y, x, 0] + LUMA_G * img_det[y, x, 1] + LUMA_B * img_det[y, x, 2]
-            l_mean = mean[y, x]
-            local_s = max(0.005, std[y, x])
-
-            # Wide-area penalty for textures (rocks, foliage)
-            w_s = max(0.0, w_std[y, x] - 0.02)
-            wide_penalty = (w_s * w_s * w_s) * 800.0
-            thresh = (dust_threshold * 0.4) + (local_s * 1.0) + wide_penalty
-
-            # Multi-stage validation: Contrast, Luminance, and Z-Score
-            if (l_curr - l_mean) > thresh and l_curr > 0.15 and (l_curr - l_mean) / local_s > 3.0:
-                is_strong = (l_curr - l_mean) > (thresh * 2.5) or (l_curr - l_mean) > 0.25
-
-                if 0 < y < h - 1 and 0 < x < w - 1:
-                    is_max = True
-                    for dy in range(-1, 2):
-                        for dx in range(-1, 2):
-                            if dy == 0 and dx == 0:
-                                continue
-                            nl = (
-                                LUMA_R * img_det[y + dy, x + dx, 0]
-                                + LUMA_G * img_det[y + dy, x + dx, 1]
-                                + LUMA_B * img_det[y + dy, x + dx, 2]
-                            )
-                            if nl >= l_curr:
-                                is_max = False
-                                break
-                        if not is_max:
-                            break
-                    if is_max or is_strong:
-                        hit_mask[y, x] = 1.0
-                else:
-                    hit_mask[y, x] = 1.0
-
-    exp_rad = int(max(1.0, dust_size * 0.4 * scale_factor))
-    if exp_rad > 16:
-        exp_rad = 16
-    p_rad = exp_rad + int(3 * scale_factor)
-
-    return _heal_with_mask_jit(img_heal, hit_mask, exp_rad, p_rad)
+# Spread floor: stops noise on low-contrast sources (fog, flat frames) from
+# being amplified to full range; dust sits ≥ ~1 density unit above surroundings.
+_PROXY_MIN_SPREAD = 0.8
+# Component padding so the membrane rim samples clean pixels outside the defect.
+_DETECT_PAD_PX = 1.5
 
 
 @njit(cache=True, fastmath=True)
@@ -321,7 +139,8 @@ def _membrane_heal_jit(
     """Mean-value-coordinates membrane clone (Georgiev healing brush), in place.
 
     ``reg_i``: (R, 4) int32 — pt_start, pt_count, bnd_start, bnd_count into ``pts``.
-    ``reg_f``: (R, 3) float32 — radius_px, src_off_x, src_off_y (pixels).
+    ``reg_f``: (R, 4) float32 — radius_px, src_off_x, src_off_y (pixels), gate
+    (1 = bright-only dust gate, 0 = unconditional clone).
     ``pts``: (P, 2) float32 pixel coords (continuous, +0.5 = pixel center).
 
     out(p) = img(p + off) + Σ ŵ_i (img(b_i) − img(b_i + off)) — the copied
@@ -350,6 +169,7 @@ def _membrane_heal_jit(
         rad = reg_f[r, 0]
         ox = reg_f[r, 1]
         oy = reg_f[r, 2]
+        gate = reg_f[r, 3]
         if bc < 3 or bc > 64 or pc < 1:
             continue
 
@@ -452,7 +272,7 @@ def _membrane_heal_jit(
                 hb = smp_a[2] + mb
 
                 # Dust gate: heal only pixels brighter than the membrane-predicted
-                # clean value — the brush is a search area, not a clone stamp.
+                # clean value; gate=0 regions clone unconditionally.
                 dest_l = LUMA_R * buf[y, x, 0] + LUMA_G * buf[y, x, 1] + LUMA_B * buf[y, x, 2]
                 heal_l = LUMA_R * hr + LUMA_G * hg + LUMA_B * hb
                 g = (dest_l - heal_l - _HEAL_GATE_LO) / (_HEAL_GATE_HI - _HEAL_GATE_LO)
@@ -460,7 +280,7 @@ def _membrane_heal_jit(
                     g = 0.0
                 elif g > 1.0:
                     g = 1.0
-                alpha *= g * g * (3.0 - 2.0 * g)
+                alpha *= 1.0 - gate * (1.0 - g * g * (3.0 - 2.0 * g))
                 if alpha <= 0.0:
                     continue
 
@@ -527,6 +347,228 @@ def fallback_source_offset(index: int, size_px: float, orig_shape: Tuple[int, in
     return (math.cos(ang) * dist / max(1, w), math.sin(ang) * dist / max(1, h))
 
 
+@njit(cache=True, fastmath=True)
+def _detect_dust_mask_jit(
+    luma: np.ndarray,
+    mean: np.ndarray,
+    std: np.ndarray,
+    w_std: np.ndarray,
+    dust_threshold: float,
+) -> np.ndarray:
+    """Local-contrast dust detector on the normalized-density plane; the
+    wide-window texture penalty protects rocks/foliage."""
+    h, w = luma.shape
+    hit_mask = np.zeros((h, w), dtype=np.uint8)
+    for y in range(h):
+        for x in range(w):
+            l_curr = luma[y, x]
+            l_mean = mean[y, x]
+            local_s = max(0.005, std[y, x])
+
+            w_s = max(0.0, w_std[y, x] - 0.02)
+            wide_penalty = (w_s * w_s * w_s) * 800.0
+            thresh = (dust_threshold * 0.4) + (local_s * 1.0) + wide_penalty
+
+            if (l_curr - l_mean) > thresh and l_curr > 0.15 and (l_curr - l_mean) / local_s > 3.0:
+                is_strong = (l_curr - l_mean) > (thresh * 2.5) or (l_curr - l_mean) > 0.25
+                if 0 < y < h - 1 and 0 < x < w - 1:
+                    is_max = True
+                    for dy in range(-1, 2):
+                        for dx in range(-1, 2):
+                            if dy == 0 and dx == 0:
+                                continue
+                            if luma[y + dy, x + dx] >= l_curr:
+                                is_max = False
+                                break
+                        if not is_max:
+                            break
+                    if is_max or is_strong:
+                        hit_mask[y, x] = 1
+                else:
+                    hit_mask[y, x] = 1
+    return hit_mask
+
+
+def _detection_proxy(img: ImageBuffer) -> np.ndarray:
+    """Percentile-normalized source density: grade-independent, dust is bright
+    in every process mode, and a defect's step stays proportional to its
+    physical density excess — a print-like tone mapping would compress it
+    below the detector threshold on wide-spread scans."""
+    luma = get_luminance(img)
+    dens = -np.log10(np.clip(luma, 1e-6, None))
+    lo, hi = np.percentile(dens, (0.5, 99.5))
+    spread = max(float(hi - lo), _PROXY_MIN_SPREAD)
+    return np.clip((dens - lo) / spread, 0.0, 1.0).astype(np.float32)
+
+
+def _mask_to_strokes(
+    mask: np.ndarray,
+    pad_px: float,
+    max_n: int,
+) -> List[Tuple[np.ndarray, float, float]]:
+    """Connected defect components → ``(chain_px, radius_px, area)``, largest
+    first, truncated to ``max_n``. Elongated components (hairs) become ≤8-point
+    polylines along the principal axis — a circle either misses the hair or
+    over-heals its bounding disk."""
+    n_lbl, labels, stats, centroids = cv2.connectedComponentsWithStats(np.ascontiguousarray(mask, dtype=np.uint8), connectivity=8)
+    comps = []
+    for i in range(1, n_lbl):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        x0 = int(stats[i, cv2.CC_STAT_LEFT])
+        y0 = int(stats[i, cv2.CC_STAT_TOP])
+        bw = int(stats[i, cv2.CC_STAT_WIDTH])
+        bh = int(stats[i, cv2.CC_STAT_HEIGHT])
+        ys, xs = np.nonzero(labels[y0 : y0 + bh, x0 : x0 + bw] == i)
+        xs = xs.astype(np.float64) + x0 + 0.5
+        ys = ys.astype(np.float64) + y0 + 0.5
+
+        chain = None
+        radius = math.sqrt(area / math.pi) + pad_px
+        if area >= 6:
+            mx, my = xs.mean(), ys.mean()
+            cov = np.cov(np.stack([xs - mx, ys - my]))
+            evals, evecs = np.linalg.eigh(cov)
+            ax, ay = evecs[0, 1], evecs[1, 1]
+            proj = (xs - mx) * ax + (ys - my) * ay
+            perp = -(xs - mx) * ay + (ys - my) * ax
+            ext = float(proj.max() - proj.min())
+            half_w = max(0.5, float(np.percentile(np.abs(perp), 95)))
+            if ext >= 2.5 * (2.0 * half_w) and ext >= 8.0:
+                n_bins = int(min(8, max(2, ext / max(4.0 * half_w, 4.0))))
+                edges = np.linspace(proj.min(), proj.max(), n_bins + 1)
+                idx = np.clip(np.digitize(proj, edges) - 1, 0, n_bins - 1)
+                pts = []
+                for b in range(n_bins):
+                    sel = idx == b
+                    if np.any(sel):
+                        pts.append([float(xs[sel].mean()), float(ys[sel].mean())])
+                if len(pts) >= 2:
+                    chain = np.array(pts, dtype=np.float64)
+                    radius = half_w + pad_px
+        if chain is None:
+            chain = np.array([[float(centroids[i, 0]) + 0.5, float(centroids[i, 1]) + 0.5]], dtype=np.float64)
+        comps.append((chain, float(radius), float(area)))
+
+    comps.sort(key=lambda c: -c[2])
+    return comps[:max_n]
+
+
+def _pick_source_offsets(
+    mask: np.ndarray,
+    comps: List[Tuple[np.ndarray, float, float]],
+) -> List[Tuple[float, float]]:
+    """First candidate whose shifted footprint is mask-free wins (integral-image
+    box queries) — the click-time SSD scorer costs ~ms/region, too slow for
+    hundreds of detected regions."""
+    h, w = mask.shape
+    integ = cv2.integral(np.ascontiguousarray(mask, dtype=np.uint8))
+    offsets = []
+    for index, (chain, radius, _area) in enumerate(comps):
+        if len(chain) >= 2:
+            d = chain[-1] - chain[0]
+            ln = math.hypot(d[0], d[1])
+            tx, ty = (d[0] / ln, d[1] / ln) if ln > 1e-6 else (1.0, 0.0)
+            dirs = [(-ty, tx), (ty, -tx), (tx, ty), (-tx, -ty)]
+        else:
+            dirs = []
+            for k in range(6):
+                ang = _GOLDEN_ANGLE * (index + 1) + k * math.pi / 3.0
+                dirs.append((math.cos(ang), math.sin(ang)))
+
+        b = int(math.ceil(1.2 * radius)) + 1
+        found = None
+        for dist in (_FALLBACK_OFFSET_FACTOR * radius, (_FALLBACK_OFFSET_FACTOR + 1.0) * radius):
+            for dx, dy in dirs:
+                ox, oy = dx * dist, dy * dist
+                clean = True
+                for px, py in chain:
+                    sx, sy = px + ox, py + oy
+                    x0, x1 = int(sx) - b, int(sx) + b
+                    y0, y1 = int(sy) - b, int(sy) + b
+                    if x0 < 0 or y0 < 0 or x1 >= w or y1 >= h:
+                        clean = False
+                        break
+                    if integ[y1 + 1, x1 + 1] - integ[y0, x1 + 1] - integ[y1 + 1, x0] + integ[y0, x0] > 0:
+                        clean = False
+                        break
+                if clean:
+                    found = (ox, oy)
+                    break
+            if found:
+                break
+        if found is None:
+            fdx, fdy = fallback_source_offset(index, 2.0 * radius, (h, w))
+            found = (fdx * w, fdy * h)
+        offsets.append(found)
+    return offsets
+
+
+def _finalize_strokes(
+    comps: List[Tuple[np.ndarray, float, float]],
+    offsets: List[Tuple[float, float]],
+    det_dims: Tuple[int, int],
+    gate: float,
+) -> List[Tuple]:
+    """Detection-space components → stroke tuples (source-normalized, plain
+    rounded floats — numpy scalars would make the config hash repr-dependent)."""
+    h, w = det_dims
+    strokes = []
+    for (chain, radius, _area), (ox, oy) in zip(comps, offsets):
+        points = [[round(float(px) / w, 6), round(float(py) / h, 6)] for px, py in chain]
+        size = round(2.0 * float(radius) * HEAL_SIZE_REF / max(w, h), 6)
+        strokes.append((points, size, round(float(ox) / w, 6), round(float(oy) / h, 6), float(gate)))
+    return strokes
+
+
+def detect_luma_regions(
+    img: ImageBuffer,
+    dust_threshold: float,
+    dust_size: int,
+    gate: float = 1.0,
+    max_n: int = 512,
+) -> List[Tuple]:
+    """Statistical dust detection on the linear source → synthesized heal strokes."""
+    proxy = _detection_proxy(img)
+
+    base_size = max(1.0, float(dust_size))
+    v_win = int(max(3, base_size * 3.0)) * 2 + 1
+    w_win = int(max(7, base_size * 4.0)) * 2 + 1
+    mean = cv2.blur(proxy, (v_win, v_win))
+    std = np.sqrt(np.clip(cv2.blur(proxy**2, (v_win, v_win)) - mean**2, 0, None))
+    w_mean = cv2.blur(proxy, (w_win, w_win))
+    w_std = np.sqrt(np.clip(cv2.blur(proxy**2, (w_win, w_win)) - w_mean**2, 0, None))
+
+    hit = _detect_dust_mask_jit(
+        np.ascontiguousarray(proxy.astype(np.float32)),
+        np.ascontiguousarray(mean.astype(np.float32)),
+        np.ascontiguousarray(std.astype(np.float32)),
+        np.ascontiguousarray(w_std.astype(np.float32)),
+        float(dust_threshold),
+    )
+    if not np.any(hit):
+        return []
+    comps = _mask_to_strokes(hit, _DETECT_PAD_PX, max_n)
+    offsets = _pick_source_offsets(hit, comps)
+    return _finalize_strokes(comps, offsets, hit.shape, gate)
+
+
+def detect_ir_regions(
+    ir: np.ndarray,
+    threshold: float,
+    pad_px: float = 3.0,
+    max_n: int = 512,
+) -> List[Tuple]:
+    """IR defects → synthesized heal strokes. Dye = high IR transmittance,
+    defects = low, so ``ir < threshold`` marks them (caller passes
+    1 − ir_threshold). Ungated: IR-confirmed defects clone unconditionally."""
+    mask = (ir < threshold).astype(np.uint8)
+    if not np.any(mask):
+        return []
+    comps = _mask_to_strokes(mask, pad_px, max_n)
+    offsets = _pick_source_offsets(mask, comps)
+    return _finalize_strokes(comps, offsets, mask.shape, gate=0.0)
+
+
 def build_heal_regions(
     strokes: List[Tuple],
     legacy_spots: List[Tuple[float, float, float]],
@@ -536,10 +578,9 @@ def build_heal_regions(
     flip_h: bool,
     flip_v: bool,
     distortion_k1: float,
-    scale_factor: float,
     full_dims: Tuple[int, int],
     max_regions: int = 512,
-    max_points: int = 16384,
+    max_points: int = 32768,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Maps manual heals into the geometry frame as capsule regions.
 
@@ -554,23 +595,26 @@ def build_heal_regions(
         mx, my = map_coords_to_geometry(nx, ny, orig_shape, rotation, fine_rotation, flip_h, flip_v, distortion_k1=distortion_k1)
         return mx * fw, my * fh
 
-    entries: List[Tuple[List, float, float, float]] = []
-    for points, size, sdx, sdy in strokes:
-        entries.append((list(points), float(size), float(sdx), float(sdy)))
+    entries: List[Tuple[List, float, float, float, float]] = []
+    for stroke in strokes:
+        points, size, sdx, sdy = stroke[:4]
+        # 5th element = gate flag (synthesized regions); 4-tuple user strokes stay gated.
+        gate = float(stroke[4]) if len(stroke) > 4 else 1.0
+        entries.append((list(points), float(size), float(sdx), float(sdy), gate))
     for i, (nx, ny, size) in enumerate(legacy_spots):
         fdx, fdy = fallback_source_offset(i, float(size), orig_shape)
-        entries.append(([[nx, ny]], float(size), fdx, fdy))
+        entries.append(([[nx, ny]], float(size), fdx, fdy, 1.0))
 
     reg_i_list = []
     reg_f_list = []
     pts_list: List[np.ndarray] = []
     n_pts = 0
 
-    for points, size, sdx, sdy in entries[:max_regions]:
+    for points, size, sdx, sdy, gate in entries[:max_regions]:
         chain = np.array([_map(p[0], p[1]) for p in points], dtype=np.float32)
-        # Brush size is a DIAMETER: the healed footprint must match the on-screen
-        # cursor circle (overlay._brush_screen_radius draws size/2 at preview scale).
-        radius = max(1.0, float(size) * float(scale_factor) * 0.5)
+        # Brush size is a DIAMETER at HEAL_SIZE_REF scale: the footprint must match
+        # the cursor (overlay._brush_screen_radius draws size/(2·HEAL_SIZE_REF)).
+        radius = max(1.0, float(size) * (max(fw, fh) / HEAL_SIZE_REF) * 0.5)
 
         cx = float(np.mean([p[0] for p in points]))
         cy = float(np.mean([p[1] for p in points]))
@@ -586,7 +630,7 @@ def build_heal_regions(
         if n_pts + len(chain) + len(boundary) > max_points:
             break
         reg_i_list.append((n_pts, len(chain), n_pts + len(chain), len(boundary)))
-        reg_f_list.append((radius, off_x, off_y))
+        reg_f_list.append((radius, off_x, off_y, gate))
         pts_list.append(chain)
         pts_list.append(boundary)
         n_pts += len(chain) + len(boundary)
@@ -594,7 +638,7 @@ def build_heal_regions(
     if not reg_i_list:
         return (
             np.zeros((0, 4), dtype=np.int32),
-            np.zeros((0, 3), dtype=np.float32),
+            np.zeros((0, 4), dtype=np.float32),
             np.zeros((0, 2), dtype=np.float32),
         )
     return (
@@ -712,97 +756,3 @@ def apply_manual_heals(
         np.ascontiguousarray(pts),
     )
     return ensure_image(working_oetf_decode(buf))
-
-
-def apply_ir_dust_removal(
-    img: ImageBuffer,
-    ir: np.ndarray,
-    threshold: float,
-    inpaint_radius: int,
-    scale_factor: float,
-) -> Tuple[ImageBuffer, np.ndarray]:
-    """Threshold IR → guarded reflection-copy heal with cubic-smoothstep feather.
-
-    Returns (img_out, mask_u8). IR convention: dye = high IR transmittance,
-    physical defects = low transmittance, so `ir < threshold` marks defects.
-    Mask must be in the same frame as `img` (i.e. post-geometry).
-    """
-    if ir.shape[:2] != img.shape[:2]:
-        return img, np.zeros(img.shape[:2], dtype=np.uint8)
-
-    hit_mask = (ir < threshold).astype(np.float32)
-    mask_u8 = (hit_mask * 255).astype(np.uint8)
-
-    if not np.any(hit_mask):
-        return img, mask_u8
-
-    scale = max(1.0, float(scale_factor))
-    exp_rad = int(max(1.0, float(inpaint_radius) * scale))
-    if exp_rad > 16:
-        exp_rad = 16
-    p_rad = exp_rad + int(max(2.0, 3.0 * scale))
-
-    out = _heal_with_mask_jit(
-        np.ascontiguousarray(img.astype(np.float32)),
-        np.ascontiguousarray(hit_mask),
-        exp_rad,
-        p_rad,
-    )
-    return ensure_image(out), mask_u8
-
-
-def apply_dust_removal(
-    img: ImageBuffer,
-    dust_remove: bool,
-    dust_threshold: float,
-    dust_size: int,
-    heal_regions: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]],
-    scale_factor: float,
-    ir_buffer: Optional[np.ndarray] = None,
-    ir_dust_remove: bool = False,
-    ir_threshold: float = 0.55,
-    ir_inpaint_radius: int = 3,
-) -> ImageBuffer:
-    """Composite dust removal: luminance-auto → IR → manual heals."""
-    do_ir = ir_dust_remove and ir_buffer is not None
-    has_manual = heal_regions is not None and len(heal_regions[0]) > 0
-    if not (dust_remove or has_manual or do_ir):
-        return img
-
-    if dust_remove:
-        base_size, scale = max(1.0, float(dust_size)), max(1.0, float(scale_factor))
-        v_win = int(max(3, base_size * 3.0 * scale)) * 2 + 1
-        w_win = int(max(7, base_size * 4.0 * scale)) * 2 + 1
-
-        # Detection is perceptual: run it on a display-encoded copy, heal in linear.
-        img_enc = ensure_image(working_oetf_encode(img))
-        gray = get_luminance(img_enc)
-        mean_gray = cv2.blur(gray, (v_win, v_win))
-        std_gray = np.sqrt(np.clip(cv2.blur(gray**2, (v_win, v_win)) - mean_gray**2, 0, None))
-        w_mean_gray = cv2.blur(gray, (w_win, w_win))
-        w_std_gray = np.sqrt(np.clip(cv2.blur(gray**2, (w_win, w_win)) - w_mean_gray**2, 0, None))
-
-        img = _apply_auto_retouch_jit(
-            np.ascontiguousarray(img_enc.astype(np.float32)),
-            np.ascontiguousarray(img.astype(np.float32)),
-            np.ascontiguousarray(mean_gray.astype(np.float32)),
-            np.ascontiguousarray(std_gray.astype(np.float32)),
-            np.ascontiguousarray(w_std_gray.astype(np.float32)),
-            float(dust_threshold),
-            float(dust_size),
-            float(scale_factor),
-        )
-
-    if do_ir and ir_buffer is not None:
-        img, _ = apply_ir_dust_removal(
-            img,
-            ir_buffer,
-            ir_threshold,
-            ir_inpaint_radius,
-            scale_factor,
-        )
-
-    if has_manual and heal_regions is not None:
-        img = apply_manual_heals(img, *heal_regions)
-
-    return ensure_image(img)

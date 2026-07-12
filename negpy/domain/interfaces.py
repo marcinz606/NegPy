@@ -22,7 +22,6 @@ class PipelineContext:
     process_mode: str = "C41"
     active_roi: Optional[ROI] = None
     metrics: dict[str, Any] = field(default_factory=dict)
-    ir_buffer: Optional[Any] = None  # 2D float32 [0,1] (H,W), RAW (pre-geometry) frame; None if absent
     # When set, the crop tool is active: the final crop slice and uv_grid are bypassed
     # so the full uncropped frame is shown, while active_roi still scopes tone analysis.
     crop_preview_full: bool = False

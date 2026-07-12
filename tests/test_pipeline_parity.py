@@ -483,8 +483,18 @@ class TestRetouchParity:
     def test_no_dust(self):
         self._run_and_compare(_make_base_settings())
 
-    def test_auto_dust(self):
-        s = replace(_make_base_settings(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=2))
+    def test_synthesized_auto_regions(self):
+        """Auto/IR dust rides injected 5-tuple strokes (ImageProcessor detection);
+        parity covers the shared membrane path including the per-region gate lane."""
+        s = replace(
+            _make_base_settings(),
+            retouch=RetouchConfig(
+                manual_heal_strokes=[
+                    ([[45.5 / 64.0, 30.5 / 64.0]], 80.0, 0.25, 0.0, 1.0),
+                    ([[0.3, 0.3], [40.5 / 64.0, 40.5 / 64.0]], 64.0, 0.0, 0.3, 0.0),
+                ]
+            ),
+        )
         self._run_and_compare(s)
 
     # Manual heal sizes below are large because the 64px test image renders at

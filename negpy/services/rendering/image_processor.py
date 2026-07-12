@@ -1,11 +1,13 @@
 import os
 import io
+import cv2
 import rawpy
 import tifffile
 import imagecodecs
 import numpy as np
+from dataclasses import replace as dc_replace
 from PIL import Image, ImageCms
-from typing import Tuple, Optional, Any, Dict
+from typing import Tuple, Optional, Any, Dict, List
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.domain.types import ImageBuffer
@@ -19,6 +21,7 @@ from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import linear_raw_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
+from negpy.features.retouch.logic import detect_ir_regions, detect_luma_regions
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
@@ -59,6 +62,17 @@ def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
     return not isinstance(raw, NonStandardFileWrapper) and not (is_xtrans(raw) and linear_raw)
 
 
+def _detection_downsample(buf: np.ndarray) -> np.ndarray:
+    """Dust detection always runs at preview scale so preview and export produce
+    the identical region set (WYSIWYG) and full-res export detection stays cheap."""
+    h, w = buf.shape[:2]
+    long_edge = max(h, w)
+    if long_edge <= APP_CONFIG.preview_render_size:
+        return buf
+    s = APP_CONFIG.preview_render_size / long_edge
+    return cv2.resize(buf, (max(1, int(round(w * s))), max(1, int(round(h * s)))), interpolation=cv2.INTER_AREA)
+
+
 class ImageProcessor:
     """
     Coordinates multi-backend image processing.
@@ -73,6 +87,12 @@ class ImageProcessor:
         # One entry only (full-res buffers are large); treated read-only downstream.
         self._source_cache_key: Optional[tuple] = None
         self._source_cache_value: Optional[Tuple[np.ndarray, Optional[np.ndarray], str]] = None
+
+        # Source-space dust detection cache. Geometry deliberately excluded from
+        # the key (strokes are source-normalized); resolution excluded so an
+        # export reuses the exact preview-detected regions.
+        self._retouch_detect_key: Optional[tuple] = None
+        self._retouch_detect_value: Optional[List[tuple]] = None
 
         if APP_CONFIG.use_gpu:
             gpu = GPUDevice.get()
@@ -93,6 +113,65 @@ class ImageProcessor:
         """Flat (digital-intermediate) renders run on the CPU engine only, so the
         master is numerically exact and never subject to the looser GPU parity."""
         return settings.exposure.render_intent == RenderIntent.FLAT
+
+    def _augment_retouch(
+        self,
+        settings: WorkspaceConfig,
+        img: np.ndarray,
+        ir_buffer: Optional[np.ndarray],
+        source_key: str,
+    ) -> WorkspaceConfig:
+        """Source-space dust detection → synthesized heal strokes on a
+        render-local config (auto flags cleared — the engines only see strokes).
+        The caller's config is untouched, so synthesized strokes never reach
+        sidecars, presets or the DB."""
+        ret = settings.retouch
+        do_luma = ret.dust_remove
+        do_ir = ret.ir_dust_remove and ir_buffer is not None
+        if self._is_flat(settings) or not (do_luma or do_ir):
+            return settings
+
+        key = (
+            source_key,
+            do_luma,
+            round(float(ret.dust_threshold), 6),
+            int(ret.dust_size),
+            do_ir,
+            round(float(ret.ir_threshold), 6),
+            int(ret.ir_inpaint_radius),
+            settings.process.process_mode,
+        )
+        if key == self._retouch_detect_key and self._retouch_detect_value is not None:
+            synth = self._retouch_detect_value
+        else:
+            synth = []
+            if do_ir and ir_buffer is not None:
+                synth += detect_ir_regions(
+                    _detection_downsample(ir_buffer),
+                    1.0 - ret.ir_threshold,
+                    pad_px=float(ret.ir_inpaint_radius),
+                )
+            if do_luma:
+                # E6 renders positive: dust stays dark, so the bright-only gate
+                # would veto every heal — those regions clone unconditionally.
+                gate = 0.0 if settings.process.process_mode == ProcessMode.E6 else 1.0
+                synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=gate)
+            self._retouch_detect_key = key
+            self._retouch_detect_value = synth
+
+        budget = max(0, 512 - len(ret.manual_heal_strokes) - len(ret.manual_dust_spots))
+        if len(synth) > budget:
+            logger.warning("Retouch: healing %d of %d detected defects (region cap)", budget, len(synth))
+            synth = synth[:budget]
+        return dc_replace(
+            settings,
+            retouch=dc_replace(
+                ret,
+                dust_remove=False,
+                ir_dust_remove=False,
+                manual_heal_strokes=synth + list(ret.manual_heal_strokes),
+            ),
+        )
 
     def run_pipeline(
         self,
@@ -118,13 +197,10 @@ class ImageProcessor:
         # file at full resolution with unchanged settings, so without this the engine
         # cache reports "nothing changed" and returns the stale low-res render instead
         # of re-rendering the new full-res buffer.
-        source_hash = (
-            source_hash
-            + flatfield_token(settings.flatfield)
-            + rgbscan_token(settings.rgbscan)
-            + linear_raw_token(settings.process)
-            + f"|res{w_cols}x{h_orig}"
-        )
+        base_hash = source_hash + flatfield_token(settings.flatfield) + rgbscan_token(settings.rgbscan) + linear_raw_token(settings.process)
+        source_hash = base_hash + f"|res{w_cols}x{h_orig}"
+
+        settings = self._augment_retouch(settings, img, ir_buffer, base_hash)
 
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
 
@@ -132,7 +208,6 @@ class ImageProcessor:
             scale_factor=scale_factor,
             original_size=(h_orig, w_cols),
             process_mode=settings.process.process_mode,
-            ir_buffer=ir_buffer,
             crop_preview_full=crop_preview_full,
             wants_uv_grid=wants_uv_grid,
         )
@@ -153,7 +228,6 @@ class ImageProcessor:
                     scale_factor=scale_factor,
                     render_size_ref=render_size_ref,
                     readback_metrics=readback_metrics,
-                    ir_buffer=ir_buffer,
                     analysis_source_hash=source_hash,
                 )
                 context.metrics.update(gpu_metrics)
@@ -282,8 +356,6 @@ class ImageProcessor:
     ) -> Tuple[Optional[bytes], str]:
         """Performs high-resolution export with color management."""
         try:
-            from dataclasses import replace as dc_replace
-
             # Ensure both GPU and CPU paths use the same export settings.
             params = dc_replace(params, export=export_settings)
 
@@ -292,6 +364,9 @@ class ImageProcessor:
             if target_cs == ColorSpace.SAME_AS_SOURCE.value:
                 target_cs = source_cs
             color_space = str(target_cs)
+
+            detect_key = source_hash + flatfield_token(params.flatfield) + rgbscan_token(params.rgbscan) + linear_raw_token(params.process)
+            params = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
 
             h_raw, w_raw = f32_buffer.shape[:2]
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
@@ -305,7 +380,6 @@ class ImageProcessor:
                     params,
                     scale_factor=export_scale,
                     bounds_override=bounds_override,
-                    ir_buffer=ir_full,
                     readback_metrics=False,
                 )
             else:
@@ -316,7 +390,6 @@ class ImageProcessor:
                     render_size_ref=float(APP_CONFIG.preview_render_size),
                     metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
                     prefer_gpu=False,
-                    ir_buffer=ir_full,
                     wants_uv_grid=False,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
@@ -498,13 +571,14 @@ class ImageProcessor:
             h_raw, w_raw = f32_buffer.shape[:2]
             scale_factor = max(1.0, max(h_raw, w_raw) / float(target_long_px))
 
+            detect_key = source_hash + flatfield_token(params.flatfield) + rgbscan_token(params.rgbscan) + linear_raw_token(params.process)
+            params = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
+
             if self._is_flat(params):
                 prefer_gpu = False
 
             if prefer_gpu and self.engine_gpu:
-                buffer, _ = self.engine_gpu.process(
-                    f32_buffer, params, scale_factor=scale_factor, ir_buffer=ir_full, readback_metrics=False
-                )
+                buffer, _ = self.engine_gpu.process(f32_buffer, params, scale_factor=scale_factor, readback_metrics=False)
             else:
                 buffer, _ = self.run_pipeline(
                     f32_buffer,
@@ -512,7 +586,6 @@ class ImageProcessor:
                     source_hash,
                     render_size_ref=float(target_long_px),
                     prefer_gpu=False,
-                    ir_buffer=ir_full,
                     wants_uv_grid=False,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)

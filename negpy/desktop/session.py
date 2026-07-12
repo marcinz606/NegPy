@@ -331,9 +331,14 @@ def build_synced_config(
         out = replace(out, lab=source.lab, toning=source.toning)
 
     if "finish" in aspects:
+        # Heals are frame-specific: keep the target's spots AND strokes.
         out = replace(
             out,
-            retouch=replace(source.retouch, manual_dust_spots=out.retouch.manual_dust_spots),
+            retouch=replace(
+                source.retouch,
+                manual_dust_spots=out.retouch.manual_dust_spots,
+                manual_heal_strokes=out.retouch.manual_heal_strokes,
+            ),
             finish=source.finish,
         )
 

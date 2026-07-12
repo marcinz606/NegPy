@@ -55,7 +55,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
 from negpy.features.retouch.logic import fallback_source_offset, select_source_offset
-from negpy.features.retouch.models import RetouchConfig
+from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
@@ -1021,12 +1021,12 @@ class AppController(QObject):
         index = len(conf.manual_heal_strokes)
 
         # Score the clone source on the source-frame preview. Brush size is a
-        # diameter at preview_render_size scale (same convention as the pipeline
-        # radius size/2·scale_factor and the overlay cursor).
+        # diameter at HEAL_SIZE_REF scale (same convention as the pipeline
+        # radius and the overlay cursor).
         offset = (0.0, 0.0)
         preview = self.state.preview_raw
         if preview is not None:
-            scale = max(preview.shape[:2]) / float(APP_CONFIG.preview_render_size)
+            scale = max(preview.shape[:2]) / float(HEAL_SIZE_REF)
             offset = select_source_offset(preview, raw_pts, 0.5 * size * scale, index)
         else:
             offset = fallback_source_offset(index, size, (self.state.original_res[1], self.state.original_res[0]))

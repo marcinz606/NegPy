@@ -14,7 +14,7 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.geometry.logic import rotation_drag_angle, straighten_delta_degrees, translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
-from negpy.kernel.system.config import APP_CONFIG
+from negpy.features.retouch.models import HEAL_SIZE_REF
 
 _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
@@ -452,7 +452,7 @@ class CanvasOverlay(QWidget):
 
     def _brush_screen_radius(self, size: float) -> float:
         max_screen_dim = max(self._view_rect.width(), self._view_rect.height())
-        return (size / (2.0 * APP_CONFIG.preview_render_size)) * max_screen_dim
+        return (size / (2.0 * HEAL_SIZE_REF)) * max_screen_dim
 
     def _draw_scratch_in_progress(self, painter: QPainter) -> None:
         if not self._scratch_pts:

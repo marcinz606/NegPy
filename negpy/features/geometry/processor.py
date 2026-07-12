@@ -22,32 +22,21 @@ class GeometryProcessor:
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
-        ir = context.ir_buffer
 
         if self.config.rotation != 0:
             img = np.rot90(img, k=self.config.rotation)
-            if ir is not None:
-                ir = np.ascontiguousarray(np.rot90(ir, k=self.config.rotation))
 
         if self.config.flip_horizontal:
             img = np.ascontiguousarray(np.fliplr(img))
-            if ir is not None:
-                ir = np.ascontiguousarray(np.fliplr(ir))
 
         if self.config.flip_vertical:
             img = np.ascontiguousarray(np.flipud(img))
-            if ir is not None:
-                ir = np.ascontiguousarray(np.flipud(ir))
 
         if self.config.fine_rotation != 0.0:
             img = apply_fine_rotation(img, self.config.fine_rotation)
-            if ir is not None:
-                ir = apply_fine_rotation(ir, self.config.fine_rotation)
 
         if self.distortion_k1 != 0.0:
             img = apply_radial_distortion(img, self.distortion_k1)
-            if ir is not None:
-                ir = apply_radial_distortion(ir, self.distortion_k1)
 
         context.metrics["geometry_params"] = {
             "rotation": self.config.rotation,
@@ -55,7 +44,6 @@ class GeometryProcessor:
             "flip_horizontal": self.config.flip_horizontal,
             "flip_vertical": self.config.flip_vertical,
         }
-        context.metrics["ir_post_geometry"] = ir
         # Downstream coordinate mappers (retouch/local) need the same correction.
         context.metrics["distortion_k1"] = self.distortion_k1
 

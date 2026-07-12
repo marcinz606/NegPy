@@ -25,6 +25,7 @@ class Presets:
             "autocrop_mode",
             "autocrop_offset",
             "manual_dust_spots",
+            "manual_heal_strokes",
             "local_adjustments",
             "active_adjustment_idx",
             "export_path",

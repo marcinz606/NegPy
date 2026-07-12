@@ -101,28 +101,25 @@ class TestGPUEngine(unittest.TestCase):
     def _engine_buffers_count(self):
         return self.engine._buffers
 
-    def test_gpu_tiled_export_propagates_ir_buffer(self):
-        """Regression: _process_tiled previously dropped ir_buffer, so IR dust removal
-        was applied in preview but silently skipped on export of >12MP scans."""
+    def test_gpu_tiled_synthesized_region_applied(self):
+        """Auto/IR dust rides synthesized 5-tuple strokes (injected upstream);
+        the tiled path must apply them like any manual heal."""
         from negpy.features.retouch.models import RetouchConfig
         from dataclasses import replace
 
         h, w = 128, 128
         img = np.full((h, w, 3), 0.5, dtype=np.float32)
-        img[64, 64] = 0.95
-        ir = np.full((h, w), 0.9, dtype=np.float32)
-        ir[62:67, 62:67] = 0.05
+        img[62:67, 62:67] = 0.95
 
+        synth = ([[0.5, 0.5]], 150.0, 0.15625, 0.0, 0.0)  # ungated, ~6px radius, +20px source
         base = WorkspaceConfig()
-        with_ir = replace(base, retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.5, ir_inpaint_radius=3))
-        without_ir = replace(base, retouch=RetouchConfig(ir_dust_remove=False))
+        with_region = replace(base, retouch=RetouchConfig(manual_heal_strokes=[synth]))
 
-        res_with, _ = self.engine._process_tiled(img, with_ir, scale_factor=1.0, ir_buffer=ir)
-        res_without, _ = self.engine._process_tiled(img, without_ir, scale_factor=1.0, ir_buffer=ir)
+        res_with, _ = self.engine._process_tiled(img, with_region, scale_factor=1.0)
+        res_without, _ = self.engine._process_tiled(img, base, scale_factor=1.0)
 
-        # IR dust removal must change pixels somewhere in the output.
         diff_max = float(np.abs(res_with - res_without).max())
-        self.assertGreater(diff_max, 0.05, "Tiled export ignored IR buffer; output identical to IR-off")
+        self.assertGreater(diff_max, 0.05, "Tiled export ignored the synthesized heal region")
 
     def test_gpu_tiled_manual_stroke_matches_untiled(self):
         """A heal stroke crossing a tile boundary must render like the untiled path —
@@ -238,19 +235,22 @@ class TestGPUEngine(unittest.TestCase):
         diff = float(np.abs(res_left - res_right).max())
         self.assertGreater(diff, 0.05, "Tiled export ignored freehand analysis_rect — output identical either way")
 
-    def test_gpu_tiled_export_ir_no_crash_without_buffer(self):
-        """ir_dust_remove enabled but ir_buffer=None must not crash the tiled path."""
+    def test_gpu_tiled_export_stale_auto_flags_are_inert(self):
+        """dust_remove/ir_dust_remove reaching the engine un-augmented (direct calls,
+        old sessions) must be inert no-ops, not crashes — detection lives upstream."""
         from negpy.features.retouch.models import RetouchConfig
         from dataclasses import replace
 
         img = np.random.rand(96, 96, 3).astype(np.float32)
-        settings = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True))
-        res, _ = self.engine._process_tiled(img, settings, scale_factor=1.0, ir_buffer=None)
-        self.assertIsNotNone(res)
+        settings = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, ir_dust_remove=True))
+        settings_off = replace(WorkspaceConfig(), retouch=RetouchConfig())
+        res, _ = self.engine._process_tiled(img, settings, scale_factor=1.0)
+        res_off, _ = self.engine._process_tiled(img, settings_off, scale_factor=1.0)
+        np.testing.assert_allclose(res, res_off, atol=1e-6)
 
-    def test_gpu_tiled_export_respects_geometry_for_ir(self):
-        """Tiled path must pre-transform IR with the same geometry as the RGB tiles;
-        otherwise rotated/flipped exports would heal pixels at wrong locations."""
+    def test_gpu_tiled_export_respects_geometry_for_synthesized_region(self):
+        """Synthesized strokes are source-normalized; the tiled path must map them
+        through the same geometry as the RGB tiles (rotated exports heal in place)."""
         from negpy.features.retouch.models import RetouchConfig
         from negpy.features.geometry.models import GeometryConfig
         from dataclasses import replace
@@ -258,20 +258,18 @@ class TestGPUEngine(unittest.TestCase):
         h, w = 96, 128
         rng = np.random.default_rng(0)
         img = rng.random((h, w, 3), dtype=np.float32) * 0.3 + 0.4
-        ir = np.full((h, w), 0.9, dtype=np.float32)
-        ir[30:34, 30:34] = 0.05
+        img[30:34, 30:34] = 0.95
 
+        synth = ([[32.0 / w, 32.0 / h]], 2.0 * 6.0 * 1600.0 / w, 0.15, 0.0, 0.0)
         settings = replace(
             WorkspaceConfig(),
-            retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.5, ir_inpaint_radius=3),
+            retouch=RetouchConfig(manual_heal_strokes=[synth]),
             geometry=GeometryConfig(rotation=1),
         )
-        settings_off = replace(settings, retouch=RetouchConfig(ir_dust_remove=False))
+        settings_off = replace(settings, retouch=RetouchConfig())
 
-        res_on, _ = self.engine._process_tiled(img, settings, scale_factor=1.0, ir_buffer=ir)
-        res_off, _ = self.engine._process_tiled(img, settings_off, scale_factor=1.0, ir_buffer=ir)
-        # Geometry-rotated tiled export with IR must still produce a different output
-        # than the same export with IR disabled.
+        res_on, _ = self.engine._process_tiled(img, settings, scale_factor=1.0)
+        res_off, _ = self.engine._process_tiled(img, settings_off, scale_factor=1.0)
         self.assertGreater(float(np.abs(res_on - res_off).max()), 0.05)
 
     def test_histogram_unaffected_by_border(self):

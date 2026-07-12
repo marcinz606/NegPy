@@ -4,11 +4,8 @@ import tempfile
 import numpy as np
 import tifffile
 
-from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.geometry.models import GeometryConfig
-from negpy.features.geometry.processor import GeometryProcessor
-from negpy.features.retouch.logic import apply_dust_removal, apply_ir_dust_removal
+from negpy.features.retouch.logic import apply_manual_heals, build_heal_regions, detect_ir_regions
 from negpy.features.retouch.models import RetouchConfig
 from negpy.infrastructure.loaders.factory import LoaderFactory
 
@@ -39,77 +36,36 @@ def test_workspace_config_roundtrip_ir_fields():
     assert restored.retouch.ir_threshold == 0.4
 
 
-def test_apply_ir_dust_removal_heals_defect():
-    img = np.full((80, 80, 3), 0.5, dtype=np.float32)
-    img[40, 40] = 0.95
-    ir = np.full((80, 80), 0.9, dtype=np.float32)
+def test_detect_ir_regions_heals_defect_end_to_end():
+    """IR speck → synthesized ungated stroke → membrane clone removes it."""
+    h, w = 80, 80
+    rng = np.random.default_rng(17)
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
+    img[39:42, 39:42] = 0.95
+    ir = np.full((h, w), 0.9, dtype=np.float32)
     ir[39:42, 39:42] = 0.05
 
-    out, mask = apply_ir_dust_removal(img.copy(), ir, threshold=0.5, inpaint_radius=3, scale_factor=1.0)
-    assert mask.shape == (80, 80)
-    assert mask[40, 40] == 255
-    # Defect pixel pulled toward 0.5 background.
-    assert out[40, 40, 0] < 0.9
+    strokes = detect_ir_regions(ir, threshold=0.5, pad_px=3.0)
+    assert len(strokes) == 1
+    assert strokes[0][4] == 0.0  # IR regions are ungated
+
+    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
+    out = apply_manual_heals(img, *regions)
+    assert out[40, 40, 0] < 0.7
 
 
-def test_apply_ir_dust_removal_no_defect_returns_untouched():
-    img = np.full((40, 40, 3), 0.5, dtype=np.float32)
+def test_detect_ir_regions_no_defect_is_empty():
     ir = np.full((40, 40), 0.9, dtype=np.float32)
-    out, mask = apply_ir_dust_removal(img.copy(), ir, threshold=0.5, inpaint_radius=3, scale_factor=1.0)
-    assert not np.any(mask)
-    np.testing.assert_array_equal(out, img)
+    assert detect_ir_regions(ir, threshold=0.5) == []
 
 
-def test_apply_dust_removal_with_ir_enabled_heals_defect():
-    img = np.full((50, 50, 3), 0.5, dtype=np.float32)
-    img[25, 25] = 0.95
-    ir = np.full((50, 50), 0.9, dtype=np.float32)
-    ir[25, 25] = 0.1
-    out = apply_dust_removal(
-        img.copy(),
-        dust_remove=False,
-        dust_threshold=0.5,
-        dust_size=2,
-        heal_regions=None,
-        scale_factor=1.0,
-        ir_buffer=ir,
-        ir_dust_remove=True,
-        ir_threshold=0.5,
-        ir_inpaint_radius=3,
-    )
-    assert out[25, 25, 0] < 0.9
-
-
-def test_apply_dust_removal_noop_when_all_disabled():
-    img = np.full((40, 40, 3), 0.5, dtype=np.float32)
-    out = apply_dust_removal(
-        img,
-        dust_remove=False,
-        dust_threshold=0.5,
-        dust_size=2,
-        heal_regions=None,
-        scale_factor=1.0,
-        ir_buffer=None,
-        ir_dust_remove=False,
-    )
-    np.testing.assert_array_equal(out, img)
-
-
-def test_geometry_processor_transforms_ir_alongside_rgb():
-    img = np.zeros((20, 30, 3), dtype=np.float32)
-    img[5, 10] = 1.0
-    ir = np.zeros((20, 30), dtype=np.float32)
-    ir[5, 10] = 1.0
-    ctx = PipelineContext(original_size=(20, 30), scale_factor=1.0, ir_buffer=ir)
-    geom = GeometryConfig(rotation=1, flip_horizontal=True)
-    out = GeometryProcessor(geom).process(img, ctx)
-    ir_out = ctx.metrics["ir_post_geometry"]
-    assert ir_out is not None
-    assert ir_out.shape == out.shape[:2]
-    # Hot pixel must end up where the RGB hot pixel ended up.
-    rgb_hot = np.unravel_index(np.argmax(out[..., 0]), out.shape[:2])
-    ir_hot = np.unravel_index(np.argmax(ir_out), ir_out.shape)
-    assert rgb_hot == ir_hot
+def test_detect_ir_regions_threshold_inversion_convention():
+    """Callers pass 1−ir_threshold (the old processor/gpu inversion): a UI
+    threshold of t marks IR transmittance below 1−t as defective."""
+    ir = np.full((60, 60), 0.9, dtype=np.float32)
+    ir[30, 30] = 0.45
+    assert detect_ir_regions(ir, threshold=1.0 - 0.6) == []  # ir < 0.4 misses the 0.45 dip
+    assert len(detect_ir_regions(ir, threshold=1.0 - 0.5)) == 1  # ir < 0.5 catches it
 
 
 def test_tiff_loader_reads_ir_from_extrasamples():

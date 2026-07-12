@@ -18,7 +18,12 @@ def _source() -> WorkspaceConfig:
         finish=replace(c.finish, vignette_strength=0.3),
         process=replace(c.process, process_mode="E-6", analysis_buffer=0.2),
         geometry=replace(c.geometry, rotation=90, flip_horizontal=True, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
-        retouch=replace(c.retouch, dust_threshold=0.5, manual_dust_spots=[(0.5, 0.5, 0.01)]),
+        retouch=replace(
+            c.retouch,
+            dust_threshold=0.5,
+            manual_dust_spots=[(0.5, 0.5, 0.01)],
+            manual_heal_strokes=[([[0.5, 0.5]], 8.0, 0.02, 0.0)],
+        ),
     )
 
 
@@ -27,7 +32,11 @@ def _target() -> WorkspaceConfig:
     return replace(
         c,
         geometry=replace(c.geometry, rotation=270, manual_crop_rect=(0.2, 0.2, 0.8, 0.8)),
-        retouch=replace(c.retouch, manual_dust_spots=[(0.1, 0.1, 0.02)]),
+        retouch=replace(
+            c.retouch,
+            manual_dust_spots=[(0.1, 0.1, 0.02)],
+            manual_heal_strokes=[([[0.2, 0.3], [0.4, 0.3]], 6.0, 0.0, 0.03)],
+        ),
         process=replace(c.process, local_floors=(0.05, 0.05, 0.05), local_ceils=(0.95, 0.95, 0.95)),
     )
 
@@ -87,12 +96,13 @@ def test_color_aspect_copies_lab_and_toning():
     assert out.exposure == tgt.exposure
 
 
-def test_finish_aspect_copies_retouch_and_finish_keeps_dust_spots():
+def test_finish_aspect_copies_retouch_and_finish_keeps_heals():
     src, tgt = _source(), _target()
     out = build_synced_config(src, tgt, frozenset({"finish"}), None)
     assert out.finish == src.finish
     assert out.retouch.dust_threshold == src.retouch.dust_threshold
     assert out.retouch.manual_dust_spots == tgt.retouch.manual_dust_spots  # frame-specific, preserved
+    assert out.retouch.manual_heal_strokes == tgt.retouch.manual_heal_strokes  # frame-specific, preserved
     assert out.geometry == tgt.geometry
 
 
@@ -107,6 +117,7 @@ def test_all_aspects_checked_keeps_frame_specifics_and_untouched_fields():
     assert out.finish == src.finish
     assert out.process.process_mode == src.process.process_mode
     assert out.retouch.manual_dust_spots == tgt.retouch.manual_dust_spots
+    assert out.retouch.manual_heal_strokes == tgt.retouch.manual_heal_strokes
     assert out.process.local_floors == tgt.process.local_floors  # per-frame meter preserved
     assert out.process.locked_floors == _BOUNDS[0]
     assert out.process.locked_ceils == _BOUNDS[1]

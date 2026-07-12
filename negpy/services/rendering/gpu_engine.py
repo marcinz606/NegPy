@@ -37,6 +37,7 @@ from negpy.features.geometry.logic import (
 from negpy.features.local.logic import compute_local_ev_map
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.features.retouch.logic import build_heal_regions
+from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
@@ -210,7 +211,7 @@ class GPUEngine:
             "normalization": 112,
             "exposure": 288,
             "clahe_u": 32,
-            "retouch_u": 64,
+            "retouch_u": 16,
             "lab": 96,
             "toning": 64,
             "finish": 32,
@@ -227,9 +228,10 @@ class GPUEngine:
         self._clip_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
         self._last_scale_factor: float = 1.0
-        self._pending_ir_buffer: Optional[np.ndarray] = None
-        self._ir_upload_key: Optional[Tuple[int, Any, int, int]] = None
         self._retouch_num_regions = 0
+        # Region build+upload cache — retouch re-dispatches on every exposure
+        # frame, and rebuilds aren't free at hundreds of synthesized regions.
+        self._retouch_regions_key: Optional[tuple] = None
 
         # Bind groups reference resources, not contents, so they survive across frames;
         # cache and reuse (cleared in cleanup()). Saves ~28 wgpu calls per frame.
@@ -309,6 +311,8 @@ class GPUEngine:
         """Initializes hardware pipelines and persistent buffers."""
         if self._pipelines or not self.gpu.device:
             return
+        # Buffers are recreated below — force the next region upload.
+        self._retouch_regions_key = None
         t0 = time.perf_counter()
         device = self.gpu.device
         self._sampler = device.create_sampler(min_filter="linear", mag_filter="linear")
@@ -331,9 +335,9 @@ class GPUEngine:
             65536,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
         )
-        # 512 heal regions × 32 B, and 16K polyline/boundary points × 8 B.
+        # 512 heal regions × 32 B, and 32K polyline/boundary points × 8 B.
         self._buffers["retouch_s"] = GPUBuffer(16384, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
-        self._buffers["retouch_p"] = GPUBuffer(131072, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        self._buffers["retouch_p"] = GPUBuffer(262144, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["metrics"] = GPUBuffer(
             METRICS_BUFFER_SIZE,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
@@ -390,7 +394,6 @@ class GPUEngine:
         render_size_ref: Optional[float] = None,
         source_hash: Optional[str] = None,
         readback_metrics: bool = True,
-        ir_buffer: Optional[np.ndarray] = None,
         vignette_full_crop: Optional[Tuple[int, int, int, int]] = None,
         local_ev: Optional[np.ndarray] = None,
         analysis_source_hash: Optional[str] = None,
@@ -404,7 +407,6 @@ class GPUEngine:
         """
         if not self.gpu.is_available:
             raise RuntimeError("GPU not available")
-        self._pending_ir_buffer = ir_buffer
         self._init_resources()
         device = self.gpu.device
         assert device is not None
@@ -600,7 +602,6 @@ class GPUEngine:
             settings.geometry,
             global_offset,
             actual_full_dims,
-            scale_factor,
             distortion_k1=k1_eff,
         )
         self._upload_unified_uniforms(
@@ -654,12 +655,6 @@ class GPUEngine:
             h_rot,
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING,
             "ret",
-        )
-        tex_ir = self._get_intermediate_texture(
-            w_rot,
-            h_rot,
-            wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
-            "ir",
         )
         tex_lab = self._get_intermediate_texture(
             w_rot,
@@ -782,19 +777,6 @@ class GPUEngine:
             prev_tex = tex_expo
 
         if start_stage <= 3:
-            if settings.retouch.ir_dust_remove and self._pending_ir_buffer is not None:
-                if tiling_mode:
-                    # Tiled export pre-transforms + slices IR per tile in _process_tiled,
-                    # so upload it as-is. Cache key doesn't help (each tile is a fresh slice).
-                    ir_for_gpu = np.ascontiguousarray(self._pending_ir_buffer.astype(np.float32))
-                    tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
-                    self._ir_upload_key = None
-                else:
-                    upload_key = (id(self._pending_ir_buffer), settings.geometry, w_rot, h_rot, k1_eff)
-                    if upload_key != self._ir_upload_key:
-                        ir_for_gpu = self._transform_ir_for_gpu(self._pending_ir_buffer, settings.geometry, w_rot, h_rot, k1_eff)
-                        tex_ir.upload(np.stack([ir_for_gpu] * 3, axis=-1))
-                        self._ir_upload_key = upload_key
             self._dispatch_pass(
                 enc,
                 "retouch",
@@ -803,8 +785,7 @@ class GPUEngine:
                     (1, tex_ret.view),
                     (2, self._get_uniform_binding("retouch_u")),
                     (3, self._buffers["retouch_s"]),
-                    (4, tex_ir.view),
-                    (5, self._buffers["retouch_p"]),
+                    (4, self._buffers["retouch_p"]),
                 ],
                 w_rot,
                 h_rot,
@@ -1203,22 +1184,12 @@ class GPUEngine:
             + b"\x00" * 8
         )
 
-        ret = settings.retouch
-        ir_active = 1 if (ret.ir_dust_remove and self._pending_ir_buffer is not None) else 0
         r_u_data = struct.pack(
-            "ffIIiiIIfIff",
-            float(ret.dust_threshold),
-            float(ret.dust_size),
+            "IIii",
             self._retouch_num_regions,
-            (1 if ret.dust_remove else 0),
+            0,
             offset[0],
             offset[1],
-            full_dims[0],
-            full_dims[1],
-            float(scale_factor),
-            ir_active,
-            float(1.0 - ret.ir_threshold),
-            float(ret.ir_inpaint_radius),
         )
 
         lab = settings.lab
@@ -1299,34 +1270,6 @@ class GPUEngine:
             raise RuntimeError("GPU device lost")
         self.gpu.device.queue.write_buffer(self._buffers["unified_u"].buffer, 0, full_buffer)
 
-    def _transform_ir_for_gpu(
-        self,
-        ir_raw: np.ndarray,
-        geom: Any,
-        w_rot: int,
-        h_rot: int,
-        distortion_k1: float = 0.0,
-    ) -> np.ndarray:
-        """CPU-transforms the IR sidecar (rotation, flip, fine rotation, lens distortion)
-        so it aligns with the geometry-transformed RGB texture the retouch shader samples."""
-        import cv2
-
-        ir = ir_raw
-        if geom.rotation % 4 != 0:
-            ir = np.rot90(ir, k=geom.rotation % 4)
-        if geom.flip_horizontal:
-            ir = np.fliplr(ir)
-        if geom.flip_vertical:
-            ir = np.flipud(ir)
-        ir = np.ascontiguousarray(ir.astype(np.float32))
-        if geom.fine_rotation != 0.0:
-            ir = apply_fine_rotation(ir, geom.fine_rotation)
-        if distortion_k1 != 0.0:
-            ir = apply_radial_distortion(ir, distortion_k1)
-        if ir.shape[:2] != (h_rot, w_rot):
-            ir = cv2.resize(ir, (w_rot, h_rot), interpolation=cv2.INTER_LINEAR)
-        return np.ascontiguousarray(ir.astype(np.float32))
-
     def _update_retouch_storage(
         self,
         conf: Any,
@@ -1334,10 +1277,13 @@ class GPUEngine:
         geom: Any,
         offset: Tuple[int, int],
         full_dims: Tuple[int, int],
-        scale_factor: float,
         distortion_k1: float = 0.0,
     ) -> None:
-        """Uploads manual heal regions (capsule chains + boundary loops) to GPU storage."""
+        """Uploads heal regions (capsule chains + boundary loops) to GPU storage."""
+        key = (conf.manual_heal_strokes, conf.manual_dust_spots, orig_shape, geom, full_dims, distortion_k1)
+        if key == self._retouch_regions_key:
+            return
+        self._retouch_regions_key = key
         self._retouch_num_regions = 0
         if not (conf.manual_heal_strokes or conf.manual_dust_spots):
             return
@@ -1351,7 +1297,6 @@ class GPUEngine:
             geom.flip_horizontal,
             geom.flip_vertical,
             distortion_k1,
-            scale_factor,
             full_dims,
         )
         n_entries = len(conf.manual_heal_strokes) + len(conf.manual_dust_spots)
@@ -1369,7 +1314,7 @@ class GPUEngine:
                 int(reg_i[k, 2]),
                 int(reg_i[k, 3]),
                 float(reg_f[k, 0]),
-                0.0,
+                float(reg_f[k, 3]),
                 float(reg_f[k, 1]),
                 float(reg_f[k, 2]),
             )
@@ -1599,7 +1544,6 @@ class GPUEngine:
         settings: WorkspaceConfig,
         scale_factor: float = 1.0,
         bounds_override: Optional[Any] = None,
-        ir_buffer: Optional[np.ndarray] = None,
         readback_metrics: bool = True,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """High-level processing entry point with automatic tiling."""
@@ -1609,13 +1553,12 @@ class GPUEngine:
         rot = settings.geometry.rotation % 4
         w_rot, h_rot = (h, w) if rot in (1, 3) else (w, h)
         if w_rot > max_tex or h_rot > max_tex or (w * h > TILING_THRESHOLD_PX):
-            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override, ir_buffer=ir_buffer)
+            return self._process_tiled(img, settings, scale_factor, bounds_override=bounds_override)
         tex_final, metrics = self.process_to_texture(
             img,
             settings,
             scale_factor=scale_factor,
             bounds_override=bounds_override,
-            ir_buffer=ir_buffer,
             readback_metrics=readback_metrics,
         )
         return self._readback_downsampled(tex_final), metrics
@@ -1626,7 +1569,6 @@ class GPUEngine:
         settings: WorkspaceConfig,
         scale_factor: float,
         bounds_override: Optional[Any] = None,
-        ir_buffer: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Processes ultra-high resolution images using memory-efficient tiling."""
         h, w = img.shape[:2]
@@ -1645,16 +1587,6 @@ class GPUEngine:
             img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
         if k1_eff != 0.0:
             img_rot = apply_radial_distortion(img_rot, k1_eff)
-
-        # Pre-transform IR once into the post-geometry frame; tiles slice it directly.
-        ir_rot: Optional[np.ndarray] = None
-        if ir_buffer is not None and settings.retouch.ir_dust_remove:
-            h_rot_full, w_rot_full = img_rot.shape[:2]
-            try:
-                ir_rot = self._transform_ir_for_gpu(ir_buffer, settings.geometry, w_rot_full, h_rot_full, k1_eff)
-            except Exception as e:
-                logger.warning(f"IR pre-transform failed for tiled export; skipping IR dust removal: {e}")
-                ir_rot = None
 
         # Rasterise the dodge/burn EV map once at full post-geometry resolution;
         # tiles slice it directly (same pattern as IR above).
@@ -1773,16 +1705,18 @@ class GPUEngine:
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
-        # Manual heals sample up to radius + |source offset| beyond a pixel, so the
+        # Heal regions sample up to radius + |source offset| beyond a pixel, so the
         # halo must grow with them or tile-edge heals read clamped garbage.
         halo = TILE_HALO
         ret = settings.retouch
-        for _pts, size, sdx, sdy in ret.manual_heal_strokes:
+        ref_scale = max(w_rot, h_rot) / HEAL_SIZE_REF
+        for stroke in ret.manual_heal_strokes:
+            size, sdx, sdy = stroke[1], stroke[2], stroke[3]
             off_px = float(np.hypot(sdx * w_rot, sdy * h_rot))
-            halo = max(halo, int(np.ceil(size * scale_factor + off_px)) + 2)
+            halo = max(halo, int(np.ceil(size * ref_scale * 0.5 + off_px)) + 2)
         for _x, _y, size in ret.manual_dust_spots:
-            # Legacy spots get a golden-angle fallback offset of 2.6·radius.
-            halo = max(halo, int(np.ceil(size * scale_factor * 3.6)) + 2)
+            # Legacy spots get a golden-angle fallback offset of 2.6·size px.
+            halo = max(halo, int(np.ceil(size * (ref_scale * 0.5 + 2.6))) + 2)
         halo = min(halo, 512)
 
         for ty in range(0, crop_h, TILE_SIZE):
@@ -1793,7 +1727,6 @@ class GPUEngine:
                     min(w_rot, x1 + tx + tw + halo),
                     min(h_rot, y1 + ty + th + halo),
                 )
-                ir_tile = np.ascontiguousarray(ir_rot[iy1:iy2, ix1:ix2]) if ir_rot is not None else None
                 ev_tile = np.ascontiguousarray(local_ev_rot[iy1:iy2, ix1:ix2]) if local_ev_rot is not None else None
                 ox, oy = x1 + tx - ix1, y1 + ty - iy1
                 tile_res, _ = self.process_to_texture(
@@ -1810,7 +1743,6 @@ class GPUEngine:
                     full_dims=(w_rot, h_rot),
                     clahe_cdf_override=global_cdfs,
                     apply_layout=False,
-                    ir_buffer=ir_tile,
                     vignette_full_crop=(crop_w, crop_h, tx - ox, ty - oy),
                     local_ev=ev_tile,
                 )
@@ -1835,7 +1767,6 @@ class GPUEngine:
         # Bind groups reference the destroyed views — drop them.
         self._bind_group_cache.clear()
         self._bind_layout_cache.clear()
-        self._ir_upload_key = None
         self._uv_grid_cache = None
         if collect:
             gc.collect()
