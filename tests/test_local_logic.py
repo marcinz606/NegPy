@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.geometry.logic import smooth_polyline
 from negpy.features.local.logic import compute_local_ev_map
 from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
 
@@ -52,6 +53,36 @@ class TestComputeEvMap(unittest.TestCase):
         self.assertGreaterEqual(float(ev.min()), 0.0)
         self.assertLessEqual(float(ev.max()), 1.0 + 1e-5)
         self.assertGreater(float(ev[50, 50]), 0.9)
+
+
+class TestSmoothPolyline(unittest.TestCase):
+    """Mask outlines and heal paths are always drawn as a Catmull-Rom curve."""
+
+    def test_short_input_returned_unchanged(self) -> None:
+        self.assertEqual(smooth_polyline([(0.0, 0.0), (1.0, 1.0)]), [(0.0, 0.0), (1.0, 1.0)])
+
+    def test_closed_interpolates_control_points(self) -> None:
+        sq = [(0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75)]
+        out = smooth_polyline(sq, closed=True, samples_per_seg=8)
+        self.assertEqual(len(out), 4 * 8)  # denser than the 4 control points
+        for i, p in enumerate(sq):  # each control point is the t=0 sample of its segment
+            self.assertAlmostEqual(out[i * 8][0], p[0])
+            self.assertAlmostEqual(out[i * 8][1], p[1])
+
+    def test_open_keeps_endpoints(self) -> None:
+        line = [(0.1, 0.1), (0.5, 0.2), (0.9, 0.1)]
+        out = smooth_polyline(line, closed=False, samples_per_seg=8)
+        self.assertEqual(out[0], (0.1, 0.1))
+        self.assertEqual(out[-1], (0.9, 0.1))
+        self.assertGreater(len(out), len(line))
+
+    def test_smoothed_square_mask_still_fills_interior(self) -> None:
+        # Smoothing is unconditional in compute_local_ev_map; the interior/exterior
+        # invariants the pipeline relies on must survive it.
+        cfg = LocalAdjustmentsConfig(masks=(_center_square_mask(1.0),))
+        ev = compute_local_ev_map(cfg, 100, 100, (100, 100))
+        self.assertAlmostEqual(float(ev[50, 50]), 1.0, places=5)
+        self.assertAlmostEqual(float(ev[5, 5]), 0.0, places=5)
 
 
 class TestLocalSerialization(unittest.TestCase):

@@ -55,6 +55,20 @@ def test_enter_ignores_incomplete_lasso() -> None:
     assert len(overlay._lasso_pts) == 2
 
 
+def test_inflight_points_track_view_rect_change() -> None:
+    # Zoom/pan while drawing must keep placed points pinned to the image, not the screen.
+    overlay = _overlay_with_view()  # old rect (0,0,100,100)
+    overlay._lasso_pts = [QPointF(25, 25), QPointF(75, 50)]
+    overlay._scratch_pts = [QPointF(50, 50)]
+    old = QRectF(0, 0, 100, 100)
+    overlay._view_rect = QRectF(50, 50, 200, 200)  # new zoomed/panned rect
+    overlay._remap_inflight_points(old)
+    # (25,25) sits at viewport-norm (0.25,0.25) -> 50 + 0.25*200 = 100
+    assert overlay._lasso_pts[0] == QPointF(100, 100)
+    assert overlay._lasso_pts[1] == QPointF(200, 150)
+    assert overlay._scratch_pts[0] == QPointF(150, 150)
+
+
 def test_enter_noop_without_active_draw() -> None:
     overlay = _overlay_with_view()
     overlay.set_tool_mode(ToolMode.DUST_PICK)

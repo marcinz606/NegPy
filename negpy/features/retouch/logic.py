@@ -6,7 +6,7 @@ import numpy as np
 from numba import njit  # type: ignore
 
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
-from negpy.features.geometry.logic import map_coords_to_geometry
+from negpy.features.geometry.logic import map_coords_to_geometry, smooth_polyline
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working_oetf_encode
 from negpy.kernel.image.validation import ensure_image
@@ -661,6 +661,9 @@ def build_heal_regions(
 
     for points, size, sdx, sdy, gate in entries[:max_regions]:
         chain = np.array([_map(p[0], p[1]) for p in points], dtype=np.float32)
+        # Curve the heal band through its waypoints (spots/2-point strokes unaffected).
+        if len(chain) >= 3:
+            chain = np.array(smooth_polyline([(float(x), float(y)) for x, y in chain], closed=False), dtype=np.float32)
         # Brush size is a DIAMETER at HEAL_SIZE_REF scale: the footprint must match
         # the cursor (overlay._brush_screen_radius draws size/(2·HEAL_SIZE_REF)).
         radius = max(1.0, float(size) * (max(fw, fh) / HEAL_SIZE_REF) * 0.5)

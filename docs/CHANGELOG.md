@@ -6,6 +6,8 @@
 - Change: **One healing engine for everything** — Auto Dust and IR removal now use the same texture-preserving clone as the manual Heal tool instead of the old smoothed fill. Hairs and scratches are traced along their length.
 - Change: **Better heals across the board** — clone sources are picked by how well they match the surroundings, heal edges feather with brush size, and the halo around auto-fixed spots is gone.
 - Change: **Dust detection is stable and WYSIWYG** — defects are detected once on the source scan: the detected set no longer shifts while you drag sliders, and preview and export heal exactly the same spots.
+- New: **Editable Dodge & Burn masks** — the panel lists every mask you've drawn; pick one to select it, then reshape it right on the canvas (drag a point to move it, click an edge to add a point, right-click a point to remove it) and tune its sliders — no need to redraw from scratch.
+- Change: **Smoother masks and scratch heals** — Dodge & Burn mask outlines and Scratch heal strokes now follow smooth curves through their points instead of straight segments, and the line previews curved as you draw it.
 - New: **Auto Dust works on slides** — E-6 positives get automatic dust removal for the first time.
 - New: **Crosstalk matrix editor** — a Manage button beside the Process → Crosstalk dropdown opens an editor: browse the bundled matrices (read-only), make an editable copy, adjust the channel-mixing terms with live preview, and save your own profiles as `.toml` files in the NegPy/crosstalk folder.
 - Fix: presets no longer embed the source frame's heal strokes, and Apply settings no longer overwrites other frames' heals.

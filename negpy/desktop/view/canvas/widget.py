@@ -109,6 +109,8 @@ class ImageCanvas(QWidget):
     scratch_completed = pyqtSignal(list)
     straighten_completed = pyqtSignal(float)
     local_mask_selected = pyqtSignal(int)
+    local_mask_edited = pyqtSignal(int, list)
+    local_vertex_deleted = pyqtSignal(int, int)
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -160,6 +162,8 @@ class ImageCanvas(QWidget):
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
         self.overlay.straighten_completed.connect(self.straighten_completed.emit)
         self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
+        self.overlay.local_mask_edited.connect(self.local_mask_edited.emit)
+        self.overlay.local_vertex_deleted.connect(self.local_vertex_deleted.emit)
 
         self.hud = CanvasHud(self)
         self._floating_toolbar: Optional[QWidget] = None
@@ -525,6 +529,11 @@ class ImageCanvas(QWidget):
         # settings menu would be noise mid-retouch.
         if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
             self._exec_retouch_menu(event)
+            return
+
+        # Right-click on a selected mask's vertex deletes that point (no menu).
+        if self.state.active_tool in (ToolMode.NONE, ToolMode.LOCAL_DRAW) and self.overlay.try_delete_local_vertex(QPointF(event.pos())):
+            event.accept()
             return
 
         menu = QMenu(self)

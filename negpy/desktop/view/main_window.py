@@ -328,6 +328,8 @@ class MainWindow(QMainWindow):
         self.canvas.scratch_completed.connect(self.controller.handle_heal_stroke_completed)
         self.canvas.straighten_completed.connect(self.controller.handle_straighten_completed)
         self.canvas.local_mask_selected.connect(self.controller.select_local_mask)
+        self.canvas.local_mask_edited.connect(self.controller.handle_local_mask_edited)
+        self.canvas.local_vertex_deleted.connect(self.controller.delete_local_vertex)
 
         self.controller.export_progress.connect(self._on_export_progress)
         self.controller.export_finished.connect(self._on_export_finished)

@@ -12,7 +12,7 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.geometry.logic import rotation_drag_angle, straighten_delta_degrees, translate_manual_crop_rect
+from negpy.features.geometry.logic import rotation_drag_angle, smooth_polyline, straighten_delta_degrees, translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
 from negpy.features.retouch.models import HEAL_SIZE_REF
 
@@ -82,6 +82,8 @@ class CanvasOverlay(QWidget):
     lasso_completed = pyqtSignal(list)
     scratch_completed = pyqtSignal(list)
     local_mask_selected = pyqtSignal(int)
+    local_mask_edited = pyqtSignal(int, list)  # (mask index, viewport-normalized vertices)
+    local_vertex_deleted = pyqtSignal(int, int)  # (mask index, vertex index)
     straighten_completed = pyqtSignal(float)  # fine-rotation delta, stored convention (CCW+)
 
     def __init__(self, state: AppState, parent=None):
@@ -128,6 +130,10 @@ class CanvasOverlay(QWidget):
         self._scratch_pts: List[QPointF] = []
         self._local_mask_screen_polys: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
+
+        # Working screen points while a selected-mask vertex is dragged/added.
+        self._local_edit_verts: Optional[List[QPointF]] = None
+        self._local_drag_vertex: Optional[int] = None
 
         # Straighten tool: reference-line drag (press -> drag -> release applies).
         self._straighten_p1: Optional[QPointF] = None
@@ -218,12 +224,17 @@ class CanvasOverlay(QWidget):
         if mode != ToolMode.LOCAL_DRAW:
             self._lasso_pts = []
             self._lasso_drawing = False
+            self._end_local_edit()
         if mode != ToolMode.SCRATCH_PICK:
             self._scratch_pts = []
         if mode != ToolMode.STRAIGHTEN:
             self._straighten_p1 = None
             self._straighten_p2 = None
         self.update()
+
+    def _end_local_edit(self) -> None:
+        self._local_edit_verts = None
+        self._local_drag_vertex = None
 
     def _end_crop_drag(self) -> None:
         self._crop_drag_mode = None
@@ -286,6 +297,7 @@ class CanvasOverlay(QWidget):
         self.update()
 
     def _recalc_view_rect(self) -> None:
+        old_rect = self._view_rect
         size = None
         if self._qimage:
             size = self._qimage.size()
@@ -310,6 +322,30 @@ class CanvasOverlay(QWidget):
         center_y = (h / 2) + (self.pan_y * h)
 
         self._view_rect = QRectF(center_x - (final_w / 2), center_y - (final_h / 2), final_w, final_h)
+        self._remap_inflight_points(old_rect)
+
+    def _remap_inflight_points(self, old: QRectF) -> None:
+        """Repin in-progress screen points to the image when the view rect changes
+        (zoom/pan/resize mid-draw), so the preview tracks the image, not the screen."""
+        new = self._view_rect
+        if old.isEmpty() or new.isEmpty() or old == new:
+            return
+
+        def remap(p: QPointF) -> QPointF:
+            nx = (p.x() - old.x()) / old.width()
+            ny = (p.y() - old.y()) / old.height()
+            return QPointF(new.x() + nx * new.width(), new.y() + ny * new.height())
+
+        if self._lasso_pts:
+            self._lasso_pts = [remap(p) for p in self._lasso_pts]
+        if self._scratch_pts:
+            self._scratch_pts = [remap(p) for p in self._scratch_pts]
+        if self._local_edit_verts is not None:
+            self._local_edit_verts = [remap(p) for p in self._local_edit_verts]
+        if self._straighten_p1 is not None:
+            self._straighten_p1 = remap(self._straighten_p1)
+        if self._straighten_p2 is not None:
+            self._straighten_p2 = remap(self._straighten_p2)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -380,7 +416,12 @@ class CanvasOverlay(QWidget):
                 painter.drawLine(QPointF(visible_rect.x(), self._mouse_pos.y()), QPointF(visible_rect.right(), self._mouse_pos.y()))
                 painter.drawLine(QPointF(self._mouse_pos.x(), visible_rect.top()), QPointF(self._mouse_pos.x(), visible_rect.bottom()))
 
-        show_masks = getattr(self.state, "show_local_overlay", False) or self._tool_mode == ToolMode.LOCAL_DRAW
+        selected_present = getattr(self.state, "local_selected_mask", -1) >= 0
+        show_masks = (
+            getattr(self.state, "show_local_overlay", False)
+            or self._tool_mode == ToolMode.LOCAL_DRAW
+            or (self._tool_mode == ToolMode.NONE and selected_present)
+        )
         if show_masks:
             self._draw_local_masks(painter)
         if self._tool_mode == ToolMode.LOCAL_DRAW:
@@ -454,6 +495,18 @@ class CanvasOverlay(QWidget):
         max_screen_dim = max(self._view_rect.width(), self._view_rect.height())
         return (size / (2.0 * HEAL_SIZE_REF)) * max_screen_dim
 
+    def _preview_curve_path(self, pts: List[QPointF]) -> QPainterPath:
+        """Smoothed path through the placed points plus the live cursor."""
+        scr = [(p.x(), p.y()) for p in pts]
+        if self._view_rect.contains(self._mouse_pos):
+            scr.append((self._mouse_pos.x(), self._mouse_pos.y()))
+        if len(scr) >= 3:
+            scr = smooth_polyline(scr, closed=False)
+        path = QPainterPath(QPointF(*scr[0]))
+        for x, y in scr[1:]:
+            path.lineTo(QPointF(x, y))
+        return path
+
     def _draw_scratch_in_progress(self, painter: QPainter) -> None:
         if not self._scratch_pts:
             return
@@ -464,11 +517,7 @@ class CanvasOverlay(QWidget):
         pen = QPen(band, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        path = QPainterPath(self._scratch_pts[0])
-        for pt in self._scratch_pts[1:]:
-            path.lineTo(pt)
-        if self._view_rect.contains(self._mouse_pos):
-            path.lineTo(self._mouse_pos)
+        path = self._preview_curve_path(self._scratch_pts)
         painter.drawPath(path)
 
         centerline = QPen(Qt.GlobalColor.white, 1.0, Qt.PenStyle.SolidLine)
@@ -523,13 +572,16 @@ class CanvasOverlay(QWidget):
         pen.setCosmetic(True)
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
-        for points, size, _dx, _dy in conf.manual_heal_strokes:
+        for stroke in conf.manual_heal_strokes:
+            points, size = stroke[0], stroke[1]
             screen_pts = [self._raw_to_screen(px, py, uv_grid) for px, py in points]
             radius = max(2.0, self._brush_screen_radius(size))
             if len(screen_pts) == 1:
                 painter.setPen(pen)
                 painter.drawEllipse(screen_pts[0], radius, radius)
             else:
+                if len(screen_pts) >= 3:
+                    screen_pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in screen_pts], closed=False)]
                 band = QPen(
                     QColor(THEME.accent_primary), 2.0 * radius, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin
                 )
@@ -891,42 +943,82 @@ class CanvasOverlay(QWidget):
             if len(mask.vertices) < 3:
                 self._local_mask_screen_polys.append([])
                 continue
-            screen_pts = [self._raw_to_screen(rx, ry, uv_grid) for rx, ry in mask.vertices]
-            self._local_mask_screen_polys.append(screen_pts)
+            ctrl = [self._raw_to_screen(rx, ry, uv_grid) for rx, ry in mask.vertices]
+            self._local_mask_screen_polys.append(ctrl)
 
             is_selected = i == selected
+            working = self._local_edit_verts if is_selected else None
+            drag_this = working is not None
+            draw_ctrl = working if working is not None else ctrl
+            curve = smooth_polyline([(p.x(), p.y()) for p in draw_ctrl], closed=True)
             outline = QColor(232, 200, 74) if mask.strength >= 0 else QColor(74, 143, 232)
             max_alpha = 70 if is_selected else 32
 
-            sigma_screen = mask.feather * min(self._view_rect.width(), self._view_rect.height())
-            pad = 3.0 * sigma_screen + 2.0
-            xs = [p.x() for p in screen_pts]
-            ys = [p.y() for p in screen_pts]
-            x0, y0 = min(xs) - pad, min(ys) - pad
-            bw, bh = max(xs) + pad - x0, max(ys) + pad - y0
-            scale = min(1.0, _MASK_RASTER_MAX / max(bw, bh, 1.0))
-            rw, rh = max(int(bw * scale), 2), max(int(bh * scale), 2)
-            # Bbox-relative points are pan-invariant, so panning reuses the cache.
-            local = tuple((round((p.x() - x0) * scale, 1), round((p.y() - y0) * scale, 1)) for p in screen_pts)
+            # Skip the feathered fill mid-drag; it re-rasters every frame.
+            if not drag_this:
+                sigma_screen = mask.feather * min(self._view_rect.width(), self._view_rect.height())
+                pad = 3.0 * sigma_screen + 2.0
+                xs = [x for x, _ in curve]
+                ys = [y for _, y in curve]
+                x0, y0 = min(xs) - pad, min(ys) - pad
+                bw, bh = max(xs) + pad - x0, max(ys) + pad - y0
+                scale = min(1.0, _MASK_RASTER_MAX / max(bw, bh, 1.0))
+                rw, rh = max(int(bw * scale), 2), max(int(bh * scale), 2)
+                # Bbox-relative points are pan-invariant, so panning reuses the cache.
+                local = tuple((round((x - x0) * scale, 1), round((y - y0) * scale, 1)) for x, y in curve)
 
-            key = (local, rw, rh, round(sigma_screen * scale, 2), outline.rgb(), max_alpha)
-            img = self._mask_img_cache.get(key)
-            if img is None:
-                img = feathered_mask_image(local, rw, rh, sigma_screen * scale, outline, max_alpha)
-            fresh_cache[key] = img
-            painter.drawImage(QRectF(x0, y0, bw, bh), img)
+                key = (local, rw, rh, round(sigma_screen * scale, 2), outline.rgb(), max_alpha)
+                img = self._mask_img_cache.get(key)
+                if img is None:
+                    img = feathered_mask_image(local, rw, rh, sigma_screen * scale, outline, max_alpha)
+                fresh_cache[key] = img
+                painter.drawImage(QRectF(x0, y0, bw, bh), img)
 
             if is_selected:
                 outline_color = QColor(outline)
-                outline_color.setAlpha(160)
-                pen = QPen(outline_color, 2.0, Qt.PenStyle.SolidLine)
+                outline_color.setAlpha(200)
+                pen = QPen(outline_color, 2.6, Qt.PenStyle.SolidLine)
             else:
-                pen = QPen(QColor(255, 255, 255, 100), 1.0, Qt.PenStyle.SolidLine)
+                pen = QPen(QColor(255, 255, 255, 110), 1.4, Qt.PenStyle.SolidLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPolygon(QPolygonF(screen_pts))
+            painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in curve]))
+
+            if is_selected and self._tool_mode in (ToolMode.NONE, ToolMode.LOCAL_DRAW) and not self._lasso_drawing:
+                self._draw_local_handles(painter, draw_ctrl, outline)
         self._mask_img_cache = fresh_cache
+
+    def _draw_local_handles(self, painter: QPainter, ctrl_pts: List[QPointF], color: QColor) -> None:
+        """Draggable vertices + '+' discs on edge midpoints for the selected mask."""
+        n = len(ctrl_pts)
+        if n < 2:
+            return
+
+        # Edge-midpoint "add point" handles: white disc with a plus glyph.
+        plus_pen = QPen(QColor(35, 35, 35, 235), 1.5)
+        plus_pen.setCosmetic(True)
+        for i in range(n):
+            a, b = ctrl_pts[i], ctrl_pts[(i + 1) % n]
+            m = QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(0, 0, 0, 130))
+            painter.drawEllipse(m, 6.0, 6.0)
+            painter.setBrush(QColor(255, 255, 255, 220))
+            painter.drawEllipse(m, 5.0, 5.0)
+            painter.setPen(plus_pen)
+            painter.drawLine(QPointF(m.x() - 2.6, m.y()), QPointF(m.x() + 2.6, m.y()))
+            painter.drawLine(QPointF(m.x(), m.y() - 2.6), QPointF(m.x(), m.y() + 2.6))
+
+        # White halo behind a solid coloured core so vertices read on any image.
+        core = QColor(color)
+        core.setAlpha(255)
+        for p in ctrl_pts:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 255, 255, 240))
+            painter.drawEllipse(p, 7.0, 7.0)
+            painter.setBrush(core)
+            painter.drawEllipse(p, 5.0, 5.0)
 
     def _draw_lasso_in_progress(self, painter: QPainter) -> None:
         if not self._lasso_drawing or not self._lasso_pts:
@@ -937,12 +1029,7 @@ class CanvasOverlay(QWidget):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
-        path = QPainterPath(self._lasso_pts[0])
-        for pt in self._lasso_pts[1:]:
-            path.lineTo(pt)
-        if self._view_rect.contains(self._mouse_pos):
-            path.lineTo(self._mouse_pos)
-        painter.drawPath(path)
+        painter.drawPath(self._preview_curve_path(self._lasso_pts))
 
         first = self._lasso_pts[0]
         near_close = len(self._lasso_pts) >= 3 and (self._mouse_pos - first).manhattanLength() < _LASSO_SNAP_PX * 2
@@ -962,6 +1049,15 @@ class CanvasOverlay(QWidget):
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        # A selected mask is editable even without the Draw Mask tool (grab a handle).
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._tool_mode == ToolMode.NONE
+            and self._try_start_vertex_edit(event.position())
+        ):
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.MiddleButton or (
             event.button() == Qt.MouseButton.LeftButton and self.zoom_level > 1.0 and self._tool_mode == ToolMode.NONE
         ):
@@ -1085,6 +1181,14 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        if self._local_drag_vertex is not None and self._local_edit_verts is not None and not self._view_rect.isEmpty():
+            px = float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right()))
+            py = float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom()))
+            self._local_edit_verts[self._local_drag_vertex] = QPointF(px, py)
+            self.update()
+            event.accept()
+            return
+
         # Hovering the crop tool (no drag in progress): reflect the action under the
         # cursor — rotate handle, corner resize, interior move, or draw — right away.
         if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
@@ -1184,11 +1288,71 @@ class CanvasOverlay(QWidget):
 
         self.update()
 
+    def _selected_mask_screen_pts(self) -> Optional[List[QPointF]]:
+        idx = getattr(self.state, "local_selected_mask", -1)
+        if 0 <= idx < len(self._local_mask_screen_polys):
+            pts = self._local_mask_screen_polys[idx]
+            return pts if len(pts) >= 3 else None
+        return None
+
+    def _hit_local_vertex(self, pos: QPointF, pts: List[QPointF]) -> Optional[int]:
+        for i, p in enumerate(pts):
+            dx, dy = pos.x() - p.x(), pos.y() - p.y()
+            if dx * dx + dy * dy <= _CROP_HANDLE_PX * _CROP_HANDLE_PX:
+                return i
+        return None
+
+    def _hit_local_edge_midpoint(self, pos: QPointF, pts: List[QPointF]) -> Optional[int]:
+        """Index i of the edge (i, i+1) whose midpoint handle is under `pos`."""
+        n = len(pts)
+        for i in range(n):
+            a, b = pts[i], pts[(i + 1) % n]
+            mx, my = (a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0
+            dx, dy = pos.x() - mx, pos.y() - my
+            if dx * dx + dy * dy <= _CROP_HANDLE_PX * _CROP_HANDLE_PX:
+                return i
+        return None
+
+    def try_delete_local_vertex(self, pos: QPointF) -> bool:
+        """Right-click on a selected-mask vertex removes it. Returns True if handled."""
+        pts = self._selected_mask_screen_pts()
+        if pts is None:
+            return False
+        vi = self._hit_local_vertex(pos, pts)
+        if vi is None:
+            return False
+        self.local_vertex_deleted.emit(getattr(self.state, "local_selected_mask", -1), vi)
+        return True
+
+    def _try_start_vertex_edit(self, pos: QPointF) -> bool:
+        """Grab a selected-mask vertex, or insert one at an edge midpoint; True if started."""
+        pts = self._selected_mask_screen_pts()
+        if pts is None:
+            return False
+        vi = self._hit_local_vertex(pos, pts)
+        if vi is not None:
+            self._local_edit_verts = list(pts)
+            self._local_drag_vertex = vi
+            self.update()
+            return True
+        ei = self._hit_local_edge_midpoint(pos, pts)
+        if ei is not None:
+            work = list(pts)
+            a, b = work[ei], work[(ei + 1) % len(work)]
+            work.insert(ei + 1, QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0))
+            self._local_edit_verts = work
+            self._local_drag_vertex = ei + 1
+            self.update()
+            return True
+        return False
+
     def _handle_lasso_press(self, pos: QPointF) -> None:
         if not self._view_rect.contains(pos):
             return
 
         if not self._lasso_drawing:
+            if self._try_start_vertex_edit(pos):
+                return
             for i, poly_pts in enumerate(self._local_mask_screen_polys):
                 if len(poly_pts) < 3:
                     continue
@@ -1330,6 +1494,24 @@ class CanvasOverlay(QWidget):
         if self.parent()._is_panning:
             self.parent()._is_panning = False
             self.parent().reset_tool_cursor()
+            event.accept()
+            return
+
+        if self._local_drag_vertex is not None:
+            verts = self._local_edit_verts or []
+            selected = getattr(self.state, "local_selected_mask", -1)
+            self._end_local_edit()
+            if verts and selected >= 0 and not self._view_rect.isEmpty():
+                w, h = self._view_rect.width(), self._view_rect.height()
+                vp = [
+                    (
+                        float(np.clip((p.x() - self._view_rect.x()) / w, 0.0, 1.0)),
+                        float(np.clip((p.y() - self._view_rect.y()) / h, 0.0, 1.0)),
+                    )
+                    for p in verts
+                ]
+                self.local_mask_edited.emit(selected, vp)
+            self.update()
             event.accept()
             return
 

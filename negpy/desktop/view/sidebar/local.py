@@ -1,4 +1,6 @@
-from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem
 import qtawesome as qta
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -17,8 +19,10 @@ class LocalSidebar(BaseSidebar):
         self.draw_btn = self._tool_toggle(
             "fa5s.draw-polygon",
             "Draw Mask",
-            "Click to place vertices; double-click, Enter, or a click near the start closes. "
-            "Click inside an existing mask to select it. Esc cancels the current shape.",
+            "Draw a new mask: click to place vertices; double-click, Enter, or a click near "
+            "the start closes; Esc cancels. Select a mask from the list to edit it (no need to "
+            "re-enter this tool): drag a vertex to move it, click an edge '+' dot to add a point, "
+            "right-click a vertex to delete it.",
         )
         self.show_btn = self._small_toggle("fa5s.eye", "Show Masks", False, "Show or hide the mask outlines on the canvas")
 
@@ -26,6 +30,12 @@ class LocalSidebar(BaseSidebar):
         button_row.addWidget(self.draw_btn)
         button_row.addWidget(self.show_btn)
         self.layout.addLayout(button_row)
+
+        self.mask_list = QListWidget()
+        self.mask_list.setToolTip("Click a mask to select it — then edit its points on the canvas and tune the sliders below.")
+        self.mask_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.mask_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.layout.addWidget(self.mask_list)
 
         self.strength_slider = CompactSlider("Strength", -1.0, 1.0, 0.3, step=0.05, precision=100, has_neutral=True, unit=" EV")
         self.strength_slider.setToolTip("EV adjustment for the selected mask — positive brightens (dodge), negative darkens (burn)")
@@ -59,6 +69,7 @@ class LocalSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         self.draw_btn.toggled.connect(self._on_draw_toggled)
         self.show_btn.toggled.connect(self.controller.set_local_overlay_visible)
+        self.mask_list.itemClicked.connect(lambda item: self.controller.select_local_mask(self.mask_list.row(item)))
         self.strength_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(strength=float(v)))
         self.feather_slider.valueChanged.connect(lambda v: self.controller.update_selected_local_mask(feather=float(v)))
         self.delete_btn.clicked.connect(self.controller.delete_selected_local_mask)
@@ -80,6 +91,22 @@ class LocalSidebar(BaseSidebar):
 
             idx = self.state.local_selected_mask
             has_selection = 0 <= idx < n
+
+            self.mask_list.blockSignals(True)
+            self.mask_list.clear()
+            for i, mask in enumerate(conf.masks):
+                kind = "Dodge" if mask.strength >= 0 else "Burn"
+                item = QListWidgetItem(f"{i + 1}.  {kind}   {mask.strength:+.2f} EV")
+                item.setForeground(QColor(232, 200, 74) if mask.strength >= 0 else QColor(74, 143, 232))
+                self.mask_list.addItem(item)
+            if has_selection:
+                self.mask_list.setCurrentRow(idx)
+            else:
+                self.mask_list.clearSelection()
+            self.mask_list.setVisible(n > 0)
+            if n:
+                self.mask_list.setFixedHeight(self.mask_list.sizeHintForRow(0) * n + 2 * self.mask_list.frameWidth())
+            self.mask_list.blockSignals(False)
             self.delete_btn.setEnabled(has_selection)
             self.strength_slider.setEnabled(has_selection)
             self.feather_slider.setEnabled(has_selection)

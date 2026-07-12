@@ -1,6 +1,6 @@
 import math
 from dataclasses import replace
-from typing import NamedTuple, Optional, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -1082,6 +1082,38 @@ def map_coords_to_geometry(
     ny_new = np.clip(py / max(h, 1), 0.0, 1.0)
 
     return float(nx_new), float(ny_new)
+
+
+def smooth_polyline(
+    pts: List[Tuple[float, float]],
+    closed: bool = True,
+    samples_per_seg: int = 16,
+) -> List[Tuple[float, float]]:
+    """Densify a polyline into a uniform Catmull-Rom curve through its points.
+
+    The curve interpolates every control point (a control point is the t=0 sample
+    of its segment). Fewer than 3 points are returned unchanged. `closed` wraps the
+    tangents so the loop joins smoothly; open keeps the endpoints fixed.
+    """
+    n = len(pts)
+    if n < 3:
+        return [(float(x), float(y)) for x, y in pts]
+
+    p = np.asarray(pts, dtype=np.float64)
+    t = np.linspace(0.0, 1.0, samples_per_seg, endpoint=False)[:, None]
+    t2, t3 = t * t, t * t * t
+    out: List[Tuple[float, float]] = []
+    n_seg = n if closed else n - 1
+    for i in range(n_seg):
+        p0 = p[(i - 1) % n] if closed else p[max(i - 1, 0)]
+        p1 = p[i]
+        p2 = p[(i + 1) % n] if closed else p[i + 1]
+        p3 = p[(i + 2) % n] if closed else p[min(i + 2, n - 1)]
+        seg = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+        out.extend((float(x), float(y)) for x, y in seg)
+    if not closed:
+        out.append((float(p[-1][0]), float(p[-1][1])))
+    return out
 
 
 def translate_manual_crop_rect(

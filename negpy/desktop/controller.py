@@ -1060,6 +1060,37 @@ class AppController(QObject):
         self.config_updated.emit()
         self.request_render()
 
+    def handle_local_mask_edited(self, index: int, viewport_vertices: list) -> None:
+        """Replace a mask's vertices after an on-canvas drag/add edit (persist on release)."""
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        local = self.state.config.local
+        if uv_grid is None or not (0 <= index < len(local.masks)) or len(viewport_vertices) < 3:
+            return
+        raw_vertices = tuple(CoordinateMapping.map_click_to_raw(nx, ny, uv_grid) for nx, ny in viewport_vertices)
+        masks = list(local.masks)
+        masks[index] = replace(masks[index], vertices=raw_vertices)
+        new_local = replace(local, masks=tuple(masks))
+        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
+        self.config_updated.emit()
+        self.request_render()
+
+    def delete_local_vertex(self, index: int, vertex_index: int) -> None:
+        """Remove one vertex from a mask (keeps a minimum of 3)."""
+        local = self.state.config.local
+        if not (0 <= index < len(local.masks)):
+            return
+        mask = local.masks[index]
+        if len(mask.vertices) <= 3 or not (0 <= vertex_index < len(mask.vertices)):
+            return
+        verts = mask.vertices[:vertex_index] + mask.vertices[vertex_index + 1 :]
+        masks = list(local.masks)
+        masks[index] = replace(mask, vertices=verts)
+        new_local = replace(local, masks=tuple(masks))
+        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
+        self.config_updated.emit()
+        self.request_render()
+
     def select_local_mask(self, index: int) -> None:
         self.state.local_selected_mask = index
         self.config_updated.emit()

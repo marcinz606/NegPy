@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.geometry.logic import map_coords_to_geometry
+from negpy.features.geometry.logic import map_coords_to_geometry, smooth_polyline
 
 
 def _rasterise_mask(
@@ -67,7 +67,7 @@ def compute_local_ev_map(
         ]
 
         sigma_px = mask.feather * short_side
-        alpha = _rasterise_mask(transformed, h, w, sigma_px)
+        alpha = _rasterise_mask(smooth_polyline(transformed, closed=True), h, w, sigma_px)
         ev += mask.strength * alpha
 
     return ev
