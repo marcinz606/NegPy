@@ -221,9 +221,21 @@ def test_read_settings_omits_a_property_with_no_choices(cam):
 
 def test_read_settings_shape_matches_the_ui_contract(cam):
     iso = cam.read_settings()["iso"]
-    assert iso["cur"] == 1  # index of "100"
+    assert iso["cur"] == 1  # index of "100" in the body's full choice list
     assert iso["writable"] is True
-    assert iso["options"] == [{"label": "Auto", "raw": 0}, {"label": "100", "raw": 1}, {"label": "200", "raw": 2}]
+    # "Auto" is dropped (a scan wants a fixed ISO); survivors keep their original raw index.
+    assert iso["options"] == [{"label": "100", "raw": 1}, {"label": "200", "raw": 2}]
+
+
+def test_read_settings_drops_auto_and_mfnr_pseudo_isos(fake):
+    # Sony lists "Auto ISO" and low "Multi Frame Noise Reduction" pseudo-ISOs the scan can't use.
+    fake.props["iso"] = _Widget(fake, "iso", "100", ["Auto ISO", "80 Multi Frame Noise Reduction", "100", "125"])
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+    options = camera.read_settings()["iso"]["options"]
+    assert [o["label"] for o in options] == ["100", "125"]  # only fixed numeric ISOs
+    assert [o["raw"] for o in options] == [2, 3]  # original positions in the full list
+    camera.close()
 
 
 # ---- capture ----------------------------------------------------------------

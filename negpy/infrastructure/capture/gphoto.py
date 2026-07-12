@@ -406,10 +406,19 @@ class GphotoCamera:
                 if not choices:
                     continue  # nothing to offer, and reading its value would segfault
                 current = _safe_value(self._gp, widget)
+                options = [{"label": label, "raw": i} for i, label in enumerate(choices)]
+                if key == "iso":
+                    # A scan wants a fixed, single-shot ISO. Sony also lists "Auto ISO" and the low
+                    # "50/64/80 Multi Frame Noise Reduction" pseudo-ISOs, which put the body in a
+                    # mode the scan can't use and left the stepper out of sync with the camera —
+                    # keep only the plain numeric ISOs (each keeps its original raw index).
+                    fixed = [o for o in options if o["label"].isdigit()]
+                    if fixed:
+                        options = fixed
                 out[key] = {
                     "cur": choices.index(current) if current in choices else -1,
                     "writable": not widget.get_readonly(),
-                    "options": [{"label": label, "raw": i} for i, label in enumerate(choices)],
+                    "options": options,
                 }
             return out
 
