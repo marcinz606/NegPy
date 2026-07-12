@@ -293,6 +293,48 @@ def test_translate_full_size_rect_no_movement():
     assert translate_manual_crop_rect(rect, 0.5, -0.5) == rect
 
 
+def test_straighten_horizontal_right_end_down_rotates_ccw():
+    from pytest import approx
+    from negpy.features.geometry.logic import straighten_delta_degrees
+
+    # Horizon drawn with the right end lower: lift it by rotating CCW (stored +).
+    assert straighten_delta_degrees(100.0, 5.0) == approx(2.8624, abs=1e-3)
+    # Same physical line drawn from the other end gives the same correction.
+    assert straighten_delta_degrees(-100.0, -5.0) == approx(2.8624, abs=1e-3)
+
+
+def test_straighten_horizontal_right_end_up_rotates_cw():
+    from pytest import approx
+    from negpy.features.geometry.logic import straighten_delta_degrees
+
+    assert straighten_delta_degrees(100.0, -5.0) == approx(-2.8624, abs=1e-3)
+
+
+def test_straighten_vertical_intent_snaps_to_plumb():
+    from pytest import approx
+    from negpy.features.geometry.logic import straighten_delta_degrees
+
+    # Building edge drawn bottom-to-top with the top leaning right (CW tilt):
+    # correct by rotating CCW (stored +).
+    assert straighten_delta_degrees(10.0, -100.0) == approx(5.7106, abs=1e-3)
+    # Top leaning left corrects CW (stored -).
+    assert straighten_delta_degrees(-10.0, -100.0) == approx(-5.7106, abs=1e-3)
+
+
+def test_straighten_exact_axes_need_no_correction():
+    from negpy.features.geometry.logic import straighten_delta_degrees
+
+    assert straighten_delta_degrees(50.0, 0.0) == 0.0
+    assert straighten_delta_degrees(0.0, 50.0) == 0.0
+
+
+def test_straighten_result_bounded_to_quarter_turn():
+    from negpy.features.geometry.logic import straighten_delta_degrees
+
+    for dx, dy in ((1, 1), (-1, 1), (1, -3), (7, 2), (-5, -9)):
+        assert -45.0 <= straighten_delta_degrees(float(dx), float(dy)) <= 45.0
+
+
 def test_rotate_rect_ccw_quarter_turn():
     from pytest import approx
     from negpy.features.geometry.logic import rotate_normalized_rect

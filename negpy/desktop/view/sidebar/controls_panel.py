@@ -431,6 +431,14 @@ class ControlsPanel(QWidget):
                 "manual_crop",
             )
         )
+        geo.straighten_btn.setToolTip(
+            tooltip_with_shortcut(
+                "Straighten with a reference line — draw along the horizon or a vertical edge "
+                "(a building, a door frame) and the image rotates to make it level or plumb. "
+                "Applies once per line; Esc cancels an in-progress line",
+                "straighten",
+            )
+        )
         geo.offset_slider.setToolTip(
             tooltip_with_shortcut(
                 "Insets the auto-crop border from the detected film edge. Positive = trim more; negative = bleed outside",
@@ -439,7 +447,7 @@ class ControlsPanel(QWidget):
         )
         geo.fine_rot_slider.setToolTip(
             tooltip_with_shortcut(
-                "Sub-degree rotation correction for tilted scans, applied after auto-crop",
+                "Sub-degree rotation correction for tilted scans: positive turns clockwise, negative counter-clockwise",
                 ["fine_rot_inc", "fine_rot_dec"],
             )
         )

@@ -1,3 +1,4 @@
+import math
 import sys
 from typing import Dict, List, Optional, Tuple
 
@@ -11,7 +12,7 @@ from negpy.desktop.converters import ImageConverter
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.crop_guides import CropGuide, guide_shapes
 from negpy.desktop.view.styles.theme import THEME
-from negpy.features.geometry.logic import rotation_drag_angle, translate_manual_crop_rect
+from negpy.features.geometry.logic import rotation_drag_angle, straighten_delta_degrees, translate_manual_crop_rect
 from negpy.features.local.logic import _rasterise_mask
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -64,6 +65,7 @@ class CanvasOverlay(QWidget):
     lasso_completed = pyqtSignal(list)
     scratch_completed = pyqtSignal(list)
     local_mask_selected = pyqtSignal(int)
+    straighten_completed = pyqtSignal(float)  # fine-rotation delta, stored convention (CCW+)
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -109,6 +111,10 @@ class CanvasOverlay(QWidget):
         self._scratch_pts: List[QPointF] = []
         self._local_mask_screen_polys: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
+
+        # Straighten tool: reference-line drag (press -> drag -> release applies).
+        self._straighten_p1: Optional[QPointF] = None
+        self._straighten_p2: Optional[QPointF] = None
 
         self.zoom_level: float = 1.0
         self.pan_x: float = 0.0
@@ -192,6 +198,9 @@ class CanvasOverlay(QWidget):
             self._lasso_drawing = False
         if mode != ToolMode.SCRATCH_PICK:
             self._scratch_pts = []
+        if mode != ToolMode.STRAIGHTEN:
+            self._straighten_p1 = None
+            self._straighten_p2 = None
         self.update()
 
     def _end_crop_drag(self) -> None:
@@ -219,6 +228,10 @@ class CanvasOverlay(QWidget):
             self.update()
         elif self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
             self._scratch_pts = []
+            self.update()
+        elif self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
+            self._straighten_p1 = None
+            self._straighten_p2 = None
             self.update()
 
     def update_buffer(
@@ -354,6 +367,8 @@ class CanvasOverlay(QWidget):
             self._draw_placed_heals(painter)
         if self._tool_mode == ToolMode.SCRATCH_PICK:
             self._draw_scratch_in_progress(painter)
+        if self._tool_mode == ToolMode.STRAIGHTEN:
+            self._draw_straighten_line(painter)
 
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
@@ -441,6 +456,36 @@ class CanvasOverlay(QWidget):
         painter.setBrush(QColor(255, 255, 255, 180))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(self._scratch_pts[0], 3.0, 3.0)
+
+    def _draw_straighten_line(self, painter: QPainter) -> None:
+        """Reference line being dragged with the straighten tool, plus a badge
+        previewing the correction (display convention: positive = clockwise)."""
+        if self._straighten_p1 is None or self._straighten_p2 is None:
+            return
+        p1, p2 = self._straighten_p1, self._straighten_p2
+
+        pen = QPen(Qt.GlobalColor.white, 1.5, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(p1, p2)
+        painter.setBrush(QColor(255, 255, 255, 200))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(p1, 3.0, 3.0)
+        painter.drawEllipse(p2, 3.0, 3.0)
+
+        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+        if math.hypot(dx, dy) < 8.0:
+            return
+        delta = straighten_delta_degrees(dx, dy)
+        vertical = abs(abs(math.degrees(math.atan2(dy, dx))) - 90.0) < 45.0
+        label = f"{'Plumb' if vertical else 'Level'}  {-delta:+.2f}°"
+        mid = QPointF((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0)
+        badge = QRectF(mid.x() - 52, mid.y() - 26, 104, 22)
+        painter.setBrush(QColor(0, 0, 0, 170))
+        painter.drawRoundedRect(badge, 4, 4)
+        painter.setPen(QColor(THEME.accent_primary))
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
 
     def _draw_placed_heals(self, painter: QPainter) -> None:
         """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""
@@ -764,7 +809,9 @@ class CanvasOverlay(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(badge, 4, 4)
             painter.setPen(QColor(THEME.accent_primary))
-            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, f"{self._rotate_current:+.2f}°")
+            # Badge shows the display convention (positive = clockwise on screen),
+            # matching the Fine Rotation slider; _rotate_current is stored-convention.
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, f"{-self._rotate_current:+.2f}°")
 
     def _analysis_rect_screen(self) -> Optional[QRectF]:
         """Screen rect for the current analysis region, or None if unset."""
@@ -903,6 +950,16 @@ class CanvasOverlay(QWidget):
                 self.update()
             event.accept()
             return
+
+        if self._tool_mode == ToolMode.STRAIGHTEN:
+            # Left-click draws the reference line; other buttons pass through.
+            if event.button() == Qt.MouseButton.LeftButton:
+                if self._view_rect.contains(event.position()):
+                    self._straighten_p1 = event.position()
+                    self._straighten_p2 = event.position()
+                    self.update()
+                event.accept()
+                return
 
         if self._tool_mode == ToolMode.ANALYSIS_DRAW:
             self._start_analysis_drag(event.position())
@@ -1059,6 +1116,15 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        if self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
+            self._straighten_p2 = QPointF(
+                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            self.update()
+            event.accept()
+            return
+
         if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None:
             mx = np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())
             my = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
@@ -1178,6 +1244,18 @@ class CanvasOverlay(QWidget):
         if self.parent()._is_panning:
             self.parent()._is_panning = False
             self.parent().reset_tool_cursor()
+            event.accept()
+            return
+
+        if self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
+            p1, p2 = self._straighten_p1, self._straighten_p2 or self._straighten_p1
+            self._straighten_p1 = None
+            self._straighten_p2 = None
+            dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+            # Ignore accidental clicks — a reference line needs some length.
+            if math.hypot(dx, dy) >= 8.0:
+                self.straighten_completed.emit(straighten_delta_degrees(dx, dy))
+            self.update()
             event.accept()
             return
 

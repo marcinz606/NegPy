@@ -23,6 +23,7 @@ class ToolMode(Enum):
     SCRATCH_PICK = auto()
     LOCAL_DRAW = auto()
     ANALYSIS_DRAW = auto()
+    STRAIGHTEN = auto()
 
 
 @dataclass

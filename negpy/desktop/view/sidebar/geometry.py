@@ -130,11 +130,31 @@ class GeometrySidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("ALIGNMENT"))
 
-        self.fine_rot_slider = CompactSlider("Fine Rotation", -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, conf.fine_rotation, unit="°")
-        self.fine_rot_slider.setToolTip(
-            "Fine-tunes rotation to correct tilt (degrees). For quick rotation, drag the round handles outside the crop box in the Crop tool."
+        align_row = QHBoxLayout()
+        self.straighten_btn = self._tool_toggle(
+            "fa5s.ruler",
+            "",
+            tooltip_with_shortcut(
+                "Straighten with a reference line — draw along the horizon or a vertical edge "
+                "(a building, a door frame) and the image rotates to make it level or plumb. "
+                "Applies once per line; Esc cancels an in-progress line",
+                "straighten",
+            ),
         )
-        self.layout.addWidget(self.fine_rot_slider)
+        self.straighten_btn.setFixedWidth(36)
+
+        # Slider shows the photographer's convention — positive = clockwise on screen.
+        # Internally geometry.fine_rotation keeps the cv2/warp convention (positive =
+        # counter-clockwise, flip-independent because flips apply before fine rotation),
+        # so saved edits keep their meaning: display = -stored at this boundary.
+        self.fine_rot_slider = CompactSlider("Fine Rotation", -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, -conf.fine_rotation, unit="°")
+        self.fine_rot_slider.setToolTip(
+            "Fine-tunes rotation to correct tilt (degrees): positive turns clockwise, negative counter-clockwise. "
+            "For quick rotation, drag the round handles outside the crop box in the Crop tool."
+        )
+        align_row.addWidget(self.straighten_btn, 0)
+        align_row.addWidget(self.fine_rot_slider, 1)
+        self.layout.addLayout(align_row)
 
     def cycle_guide(self) -> None:
         self.guide_combo.setCurrentIndex((self.guide_combo.currentIndex() + 1) % self.guide_combo.count())
@@ -159,12 +179,15 @@ class GeometrySidebar(BaseSidebar):
         )
         self.offset_slider.valueCommitted.connect(self._on_offset_committed)
 
+        self.straighten_btn.toggled.connect(self._on_straighten_toggled)
+
+        # Display convention is CW-positive; negate crossing into the stored convention.
         self.fine_rot_slider.valueChanged.connect(
-            lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, fine_rotation=v)
+            lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, fine_rotation=-v)
         )
         self.fine_rot_slider.valueChanged.connect(lambda _v: self.controller.show_rotation_guide())
         self.fine_rot_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=v)
+            lambda v: self.update_config_section("geometry", render=True, persist=True, readback_metrics=True, fine_rotation=-v)
         )
 
     def _on_ratio_changed(self, ratio: str) -> None:
@@ -197,6 +220,9 @@ class GeometrySidebar(BaseSidebar):
     def _on_manual_crop_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.CROP_MANUAL if checked else ToolMode.NONE)
 
+    def _on_straighten_toggled(self, checked: bool) -> None:
+        self.controller.set_active_tool(ToolMode.STRAIGHTEN if checked else ToolMode.NONE)
+
     def _on_auto_crop_toggled(self, checked: bool) -> None:
         if checked:
             self.controller.apply_auto_crop()
@@ -214,9 +240,10 @@ class GeometrySidebar(BaseSidebar):
             self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
 
             self.offset_slider.setValue(float(conf.autocrop_offset))
-            self.fine_rot_slider.setValue(conf.fine_rotation)
+            self.fine_rot_slider.setValue(-conf.fine_rotation)
 
             self.manual_crop_btn.setChecked(self.state.active_tool == ToolMode.CROP_MANUAL)
+            self.straighten_btn.setChecked(self.state.active_tool == ToolMode.STRAIGHTEN)
             self.reset_crop_btn.setChecked(conf.auto_crop_enabled)
             self.manual_crop_btn.set_crop_active(conf.manual_crop_rect is not None)
             self.reset_crop_btn.set_crop_active(conf.auto_crop_enabled)
@@ -232,4 +259,5 @@ class GeometrySidebar(BaseSidebar):
         self.offset_slider.blockSignals(blocked)
         self.fine_rot_slider.blockSignals(blocked)
         self.manual_crop_btn.blockSignals(blocked)
+        self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)

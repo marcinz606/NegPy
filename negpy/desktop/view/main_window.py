@@ -326,6 +326,7 @@ class MainWindow(QMainWindow):
         self.canvas.analysis_confirmed.connect(self.controller.confirm_analysis_region)
         self.canvas.lasso_completed.connect(self.controller.handle_lasso_completed)
         self.canvas.scratch_completed.connect(self.controller.handle_heal_stroke_completed)
+        self.canvas.straighten_completed.connect(self.controller.handle_straighten_completed)
         self.canvas.local_mask_selected.connect(self.controller.select_local_mask)
 
         self.controller.export_progress.connect(self._on_export_progress)

@@ -36,6 +36,7 @@ _TOOL_CURSORS: dict[ToolMode, Qt.CursorShape] = {
     ToolMode.DUST_PICK: Qt.CursorShape.BlankCursor,
     ToolMode.LOCAL_DRAW: Qt.CursorShape.CrossCursor,
     ToolMode.ANALYSIS_DRAW: Qt.CursorShape.CrossCursor,
+    ToolMode.STRAIGHTEN: Qt.CursorShape.CrossCursor,
 }
 # Do not apply more than this many notch-equivalents in a single event (huge flings).
 _WHEEL_MAX_NOTCHES = 4.0
@@ -85,6 +86,7 @@ class ImageCanvas(QWidget):
     cursor_left_canvas = pyqtSignal()
     lasso_completed = pyqtSignal(list)
     scratch_completed = pyqtSignal(list)
+    straighten_completed = pyqtSignal(float)
     local_mask_selected = pyqtSignal(int)
 
     def __init__(self, state: AppState, parent=None):
@@ -135,6 +137,7 @@ class ImageCanvas(QWidget):
         self.overlay.cursor_left.connect(self.cursor_left_canvas.emit)
         self.overlay.lasso_completed.connect(self.lasso_completed.emit)
         self.overlay.scratch_completed.connect(self.scratch_completed.emit)
+        self.overlay.straighten_completed.connect(self.straighten_completed.emit)
         self.overlay.local_mask_selected.connect(self.local_mask_selected.emit)
 
         self.hud = CanvasHud(self)

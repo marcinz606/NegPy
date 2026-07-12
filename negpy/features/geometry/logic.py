@@ -1158,6 +1158,30 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     return new_geo
 
 
+def straighten_delta_degrees(dx: float, dy: float) -> float:
+    """
+    Fine-rotation delta (stored convention: positive = CCW on screen) that levels a
+    line drawn on the displayed image, snapping to the user's intent: lines closer
+    to horizontal straighten to the horizon, lines closer to vertical straighten to
+    plumb (a building edge). Direction-agnostic — drawing the same line from either
+    end yields the same correction.
+
+    Screen coords have y growing downward, so atan2(dy, dx) measures clockwise from
+    east. A line tilted right-end-down (angle +θ) needs the image rotated CCW by θ
+    to level — which is +θ in the stored convention — so the deviation from the
+    nearest axis is the delta directly. The result is in (-45°, 45°]; deltas are
+    additive on top of the current fine rotation because the stored angle rotates
+    the *displayed* frame CCW regardless of flips/90° turns (flips apply before
+    fine rotation in the pipeline).
+    """
+    theta = math.degrees(math.atan2(dy, dx)) % 180.0  # fold direction ambiguity
+    if theta <= 45.0:
+        return theta  # near-horizontal
+    if theta < 135.0:
+        return theta - 90.0  # near-vertical
+    return theta - 180.0  # near-horizontal, other fold
+
+
 def rotation_drag_angle(
     start_angle_deg: float,
     center: Tuple[float, float],

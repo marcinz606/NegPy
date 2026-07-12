@@ -45,6 +45,7 @@ class ShortcutManager:
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
             "pick_wb": lambda: controls.colour_sidebar.pick_wb_btn.toggle(),
             "manual_crop": lambda: controls.geometry_sidebar.manual_crop_btn.toggle(),
+            "straighten": lambda: controls.geometry_sidebar.straighten_btn.toggle(),
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
             "crop_guide_orient": controller.cycle_crop_guide_orientation,
             "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),

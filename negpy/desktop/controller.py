@@ -50,6 +50,7 @@ from negpy.features.exposure.logic import (
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
+from negpy.features.geometry.models import FINE_ROTATION_LIMIT
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessMode, invalidate_local_bounds
@@ -815,6 +816,21 @@ class AppController(QObject):
             self.request_render()
         else:
             self._render_debounce.start()
+
+    def handle_straighten_completed(self, delta_deg: float) -> None:
+        """Applies the straighten tool's measured correction on top of the current
+        fine rotation and closes the tool (one-shot, like a Lightroom straighten
+        line). ``delta_deg`` is stored-convention (positive = CCW on screen) and
+        display-space, so it composes additively under flips/90° turns."""
+        if self.state.active_tool != ToolMode.STRAIGHTEN:
+            return
+        current = self.state.config.geometry.fine_rotation
+        new_angle = float(np.clip(current + delta_deg, -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT))
+        new_geo = replace(self.state.config.geometry, fine_rotation=new_angle)
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
+        self.rotation_guide_requested.emit()
+        self.set_active_tool(ToolMode.NONE)
+        self.request_render()
 
     def confirm_manual_crop(self) -> None:
         """Close the crop tool (committing the current rect) — invoked by a double-click
