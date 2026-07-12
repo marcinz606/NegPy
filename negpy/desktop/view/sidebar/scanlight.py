@@ -52,6 +52,11 @@ _BUILTIN_WHITE_PRESETS = {"White Light (B&W or Slide Film)": "auto"}
 # 400 ms was conservative). A fixed tuning constant, not a user/persisted setting.
 _LED_SETTLE_S = 0.15
 
+# Plain white to light the frame while framing/focusing an RGB scan in live view. It's fixed, not
+# taken from the W slider: the sliders configure the preset, so W reads 0 for an RGB preset, but you
+# still want light to focus by.
+_FRAMING_WHITE = 255
+
 
 class _NoWheel(QObject):
     """Event filter that swallows wheel events so scrolling can't change a value."""
@@ -210,10 +215,10 @@ class ScanlightSidebar(QWidget):
         self._setup_hint.setStyleSheet(f"color: #C8922E; font-size: {THEME.font_size_small}px;")
         self._setup_hint.setVisible(not self._gphoto_available())
         layout.addWidget(self._setup_hint)
-        conn_hint = QLabel("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
-        conn_hint.setWordWrap(True)
-        conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
-        layout.addWidget(conn_hint)
+        self._conn_hint = QLabel("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
+        self._conn_hint.setWordWrap(True)
+        self._conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        layout.addWidget(self._conn_hint)
         status_row = QHBoxLayout()
         self.cam_status = QLabel()
         self.light_status = QLabel()
@@ -225,7 +230,7 @@ class ScanlightSidebar(QWidget):
         status_row.addWidget(self.light_temp)
         status_row.addStretch()
         layout.addLayout(status_row)
-        self._set_conn_status(self.cam_status, None, "Cam")
+        self._set_conn_status(self.cam_status, None, "Camera")
         self._set_conn_status(self.light_status, None, "Light")
         # RGB scanning needs the Scanlight; when it's absent (normal white-light mode) this hint
         # sits with the connection status. Hidden while in RGB mode (the light poll flips it).
@@ -385,15 +390,16 @@ class ScanlightSidebar(QWidget):
 
     # ── light ─────────────────────────────────────────────────────────
 
-    def _white_framing(self) -> bool:
-        """White light for a white-mode preset, or when framing/focusing (live view / calibration)."""
-        return self._settings.white_mode or self.lv_btn.isChecked() or self.calib_window.isVisible()
-
     def _push_light(self) -> None:
         if not self._rgb_mode:
             return  # normal white-light scanning has no Scanlight to control
-        if self._white_framing():
+        if self._settings.white_mode:
+            # A white-light preset: the W slider is the scan light itself.
             self.controller.set_scanlight_color(0, 0, 0, self.w_slider.value(), self._settings.port)
+        elif self.lv_btn.isChecked() or self.calib_window.isVisible():
+            # Framing/focusing an RGB scan: plain white to see by, independent of the RGB sliders
+            # (they configure the preset, so W reads 0, but you still want light to focus).
+            self.controller.set_scanlight_color(0, 0, 0, _FRAMING_WHITE, self._settings.port)
         else:
             self.controller.set_scanlight_color(self.r_slider.value(), self.g_slider.value(), self.b_slider.value(), 0, self._settings.port)
         self._update_settings_from_ui()
@@ -426,6 +432,14 @@ class ScanlightSidebar(QWidget):
     def _preset_selected(self) -> bool:
         return bool(self.preset_combo.currentData())
 
+    def _set_slider(self, slider, value: int) -> None:
+        """Set a light slider + its readout without firing valueChanged — preset apply drives the
+        sliders itself, and the sliders reflect the *preset*, not the live LED level."""
+        slider.blockSignals(True)
+        slider.setValue(value)
+        slider.blockSignals(False)
+        self._slider_readouts[slider].setText(str(value))
+
     def _on_preset_selected(self, _index: int) -> None:
         name = self.preset_combo.currentData()
         if not name:
@@ -433,8 +447,10 @@ class ScanlightSidebar(QWidget):
             self._apply_gating()
             return
         if name in _BUILTIN_WHITE_PRESETS:
-            # Built-in white-light mode (single white exposure → B&W or slide/E-6).
+            # Built-in white-light mode (single white exposure → B&W or slide/E-6): white on, RGB off.
             self._settings = replace(self._settings, white_mode=True, white_process_mode=_BUILTIN_WHITE_PRESETS[name])
+            for slider, value in ((self.r_slider, 0), (self.g_slider, 0), (self.b_slider, 0), (self.w_slider, 255)):
+                self._set_slider(slider, value)
         else:
             preset = self._presets.get(name)
             if preset is None:
@@ -445,11 +461,9 @@ class ScanlightSidebar(QWidget):
                 (self.r_slider, preset.r_level),
                 (self.g_slider, preset.g_level),
                 (self.b_slider, preset.b_level),
+                (self.w_slider, preset.w_level),  # RGB presets store 0 → the white LED stays off
             ):
-                slider.blockSignals(True)
-                slider.setValue(value)
-                slider.blockSignals(False)
-                self._slider_readouts[slider].setText(str(value))  # valueChanged was suppressed; refresh the label
+                self._set_slider(slider, value)
             self.shutter_edit.setText(preset.shutter_r)  # one shared shutter (r/g/b are equal)
             self._settings = replace(self._settings, white_mode=False)
         self._refresh_preset_hint()  # note (e.g. white-light) sits under the preset row now
@@ -480,6 +494,7 @@ class ScanlightSidebar(QWidget):
                 r_level=s.r_level,
                 g_level=s.g_level,
                 b_level=s.b_level,
+                w_level=s.w_level,
                 shutter_r=s.shutter_r,
                 shutter_g=s.shutter_g,
                 shutter_b=s.shutter_b,
@@ -993,13 +1008,14 @@ class ScanlightSidebar(QWidget):
             self.light_temp.hide()  # hide the widget entirely so no dark placeholder box lingers
 
     def _set_cam_status(self, ok: bool, model: str) -> None:
-        """Camera dot: '● Cam (USB)' when a body answered, '● Cam' when none did."""
-        short = "Cam (USB)" if ok else "Cam"
+        """Camera dot: '● Camera (USB)' when a body answered, '● Camera' when none did."""
+        short = "Camera (USB)" if ok else "Camera"
         if ok:
             detail = f"Camera: {model} (USB)" if model else "Camera connected (USB)"
         else:
             detail = "no camera — plug it in over USB, in PC Remote mode"
         self._set_conn_status(self.cam_status, ok, short, detail)
+        self._conn_hint.setVisible(not ok)  # the "connect the camera" nudge is only useful until it is
 
     def _missing_requirements(self) -> list[str]:
         """What still blocks scanning — drives both the gate and the hint. Normal white-light

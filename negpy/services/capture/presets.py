@@ -16,6 +16,7 @@ class ScanlightPreset:
     r_level: int = 255
     g_level: int = 255
     b_level: int = 255
+    w_level: int = 0  # RGB presets don't use white; a white-light preset stores 255
     shutter_r: str = ""
     shutter_g: str = ""
     shutter_b: str = ""

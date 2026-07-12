@@ -21,7 +21,7 @@ class ScanlightSettings:
     shutter_g: str = ""
     shutter_b: str = ""
     white_mode: bool = False
-    w_level: int = 255
+    w_level: int = 0  # RGB scanning uses no white; a white-light preset raises it to 255
     shutter_w: str = ""
     white_process_mode: str = "auto"
     roll_name: str = "Roll001"

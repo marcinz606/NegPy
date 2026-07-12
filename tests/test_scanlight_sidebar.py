@@ -573,3 +573,36 @@ def test_a_second_scan_click_does_not_queue_another_frame(tmp_path):
     w.set_scanning(True)
     w._start_capture(retake=False)
     assert not w.controller.start_capture.called
+
+
+def test_rgb_preset_sets_the_white_slider_to_zero(monkeypatch):
+    from negpy.services.capture.presets import ScanlightPreset
+
+    w = _sidebar()
+    monkeypatch.setattr(w._presets, "get", lambda _n: ScanlightPreset(r_level=200, g_level=100, b_level=90, w_level=0, shutter_r="1/5"))
+    w.preset_combo.addItem("TestStock", "TestStock")
+    idx = w.preset_combo.findData("TestStock")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert w.w_slider.value() == 0  # RGB preset carries no white; the slider reflects the preset
+    assert w.r_slider.value() == 200
+
+
+def test_builtin_white_preset_turns_rgb_off_and_white_full():
+    w = _sidebar()
+    idx = w.preset_combo.findData("White Light (B&W or Slide Film)")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert (w.r_slider.value(), w.g_slider.value(), w.b_slider.value()) == (0, 0, 0)  # white-only → RGB off
+    assert w.w_slider.value() == 255  # white on full
+
+
+def test_framing_white_is_fixed_regardless_of_the_slider():
+    w = _sidebar()
+    w._set_slider(w.w_slider, 0)  # RGB preset state: white off on the slider
+    w.lv_btn.blockSignals(True)
+    w.lv_btn.setChecked(True)  # live view → framing/focusing
+    w.lv_btn.blockSignals(False)
+    w.controller.set_scanlight_color.reset_mock()
+    w._push_light()
+    assert w.controller.set_scanlight_color.call_args[0][:4] == (0, 0, 0, 255)  # plain white to focus by
