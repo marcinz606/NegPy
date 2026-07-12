@@ -366,13 +366,26 @@ def test_pick_source_offsets_footprint_is_mask_free():
     mask[95:105, 95:105] = 1  # defect
     mask[95:105, 115:135] = 1  # dirty area right of it
     comps = _mask_to_strokes(mask, 1.5, 8)
-    offsets = _pick_source_offsets(mask, comps)
+    offsets = _pick_source_offsets(mask, comps, np.full((200, 200), 0.5, dtype=np.float32))
     assert len(offsets) == len(comps) == 2
     for (chain, radius, _area), (ox, oy) in zip(comps, offsets):
         b = int(1.2 * radius)
         for px, py in chain:
             sx, sy = int(px + ox), int(py + oy)
             assert mask[sy - b : sy + b + 1, sx - b : sx + b + 1].sum() == 0, "clone source overlaps a defect"
+
+
+def test_pick_source_offsets_avoids_detail():
+    """A mask-free patch full of dark detail must lose to a background-matched
+    one — cloning detail onto a plain background is the visible failure mode."""
+    mask = np.zeros((200, 200), dtype=np.uint8)
+    mask[99:101, 60:140] = 1  # horizontal scratch → dirs = perpendicular / along axis
+    guide = np.full((200, 200), 0.5, dtype=np.float32)
+    guide[:90, :] = 0.1  # dark textured band above; below stays flat and matched
+    guide[:90, ::2] = 0.3
+    comps = _mask_to_strokes(mask, 4.0, 8)
+    ox, oy = _pick_source_offsets(mask, comps, guide)[0]
+    assert oy > 0, "picker chose the dark detail band over the matched background"
 
 
 def test_detected_regions_heal_end_to_end():

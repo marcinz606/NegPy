@@ -3,7 +3,7 @@ import math
 import numpy as np
 import cv2
 from numba import njit  # type: ignore
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from negpy.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
 from negpy.features.geometry.logic import map_coords_to_geometry
 from negpy.features.retouch.models import HEAL_SIZE_REF
@@ -28,8 +28,8 @@ _HEAL_GATE_HI = 0.12
 _PROXY_MIN_SPREAD = 0.8
 # Component padding so the membrane rim samples clean pixels outside the defect.
 # Detected masks cover a speck's bright core only; the scanner-PSF skirt extends
-# ~2-3px further, and a boundary on the skirt poisons the membrane (halos).
-_DETECT_PAD_PX = 3.0
+# a few px further, and a boundary on the skirt poisons the membrane (halos).
+_DETECT_PAD_PX = 4.0
 
 
 @njit(cache=True, fastmath=True)
@@ -458,12 +458,23 @@ def _mask_to_strokes(
 def _pick_source_offsets(
     mask: np.ndarray,
     comps: List[Tuple[np.ndarray, float, float]],
+    guide: np.ndarray,
 ) -> List[Tuple[float, float]]:
-    """First candidate whose shifted footprint is mask-free wins (integral-image
-    box queries) — the click-time SSD scorer costs ~ms/region, too slow for
-    hundreds of detected regions."""
+    """Best mask-free candidate by content match on ``guide`` (integral-image
+    box stats — the click-time SSD scorer costs ~ms/region, too slow for
+    hundreds of detected regions). Mask-freedom alone let a patch full of real
+    detail win: the membrane corrects only the boundary offset, so interior
+    structure gets cloned into the heal. Score = |Δmean vs the destination
+    background| + texture in excess of the destination's."""
     h, w = mask.shape
-    integ = cv2.integral(np.ascontiguousarray(mask, dtype=np.uint8))
+    m8 = np.ascontiguousarray(mask, dtype=np.uint8)
+    integ = cv2.integral(m8)
+    bg = guide.astype(np.float32) * (1.0 - m8)
+    s1, s2 = cv2.integral2(bg)
+
+    def box(ii, x0, y0, x1, y1):
+        return float(ii[y1 + 1, x1 + 1] - ii[y0, x1 + 1] - ii[y1 + 1, x0] + ii[y0, x0])
+
     offsets = []
     for index, (chain, radius, _area) in enumerate(comps):
         if len(chain) >= 2:
@@ -478,10 +489,24 @@ def _pick_source_offsets(
                 dirs.append((math.cos(ang), math.sin(ang)))
 
         b = int(math.ceil(1.2 * radius)) + 1
-        found = None
-        for dist in (_FALLBACK_OFFSET_FACTOR * radius, (_FALLBACK_OFFSET_FACTOR + 1.0) * radius):
+        area = float((2 * b + 1) ** 2)
+
+        d_n = d_s = d_ss = 0.0
+        for px, py in chain:
+            x0, x1 = max(int(px) - b, 0), min(int(px) + b, w - 1)
+            y0, y1 = max(int(py) - b, 0), min(int(py) + b, h - 1)
+            d_n += (x1 - x0 + 1) * (y1 - y0 + 1) - box(integ, x0, y0, x1, y1)
+            d_s += box(s1, x0, y0, x1, y1)
+            d_ss += box(s2, x0, y0, x1, y1)
+        d_mean = d_s / max(d_n, 1.0)
+        d_std = math.sqrt(max(d_ss / max(d_n, 1.0) - d_mean * d_mean, 0.0))
+
+        found, best_score = None, math.inf
+        for ring in range(3):
+            dist = (_FALLBACK_OFFSET_FACTOR + ring) * radius
             for dx, dy in dirs:
                 ox, oy = dx * dist, dy * dist
+                n = s = ss = 0.0
                 clean = True
                 for px, py in chain:
                     sx, sy = px + ox, py + oy
@@ -490,14 +515,19 @@ def _pick_source_offsets(
                     if x0 < 0 or y0 < 0 or x1 >= w or y1 >= h:
                         clean = False
                         break
-                    if integ[y1 + 1, x1 + 1] - integ[y0, x1 + 1] - integ[y1 + 1, x0] + integ[y0, x0] > 0:
+                    if box(integ, x0, y0, x1, y1) > 0:
                         clean = False
                         break
-                if clean:
-                    found = (ox, oy)
-                    break
-            if found:
-                break
+                    n += area
+                    s += box(s1, x0, y0, x1, y1)
+                    ss += box(s2, x0, y0, x1, y1)
+                if not clean:
+                    continue
+                mean = s / n
+                std = math.sqrt(max(ss / n - mean * mean, 0.0))
+                score = abs(mean - d_mean) + max(0.0, std - d_std)
+                if score < best_score:
+                    best_score, found = score, (ox, oy)
         if found is None:
             fdx, fdy = fallback_source_offset(index, 2.0 * radius, (h, w))
             found = (fdx * w, fdy * h)
@@ -550,7 +580,7 @@ def detect_luma_regions(
     if not np.any(hit):
         return []
     comps = _mask_to_strokes(hit, _DETECT_PAD_PX, max_n)
-    offsets = _pick_source_offsets(hit, comps)
+    offsets = _pick_source_offsets(hit, comps, proxy)
     return _finalize_strokes(comps, offsets, hit.shape, gate)
 
 
@@ -559,15 +589,22 @@ def detect_ir_regions(
     threshold: float,
     pad_px: float = 3.0,
     max_n: int = 512,
+    img: Optional[ImageBuffer] = None,
 ) -> List[Tuple]:
     """IR defects → synthesized heal strokes. Dye = high IR transmittance,
     defects = low, so ``ir < threshold`` marks them (caller passes
-    1 − ir_threshold). Ungated: IR-confirmed defects clone unconditionally."""
+    1 − ir_threshold). Ungated: IR-confirmed defects clone unconditionally.
+    ``img`` (visible source, same dims) scores clone sources by content;
+    without it the IR plane itself is the guide."""
     mask = (ir < threshold).astype(np.uint8)
     if not np.any(mask):
         return []
+    if img is not None and img.shape[:2] == ir.shape[:2]:
+        guide = _detection_proxy(img)
+    else:
+        guide = np.ascontiguousarray(ir, dtype=np.float32)
     comps = _mask_to_strokes(mask, pad_px, max_n)
-    offsets = _pick_source_offsets(mask, comps)
+    offsets = _pick_source_offsets(mask, comps, guide)
     return _finalize_strokes(comps, offsets, mask.shape, gate=0.0)
 
 

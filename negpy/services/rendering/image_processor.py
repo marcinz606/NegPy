@@ -150,6 +150,7 @@ class ImageProcessor:
                     _detection_downsample(ir_buffer),
                     1.0 - ret.ir_threshold,
                     pad_px=float(ret.ir_inpaint_radius),
+                    img=_detection_downsample(img),
                 )
             if do_luma:
                 # Ungated like IR: the detector already confirmed the defect, and
