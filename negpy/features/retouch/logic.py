@@ -29,7 +29,7 @@ _PROXY_MIN_SPREAD = 0.8
 # Component padding so the membrane rim samples clean pixels outside the defect.
 # Detected masks cover a speck's bright core only; the scanner-PSF skirt extends
 # a few px further, and a boundary on the skirt poisons the membrane (halos).
-_DETECT_PAD_PX = 4.0
+_DETECT_PAD_PX = 3.5
 
 
 @njit(cache=True, fastmath=True)
