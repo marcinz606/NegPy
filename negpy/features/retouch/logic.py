@@ -1,14 +1,15 @@
 import math
-
-import numpy as np
-import cv2
-from numba import njit  # type: ignore
 from typing import List, Optional, Tuple
-from negpy.domain.types import ImageBuffer, LUMA_R, LUMA_G, LUMA_B
+
+import cv2
+import numpy as np
+from numba import njit  # type: ignore
+
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.geometry.logic import map_coords_to_geometry
 from negpy.features.retouch.models import HEAL_SIZE_REF
-from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working_oetf_encode
+from negpy.kernel.image.validation import ensure_image
 
 # Golden-angle fallback used when a heal has no scored source offset
 # (legacy spots, or no preview buffer at click time).
@@ -29,7 +30,7 @@ _PROXY_MIN_SPREAD = 0.8
 # Component padding so the membrane rim samples clean pixels outside the defect.
 # Detected masks cover a speck's bright core only; the scanner-PSF skirt extends
 # a few px further, and a boundary on the skirt poisons the membrane (halos).
-_DETECT_PAD_PX = 3.5
+_DETECT_PAD_PX = 2.5
 
 
 @njit(cache=True, fastmath=True)
