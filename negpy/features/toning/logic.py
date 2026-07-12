@@ -50,8 +50,10 @@ TONING_CONSTANTS: Dict[str, Any] = {
     # Slightly sub-linear so the blue reaches the mids while shadows still lead.
     "blue_power": 0.85,
     # Prussian blue deposits more colouring matter than the silver it replaces:
-    # net gain > 1 (intensification), red absorbed most -> blue hue.
-    "blue_gain": (1.30, 1.08, 0.80),
+    # net gain > 1 (intensification), red absorbed most -> blue hue. The pigment
+    # is cyan-leaning (green passes almost as freely as blue) — G at 1.00 is
+    # what lets the classic sepia+blue green split emerge from the mix.
+    "blue_gain": (1.30, 1.00, 0.80),
     # ── Copper (silver -> copper ferrocyanide, in-bath bleach) ────────────────
     # Density at which conversion saturates (c = strength·(D/this)^power); low
     # for the same mid-tone visibility reason as blue_d_ref.
@@ -103,15 +105,15 @@ def _apply_chemical_toning_jit(
     van_gain: np.ndarray,
 ) -> np.ndarray:
     """
-    Density-driven chemical toning on linear reflectance. Silver density
-    D = -log10(t); a density-dependent fraction c of it converts to the toner's
-    dye, whose per-channel covering power reshapes D: D_ch = D·(1−c) + c·D·gain.
-    Selenium converts the densest silver first, sepia and gold the thinnest;
-    gold runs last (real workflow: sepia first, gold after) and blends its
-    covering power by the sulfide fraction — orange-red where sepia toned,
-    blue-black on plain silver. Iron blue and copper convert silver-proportional
-    (shadows first), vanadium bleach-then-tone (thinnest first); all three run
-    after the silver toners, independent of them.
+    Silver-ledger chemical toning on linear reflectance. All baths compete for
+    one metallic-silver reservoir: converted silver is locked to later toners
+    (Rudman/Ilford — the archival selenium-then-sepia split, "no silver left"
+    exhaustion). Each toner's susceptibility c is a pure function of the
+    ORIGINAL density D0 (grain property); sequence only decides who claims
+    silver first via the remaining fraction a: f_i = a·c_i, a -= f_i. Final
+    density is the covering-power mix D_ch = D0·(a + Σ f_i·gain_i). Gold is
+    the one lock-out exception: it also plates the sulfide fraction (classic
+    gold-over-sepia orange-red), with compounded covering power.
     """
     h, w, c = img.shape
     res = np.empty_like(img)
@@ -119,71 +121,99 @@ def _apply_chemical_toning_jit(
 
     for y in prange(h):
         for x in range(w):
+            d0 = 0.0
             for ch in range(3):
                 t = img[y, x, ch]
                 if t < eps:
                     t = eps
                 elif t > 1.0:
                     t = 1.0
-                d = -np.log10(t)
+                d0 -= np.log10(t)
+            d0 /= 3.0
 
-                if sel_strength > 0.0:
-                    frac = d / sel_d_ref
-                    if frac > 1.0:
-                        frac = 1.0
-                    # Conversion caps at 1: all the silver is toned (slider > 1 = longer bath).
-                    c_sel = sel_strength * frac**sel_power
-                    if c_sel > 1.0:
-                        c_sel = 1.0
-                    d = d * (1.0 - c_sel) + c_sel * d * sel_gain[ch]
+            # Conversion caps at 1: all the remaining silver is toned
+            # (slider > 1 = longer bath).
+            c_sel = 0.0
+            if sel_strength > 0.0:
+                frac = d0 / sel_d_ref
+                if frac > 1.0:
+                    frac = 1.0
+                c_sel = sel_strength * frac**sel_power
+                if c_sel > 1.0:
+                    c_sel = 1.0
 
-                c_sep = 0.0
-                if sep_strength > 0.0:
-                    frac = d / sep_d_bleach
-                    if frac > 1.0:
-                        frac = 1.0
-                    c_sep = sep_strength * (1.0 - frac) ** sep_power
-                    if c_sep > 1.0:
-                        c_sep = 1.0
-                    d = d * (1.0 - c_sep) + c_sep * d * sep_gain[ch]
+            c_sep = 0.0
+            if sep_strength > 0.0:
+                frac = d0 / sep_d_bleach
+                if frac > 1.0:
+                    frac = 1.0
+                c_sep = sep_strength * (1.0 - frac) ** sep_power
+                if c_sep > 1.0:
+                    c_sep = 1.0
 
-                if gold_strength > 0.0:
-                    frac = d / gold_d_ref
-                    if frac > 1.0:
-                        frac = 1.0
-                    c_au = gold_strength * (1.0 - frac) ** gold_power
-                    if c_au > 1.0:
-                        c_au = 1.0
-                    gain = gold_gain[ch] * (1.0 - c_sep) + gold_sepia_gain[ch] * c_sep
-                    d = d * (1.0 - c_au) + c_au * d * gain
+            c_au = 0.0
+            if gold_strength > 0.0:
+                frac = d0 / gold_d_ref
+                if frac > 1.0:
+                    frac = 1.0
+                c_au = gold_strength * (1.0 - frac) ** gold_power
+                if c_au > 1.0:
+                    c_au = 1.0
 
-                if blue_strength > 0.0:
-                    frac = d / blue_d_ref
-                    if frac > 1.0:
-                        frac = 1.0
-                    c_blue = blue_strength * frac**blue_power
-                    if c_blue > 1.0:
-                        c_blue = 1.0
-                    d = d * (1.0 - c_blue) + c_blue * d * blue_gain[ch]
+            c_blue = 0.0
+            if blue_strength > 0.0:
+                frac = d0 / blue_d_ref
+                if frac > 1.0:
+                    frac = 1.0
+                c_blue = blue_strength * frac**blue_power
+                if c_blue > 1.0:
+                    c_blue = 1.0
 
-                if copper_strength > 0.0:
-                    frac = d / copper_d_ref
-                    if frac > 1.0:
-                        frac = 1.0
-                    c_cu = copper_strength * frac**copper_power
-                    if c_cu > 1.0:
-                        c_cu = 1.0
-                    d = d * (1.0 - c_cu) + c_cu * d * copper_gain[ch]
+            c_cu = 0.0
+            if copper_strength > 0.0:
+                frac = d0 / copper_d_ref
+                if frac > 1.0:
+                    frac = 1.0
+                c_cu = copper_strength * frac**copper_power
+                if c_cu > 1.0:
+                    c_cu = 1.0
 
-                if van_strength > 0.0:
-                    frac = d / van_d_ref
-                    if frac > 1.0:
-                        frac = 1.0
-                    c_van = van_strength * (1.0 - frac) ** van_power
-                    if c_van > 1.0:
-                        c_van = 1.0
-                    d = d * (1.0 - c_van) + c_van * d * van_gain[ch]
+            c_van = 0.0
+            if van_strength > 0.0:
+                frac = d0 / van_d_ref
+                if frac > 1.0:
+                    frac = 1.0
+                c_van = van_strength * (1.0 - frac) ** van_power
+                if c_van > 1.0:
+                    c_van = 1.0
 
+            a = 1.0
+            f_sel = a * c_sel
+            a -= f_sel
+            f_sep = a * c_sep
+            a -= f_sep
+            f_au = a * c_au
+            a -= f_au
+            f_ausp = f_sep * c_au
+            f_sep -= f_ausp
+            f_blue = a * c_blue
+            a -= f_blue
+            f_cu = a * c_cu
+            a -= f_cu
+            f_van = a * c_van
+            a -= f_van
+
+            for ch in range(3):
+                d = d0 * (
+                    a
+                    + f_sel * sel_gain[ch]
+                    + f_sep * sep_gain[ch]
+                    + f_au * gold_gain[ch]
+                    + f_ausp * sep_gain[ch] * gold_sepia_gain[ch]
+                    + f_blue * blue_gain[ch]
+                    + f_cu * copper_gain[ch]
+                    + f_van * van_gain[ch]
+                )
                 pixel = 10.0**-d
                 if pixel < 0.0:
                     pixel = 0.0

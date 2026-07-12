@@ -15,6 +15,9 @@ class ToningSidebar(BaseSidebar):
         conf = self.state.config.toning
 
         self.chemical_header = section_subheader("CHEMICAL TONING")
+        self.chemical_header.setToolTip(
+            "Toners apply as sequential baths in the order shown — silver toned by an earlier bath is locked to the later ones"
+        )
         self.layout.addWidget(self.chemical_header)
 
         self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength)

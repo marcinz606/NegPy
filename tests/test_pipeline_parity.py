@@ -477,6 +477,27 @@ class TestToningParity:
         diff = np.abs(self._gpu_result(s) - self._gpu_result(self._bw_settings()))
         assert float(diff.max()) > 1e-3
 
+    def test_chemical_sepia_blue(self):
+        """Green two-bath split — exercises the ledger's depletion path."""
+        s = self._bw_settings(sepia_strength=1.0, blue_strength=1.0)
+        self._run_and_compare(s)
+        diff = np.abs(self._gpu_result(s) - self._gpu_result(self._bw_settings()))
+        assert float(diff.max()) > 1e-3
+
+    def test_chemical_all_toners_maxed(self):
+        """All six baths at 2.0 — stresses the a→0 exhaustion paths."""
+        s = self._bw_settings(
+            selenium_strength=2.0,
+            sepia_strength=2.0,
+            gold_strength=2.0,
+            blue_strength=2.0,
+            copper_strength=2.0,
+            vanadium_strength=2.0,
+        )
+        self._run_and_compare(s)
+        diff = np.abs(self._gpu_result(s) - self._gpu_result(self._bw_settings()))
+        assert float(diff.max()) > 1e-3
+
 
 class TestRetouchParity:
     """CPU vs GPU parity for the dust-removal shader (detect-encoded, heal-linear)."""

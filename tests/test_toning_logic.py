@@ -133,12 +133,12 @@ class TestChemicalToning(unittest.TestCase):
 
     def test_blue_converts_proportionally(self):
         """Conversion tracks silver density — shadows tone hardest, but broader
-        than selenium."""
+        than selenium. Probe R, the channel Prussian blue absorbs."""
         d_dark_in, d_light_in = -np.log10(0.05), -np.log10(0.6)
         res_dark = apply_chemical_toning(self._gray(0.05), blue_strength=1.0)
         res_light = apply_chemical_toning(self._gray(0.6), blue_strength=1.0)
-        gain_dark = self._density(res_dark, 1) - d_dark_in
-        gain_light = self._density(res_light, 1) - d_light_in
+        gain_dark = self._density(res_dark, 0) - d_dark_in
+        gain_light = self._density(res_light, 0) - d_light_in
         self.assertGreater(gain_dark, gain_light * 10)
         self.assertGreater(gain_light, 0.0)
 
@@ -256,6 +256,104 @@ class TestChemicalToning(unittest.TestCase):
         self.assertGreaterEqual(float(res_2.min()), 0.0)
         self.assertLessEqual(float(res_2.max()), 1.0)
         self.assertLessEqual(float(res_2.mean()), float(res_1.mean()))  # longer bath, deeper
+
+
+class TestTonerInteractions(unittest.TestCase):
+    """Silver-ledger competition: toners share one metallic-silver reservoir,
+    converted silver is locked to later baths (Rudman/Ilford). Interactions
+    emerge from depletion, not per-pair cross-terms."""
+
+    @staticmethod
+    def _gray(t: float) -> np.ndarray:
+        return np.full((4, 4, 3), t, dtype=np.float32)
+
+    @staticmethod
+    def _warmth(res: np.ndarray) -> float:
+        return float(res[0, 0, 0] - res[0, 0, 2])
+
+    @staticmethod
+    def _density_warmth(res: np.ndarray) -> float:
+        # Sulfide warmth in density space (immune to overall darkening).
+        d = -np.log10(np.clip(res[0, 0].astype(np.float64), 1e-6, 1.0))
+        return float(d[2] - d[0])
+
+    def test_selenium_protects_shadows_from_sepia(self):
+        """Selenized shadow silver resists the sepia bleach — the classic
+        archival split: shadow warmth drops sharply as selenium claims the
+        dense silver first."""
+        dark = self._gray(0.05)
+        warmth_sep_only = self._density_warmth(apply_chemical_toning(dark, sepia_strength=1.0))
+        warmth_after_sel = self._density_warmth(apply_chemical_toning(dark, selenium_strength=1.0, sepia_strength=1.0))
+        self.assertGreater(warmth_sep_only, 0.0)
+        self.assertLess(warmth_after_sel, 0.6 * warmth_sep_only)
+
+    def test_full_sepia_starves_blue_in_highlights(self):
+        """Complete sepia leaves no metallic silver in the highlights — a
+        following blue bath is a near no-op there."""
+        light = self._gray(0.7)
+        res_sep = apply_chemical_toning(light, sepia_strength=1.5)
+        res_both = apply_chemical_toning(light, sepia_strength=1.5, blue_strength=1.0)
+        self.assertLess(float(np.abs(res_both - res_sep).max()), 0.005)
+
+    def test_sepia_blue_green_split(self):
+        """Partial sepia + blue = the classic green two-bath: warm sulfide
+        highlights, blue shadows (Ilford combination table)."""
+        res_light = apply_chemical_toning(self._gray(0.7), sepia_strength=1.0, blue_strength=1.0)
+        res_dark = apply_chemical_toning(self._gray(0.03), sepia_strength=1.0, blue_strength=1.0)
+        self.assertGreater(self._warmth(res_light), 0.01)  # highlights stay warm
+        self.assertLess(self._warmth(res_dark), -0.001)  # shadows go blue
+
+    def test_no_double_conversion_density_bound(self):
+        """Two full baths cannot each convert 100% of the same silver: the
+        density ratio stays inside the single-toner gain envelope."""
+        dark = self._gray(0.03)  # D0 ~ 1.52: both baths saturate
+        res = apply_chemical_toning(dark, selenium_strength=2.0, blue_strength=2.0)
+        d0 = -np.log10(0.03)
+        for ch in range(3):
+            ratio = -np.log10(max(float(res[0, 0, ch]), 1e-6)) / d0
+            self.assertLessEqual(ratio, 1.30 + 1e-3, f"ch{ch}")
+            self.assertGreaterEqual(ratio, 0.80 - 1e-3, f"ch{ch}")
+
+    def test_single_toner_output_unchanged(self):
+        """Ledger with one bath collapses to the closed form
+        D0·(1−c+c·gain) — pins single-toner behavior across the refactor."""
+        from negpy.features.toning.logic import TONING_CONSTANTS as C
+
+        shapes = {
+            "selenium": ("shadow", C["sel_d_ref"], C["sel_power"], C["sel_gain"]),
+            "sepia": ("highlight", C["sep_d_bleach"], C["sep_power"], C["sep_gain"]),
+            "gold": ("highlight", C["gold_d_ref"], C["gold_power"], C["gold_gain"]),
+            "blue": ("shadow", C["blue_d_ref"], C["blue_power"], C["blue_gain"]),
+            "copper": ("shadow", C["copper_d_ref"], C["copper_power"], C["copper_gain"]),
+            "vanadium": ("highlight", C["van_d_ref"], C["van_power"], C["van_gain"]),
+        }
+        ramp = np.linspace(0.001, 1.0, 256, dtype=np.float32)
+        img = np.stack([ramp] * 3, axis=-1)[None, :, :]
+        d0 = -np.log10(np.clip(ramp.astype(np.float64), 1e-6, 1.0))
+        for name, (kind, d_ref, power, gain) in shapes.items():
+            for s in (0.5, 1.0, 2.0):
+                res = apply_chemical_toning(img, **{f"{name}_strength": s})
+                frac = np.minimum(d0 / d_ref, 1.0)
+                c = np.minimum(s * (frac if kind == "shadow" else 1.0 - frac) ** power, 1.0)
+                for ch in range(3):
+                    expected = np.clip(10.0 ** -(d0 * (1.0 - c + c * gain[ch])), 0.0, 1.0)
+                    np.testing.assert_allclose(res[0, :, ch], expected, atol=1e-5, err_msg=f"{name}@{s} ch{ch}")
+
+    def test_multi_toner_monotone_no_reversal(self):
+        """All six baths maxed: no tone reversal along a gray ramp."""
+        ramp = np.linspace(0.001, 1.0, 512, dtype=np.float32)
+        img = np.stack([ramp] * 3, axis=-1)[None, :, :]
+        res = apply_chemical_toning(
+            img,
+            selenium_strength=2.0,
+            sepia_strength=2.0,
+            gold_strength=2.0,
+            blue_strength=2.0,
+            copper_strength=2.0,
+            vanadium_strength=2.0,
+        )
+        luma = res[0].mean(axis=-1)
+        self.assertGreaterEqual(float(np.diff(luma).min()), -1e-4)
 
 
 class TestSplitToning(unittest.TestCase):
