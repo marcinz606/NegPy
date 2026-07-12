@@ -238,6 +238,18 @@ def test_read_settings_drops_auto_and_mfnr_pseudo_isos(fake):
     camera.close()
 
 
+def test_read_settings_switches_the_body_off_auto_iso(fake):
+    # On Auto/MFNR the stepper can't show the value (it was filtered), so instead of faking a fixed
+    # ISO the body is switched to its lowest real one, and that is reported — no discrepancy.
+    fake.props["iso"] = _Widget(fake, "iso", "Auto ISO", ["Auto ISO", "80 Multi Frame Noise Reduction", "100", "125"])
+    camera = GphotoCamera(gp_module=fake)
+    camera.open()
+    settings = camera.read_settings()["iso"]
+    assert ("iso", "100") in fake.writes  # switched off Auto to the lowest fixed ISO
+    assert settings["cur"] == 2  # 100's raw index in the full list → stepper and body agree
+    camera.close()
+
+
 # ---- capture ----------------------------------------------------------------
 
 
@@ -286,6 +298,24 @@ def test_capture_rejects_a_shutter_that_never_settles(cam, fake, tmp_path, monke
 def test_capture_skips_an_unchanged_shutter(cam, fake, tmp_path):
     cam.capture(str(tmp_path / "f.ARW"), shutter="1/5")  # already 1/5
     assert fake.writes == []
+
+
+def test_capture_forces_the_preset_iso_and_aperture(cam, fake, tmp_path):
+    fake.props["f-number"] = _Widget(fake, "f-number", "8", ["5.6", "8", "11"])  # an electronic lens
+    cam.capture(str(tmp_path / "f.ARW"), iso="200", aperture="11")
+    assert ("iso", "200") in fake.writes  # a drifted body is pulled back to the preset's exposure
+    assert ("f-number", "11") in fake.writes
+
+
+def test_capture_skips_iso_that_is_already_set(cam, fake, tmp_path):
+    cam.capture(str(tmp_path / "f.ARW"), iso="100")  # the body is already on ISO 100
+    assert fake.writes == []  # no needless ~1-2 s write before every scan
+
+
+def test_capture_tolerates_an_iso_the_body_rejects(cam, fake, tmp_path):
+    fake.reject_writes = True  # unlike the shutter, a rejected ISO warns and the scan proceeds
+    out = cam.capture(str(tmp_path / "f.ARW"), iso="200")
+    assert out.endswith(".ARW")  # captured anyway, not raised
 
 
 def test_capture_failure_raises_gphoto_error(cam, fake, tmp_path):

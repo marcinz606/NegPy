@@ -35,11 +35,15 @@ class FakeCamera:
         self.file_size = file_size
         self.captured: list[str] = []
         self.shutters: list = []
+        self.isos: list = []
+        self.apertures: list = []
 
-    def capture(self, out_path, shutter=None):
+    def capture(self, out_path, shutter=None, iso=None, aperture=None):
         out_path = os.path.splitext(out_path)[0] + ".ARW"  # the camera picks the suffix
         self.captured.append(out_path)
         self.shutters.append(shutter)
+        self.isos.append(iso)
+        self.apertures.append(aperture)
         with open(out_path, "wb") as f:
             f.write(b"\0" * self.file_size)
         return out_path
@@ -86,6 +90,24 @@ def test_capture_triplet_sequence_and_filenames(tmp_path):
     assert seen[-1] == pytest.approx(1.0)
 
 
+def test_triplet_forces_the_preset_iso_and_aperture(tmp_path):
+    cam = FakeCamera()
+    svc = CaptureService(FakeLight(), cam, sleep=lambda _s: None)
+    svc.capture_triplet(_settings(tmp_path, iso="100", aperture="f/8"))
+    # Every shot re-asserts the preset's exposure — a drifted body can't falsify the scan
+    # (the camera itself skips the write when it's already there).
+    assert cam.isos == ["100", "100", "100"]
+    assert cam.apertures == ["f/8", "f/8", "f/8"]
+
+
+def test_triplet_leaves_exposure_free_when_the_preset_bakes_none(tmp_path):
+    cam = FakeCamera()
+    svc = CaptureService(FakeLight(), cam, sleep=lambda _s: None)
+    svc.capture_triplet(_settings(tmp_path))  # no iso/aperture → camera keeps its current values
+    assert cam.isos == [None, None, None]
+    assert cam.apertures == [None, None, None]
+
+
 def test_capture_triplet_reports_each_channel(tmp_path):
     svc = CaptureService(FakeLight(), FakeCamera(), sleep=lambda _s: None)
     channels = []
@@ -112,7 +134,7 @@ def test_failed_retake_preserves_complete_existing_triplet(tmp_path):
         existing[channel] = path
 
     class FailingBlueCamera(FakeCamera):
-        def capture(self, out_path, shutter=None):
+        def capture(self, out_path, shutter=None, iso=None, aperture=None):
             out_path = os.path.splitext(out_path)[0] + ".ARW"
             channel = os.path.splitext(out_path)[0].rsplit("_", 1)[-1]
             with open(out_path, "wb") as f:

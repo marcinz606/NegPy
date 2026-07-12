@@ -12,6 +12,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.sidebar.scanlight import ScanlightSidebar
+from negpy.services.capture.presets import ScanlightPreset
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -39,7 +40,9 @@ def test_sidebar_builds_with_all_controls():
         "g_slider",
         "b_slider",
         "w_slider",
-        "shutter_edit",
+        "shutter_stepper",
+        "iso_stepper",
+        "aperture_stepper",
         "lv_btn",
         "lv_image",
         "cam_status",
@@ -576,8 +579,6 @@ def test_a_second_scan_click_does_not_queue_another_frame(tmp_path):
 
 
 def test_rgb_preset_sets_the_white_slider_to_zero(monkeypatch):
-    from negpy.services.capture.presets import ScanlightPreset
-
     w = _sidebar()
     monkeypatch.setattr(w._presets, "get", lambda _n: ScanlightPreset(r_level=200, g_level=100, b_level=90, w_level=0, shutter_r="1/5"))
     w.preset_combo.addItem("TestStock", "TestStock")
@@ -606,3 +607,300 @@ def test_framing_white_is_fixed_regardless_of_the_slider():
     w.controller.set_scanlight_color.reset_mock()
     w._push_light()
     assert w.controller.set_scanlight_color.call_args[0][:4] == (0, 0, 0, 255)  # plain white to focus by
+
+
+def test_calibration_window_has_iso_and_aperture_but_no_shutter():
+    w = _sidebar()
+    for attr in ("iso_stepper", "aperture_stepper", "consistency_hint"):
+        assert hasattr(w.calib_window, attr), attr
+    assert not hasattr(w.calib_window, "shutter_stepper")  # the calibration solves the shutter itself
+
+
+def test_calibration_steppers_are_populated_and_drive_the_camera(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 100, "writable": True, "options": [{"raw": 100, "label": "100"}, {"raw": 200, "label": "200"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}, {"raw": 11, "label": "f/11"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._refresh_camera_settings()
+    assert w.calib_window.iso_stepper.count() == 2 and w.calib_window.aperture_stepper.count() == 2
+    w.calib_window.iso_stepper.setCurrentIndex(w.calib_window.iso_stepper.findData(200))
+    w._on_camera_setting("iso", w.calib_window.iso_stepper)
+    w._flush_camera_settings()
+    w.controller.set_camera_setting.assert_called_with("iso", 200)  # the calib stepper drives the body
+
+
+def _rgb_preset(**kw):
+    return ScanlightPreset(r_level=200, g_level=100, b_level=90, shutter_r="1/5", **kw)
+
+
+def test_rgb_preset_hides_the_scan_live_view_steppers(monkeypatch):
+    w = _sidebar()  # RGB mode is the default
+    monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset())
+    w.preset_combo.addItem("TestStock", "TestStock")
+    idx = w.preset_combo.findData("TestStock")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert w.lv_window.settings_widget.isHidden()  # exposure is locked to the calibrated preset
+
+
+def test_white_preset_keeps_the_scan_live_view_steppers():
+    w = _sidebar()
+    idx = w.preset_combo.findData("White Light (B&W or Slide Film)")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert not w.lv_window.settings_widget.isHidden()  # white light = nothing calibrated to protect
+
+
+def test_normal_mode_keeps_the_scan_live_view_steppers():
+    w = _sidebar()
+    w._set_rgb_mode(False)  # Scanlight unplugged → plain camera-only white-light scanning
+    assert not w.lv_window.settings_widget.isHidden()
+
+
+def _calibrate(w, monkeypatch, name="Portra 400"):
+    """Drive _on_calibration_finished as the worker would, returning the baked preset."""
+    import types
+
+    saved: dict = {}
+    monkeypatch.setattr(w._presets, "save", lambda _n, preset: saved.update(preset=preset))
+    monkeypatch.setattr(w._presets, "get", lambda _n: None)
+    monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
+    w._calibrating_preset = name
+    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5")))
+    return saved["preset"]
+
+
+def test_calibration_bakes_the_metered_iso_and_aperture(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 2, "writable": True, "options": [{"raw": 0, "label": "Auto"}, {"raw": 2, "label": "100"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    preset = _calibrate(_sidebar(), monkeypatch)
+    assert preset.iso == "100" and preset.aperture == "f/8" and preset.shutter_r == "1/5"
+
+
+def test_calibration_bakes_no_aperture_for_a_manual_lens(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"  # a manual lens: gphoto omits the aperture key entirely
+    p.write_text(json.dumps({"iso": {"cur": 2, "writable": True, "options": [{"raw": 2, "label": "100"}]}}))
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    preset = _calibrate(_sidebar(), monkeypatch, name="HP5")
+    assert preset.iso == "100" and preset.aperture == ""  # set by hand on the ring
+
+
+def test_applying_an_rgb_preset_drives_the_body_iso_and_aperture(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 0, "writable": True, "options": [{"raw": 0, "label": "Auto"}, {"raw": 2, "label": "100"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}, {"raw": 11, "label": "f/11"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset(iso="100", aperture="f/11"))
+    w.preset_combo.addItem("TestStock", "TestStock")
+    idx = w.preset_combo.findData("TestStock")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    w.controller.set_camera_setting.assert_any_call("iso", 2)  # label "100" → this body's raw
+    w.controller.set_camera_setting.assert_any_call("aperture", 11)  # label "f/11" → raw
+
+
+def test_applying_rgb_preset_shows_and_stores_the_exposure(monkeypatch):
+    w = _sidebar()
+    monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset(iso="100", aperture="f/8"))
+    w.preset_combo.addItem("TestStock", "TestStock")
+    idx = w.preset_combo.findData("TestStock")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert w.iso_stepper.currentText() == "100" and w.aperture_stepper.currentText() == "f/8"  # read-only steppers
+    assert w.shutter_stepper.currentText() == "1/5"  # _rgb_preset defaults the shutter to 1/5
+    assert w._settings.iso == "100" and w._settings.aperture == "f/8"  # what the scan will force
+    assert not w.iso_stepper.isEnabled()  # a selected preset is a fixed, read-only recipe
+
+
+def test_white_preset_clears_the_exposure_fields():
+    w = _sidebar()
+    w._apply_preset_exposure("100", "f/8")  # leftover from a previous RGB preset
+    idx = w.preset_combo.findData("White Light (B&W or Slide Film)")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert w.iso_stepper.currentText() == "" and w._settings.iso == ""  # white-light frees the exposure
+    assert w._exposure_widget.isHidden()  # and the fields hide — you set exposure in the live view
+
+
+def test_manual_preset_option_unlocks_editing():
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    w = _sidebar()
+    w._camera_verified = True  # a manual preset needs the camera's exposure choices
+    idx = w.preset_combo.findData(sl._MANUAL_PRESET)
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert w._manual_mode
+    assert w.r_slider.isEnabled() and w.iso_stepper.isEnabled() and w.shutter_stepper.isEnabled()
+    assert w.preset_save_btn.isEnabled()  # the floppy is active only while building a manual preset
+
+
+def test_white_slider_is_locked_off_in_manual_mode():
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    w = _sidebar()
+    w._camera_verified = True
+    w._set_slider(w.w_slider, 200)  # leftover from a white-light preset
+    midx = w.preset_combo.findData(sl._MANUAL_PRESET)
+    w.preset_combo.setCurrentIndex(midx)
+    w._on_preset_selected(midx)
+    assert w.w_slider.value() == 0 and not w.w_slider.isEnabled()  # RGB + white can't combine on the Scanlight
+    w._push_light()
+    assert w.controller.set_scanlight_color.call_args[0][3] == 0  # the white LED stays off while building
+
+
+def test_selecting_a_preset_is_read_only(monkeypatch):
+    w = _sidebar()
+    monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset(iso="100", aperture="f/8"))
+    w.preset_combo.addItem("TestStock", "TestStock")
+    idx = w.preset_combo.findData("TestStock")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert not w._manual_mode
+    assert not w.r_slider.isEnabled() and not w.iso_stepper.isEnabled()  # no dragging a stored recipe
+    assert not w.preset_save_btn.isEnabled()  # floppy greyed out
+
+
+def test_manual_save_bakes_the_stepper_values_and_exits(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 2, "writable": True, "options": [{"raw": 2, "label": "100"}, {"raw": 3, "label": "200"}]},
+                "shutter": {"cur": 1, "writable": True, "options": [{"raw": 0, "label": "1/2"}, {"raw": 1, "label": "1/5"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._camera_verified = True
+    saved: dict = {}
+    monkeypatch.setattr(w._presets, "save", lambda _n, preset: saved.update(preset=preset))
+    monkeypatch.setattr(w._presets, "get", lambda _n: None)
+    monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
+    monkeypatch.setattr(sl.QInputDialog, "getText", lambda *a, **k: ("Homebrew", True))
+    midx = w.preset_combo.findData(sl._MANUAL_PRESET)
+    w.preset_combo.setCurrentIndex(midx)
+    w._on_preset_selected(midx)
+    assert w.iso_stepper.count() == 2  # steppers filled from the body's own choices
+    w._on_preset_save()  # the floppy
+    assert saved["preset"].iso == "100" and saved["preset"].shutter_r == "1/5" and saved["preset"].aperture == "f/8"
+    assert not w._manual_mode  # saving returns to the read-only, preset-driven state
+
+
+def test_manual_stepper_edits_survive_a_periodic_refresh(tmp_path, monkeypatch):
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 2, "writable": True, "options": [{"raw": 2, "label": "100"}, {"raw": 3, "label": "200"}]},
+                "shutter": {"cur": 1, "writable": True, "options": [{"raw": 0, "label": "1/2"}, {"raw": 1, "label": "1/5"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._camera_verified = True
+    midx = w.preset_combo.findData(sl._MANUAL_PRESET)
+    w.preset_combo.setCurrentIndex(midx)
+    w._on_preset_selected(midx)  # one-shot populate: ISO stepper lands on the body's "100"
+    w.iso_stepper.setCurrentIndex(w.iso_stepper.findData(3))  # user steps it to 200
+    w._on_sidebar_exposure_changed("iso", w.iso_stepper)
+    assert w._settings.iso == "200"
+    w._refresh_camera_settings()  # a periodic refresh (body still reports 100 — write not landed / no session)
+    assert w.iso_stepper.currentText() == "200"  # not snapped back to the body's value
+    assert w._settings.iso == "200"
+
+
+def test_manual_preset_option_is_disabled_without_a_camera():
+    from PyQt6.QtGui import QStandardItemModel
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    w = _sidebar()  # no camera verified by default
+    idx = w.preset_combo.findData(sl._MANUAL_PRESET)
+    model = w.preset_combo.model()
+    assert isinstance(model, QStandardItemModel)
+    assert not model.item(idx).isEnabled()  # greyed — NegPy can't know a missing body's exposure choices
+    w._camera_verified = True
+    w._apply_gating()
+    assert model.item(idx).isEnabled()  # a verified camera enables it
+
+
+def test_selecting_manual_without_a_camera_is_refused():
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    w = _sidebar()  # no camera
+    midx = w.preset_combo.findData(sl._MANUAL_PRESET)
+    w.preset_combo.setCurrentIndex(midx)
+    w._on_preset_selected(midx)
+    assert not w._manual_mode  # refused — no body to source valid ISO/shutter/aperture from
+    assert w.preset_combo.currentData() is None  # reverted to "— Select preset —"
+
+
+def test_rgb_preset_shows_the_exposure_fields(monkeypatch):
+    w = _sidebar()
+    monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset(iso="100", aperture="f/8"))
+    w.preset_combo.addItem("TestStock", "TestStock")
+    idx = w.preset_combo.findData("TestStock")
+    w.preset_combo.setCurrentIndex(idx)
+    w._on_preset_selected(idx)
+    assert not w._exposure_widget.isHidden()
+
+
+def test_scan_request_carries_the_preset_exposure(tmp_path):
+    w = _sidebar()  # RGB mode is the default
+    w._apply_preset_exposure("100", "f/8")  # as selecting a calibrated RGB preset would
+    w.folder_edit.setText(str(tmp_path))
+    w.roll_edit.setText("Roll001")
+    w._start_capture(retake=False)
+    req = w.controller.start_capture.call_args[0][0]
+    assert req.iso == "100" and req.aperture == "f/8"  # the worker forces these on the body

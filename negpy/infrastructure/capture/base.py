@@ -46,7 +46,7 @@ class LightSource(Protocol):
 class Camera(Protocol):
     """Minimal camera interface: download one RAW to `out_path`, return its path."""
 
-    def capture(self, out_path: str, shutter: Optional[str] = None) -> str: ...
+    def capture(self, out_path: str, shutter: Optional[str] = None, iso: Optional[str] = None, aperture: Optional[str] = None) -> str: ...
 
     def close(self) -> None: ...
 
@@ -69,6 +69,11 @@ class CaptureSettings:
     min_raw_bytes: int = 8 * 1024 * 1024
     max_raw_bytes: int = 200 * 1024 * 1024
     shutters: Optional[tuple[Optional[str], Optional[str], Optional[str]]] = None
+    # ISO + aperture the preset was calibrated at — the scan forces them so a drifted body can't
+    # falsify it (like `shutters`, None means "leave the camera as set"). An RGB triplet passes the
+    # preset's; white-light / normal scans leave them free.
+    iso: Optional[str] = None
+    aperture: Optional[str] = None
 
 
 @dataclass(frozen=True)

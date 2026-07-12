@@ -42,3 +42,17 @@ def test_get_ignores_unknown_keys():
     repo.save_global_setting("scanlight_presets", {"y": {"r_level": 100, "bogus": 5}})
     p = PresetStore(repo).get("y")
     assert p is not None and p.r_level == 100
+
+
+def test_iso_and_aperture_round_trip():
+    store = PresetStore(FakeRepo())
+    p = ScanlightPreset(r_level=200, shutter_r="1/5", iso="100", aperture="f/8")
+    store.save("Portra 400", p)
+    assert store.get("Portra 400") == p  # the baked exposure survives persist + reload
+
+
+def test_legacy_preset_without_exposure_defaults_blank():
+    repo = FakeRepo()  # a preset saved before ISO/aperture existed must still load
+    repo.save_global_setting("scanlight_presets", {"Old": {"r_level": 200, "shutter_r": "1/5"}})
+    p = PresetStore(repo).get("Old")
+    assert p is not None and p.iso == "" and p.aperture == ""

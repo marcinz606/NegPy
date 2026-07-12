@@ -407,16 +407,28 @@ class GphotoCamera:
                     continue  # nothing to offer, and reading its value would segfault
                 current = _safe_value(self._gp, widget)
                 options = [{"label": label, "raw": i} for i, label in enumerate(choices)]
+                cur = choices.index(current) if current in choices else -1
                 if key == "iso":
                     # A scan wants a fixed, single-shot ISO. Sony also lists "Auto ISO" and the low
                     # "50/64/80 Multi Frame Noise Reduction" pseudo-ISOs, which put the body in a
-                    # mode the scan can't use and left the stepper out of sync with the camera —
-                    # keep only the plain numeric ISOs (each keeps its original raw index).
+                    # mode the scan can't use — keep only the plain numeric ISOs (each keeps its
+                    # original raw index).
                     fixed = [o for o in options if o["label"].isdigit()]
                     if fixed:
                         options = fixed
+                        if cur not in {o["raw"] for o in fixed}:
+                            # The body is on Auto/MFNR. Rather than have the stepper fake a fixed
+                            # value, switch the body to its lowest real ISO (fire-and-forget; the
+                            # next 2 s settings read confirms it) and report that.
+                            lowest = min(fixed, key=lambda o: int(o["label"]))
+                            try:
+                                widget.set_value(choices[lowest["raw"]])
+                                camera.set_single_config(name, widget)
+                                cur = lowest["raw"]
+                            except self._gp.GPhoto2Error as exc:
+                                logger.warning("gphoto2: could not switch %s off Auto/MFNR: %s", name, exc)
                 out[key] = {
-                    "cur": choices.index(current) if current in choices else -1,
+                    "cur": cur,
                     "writable": not widget.get_readonly(),
                     "options": options,
                 }
@@ -515,12 +527,14 @@ class GphotoCamera:
             if kind == self._gp.GP_EVENT_TIMEOUT:
                 return
 
-    def capture(self, out_path: str, shutter: Optional[str] = None) -> str:
+    def capture(self, out_path: str, shutter: Optional[str] = None, iso: Optional[str] = None, aperture: Optional[str] = None) -> str:
         """Take one still, write the RAW next to `out_path`, and return where it landed.
 
         The suffix comes from the camera — a Canon writes `.CR3`, a Nikon `.NEF` — so the
         returned path may differ from the one asked for. Callers must use the return value.
-        Blocks the preview meanwhile.
+        Blocks the preview meanwhile. `iso`/`aperture` lock the body to the preset's exposure
+        (a scan re-asserts them so a drifted setting can't falsify it); `_set_verified` skips the
+        write when the body is already there, so it costs a read unless something actually moved.
         """
         self._busy.set()
         try:
@@ -530,6 +544,13 @@ class GphotoCamera:
                     name = self._property("shutter")
                     if name is None or not self._set_verified(name, shutter):
                         raise GphotoError(f"could not set shutter to {shutter!r}: camera rejected it or it did not settle")
+                for prop, value in (("iso", iso), ("aperture", aperture)):
+                    # Not fatal like the shutter: a warning + the current setting beats aborting a
+                    # scan (the preset's value should be settable — it was set at calibration).
+                    if value:
+                        name = self._property(prop)
+                        if name is None or not self._set_verified(name, value):
+                            logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)
                 try:
                     path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
                     suffix = os.path.splitext(path.name)[1]

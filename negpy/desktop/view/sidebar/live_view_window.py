@@ -91,6 +91,9 @@ class SettingStepper(QWidget):
     def currentData(self):
         return self._items[self._index][1] if 0 <= self._index < len(self._items) else None
 
+    def currentText(self) -> str:
+        return self._items[self._index][0] if 0 <= self._index < len(self._items) else ""
+
     def currentIndex(self) -> int:
         return self._index
 
@@ -145,7 +148,12 @@ class LiveViewWindow(QDialog):
         # ── live camera settings (populated from the stream's settings JSON) ──
         # Compact ‹ value › steppers instead of dropdowns: shutter/ISO span dozens of steps,
         # so a full popup would fill the screen. Arrows nudge one stop at a time.
-        settings_row = QHBoxLayout()
+        # Wrapped in a widget so the panel can hide the whole row as a unit: a calibrated RGB
+        # preset locks ISO/shutter/aperture (changing them would falsify the scan), so the steppers
+        # are shown only for white-light presets and normal camera-only scanning.
+        self.settings_widget = QWidget()
+        settings_row = QHBoxLayout(self.settings_widget)
+        settings_row.setContentsMargins(0, 0, 0, 0)
         self.iso_stepper = SettingStepper()
         self.shutter_stepper = SettingStepper()
         self.aperture_stepper = SettingStepper()
@@ -154,7 +162,7 @@ class LiveViewWindow(QDialog):
         for tag_text, stepper, tip in (
             ("ISO", self.iso_stepper, "ISO sensitivity"),
             ("Shutter", self.shutter_stepper, "Shutter speed"),
-            ("f", self.aperture_stepper, "Aperture (needs an electronically controlled lens)"),
+            ("Aperture", self.aperture_stepper, "Aperture (needs an electronically controlled lens)"),
         ):
             tag = QLabel(tag_text)
             tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)  # label sits centred above its value
@@ -165,7 +173,7 @@ class LiveViewWindow(QDialog):
             col.addWidget(tag)
             col.addWidget(stepper)
             settings_row.addLayout(col, 1)
-        layout.addLayout(settings_row)
+        layout.addWidget(self.settings_widget)
 
         self.status = QLabel("")
         self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")

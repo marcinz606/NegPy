@@ -23,6 +23,8 @@ class ScanlightSettings:
     white_mode: bool = False
     w_level: int = 0  # RGB scanning uses no white; a white-light preset raises it to 255
     shutter_w: str = ""
+    iso: str = ""  # RGB preset's calibrated ISO/aperture, forced on the body at scan time
+    aperture: str = ""  # "" for a manual-aperture lens (set by hand on the ring)
     white_process_mode: str = "auto"
     roll_name: str = "Roll001"
     output_folder: str = ""

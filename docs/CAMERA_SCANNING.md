@@ -67,17 +67,27 @@ automatically — there is no address to type, no login, no pairing.
 
 **Frame and focus.** Open **Live View & Scan**. Click anywhere on the image to aim the
 camera's *hardware* focus magnifier at that spot; click again to return to the full
-frame. ISO, shutter and electronic aperture are adjustable live from the toolbar. A control the
+frame. ISO, shutter and aperture are adjustable live from the toolbar in white-light and
+normal (camera-only) scanning; with a calibrated RGB preset they're hidden there and
+locked to the preset instead (see **Presets**), so the scan can't drift. A control the
 body cannot offer — aperture on a lens with no electronic diaphragm, which is most
 enlarging and macro glass — is simply greyed out.
 
-**Calibrate (RGB mode).** Press **+** next to the preset dropdown, place the small
-rectangle on the clear film base — the rebate strip between frames is ideal — name the
-preset and run it. Calibration meters that patch and solves one shared shutter plus a
-per-channel LED level so each channel lands just under clipping. That highlight matters:
+**Calibrate (RGB mode).** Set the ISO and aperture you'll scan with, then press **+**
+next to the preset dropdown, place the small rectangle on the clear film base — the rebate
+strip between frames is ideal — name the preset and run it. Calibration meters that patch
+and solves one shared shutter plus a per-channel LED level so each channel lands just
+under clipping, and records the ISO and aperture alongside them. That highlight matters:
 the clear base is what becomes the *black point* after inversion, so a clip guard checks
 the raw Bayer photosites and backs the exposure off if any channel saturates. Save it
 once per film stock and reuse it.
+
+**Presets.** A selected preset is shown read-only — RGB levels, ISO, shutter and aperture —
+and the scan forces that exposure on the body before every frame, so a bumped dial can't
+falsify the result. To build one by hand instead of calibrating, pick **Create a manual
+preset…** from the dropdown: the sliders and exposure steppers unlock, dial them in, then
+press the save (floppy) button to name and store it. (White is only the white-light
+preset's channel — the Scanlight can't light it together with RGB.)
 
 **Scan.** Pick an output folder and a preset, then press **Scan** for each frame. Files
 land in a per-roll subfolder, auto-numbered, and are imported and merged automatically —

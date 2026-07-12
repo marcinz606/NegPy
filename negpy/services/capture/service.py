@@ -203,7 +203,7 @@ class CaptureService:
                     f"{frame_name}_{ch.letter}",
                 )
                 shutter = settings.shutters[i] if settings.shutters is not None else None
-                out_path = self._camera.capture(stem + _RAW_SUFFIX, shutter=shutter)
+                out_path = self._camera.capture(stem + _RAW_SUFFIX, shutter=shutter, iso=settings.iso, aperture=settings.aperture)
                 self._verify_size(out_path, settings)
                 staged_paths[ch] = out_path
                 # Per-channel timing so the scan-speed bottleneck (settle vs. shutter+RAW download)

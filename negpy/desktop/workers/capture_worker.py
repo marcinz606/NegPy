@@ -38,6 +38,8 @@ class CaptureRequest:
     white_process_mode: str = "auto"  # "auto" | "E-6" | "B&W"
     is_retake: bool = False  # a retake overwrites an existing frame → keep its files on abort
     rgb_mode: bool = True  # True = Scanlight R/G/B triplet; False = one plain white-light shot (no Scanlight)
+    iso: str = ""  # RGB preset's baked ISO/aperture — the triplet forces them; "" = leave as set
+    aperture: str = ""
 
 
 @dataclass(frozen=True)
@@ -198,6 +200,8 @@ class CaptureWorker(QObject):
                 levels=req.levels,
                 settle_s=req.settle_s,
                 shutters=_shutters_or_none(req.shutters),
+                iso=req.iso or None,  # force the preset's exposure on the body before each shot
+                aperture=req.aperture or None,
             )
             self.status.emit("Capturing R / G / B…")
             _names = {"R": "red", "G": "green", "B": "blue"}

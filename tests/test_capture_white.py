@@ -33,7 +33,7 @@ class FakeCamera:
         self.size = size
         self.captured = []
 
-    def capture(self, out_path, shutter=None):
+    def capture(self, out_path, shutter=None, iso=None, aperture=None):
         out_path = os.path.splitext(out_path)[0] + ".ARW"  # the camera picks the suffix
         self.captured.append((out_path, shutter))
         with open(out_path, "wb") as f:
@@ -83,7 +83,7 @@ def test_cancelled_white_retake_preserves_existing_file(tmp_path):
     cancel = threading.Event()
 
     class CancellingCamera(FakeCamera):
-        def capture(self, out_path, shutter=None):
+        def capture(self, out_path, shutter=None, iso=None, aperture=None):
             path = super().capture(out_path, shutter=shutter)
             cancel.set()  # Stop pressed while the camera is downloading the RAW.
             return path
@@ -138,7 +138,7 @@ def test_cancelled_single_retake_preserves_existing_file(tmp_path):
     cancel = threading.Event()
 
     class CancellingCamera(FakeCamera):
-        def capture(self, out_path, shutter=None):
+        def capture(self, out_path, shutter=None, iso=None, aperture=None):
             path = super().capture(out_path, shutter=shutter)
             cancel.set()  # Stop pressed while the camera is downloading the RAW.
             return path

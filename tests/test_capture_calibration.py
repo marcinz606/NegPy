@@ -105,7 +105,7 @@ class FakeCamera:
     def __init__(self):
         self.last_shutter = "1/15"
 
-    def capture(self, out_path, shutter=None):
+    def capture(self, out_path, shutter=None, iso=None, aperture=None):
         if shutter:
             self.last_shutter = shutter
         return os.path.splitext(out_path)[0] + ".ARW"  # the camera picks the suffix

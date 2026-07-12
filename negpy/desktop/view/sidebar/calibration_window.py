@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from negpy.desktop.view.sidebar.live_view_window import SettingStepper
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.theme import THEME
 
@@ -48,6 +49,34 @@ class CalibrationWindow(QDialog):
         self.image = RoiImageLabel()  # roi_mode=True → a click drops the small base-sampling patch
         self.image.setCursor(Qt.CursorShape.CrossCursor)  # crosshair cursor to place it precisely
         layout.addWidget(self.image, 1)
+
+        # ── ISO + aperture (populated from the stream's settings JSON, like the live view) ──
+        # The calibration meters the base at THESE settings and ties the preset to them, so set the
+        # ones you'll scan with. The shutter isn't here: the calibration solves it.
+        settings_row = QHBoxLayout()
+        self.iso_stepper = SettingStepper()
+        self.aperture_stepper = SettingStepper()
+        for tag_text, stepper, tip in (
+            ("ISO", self.iso_stepper, "ISO — use what you will scan with"),
+            ("Aperture", self.aperture_stepper, "Aperture (needs an electronically controlled lens)"),
+        ):
+            tag = QLabel(tag_text)
+            tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            tag.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+            stepper.setToolTip(tip)
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            col.addWidget(tag)
+            col.addWidget(stepper)
+            settings_row.addLayout(col, 1)
+        layout.addLayout(settings_row)
+
+        self.consistency_hint = QLabel(
+            "Set the ISO and aperture you'll scan with. Changing either afterwards throws off every scan made with this preset."
+        )
+        self.consistency_hint.setWordWrap(True)
+        self.consistency_hint.setStyleSheet(f"color: #C8922E; font-size: {THEME.font_size_small}px;")
+        layout.addWidget(self.consistency_hint)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)

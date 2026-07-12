@@ -14,7 +14,7 @@ class CancellingCamera:
     def __init__(self, worker: CaptureWorker) -> None:
         self.worker = worker
 
-    def capture(self, out_path: str, shutter=None) -> str:
+    def capture(self, out_path: str, shutter=None, iso=None, aperture=None) -> str:
         path = os.path.splitext(out_path)[0] + ".ARW"
         with open(path, "wb") as raw:
             raw.truncate(8 * 1024 * 1024)
