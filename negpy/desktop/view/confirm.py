@@ -29,6 +29,17 @@ def confirm_unload(parent, *, clear_all: bool = False, count: int = 1) -> bool:
     return box.exec() == QMessageBox.StandardButton.Yes
 
 
+def confirm_delete_mask(parent) -> bool:
+    """Ask before deleting a single dodge/burn mask. Enter confirms; Esc cancels."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("Delete Mask")
+    box.setText("Delete this dodge/burn mask?")
+    box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def confirm_clear_heals(parent, count: int) -> bool:
     """Ask before wiping every manual heal/scratch on the frame.
 

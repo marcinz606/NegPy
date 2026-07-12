@@ -416,13 +416,7 @@ class CanvasOverlay(QWidget):
                 painter.drawLine(QPointF(visible_rect.x(), self._mouse_pos.y()), QPointF(visible_rect.right(), self._mouse_pos.y()))
                 painter.drawLine(QPointF(self._mouse_pos.x(), visible_rect.top()), QPointF(self._mouse_pos.x(), visible_rect.bottom()))
 
-        selected_present = getattr(self.state, "local_selected_mask", -1) >= 0
-        show_masks = (
-            getattr(self.state, "show_local_overlay", False)
-            or self._tool_mode == ToolMode.LOCAL_DRAW
-            or (self._tool_mode == ToolMode.NONE and selected_present)
-        )
-        if show_masks:
+        if self.state.config.local.masks:
             self._draw_local_masks(painter)
         if self._tool_mode == ToolMode.LOCAL_DRAW:
             self._draw_lasso_in_progress(painter)
@@ -947,6 +941,8 @@ class CanvasOverlay(QWidget):
             self._local_mask_screen_polys.append(ctrl)
 
             is_selected = i == selected
+            if i in getattr(self.state, "local_hidden_masks", ()):
+                continue
             working = self._local_edit_verts if is_selected else None
             drag_this = working is not None
             draw_ctrl = working if working is not None else ctrl

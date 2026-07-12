@@ -410,7 +410,7 @@ class WorkspaceConfig:
                     PolygonMask(
                         vertices=verts,
                         strength=float(m.get("strength", 0.3)),
-                        feather=float(m.get("feather", 0.02)),
+                        feather=float(m.get("feather", 0.04)),
                     )
                 )
             return LocalAdjustmentsConfig(masks=tuple(masks))

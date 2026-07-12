@@ -383,15 +383,47 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
 
-    def test_local_overlay_visible_default_on(self):
-        self.assertTrue(AppState().show_local_overlay)
+    def _seed_two_masks(self):
+        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
 
-    def test_set_local_overlay_visible_toggles_flag(self):
+        verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
+        masks = (
+            PolygonMask(vertices=verts, strength=0.3, feather=0.02),
+            PolygonMask(vertices=verts, strength=-0.3, feather=0.02),
+        )
+        self.controller.state.config = replace(self.controller.state.config, local=LocalAdjustmentsConfig(masks=masks))
+
+    def test_set_local_mask_visible_toggles_hidden_set(self):
+        self._seed_two_masks()
         self.controller.canvas = None  # tolerate no registered canvas
-        self.controller.set_local_overlay_visible(False)
-        self.assertFalse(self.controller.state.show_local_overlay)
-        self.controller.set_local_overlay_visible(True)
-        self.assertTrue(self.controller.state.show_local_overlay)
+        self.controller.set_local_mask_visible(1, False)
+        self.assertEqual(self.controller.state.local_hidden_masks, {1})
+        self.controller.set_local_mask_visible(1, True)
+        self.assertEqual(self.controller.state.local_hidden_masks, set())
+
+    def test_delete_local_mask_confirmed_remaps_view_indices(self):
+        self._seed_two_masks()
+        self.controller.request_render = MagicMock()
+        self.controller.state.local_selected_mask = 1
+        self.controller.state.local_hidden_masks = {1}
+
+        with patch("negpy.desktop.view.confirm.confirm_delete_mask", return_value=True):
+            self.controller.delete_local_mask(0)
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(len(saved_config.local.masks), 1)
+        self.assertEqual(self.controller.state.local_selected_mask, 0)
+        self.assertEqual(self.controller.state.local_hidden_masks, {0})
+
+    def test_delete_local_mask_cancelled_is_noop(self):
+        self._seed_two_masks()
+        self.controller.request_render = MagicMock()
+        self.mock_session_manager.update_config.reset_mock()
+
+        with patch("negpy.desktop.view.confirm.confirm_delete_mask", return_value=False):
+            self.controller.delete_local_mask(0)
+
+        self.mock_session_manager.update_config.assert_not_called()
 
     def test_lasso_completion_adds_mask_and_exits_draw_mode(self):
         import numpy as np

@@ -1050,7 +1050,7 @@ class AppController(QObject):
 
         from negpy.features.local.models import PolygonMask
 
-        mask = PolygonMask(vertices=raw_vertices, strength=0.3, feather=0.02)
+        mask = PolygonMask(vertices=raw_vertices, strength=0.3)
         local = self.state.config.local
         new_masks = local.masks + (mask,)
         new_local = replace(local, masks=new_masks)
@@ -1095,22 +1095,33 @@ class AppController(QObject):
         self.state.local_selected_mask = index
         self.config_updated.emit()
 
-    def delete_selected_local_mask(self) -> None:
-        local = self.state.config.local
-        idx = self.state.local_selected_mask
-        if not (0 <= idx < len(local.masks)):
+    def set_local_mask_visible(self, index: int, visible: bool) -> None:
+        """Show/hide one mask's outline on the canvas (view-only; no re-render)."""
+        if not (0 <= index < len(self.state.config.local.masks)):
             return
-        new_masks = local.masks[:idx] + local.masks[idx + 1 :]
+        if visible:
+            self.state.local_hidden_masks.discard(index)
+        else:
+            self.state.local_hidden_masks.add(index)
+        if self.canvas:
+            self.canvas.overlay.update()
+
+    def delete_local_mask(self, index: int) -> None:
+        local = self.state.config.local
+        if not (0 <= index < len(local.masks)):
+            return
+        from negpy.desktop.view.confirm import confirm_delete_mask
+
+        if not confirm_delete_mask(None):
+            return
+        new_masks = local.masks[:index] + local.masks[index + 1 :]
         new_local = replace(local, masks=new_masks)
         self.session.update_config(replace(self.state.config, local=new_local), persist=True)
-        self.state.local_selected_mask = -1
-        self.config_updated.emit()
-        self.request_render()
 
-    def clear_local(self) -> None:
-        new_local = replace(self.state.config.local, masks=())
-        self.session.update_config(replace(self.state.config, local=new_local), persist=True)
-        self.state.local_selected_mask = -1
+        sel = self.state.local_selected_mask
+        self.state.local_selected_mask = -1 if sel == index else (sel - 1 if sel > index else sel)
+        self.state.local_hidden_masks = {j - 1 if j > index else j for j in self.state.local_hidden_masks if j != index}
+
         self.config_updated.emit()
         self.request_render()
 
@@ -1744,12 +1755,6 @@ class AppController(QObject):
             self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
         else:
             self.request_render()
-
-    def set_local_overlay_visible(self, visible: bool) -> None:
-        """Show/hide the dodge/burn mask overlay (view-only; no re-render)."""
-        self.state.show_local_overlay = visible
-        if self.canvas:
-            self.canvas.overlay.update()
 
     def _enabled_presets(self) -> List[ExportPreset]:
         return [p for p in self.state.export_presets if p.enabled]

@@ -92,7 +92,8 @@ class AppState:
 
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
-    show_local_overlay: bool = True
+    # Indices of masks whose outline is hidden on the canvas; empty = all shown.
+    local_hidden_masks: set = field(default_factory=set)
 
     # History tracking
     undo_index: int = 0
@@ -734,6 +735,9 @@ class DesktopSessionManager(QObject):
                 self.state.config = replace(
                     self.state.config, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align)
                 )
+
+            # Mask hide-state is keyed by index into this file's masks; the swap invalidates it.
+            self.state.local_hidden_masks = set()
 
             self.file_selected.emit(file_info["path"])
             self.state_changed.emit()
