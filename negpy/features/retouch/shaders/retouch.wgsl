@@ -169,8 +169,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         let healed = sample_clean5(p + reg.src_off, idims) + mem;
-        // 1.5px feather at the rim hides boundary-sampling aliasing.
-        let t = clamp((d - (reg.radius - 1.5)) / 1.5, 0.0, 1.0);
+        // Rim feather; mirrors logic.py _RIM_FEATHER_FRAC.
+        let fth = max(0.25 * reg.radius, 1.5);
+        let t = clamp((d - (reg.radius - fth)) / fth, 0.0, 1.0);
         var alpha = 1.0 - t * t * (3.0 - 2.0 * t);
         // Dust gate: heal only pixels brighter than the membrane-predicted
         // clean value; gate=0 regions clone unconditionally.

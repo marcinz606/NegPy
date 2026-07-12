@@ -1705,18 +1705,20 @@ class GPUEngine:
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
-        # Heal regions sample up to radius + |source offset| beyond a pixel, so the
-        # halo must grow with them or tile-edge heals read clamped garbage.
+        # Heal regions sample up to the membrane ring (radius + 2px·scale) plus
+        # |source offset| beyond a pixel, so the halo must grow with them or
+        # tile-edge heals read clamped garbage.
         halo = TILE_HALO
         ret = settings.retouch
         ref_scale = max(w_rot, h_rot) / HEAL_SIZE_REF
+        rim_px = int(np.ceil(2.0 * ref_scale))
         for stroke in ret.manual_heal_strokes:
             size, sdx, sdy = stroke[1], stroke[2], stroke[3]
             off_px = float(np.hypot(sdx * w_rot, sdy * h_rot))
-            halo = max(halo, int(np.ceil(size * ref_scale * 0.5 + off_px)) + 2)
+            halo = max(halo, int(np.ceil(size * ref_scale * 0.5 + off_px)) + rim_px + 2)
         for _x, _y, size in ret.manual_dust_spots:
             # Legacy spots get a golden-angle fallback offset of 2.6·size px.
-            halo = max(halo, int(np.ceil(size * (ref_scale * 0.5 + 2.6))) + 2)
+            halo = max(halo, int(np.ceil(size * (ref_scale * 0.5 + 2.6))) + rim_px + 2)
         halo = min(halo, 512)
 
         for ty in range(0, crop_h, TILE_SIZE):

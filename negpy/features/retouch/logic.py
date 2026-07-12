@@ -27,10 +27,15 @@ _HEAL_GATE_HI = 0.12
 # Spread floor: stops noise on low-contrast sources (fog, flat frames) from
 # being amplified to full range; dust sits ≥ ~1 density unit above surroundings.
 _PROXY_MIN_SPREAD = 0.8
-# Component padding so the membrane rim samples clean pixels outside the defect.
-# Detected masks cover a speck's bright core only; the scanner-PSF skirt extends
-# a few px further, and a boundary on the skirt poisons the membrane (halos).
+# Pad heals past the detected bright core — an unhealed soft skirt reads as a halo.
 _DETECT_PAD_PX = 2.5
+# Membrane boundary ring sits this far outside the blend radius (preview-scale px):
+# a ring on the defect's PSF skirt biases every boundary diff bright and the whole
+# clone renders as a soft ghost. The blend footprint stays at the blend radius.
+_MEMBRANE_RIM_PX = 2.0
+# Rim feather fraction of the blend radius (1.5px floor — a fixed 1.5px edge is a
+# hard seam at export scale). Mirrored in retouch.wgsl.
+_RIM_FEATHER_FRAC = 0.25
 
 
 @njit(cache=True, fastmath=True)
@@ -259,8 +264,10 @@ def _membrane_heal_jit(
                 sx = max(0, min(w - 1, int(px + ox)))
                 sy = max(0, min(h - 1, int(py + oy)))
 
-                # 1.5px feather at the rim hides boundary-sampling aliasing.
-                t = (d - (rad - 1.5)) / 1.5
+                fth = _RIM_FEATHER_FRAC * rad
+                if fth < 1.5:
+                    fth = 1.5
+                t = (d - (rad - fth)) / fth
                 if t < 0.0:
                     t = 0.0
                 elif t > 1.0:
@@ -662,10 +669,11 @@ def build_heal_regions(
         s_px = _map(cx + sdx, cy + sdy)
         off_x, off_y = s_px[0] - c_px[0], s_px[1] - c_px[1]
 
+        rim_rad = radius + _MEMBRANE_RIM_PX * (max(fw, fh) / HEAL_SIZE_REF)
         seg = np.diff(chain, axis=0)
-        perimeter = 2.0 * float(np.hypot(seg[:, 0], seg[:, 1]).sum()) + 2.0 * np.pi * radius
+        perimeter = 2.0 * float(np.hypot(seg[:, 0], seg[:, 1]).sum()) + 2.0 * np.pi * rim_rad
         n_bnd = int(min(64, max(16, perimeter / 4.0)))
-        boundary = _capsule_boundary(chain.astype(np.float64), radius, n_bnd)
+        boundary = _capsule_boundary(chain.astype(np.float64), rim_rad, n_bnd)
 
         if n_pts + len(chain) + len(boundary) > max_points:
             break
