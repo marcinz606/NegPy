@@ -175,7 +175,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var alpha = 1.0 - t * t * (3.0 - 2.0 * t);
         // Dust gate: heal only pixels brighter than the membrane-predicted
         // clean value; gate=0 regions clone unconditionally.
-        let g = smoothstep(0.02, 0.06, dot(res, vec3<f32>(0.2126, 0.7152, 0.0722)) - dot(healed, vec3<f32>(0.2126, 0.7152, 0.0722)));
+        let g = smoothstep(0.04, 0.12, dot(res, vec3<f32>(0.2126, 0.7152, 0.0722)) - dot(healed, vec3<f32>(0.2126, 0.7152, 0.0722)));
         alpha *= mix(1.0, g, reg.gate);
         res = mix(res, healed, alpha);
     }

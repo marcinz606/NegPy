@@ -22,13 +22,13 @@ _CLONE_GUARD_LUMA = 0.06
 # Destination dust gate: a brushed pixel is healed only when its luma exceeds
 # the membrane-predicted clean value by this ramp (encoded domain) — the brush
 # marks a search area, only the bright dust inside it gets replaced.
-_HEAL_GATE_LO = 0.02
-_HEAL_GATE_HI = 0.06
+_HEAL_GATE_LO = 0.04
+_HEAL_GATE_HI = 0.12
 # Spread floor: stops noise on low-contrast sources (fog, flat frames) from
 # being amplified to full range; dust sits ≥ ~1 density unit above surroundings.
 _PROXY_MIN_SPREAD = 0.8
-# Brush margin past the detected bright core — must cover the defect's soft skirt.
-_DETECT_PAD_PX = 4.0
+# Pad heals past the detected bright core — an unhealed soft skirt reads as a halo.
+_DETECT_PAD_PX = 2.5
 # Membrane boundary ring sits this far outside the blend radius (preview-scale px):
 # a ring on the defect's PSF skirt biases every boundary diff bright and the whole
 # clone renders as a soft ghost. The blend footprint stays at the blend radius.
