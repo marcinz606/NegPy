@@ -7,7 +7,10 @@ import pytest
 from negpy.services.capture.calibration import (
     MAX_CLIP_FRACTION,
     CalibrationService,
+    ChannelCalibration,
     Roi,
+    _calibration_badness,
+    _calibration_issue,
     clip_fraction,
     faster_shutter,
     meter_base,
@@ -227,15 +230,17 @@ def test_calibrate_rejects_a_probe_with_no_signal():
     assert light.last == (0, 0, 0)
 
 
-def test_calibrate_clip_guard_pulls_led_down():
+def test_calibrate_tolerates_a_sub_threshold_base_clip():
     clean = _service(FakeLight(), FakeCamera()).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-    clipped = _service(FakeLight(), FakeCamera(), sliver=8).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+    tolerated = _service(FakeLight(), FakeCamera(), sliver=8).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
 
-    # An over-bright sliver clips at the ETTR solve; the guard pulls the LED down until clean,
-    # which necessarily lands the base a touch below the clean run's target.
-    for c in clipped.channels.values():
-        assert c.clip_fraction <= MAX_CLIP_FRACTION  # resolved, not left clipping
-    assert clipped.channels["B"].signal < clean.channels["B"].signal  # LED was reduced
+    # A fraction-of-a-percent sliver (below MAX_CLIP_FRACTION) is recorded but tolerated: the LED is
+    # NOT pulled down (the blackpoint is median-derived), so the base lands on the same target as the
+    # clean run. It used to trip the old 0.01% ceiling and needlessly reduce the LED.
+    for c in tolerated.channels.values():
+        assert c.clip_fraction <= MAX_CLIP_FRACTION
+    assert tolerated.channels["B"].clip_fraction > 0.0  # the sliver was measured…
+    assert tolerated.channels["B"].signal == clean.channels["B"].signal  # …but not corrected away
 
 
 def test_calibrate_respects_camera_shutter_ladder():
@@ -294,6 +299,29 @@ def test_calibrate_rejects_a_channel_below_target_at_the_hardware_limit():
         service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
 
 
+def _chan(letter, signal, clip=0.0, target=58978):
+    return ChannelCalibration(channel=letter, level=100, shutter="1/5", signal=signal, target=target, clip_fraction=clip)
+
+
+def test_calibration_issue_flags_the_first_out_of_spec_channel():
+    ok = {c: _chan(c, 58000) for c in "RGB"}  # all a touch under target, clean → usable
+    assert _calibration_issue(ok) is None
+    assert "G channel is still clipping" in _calibration_issue({**ok, "G": _chan("G", 58000, clip=0.01)})
+    assert "R channel remains materially below target" in _calibration_issue({**ok, "R": _chan("R", 40000)})
+    assert "B channel remains materially above target" in _calibration_issue({**ok, "B": _chan("B", 66000)})
+
+
+def test_calibration_badness_prefers_a_clean_under_channel_over_a_clipping_one():
+    # This ordering is the whole point of the search fix: a shutter that leaves a channel a touch
+    # under (but clean, within spec) must beat a shutter that clips the base, so the search settles
+    # on the clean side instead of oscillating toward the clipping one.
+    on_target = {c: _chan(c, 58978) for c in "RGB"}
+    slightly_under = {**on_target, "R": _chan("R", 54868)}  # 7% under: within spec, clean
+    clipping = {**on_target, "G": _chan("G", 58978, clip=0.01)}  # on-signal but clips the base
+    assert _calibration_badness(on_target) < _calibration_badness(slightly_under) < _calibration_badness(clipping)
+    assert _calibration_badness({**on_target, "R": _chan("R", float("nan"))}) == float("inf")
+
+
 def test_calibrate_rejects_a_final_channel_materially_above_target():
     light, cam = FakeLight(), FakeCamera()
     ordinary = _make_demosaic(light, cam)
@@ -314,6 +342,22 @@ def test_calibrate_rejects_a_final_channel_materially_above_target():
 
     with pytest.raises(RuntimeError, match="R channel.*above target"):
         service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+
+
+def test_a_tiny_base_clip_is_tolerated_not_a_hard_failure():
+    # A fraction-of-a-percent clip on the clear base is harmless (the blackpoint is the base
+    # median, not its top pixels) and unavoidable with discrete LED steps — it must not fail an
+    # otherwise-usable calibration the way the old 0.01% ceiling did (green clipping 0.1% at the
+    # only shutter fast enough to keep red on target).
+    light, cam = FakeLight(), FakeCamera()
+    result = CalibrationService(
+        light,
+        cam,
+        _make_demosaic(light, cam),
+        source_clip=lambda _p, ch_i, _roi: 0.001 if ch_i == 1 else 0.0,  # green clips 0.1% persistently
+        sleep=lambda _s: None,
+    ).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+    assert 0.0 < result.channels["G"].clip_fraction <= MAX_CLIP_FRACTION  # tolerated and recorded
 
 
 def test_calibrate_rejects_a_final_channel_that_is_still_clipping():

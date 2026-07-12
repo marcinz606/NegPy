@@ -28,7 +28,11 @@ logger = get_logger(__name__)
 # 16-bit demosaiced range; PWM range and probe match TriRGB's calibrate_exposure.
 CLIP_CEILING = 65535
 SATURATION_VALUE = 65400  # counts; a demosaiced pixel at/above this is treated as clipped
-MAX_CLIP_FRACTION = 0.0001  # >0.01% of base pixels saturated → the base is clipping
+MAX_CLIP_FRACTION = 0.002  # the base is metered at p99.9 (meter_base), which already discards the
+# top 0.1% of pixels, so a clip up to ~0.1% cannot move the whitepoint→blackpoint anchor at all;
+# 0.2% keeps a small margin over that p99.9 cut while staying essentially harmless. A tiny base clip
+# is also unavoidable with discrete LED steps. The old 0.01% was 10x stricter than the metering cut
+# and failed usable calibrations (e.g. green just clipping at the only shutter fast enough for red).
 PWM_MIN = 40
 PWM_MAX = 255
 PROBE_LEVEL = 200
@@ -223,6 +227,43 @@ def correct_led_level(current_level: int, signal: float, target: int) -> int:
     return int(np.clip(corrected, PWM_MIN, PWM_MAX))
 
 
+def _calibration_issue(channels: dict[str, ChannelCalibration]) -> Optional[str]:
+    """The first reason a solution is unusable, or None if every channel is within spec. The
+    shutter search accepts a shutter the moment this is None; the same checks gate the result."""
+    for c in channels.values():
+        if not np.isfinite(c.signal) or not np.isfinite(c.clip_fraction):
+            return f"calibration failed: {c.channel} channel produced a non-finite final measurement"
+        if c.clip_fraction > MAX_CLIP_FRACTION:
+            return f"calibration failed: {c.channel} channel is still clipping at shared shutter {c.shutter}"
+        if c.signal < (1.0 - MAX_TARGET_UNDER_FRACTION) * c.target:
+            return f"calibration failed: {c.channel} channel remains materially below target ({c.signal:.0f} vs {c.target})"
+        if c.signal > (1.0 + MAX_TARGET_OVER_FRACTION) * c.target:
+            return f"calibration failed: {c.channel} channel remains materially above target ({c.signal:.0f} vs {c.target})"
+    return None
+
+
+def _calibration_badness(channels: dict[str, ChannelCalibration]) -> float:
+    """Rank a candidate shutter for the search: 0 is on-target and clean, larger is worse. The
+    ETTR distance from target drives fine improvement (so a channel whose LED has saturated
+    escalates onto target), while anything the final guards reject gets a heavy penalty — so the
+    search never trades a clean channel for a clipping or out-of-tolerance one, and a two-shutter
+    oscillation (one clips, the neighbour leaves a channel a touch under) settles on the clean
+    side instead of churning through every attempt."""
+    total = 0.0
+    for c in channels.values():
+        if not np.isfinite(c.signal) or not np.isfinite(c.clip_fraction):
+            return float("inf")
+        if c.target > 0:
+            total += abs(c.signal - c.target) / c.target
+        if c.clip_fraction > MAX_CLIP_FRACTION:
+            total += 1000.0
+        if c.signal < (1.0 - MAX_TARGET_UNDER_FRACTION) * c.target:
+            total += 1000.0
+        if c.signal > (1.0 + MAX_TARGET_OVER_FRACTION) * c.target:
+            total += 1000.0
+    return total
+
+
 class CalibrationService:
     """Drives a dark frame + per-channel probe/verify to solve ETTR exposures."""
 
@@ -281,9 +322,14 @@ class CalibrationService:
             if cancel is not None and cancel.is_set():
                 raise RuntimeError("calibration cancelled")
 
+        _floor = [0.0]
+
         def _report(frac: float, msg: str):
+            # Never let the bar jump backward: the shutter search re-measures all three channels
+            # per attempt (0.4→0.8 each time), which used to yank it from 80% back to 40%.
+            _floor[0] = max(_floor[0], frac)
             if progress is not None:
-                progress(frac, msg)
+                progress(_floor[0], msg)
 
         try:
             # 1) Dark frame → per-channel black level inside the ROI.
@@ -322,10 +368,15 @@ class CalibrationService:
 
             # 4) Solve each channel's LED at the shared shutter (verify + one trim + clip guard).
             #    If the set can't fit the LED window, step the *shared* shutter and re-solve all.
-            channels: dict[str, ChannelCalibration] = {}
+            best_channels: dict[str, ChannelCalibration] = {}
+            best_badness = float("inf")
+            tried: set[str] = set()
             for _attempt in range(4):
                 _check_cancel()
-                channels = {}
+                if shutter in tried:  # returned to a shutter we've already tried → a cycle, so stop
+                    break
+                tried.add(shutter)
+                channels: dict[str, ChannelCalibration] = {}
                 too_dim = too_bright = False
                 for i, ch in enumerate(CAPTURE_ORDER):
                     base, target = black[ch.letter], targets[ch.letter]
@@ -339,11 +390,15 @@ class CalibrationService:
                         measured, clip = _shoot(ch, i, base, level, shutter)
                     # Clip guard: p99.9 can read on-target while the top 0.1% saturates. The clear
                     # base is the whitepoint (blackpoint after inversion) and must stay below
-                    # clipping — pull the LED down (the shared shutter can't move per channel).
-                    if clip > MAX_CLIP_FRACTION:
-                        level = int(np.clip(round(level * 0.85), PWM_MIN, PWM_MAX))
+                    # clipping, so pull the LED down until it does. A single step often isn't enough
+                    # (green on a dense base overshoots hard); iterate, re-measuring each time to
+                    # self-correct the under-read a clipped shot gives. Landing a touch under target
+                    # is fine (within tolerance); still clipping at PWM_MIN means the shared shutter
+                    # is genuinely too slow for this channel.
+                    while clip > MAX_CLIP_FRACTION and level > PWM_MIN:
+                        level = max(PWM_MIN, int(round(level * 0.85)))
                         measured, clip = _shoot(ch, i, base, level, shutter)
-                    if clip > MAX_CLIP_FRACTION:  # still clipping at reduced LED → shared shutter too slow
+                    if clip > MAX_CLIP_FRACTION:  # still clipping at PWM_MIN → shared shutter too slow
                         too_bright = True
                     if level >= PWM_MAX and measured < target - tol:  # maxed LED, still under → too fast
                         too_dim = True
@@ -360,6 +415,15 @@ class CalibrationService:
                         measured,
                         clip * 100,
                     )
+                # Keep the best-scoring attempt and stop when a step stops improving (a step that
+                # would revisit a shutter is caught at the top of the loop). Without this the search
+                # oscillates between two shutters until it runs out of tries; it still escalates
+                # while a step genuinely lowers the score (moving a saturated channel onto target).
+                badness = _calibration_badness(channels)
+                if not best_channels or badness < best_badness:
+                    best_badness, best_channels = badness, channels
+                else:
+                    break
                 # A single shutter can't span > ~2.7 stops; nudge it toward whichever rail was hit.
                 if too_dim and not too_bright:
                     step = slower_shutter(shutter, candidates)
@@ -371,19 +435,10 @@ class CalibrationService:
                     break
                 shutter = step
 
-            for c in channels.values():
-                if not np.isfinite(c.signal) or not np.isfinite(c.clip_fraction):
-                    raise RuntimeError(f"calibration failed: {c.channel} channel produced a non-finite final measurement")
-                if c.clip_fraction > MAX_CLIP_FRACTION:
-                    raise RuntimeError(f"calibration failed: {c.channel} channel is still clipping at shared shutter {c.shutter}")
-                if c.signal < (1.0 - MAX_TARGET_UNDER_FRACTION) * c.target:
-                    raise RuntimeError(
-                        f"calibration failed: {c.channel} channel remains materially below target ({c.signal:.0f} vs {c.target})"
-                    )
-                if c.signal > (1.0 + MAX_TARGET_OVER_FRACTION) * c.target:
-                    raise RuntimeError(
-                        f"calibration failed: {c.channel} channel remains materially above target ({c.signal:.0f} vs {c.target})"
-                    )
+            channels = best_channels
+            issue = _calibration_issue(channels)
+            if issue is not None:
+                raise RuntimeError(issue)
 
             _report(1.0, "Calibration done")
             return CalibrationResult(channels=channels, black_levels=black)
