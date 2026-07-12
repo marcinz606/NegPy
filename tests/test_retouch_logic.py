@@ -175,6 +175,21 @@ def test_source_scoring_penalizes_dusty_patch():
     assert patch.max() < 0.7, "scoring picked a source patch containing dust"
 
 
+def test_source_scoring_penalizes_dark_detail_patch():
+    """Interior penalty must be symmetric: dark detail inside a candidate patch
+    (clean rim) would be cloned onto the plain background just like a speck."""
+    rng = np.random.default_rng(5)
+    h, w = 120, 120
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
+    img[56:64, 56:64] = 0.95  # defect at center
+    img[59:61, 69:71] = 0.05  # dark detail inside the +x candidate patch interior
+
+    off = select_source_offset(img, [[0.5, 0.5]], 4.0, 0)
+    sx, sy = 60 + off[0] * w, 60 + off[1] * h
+    patch = img[int(sy) - 4 : int(sy) + 4, int(sx) - 4 : int(sx) + 4]
+    assert patch.min() > 0.3, "scoring picked a source patch containing dark detail"
+
+
 def test_capsule_boundary_is_closed_ordered_loop():
     pts = np.array([[20.0, 20.0], [60.0, 40.0]], dtype=np.float64)
     loop = _capsule_boundary(pts, 5.0, 32)

@@ -758,15 +758,16 @@ def select_source_offset(
             band_lums.append(float(np.dot(src_px[:3], luma_w)))
         if not valid:
             continue
-        # Heavy penalty for dust inside the candidate patch: interior lumas that
-        # pop above the candidate band's median mean the patch contains a speck.
+        # Heavy penalty for structure inside the candidate patch: interior lumas
+        # far from the candidate band's median mean the patch contains a speck
+        # (bright) or real detail (dark) that would be cloned into the heal.
         med = float(np.median(band_lums))
         for cx_, cy_ in interior:
             sx, sy = cx_ + cdx, cy_ + cdy
             if not (0 <= sx < w - 1 and 0 <= sy < h - 1):
                 valid = False
                 break
-            excess = float(np.dot(preview_img[int(sy), int(sx)][:3], luma_w)) - med - _CLONE_GUARD_LUMA
+            excess = abs(float(np.dot(preview_img[int(sy), int(sx)][:3], luma_w)) - med) - _CLONE_GUARD_LUMA
             if excess > 0.0:
                 score += excess * excess * 100.0 * len(boundary)
         if valid and score < best_score:
