@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 import wgpu  # type: ignore
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -33,6 +35,10 @@ class GPUTexture:
         self._readback_staging = None  # full-texture readback
         self._region_staging = None  # sub-region readback
         self._region_staging_size: int = 0  # allocated size of _region_staging
+        # Serializes readback vs. destroy: the UI thread probes textures (densitometer,
+        # pixel readout) while the render worker may destroy them (engine cleanup on file
+        # switch). Destroying a mapped staging buffer panics in wgpu-native — uncatchable.
+        self._lock = threading.Lock()
 
     def upload(self, data: np.ndarray) -> None:
         """Transfers ndarray to VRAM."""
@@ -57,109 +63,112 @@ class GPUTexture:
     def readback_region(self, x: int, y: int, rw: int, rh: int) -> np.ndarray:
         """Downloads a sub-region from VRAM. Significantly faster than a full readback."""
         gpu = GPUDevice.get()
-        if not gpu.device or not self.texture:
-            return np.zeros((rh, rw, 4), dtype=np.float32)
+        with self._lock:
+            if not gpu.device or not self.texture:
+                return np.zeros((rh, rw, 4), dtype=np.float32)
 
-        rw = min(rw, max(1, self.width - x))
-        rh = min(rh, max(1, self.height - y))
+            rw = min(rw, max(1, self.width - x))
+            rh = min(rh, max(1, self.height - y))
 
-        bytes_per_row = (rw * 16 + 255) & ~255
-        required_size = bytes_per_row * rh
+            bytes_per_row = (rw * 16 + 255) & ~255
+            required_size = bytes_per_row * rh
 
-        if self._region_staging is None or self._region_staging_size < required_size:
-            if self._region_staging is not None:
+            if self._region_staging is None or self._region_staging_size < required_size:
+                if self._region_staging is not None:
+                    try:
+                        self._region_staging.destroy()
+                    except Exception as e:
+                        logger.warning("Failed to destroy region staging buffer", exc_info=e)
+                    try:
+                        gpu.poll()
+                    except Exception as e:
+                        logger.warning("Failed to poll GPU device", exc_info=e)
+                self._region_staging = None
+                self._region_staging_size = 0
                 try:
-                    self._region_staging.destroy()
+                    self._region_staging = gpu.device.create_buffer(
+                        size=required_size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
+                    )
+                    self._region_staging_size = required_size
                 except Exception as e:
-                    logger.warning("Failed to destroy region staging buffer", exc_info=e)
-                try:
-                    gpu.poll()
-                except Exception as e:
-                    logger.warning("Failed to poll GPU device", exc_info=e)
-            self._region_staging = None
-            self._region_staging_size = 0
+                    logger.warning("Failed to create region staging buffer", exc_info=e)
+                    self._region_staging = None
+                    self._region_staging_size = 0
+                    raise
+            staging = self._region_staging
+
+            enc = gpu.device.create_command_encoder()
+            enc.copy_texture_to_buffer(
+                {"texture": self.texture, "origin": (x, y, 0)},
+                {"buffer": staging, "bytes_per_row": bytes_per_row},
+                (rw, rh, 1),
+            )
+            gpu.device.queue.submit([enc.finish()])
+
             try:
-                self._region_staging = gpu.device.create_buffer(
-                    size=required_size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ
-                )
-                self._region_staging_size = required_size
-            except Exception as e:
-                logger.warning("Failed to create region staging buffer", exc_info=e)
+                staging.map_sync(mode=wgpu.MapMode.READ)
+                view = staging.read_mapped()
+                arr = np.frombuffer(view, dtype=np.float32).reshape((rh, bytes_per_row // 4))
+                result = arr[:, : rw * 4].reshape((rh, rw, 4)).copy()
+                staging.unmap()
+                return result
+            except Exception:
                 self._region_staging = None
                 self._region_staging_size = 0
                 raise
-        staging = self._region_staging
-
-        enc = gpu.device.create_command_encoder()
-        enc.copy_texture_to_buffer(
-            {"texture": self.texture, "origin": (x, y, 0)},
-            {"buffer": staging, "bytes_per_row": bytes_per_row},
-            (rw, rh, 1),
-        )
-        gpu.device.queue.submit([enc.finish()])
-
-        try:
-            staging.map_sync(mode=wgpu.MapMode.READ)
-            view = staging.read_mapped()
-            arr = np.frombuffer(view, dtype=np.float32).reshape((rh, bytes_per_row // 4))
-            result = arr[:, : rw * 4].reshape((rh, rw, 4)).copy()
-            staging.unmap()
-            return result
-        except Exception:
-            self._region_staging = None
-            self._region_staging_size = 0
-            raise
 
     def readback(self) -> np.ndarray:
         """Downloads pixels from VRAM to CPU ndarray (float32)."""
         gpu = GPUDevice.get()
-        if not gpu.device or not self.texture:
-            return np.zeros((self.height, self.width, 4), dtype=np.float32)
+        with self._lock:
+            if not gpu.device or not self.texture:
+                return np.zeros((self.height, self.width, 4), dtype=np.float32)
 
-        bytes_per_row = (self.width * 16 + 255) & ~255
-        size = bytes_per_row * self.height
+            bytes_per_row = (self.width * 16 + 255) & ~255
+            size = bytes_per_row * self.height
 
-        if self._readback_staging is None:
-            self._readback_staging = gpu.device.create_buffer(size=size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
-        staging = self._readback_staging
+            if self._readback_staging is None:
+                self._readback_staging = gpu.device.create_buffer(size=size, usage=wgpu.BufferUsage.COPY_DST | wgpu.BufferUsage.MAP_READ)
+            staging = self._readback_staging
 
-        enc = gpu.device.create_command_encoder()
-        enc.copy_texture_to_buffer(
-            {"texture": self.texture},
-            {"buffer": staging, "bytes_per_row": bytes_per_row},
-            (self.width, self.height, 1),
-        )
-        gpu.device.queue.submit([enc.finish()])
+            enc = gpu.device.create_command_encoder()
+            enc.copy_texture_to_buffer(
+                {"texture": self.texture},
+                {"buffer": staging, "bytes_per_row": bytes_per_row},
+                (self.width, self.height, 1),
+            )
+            gpu.device.queue.submit([enc.finish()])
 
-        try:
-            staging.map_sync(mode=wgpu.MapMode.READ)
-            view = staging.read_mapped()
-            arr = np.frombuffer(view, dtype=np.float32).reshape((self.height, bytes_per_row // 4))
-            result = arr[:, : self.width * 4].reshape((self.height, self.width, 4)).copy()
-            staging.unmap()
-            return result
-        except Exception:
-            self._readback_staging = None
-            raise
+            try:
+                staging.map_sync(mode=wgpu.MapMode.READ)
+                view = staging.read_mapped()
+                arr = np.frombuffer(view, dtype=np.float32).reshape((self.height, bytes_per_row // 4))
+                result = arr[:, : self.width * 4].reshape((self.height, self.width, 4)).copy()
+                staging.unmap()
+                return result
+            except Exception:
+                self._readback_staging = None
+                raise
 
     def destroy(self) -> None:
         """Forces hardware resource release."""
-        try:
-            self.view = None
-            if self.texture:
-                self.texture.destroy()
-                self.texture = None
-        except Exception as e:
-            logger.warning("Failed to destroy GPU texture", exc_info=e)
-        for attr in ("_readback_staging", "_region_staging"):
-            buf = getattr(self, attr, None)
-            if buf is not None:
-                try:
-                    buf.destroy()
-                except Exception as e:
-                    logger.warning(f"Failed to destroy GPU buffer ({attr})", exc_info=e)
-                setattr(self, attr, None)
-        self._region_staging_size = 0
+        with self._lock:
+            try:
+                self.view = None
+                if self.texture:
+                    self.texture.destroy()
+                    self.texture = None
+            except Exception as e:
+                logger.warning("Failed to destroy GPU texture", exc_info=e)
+            for attr in ("_readback_staging", "_region_staging"):
+                buf = getattr(self, attr, None)
+                if buf is not None:
+                    try:
+                        buf.destroy()
+                    except Exception as e:
+                        logger.warning(f"Failed to destroy GPU buffer ({attr})", exc_info=e)
+                    setattr(self, attr, None)
+            self._region_staging_size = 0
 
 
 class GPUBuffer:

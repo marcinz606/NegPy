@@ -658,6 +658,9 @@ class AppController(QObject):
         self._thumb_config = None
 
         self._render_cleanup_requested.emit()
+        # The cleanup destroys the GPU textures last_metrics still points at; drop the
+        # densitometer's probe source so hover readouts go quiet until the next render.
+        self.state.last_metrics.pop("normalized_log", None)
 
         self.state.preview_raw = None
         self.state.preview_ir = None
@@ -1985,12 +1988,15 @@ class AppController(QObject):
                 # Always use current session export path/mode even for per-file
                 # exports. Per-file configs from the DB bypass _apply_sticky_settings
                 # and may have stale ABSOLUTE/export_path values.
-                params = replace(params, export=replace(
-                    params.export,
-                    output_mode=current_export.output_mode,
-                    export_path=current_export.export_path,
-                    output_subfolder=current_export.output_subfolder,
-                ))
+                params = replace(
+                    params,
+                    export=replace(
+                        params.export,
+                        output_mode=current_export.output_mode,
+                        export_path=current_export.export_path,
+                        output_subfolder=current_export.output_subfolder,
+                    ),
+                )
 
             final_export = replace(
                 params.export,
