@@ -10,6 +10,8 @@ from negpy.services.rendering.engine import DarkroomEngine
 class TestWorkspaceSession(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock(spec=IRepository)
+        self.mock_repo.load_file_settings.return_value = None
+        self.mock_repo.load_file_settings_by_path.return_value = None
         self.mock_store = MagicMock(spec=IAssetStore)
         self.mock_engine = MagicMock(spec=DarkroomEngine)
         self.session_id = "test_session_123"

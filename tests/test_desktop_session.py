@@ -12,6 +12,7 @@ class TestDesktopSessionSync(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock(spec=StorageRepository)
         self.mock_repo.load_file_settings.return_value = None
+        self.mock_repo.load_file_settings_by_path.return_value = None
 
         # Mock global settings with correct types
         def mock_get_global(key, default=None):
@@ -602,6 +603,7 @@ class TestSessionEmptied(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock(spec=StorageRepository)
         self.mock_repo.load_file_settings.return_value = None
+        self.mock_repo.load_file_settings_by_path.return_value = None
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: default
         self.mock_repo.get_max_history_index.return_value = 0
         self.session = DesktopSessionManager(self.mock_repo)

@@ -694,7 +694,7 @@ class DesktopSessionManager(QObject):
         if 0 <= index < len(self.state.uploaded_files):
             # Save current before switching, but only if user actually made explicit edits
             if self.state.current_file_hash and self._config_dirty:
-                self.repo.save_file_settings(self.state.current_file_hash, self.state.config)
+                self.repo.save_file_settings(self.state.current_file_hash, self.state.config, file_path=self.state.current_file_path or "")
                 self.settings_saved.emit()
                 self.active_file_changing.emit()
             self._config_dirty = False
@@ -778,7 +778,8 @@ class DesktopSessionManager(QObject):
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
             target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
-            self.repo.save_file_settings(target_hash, build_synced_config(source_config, target_config, aspects, src_bounds))
+            target_path = self.state.uploaded_files[idx]["path"]
+            self.repo.save_file_settings(target_hash, build_synced_config(source_config, target_config, aspects, src_bounds), file_path=target_path)
             count += 1
 
         if count:
@@ -828,7 +829,7 @@ class DesktopSessionManager(QObject):
             self._config_dirty = True
             self._persist_sticky_settings(config)
             if self.state.current_file_hash:
-                self.repo.save_file_settings(self.state.current_file_hash, config)
+                self.repo.save_file_settings(self.state.current_file_hash, config, file_path=self.state.current_file_path or "")
                 self.settings_saved.emit()
 
         if render:

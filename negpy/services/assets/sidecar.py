@@ -52,10 +52,21 @@ def load_sidecar(source_path: str) -> Optional[WorkspaceConfig]:
 
 
 def load_or_promote(repo, file_hash: str, source_path: str) -> Optional[WorkspaceConfig]:
-    """DB first; on miss, load a beside-source sidecar and write it into the DB (promote)."""
+    """DB first; on miss, try path-based fallback (handles EXIF-modified files),
+    then fall back to sidecar. Re-homes on successful path match."""
     cfg = repo.load_file_settings(file_hash)
-    if cfg is None:
-        cfg = load_sidecar(source_path)
-        if cfg is not None:
-            repo.save_file_settings(file_hash, cfg)
+    if cfg is not None:
+        return cfg
+
+    # Path-based fallback: hash changed due to EXIF edits
+    path_result = repo.load_file_settings_by_path(source_path)
+    if path_result is not None:
+        old_hash, cfg = path_result
+        repo.rehome_file_settings(old_hash, file_hash, source_path)
+        return cfg
+
+    # Sidecar fallback
+    cfg = load_sidecar(source_path)
+    if cfg is not None:
+        repo.save_file_settings(file_hash, cfg, file_path=source_path)
     return cfg

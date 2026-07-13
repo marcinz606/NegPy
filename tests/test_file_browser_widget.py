@@ -15,6 +15,7 @@ def session(qapp):
     repo = MagicMock(spec=StorageRepository)
     repo.get_global_setting.return_value = None
     repo.load_file_settings.return_value = None
+    repo.load_file_settings_by_path.return_value = None
     repo.get_max_history_index.return_value = 0
     mgr = DesktopSessionManager(repo)
     mgr.state.uploaded_files = [

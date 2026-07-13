@@ -76,6 +76,12 @@ class StorageRepository(IRepository):
                 )
             """)
 
+            # Migration: add file_path column for path-based settings recovery
+            try:
+                conn.execute("ALTER TABLE file_settings ADD COLUMN file_path TEXT")
+            except sqlite3.OperationalError:
+                pass  # already exists
+
         with self._connect(self.settings_db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("""
@@ -154,12 +160,12 @@ class StorageRepository(IRepository):
         with self._connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM flatfield_profiles WHERE name = ?", (name,))
 
-    def save_file_settings(self, file_hash: str, settings: WorkspaceConfig) -> None:
+    def save_file_settings(self, file_hash: str, settings: WorkspaceConfig, file_path: str = "") -> None:
         with self._connect(self.edits_db_path) as conn:
             settings_json = json.dumps(settings.to_dict(), default=str)
             conn.execute(
-                "INSERT OR REPLACE INTO file_settings (file_hash, settings_json) VALUES (?, ?)",
-                (file_hash, settings_json),
+                "INSERT OR REPLACE INTO file_settings (file_hash, settings_json, file_path) VALUES (?, ?, ?)",
+                (file_hash, settings_json, file_path),
             )
 
     def load_file_settings(self, file_hash: str) -> Optional[WorkspaceConfig]:
@@ -173,6 +179,36 @@ class StorageRepository(IRepository):
                 data = json.loads(row[0])
                 return WorkspaceConfig.from_flat_dict(data)
         return None
+
+    def load_file_settings_by_path(self, file_path: str) -> Optional[tuple[str, WorkspaceConfig]]:
+        """Look up settings by file path (fallback for when hash changed due to EXIF edits).
+        Returns (old_hash, config) if found, or None."""
+        if not file_path:
+            return None
+        with self._connect(self.edits_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT file_hash, settings_json FROM file_settings WHERE file_path = ?",
+                (file_path,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return str(row[0]), WorkspaceConfig.from_flat_dict(json.loads(row[1]))
+        return None
+
+    def rehome_file_settings(self, old_hash: str, new_hash: str, file_path: str) -> None:
+        """Copy settings from old_hash to new_hash (with updated path), then delete old entry."""
+        with self._connect(self.edits_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT settings_json FROM file_settings WHERE file_hash = ?",
+                (old_hash,),
+            )
+            row = cursor.fetchone()
+            if row:
+                conn.execute(
+                    "INSERT OR REPLACE INTO file_settings (file_hash, settings_json, file_path) VALUES (?, ?, ?)",
+                    (new_hash, row[0], file_path),
+                )
+                conn.execute("DELETE FROM file_settings WHERE file_hash = ?", (old_hash,))
 
     def save_history_step(self, file_hash: str, index: int, settings: WorkspaceConfig) -> None:
         with self._connect(self.edits_db_path) as conn:

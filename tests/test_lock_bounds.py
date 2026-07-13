@@ -55,6 +55,7 @@ class TestCopySettingsBounds(unittest.TestCase):
     def setUp(self):
         mock_repo = MagicMock(spec=StorageRepository)
         mock_repo.load_file_settings.return_value = None
+        mock_repo.load_file_settings_by_path.return_value = None
         mock_repo.get_global_setting.return_value = None
         mock_repo.get_max_history_index.return_value = 0
         self.session = DesktopSessionManager(mock_repo)
