@@ -28,8 +28,9 @@ def output_histogram(buffer: Any) -> Optional[np.ndarray]:
         return buffer.astype(float)
     if buffer.ndim != 3 or buffer.shape[-1] != 3:
         return None
-    if buffer.shape[0] > 500:
-        buffer = buffer[::4, ::4]
+    step = max(1, round(np.sqrt(buffer.shape[0] * buffer.shape[1] / _MAX_HIST_SAMPLES)))
+    if step > 1:
+        buffer = buffer[::step, ::step]
     buffer = np.ascontiguousarray(buffer.astype(np.float32, copy=False))
     lum = get_luminance(buffer)
     rows = [np.histogram(buffer[..., c], bins=OUTPUT_HIST_BINS, range=(0, 1))[0] for c in range(3)]

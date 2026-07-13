@@ -426,9 +426,6 @@ class TestToningParity:
             toning=ToningConfig(**toning_kwargs),
         )
 
-    # B&W parity carries the CPU-only chromaticity-preserving black point on top
-    # of the toning math; the shared tolerance absorbs it on this synthetic image.
-
     def test_chemical_selenium(self):
         self._run_and_compare(self._bw_settings(selenium_strength=0.8))
 
@@ -443,6 +440,16 @@ class TestToningParity:
 
     def test_chemical_gold_over_sepia(self):
         self._run_and_compare(self._bw_settings(sepia_strength=0.5, gold_strength=0.8))
+
+    def test_bw_per_channel_trim_stays_neutral(self):
+        # Per-channel trims persist in configs even though the B&W UI hides
+        # them; the post-curve collapse must keep the print grey on both engines.
+        s = self._bw_settings()
+        s = replace(s, exposure=replace(s.exposure, toe_trim_red=0.3, midtone_gamma_trim_green=0.2))
+        self._run_and_compare(s)
+        gpu = self._gpu_result(s)
+        spread = np.abs(gpu - gpu.mean(axis=-1, keepdims=True)).max()
+        assert spread < 1e-3, f"B&W GPU render not neutral: channel spread {spread:.4f}"
 
     def _gpu_result(self, settings: WorkspaceConfig):
         h, w = self.img.shape[:2]

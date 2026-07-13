@@ -7,6 +7,7 @@ import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.exposure.analysis import output_histogram
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -140,6 +141,11 @@ class RenderWorker(QObject):
             )
 
             soft_proof = task.icc_input_path or task.icc_output_path
+
+            # CPU renders have no in-shader histogram; bin the float output here,
+            # before soft-proofing quantizes it to 8/16-bit (comb artifacts).
+            if task.readback_metrics and "histogram_raw" not in metrics and isinstance(result, np.ndarray):
+                metrics["histogram_raw"] = output_histogram(result)
 
             if soft_proof and isinstance(result, GPUTexture):
                 result = result.readback()

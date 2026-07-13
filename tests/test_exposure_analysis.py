@@ -69,6 +69,15 @@ class TestOutputHistogram(unittest.TestCase):
         self.assertIsNone(output_histogram(None))
         self.assertIsNone(output_histogram(np.zeros((4, 4))))
 
+    def test_preview_sized_buffer_bins_every_pixel(self):
+        # GPU metrics.wgsl bins every pixel; the CPU path must not subsample
+        # below _MAX_HIST_SAMPLES or its histogram gets visibly noisier.
+        from negpy.features.exposure.analysis import output_histogram
+
+        buf = np.full((600, 600, 3), 0.5, dtype=np.float32)
+        out = output_histogram(buf)
+        self.assertEqual(float(out[0].sum()), 600.0 * 600.0)
+
 
 class TestZones(unittest.TestCase):
     def test_zone_ruler_anchors(self):

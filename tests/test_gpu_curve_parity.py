@@ -109,6 +109,45 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
+    def test_cpu_gpu_match_bw_trims(self):
+        """B&W end-to-end parity under per-channel trims + a chroma lab op.
+        The tight tolerance catches any CPU-only or GPU-only B&W grading step
+        (e.g. the removed CPU auto black point, which failed this at mad~0.03)."""
+        from negpy.features.process.models import ProcessMode
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        rng = np.random.default_rng(2)
+        h, w = 64, 64
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
+
+        settings = WorkspaceConfig()
+        settings = replace(
+            settings,
+            process=replace(settings.process, process_mode=ProcessMode.BW),
+            exposure=replace(
+                settings.exposure,
+                toe_trim_red=0.5,
+                midtone_gamma_trim_green=0.4,
+                grade_trim_blue=-20.0,
+            ),
+            lab=replace(settings.lab, saturation=1.8),
+        )
+        cpu = self._render(processor, settings, img, prefer_gpu=False)
+        gpu = self._render(processor, settings, img, prefer_gpu=True)
+
+        self.assertEqual(cpu.shape, gpu.shape)
+        mad = float(np.mean(np.abs(cpu - gpu)))
+        mx = float(np.max(np.abs(cpu - gpu)))
+        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
 
 if __name__ == "__main__":
     unittest.main()

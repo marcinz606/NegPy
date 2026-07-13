@@ -177,6 +177,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         transmittance = (transmittance - tb) / (vec3<f32>(1.0) - tb);
     }
 
+    // B&W: re-collapse after the curve — per-channel trims must not tint a
+    // B&W print. Mirrors the CPU post-curve collapse in exposure/processor.py.
+    if (params.mode == 1u) {
+        let l = dot(transmittance, vec3<f32>(0.2126, 0.7152, 0.0722));
+        transmittance = vec3<f32>(l, l, l);
+    }
+
     let res = vec3<f32>(
         oetf_encode(transmittance.x),
         oetf_encode(transmittance.y),
