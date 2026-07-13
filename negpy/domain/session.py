@@ -134,7 +134,8 @@ class WorkspaceSession:
         f_hash = self.uploaded_files[self.selected_file_idx]["hash"]
         self.file_settings[f_hash] = settings
         if persist:
-            self.repository.save_file_settings(f_hash, settings)
+            file_path = self.uploaded_files[self.selected_file_idx].get("path", "")
+            self.repository.save_file_settings(f_hash, settings, file_path=file_path)
 
     def clear_all_files(self) -> None:
         """

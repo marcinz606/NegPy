@@ -1370,7 +1370,7 @@ class AppController(QObject):
                 roll_name=None,
             )
             new_p = replace(p, process=new_process)
-            self.session.repo.save_file_settings(f_info["hash"], new_p)
+            self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
         # Update current state
         new_process = replace(
@@ -1418,7 +1418,7 @@ class AppController(QObject):
                     roll_name=name,
                 )
                 new_p = replace(p, process=new_process)
-                self.session.repo.save_file_settings(f_info["hash"], new_p)
+                self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
             new_process = replace(
                 self.state.config.process,

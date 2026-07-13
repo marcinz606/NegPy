@@ -82,6 +82,9 @@ class StorageRepository(IRepository):
             except sqlite3.OperationalError:
                 pass  # already exists
 
+            # Migration: index on file_path for path-based fallback queries
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_file_settings_path ON file_settings(file_path)")
+
         with self._connect(self.settings_db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("""
@@ -197,6 +200,8 @@ class StorageRepository(IRepository):
 
     def rehome_file_settings(self, old_hash: str, new_hash: str, file_path: str) -> None:
         """Copy settings from old_hash to new_hash (with updated path), then delete old entry."""
+        if old_hash == new_hash:
+            return
         with self._connect(self.edits_db_path) as conn:
             cursor = conn.execute(
                 "SELECT settings_json FROM file_settings WHERE file_hash = ?",
