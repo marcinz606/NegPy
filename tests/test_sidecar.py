@@ -163,3 +163,85 @@ def test_load_file_settings_by_path_empty_or_missing(repo):
     """Empty path and non-existent path both return None."""
     assert repo.load_file_settings_by_path("") is None
     assert repo.load_file_settings_by_path("/nonexistent/file.NEF") is None
+
+
+def test_e2e_exif_change_recovers_via_path_fallback(tmp_path, repo):
+    """Integration: real calculate_file_hash + byte modification = hash change,
+    path-based fallback recovers the settings, and double-re-home works."""
+    from negpy.kernel.image.logic import calculate_file_hash
+
+    # ── Create a synthetic 2 MB file with simulated EXIF bytes ──
+    raw_path = str(tmp_path / "test.RAW")
+    data = bytearray(2 * 1024 * 1024)
+    data[:200] = b"EXIF: camera=Nikon D850 UserComment=original"
+    with open(raw_path, "wb") as f:
+        f.write(data)
+
+    hash1 = calculate_file_hash(raw_path)
+    assert len(hash1) == 64  # SHA-256
+
+    # ── Save settings under hash1 ──
+    cfg = _rich_config()
+    repo.save_file_settings(hash1, cfg, file_path=raw_path)
+    assert repo.load_file_settings(hash1) is not None
+
+    # ── Modify EXIF area, verify hash changes ──
+    data[100:115] = b"UserComment=MOD"
+    with open(raw_path, "wb") as f:
+        f.write(data)
+    hash2 = calculate_file_hash(raw_path)
+    assert hash2 != hash1, "hash should change after byte modification"
+
+    # ── Path fallback recovers settings under new hash ──
+    result = load_or_promote(repo, hash2, raw_path)
+    assert result is not None
+    assert result.exposure.density == 0.42
+    assert repo.load_file_settings(hash1) is None  # old hash deleted
+    assert repo.load_file_settings(hash2) is not None  # new hash works
+
+    # ── Double re-home: EXIF changed again ──
+    data[100:115] = b"UserComment=BAK"
+    with open(raw_path, "wb") as f:
+        f.write(data)
+    hash3 = calculate_file_hash(raw_path)
+    assert hash3 != hash2 and hash3 != hash1
+
+    result3 = load_or_promote(repo, hash3, raw_path)
+    assert result3 is not None
+    assert repo.load_file_settings(hash2) is None  # intermediate hash deleted
+    assert repo.load_file_settings(hash3) is not None  # latest hash works
+    assert load_or_promote(repo, "unknown", "/nonexistent/path.RAW") is None  # no false positives
+
+
+def test_e2e_backward_compat_save_without_path(repo):
+    """save_file_settings without file_path still works (backward compat)."""
+    cfg = _rich_config()
+    repo.save_file_settings("h_no_path", cfg)  # no file_path arg
+    result = load_or_promote(repo, "h_no_path", "/some/other/path.RAW")
+    assert result is not None
+    assert result.exposure.density == 0.42
+
+
+def test_e2e_migration_on_fresh_db(tmp_path):
+    """A fresh DB (no prior file_path column) migrates and works correctly."""
+    import os
+
+    home = str(tmp_path / "fresh_home")
+    os.makedirs(home, exist_ok=True)
+    repo = StorageRepository(
+        edits_db_path=os.path.join(home, "edits.db"),
+        settings_db_path=os.path.join(home, "settings.db"),
+    )
+    repo.initialize()
+
+    cfg = _rich_config()
+    # This triggers the migration path (ALTER TABLE)
+    repo.save_file_settings("h_mig", cfg, file_path="/tmp/mig_test.RAW")
+    loaded = repo.load_file_settings("h_mig")
+    assert loaded is not None
+    assert loaded.exposure.density == 0.42
+
+    # Path lookup must work on the freshly migrated DB
+    path_result = repo.load_file_settings_by_path("/tmp/mig_test.RAW")
+    assert path_result is not None
+    assert path_result[0] == "h_mig"
