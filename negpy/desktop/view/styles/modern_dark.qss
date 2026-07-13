@@ -386,6 +386,18 @@ QFrame#toolbar_separator {
     background-color: #333333;
 }
 
+/* Shortcut overview/Customize dialog rows. Transparent by default so the row
+   frame doesn't paint the global #0D0D0D over the #121212 collapsible card;
+   the highlighted variant is the jump-to-row flash. */
+QFrame#shortcut_editor_row {
+    background: transparent;
+}
+
+QFrame#shortcut_editor_row[highlighted="true"] {
+    background-color: rgba(183, 28, 28, 0.12);
+    border-left: 2px solid @accent_primary;
+}
+
 QLabel#update_label {
     font-size: 12px;
     color: #558B2F;
@@ -496,8 +508,10 @@ QToolButton#gear_combo_arrow:hover {
     color: #D4D4D4;
 }
 
-/* QCompleter view — the QMenu/combo rules above don't reach it; mirror them. */
-QAbstractItemView#gear_combo_popup {
+/* QCompleter views — the QMenu/combo rules above don't reach them; mirror them.
+   Covers the gear combo and the shortcut-dialog search fields. */
+QAbstractItemView#gear_combo_popup,
+QAbstractItemView#shortcut_editor_search_popup {
     background: #161616;
     color: #D4D4D4;
     border: 1px solid #333333;
@@ -506,7 +520,8 @@ QAbstractItemView#gear_combo_popup {
     outline: 0;
 }
 
-QAbstractItemView#gear_combo_popup::item {
+QAbstractItemView#gear_combo_popup::item,
+QAbstractItemView#shortcut_editor_search_popup::item {
     background: transparent;
     border: none;
     border-radius: 3px;
@@ -514,7 +529,9 @@ QAbstractItemView#gear_combo_popup::item {
 }
 
 QAbstractItemView#gear_combo_popup::item:selected,
-QAbstractItemView#gear_combo_popup::item:hover {
+QAbstractItemView#gear_combo_popup::item:hover,
+QAbstractItemView#shortcut_editor_search_popup::item:selected,
+QAbstractItemView#shortcut_editor_search_popup::item:hover {
     background: #2E2E2E;
     color: #FFFFFF;
     border: none;

@@ -82,16 +82,6 @@ class ShortcutsOverlay(QDialog):
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
 
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {THEME.bg_panel}; }}
-            QLabel {{ color: {THEME.text_primary}; font-size: 12px; }}
-            QPushButton {{ padding: 6px 14px; }}
-            QFrame#shortcut_editor_row[highlighted="true"] {{
-                background-color: rgba(183, 28, 28, 0.12);
-                border-left: 2px solid {THEME.accent_primary};
-            }}
-        """)
-
         intro = QLabel(
             "Current keyboard shortcuts and slider step sizes. "
             "Search by name or press a shortcut to filter results, then choose or press Enter. "
