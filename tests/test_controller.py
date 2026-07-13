@@ -525,6 +525,31 @@ class TestBatchExportFiltering(unittest.TestCase):
         for t in tasks:
             self.assertEqual(t.params.export.export_path, "/tmp/out")
 
+    def test_export_all_saved_overrides_path_with_session_values(self):
+        """all_saved scope uses session path/mode even when per-file configs are stale."""
+        self.visible_indices = [0, 1]
+        session_export = self.controller.state.config.export
+        stale_export = replace(
+            session_export,
+            output_mode=ExportPresetOutputMode.ABSOLUTE,
+            export_path="/stale/default",
+            output_subfolder="old_sub",
+        )
+        stale_config = replace(self.controller.state.config, export=stale_export)
+        # Per-file config has stale ABSOLUTE; session has SAME_AS_SOURCE
+        self.mock_session_manager.repo.load_file_settings.return_value = stale_config
+        self.controller.request_batch_export(override_settings=False)
+        tasks = self._captured_tasks()
+        self.assertEqual(len(tasks), 2)
+        for t in tasks:
+            # output_mode and output_subfolder come from session config
+            self.assertEqual(t.params.export.output_mode, session_export.output_mode)
+            self.assertEqual(t.params.export.output_subfolder, session_export.output_subfolder)
+            # export_path is validated by _ensure_valid_export_path (mocked to /tmp/out)
+            self.assertEqual(t.params.export.export_path, "/tmp/out")
+            # Format/quality from per-file config is preserved
+            self.assertEqual(t.params.export.export_fmt, stale_export.export_fmt)
+
 
 class TestPresetBatchExport(unittest.TestCase):
     def setUp(self):
