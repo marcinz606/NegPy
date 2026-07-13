@@ -76,6 +76,7 @@ class ScanlightSidebar(QWidget):
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
         self._settings_loaded = False  # have the live camera-setting dropdowns been populated yet?
         self._slider_readouts: dict = {}  # slider → its value label (updated on preset apply, where signals are blocked)
+        self._suppress_camera_release = False  # true only mid hand-off between lv_window/calib_window
         self._no_wheel = _NoWheel(self)
 
         self.lv_window = LiveViewWindow(self)
@@ -567,12 +568,43 @@ class ScanlightSidebar(QWidget):
                 self._calibrating_preset = ""
             self._apply_gating()
             self._push_light()
+        self._maybe_release_camera_session(closing=self.calib_window)
+
+    def _maybe_release_camera_session(self, *, closing=None) -> None:
+        """Once neither camera pop-up is open and nothing is mid-capture, release the held
+        PTP session rather than leaving it open indefinitely. Some bodies (Fuji in
+        particular) get stuck in a tethered-capture state on the camera side until the
+        session is cleanly exited — holding it open past the last window that uses it
+        makes the next connection attempt hang instead of reconnecting.
+
+        `closing`, when given, names the window whose closeEvent just fired: `closed` is
+        emitted from inside closeEvent, before Qt actually hides the widget, so
+        `closing.isVisible()` would still (wrongly) read True here — treat it as already
+        gone instead. Omit it when called after the fact (e.g. once a cancelled
+        calibration actually stops), when both windows' visibility is already accurate.
+        """
+        if self._suppress_camera_release:
+            return  # a hand-off between the two pop-ups, not a real exit
+        lv_open = self.lv_window.isVisible() and closing is not self.lv_window
+        calib_open = self.calib_window.isVisible() and closing is not self.calib_window
+        if lv_open or calib_open:
+            return
+        if self._scanning or self._calibrating_preset:
+            return
+        self.controller.close_camera_session()
 
     # ── live view ─────────────────────────────────────────────────────
 
     def _on_live_view_toggled(self, on: bool) -> None:
         if on and self.calib_window.isVisible() and not self._calibrating_preset:
-            self.calib_window.close()  # only one live-view window at a time
+            # Hand-off, not an exit: closing calib_window here would otherwise look like
+            # the last camera window going away and release the session, only to have
+            # _start_live_view_worker() below immediately reopen it (~2-4 s reconnect).
+            self._suppress_camera_release = True
+            try:
+                self.calib_window.close()  # only one live-view window at a time
+            finally:
+                self._suppress_camera_release = False
         if on:
             self._settings_loaded = False  # repopulate the camera-setting dropdowns
             self._update_settings_from_ui()
@@ -618,6 +650,7 @@ class ScanlightSidebar(QWidget):
     def _on_live_view_window_closed(self) -> None:
         if self.lv_btn.isChecked():
             self.lv_btn.setChecked(False)  # stops live view via _on_live_view_toggled(False)
+        self._maybe_release_camera_session(closing=self.lv_window)
 
     def _refresh_live_view(self) -> None:
         if not self._lv_jpeg_path:
@@ -899,6 +932,7 @@ class ScanlightSidebar(QWidget):
         self._lv_target = self.lv_image
         self._stop_calibration_live_view()
         self._apply_gating()
+        self._maybe_release_camera_session()  # covers a calibration that was still running when its window closed
 
     @pyqtSlot(str)
     def _on_error(self, msg: str) -> None:

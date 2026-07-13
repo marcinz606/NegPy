@@ -173,6 +173,7 @@ class AppController(QObject):
     capture_status = pyqtSignal(str)
     live_view_requested = pyqtSignal(LiveViewRequest)
     live_view_stop_requested = pyqtSignal()
+    camera_session_close_requested = pyqtSignal()
     live_view_focus_magnifier_requested = pyqtSignal(bool)
     live_view_focus_magnifier_pos_requested = pyqtSignal(int, int)
     live_view_camera_setting_requested = pyqtSignal(str, int)
@@ -416,6 +417,7 @@ class AppController(QObject):
         self.capture_worker.status.connect(self.capture_status.emit)
         self.live_view_requested.connect(self.capture_worker.start_live_view)
         self.live_view_stop_requested.connect(self.capture_worker.stop_live_view)
+        self.camera_session_close_requested.connect(self.capture_worker.close_camera_session)
         self.live_view_focus_magnifier_requested.connect(self.capture_worker.set_focus_magnifier)
         self.live_view_focus_magnifier_pos_requested.connect(self.capture_worker.set_focus_magnifier_pos)
         self.live_view_camera_setting_requested.connect(self.capture_worker.set_camera_setting)
@@ -1564,6 +1566,14 @@ class AppController(QObject):
 
     def stop_live_view(self) -> None:
         self.live_view_stop_requested.emit()
+
+    def close_camera_session(self) -> None:
+        """Release the held PTP session. Call once neither the scan window nor the
+        preset-calibration pop-up is open — some bodies (Fuji) get stuck in a
+        tethered-capture state until the session is cleanly exited, and leaving it
+        open past the last consuming window makes the next connection attempt hang."""
+        if self._capture_thread_started:
+            self.camera_session_close_requested.emit()
 
     def set_focus_magnifier(self, on: bool) -> None:
         self.live_view_focus_magnifier_requested.emit(on)

@@ -307,6 +307,15 @@ class CaptureWorker(QObject):
             except Exception:
                 logger.exception("error stopping live view")
 
+    @pyqtSlot()
+    def close_camera_session(self) -> None:
+        """Release the held PTP session (called once neither the scan window nor the
+        preset-calibration pop-up is open). Some bodies (Fuji in particular) get stuck
+        in a tethered-capture state on the camera side until the session is cleanly
+        exited — leaving it open past the last window that uses it makes the *next*
+        connection attempt hang rather than reconnect."""
+        self._close_camera()
+
     def _camera_control_failed(self, action: str, exc: Exception) -> None:
         """Turn a failed Qt camera-control callback into a recoverable disconnect."""
         logger.exception("%s failed", action)
