@@ -3,7 +3,7 @@
 
 ## 0.38.0
 
-- New: **Grease pencil for the contact sheet** — triage a roll like a real contact sheet: `C` circles a frame ("print this"), `Shift+X` strikes it ("cut"), drawn in red pencil on the thumbnail. Struck frames stay on the sheet but drop out of batch exports and sidecar writes; a Sheet filter (All / Circled only / Hide struck) sits next to Sort, a tally counts the roll, and marks persist across sessions.
+- New: **Grease pencil for the contact sheet** — triage a roll like a real contact sheet: `C` circles a frame ("print this", a small check badge), `Shift+X` strikes it ("cut", a cross badge + dim). Struck frames stay on the sheet but drop out of batch exports and sidecar writes; a Sheet filter (All / Circled only / Hide struck) sits next to Sort, a tally counts the roll, and marks persist across sessions.
 - New: **Unreadable files get a badge** — a frame that fails to decode or thumbnail wears a red badge with the reason in its tooltip instead of sitting silently in the grid; clicking it retries, a successful load clears it.
 - Change: **Roll-wide actions are undoable** — Batch Analysis, roll-baseline loads and "Apply settings" now write each affected frame's edit history: `Ctrl+Z` on any frame steps back to before the roll action. Reset Settings and preset loads are recorded the same way instead of bypassing the log.
 - Change: **One grammar for the canvas tools** — first `Esc` clears in-progress points, second puts the tool down (fixes Esc going dead mid-draw); toolbar Undo matches `Ctrl+Z`; a stray click outside a tuned crop no longer wipes it. New keys: `Shift+S` Scratch, `Shift+B` Dodge & Burn, `Shift+R` Analysis Region, `|` flat-master peek (plus a toolbar button).

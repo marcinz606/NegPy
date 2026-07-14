@@ -36,14 +36,27 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     """Contact-sheet rendering: scales each cached ~120px thumbnail into its cell and
     draws a subtle 1px border hugging the image outline (no cell box). The selected
     image is shown full-brightness with a white frame while the others are dimmed; a
-    dirty active file gets an accent line along the image's bottom edge. Grease-pencil
-    triage marks render like a red chinagraph pencil on a contact sheet: circled =
-    pencil ellipse ("print this"), struck = a centered X inscribed in the same circle
-    footprint + heavy dim ("cut")."""
+    dirty active file gets an accent line along the image's bottom edge. Triage marks
+    are small bottom-right badges: check = circled ("print this"), cross + heavy dim =
+    struck ("cut"); the top-right badge is reserved for decode failures."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
-    _PENCIL = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
+    _MARK = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
+
+    def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
+        r = 9
+        cx, cy = img_rect.right() - r - 4, img_rect.bottom() - r - 4
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._MARK)
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        painter.setPen(QPen(QColor(255, 255, 255, 230), 2, cap=Qt.PenCapStyle.RoundCap))
+        if check:
+            painter.drawLine(cx - 4, cy, cx - 1, cy + 3)
+            painter.drawLine(cx - 1, cy + 3, cx + 4, cy - 3)
+        else:
+            painter.drawLine(cx - 3, cy - 3, cx + 3, cy + 3)
+            painter.drawLine(cx + 3, cy - 3, cx - 3, cy + 3)
 
     def _draw_failed_badge(self, painter: QPainter, img_rect: QRect) -> None:
         r = 9
@@ -103,17 +116,10 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawPixmap(img_rect.topLeft(), scaled)
         painter.setOpacity(1.0)
 
-        pencil = QPen(self._PENCIL, 3, cap=Qt.PenCapStyle.RoundCap)
         if struck:
-            painter.setPen(pencil)
-            c = img_rect.center()
-            o = int((min(img_rect.width(), img_rect.height()) // 2 - 5) * 0.707)
-            painter.drawLine(c.x() - o, c.y() - o, c.x() + o, c.y() + o)
-            painter.drawLine(c.x() + o, c.y() - o, c.x() - o, c.y() + o)
+            self._draw_mark_badge(painter, img_rect, check=False)
         elif circled:
-            painter.setPen(pencil)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(img_rect.adjusted(5, 5, -5, -5))
+            self._draw_mark_badge(painter, img_rect, check=True)
         painter.setClipping(False)
 
         if selected:
