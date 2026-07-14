@@ -1,13 +1,17 @@
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
+from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.analysis import output_histogram
+from negpy.features.flatfield.logic import apply_flatfield
+from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
+from negpy.features.geometry.processor import GeometryProcessor
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -66,6 +70,36 @@ class NormalizationTask:
     # different matrix are invalid for it.
     override_crosstalk_strength: float = 0.0
     override_crosstalk_matrix: tuple | None = None
+
+
+@dataclass(frozen=True)
+class BatchAutoCropInput:
+    """One frame and its dispatch-time settings for roll-aware crop analysis."""
+
+    file_info: dict
+    config: WorkspaceConfig
+    fingerprint: tuple
+
+
+@dataclass(frozen=True)
+class BatchAutoCropTask:
+    """Request to detect and calibrate explicit crops across a visible roll."""
+
+    frames: list[BatchAutoCropInput]
+    workspace_color_space: str
+    generation: int = 0
+
+
+@dataclass(frozen=True)
+class BatchAutoCropResult:
+    """Resolved crop payload for controller-side conflict checks and persistence."""
+
+    file_info: dict
+    fingerprint: tuple
+    manual_crop_rect: tuple[float, float, float, float]
+    correction_angle: float
+    confidence: float
+    calibrated: bool
 
 
 @dataclass(frozen=True)
@@ -444,6 +478,175 @@ class PreviewLoadWorker(QObject):
         except Exception:
             logger.exception(f"Process-mode detection failed: {task.file_path}")
             return ""
+
+
+class BatchAutoCropWorker(QObject):
+    """Decode, preprocess, and roll-calibrate visible frames off the UI thread."""
+
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(object)  # list[BatchAutoCropResult]
+    cancelled = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, preview_service) -> None:
+        super().__init__()
+        self._preview_service = preview_service
+        self._cancel_lock = threading.RLock()
+        self._cancelled_generations: set[int] = set()
+        self._active_generation: int | None = None
+
+    def cancel(self, generation: int | None = None) -> None:
+        """Cancel one queued/running generation without poisoning a later run."""
+        with self._cancel_lock:
+            target = self._active_generation if generation is None else generation
+            self._cancelled_generations.add(0 if target is None else int(target))
+
+    def _emit_cancelled_if_requested(self, generation: int) -> bool:
+        with self._cancel_lock:
+            if generation not in self._cancelled_generations:
+                return False
+            self._cancelled_generations.discard(generation)
+            if self._active_generation == generation:
+                self._active_generation = None
+        self.cancelled.emit()
+        return True
+
+    def _emit_finished_unless_cancelled(self, generation: int, results: list[BatchAutoCropResult]) -> None:
+        """Atomically choose the terminal signal for a generation."""
+        with self._cancel_lock:
+            if generation in self._cancelled_generations:
+                self._cancelled_generations.discard(generation)
+                if self._active_generation == generation:
+                    self._active_generation = None
+                cancelled = True
+            else:
+                if self._active_generation == generation:
+                    self._active_generation = None
+                cancelled = False
+                self.finished.emit(results)
+        if cancelled:
+            self.cancelled.emit()
+
+    def _decode(self, frame: BatchAutoCropInput, workspace_color_space: str) -> np.ndarray:
+        file_info = frame.file_info
+        config = frame.config
+        rgbscan = config.rgbscan
+        common = {
+            "use_camera_wb": not config.process.linear_raw,
+            "full_resolution": False,
+            "file_hash": file_info.get("hash"),
+        }
+        if rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
+            raw, _, _ = self._preview_service.load_linear_preview_rgb(
+                file_info["path"],
+                rgbscan.green_path,
+                rgbscan.blue_path,
+                workspace_color_space,
+                align=rgbscan.align,
+                **common,
+            )
+        else:
+            raw, _, _ = self._preview_service.load_linear_preview(
+                file_info["path"],
+                workspace_color_space,
+                **common,
+            )
+        return raw
+
+    @pyqtSlot(BatchAutoCropTask)
+    def process(self, task: BatchAutoCropTask) -> None:
+        """Collect frame evidence sequentially, then resolve it as one roll."""
+        generation = int(task.generation)
+        with self._cancel_lock:
+            self._active_generation = generation
+        if self._emit_cancelled_if_requested(generation):
+            return
+        total = len(task.frames)
+        evidence = []
+        source_by_key: dict[str, BatchAutoCropInput] = {}
+
+        try:
+            for index, frame in enumerate(task.frames):
+                if self._emit_cancelled_if_requested(generation):
+                    return
+
+                current = index + 1
+                file_info = frame.file_info
+                name = str(file_info.get("name") or file_info.get("path") or current)
+                key = f"{index}:{file_info.get('hash', '')}"
+
+                try:
+                    raw = self._decode(frame, task.workspace_color_space)
+                    if self._emit_cancelled_if_requested(generation):
+                        return
+
+                    config = frame.config
+                    corrected = apply_flatfield(raw, config.flatfield)
+                    if self._emit_cancelled_if_requested(generation):
+                        return
+                    detection_geometry = replace(
+                        config.geometry,
+                        manual_crop_rect=None,
+                        auto_crop_enabled=False,
+                        autocrop_offset=0,
+                    )
+                    context = PipelineContext(
+                        original_size=(corrected.shape[1], corrected.shape[0]),
+                        scale_factor=1.0,
+                        process_mode=config.process.process_mode,
+                    )
+                    distortion_k1 = config.flatfield.k1 if config.flatfield.apply else 0.0
+                    transformed = GeometryProcessor(detection_geometry, distortion_k1).process(corrected, context)
+                    if self._emit_cancelled_if_requested(generation):
+                        return
+                    candidate = detect_crop_candidate(
+                        key,
+                        transformed,
+                        target_ratio=config.geometry.autocrop_ratio,
+                    )
+                    if self._emit_cancelled_if_requested(generation):
+                        return
+
+                    evidence.append(candidate)
+                    source_by_key[candidate.key] = frame
+                except Exception:
+                    if self._emit_cancelled_if_requested(generation):
+                        return
+                    logger.exception("Auto Crop All skipped failed frame %s", name)
+
+                self.progress.emit(current, total, name)
+
+            if self._emit_cancelled_if_requested(generation):
+                return
+            resolved = resolve_roll_crops(evidence)
+            if self._emit_cancelled_if_requested(generation):
+                return
+
+            results: list[BatchAutoCropResult] = []
+            for crop in resolved:
+                source = source_by_key.get(crop.key)
+                if source is None:
+                    logger.warning("Auto Crop All ignored result with unknown key %s", crop.key)
+                    continue
+                results.append(
+                    BatchAutoCropResult(
+                        file_info=source.file_info,
+                        fingerprint=source.fingerprint,
+                        manual_crop_rect=crop.manual_crop_rect,
+                        correction_angle=crop.correction_angle,
+                        confidence=crop.confidence,
+                        calibrated=crop.calibrated,
+                    )
+                )
+            self._emit_finished_unless_cancelled(generation, results)
+        except Exception as exc:
+            if self._emit_cancelled_if_requested(generation):
+                return
+            with self._cancel_lock:
+                if self._active_generation == generation:
+                    self._active_generation = None
+            logger.exception("Auto Crop All worker failure")
+            self.error.emit(str(exc))
 
 
 class NormalizationWorker(QObject):

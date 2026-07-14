@@ -116,6 +116,16 @@ class GeometrySidebar(BaseSidebar):
         auto_row.addWidget(self.mode_combo, 1)
         self.layout.addLayout(auto_row)
 
+        self.auto_crop_all_btn = QPushButton(" Auto Crop All")
+        self.auto_crop_all_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary, color_disabled=THEME.text_muted))
+        self.auto_crop_all_btn.setFixedHeight(default_button_height())
+        self.auto_crop_all_btn.setToolTip(
+            "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
+            "manual and ambiguous crops are preserved. Runs before Batch Analysis."
+        )
+        self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
+        self.layout.addWidget(self.auto_crop_all_btn)
+
         self.offset_slider = CompactSlider(
             "Crop Offset",
             -5.0,
@@ -173,6 +183,7 @@ class GeometrySidebar(BaseSidebar):
         self.manual_crop_btn.toggled.connect(self._on_manual_crop_toggled)
         self.clear_crop_btn.clicked.connect(self.controller.reset_crop)
         self.reset_crop_btn.toggled.connect(self._on_auto_crop_toggled)
+        self.auto_crop_all_btn.clicked.connect(self.controller.request_batch_auto_crop)
 
         self.offset_slider.valueChanged.connect(
             lambda v: self.update_config_section("geometry", render=True, persist=False, readback_metrics=False, autocrop_offset=int(v))
@@ -200,6 +211,7 @@ class GeometrySidebar(BaseSidebar):
         self.controller.request_render()
 
     def _on_mode_changed(self, idx: int) -> None:
+        self.auto_crop_all_btn.setEnabled(self.mode_combo.itemData(idx) == AutocropMode.IMAGE)
         new_config = replace(
             self.state.config,
             geometry=replace(self.state.config.geometry, autocrop_mode=self.mode_combo.itemData(idx)),
@@ -247,6 +259,7 @@ class GeometrySidebar(BaseSidebar):
             self.reset_crop_btn.setChecked(conf.auto_crop_enabled)
             self.manual_crop_btn.set_crop_active(conf.manual_crop_rect is not None)
             self.reset_crop_btn.set_crop_active(conf.auto_crop_enabled)
+            self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
         finally:
             self.block_signals(False)
 
@@ -261,3 +274,4 @@ class GeometrySidebar(BaseSidebar):
         self.manual_crop_btn.blockSignals(blocked)
         self.straighten_btn.blockSignals(blocked)
         self.reset_crop_btn.blockSignals(blocked)
+        self.auto_crop_all_btn.blockSignals(blocked)

@@ -3,6 +3,7 @@
 
 ## 0.37.0
 
+- New: **Roll-aware Auto Crop All** — Geometry can analyze every visible landscape frame together before Batch Analysis, using confident frames to calibrate weaker detections for more consistent camera-scan crops. It runs in the background with progress/cancel, preserves existing manual crops and ambiguous frames, and saves explicit per-frame crop and fine-rotation settings. The first release supports Image-only mode.
 - New: **Crosstalk matrix editor** — a Manage button beside the Process → Crosstalk dropdown opens an editor: browse the bundled matrices (read-only), make an editable copy, adjust the channel-mixing terms with live preview, and save your own profiles as `.toml` files in the NegPy/crosstalk folder.
 - New: **Editable Dodge & Burn masks** — the panel lists every mask you've drawn; pick one to select it, then reshape it right on the canvas (drag a point to move it, click an edge to add a point, right-click a point to remove it) and tune its sliders — no need to redraw from scratch.
 - New: **Straighten tool** — draw a reference line on the image (ruler button under Geometry → Alignment, key `L`) and the frame rotates to match: lines near horizontal level the horizon, lines near vertical plumb an edge. Composes with Fine Rotation and the crop rotation handles. @linkmodo

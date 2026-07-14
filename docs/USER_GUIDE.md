@@ -71,6 +71,7 @@ Crop and rotation.
 *   **Manual**: Enter manual-crop mode — drag a rectangle on the canvas.
 *   **Move**: Translate the current crop rectangle without resizing it. Useful for nudging composition after auto-crop.
 *   **Auto**: Runs automatic frame detection using the current ratio and offset. Best on scans with clean rebate.
+*   **Auto Crop All**: Analyzes all visible landscape frames as a roll, then uses confident detections to calibrate weaker ones with the same aspect-ratio setting. It runs in the background with progress and cancellation; cancelling saves nothing. Existing manual crops, Film-edge mode frames, portrait frames, and ambiguous detections are left unchanged. Run it in **Image only** mode before **Batch Analysis** so roll metering sees consistent explicit crops.
 
 ### Adjustments
 

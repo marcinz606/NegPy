@@ -1,9 +1,10 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from dataclasses import replace
 
 from negpy.desktop.session import AppState, AssetListModel, DesktopSessionManager
 from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, ProcessConfig
+from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 
@@ -54,6 +55,92 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(len(self.session.state.uploaded_files), 2)
         self.assertEqual(self.session.state.uploaded_files[0], refreshed)
 
+    def test_config_for_asset_saved_uses_saved_edits_and_global_overlays_only(self):
+        defaults = WorkspaceConfig()
+        saved = replace(
+            defaults,
+            exposure=replace(defaults.exposure, density=1.7),
+            process=replace(defaults.process, process_mode="E-6"),
+            geometry=replace(defaults.geometry, autocrop_ratio="4:3"),
+        )
+        sticky = {
+            "last_export_config": {"jpeg_quality": 73},
+            "last_protect_original_metadata": True,
+            # Workflow defaults must not overwrite an edited/saved asset.
+            "last_process_mode": "C41",
+            "last_aspect_ratio": "1:1",
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        asset = {"name": "saved.dng", "path": "/roll/saved.dng", "hash": "saved-hash"}
+        active_before = self.session.state.config
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=saved) as hydrate:
+            config = self.session.config_for_asset(asset)
+
+        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng")
+        self.assertEqual(config.exposure.density, 1.7)
+        self.assertEqual(config.process.process_mode, "E-6")
+        self.assertEqual(config.geometry.autocrop_ratio, "4:3")
+        self.assertEqual(config.export.jpeg_quality, 73)
+        self.assertTrue(config.metadata.protect_original_metadata)
+        self.assertIs(self.session.state.config, active_before)
+
+    def test_config_for_asset_fresh_starts_clean_not_from_active_creative_edits(self):
+        defaults = WorkspaceConfig()
+        active = replace(
+            defaults,
+            exposure=replace(defaults.exposure, density=2.4),
+            lab=replace(defaults.lab, saturation=1.8),
+        )
+        self.session.state.config = active
+        sticky = {
+            "last_export_config": {},
+            "last_process_mode": "E-6",
+            "last_aspect_ratio": "1:1",
+            "last_autocrop_offset": 7,
+            "last_auto_exposure": True,
+        }
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        asset = {"name": "fresh.dng", "path": "/roll/fresh.dng", "hash": "fresh-hash"}
+
+        with patch("negpy.desktop.session.load_or_promote", return_value=None):
+            config = self.session.config_for_asset(asset)
+
+        self.assertEqual(config.exposure.density, defaults.exposure.density)
+        self.assertEqual(config.lab.saturation, defaults.lab.saturation)
+        self.assertTrue(config.exposure.auto_exposure)
+        self.assertEqual(config.process.process_mode, "E-6")
+        self.assertEqual(config.geometry.autocrop_ratio, "1:1")
+        self.assertEqual(config.geometry.autocrop_offset, 7)
+        self.assertIs(self.session.state.config, active)
+
+    def test_config_for_asset_resolves_triplet_per_asset_and_resets_plain_asset(self):
+        leaked = replace(
+            WorkspaceConfig(),
+            rgbscan=RgbScanConfig(enabled=True, green_path="/stale/g.dng", blue_path="/stale/b.dng", align=True),
+        )
+        self.session.state.config = leaked
+        triplet = {
+            "name": "triplet.dng",
+            "path": "/roll/r.dng",
+            "hash": "triplet-hash",
+            "green_path": "/roll/g.dng",
+            "blue_path": "/roll/b.dng",
+            "align": False,
+        }
+        plain = {"name": "plain.dng", "path": "/roll/plain.dng", "hash": "plain-hash"}
+
+        with patch("negpy.desktop.session.load_or_promote", side_effect=[leaked, leaked]):
+            triplet_config = self.session.config_for_asset(triplet)
+            plain_config = self.session.config_for_asset(plain)
+
+        self.assertEqual(
+            triplet_config.rgbscan,
+            RgbScanConfig(enabled=True, green_path="/roll/g.dng", blue_path="/roll/b.dng", align=False),
+        )
+        self.assertEqual(plain_config.rgbscan, RgbScanConfig())
+        self.assertIs(self.session.state.config, leaked)
+
     def test_set_autodetect_enabled_persists(self):
         self.assertFalse(self.session.state.autodetect_enabled)
         self.session.set_autodetect_enabled(True)
@@ -78,6 +165,34 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertIn("last_export_config", saved)
         self.assertIn("last_dust_remove", saved)
         self.assertIn("last_protect_original_metadata", saved)
+
+    def test_persist_active_batch_config_saves_before_exposing_state(self):
+        original = self.session.state.config
+        updated = replace(original, geometry=replace(original.geometry, fine_rotation=1.25))
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.current_file_path = "path1"
+        saved_signals = []
+        self.session.settings_saved.connect(lambda: saved_signals.append(True))
+
+        self.session.persist_active_batch_config(updated)
+
+        self.mock_repo.save_file_settings.assert_called_with("hash1", updated, file_path="path1")
+        self.assertIs(self.session.state.config, updated)
+        self.assertTrue(self.session.state.is_dirty)
+        self.assertEqual(saved_signals, [True])
+
+    def test_persist_active_batch_config_keeps_state_unchanged_on_failure(self):
+        original = self.session.state.config
+        updated = replace(original, geometry=replace(original.geometry, fine_rotation=1.25))
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.current_file_path = "path1"
+        self.mock_repo.save_file_settings.side_effect = RuntimeError("database unavailable")
+
+        with self.assertRaises(RuntimeError):
+            self.session.persist_active_batch_config(updated)
+
+        self.assertIs(self.session.state.config, original)
+        self.assertFalse(self.session.state.is_dirty)
 
     def test_protect_original_metadata_carries_globally(self):
         sticky = {

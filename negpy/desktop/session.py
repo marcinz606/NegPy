@@ -687,6 +687,26 @@ class DesktopSessionManager(QObject):
             }
         )
 
+    def _hydrate_asset_config(self, asset: dict) -> tuple[WorkspaceConfig, bool]:
+        """Build an asset's effective config and report whether it had saved edits."""
+        saved_config = load_or_promote(self.repo, asset["hash"], asset["path"])
+        is_new = saved_config is None
+        if saved_config is not None:
+            config = self._apply_sticky_settings(saved_config, only_global=True)
+        else:
+            config = self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        return resolve_asset_rgbscan(config, asset), is_new
+
+    def config_for_asset(self, asset: dict) -> WorkspaceConfig:
+        """Return an asset's hydrated config without changing the active session state.
+
+        Saved DB/path/sidecar edits retain their per-file settings and receive only
+        global overlays. Fresh assets start from clean defaults plus sticky workflow
+        preferences. RGB-scan paths always come from the asset itself.
+        """
+        config, _ = self._hydrate_asset_config(asset)
+        return config
+
     def select_file(self, index: int, selection_override: Optional[List[int]] = None) -> None:
         """
         Changes active file and hydrates state from repository.
@@ -718,23 +738,7 @@ class DesktopSessionManager(QObject):
             self.state.undo_index = self.repo.get_max_history_index(file_info["hash"])
             self.state.max_history_index = self.state.undo_index
 
-            saved_config = load_or_promote(self.repo, file_info["hash"], file_info["path"])
-            self.state.current_file_is_new = saved_config is None
-
-            if saved_config:
-                self.state.config = self._apply_sticky_settings(saved_config, only_global=True)
-            else:
-                self.state.config = self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
-
-            # RGB-scan triplet: the green/blue exposures travel with the asset entry.
-            green, blue = file_info.get("green_path"), file_info.get("blue_path")
-            if green and blue:
-                from negpy.features.rgbscan.models import RgbScanConfig
-
-                align = bool(file_info.get("align", self.state.config.rgbscan.align))
-                self.state.config = replace(
-                    self.state.config, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align)
-                )
+            self.state.config, self.state.current_file_is_new = self._hydrate_asset_config(file_info)
 
             # Mask hide-state is keyed by index into this file's masks; the swap invalidates it.
             self.state.local_hidden_masks = set()
@@ -779,7 +783,9 @@ class DesktopSessionManager(QObject):
             target_hash = self.state.uploaded_files[idx]["hash"]
             target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
             target_path = self.state.uploaded_files[idx]["path"]
-            self.repo.save_file_settings(target_hash, build_synced_config(source_config, target_config, aspects, src_bounds), file_path=target_path)
+            self.repo.save_file_settings(
+                target_hash, build_synced_config(source_config, target_config, aspects, src_bounds), file_path=target_path
+            )
             count += 1
 
         if count:
@@ -834,6 +840,24 @@ class DesktopSessionManager(QObject):
 
         if render:
             self.state_changed.emit()
+
+    def persist_active_batch_config(self, config: WorkspaceConfig) -> None:
+        """Persist a batch result before exposing it as the active in-memory state.
+
+        Roll operations update non-active files directly and are not undo-history
+        steps. This companion path gives the active file the same behavior while
+        ensuring a storage error cannot leave an unrendered crop live in memory.
+        """
+        if not self.state.current_file_hash:
+            raise RuntimeError("Cannot persist batch settings without an active file")
+        self.repo.save_file_settings(
+            self.state.current_file_hash,
+            config,
+            file_path=self.state.current_file_path or "",
+        )
+        self.state.config = config
+        self._config_dirty = True
+        self.settings_saved.emit()
 
     def undo(self) -> None:
         if self.state.undo_index > 0 and self.state.current_file_hash:
