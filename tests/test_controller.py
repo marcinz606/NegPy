@@ -106,6 +106,25 @@ class TestAppController(unittest.TestCase):
         self.assertIn("decode_failed", state.uploaded_files[0])
         self.assertNotIn("decode_failed", state.uploaded_files[1])
 
+    def test_render_thumbnail_update_does_not_badge_other_frames(self):
+        from PIL import Image
+
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"},
+            {"name": "b.dng", "path": "/tmp/b.dng", "hash": "h2"},
+        ]
+        self.controller._thumb_requested = ["a.dng", "b.dng"]
+        img = Image.new("RGB", (4, 4))
+        self.controller._on_thumbnails_finished({"a.dng": img, "b.dng": img})
+        self.assertNotIn("decode_failed", state.uploaded_files[0])
+
+        # update_rendered() re-emits finished with a single-file dict after every
+        # settled render — it must not badge the frames absent from that dict.
+        self.controller._on_thumbnails_finished({"a.dng": img})
+        self.assertNotIn("decode_failed", state.uploaded_files[1])
+
     def test_capture_worker_cancelled_is_forwarded(self):
         cancelled = MagicMock()
         self.controller.capture_cancelled.connect(cancelled)

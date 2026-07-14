@@ -463,7 +463,11 @@ class AppController(QObject):
 
         # Thumbnail failures are silently filtered out of the results — badge the
         # requested-but-missing files so unreadable frames don't blend into the roll.
+        # Consume the request list: update_rendered() re-emits this same signal with
+        # single-file dicts after every settled render, and evaluating those against
+        # a stale batch list would falsely badge every other frame.
         requested = getattr(self, "_thumb_requested", [])
+        self._thumb_requested = []
         failed = {n for n in requested if not new_thumbs.get(n)}
         for f in self.state.uploaded_files:
             if f["name"] in failed:
