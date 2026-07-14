@@ -1,6 +1,12 @@
 # Change Log
 
 
+## 0.37.2
+
+- New: **Drag to heal** — the Heal tool now paints while you drag: a plain click still heals a single spot, but click-and-drag sweeps a heal along the cursor and commits the whole path as one stroke (one undo, one render). @linkmodo
+- Change: **Canvas UX polish** — Enter confirms and closes the crop like double-click; the heal brush, scratch pen and white-balance picker fall back to the normal arrow over empty canvas (and the floating toolbar stays on the arrow); the current-frame Export scope reads "Export Current Frame"; tooltips wait longer before popping; and the Windows scanner placeholder text no longer clips. @linkmodo
+- Fix: **Camera Scanning follow-ups** — RGB-only Scanlights (v1–v3, no white LED) now light the live view from the preset's own R/G/B instead of going dark, with the W slider and white-light preset hidden on those bodies; reopening Live View no longer flashes the previous session's last frame; and a rotating `negpy.log` plus a catch for unhandled UI errors turns a hard crash into a non-fatal notice with an attachable traceback. @light-sntchr
+
 ## 0.37.1
 
 - Fix: **export no longer crashes on non-ASCII film metadata** — a film format like `4x5` (with a `×`) or other non-Latin characters NegPy writes into the EXIF no longer aborts a JPG, TIFF or PNG export; they're safely substituted. @RP2
