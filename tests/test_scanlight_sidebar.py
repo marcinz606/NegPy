@@ -925,6 +925,20 @@ def test_poll_status_carries_white_capability_to_the_ui():
     assert w._light_has_white is False and w._slider_rows[w.w_slider].isHidden()
 
 
+def test_rgb_only_scanlight_hides_the_temperature():
+    w = _sidebar()
+    w._light_has_white = False  # v1-v3: no temperature sensor, reports a bogus 0 °C
+    w._on_light_temp(0.0)
+    assert w.light_temp.isHidden()  # not shown as "0 °C"
+
+
+def test_white_scanlight_shows_the_temperature():
+    w = _sidebar()
+    w._light_has_white = True  # v4 / Big have a thermistor
+    w._on_light_temp(42.0)
+    assert not w.light_temp.isHidden() and "42" in w.light_temp.text()
+
+
 def test_rgb_preset_shows_the_exposure_fields(monkeypatch):
     w = _sidebar()
     monkeypatch.setattr(w._presets, "get", lambda _n: _rgb_preset(iso="100", aperture="f/8"))

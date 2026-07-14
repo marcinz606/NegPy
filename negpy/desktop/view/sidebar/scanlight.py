@@ -1235,14 +1235,16 @@ class ScanlightSidebar(QWidget):
 
     @pyqtSlot(object)
     def _on_light_temp(self, temp) -> None:
-        """Show the live Scanlight LED temperature next to the Light status (amber when warm)."""
-        if isinstance(temp, (int, float)):
+        """Show the live Scanlight LED temperature next to the Light status (amber when warm).
+        RGB-only bodies (v1-v3) have no temperature sensor and report a bogus 0 °C, so hide it there
+        (no white channel is our proxy for those models)."""
+        if isinstance(temp, (int, float)) and self._light_has_white:
             color = "#C8922E" if temp >= 55 else THEME.text_muted  # amber once it's getting warm
             self.light_temp.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")
             self.light_temp.setText(f"{temp:.0f} °C")
             self.light_temp.show()
         else:
-            self.light_temp.setText("")  # no light / no telemetry yet
+            self.light_temp.setText("")  # no light / no telemetry yet / RGB-only (no sensor)
             self.light_temp.hide()  # hide the widget entirely so no dark placeholder box lingers
 
     def _set_cam_status(self, ok: bool, model: str) -> None:
