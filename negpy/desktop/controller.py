@@ -24,12 +24,19 @@ from negpy.desktop.workers.render import (
     ThumbnailWorker,
 )
 from negpy.desktop.workers.scan_worker import ScanRequest, ScanWorker
+from negpy.desktop.workers.ls5000_roll_worker import (
+    LS5000RollWorker,
+    RollPreviewRequest,
+    RollScanCompletion,
+    RollScanRequest,
+)
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
     CaptureRequest,
     CaptureWorker,
     LiveViewRequest,
 )
+from negpy.infrastructure.scanners.params import RegisteredScanGeometry, ScanParams
 from negpy.domain.models import (
     ExportFormat,
     ExportPreset,
@@ -76,6 +83,11 @@ class _PendingCaptureImport:
 
     process_mode: Optional[ProcessMode] = None
     detect_mode: bool = False
+    # ``None`` preserves the asset's existing retouch preference.  Scanner
+    # roll imports set this explicitly: color-negative RGBI masters start with
+    # the non-destructive IR repair enabled, while conventional silver B&W
+    # scans must keep it off because their image-forming silver blocks IR.
+    enable_ir_dust_remove: Optional[bool] = None
 
 
 def _capture_import_key(path: str) -> str:
@@ -163,6 +175,20 @@ class AppController(QObject):
     scan_finished = pyqtSignal(str)
     scan_error = pyqtSignal(str)
     scan_started = pyqtSignal()
+    scan_eject_requested = pyqtSignal(str)
+    scan_ejected = pyqtSignal(bool)
+    scan_eject_error = pyqtSignal(str)
+    ls5000_roll_preview_requested = pyqtSignal(object)
+    ls5000_roll_preview_invalidate_requested = pyqtSignal()
+    ls5000_roll_thumbnail_reload_requested = pyqtSignal(int, int)
+    ls5000_roll_scan_requested = pyqtSignal(object)
+    ls5000_roll_preview_ready = pyqtSignal(str, object)
+    ls5000_roll_preview_invalidated = pyqtSignal()
+    ls5000_roll_thumbnail_ready = pyqtSignal(int, int, object)
+    ls5000_roll_progress = pyqtSignal(object)
+    ls5000_roll_frame_finished = pyqtSignal(int, str)
+    ls5000_roll_finished = pyqtSignal(object)
+    ls5000_roll_error = pyqtSignal(object)
     capture_light_requested = pyqtSignal(int, int, int, int, str)
     capture_requested = pyqtSignal(CaptureRequest)
     capture_light_set = pyqtSignal(int, int, int, int)
@@ -245,6 +271,8 @@ class AppController(QObject):
         self.scan_thread = QThread()
         self.scan_worker = ScanWorker()
         self.scan_worker.moveToThread(self.scan_thread)
+        self.ls5000_roll_worker = LS5000RollWorker()
+        self.ls5000_roll_worker.moveToThread(self.scan_thread)
         self.scan_thread.start()
 
         self.capture_thread = QThread()
@@ -407,6 +435,24 @@ class AppController(QObject):
         self.scan_worker.finished.connect(self._on_scan_finished)
         self.scan_worker.error.connect(self.scan_error.emit)
         self.scan_requested.connect(self.scan_worker.run_scan)
+        self.scan_eject_requested.connect(self.scan_worker.eject)
+        self.scan_worker.ejected.connect(self.scan_ejected.emit)
+        self.scan_worker.eject_error.connect(self.scan_eject_error.emit)
+        self.ls5000_roll_preview_requested.connect(self.ls5000_roll_worker.load_preview)
+        self.ls5000_roll_preview_invalidate_requested.connect(
+            self.ls5000_roll_worker.invalidate_preview
+        )
+        self.ls5000_roll_thumbnail_reload_requested.connect(self.ls5000_roll_worker.reload_preview_thumbnail)
+        self.ls5000_roll_scan_requested.connect(self.ls5000_roll_worker.scan_selected)
+        self.ls5000_roll_worker.preview_ready.connect(self.ls5000_roll_preview_ready.emit)
+        self.ls5000_roll_worker.preview_invalidated.connect(
+            self.ls5000_roll_preview_invalidated.emit
+        )
+        self.ls5000_roll_worker.thumbnail_ready.connect(self.ls5000_roll_thumbnail_ready.emit)
+        self.ls5000_roll_worker.progress.connect(self.ls5000_roll_progress.emit)
+        self.ls5000_roll_worker.frame_finished.connect(self.ls5000_roll_frame_finished.emit)
+        self.ls5000_roll_worker.finished.connect(self._on_ls5000_roll_finished)
+        self.ls5000_roll_worker.error.connect(self.ls5000_roll_error.emit)
         self.capture_light_requested.connect(self.capture_worker.set_light)
         self.capture_requested.connect(self.capture_worker.run_capture)
         self.capture_worker.light_set.connect(self.capture_light_set.emit)
@@ -668,15 +714,27 @@ class AppController(QObject):
         self.state.original_res = (0, 0)
 
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
-        if pending_import is not None and pending_import.process_mode is not None:
-            process = self.state.config.process
-            process = replace(
-                process,
-                process_mode=pending_import.process_mode,
-                **invalidate_local_bounds(process),
-            )
-            self.state.config = replace(self.state.config, process=process)
-            self.state.is_dirty = True
+        if pending_import is not None:
+            config = self.state.config
+            if pending_import.process_mode is not None:
+                process = config.process
+                process = replace(
+                    process,
+                    process_mode=pending_import.process_mode,
+                    **invalidate_local_bounds(process),
+                )
+                config = replace(config, process=process)
+            if pending_import.enable_ir_dust_remove is not None:
+                config = replace(
+                    config,
+                    retouch=replace(
+                        config.retouch,
+                        ir_dust_remove=pending_import.enable_ir_dust_remove,
+                    ),
+                )
+            if config != self.state.config:
+                self.state.config = config
+                self.state.is_dirty = True
 
         rgbscan = self.state.config.rgbscan
         self.preview_load_requested.emit(
@@ -1516,19 +1574,136 @@ class AppController(QObject):
         """Request device enumeration on the scan worker thread."""
         self.scan_devices_requested.emit()
 
+    @staticmethod
+    def build_scan_params(
+        *,
+        dpi: int,
+        depth: int,
+        capture_ir: bool,
+        autofocus: bool,
+        samples_per_scan: int,
+        frame: int | None = None,
+        auto_exposure: bool = False,
+        subframe_mm: float | None = None,
+        br_y_device_px: int | None = None,
+    ) -> ScanParams:
+        """Translate Scan-tab control values into one ScanParams recipe.
+
+        Registered geometry (``subframe_mm`` + ``br_y_device_px``) is opt-in:
+        pass both together to position a fine transport shift and shortened
+        scan window for this frame, or leave both None for a plain full-window
+        scan. When geometry is supplied, ``frame`` rides inside it
+        (``RegisteredScanGeometry.frame``) instead of also riding on
+        ``ScanParams.frame`` — the two can never disagree because only one of
+        them is ever set.
+        """
+        if (subframe_mm is None) != (br_y_device_px is None):
+            raise ValueError("registered geometry requires both subframe_mm and br_y_device_px, or neither")
+
+        geometry: RegisteredScanGeometry | None = None
+        effective_frame = frame
+        if subframe_mm is not None and br_y_device_px is not None:
+            geometry = RegisteredScanGeometry(subframe_mm=subframe_mm, br_y_device_px=br_y_device_px, frame=frame)
+            effective_frame = None
+
+        return ScanParams(
+            dpi=dpi,
+            depth=depth,
+            capture_ir=capture_ir,
+            autofocus=autofocus,
+            samples_per_scan=samples_per_scan,
+            frame=effective_frame,
+            auto_exposure=auto_exposure,
+            registered_geometry=geometry,
+        )
+
     def start_scan(self, req: ScanRequest) -> None:
         """Start a scan. The UI connects to scan signals for state updates."""
         self.scan_started.emit()
         self.scan_requested.emit(req)
 
+    def eject_scanner(self, device_id: str) -> None:
+        """Request a capability-gated film eject on the scanner thread."""
+
+        self.scan_eject_requested.emit(device_id)
+
+    def start_ls5000_roll_preview(self, request: RollPreviewRequest) -> None:
+        """Read the scanner's complete low-resolution roll index."""
+
+        self.scan_started.emit()
+        self.ls5000_roll_preview_requested.emit(request)
+
+    def invalidate_ls5000_roll_preview(self) -> None:
+        """Discard thumbnail coordinates that no longer identify this film."""
+
+        self.ls5000_roll_preview_invalidate_requested.emit()
+
+    def reload_ls5000_roll_thumbnail(
+        self,
+        slot_id: int,
+        boundary_offset_rows: int,
+    ) -> None:
+        """Re-render one saved roll thumbnail without moving the film."""
+
+        self.ls5000_roll_thumbnail_reload_requested.emit(
+            slot_id,
+            boundary_offset_rows,
+        )
+
+    def start_ls5000_roll_scan(self, request: RollScanRequest) -> None:
+        """Scan selected roll slots sequentially at the material's full recipe."""
+
+        self.scan_started.emit()
+        self.ls5000_roll_scan_requested.emit(request)
+
     def cancel_scan(self) -> None:
         self.scan_worker.cancel()
+        self.ls5000_roll_worker.request_stop()
 
     def _on_scan_finished(self, path: str) -> None:
         """Auto-add scanned file to NegPy file list and select it."""
         self.scan_finished.emit(path)
         self._pending_scanned_file = path
         self.request_asset_discovery([path])
+
+    def _on_ls5000_roll_finished(self, completion: RollScanCompletion) -> None:
+        """Import every completed frame, including a safely stopped partial queue."""
+
+        self.ls5000_roll_finished.emit(completion)
+        if completion.rgb_paths:
+            self.import_negative_roll_scans(
+                list(completion.rgb_paths),
+                black_and_white=completion.black_and_white,
+            )
+
+    def import_negative_roll_scans(
+        self,
+        paths: List[str],
+        *,
+        black_and_white: bool,
+    ) -> None:
+        """Import completed scanner masters with the film intent kept intact.
+
+        The roll worker emits RGB master paths only.  TIFF IR and validity
+        sidecars share each master's basename and are discovered by the TIFF
+        loader when that frame is opened.  Carrying the material choice here
+        avoids asking image-content detection to distinguish an orange-mask
+        color negative from a silver B&W negative after the scan has already
+        supplied the authoritative answer.
+        """
+
+        if not paths:
+            return
+        process_mode = ProcessMode.BW if black_and_white else ProcessMode.C41
+        enable_ir = not black_and_white
+        normalized_paths = [os.path.abspath(path) for path in paths]
+        for path in normalized_paths:
+            self._pending_capture_imports[_capture_import_key(path)] = _PendingCaptureImport(
+                process_mode=process_mode,
+                enable_ir_dust_remove=enable_ir,
+            )
+        self._pending_scanned_file = normalized_paths[0]
+        self.request_asset_discovery(normalized_paths)
 
     def _select_file_by_path(self, path: str) -> bool:
         """Find a file by path in uploaded_files and select it."""
@@ -2473,6 +2648,7 @@ class AppController(QObject):
             self.preview_load_thread.quit()
             self.preview_load_thread.wait()
         self.scan_worker.cancel()
+        self.ls5000_roll_worker.request_stop()
         if self.scan_thread.isRunning():
             self.scan_thread.quit()
             self.scan_thread.wait()

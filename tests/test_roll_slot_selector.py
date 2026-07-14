@@ -1,0 +1,384 @@
+"""Hardware-free interaction tests for the roll candidate-slot picker."""
+
+import pytest
+from PyQt6.QtCore import QPersistentModelIndex, QPoint, QRect, Qt
+from PyQt6.QtGui import QColor, QIcon, QKeySequence, QPixmap
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication
+
+from negpy.desktop.view.widgets.roll_slot_model import RollPreviewSlot, RollSlotModel
+from negpy.desktop.view.widgets.roll_slot_selector import RollSlotSelector
+from negpy.desktop.view.shortcut_registry import default_bindings
+from negpy.services.scanning.roll_preview_controls import ScanMaterial, boundary_offset_range, validate_boundary_offset
+
+
+def _slots(count: int, *, warning_slots: set[int] | None = None) -> list[RollPreviewSlot]:
+    warning_slots = warning_slots or set()
+    thumbnail = QPixmap(120, 80)
+    thumbnail.fill(QColor("#36454F"))
+    return [
+        RollPreviewSlot(
+            slot_id,
+            thumbnail,
+            ("Likely blank or partial tail slot",) if slot_id in warning_slots else (),
+        )
+        for slot_id in range(1, count + 1)
+    ]
+
+
+def _shown_selector(qapp: QApplication, count: int = 40, *, warning_slots: set[int] | None = None) -> RollSlotSelector:
+    selector = RollSlotSelector()
+    selector.resize(660, 520)
+    selector.set_slots(_slots(count, warning_slots=warning_slots))
+    selector.show()
+    qapp.processEvents()
+    return selector
+
+
+def _click_slot(
+    selector: RollSlotSelector,
+    slot_id: int,
+    modifier: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    index = selector.model.index(slot_id - 1, 0)
+    QTest.mouseClick(
+        selector.grid.viewport(),
+        Qt.MouseButton.LeftButton,
+        modifier,
+        selector.grid.visualRect(index).center(),
+    )
+    QApplication.processEvents()
+
+
+def test_model_requires_complete_ordered_one_based_slot_index() -> None:
+    model = RollSlotModel()
+
+    with pytest.raises(ValueError, match="contiguous and ordered"):
+        model.replace_slots([RollPreviewSlot(1), RollPreviewSlot(3)])
+    with pytest.raises(ValueError, match="positive 1-based"):
+        RollPreviewSlot(0)
+    with pytest.raises(ValueError, match="non-empty"):
+        RollPreviewSlot(1, warnings=("",))
+
+
+def test_boundary_offset_policy_is_slot_aware_and_strictly_integer() -> None:
+    assert boundary_offset_range(1) == (0, 144)
+    assert boundary_offset_range(2) == (-144, 144)
+    assert validate_boundary_offset(1, 0) == 0
+    assert validate_boundary_offset(1, 144) == 144
+    assert validate_boundary_offset(12, -144) == -144
+    assert validate_boundary_offset(12, 144) == 144
+
+    for slot_id, offset in ((1, -1), (1, 145), (2, -145), (2, 145)):
+        with pytest.raises(ValueError, match="boundary_offset"):
+            validate_boundary_offset(slot_id, offset)
+    with pytest.raises(ValueError, match="integer"):
+        validate_boundary_offset(2, True)
+
+
+def test_model_persists_per_slot_boundary_offsets_and_emits_the_role(qapp: QApplication) -> None:
+    model = RollSlotModel([RollPreviewSlot(1, boundary_offset=17), RollPreviewSlot(2, boundary_offset=-32)])
+    changed_roles: list[list[int]] = []
+    model.dataChanged.connect(lambda _first, _last, roles: changed_roles.append(roles))
+
+    second = model.index(1, 0)
+    assert model.data(second, RollSlotModel.BOUNDARY_OFFSET_ROLE) == -32
+    assert model.boundary_offset_for_slot_id(2) == -32
+
+    model.set_boundary_offset(2, 41)
+
+    assert model.data(second, RollSlotModel.BOUNDARY_OFFSET_ROLE) == 41
+    assert model.boundary_offset_for_slot_id(2) == 41
+    assert changed_roles == [[RollSlotModel.BOUNDARY_OFFSET_ROLE, int(Qt.ItemDataRole.ToolTipRole)]]
+
+
+def test_all_addressable_slots_remain_visible_selectable_and_unrenumbered(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, warning_slots={38, 39, 40})
+    try:
+        assert selector.model.rowCount() == 40
+        assert selector.summary_label.text() == "40 scanner slots"
+        assert selector.model.data(selector.model.index(39, 0), RollSlotModel.SLOT_ID_ROLE) == 40
+
+        warning_index = selector.model.index(39, 0)
+        flags = selector.model.flags(warning_index)
+        assert flags & Qt.ItemFlag.ItemIsEnabled
+        assert flags & Qt.ItemFlag.ItemIsSelectable
+        assert selector.model.data(warning_index, RollSlotModel.HAS_WARNINGS_ROLE) is True
+        assert "This slot can still be selected" in selector.model.data(warning_index, Qt.ItemDataRole.ToolTipRole)
+
+        selector.set_selected_slot_ids([40])
+        assert selector.selected_slot_ids() == [40]
+    finally:
+        selector.close()
+
+
+def test_ctrl_and_command_click_toggle_individual_slots(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 12)
+    try:
+        _click_slot(selector, 3)
+        _click_slot(selector, 8, Qt.KeyboardModifier.ControlModifier)
+        _click_slot(selector, 2, Qt.KeyboardModifier.MetaModifier)
+        assert selector.selected_slot_ids() == [2, 3, 8]
+
+        _click_slot(selector, 8, Qt.KeyboardModifier.ControlModifier)
+        assert selector.selected_slot_ids() == [2, 3]
+    finally:
+        selector.close()
+
+
+def test_shift_click_selects_a_contiguous_display_range(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 12)
+    try:
+        _click_slot(selector, 3)
+        _click_slot(selector, 7, Qt.KeyboardModifier.ShiftModifier)
+        assert selector.selected_slot_ids() == [3, 4, 5, 6, 7]
+    finally:
+        selector.close()
+
+
+def test_drag_across_slots_selects_the_whole_display_range(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 12)
+    try:
+        start = selector.grid.visualRect(selector.model.index(1, 0)).center()
+        end = selector.grid.visualRect(selector.model.index(5, 0)).center()
+
+        QTest.mousePress(selector.grid.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
+        QTest.mouseMove(selector.grid.viewport(), end, 20)
+        QTest.mouseRelease(selector.grid.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end)
+        qapp.processEvents()
+
+        assert selector.selected_slot_ids() == [2, 3, 4, 5, 6]
+    finally:
+        selector.close()
+
+
+def test_empty_space_marquee_selects_every_intersected_cell(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 12)
+    try:
+        first = selector.grid.visualRect(selector.model.index(0, 0))
+        start = QPoint(selector.grid.viewport().width() - 2, first.bottom() + 2)
+        end = QPoint(1, 1)
+        assert not selector.grid.indexAt(start).isValid()
+
+        rectangle = QRect(start, end).normalized()
+        expected = [
+            row + 1
+            for row in range(selector.model.rowCount())
+            if selector.grid.visualRect(selector.model.index(row, 0)).intersects(rectangle)
+        ]
+        assert len(expected) >= 2
+
+        QTest.mousePress(selector.grid.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
+        QTest.mouseMove(selector.grid.viewport(), end, 20)
+        QTest.mouseRelease(selector.grid.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end)
+        qapp.processEvents()
+
+        assert selector.selected_slot_ids() == expected
+    finally:
+        selector.close()
+
+
+def test_select_all_clear_and_selected_count(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 40)
+    try:
+        assert selector.selected_count_label.text() == "0 of 40 selected"
+        assert not selector.scan_button.isEnabled()
+
+        QTest.mouseClick(selector.select_all_button, Qt.MouseButton.LeftButton)
+        assert selector.selected_slot_ids() == list(range(1, 41))
+        assert selector.selected_count_label.text() == "40 of 40 selected"
+        assert selector.scan_button.isEnabled()
+
+        QTest.mouseClick(selector.clear_button, Qt.MouseButton.LeftButton)
+        assert selector.selected_slot_ids() == []
+        assert selector.selected_count_label.text() == "0 of 40 selected"
+        assert not selector.scan_button.isEnabled()
+    finally:
+        selector.close()
+
+
+def test_scan_action_emits_explicit_slot_ids_in_display_order(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 12, warning_slots={9})
+    requests: list[list[int]] = []
+    selector.scan_requested.connect(requests.append)
+    try:
+        selector.request_scan()
+        assert requests == []
+
+        selector.set_selected_slot_ids([9, 2, 5])
+        QTest.mouseClick(selector.scan_button, Qt.MouseButton.LeftButton)
+
+        assert requests == [[2, 5, 9]]
+    finally:
+        selector.close()
+
+
+def test_boundary_offset_controls_follow_current_slot_and_reload_exactly_that_slot(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 4)
+    reloads: list[tuple[int, int]] = []
+    selector.thumbnail_reload_requested.connect(lambda slot_id, offset: reloads.append((slot_id, offset)))
+    try:
+        selector.set_selected_slot_ids([1])
+        assert selector.boundary_offset_label.text() == "Film Spacing Offset: Slot 01"
+        assert selector.boundary_offset_spin.minimum() == 0
+        assert selector.boundary_offset_spin.maximum() == 144
+        assert selector.boundary_offset_slider.minimum() == 0
+        assert selector.boundary_offset_slider.maximum() == 144
+        assert selector.boundary_offset_slider.value() == 0
+        selector.boundary_offset_spin.setValue(37)
+        assert selector.boundary_offset_slider.value() == 37
+        assert selector.boundary_offset_spin.text() == "+37 rows"
+        assert selector.model.boundary_offset_for_slot_id(1) == 37
+        assert not selector.model.boundary_offset_is_confirmed(1)
+        assert not selector.scan_button.isEnabled()
+
+        QTest.mouseClick(selector.reload_thumbnail_button, Qt.MouseButton.LeftButton)
+        assert reloads == [(1, 37)]
+        selector.confirm_slot_thumbnail(1, 37, None)
+        assert selector.model.boundary_offset_is_confirmed(1)
+        assert selector.scan_button.isEnabled()
+
+        selector.set_selected_slot_ids([1, 3])
+        assert selector.boundary_offset_spin.minimum() == -144
+        assert selector.boundary_offset_spin.maximum() == 144
+        assert selector.boundary_offset_slider.minimum() == -144
+        assert selector.boundary_offset_slider.maximum() == 144
+        assert selector.boundary_offset_slider.value() == 0
+        selector.boundary_offset_slider.setValue(-21)
+        assert selector.boundary_offset_spin.value() == -21
+        assert selector.model.boundary_offset_for_slot_id(1) == 37
+        assert selector.model.boundary_offset_for_slot_id(3) == -21
+
+        QTest.mouseClick(selector.reload_thumbnail_button, Qt.MouseButton.LeftButton)
+        assert reloads == [(1, 37), (3, -21)]
+        assert not selector.scan_button.isEnabled()
+        selector.confirm_slot_thumbnail(3, -21, None)
+        assert selector.scan_button.isEnabled()
+        assert selector.selected_slot_ids() == [1, 3]
+    finally:
+        selector.close()
+
+
+def test_film_spacing_controls_have_practical_hit_areas_and_discoverable_shortcuts(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 3)
+    try:
+        selector.set_selected_slot_ids([2])
+
+        assert selector.boundary_offset_spin.minimumHeight() >= 40
+        assert selector.boundary_offset_slider.minimumHeight() >= 40
+        assert selector.reload_thumbnail_button.minimumHeight() >= 40
+        assert selector.boundary_offset_spin.font().fixedPitch()
+        assert "Alt+Left / Alt+Right" in selector.boundary_offset_slider.toolTip()
+        assert selector.offset_shortcut_label.text() == "Alt+← / Alt+→"
+
+        decrease = selector._offset_decrease_shortcut.key().toString(QKeySequence.SequenceFormat.PortableText)
+        increase = selector._offset_increase_shortcut.key().toString(QKeySequence.SequenceFormat.PortableText)
+        assert (decrease, increase) == ("Alt+Left", "Alt+Right")
+        assigned = {
+            QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText)
+            for key in default_bindings().values()
+            if key
+        }
+        assert decrease not in assigned
+        assert increase not in assigned
+    finally:
+        selector.close()
+
+
+def test_film_spacing_shortcuts_nudge_current_frame_within_slot_bounds(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 3)
+    reloads: list[tuple[int, int]] = []
+    selector.thumbnail_reload_requested.connect(lambda slot_id, offset: reloads.append((slot_id, offset)))
+    try:
+        selector.set_selected_slot_ids([2])
+        selector.grid.setFocus()
+        QTest.keyClick(selector.grid, Qt.Key.Key_Left, Qt.KeyboardModifier.AltModifier)
+        qapp.processEvents()
+        assert selector.boundary_offset_spin.value() == -1
+        assert selector.boundary_offset_slider.value() == -1
+        assert selector.model.boundary_offset_for_slot_id(2) == -1
+        assert not selector.model.boundary_offset_is_confirmed(2)
+        assert reloads == []
+
+        selector.boundary_offset_spin.setValue(-144)
+        selector._offset_decrease_shortcut.activated.emit()
+        assert selector.boundary_offset_spin.value() == -144
+
+        selector.boundary_offset_spin.setValue(144)
+        selector._offset_increase_shortcut.activated.emit()
+        assert selector.boundary_offset_spin.value() == 144
+
+        selector.set_selected_slot_ids([1])
+        selector._offset_decrease_shortcut.activated.emit()
+        assert selector.boundary_offset_spin.value() == 0
+        assert selector.model.boundary_offset_for_slot_id(1) == 0
+    finally:
+        selector.close()
+
+
+def test_stale_thumbnail_response_cannot_confirm_a_newer_offset(
+    qapp: QApplication,
+) -> None:
+    selector = _shown_selector(qapp, 3)
+    try:
+        selector.set_selected_slot_ids([2])
+        selector.boundary_offset_spin.setValue(-12)
+        selector.boundary_offset_spin.setValue(-18)
+
+        with pytest.raises(ValueError, match="stale Film Spacing Offset"):
+            selector.confirm_slot_thumbnail(2, -12, None)
+
+        assert not selector.model.boundary_offset_is_confirmed(2)
+        assert not selector.scan_button.isEnabled()
+        selector.confirm_slot_thumbnail(2, -18, None)
+        assert selector.scan_button.isEnabled()
+    finally:
+        selector.close()
+
+
+def test_replacing_thumbnail_preserves_slot_selection_current_index_and_offset(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 10)
+    try:
+        selector.set_selected_slot_ids([2, 5, 9])
+        selector.model.set_boundary_offset(5, -14)
+        selection_model = selector.grid.selectionModel()
+        assert selection_model is not None
+        current_before = QPersistentModelIndex(selection_model.currentIndex())
+        fifth = selector.model.index(4, 0)
+        icon_before = selector.model.data(fifth, Qt.ItemDataRole.DecorationRole)
+        assert isinstance(icon_before, QIcon)
+
+        replacement = QPixmap(120, 80)
+        replacement.fill(QColor("#AA281E"))
+        selector.update_slot_thumbnail(5, replacement)
+
+        icon_after = selector.model.data(fifth, Qt.ItemDataRole.DecorationRole)
+        assert isinstance(icon_after, QIcon)
+        assert icon_after.cacheKey() != icon_before.cacheKey()
+        assert current_before.isValid()
+        assert selection_model.currentIndex() == current_before
+        assert selector.selected_slot_ids() == [2, 5, 9]
+        assert selector.model.boundary_offset_for_slot_id(5) == -14
+    finally:
+        selector.close()
+
+
+def test_scan_material_choice_exposes_capture_and_ir_repair_behavior(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 2)
+    changes: list[ScanMaterial] = []
+    selector.scan_material_changed.connect(changes.append)
+    try:
+        assert selector.scan_material() is ScanMaterial.COLOR_NEGATIVE
+        assert selector.scan_material_combo.currentText() == "Color negative (C-41)"
+        assert "RGB 4× + IR" in selector.scan_material_status_label.text()
+        assert "IR dust repair available" in selector.scan_material_status_label.text()
+
+        selector.set_scan_material(ScanMaterial.BLACK_AND_WHITE_NEGATIVE)
+
+        assert selector.scan_material() is ScanMaterial.BLACK_AND_WHITE_NEGATIVE
+        assert selector.scan_material_combo.currentText() == "Black-and-white negative"
+        assert "RGB only" in selector.scan_material_status_label.text()
+        assert "IR/dust repair off" in selector.scan_material_status_label.text()
+        assert changes == [ScanMaterial.BLACK_AND_WHITE_NEGATIVE]
+    finally:
+        selector.close()

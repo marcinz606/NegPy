@@ -25,8 +25,9 @@ def qapp():
     if not app:
         app = QApplication(sys.argv)
     yield app
-    app.quit()
-    app.processEvents()
+    # The pytest_runtestloop wrapper below performs the one ordered shutdown
+    # before destroying wgpu. Repeating quit/processEvents here can enter Qt
+    # after the native GPU teardown and segfault on macOS.
 
 
 @pytest.hookimpl(hookwrapper=True, trylast=True)
@@ -44,7 +45,6 @@ def pytest_runtestloop(session):
         app = QApplication.instance()
         if app:
             app.quit()
-            app.processEvents()
     except Exception:
         pass
     try:

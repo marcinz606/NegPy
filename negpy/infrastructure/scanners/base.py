@@ -13,6 +13,27 @@ class ScannerCapabilities:
     supported_depths: tuple[int, ...]
     sources: tuple[ScanMode, ...]
     max_area_mm: tuple[float, float]  # (width, height)
+    # Device exposes a samples-per-scan option (hardware multi-sampling, e.g.
+    # Nikon Coolscan). UI-gating only — SaneBackend.scan() fails loud on its
+    # own if samples_per_scan > 1 is requested against a device without it.
+    multi_sample: bool = False
+    # Maximum transport position advertised by a roll adapter. This is a
+    # mechanical capacity bound (e.g. SA-30 reports 40), never an inferred
+    # count of exposures on the inserted strip or roll.
+    adapter_frame_capacity: int | None = None
+    # Device exposes hardware auto-exposure metering (SANE `ae` option).
+    # UI-gating only — SaneBackend.scan() fails loud on its own if
+    # auto_exposure is requested against a device without it.
+    auto_exposure: bool = False
+    # Device exposes both registration-window options (`subframe` + `br_y`)
+    # needed to position a ScanParams.registered_geometry request. UI-gating
+    # only — SaneBackend.scan() fails loud on its own if registered_geometry
+    # is requested against a device missing either option.
+    registered_geometry: bool = False
+    # Device exposes an active, settable medium-eject action. The UI uses this
+    # only to decide whether to show an Eject button; SaneBackend.eject()
+    # repeats the capability check before touching the transport.
+    can_eject: bool = False
 
 
 @dataclass(frozen=True)

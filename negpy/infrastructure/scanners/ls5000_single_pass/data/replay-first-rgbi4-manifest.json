@@ -1,0 +1,114 @@
+{
+  "all_fine_runs": [
+    {
+      "capture_is_snaplen_truncated": true,
+      "captured_bytes_per_read": 65508,
+      "captured_total_bytes": 194820792,
+      "colors": [
+        9,
+        1,
+        2,
+        3
+      ],
+      "first_read_sequence": 607,
+      "last_read_sequence": 3580,
+      "read_cdb": "280000000001032c0080",
+      "read_count": 2974,
+      "request_bytes": 207872,
+      "resolution": [
+        4000,
+        4000
+      ],
+      "resync_count": 18,
+      "samples_per_scan": 4,
+      "scan_index": 1,
+      "scan_sequence": 586,
+      "set_window_sequences": [
+        581,
+        582,
+        583,
+        584
+      ]
+    },
+    {
+      "capture_is_snaplen_truncated": true,
+      "captured_bytes_per_read": 65508,
+      "captured_total_bytes": 195213840,
+      "colors": [
+        9,
+        1,
+        2,
+        3
+      ],
+      "first_read_sequence": 3720,
+      "last_read_sequence": 6699,
+      "read_cdb": "280000000001032c0080",
+      "read_count": 2980,
+      "request_bytes": 207872,
+      "resolution": [
+        4000,
+        4000
+      ],
+      "resync_count": 0,
+      "samples_per_scan": 4,
+      "scan_index": 2,
+      "scan_sequence": 3698,
+      "set_window_sequences": [
+        3693,
+        3694,
+        3695,
+        3696
+      ]
+    },
+    {
+      "capture_is_snaplen_truncated": true,
+      "captured_bytes_per_read": 65508,
+      "captured_total_bytes": 195148332,
+      "colors": [
+        9,
+        1,
+        2,
+        3
+      ],
+      "first_read_sequence": 6850,
+      "last_read_sequence": 9828,
+      "read_cdb": "280000000001032c0080",
+      "read_count": 2979,
+      "request_bytes": 207872,
+      "resolution": [
+        4000,
+        4000
+      ],
+      "resync_count": 3,
+      "samples_per_scan": 4,
+      "scan_index": 3,
+      "scan_sequence": 6829,
+      "set_window_sequences": [
+        6824,
+        6825,
+        6826,
+        6827
+      ]
+    }
+  ],
+  "expected_stream_bytes": 619458560,
+  "fine_colors": [
+    9,
+    1,
+    2,
+    3
+  ],
+  "fine_read_cdb": "280000000001032c0080",
+  "fine_read_count": 2980,
+  "fine_request_bytes": 207872,
+  "pcap_snaplen": 65535,
+  "plan_sha256": "f44223965db6e3a3ece7806c76cd8653ef4f2695c0841353b7107240e3861d16",
+  "repeat_count_evidence_scan": 2,
+  "resolution": 4000,
+  "samples_per_scan": 4,
+  "source_pcap": "oracle-ice-on-1.pcapng",
+  "source_pcap_sha256": "5e3a890fa7c61f4f6c9cf597f55c0e7ea71628818d449aa9c53760fb017d07be",
+  "target_first_read_sequence": 607,
+  "target_scan_sequence": 586,
+  "warning": "The pcap snaplen truncates each large payload. Captured 65,508-byte prefixes are not complete 207,872-byte fine READ responses."
+}

@@ -141,3 +141,44 @@ def test_capture_intent_is_scoped_to_captured_primary_path():
 def test_empty_paths_is_a_noop():
     c = _run([])
     c.request_asset_discovery.assert_not_called()  # nothing captured → no discovery
+
+
+def _scanner_roll_import(paths, *, black_and_white):
+    controller = MagicMock()
+    controller.state = AppState()
+    controller._pending_capture_imports = {}
+    AppController.import_negative_roll_scans(
+        controller,
+        paths,
+        black_and_white=black_and_white,
+    )
+    return controller
+
+
+def test_color_negative_scanner_import_enables_ir_repair_on_each_master():
+    paths = ["/scan/frame001.tif", "/scan/frame002.tif"]
+    c = _scanner_roll_import(paths, black_and_white=False)
+
+    c.request_asset_discovery.assert_called_once_with(
+        [os.path.abspath(path) for path in paths]
+    )
+    assert c._pending_scanned_file == os.path.abspath(paths[0])
+
+    task = _hydrate_and_load(c, os.path.abspath(paths[1]), ProcessMode.BW)
+    assert c.state.config.process.process_mode == ProcessMode.C41
+    assert c.state.config.retouch.ir_dust_remove is True
+    assert task.detect_mode is False
+
+
+def test_black_and_white_scanner_import_forces_bw_and_keeps_ir_repair_off():
+    path = "/scan/frame007.tif"
+    c = _scanner_roll_import([path], black_and_white=True)
+    c.state.config = replace(
+        c.state.config,
+        retouch=replace(c.state.config.retouch, ir_dust_remove=True),
+    )
+
+    task = _hydrate_and_load(c, os.path.abspath(path), ProcessMode.C41)
+    assert c.state.config.process.process_mode == ProcessMode.BW
+    assert c.state.config.retouch.ir_dust_remove is False
+    assert task.detect_mode is False

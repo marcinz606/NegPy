@@ -7,7 +7,10 @@ from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.infrastructure.scanners.sane_backend import SaneBackend
 from negpy.kernel.system.logging import get_logger
-from negpy.services.scanning.templating import render_scan_filename
+from negpy.services.scanning.templating import (
+    render_scan_filename,
+    require_sequence_varying_scan_filename,
+)
 
 logger = get_logger(__name__)
 
@@ -28,9 +31,31 @@ class ScannerService:
 
     def refresh_devices(self) -> list[ScannerDevice]:
         backend = self._get_backend()
-        if hasattr(backend, "refresh_devices"):
-            return backend.refresh_devices()  # type: ignore[union-attr]
+        refresh = getattr(backend, "refresh_devices", None)
+        if callable(refresh):
+            return refresh()
         return backend.list_devices()
+
+    def probe_device(self, device_id: str) -> ScannerDevice:
+        """Return one device from a fresh backend enumeration."""
+
+        backend = self._get_backend()
+        try:
+            strict_probe = getattr(backend, "probe_device", None)
+            if callable(strict_probe):
+                device = strict_probe(device_id)
+                if device is not None:
+                    return device
+                devices: list[ScannerDevice] = []
+            else:
+                devices = self.refresh_devices()
+        except Exception as exc:
+            raise RuntimeError(f"Could not probe scanner device {device_id!r}: fresh enumeration failed: {exc}") from exc
+
+        for device in devices:
+            if device.id == device_id:
+                return device
+        raise RuntimeError(f"Scanner device {device_id!r} was not found during fresh enumeration")
 
     def run_scan(
         self,
@@ -41,6 +66,18 @@ class ScannerService:
     ) -> ScanResult:
         backend = self._get_backend()
         return backend.scan(device_id, params, progress, cancel)
+
+    def eject(self, device_id: str) -> bool:
+        """Trigger a capability-gated film eject; False when unsupported.
+
+        Mirrors the optional-method pattern in refresh_devices/probe_device
+        above — only SaneBackend implements this today.
+        """
+        backend = self._get_backend()
+        eject = getattr(backend, "eject", None)
+        if not callable(eject):
+            return False
+        return bool(eject(device_id))
 
     def write_result(
         self,
@@ -63,10 +100,26 @@ class ScannerService:
         ext = ".dng" if output_format.upper() == "DNG" else ".tif"
 
         seq = 1
+        require_sequence_varying_scan_filename(filename_pattern, date_str, seq)
+        seen_basenames: set[str] = set()
         while True:
             basename = render_scan_filename(filename_pattern, date_str, seq)
+            if basename in seen_basenames:
+                raise ValueError(
+                    "filename pattern repeated a basename while resolving an output collision"
+                )
+            seen_basenames.add(basename)
             rgb_path = os.path.join(output_folder, basename)
-            if not os.path.exists(rgb_path + ext):
+            if output_format.upper() == "DNG":
+                reserved_paths = (rgb_path + ext,)
+            else:
+                reserved_paths = (
+                    rgb_path + ext,
+                    rgb_path + "_IR.tif",
+                    rgb_path + "_IR_VALID.tif",
+                    rgb_path + "_SCAN.json",
+                )
+            if not any(os.path.lexists(path) for path in reserved_paths):
                 break
             seq += 1
 

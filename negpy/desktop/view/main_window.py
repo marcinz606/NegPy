@@ -25,6 +25,7 @@ from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
+from negpy.desktop.view.widgets.central_workspace import CentralWorkspaceStack
 from negpy.domain.models import AspectRatio, ColorSpace
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.image.logic import float_to_uint8
@@ -231,7 +232,8 @@ class MainWindow(QMainWindow):
         self.loading_overlay = LoadingOverlay(self.canvas)
         self.loading_overlay.raise_()
 
-        self.central_layout.addWidget(self.canvas, stretch=1)
+        self.central_workspace = CentralWorkspaceStack(self.canvas)
+        self.central_layout.addWidget(self.central_workspace, stretch=1)
 
         self.setCentralWidget(self.central_widget)
 
@@ -241,6 +243,13 @@ class MainWindow(QMainWindow):
         self.right_panel = RightPanel(self.controller)
         # Back-compat alias: tutorial, keyboard shortcuts, and _sync_tool_buttons reach feature sidebars here.
         self.controls_panel = self.right_panel.controls_panel
+
+        # The scanner sidebar still owns the one RollSlotSelector instance and
+        # all of its state/callbacks.  Reparent that same widget into the large
+        # central workspace so the contact sheet is usable at roll scale.
+        self.roll_slot_selector = getattr(self.right_panel.scan_sidebar, "roll_slot_selector", None)
+        if self.roll_slot_selector is not None:
+            self.central_workspace.mount_roll_selector(self.roll_slot_selector)
 
         self.drawer.setWidget(self.right_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.drawer)
@@ -312,6 +321,12 @@ class MainWindow(QMainWindow):
         self.controller.image_updated.connect(self.loading_overlay.stop)
         self.controller.load_failed.connect(self._on_load_failed)
         self.controller.zoom_changed.connect(self._on_zoom_info_changed)
+
+        if self.roll_slot_selector is not None:
+            self.controller.ls5000_roll_preview_ready.connect(self.central_workspace.show_loaded_roll_preview)
+            self.controller.ls5000_roll_preview_invalidated.connect(self.central_workspace.show_canvas)
+            self.controller.ls5000_roll_finished.connect(self.central_workspace.show_canvas_after_roll_scan)
+            self.controller.ls5000_roll_error.connect(self.central_workspace.show_canvas_after_roll_error)
 
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)

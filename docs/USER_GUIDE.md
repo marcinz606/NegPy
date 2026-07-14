@@ -15,6 +15,10 @@ NegPy follows a non-destructive pipeline:
 
 The sidebar is organized as collapsible panels in roughly that order, plus a top-level Header (GPU toggle), a Files browser, Presets, an ICC panel, and a Metadata editor in the session tabs.
 
+## Nikon LS-5000 roll scanning
+
+The Scan panel can read a complete LS-5000 roll and place its contact sheet in the main workspace. You can correct the spacing for individual frames, choose the photographs you want, and scan them as linear negative TIFFs. Color negatives use RGB 4x plus one IR plane. Conventional silver B&W uses RGB 4x with IR and IR dust repair turned off. See [LS5000_ROLL_SCANNING.md](LS5000_ROLL_SCANNING.md) for the complete workflow.
+
 ---
 
 ## 2. Header

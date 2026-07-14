@@ -38,6 +38,21 @@ _PAINTER_NOISE = (
 )
 
 
+def _dispatch_capture_helper(argv: list[str]) -> bool:
+    """Run the frozen LS-5000 worker before desktop initialization."""
+
+    from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
+        CAPTURE_HELPER_FLAG,
+    )
+
+    if len(argv) < 2 or argv[1] != CAPTURE_HELPER_FLAG:
+        return False
+    from negpy.infrastructure.scanners.ls5000_single_pass.worker import main as worker_main
+
+    worker_main(argv[2:])
+    return True
+
+
 def _filter_qt_messages(mode, context, message: str) -> None:
     if message.startswith(_PAINTER_NOISE):
         return
@@ -105,6 +120,9 @@ def main() -> None:
     """
     Desktop entry point.
     """
+    if _dispatch_capture_helper(sys.argv):
+        return
+
     override_cfg = load_override(APP_CONFIG.override_toml_path)
     setup_logging(level=override_cfg.log_level_int)
     _install_exception_hook()  # log unhandled slot exceptions to negpy.log instead of aborting

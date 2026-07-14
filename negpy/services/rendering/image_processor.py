@@ -21,7 +21,7 @@ from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import linear_raw_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
-from negpy.features.retouch.logic import compute_dust_stats, detect_ir_regions, detect_luma_regions
+from negpy.features.retouch.logic import compute_dust_stats, detect_luma_regions
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
@@ -124,24 +124,22 @@ class ImageProcessor:
         ir_buffer: Optional[np.ndarray],
         source_key: str,
     ) -> WorkspaceConfig:
-        """Source-space dust detection → synthesized heal strokes on a
-        render-local config (auto flags cleared — the engines only see strokes).
-        The caller's config is untouched, so synthesized strokes never reach
-        sidecars, presets or the DB."""
+        """Source-space luminance detection → synthesized membrane strokes.
+
+        IR remains an explicit flag and raw plane: RetouchProcessor applies the
+        proven pixel-mask healer after geometry.  The caller's config is
+        untouched, so synthesized luminance strokes never reach sidecars,
+        presets or the DB.
+        """
         ret = settings.retouch
         do_luma = ret.dust_remove
-        do_ir = ret.ir_dust_remove and ir_buffer is not None
-        if self._is_flat(settings) or not (do_luma or do_ir):
+        if self._is_flat(settings) or not do_luma:
             return settings
 
         key = (
             source_key,
-            do_luma,
             round(float(ret.dust_threshold), 6),
             int(ret.dust_size),
-            do_ir,
-            round(float(ret.ir_threshold), 6),
-            int(ret.ir_inpaint_radius),
             settings.process.process_mode,
         )
         if key == self._retouch_detect_key and self._retouch_detect_value is not None:
@@ -155,19 +153,10 @@ class ImageProcessor:
                 self._dust_stats_key = stats_key
                 self._dust_stats_value = stats
             synth = []
-            if do_ir and ir_buffer is not None:
-                synth += detect_ir_regions(
-                    _detection_downsample(ir_buffer),
-                    1.0 - ret.ir_threshold,
-                    pad_px=float(ret.ir_inpaint_radius),
-                    guide=stats[0],
-                )
-            if do_luma:
-                # Ungated like IR: the detector already confirmed the defect, and
-                # the bright-only gate leaves half-healed fringe rings (halos)
-                # around soft-edged specks (also, E6 dust is dark — gate would
-                # veto it entirely).
-                synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0, stats=stats)
+            # Ungated: the detector already confirmed the defect, and the
+            # bright-only gate leaves half-healed fringe rings (halos) around
+            # soft-edged specks (also, E6 dust is dark).
+            synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0, stats=stats)
             self._retouch_detect_key = key
             self._retouch_detect_value = synth
 
@@ -180,7 +169,6 @@ class ImageProcessor:
             retouch=dc_replace(
                 ret,
                 dust_remove=False,
-                ir_dust_remove=False,
                 manual_heal_strokes=synth + list(ret.manual_heal_strokes),
             ),
         )
@@ -220,6 +208,7 @@ class ImageProcessor:
             scale_factor=scale_factor,
             original_size=(h_orig, w_cols),
             process_mode=settings.process.process_mode,
+            ir_buffer=ir_buffer,
             crop_preview_full=crop_preview_full,
             wants_uv_grid=wants_uv_grid,
         )
@@ -230,6 +219,11 @@ class ImageProcessor:
             # The crop tool's "show full uncropped frame" preview only needs a single
             # CPU render per settings change (dragging only moves an overlay rect), so
             # we sidestep the GPU engine's ROI-fused compute dispatch entirely here.
+            prefer_gpu = False
+
+        # The exact IR mask healer is deliberately CPU-only.  GPU membrane
+        # retouch remains available for manual and luminance-generated strokes.
+        if settings.retouch.ir_dust_remove and ir_buffer is not None:
             prefer_gpu = False
 
         if prefer_gpu and self.engine_gpu:
@@ -395,7 +389,7 @@ class ImageProcessor:
             h_raw, w_raw = f32_buffer.shape[:2]
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
 
-            if self._is_flat(params):
+            if self._is_flat(params) or (params.retouch.ir_dust_remove and ir_full is not None):
                 prefer_gpu = False
 
             if prefer_gpu and self.engine_gpu:
@@ -414,6 +408,7 @@ class ImageProcessor:
                     render_size_ref=float(APP_CONFIG.preview_render_size),
                     metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
                     prefer_gpu=False,
+                    ir_buffer=ir_full,
                     wants_uv_grid=False,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
@@ -598,7 +593,7 @@ class ImageProcessor:
             detect_key = source_hash + flatfield_token(params.flatfield) + rgbscan_token(params.rgbscan) + linear_raw_token(params.process)
             params = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
 
-            if self._is_flat(params):
+            if self._is_flat(params) or (params.retouch.ir_dust_remove and ir_full is not None):
                 prefer_gpu = False
 
             if prefer_gpu and self.engine_gpu:
@@ -610,6 +605,7 @@ class ImageProcessor:
                     source_hash,
                     render_size_ref=float(target_long_px),
                     prefer_gpu=False,
+                    ir_buffer=ir_full,
                     wants_uv_grid=False,
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)

@@ -26,6 +26,8 @@ class ScanWorker(QObject):
     progress = pyqtSignal(float)  # 0.0..1.0
     finished = pyqtSignal(str)  # output rgb file path
     error = pyqtSignal(str)
+    ejected = pyqtSignal(bool)
+    eject_error = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -87,3 +89,16 @@ class ScanWorker(QObject):
     def cancel(self) -> None:
         """Signal the scan to stop."""
         self._cancel_event.set()
+
+    @pyqtSlot(str)
+    def eject(self, device_id: str) -> None:
+        """Eject the loaded medium without blocking the UI thread."""
+
+        if self._scanning:
+            self.eject_error.emit("Cannot eject while a scan is active")
+            return
+        try:
+            self.ejected.emit(self._ensure_service().eject(device_id))
+        except Exception as error:
+            logger.exception("Film eject failed")
+            self.eject_error.emit(str(error))

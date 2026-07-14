@@ -305,6 +305,7 @@ dependencies = [
     { name = "pyqt6" },
     { name = "pyqt6-charts" },
     { name = "pyserial" },
+    { name = "pyusb" },
     { name = "qtawesome" },
     { name = "rawpy" },
     { name = "tifffile" },
@@ -339,6 +340,7 @@ requires-dist = [
     { name = "pyqt6", specifier = "==6.11.0" },
     { name = "pyqt6-charts", specifier = "==6.11.0" },
     { name = "pyserial", specifier = ">=3.5" },
+    { name = "pyusb", specifier = "==1.3.1" },
     { name = "qtawesome", specifier = "==1.4.2" },
     { name = "rawpy", specifier = "==0.27.0" },
     { name = "tifffile", specifier = "==2026.6.1" },
@@ -724,6 +726,15 @@ name = "python-sane"
 version = "2.9.2"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/45/e9/e8baff69fc2347606c547201204d4b4843c7ad8ecb9164eceee42016eff6/python_sane-2.9.2.tar.gz", hash = "sha256:50ab8e0b033cececad26c7231a7254f80ad8fe9ec6b5c25add2493d7e2a07bbe", size = 22513, upload-time = "2025-07-21T21:20:21.735Z" }
+
+[[package]]
+name = "pyusb"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/6b/ce3727395e52b7b76dfcf0c665e37d223b680b9becc60710d4bc08b7b7cb/pyusb-1.3.1.tar.gz", hash = "sha256:3af070b607467c1c164f49d5b0caabe8ac78dbed9298d703a8dbf9df4052d17e", size = 77281, upload-time = "2025-01-08T23:45:01.866Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/b8/27e6312e86408a44fe16bd28ee12dd98608b39f7e7e57884a24e8f29b573/pyusb-1.3.1-py3-none-any.whl", hash = "sha256:bf9b754557af4717fe80c2b07cc2b923a9151f5c08d17bdb5345dac09d6a0430", size = 58465, upload-time = "2025-01-08T23:45:00.029Z" },
+]
 
 [[package]]
 name = "pywin32-ctypes"

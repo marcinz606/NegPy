@@ -7,6 +7,7 @@ from numba import njit  # type: ignore
 
 from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R, ImageBuffer
 from negpy.features.geometry.logic import map_coords_to_geometry, smooth_polyline
+from negpy.features.retouch.ir_heal import apply_ir_dust_removal as apply_ir_dust_removal
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working_oetf_encode
 from negpy.kernel.image.validation import ensure_image

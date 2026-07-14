@@ -11,6 +11,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
 from negpy.domain.models import ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode, WorkspaceConfig
+from negpy.infrastructure.scanners.params import ScanParams
 from negpy.services.rendering.preview_manager import PreviewManager
 
 if not QApplication.instance():
@@ -382,6 +383,15 @@ class TestAppController(unittest.TestCase):
         self.controller.apply_auto_crop()
 
         self.assertEqual(self.controller.state.active_tool, ToolMode.NONE)
+
+    def test_build_scan_params_callable_from_instance(self):
+        """Sidebar call style is self.controller.build_scan_params(...); confirm
+        the staticmethod is reachable through a real controller instance too."""
+        params = self.controller.build_scan_params(
+            dpi=4000, depth=16, capture_ir=True, autofocus=True, samples_per_scan=4, auto_exposure=True
+        )
+        self.assertEqual(params.samples_per_scan, 4)
+        self.assertTrue(params.auto_exposure)
 
     def _seed_two_masks(self):
         from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
@@ -1107,6 +1117,88 @@ class TestContactSheetOutputDir(unittest.TestCase):
         self.controller.state.config = replace(self.controller.state.config, export=export)
         out = self.controller._contact_sheet_output_dir(self.visible_files)
         self.assertEqual(out, "/rolls/frame")
+
+
+class TestBuildScanParams(unittest.TestCase):
+    """AppController.build_scan_params is a pure staticmethod: the mapping from
+    Scan-tab control values to a ScanParams recipe, independent of any Qt
+    widgets, session state, or a live device. This is the part the archival
+    Scan-tab controls (frame selection, hardware AE, registered geometry, the
+    RGB4x+IR1x split-capture toggle) actually depend on, so it is covered
+    directly rather than only through sidebar/widget interaction."""
+
+    def test_plain_scan_no_frame_no_geometry(self):
+        params = AppController.build_scan_params(dpi=3600, depth=16, capture_ir=False, autofocus=True, samples_per_scan=1)
+        self.assertEqual(params.dpi, 3600)
+        self.assertEqual(params.depth, 16)
+        self.assertFalse(params.capture_ir)
+        self.assertTrue(params.autofocus)
+        self.assertEqual(params.samples_per_scan, 1)
+        self.assertIsNone(params.frame)
+        self.assertFalse(params.auto_exposure)
+        self.assertIsNone(params.registered_geometry)
+
+    def test_frame_selection_without_geometry(self):
+        params = AppController.build_scan_params(dpi=4000, depth=16, capture_ir=True, autofocus=True, samples_per_scan=4, frame=7)
+        self.assertEqual(params.frame, 7)
+        self.assertIsNone(params.registered_geometry)
+
+    def test_archival_recipe_matches_practical_parity_runner(self):
+        """The exact recipe validated by practical_parity_runner.PROFILES and
+        roll_scan_runner._fine_params: capture_ir=True, samples_per_scan=4,
+        autofocus=True, auto_exposure=True — the "practical parity" mode."""
+        params = AppController.build_scan_params(
+            dpi=4000, depth=16, capture_ir=True, autofocus=True, samples_per_scan=4, auto_exposure=True
+        )
+        self.assertTrue(params.capture_ir)
+        self.assertEqual(params.samples_per_scan, 4)
+        self.assertTrue(params.autofocus)
+        self.assertTrue(params.auto_exposure)
+
+    def test_registered_geometry_carries_frame_instead_of_top_level(self):
+        """When geometry is supplied, frame rides inside it — never duplicated
+        onto ScanParams.frame — so SaneBackend.scan()'s conflicting-frame
+        check can never trip from a GUI-built request."""
+        params = AppController.build_scan_params(
+            dpi=4000,
+            depth=16,
+            capture_ir=True,
+            autofocus=True,
+            samples_per_scan=4,
+            frame=3,
+            subframe_mm=6.35,
+            br_y_device_px=5003,
+        )
+        self.assertIsNone(params.frame)
+        self.assertIsNotNone(params.registered_geometry)
+        self.assertEqual(params.registered_geometry.frame, 3)
+        self.assertEqual(params.registered_geometry.subframe_mm, 6.35)
+        self.assertEqual(params.registered_geometry.br_y_device_px, 5003)
+
+    def test_registered_geometry_without_frame_is_allowed(self):
+        params = AppController.build_scan_params(
+            dpi=4000, depth=16, capture_ir=True, autofocus=True, samples_per_scan=4, subframe_mm=6.35, br_y_device_px=5003
+        )
+        self.assertIsNotNone(params.registered_geometry)
+        self.assertIsNone(params.registered_geometry.frame)
+
+    def test_partial_geometry_subframe_only_raises(self):
+        with self.assertRaises(ValueError):
+            AppController.build_scan_params(
+                dpi=4000, depth=16, capture_ir=True, autofocus=True, samples_per_scan=4, subframe_mm=6.35
+            )
+
+    def test_partial_geometry_br_y_only_raises(self):
+        with self.assertRaises(ValueError):
+            AppController.build_scan_params(
+                dpi=4000, depth=16, capture_ir=True, autofocus=True, samples_per_scan=4, br_y_device_px=5003
+            )
+
+    def test_defaults_match_plain_scan_params_defaults(self):
+        """frame/auto_exposure/registered geometry are all opt-in — omitting
+        them must reproduce a plain ScanParams(...) with no archival extras."""
+        params = AppController.build_scan_params(dpi=1200, depth=8, capture_ir=False, autofocus=False, samples_per_scan=1)
+        self.assertEqual(params, ScanParams(dpi=1200, depth=8, capture_ir=False, autofocus=False, samples_per_scan=1))
 
 
 if __name__ == "__main__":

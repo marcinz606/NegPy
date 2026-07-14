@@ -25,6 +25,8 @@ dependencies = [
     "qtawesome==1.4.2",
     "wgpu==0.31.1",
     "pyserial>=3.5",
+    # The verified LS-5000 single-pass capture/handoff tools use libusb via PyUSB.
+    "pyusb==1.3.1",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -66,8 +68,12 @@ Issues = "https://github.com/marcinz606/NegPy/issues"
 requires = ["setuptools~=80.10.2"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["negpy"]
+[tool.setuptools.packages.find]
+include = ["negpy*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"negpy.infrastructure.scanners.ls5000_single_pass.data" = ["*.json", "*.jsonl"]
 
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }

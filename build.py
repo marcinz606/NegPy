@@ -47,6 +47,12 @@ params = [
     "--hidden-import=jinja2",
     "--hidden-import=PyQt6",
     "--hidden-import=qtawesome",
+    "--hidden-import=negpy.infrastructure.scanners.ls5000_single_pass.bundle",
+    "--hidden-import=negpy.infrastructure.scanners.ls5000_single_pass.capture_process",
+    "--hidden-import=negpy.infrastructure.scanners.ls5000_single_pass.meter",
+    "--hidden-import=negpy.infrastructure.scanners.ls5000_single_pass.roll_index",
+    "--hidden-import=negpy.infrastructure.scanners.ls5000_single_pass.window",
+    "--hidden-import=negpy.infrastructure.scanners.ls5000_single_pass.worker",
     # Scanner support: bundle the python-sane C extension but NOT libsane.so.1.
     # libsane.so.1 must come from the host so SANE can find its backend plugins
     # in /usr/lib/sane/. See libs_to_remove in package_linux().
@@ -71,6 +77,7 @@ params = [
     "--add-data=negpy/features/lab/shaders:negpy/features/lab/shaders",
     "--add-data=negpy/features/finish/shaders:negpy/features/finish/shaders",
     "--add-data=negpy/desktop/view/styles:negpy/desktop/view/styles",
+    "--add-data=negpy/infrastructure/scanners/ls5000_single_pass/data:negpy/infrastructure/scanners/ls5000_single_pass/data",
     "--add-data=icc:icc",
     "--add-data=media:media",
     "--add-data=crosstalk:crosstalk",
