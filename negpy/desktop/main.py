@@ -3,7 +3,7 @@ import sys
 
 from PyQt6.QtCore import Qt, qInstallMessageHandler
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QProxyStyle, QStyle
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager
@@ -42,6 +42,18 @@ def _filter_qt_messages(mode, context, message: str) -> None:
     if message.startswith(_PAINTER_NOISE):
         return
     sys.stderr.write(message + "\n")
+
+
+class _AppStyle(QProxyStyle):
+    """Fusion with a longer tooltip hover delay — the default 700 ms pops tooltips
+    the moment the cursor crosses a toolbar, which reads as noise."""
+
+    _TOOLTIP_WAKEUP_MS = 1400
+
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
+            return self._TOOLTIP_WAKEUP_MS
+        return super().styleHint(hint, option, widget, returnData)
 
 
 def _bootstrap_environment() -> None:
@@ -101,7 +113,7 @@ def main() -> None:
         qInstallMessageHandler(_filter_qt_messages)
         app = QApplication(sys.argv)
         app.setApplicationName("NegPy")
-        app.setStyle("Fusion")
+        app.setStyle(_AppStyle("Fusion"))
 
         icon_path = get_resource_path("media/icons/icon.png")
         if os.path.exists(icon_path):

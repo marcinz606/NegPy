@@ -173,6 +173,9 @@ class ImageCanvas(QWidget):
     def set_floating_toolbar(self, toolbar: QWidget) -> None:
         """Adopts the action toolbar as a floating pill anchored to the canvas bottom."""
         toolbar.setParent(self)
+        # The canvas carries tool cursors (blank heal brush, pen nib, WB picker);
+        # the toolbar must not inherit them — buttons want the normal arrow.
+        toolbar.setCursor(Qt.CursorShape.ArrowCursor)
         toolbar.show()
         self._floating_toolbar = toolbar
         self._layout_floating_widgets()

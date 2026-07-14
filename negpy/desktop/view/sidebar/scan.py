@@ -433,11 +433,14 @@ class _ScanUnsupportedPlaceholder(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # No layout alignment and no QSS padding: either one breaks the wrapped
+        # QLabel's height-for-width negotiation and clips the text — the label
+        # must be stretched to full width so it can report its wrapped height.
         layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(20, 20, 20, 20)
 
         label = QLabel("Scanner support not yet available on Windows.")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setWordWrap(True)
-        label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_base}px; padding: 20px;")
+        label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_base}px;")
         layout.addWidget(label)

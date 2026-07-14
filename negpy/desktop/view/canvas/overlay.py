@@ -128,6 +128,7 @@ class CanvasOverlay(QWidget):
 
         # Scratch heal (open polyline) interaction state
         self._scratch_pts: List[QPointF] = []
+        self._heal_drag_pts: List[QPointF] = []
         self._local_mask_screen_polys: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
 
@@ -166,7 +167,8 @@ class CanvasOverlay(QWidget):
         self._escape_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self._escape_shortcut.activated.connect(self._cancel_lasso)
 
-        # Enter finishes an in-progress scratch/lasso polyline, same as double-click.
+        # Enter finishes an in-progress scratch/lasso polyline or confirms the
+        # crop, same as double-click.
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             sc = QShortcut(QKeySequence(key), self)
             sc.setContext(Qt.ShortcutContext.WidgetShortcut)
@@ -227,6 +229,8 @@ class CanvasOverlay(QWidget):
             self._end_local_edit()
         if mode != ToolMode.SCRATCH_PICK:
             self._scratch_pts = []
+        if mode != ToolMode.DUST_PICK:
+            self._heal_drag_pts = []
         if mode != ToolMode.STRAIGHTEN:
             self._straighten_p1 = None
             self._straighten_p2 = None
@@ -340,6 +344,8 @@ class CanvasOverlay(QWidget):
             self._lasso_pts = [remap(p) for p in self._lasso_pts]
         if self._scratch_pts:
             self._scratch_pts = [remap(p) for p in self._scratch_pts]
+        if self._heal_drag_pts:
+            self._heal_drag_pts = [remap(p) for p in self._heal_drag_pts]
         if self._local_edit_verts is not None:
             self._local_edit_verts = [remap(p) for p in self._local_edit_verts]
         if self._straighten_p1 is not None:
@@ -424,6 +430,8 @@ class CanvasOverlay(QWidget):
             self._draw_placed_heals(painter)
         if self._tool_mode == ToolMode.SCRATCH_PICK:
             self._draw_scratch_in_progress(painter)
+        if self._tool_mode == ToolMode.DUST_PICK:
+            self._draw_heal_drag_in_progress(painter)
         if self._tool_mode == ToolMode.STRAIGHTEN:
             self._draw_straighten_line(painter)
 
@@ -522,6 +530,34 @@ class CanvasOverlay(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(self._scratch_pts[0], 3.0, 3.0)
 
+    @staticmethod
+    def _heal_region_path(pts: List[QPointF], radius: float) -> QPainterPath:
+        """Union of brush dabs swept along `pts` — the mask silhouette of a heal
+        stroke (capsule chain). Drawn as one filled region, never a stroked
+        polyline: the line rendering reads jagged at drag-sample spacing."""
+        region = QPainterPath()
+        region.setFillRule(Qt.FillRule.WindingFill)
+        step = max(1.0, radius * 0.5)
+        for a, b in zip(pts, pts[1:]):
+            seg = math.hypot(b.x() - a.x(), b.y() - a.y())
+            n = max(1, int(seg / step))
+            for i in range(n):
+                t = i / n
+                region.addEllipse(QPointF(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t), radius, radius)
+        region.addEllipse(pts[-1], radius, radius)
+        return region
+
+    def _draw_heal_drag_in_progress(self, painter: QPainter) -> None:
+        """Translucent mask of the area being painted with the heal tool (click-drag)."""
+        if len(self._heal_drag_pts) < 2:
+            return
+        radius = max(1.5, self._brush_screen_radius(self.state.config.retouch.manual_dust_size))
+        fill = QColor(THEME.accent_primary)
+        fill.setAlpha(60)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(fill)
+        painter.drawPath(self._heal_region_path(self._heal_drag_pts, radius))
+
     def _draw_straighten_line(self, painter: QPainter) -> None:
         """Reference line being dragged with the straighten tool, plus a badge
         previewing the correction (display convention: positive = clockwise)."""
@@ -576,19 +612,13 @@ class CanvasOverlay(QWidget):
             else:
                 if len(screen_pts) >= 3:
                     screen_pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in screen_pts], closed=False)]
-                band = QPen(
-                    QColor(THEME.accent_primary), 2.0 * radius, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin
-                )
-                band_color = QColor(THEME.accent_primary)
-                band_color.setAlpha(40)
-                band.setColor(band_color)
-                painter.setPen(band)
-                path = QPainterPath(screen_pts[0])
-                for pt in screen_pts[1:]:
-                    path.lineTo(pt)
-                painter.drawPath(path)
-                painter.setPen(pen)
-                painter.drawPath(path)
+                # Masked area only — no centerline, no outline.
+                fill = QColor(THEME.accent_primary)
+                fill.setAlpha(40)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(fill)
+                painter.drawPath(self._heal_region_path(screen_pts, radius))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
 
         painter.setPen(pen)
         for rx, ry, size in conf.manual_dust_spots:
@@ -1081,6 +1111,15 @@ class CanvasOverlay(QWidget):
             event.accept()
             return
 
+        if self._tool_mode == ToolMode.DUST_PICK:
+            # Heal commits on release: a plain click heals the spot, a drag paints a
+            # continuous stroke healed as one region (one undo step, one render).
+            if self._view_rect.contains(event.position()):
+                self._heal_drag_pts = [event.position()]
+                self.update()
+            event.accept()
+            return
+
         if self._tool_mode == ToolMode.STRAIGHTEN:
             # Left-click draws the reference line; other buttons pass through.
             if event.button() == Qt.MouseButton.LeftButton:
@@ -1169,6 +1208,15 @@ class CanvasOverlay(QWidget):
         else:
             self.cursor_left.emit()
 
+        # Placement tools carry special cursors (blank brush, pen nib, WB picker) that
+        # read as broken over the empty canvas around the image — fall back to the
+        # normal arrow there and restore the tool cursor over the image itself.
+        if self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.WB_PICK):
+            if coords is None:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+            else:
+                self.unsetCursor()
+
         if self.parent()._is_panning:
             delta = event.position() - self.parent()._last_mouse_pos
             self.parent()._last_mouse_pos = event.position()
@@ -1181,6 +1229,21 @@ class CanvasOverlay(QWidget):
             px = float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right()))
             py = float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom()))
             self._local_edit_verts[self._local_drag_vertex] = QPointF(px, py)
+            self.update()
+            event.accept()
+            return
+
+        # Painting a heal stroke: accumulate the drag path (spaced by half the brush
+        # radius so long drags stay a sane number of capsule segments), clamped to
+        # the image so the stroke can't run off into the border.
+        if self._tool_mode == ToolMode.DUST_PICK and self._heal_drag_pts and event.buttons() & Qt.MouseButton.LeftButton:
+            pos = QPointF(
+                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            spacing = max(6.0, self._brush_screen_radius(self.state.config.retouch.manual_dust_size) * 0.5)
+            if (pos - self._heal_drag_pts[-1]).manhattanLength() >= spacing:
+                self._heal_drag_pts.append(pos)
             self.update()
             event.accept()
             return
@@ -1418,6 +1481,9 @@ class CanvasOverlay(QWidget):
             self._finish_scratch()
         elif self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing and len(self._lasso_pts) >= 3:
             self._finish_lasso()
+        elif self._tool_mode == ToolMode.CROP_MANUAL:
+            self._end_crop_drag()
+            self.crop_confirmed.emit()
 
     def has_scratch_points(self) -> bool:
         return bool(self._scratch_pts)
@@ -1490,6 +1556,26 @@ class CanvasOverlay(QWidget):
         if self.parent()._is_panning:
             self.parent()._is_panning = False
             self.parent().reset_tool_cursor()
+            event.accept()
+            return
+
+        if self._tool_mode == ToolMode.DUST_PICK and self._heal_drag_pts and event.button() == Qt.MouseButton.LeftButton:
+            pts = self._heal_drag_pts
+            self._heal_drag_pts = []
+            end = QPointF(
+                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
+                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
+            )
+            if (end - pts[-1]).manhattanLength() > 2.0:
+                pts.append(end)
+            vertices = [c for c in (self._map_to_image_coords(p) for p in pts) if c is not None]
+            if len(vertices) == 1:
+                # Plain click: the classic single-spot heal.
+                self.clicked.emit(*vertices[0])
+            elif len(vertices) > 1:
+                # Drag: the painted path becomes one multi-point heal stroke.
+                self.scratch_completed.emit(vertices)
+            self.update()
             event.accept()
             return
 

@@ -1,7 +1,12 @@
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt
+from PyQt6.QtGui import QMouseEvent
 
 from negpy.desktop.session import AppState, ToolMode
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
+
+
+def _mouse_event(kind: QEvent.Type, pos: QPointF, buttons=Qt.MouseButton.LeftButton) -> QMouseEvent:
+    return QMouseEvent(kind, pos, Qt.MouseButton.LeftButton, buttons, Qt.KeyboardModifier.NoModifier)
 
 
 def _overlay_with_view() -> CanvasOverlay:
@@ -79,3 +84,76 @@ def test_enter_noop_without_active_draw() -> None:
     overlay._finish_draw_if_active()
 
     assert emitted == []
+
+
+def test_enter_confirms_crop() -> None:
+    overlay = _overlay_with_view()
+    overlay.set_tool_mode(ToolMode.CROP_MANUAL)
+
+    confirmed = []
+    overlay.crop_confirmed.connect(lambda: confirmed.append(True))
+    overlay._finish_draw_if_active()
+
+    assert confirmed == [True]
+
+
+def _overlay_with_parent() -> CanvasOverlay:
+    """Overlay whose move/release paths (which consult parent()._is_panning) work."""
+    from PyQt6.QtWidgets import QWidget
+
+    parent = QWidget()
+    parent._is_panning = False
+    overlay = CanvasOverlay(AppState(), parent)
+    overlay._view_rect = QRectF(0, 0, 100, 100)
+    overlay._test_parent = parent  # keep the parent alive for the overlay's lifetime
+    return overlay
+
+
+def test_heal_click_places_single_spot() -> None:
+    overlay = _overlay_with_parent()
+    overlay.set_tool_mode(ToolMode.DUST_PICK)
+
+    clicks: list = []
+    strokes: list = []
+    overlay.clicked.connect(lambda x, y: clicks.append((x, y)))
+    overlay.scratch_completed.connect(strokes.append)
+
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(30, 30)))
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(30, 30), Qt.MouseButton.NoButton))
+
+    assert strokes == []
+    assert len(clicks) == 1
+    assert abs(clicks[0][0] - 0.3) < 1e-6 and abs(clicks[0][1] - 0.3) < 1e-6
+
+
+def test_heal_drag_paints_continuous_stroke() -> None:
+    overlay = _overlay_with_parent()
+    overlay.set_tool_mode(ToolMode.DUST_PICK)
+
+    clicks: list = []
+    strokes: list = []
+    overlay.clicked.connect(lambda x, y: clicks.append((x, y)))
+    overlay.scratch_completed.connect(strokes.append)
+
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(10, 10)))
+    for p in (QPointF(30, 30), QPointF(60, 60)):
+        overlay.mouseMoveEvent(_mouse_event(QEvent.Type.MouseMove, p))
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(90, 90), Qt.MouseButton.NoButton))
+
+    assert clicks == []
+    assert len(strokes) == 1
+    assert len(strokes[0]) >= 3  # press + drag samples + release point
+    assert overlay._heal_drag_pts == []
+
+
+def test_heal_drag_outside_image_is_ignored() -> None:
+    overlay = _overlay_with_parent()
+    overlay.set_tool_mode(ToolMode.DUST_PICK)
+
+    clicks: list = []
+    overlay.clicked.connect(lambda x, y: clicks.append((x, y)))
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(150, 150)))
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(150, 150), Qt.MouseButton.NoButton))
+
+    assert clicks == []
+    assert overlay._heal_drag_pts == []

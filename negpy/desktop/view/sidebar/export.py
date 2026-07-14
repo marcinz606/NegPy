@@ -627,7 +627,7 @@ class ExportSidebar(BaseSidebar):
     _EXPORT_SCOPES = {
         "current": (
             "Export current frame",
-            " Export",
+            " Export Current Frame",
             "Export the current frame with the settings below  Ctrl+E",
         ),
         "selected": (

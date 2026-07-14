@@ -269,6 +269,11 @@ class ActionToolbar(QWidget):
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
+        # Custom-sized buttons skip the standard sizing above but must share the
+        # same hover cursor as the rest of the toolbar.
+        for btn in (self.btn_zoom_fit, self.btn_zoom_original, *self.canvas_color_btns):
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
         # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · gpu · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
