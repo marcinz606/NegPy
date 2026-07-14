@@ -1380,6 +1380,9 @@ class AppController(QObject):
                 roll_name=None,
             )
             new_p = replace(p, process=new_process)
+            # The active file records its step via update_config(persist=True) below.
+            if f_info["hash"] != self.state.current_file_hash:
+                self.session.push_external_history(f_info["hash"], p, new_p)
             self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
         # Update current state
@@ -1428,6 +1431,8 @@ class AppController(QObject):
                     roll_name=name,
                 )
                 new_p = replace(p, process=new_process)
+                if f_info["hash"] != self.state.current_file_hash:
+                    self.session.push_external_history(f_info["hash"], p, new_p)
                 self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
             new_process = replace(

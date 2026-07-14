@@ -3,6 +3,7 @@
 
 ## 0.38.0
 
+- Change: **Roll-wide actions are now undoable** — Batch Analysis, applying a saved roll baseline, and "Apply settings" to selected frames or the whole roll used to overwrite every frame's saved edits with no way back. Each affected frame now records the change in its own edit history: switch to any frame and `Ctrl+Z` (or the History tab) steps back to exactly what it had before the roll action. Reset Settings likewise became an ordinary undoable history step instead of wiping the file's history, and loading a preset is saved and logged like any other edit.
 - New: **Grease pencil for the contact sheet** — triage a roll like a real contact sheet: `C` circles a frame ("print this"), `Shift+X` strikes it ("cut"), drawn in wax pencil right on the thumbnail. Struck frames stay on the sheet but drop out of batch exports and sidecar writes automatically. A new Sheet filter next to Sort shows All frames / Circled only / Hide struck, a tally under the filter box counts the roll ("36 frames · 12 circled · 3 struck"), and marks persist per file across sessions. Also available from the thumbnail right-click menu; works on multi-selections.
 
 ## 0.37.2

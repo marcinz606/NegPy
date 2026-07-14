@@ -59,7 +59,7 @@ class PresetsSidebar(BaseSidebar):
             current_dict = self.state.config.to_dict()
             current_dict.update(p_settings)
             new_config = WorkspaceConfig.from_flat_dict(current_dict)
-            self.controller.session.update_config(new_config)
+            self.controller.session.update_config(new_config, persist=True)
             self.controller.request_render()
 
     def _on_save_clicked(self) -> None:

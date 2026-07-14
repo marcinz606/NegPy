@@ -822,9 +822,9 @@ class DesktopSessionManager(QObject):
             target_hash = self.state.uploaded_files[idx]["hash"]
             target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
             target_path = self.state.uploaded_files[idx]["path"]
-            self.repo.save_file_settings(
-                target_hash, build_synced_config(source_config, target_config, aspects, src_bounds), file_path=target_path
-            )
+            synced = build_synced_config(source_config, target_config, aspects, src_bounds)
+            self.push_external_history(target_hash, target_config, synced)
+            self.repo.save_file_settings(target_hash, synced, file_path=target_path)
             count += 1
 
         if count:
@@ -880,6 +880,20 @@ class DesktopSessionManager(QObject):
         if render:
             self.state_changed.emit()
 
+    def push_external_history(self, file_hash: str, old_config: WorkspaceConfig, new_config: WorkspaceConfig) -> None:
+        """Record a bulk apply (roll bake, apply-to-roll…) in a NON-ACTIVE file's
+        history so plain Ctrl+Z recovers it after switching to that frame. Two steps
+        are written (pre-apply, then post-apply) because undo() overwrites the top
+        step with the live config when undo_index == max — a single appended step
+        would be clobbered by the first Ctrl+Z."""
+        base = self.repo.get_max_history_index(file_hash)
+        if base == 0 and self.repo.load_history_step(file_hash, 0) is None:
+            first = 0
+        else:
+            first = base + 1
+        self.repo.save_history_step(file_hash, first, old_config)
+        self.repo.save_history_step(file_hash, first + 1, new_config)
+
     def undo(self) -> None:
         if self.state.undo_index > 0 and self.state.current_file_hash:
             if self.state.undo_index == self.state.max_history_index:
@@ -925,17 +939,10 @@ class DesktopSessionManager(QObject):
 
     def reset_settings(self) -> None:
         """
-        Reverts current file to default configuration and clears history.
+        Reverts current file to default configuration. Recorded as an ordinary
+        history step, so a reset is undoable like any other edit.
         """
-        if self.state.current_file_hash:
-            self.repo.clear_history(self.state.current_file_hash)
-            self.state.undo_index = 0
-            self.state.max_history_index = 0
-            self.history_changed.emit()
-
-        self._config_dirty = False
-        self.update_config(WorkspaceConfig())
-        self.state_changed.emit()
+        self.update_config(WorkspaceConfig(), persist=True)
 
     def reset_section(self, section: str) -> None:
         """Reset a single feature section to its default config."""

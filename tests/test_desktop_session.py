@@ -428,16 +428,33 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertFalse(self.session.state.config.process.is_local_initialized)
         self.assertFalse(self.session.state.config.process.is_locked_initialized)
 
-    def test_reset_settings_clears_history(self):
+    def test_reset_settings_is_recorded_not_wiping(self):
         self.session.select_file(0)
-        self.session.state.undo_index = 3
-        self.session.state.max_history_index = 3
+        edited = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.8))
+        self.session.update_config(edited, persist=True)
 
         self.session.reset_settings()
 
-        self.mock_repo.clear_history.assert_called_once_with("hash1")
-        self.assertEqual(self.session.state.undo_index, 0)
-        self.assertEqual(self.session.state.max_history_index, 0)
+        self.mock_repo.clear_history.assert_not_called()
+        self.assertEqual(self.session.state.config, WorkspaceConfig())
+        # Reset pushed the pre-reset config as a history step — it is undoable.
+        self.mock_repo.save_history_step.assert_called_with("hash1", 1, edited)
+        self.assertEqual(self.session.state.undo_index, 2)
+
+    def test_sync_to_roll_records_target_history(self):
+        self.mock_repo.get_max_history_index.return_value = 0
+        self.mock_repo.load_history_step.return_value = None
+        self.session.select_file(0)
+        self.session.state.uploaded_files.append({"name": "file3.dng", "path": "path3", "hash": "hash3"})
+        self.session.asset_model.refresh()
+        self.mock_repo.save_history_step.reset_mock()
+
+        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+
+        self.assertEqual(count, 2)
+        # Each target got a two-step write: pre-apply at 0, post-apply at 1.
+        steps = [(c.args[0], c.args[1]) for c in self.mock_repo.save_history_step.call_args_list]
+        self.assertEqual(steps, [("hash2", 0), ("hash2", 1), ("hash3", 0), ("hash3", 1)])
 
     def _last_session_manifest(self):
         """Returns (paths, active_path) from the most recent _persist_session calls."""
@@ -727,6 +744,48 @@ class TestGreasePencilTriage(unittest.TestCase):
         self.assertTrue(files[3]["circled"])
         self.assertTrue(files[1]["excluded"])
         self.assertFalse(files[0]["circled"] or files[0]["excluded"])
+
+
+class TestRollActionRecoveryRoundTrip(unittest.TestCase):
+    """End-to-end with a real repository: a roll-wide sync is recoverable on each
+    target frame with plain undo after switching to it."""
+
+    def setUp(self):
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = StorageRepository(f"{self.tmp.name}/edits.db", f"{self.tmp.name}/settings.db")
+        self.repo.initialize()
+        self.session = DesktopSessionManager(self.repo)
+        self.session.state.uploaded_files = [
+            {"name": "f1.dng", "path": f"{self.tmp.name}/f1.dng", "hash": "hash1"},
+            {"name": "f2.dng", "path": f"{self.tmp.name}/f2.dng", "hash": "hash2"},
+        ]
+        self.session.asset_model.refresh()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_sync_then_undo_restores_target(self):
+        target_before = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, density=2.0))
+        self.repo.save_file_settings("hash2", target_before, file_path=self.session.state.uploaded_files[1]["path"])
+
+        self.session.select_file(0)
+        source = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.5))
+        self.session.update_config(source, persist=True)
+
+        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+        self.assertEqual(count, 1)
+        self.assertEqual(self.repo.load_file_settings("hash2").exposure.density, 1.5)
+
+        self.session.select_file(1)
+        self.assertEqual(self.session.state.config.exposure.density, 1.5)
+
+        self.session.undo()
+        self.assertEqual(self.session.state.config.exposure.density, 2.0)
+
+        self.session.redo()
+        self.assertEqual(self.session.state.config.exposure.density, 1.5)
 
 
 if __name__ == "__main__":

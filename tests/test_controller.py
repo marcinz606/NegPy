@@ -758,6 +758,15 @@ class TestPresetExportSelected(unittest.TestCase):
         tasks = self.controller._run_export_tasks.call_args.args[0]
         self.assertEqual([t.file_info["name"] for t in tasks], ["scan.tif"])
 
+    def test_batch_normalization_records_history_for_other_files(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+
+        pushed = {c.args[0] for c in self.mock_session_manager.push_external_history.call_args_list}
+        # The active file (h2) records its step via update_config(persist=True) instead.
+        self.assertEqual(pushed, {"h1", "h3"})
+        self.mock_session_manager.update_config.assert_called()
+
 
 class TestSessionRestore(unittest.TestCase):
     def setUp(self):
