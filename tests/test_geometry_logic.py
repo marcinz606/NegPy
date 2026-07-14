@@ -803,6 +803,13 @@ def test_autocrop_resolution_stability():
     for a, b in zip(norm_a, norm_b):
         assert abs(a - b) < 0.015
 
+    # Pairwise agreement is not sufficient: platform-specific floating-point ties
+    # can move both results to the same wrong side of a smoothed edge.  The exposed
+    # frame and the centered 3:2 crop both occupy 9/16 of each image dimension.
+    expected = (7 / 32, 25 / 32, 7 / 32, 25 / 32)
+    for normalized in (norm_a, norm_b):
+        np.testing.assert_allclose(normalized, expected, rtol=0.0, atol=0.01)
+
 
 def test_autocrop_parity_preview_vs_fullres():
     # GPU contract: detect on an INTER_AREA-downsampled image with margin carried by

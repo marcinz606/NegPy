@@ -1046,9 +1046,16 @@ def _snap_edge_to_gradient(
     window = grad[lo:hi]
     if window.size == 0:
         return idx
-    m = int(np.argmax(window))
-    if window[m] >= min_dominance * float(np.median(window)) + 1e-6:
-        return lo + m + 1
+    peak = float(np.max(window))
+    if peak >= min_dominance * float(np.median(window)) + 1e-6:
+        # Box smoothing turns a sharp step into a nearly flat gradient plateau.
+        # Picking the first raw maximum makes sub-ULP OpenCV/SIMD differences move
+        # the snapped edge by several pixels across resolutions and platforms.
+        # Treat numerically equivalent maxima as one peak and keep the transition
+        # nearest the coarse contour edge instead.
+        near_peak = np.flatnonzero(np.isclose(window, peak, rtol=1e-5, atol=1e-7))
+        transitions = lo + near_peak + 1
+        return int(transitions[np.argmin(np.abs(transitions - idx))])
     return idx
 
 
