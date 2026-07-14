@@ -12,6 +12,12 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 | `Left Arrow` | Previous image |
 | `Right Arrow` | Next image |
 
+## Triage
+| Key | Action |
+|-----|--------|
+| `K` | Mark frame as keeper |
+| `Shift + X` | Reject frame (skipped by batch export and sidecar writes) |
+
 ## Image Adjustments (High Speed)
 | Key | Action |
 |-----|--------|
@@ -27,6 +33,11 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 | `Shift + W` | Toggle White Balance Picker |
 | `Shift + C` | Toggle Manual Crop Tool |
 | `Shift + D` | Toggle Dust Spot Picker |
+| `Shift + S` | Toggle Scratch Tool |
+| `Shift + B` | Toggle Dodge & Burn Mask Draw |
+| `Shift + R` | Toggle Analysis Region Draw |
+| `\|` | Peek flat scan (digital intermediate preview) |
+| `Esc` | First press clears in-progress points, second puts the tool down |
 
 ## Geometry & Orientation
 | Key | Action |

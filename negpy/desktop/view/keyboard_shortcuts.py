@@ -24,6 +24,21 @@ def _context_undo(controller) -> None:
         controller.session.undo()
 
 
+def _context_cancel(controller, window) -> None:
+    """Esc ladder: the first press clears in-progress tool geometry (polyline
+    points, straighten line), the second puts the tool down."""
+    if not window.canvas.overlay.cancel_in_progress():
+        controller.cancel_active_tool()
+
+
+def _toggle_tool_button(window, tab_key: str, button) -> None:
+    """Reveal the tool's tab first: the tab-switch suspend/restore logic only runs
+    on switches, so activating a tool while its tab is hidden would leave it live
+    with its controls off-screen."""
+    window.right_panel.show_tab_by_key(tab_key)
+    button.toggle()
+
+
 def _show_shortcuts(window) -> None:
     from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
 
@@ -58,6 +73,8 @@ class ShortcutManager:
         actions: dict[str, Callable[[], None]] = {
             "prev_file": controller.session.prev_file,
             "next_file": controller.session.next_file,
+            "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
+            "toggle_reject": lambda: controller.session.toggle_mark("excluded"),
             "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),
             "rotate_cw": lambda: toolbar.rotate(-1),
@@ -70,8 +87,12 @@ class ShortcutManager:
             "crop_guide_next": lambda: controls.geometry_sidebar.cycle_guide(),
             "crop_guide_orient": controller.cycle_crop_guide_orientation,
             "auto_crop": lambda: controls.geometry_sidebar.reset_crop_btn.toggle(),
-            "pick_dust": lambda: controls.retouch_sidebar.pick_dust_btn.toggle(),
-            "cancel_tool": controller.cancel_active_tool,
+            "pick_dust": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_dust_btn),
+            "pick_scratch": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_scratch_btn),
+            "local_draw": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.draw_btn),
+            "analysis_draw": lambda: _toggle_tool_button(self.window, "setup", controls.process_sidebar.analysis_region_btn),
+            "toggle_flat_peek": controller.toggle_flat_peek,
+            "cancel_tool": lambda: _context_cancel(controller, self.window),
             "toggle_left_panel": self.window.toggle_session_dock,
             "toggle_right_panel": self.window.toggle_controls_dock,
             "tab_setup": lambda: right.show_tab_by_key("setup"),

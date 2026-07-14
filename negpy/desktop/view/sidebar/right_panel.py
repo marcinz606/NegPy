@@ -102,7 +102,7 @@ class RightPanel(QWidget):
         self.scanlight_sidebar = ScanlightSidebar(self.controller)
 
         # One "Scan" tab hosting both the SANE scanner and the RGB-Scan capture as
-        # collapsible sections (mirrors the "Color — Lab, Toning" tab).
+        # collapsible sections (mirrors the "Colour — Lab, Toning" tab).
         self.scan_page = self._build_scan_page()
 
         # Tab descriptors: workflow control-group pages first, then Export / Metadata / Scan.

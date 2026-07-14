@@ -517,5 +517,5 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event) -> None:
         paths = [u.toLocalFile() for u in event.mimeData().urls()]
         if paths:
-            self.controller.request_asset_discovery(paths)
+            self.controller.request_asset_discovery(paths, auto_open=True)
         event.acceptProposedAction()

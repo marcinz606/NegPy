@@ -99,9 +99,6 @@ class ProcessSidebar(BaseSidebar):
 
         buf_row = QHBoxLayout()
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
-        self.analysis_buffer_slider.setToolTip(
-            "Crops the analysis region inward to exclude film borders and rebate from exposure calculations"
-        )
         self.analysis_region_btn = self._tool_toggle(
             "fa5s.vector-square",
             "",
@@ -122,19 +119,9 @@ class ProcessSidebar(BaseSidebar):
         self.luma_range_clip_slider = CompactSlider(
             "Luma Range Clip", -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
         )
-        self.luma_range_clip_slider.setToolTip(
-            "Tonal-range normalization (black/white-point span). Neutral already applies a small robust clip. "
-            "Positive: clips the top/bottom for more aggressive highlight/shadow recovery. "
-            "Negative: outward headroom — leaves lifted blacks / unclipped highlights for a gentler stretch (double-click to reset)"
-        )
         initial_color_slider_val = _color_value_to_slider(conf.color_range_clip)
         self.color_range_clip_slider = CompactSlider(
             "Colour Clip", -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
-        )
-        self.color_range_clip_slider.setToolTip(
-            "Per-channel colour-balance clip percentile (orange-mask cast removal), independent of tonal range. "
-            "Neutral: P1 clip (1st percentile). "
-            "Negative: gentler, samples nearer the extremes. Positive: tighter channel balance (double-click to reset)"
         )
         clip_row.addWidget(self.luma_range_clip_slider)
         clip_row.addWidget(self.color_range_clip_slider)
@@ -169,13 +156,7 @@ class ProcessSidebar(BaseSidebar):
 
         wp_bp_row = QHBoxLayout()
         self.white_point_slider = CompactSlider("White Point", -0.25, 0.25, conf.white_point_offset, has_neutral=True)
-        self.white_point_slider.setToolTip(
-            "Shifts the normalization floor (scan white point). In R/G/B mode: this layer's trim — per-layer film-base correction."
-        )
         self.black_point_slider = CompactSlider("Black Point", -0.25, 0.25, conf.black_point_offset, has_neutral=True)
-        self.black_point_slider.setToolTip(
-            "Shifts the normalization ceiling (scan black point). In R/G/B mode: this layer's trim — per-layer Dmax correction."
-        )
         wp_bp_row.addWidget(self.white_point_slider)
         wp_bp_row.addWidget(self.black_point_slider)
         self.layout.addLayout(wp_bp_row)
@@ -207,9 +188,6 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(matrix_row)
 
         self.crosstalk_strength_slider = CompactSlider("Separation", 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
-        self.crosstalk_strength_slider.setToolTip(
-            "Strength of the spectral-crosstalk unmix (0 = off): richer colour separation, physically applied to the negative"
-        )
         self.layout.addWidget(self.crosstalk_strength_slider)
 
         self.normalize_e6_btn = QPushButton(" Normalize")

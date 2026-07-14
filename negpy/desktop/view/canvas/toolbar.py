@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.styles.templates import swatch_qss
 from negpy.desktop.view.styles.theme import THEME
@@ -151,6 +152,13 @@ class ActionToolbar(QWidget):
         self.btn_compare.setCheckable(True)
         self.btn_compare.setIcon(qta.icon("fa5s.adjust", color=icon_color))
         self.btn_compare.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
+
+        self.btn_flat_peek = QToolButton()
+        self.btn_flat_peek.setCheckable(True)
+        self.btn_flat_peek.setIcon(qta.icon("fa5s.eye", color=icon_color))
+        self.btn_flat_peek.setToolTip(
+            tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
+        )
 
         # GPU acceleration toggle (details surfaced via tooltip, refreshed by the dashboard)
         self.btn_gpu = QToolButton()
@@ -298,6 +306,7 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_undo)
         row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
+        row_layout.addWidget(self.btn_flat_peek)
         row_layout.addWidget(self.btn_gpu)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
@@ -310,6 +319,11 @@ class ActionToolbar(QWidget):
         # Size the pill to its controls; don't stretch it across the canvas.
         main_layout.addWidget(container, 0, Qt.AlignmentFlag.AlignCenter)
 
+    def _on_flat_peek_changed(self, active: bool) -> None:
+        self.btn_flat_peek.blockSignals(True)
+        self.btn_flat_peek.setChecked(active)
+        self.btn_flat_peek.blockSignals(False)
+
     def _connect_signals(self) -> None:
         self.btn_prev.clicked.connect(self.session.prev_file)
         self.btn_next.clicked.connect(self.session.next_file)
@@ -319,7 +333,8 @@ class ActionToolbar(QWidget):
         self.btn_flip_h.clicked.connect(lambda: self.flip("horizontal"))
         self.btn_flip_v.clicked.connect(lambda: self.flip("vertical"))
 
-        self.btn_undo.clicked.connect(self.session.undo)
+        # Same context routing as Ctrl+Z: heal-undo while a heal tool is in hand.
+        self.btn_undo.clicked.connect(lambda: _context_undo(self.controller))
         self.btn_redo.clicked.connect(self.session.redo)
 
         self.canvas_color_group.idToggled.connect(self._on_canvas_color_changed)
@@ -330,6 +345,8 @@ class ActionToolbar(QWidget):
         self.btn_hq.clicked.connect(self.controller.toggle_hq_preview)
         self.btn_compare.clicked.connect(self.controller.toggle_compare)
         self.controller.compare_changed.connect(self.btn_compare.setChecked)
+        self.btn_flat_peek.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
+        self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
         self.btn_gpu.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 

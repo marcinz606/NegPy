@@ -1,6 +1,14 @@
 # Change Log
 
 
+## 0.38.0
+
+- New: **Keep / Reject triage on the contact sheet** — cull a roll where you see it: `K` marks a frame as a keeper (small check badge), `Shift+X` rejects it (cross badge + dim). Rejected frames stay on the sheet but drop out of batch exports and sidecar writes; a Sheet filter (All / Keepers only / Hide rejected) sits next to Sort, a tally counts the roll, and marks persist across sessions.
+- New: **Unreadable files get a badge** — a frame that fails to decode or thumbnail wears a red badge with the reason in its tooltip instead of sitting silently in the grid; clicking it retries, a successful load clears it.
+- Change: **Roll-wide actions are undoable** — Batch Analysis, roll-baseline loads and "Apply settings" now write each affected frame's edit history: `Ctrl+Z` on any frame steps back to before the roll action. Reset Settings and preset loads are recorded the same way instead of bypassing the log.
+- Change: **One grammar for the canvas tools** — first `Esc` clears in-progress points, second puts the tool down (fixes Esc going dead mid-draw); toolbar Undo matches `Ctrl+Z`; a stray click outside a tuned crop no longer wipes it. New keys: `Shift+S` Scratch, `Shift+B` Dodge & Burn, `Shift+R` Analysis Region, `|` flat-master peek (plus a toolbar button).
+- Change: **Naming and panel tidy-up** — visible labels standardize on "colour", and the white-balance section is renamed **Filtration** so "Colour" unambiguously means the Lab & Toning tab; Tone's four "Width" sliders become "Toe Width" / "Shoulder Width"; editing presets and contact-sheet templates can be deleted from their panels; the Roll Analysis section gets a header reset; drag-and-drop opens the first frame like Add Files.
+
 ## 0.37.2
 
 - New: **Drag to heal** — the Heal tool now paints while you drag: a plain click still heals a single spot, but click-and-drag sweeps a heal along the cursor and commits the whole path as one stroke (one undo, one render). @linkmodo

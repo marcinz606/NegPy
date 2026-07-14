@@ -19,6 +19,9 @@ from negpy.features.retouch.models import HEAL_SIZE_REF
 _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
 _CROP_MIN_SCREEN_PX = 24.0
+# Drag distance required before an outside-the-rect press starts redrawing an
+# existing crop (stray-click guard).
+_CROP_REDRAW_SLOP_PX = 16.0
 _ROT_HANDLE_RADIUS_PX = 11.0  # hit + draw radius of the edge rotation handles
 _ROT_HANDLE_OFFSET_PX = 24.0  # gap between crop edge and handle center (outside the box)
 _ROT_FINE_SENSITIVITY = 0.2  # Shift-drag sensitivity, like the crop-move fine drag
@@ -100,6 +103,8 @@ class CanvasOverlay(QWidget):
         self._crop_anchor_screen: Optional[QPointF] = None
         self._crop_press_norm: Optional[Tuple[float, float]] = None
         self._crop_orig_rect: Optional[Tuple[float, float, float, float]] = None
+        self._crop_draw_armed: bool = False
+        self._crop_redraw_hint_shown: bool = False
         self._crop_draw_p1: Optional[QPointF] = None
         self._crop_draw_p2: Optional[QPointF] = None
 
@@ -159,13 +164,12 @@ class CanvasOverlay(QWidget):
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        # Widget-context shortcuts (Esc cancel, Enter finish) need focus to fire;
-        # clicking the canvas to draw grants it.
+        # Widget-context shortcuts (Enter finish, Backspace take-back) need focus to
+        # fire; clicking the canvas to draw grants it. No widget-scope Esc here — a
+        # second Esc binding is ambiguous against the window-scope cancel_tool one
+        # (only activatedAmbiguously fires) and the key goes dead mid-draw; that
+        # handler owns the Esc ladder via cancel_in_progress().
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-
-        self._escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
-        self._escape_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
-        self._escape_shortcut.activated.connect(self._cancel_lasso)
 
         # Enter finishes an in-progress scratch/lasso polyline or confirms the
         # crop, same as double-click.
@@ -245,6 +249,7 @@ class CanvasOverlay(QWidget):
         self._crop_anchor_screen = None
         self._crop_press_norm = None
         self._crop_orig_rect = None
+        self._crop_draw_armed = False
         self._crop_draw_p1 = None
         self._crop_draw_p2 = None
         self._rotate_center = None
@@ -258,18 +263,25 @@ class CanvasOverlay(QWidget):
         self._analysis_draw_p1 = None
         self._analysis_draw_p2 = None
 
-    def _cancel_lasso(self) -> None:
+    def cancel_in_progress(self) -> bool:
+        """First rung of the Esc ladder: clear in-progress tool geometry (lasso
+        points, scratch polyline, straighten line). Returns True when something was
+        cleared — the caller only puts the tool down when nothing was in progress."""
         if self._tool_mode == ToolMode.LOCAL_DRAW and self._lasso_drawing:
             self._lasso_pts = []
             self._lasso_drawing = False
             self.update()
-        elif self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
+            return True
+        if self._tool_mode == ToolMode.SCRATCH_PICK and self._scratch_pts:
             self._scratch_pts = []
             self.update()
-        elif self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
+            return True
+        if self._tool_mode == ToolMode.STRAIGHTEN and self._straighten_p1 is not None:
             self._straighten_p1 = None
             self._straighten_p2 = None
             self.update()
+            return True
+        return False
 
     def update_buffer(
         self,
@@ -839,7 +851,7 @@ class CanvasOverlay(QWidget):
         return (x1, y1, x2, y2)
 
     def _draw_crop_tool(self, painter: QPainter) -> None:
-        if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None:
+        if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None and self._crop_draw_armed:
             rect = QRectF(self._crop_draw_p1, self._crop_draw_p2 or self._crop_draw_p1).normalized().intersected(self._view_rect)
             pen = QPen(Qt.GlobalColor.white, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
@@ -1192,10 +1204,12 @@ class CanvasOverlay(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
-        # Clicked outside the existing rect: draw a fresh one from scratch.
+        # Clicked outside the existing rect: draw a fresh one from scratch (disarmed
+        # until slop travel when a rect already exists).
         px = np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())
         py = np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())
         self._crop_drag_mode = "draw"
+        self._crop_draw_armed = self._crop_rect_norm is None
         self._crop_draw_p1 = QPointF(px, py)
         self._crop_draw_p2 = QPointF(px, py)
 
@@ -1329,6 +1343,11 @@ class CanvasOverlay(QWidget):
         if self._crop_drag_mode == "draw" and self._crop_draw_p1 is not None:
             mx = np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())
             my = np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())
+
+            if not self._crop_draw_armed:
+                if (QPointF(mx, my) - self._crop_draw_p1).manhattanLength() < _CROP_REDRAW_SLOP_PX:
+                    return
+                self._crop_draw_armed = True
 
             dx = mx - self._crop_draw_p1.x()
             dy = my - self._crop_draw_p1.y()
@@ -1626,6 +1645,15 @@ class CanvasOverlay(QWidget):
             return
 
         if self._crop_drag_mode == "draw":
+            if not self._crop_draw_armed:
+                hud = getattr(self.parent(), "hud", None)
+                if hud is not None and not self._crop_redraw_hint_shown:
+                    self._crop_redraw_hint_shown = True
+                    hud.showMessage("drag outside the box to redraw the crop", timeout=2500)
+                self._end_crop_drag()
+                self.update()
+                event.accept()
+                return
             r = QRectF(self._crop_draw_p1, self._crop_draw_p2 or self._crop_draw_p1).normalized()
             r = r.intersected(self._view_rect)
             if r.width() > 5 and r.height() > 5:

@@ -76,6 +76,13 @@ class StorageRepository(IRepository):
                 )
             """)
 
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS file_marks (
+                    file_hash TEXT PRIMARY KEY,
+                    mark TEXT NOT NULL
+                )
+            """)
+
             # Migration: add file_path column for path-based settings recovery
             try:
                 conn.execute("ALTER TABLE file_settings ADD COLUMN file_path TEXT")
@@ -162,6 +169,20 @@ class StorageRepository(IRepository):
         """Deletes a named flat-field profile."""
         with self._connect(self.edits_db_path) as conn:
             conn.execute("DELETE FROM flatfield_profiles WHERE name = ?", (name,))
+
+    def save_file_mark(self, file_hash: str, mark: Optional[str]) -> None:
+        """Persists a triage mark ('keeper'/'excluded'); None clears it."""
+        with self._connect(self.edits_db_path) as conn:
+            if mark:
+                conn.execute("INSERT OR REPLACE INTO file_marks (file_hash, mark) VALUES (?, ?)", (file_hash, mark))
+            else:
+                conn.execute("DELETE FROM file_marks WHERE file_hash = ?", (file_hash,))
+
+    def load_file_marks(self) -> dict[str, str]:
+        """Returns all triage marks as {file_hash: mark}."""
+        with self._connect(self.edits_db_path) as conn:
+            cursor = conn.execute("SELECT file_hash, mark FROM file_marks")
+            return {row[0]: row[1] for row in cursor.fetchall()}
 
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig, file_path: str = "") -> None:
         with self._connect(self.edits_db_path) as conn:

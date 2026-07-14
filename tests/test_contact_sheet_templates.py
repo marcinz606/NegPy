@@ -113,3 +113,23 @@ def test_template_exists(tmp_path, monkeypatch):
     assert ContactSheetTemplates.template_exists("Existing")
     assert not ContactSheetTemplates.template_exists("Default")
     assert not ContactSheetTemplates.template_exists("Missing")
+
+
+def test_delete_by_display_name_not_filename(tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "contact_sheet_templates_dir", str(tmp_path))
+    # Display name differs from the file stem — delete must resolve by parsing.
+    _write(
+        os.path.join(tmp_path, "odd_stem.toml"),
+        'name = "Pretty Name"\n\n[layout]\ncell_px = 400\ngap = 8\nmargin = 16\nmax_tiles = 48\n',
+    )
+    assert ContactSheetTemplates.delete("Pretty Name") is True
+    assert not os.path.exists(os.path.join(tmp_path, "odd_stem.toml"))
+    assert ContactSheetTemplates.list_templates() == ["Default"]
+
+
+def test_delete_guards_default_and_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "contact_sheet_templates_dir", str(tmp_path))
+    ContactSheetTemplates.save("Keep", ContactSheetLayout())
+    assert ContactSheetTemplates.delete("Default") is False
+    assert ContactSheetTemplates.delete("Missing") is False
+    assert ContactSheetTemplates.template_exists("Keep")

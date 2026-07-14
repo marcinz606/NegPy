@@ -224,7 +224,7 @@ class ExportSettingsForm(QWidget):
     # --- COLOR ---------------------------------------------------------------
 
     def _build_color(self, root: QVBoxLayout) -> None:
-        root.addWidget(section_subheader("COLOR"))
+        root.addWidget(section_subheader("COLOUR"))
 
         # Drop bundled profiles already backed by a color-space enum so the ICC
         # lists don't duplicate the color-space selector.
@@ -244,7 +244,7 @@ class ExportSettingsForm(QWidget):
         root.addLayout(input_row)
 
         cs_row = QHBoxLayout()
-        cs_row.addWidget(self._row_label("Color space"))
+        cs_row.addWidget(self._row_label("Colour space"))
         self.color_space_combo = QComboBox()
         self.color_space_combo.addItems([cs.value for cs in ColorSpace])
         constrain_combo(self.color_space_combo)

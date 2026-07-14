@@ -1,7 +1,6 @@
 import qtawesome as qta
 from PyQt6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout
 
-from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
@@ -20,19 +19,7 @@ class ToneSidebar(BaseSidebar):
         conf = self.state.config.exposure
 
         self.density_slider = CompactSlider("Print Density", 0.0, 2.0, conf.density)
-        self.density_slider.setToolTip(
-            tooltip_with_shortcut(
-                "Overall exposure — higher values darken the print; full throw ≈ ±0.9 stop on a ΔD 1.3 negative",
-                "density_up",
-            )
-        )
         self.grade_slider = CompactSlider("ISO-R Grade", 50.0, 180.0, conf.grade, step=1.0, inverted=True)
-        self.grade_slider.setToolTip(
-            tooltip_with_shortcut(
-                "Contrast (ISO R paper exposure range): R180 = very soft, R50 = very hard; R110 ≈ grade 2 paper",
-                "grade_up",
-            )
-        )
         self.grade_trim_slider = CompactSlider("Grade", -30.0, 30.0, 0.0, step=1.0, inverted=True)
         self.grade_trim_slider.setToolTip(
             "Crossover correction — this layer's contrast trim in ISO-R points on top of the Grade: "
@@ -115,17 +102,7 @@ class ToneSidebar(BaseSidebar):
             "Paper White: simulate paper base density (Dmin 0.06) — whites print at ~0.93 instead of pure white, like a real print",
         )
         self.shadow_density_slider = CompactSlider("Shadows Density", -0.9, 0.9, conf.shadow_density)
-        self.shadow_density_slider.setToolTip(
-            "Shadow zone density (ΔD): density offset weighted to the deep shadows, easing out "
-            "before the midtone and bounded by paper black. Positive prints denser — darker "
-            "shadows; negative lifts them brighter."
-        )
         self.highlight_density_slider = CompactSlider("Highlights Density", -0.5, 0.5, conf.highlight_density)
-        self.highlight_density_slider.setToolTip(
-            "Highlight zone density (ΔD): density offset weighted to the highlights, easing out "
-            "past the midtone and bounded by paper white. Positive prints denser — darker, "
-            "burned-in highlights; negative bleaches them brighter."
-        )
         zone_density_row = QHBoxLayout()
         zone_density_row.addWidget(self.shadow_density_slider)
         zone_density_row.addWidget(self.highlight_density_slider)
@@ -137,19 +114,7 @@ class ToneSidebar(BaseSidebar):
         self.layout.addLayout(grade_row)
 
         self.shadow_grade_slider = CompactSlider("Shadows Grade", -50.0, 50.0, conf.shadow_grade, step=1.0, inverted=True)
-        self.shadow_grade_slider.setToolTip(
-            "Split grade — shadow zone contrast trim in ISO-R points: rotates the curve locally "
-            "in the deep shadows, easing out before the midtone and bounded by paper black. "
-            "Like a hard-filter split-grade exposure for the shadows. "
-            "In R/G/B mode: this layer's shadow-grade trim (zone contrast crossover)."
-        )
         self.highlight_grade_slider = CompactSlider("Highlights Grade", -50.0, 50.0, conf.highlight_grade, step=1.0, inverted=True)
-        self.highlight_grade_slider.setToolTip(
-            "Split grade — highlight zone contrast trim in ISO-R points: rotates the curve locally "
-            "in the highlights, easing out past the midtone and bounded by paper white. "
-            "Like a soft-filter split-grade exposure for the highlights. "
-            "In R/G/B mode: this layer's highlight-grade trim (zone contrast crossover)."
-        )
         split_grade_row = QHBoxLayout()
         split_grade_row.addWidget(self.shadow_grade_slider)
         split_grade_row.addWidget(self.highlight_grade_slider)
@@ -181,29 +146,19 @@ class ToneSidebar(BaseSidebar):
         self.layout.addLayout(paper_toggle_row)
 
         self.midtone_gamma_slider = CompactSlider("Snap", -0.5, 0.5, conf.midtone_gamma)
-        self.midtone_gamma_slider.setToolTip(
-            "Snap — the paper's midtone gamma trim: steepens or flattens the variable-gamma S-curve "
-            "around the reference tone; paper white, paper black and the anchor stay put. "
-            "In R/G/B mode: this layer's Snap trim (midtone crossover)."
-        )
         snap_row = QHBoxLayout()
         snap_row.addWidget(self.midtone_gamma_slider)
         self.layout.addLayout(snap_row)
 
         toe_row = QHBoxLayout()
-        self.toe_w_slider = CompactSlider("Width", 0.1, 5.0, conf.toe_width)
-        self.toe_w_slider.setToolTip("Width of the shadow toe transition zone")
-        self.toe_w_trim_slider = CompactSlider("Width", -2.0, 2.0, 0.0)
+        self.toe_w_slider = CompactSlider("Toe Width", 0.1, 5.0, conf.toe_width)
+        self.toe_w_trim_slider = CompactSlider("Toe Width", -2.0, 2.0, 0.0)
         self.toe_w_trim_slider.setToolTip(
-            "This layer's toe width trim on top of the global Width — per-layer roll-off extent "
+            "This layer's toe width trim on top of the global Toe Width — per-layer roll-off extent "
             "(sharpness crossover): how far this layer's shadow knee reaches up the tonal scale."
         )
         self.toe_w_trim_slider.setVisible(False)
         self.toe_slider = CompactSlider("Toe", -1.0, 1.0, conf.toe)
-        self.toe_slider.setToolTip(
-            "Shadow toe lift: positive raises shadows, negative deepens blacks (with True Black on, "
-            "negative toe clips deep shadows to exact black). In R/G/B mode: this layer's toe trim."
-        )
         toe_row.addWidget(self.toe_slider)
         toe_row.addWidget(self.toe_w_slider)
         toe_row.addWidget(self.toe_w_trim_slider)
@@ -211,12 +166,8 @@ class ToneSidebar(BaseSidebar):
 
         sh_row = QHBoxLayout()
         self.sh_slider = CompactSlider("Shoulder", -1.0, 1.0, conf.shoulder)
-        self.sh_slider.setToolTip(
-            "Highlight shoulder roll: positive compresses highlights, negative extends them. In R/G/B mode: this layer's shoulder trim."
-        )
-        self.sh_w_slider = CompactSlider("Width", 0.1, 5.0, conf.shoulder_width)
-        self.sh_w_slider.setToolTip("Width of the highlight shoulder transition zone")
-        self.sh_w_trim_slider = CompactSlider("Width", -2.0, 2.0, 0.0)
+        self.sh_w_slider = CompactSlider("Shoulder Width", 0.1, 5.0, conf.shoulder_width)
+        self.sh_w_trim_slider = CompactSlider("Shoulder Width", -2.0, 2.0, 0.0)
         self.sh_w_trim_slider.setToolTip(
             "This layer's shoulder width trim on top of the global Width — per-layer roll-off extent "
             "(sharpness crossover): how far this layer's highlight knee reaches down the tonal scale."
@@ -390,9 +341,9 @@ class ToneSidebar(BaseSidebar):
                 self.midtone_gamma_slider.setValue(getattr(conf, f"midtone_gamma_trim_{ch}"))
                 self.shadow_grade_slider.setValue(getattr(conf, f"shadow_grade_trim_{ch}"))
                 self.highlight_grade_slider.setValue(getattr(conf, f"highlight_grade_trim_{ch}"))
-                self.toe_w_trim_slider.label.setText("Width" + suffix)
+                self.toe_w_trim_slider.label.setText("Toe Width" + suffix)
                 self.toe_w_trim_slider.setValue(getattr(conf, f"toe_width_trim_{ch}"))
-                self.sh_w_trim_slider.label.setText("Width" + suffix)
+                self.sh_w_trim_slider.label.setText("Shoulder Width" + suffix)
                 self.sh_w_trim_slider.setValue(getattr(conf, f"shoulder_width_trim_{ch}"))
             for w in self._global_only:
                 w.setEnabled(global_mode)

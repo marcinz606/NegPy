@@ -68,7 +68,6 @@ class GeometrySidebar(BaseSidebar):
         self.manual_crop_btn = CropToolButton(" Crop")
         self.manual_crop_btn.setCheckable(True)
         self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary, color_on="#FFFFFF"))
-        self.manual_crop_btn.setToolTip(tooltip_with_shortcut("Crop: drag corners to resize, drag inside to move", "manual_crop"))
 
         self.clear_crop_btn = QPushButton(" Reset")
         self.clear_crop_btn.setIcon(qta.icon("fa5s.undo", color=THEME.text_primary))
@@ -103,7 +102,6 @@ class GeometrySidebar(BaseSidebar):
         self.reset_crop_btn.setCheckable(True)
         self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
         self.reset_crop_btn.setFixedHeight(default_button_height())
-        self.reset_crop_btn.setToolTip(tooltip_with_shortcut("Apply automatic crop using the current ratio and offset", "auto_crop"))
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("Image only", AutocropMode.IMAGE.value)
@@ -125,22 +123,12 @@ class GeometrySidebar(BaseSidebar):
             precision=1,
             unit=" px",
         )
-        self.offset_slider.setToolTip(tooltip_with_shortcut("Insets the crop border from the auto-detected film edge (px)", "offset_inc"))
         self.layout.addWidget(self.offset_slider)
 
         self.layout.addWidget(section_subheader("ALIGNMENT"))
 
         align_row = QHBoxLayout()
-        self.straighten_btn = self._tool_toggle(
-            "fa5s.ruler",
-            "",
-            tooltip_with_shortcut(
-                "Straighten with a reference line — draw along the horizon or a vertical edge "
-                "(a building, a door frame) and the image rotates to make it level or plumb. "
-                "Applies once per line; Esc cancels an in-progress line",
-                "straighten",
-            ),
-        )
+        self.straighten_btn = self._tool_toggle("fa5s.ruler", "", "")
         self.straighten_btn.setFixedWidth(36)
 
         # Slider shows the photographer's convention — positive = clockwise on screen.
@@ -148,10 +136,6 @@ class GeometrySidebar(BaseSidebar):
         # counter-clockwise, flip-independent because flips apply before fine rotation),
         # so saved edits keep their meaning: display = -stored at this boundary.
         self.fine_rot_slider = CompactSlider("Fine Rotation", -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, -conf.fine_rotation, unit="°")
-        self.fine_rot_slider.setToolTip(
-            "Fine-tunes rotation to correct tilt (degrees): positive turns clockwise, negative counter-clockwise. "
-            "For quick rotation, drag the round handles outside the crop box in the Crop tool."
-        )
         align_row.addWidget(self.fine_rot_slider, 1)
         align_row.addWidget(self.straighten_btn, 0)
         self.layout.addLayout(align_row)

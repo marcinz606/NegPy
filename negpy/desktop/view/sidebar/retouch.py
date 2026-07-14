@@ -11,7 +11,6 @@ from negpy.desktop.view.styles.templates import (
     set_hint_kind,
 )
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 
 
 class RetouchSidebar(BaseSidebar):
@@ -24,9 +23,7 @@ class RetouchSidebar(BaseSidebar):
 
         auto_row = QHBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
-        self.threshold_slider.setToolTip("Minimum brightness delta to classify a pixel as dust")
         self.auto_size_slider = CompactSlider("Auto Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
-        self.auto_size_slider.setToolTip("Maximum radius (px) of dust spots detected automatically")
         auto_row.addWidget(self.threshold_slider)
         auto_row.addWidget(self.auto_size_slider)
         self.layout.addLayout(auto_row)
@@ -39,14 +36,7 @@ class RetouchSidebar(BaseSidebar):
             "Enable automatic dust removal using the Threshold and Auto Size settings above",
         )
 
-        self.pick_dust_btn = self._tool_toggle(
-            "fa5s.eye-dropper",
-            "Heal Tool",
-            tooltip_with_shortcut(
-                "Toggle heal tool — click a dust spot to heal it. Right-click an existing heal overlay to delete it",
-                "pick_dust",
-            ),
-        )
+        self.pick_dust_btn = self._tool_toggle("fa5s.eye-dropper", "Heal Tool", "")
         self.pick_scratch_btn = self._tool_toggle(
             "fa5s.pen-nib",
             "Scratch Tool",
@@ -60,7 +50,6 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addLayout(buttons_row)
 
         self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px")
-        self.manual_size_slider.setToolTip("Radius of the manual heal brush")
         self.layout.addWidget(self.manual_size_slider)
 
         self.heals_subheader = section_subheader("HEALS · 0")

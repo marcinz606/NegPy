@@ -14,13 +14,12 @@ class LabSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.lab
 
-        self.color_header = section_subheader("COLOR")
+        self.color_header = section_subheader("COLOUR")
         self.layout.addWidget(self.color_header)
 
         row1 = QHBoxLayout()
         self.saturation_slider = CompactSlider("Saturation", 0.0, 2.0, conf.saturation, has_neutral=True)
         self.vibrance_slider = CompactSlider("Vibrance", 0.0, 2.0, conf.vibrance, has_neutral=True)
-        self.vibrance_slider.setToolTip("Selectively boosts muted colors while protecting already-saturated tones")
         row1.addWidget(self.saturation_slider)
         row1.addWidget(self.vibrance_slider)
         self.layout.addLayout(row1)
@@ -32,9 +31,7 @@ class LabSidebar(BaseSidebar):
 
         row2 = QHBoxLayout()
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
-        self.clahe_slider.setToolTip("Contrast Limited Adaptive Histogram Equalization — local contrast enhancement")
         self.chroma_denoise_slider = CompactSlider("Denoise", 0.0, 5.0, conf.chroma_denoise)
-        self.chroma_denoise_slider.setToolTip("Chroma noise reduction in Lab space — smooths color noise while preserving luminance grain")
         row2.addWidget(self.clahe_slider)
         row2.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row2)
