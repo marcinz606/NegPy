@@ -84,8 +84,20 @@ def decode_fw_version(data: bytes) -> tuple[int, int]:
 # The family shares this wire protocol, so NegPy drives any of them identically.
 HARDWARE_NAMES = {0: "Big Scanlight", 1: "Scanlight v4"}
 
+# Models with a dedicated white LED. The white channel arrived with the v4, so the Big
+# Scanlight (0) and v4 (1) have it; the earlier v1/v2/v3 are RGB-only, as is any id we
+# don't recognise (a future white-capable model would just be added here).
+_WHITE_CAPABLE_HW = frozenset({0, 1})
+
 
 def describe_hardware(hw_id: int) -> str:
     """Friendly device name for a reported hardware ID (from `decode_fw_version`),
     or 'hw<n>' for an id we don't have a name for."""
     return HARDWARE_NAMES.get(hw_id, f"hw{hw_id}")
+
+
+def has_white_channel(hw_id: int) -> bool:
+    """Whether this Scanlight model has a dedicated white LED. RGB-only bodies (v1-v3, or
+    any unrecognised id) return False, so the UI can drop the white slider/preset and light
+    all three RGB channels for framing instead of a (non-existent) white one."""
+    return hw_id in _WHITE_CAPABLE_HW
