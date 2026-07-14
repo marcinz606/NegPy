@@ -13,10 +13,16 @@ from pathlib import Path
 
 import pytest
 
-from negpy.infrastructure.scanners.ls5000_single_pass import meter, packed, roll_index
+from negpy.infrastructure.scanners.ls5000_single_pass import (
+    bundle as capture_bundle,
+    meter,
+    packed,
+    roll_index,
+)
 from negpy.infrastructure.scanners.ls5000_single_pass.bundle import (
     CAPTURE_BUNDLE_SHA256,
     CAPTURE_WORKER_SHA256,
+    CaptureBundleIntegrityError,
     verify_capture_bundle,
 )
 from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
@@ -72,6 +78,28 @@ def test_core_modules_have_no_usb_or_campaign_tree_imports() -> None:
 def test_packaged_capture_bundle_sources_match_their_stable_identity() -> None:
     assert verify_capture_bundle(require_python_sources=True) == CAPTURE_BUNDLE_SHA256
     assert len(CAPTURE_WORKER_SHA256) == 64
+
+
+def test_capture_bundle_pins_the_continuation_parser_and_wire_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        capture_bundle.CAPTURE_BUNDLE_COMPONENT_SHA256,
+        "continuation_plan.py",
+        "0" * 64,
+    )
+    with pytest.raises(CaptureBundleIntegrityError, match="continuation_plan.py"):
+        verify_capture_bundle(require_python_sources=True)
+
+    monkeypatch.undo()
+    canonical = capture_bundle.canonical_continuation_plan_bytes()
+    monkeypatch.setattr(
+        capture_bundle,
+        "canonical_continuation_plan_bytes",
+        lambda: canonical + b"changed",
+    )
+    with pytest.raises(CaptureBundleIntegrityError, match="continuation plan"):
+        verify_capture_bundle(require_python_sources=False)
 
 
 def test_real_packaged_worker_dry_run_does_not_touch_the_scanner() -> None:
@@ -187,10 +215,12 @@ def test_built_wheel_contains_and_imports_representative_application_packages(tm
         "negpy/infrastructure/scanners/ls5000_single_pass/plan.py",
         "negpy/infrastructure/scanners/ls5000_single_pass/bundle.py",
         "negpy/infrastructure/scanners/ls5000_single_pass/capture_process.py",
+        "negpy/infrastructure/scanners/ls5000_single_pass/continuation_plan.py",
         "negpy/infrastructure/scanners/ls5000_single_pass/window.py",
         "negpy/infrastructure/scanners/ls5000_single_pass/worker.py",
         "negpy/infrastructure/scanners/ls5000_single_pass/data/replay-first-rgbi4-plan.jsonl",
         "negpy/infrastructure/scanners/ls5000_single_pass/data/replay-first-rgbi4-manifest.json",
+        "negpy/infrastructure/scanners/ls5000_single_pass/data/replay-next-rgbi4-plan.json",
     }
     installed = tmp_path / "installed-wheel"
     with zipfile.ZipFile(wheel) as archive:
@@ -218,6 +248,11 @@ def test_built_wheel_contains_and_imports_representative_application_packages(tm
             canonical_plan_bytes,
         )
         assert hashlib.sha256(canonical_plan_bytes()).hexdigest() == CANONICAL_PLAN_SHA256
+        from negpy.infrastructure.scanners.ls5000_single_pass.continuation_plan import (
+            CANONICAL_CONTINUATION_PLAN_SHA256,
+            canonical_continuation_plan_bytes,
+        )
+        assert hashlib.sha256(canonical_continuation_plan_bytes()).hexdigest() == CANONICAL_CONTINUATION_PLAN_SHA256
         from negpy.infrastructure.scanners.ls5000_single_pass.bundle import (
             CAPTURE_BUNDLE_SHA256,
             verify_capture_bundle,

@@ -178,6 +178,18 @@ class TestCapsFromOptions:
 
         assert caps.adapter_frame_capacity == 40
 
+    def test_parked_adapter_keeps_frame_control_without_inventing_capacity(self) -> None:
+        caps = _caps_from_options(
+            {
+                "frame": FakeOption(constraint=(1, 0, 1)),
+                "infrared": FakeOption(),
+            },
+            "coolscan3:usb:libusb:001:007",
+        )
+
+        assert caps.adapter_frame_control is True
+        assert caps.adapter_frame_capacity is None
+
     def test_usable_eject_option_is_reported_to_the_ui(self) -> None:
         caps = _caps_from_options(
             {

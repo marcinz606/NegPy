@@ -89,12 +89,25 @@ class _RollSlotDelegate(QStyledItemDelegate):
 
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is not None and not icon.isNull():
+            image_target = frame.adjusted(2, 2, -2, -2)
+            image_size = icon.actualSize(image_target.size())
+            image_rect = QRect(
+                image_target.left() + (image_target.width() - image_size.width()) // 2,
+                image_target.top() + (image_target.height() - image_size.height()) // 2,
+                image_size.width(),
+                image_size.height(),
+            )
             icon.paint(
                 painter,
-                frame.adjusted(2, 2, -2, -2),
+                image_rect,
                 Qt.AlignmentFlag.AlignCenter,
                 mode=QIcon.Mode.Normal,
                 state=QIcon.State.On if selected else QIcon.State.Off,
+            )
+            self._paint_meter_overlay(
+                painter,
+                image_rect,
+                index.data(RollSlotModel.METER_INSET_PERCENT_ROLE),
             )
         else:
             painter.setBrush(QColor("#111111"))
@@ -133,6 +146,74 @@ class _RollSlotDelegate(QStyledItemDelegate):
             painter.setPen(QColor("#201A0D"))
             painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "!")
 
+        painter.restore()
+
+    @staticmethod
+    def _paint_meter_overlay(
+        painter: QPainter,
+        image_rect: QRect,
+        inset_percent: int,
+    ) -> None:
+        """Show display metering without changing the thumbnail pixels."""
+
+        if image_rect.isEmpty():
+            return
+        inset_x = round(image_rect.width() * inset_percent / 100)
+        inset_y = round(image_rect.height() * inset_percent / 100)
+        meter_rect = image_rect.adjusted(inset_x, inset_y, -inset_x, -inset_y)
+
+        painter.save()
+        if inset_percent:
+            shade = QColor(0, 0, 0, 72)
+            top_height = meter_rect.top() - image_rect.top()
+            bottom_y = meter_rect.bottom() + 1
+            left_width = meter_rect.left() - image_rect.left()
+            right_x = meter_rect.right() + 1
+            if top_height > 0:
+                painter.fillRect(
+                    QRect(
+                        image_rect.left(),
+                        image_rect.top(),
+                        image_rect.width(),
+                        top_height,
+                    ),
+                    shade,
+                )
+            if bottom_y <= image_rect.bottom():
+                painter.fillRect(
+                    QRect(
+                        image_rect.left(),
+                        bottom_y,
+                        image_rect.width(),
+                        image_rect.bottom() - bottom_y + 1,
+                    ),
+                    shade,
+                )
+            if left_width > 0:
+                painter.fillRect(
+                    QRect(
+                        image_rect.left(),
+                        meter_rect.top(),
+                        left_width,
+                        meter_rect.height(),
+                    ),
+                    shade,
+                )
+            if right_x <= image_rect.right():
+                painter.fillRect(
+                    QRect(
+                        right_x,
+                        meter_rect.top(),
+                        image_rect.right() - right_x + 1,
+                        meter_rect.height(),
+                    ),
+                    shade,
+                )
+
+        outline = meter_rect.adjusted(1, 1, -1, -1) if inset_percent == 0 else meter_rect
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(244, 201, 93, 220), 1))
+        painter.drawRect(outline)
         painter.restore()
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:  # noqa: N802
@@ -317,10 +398,7 @@ class RollSlotSelector(QWidget):
         material_controls.addWidget(self.scan_material_status_label)
         material_controls.addStretch()
 
-        offset_tooltip = (
-            "Move left (negative) or right (positive), then reload the thumbnail. "
-            "Keyboard: Alt+Left / Alt+Right"
-        )
+        offset_tooltip = "Move left (negative) or right (positive), then reload the thumbnail. Keyboard: Alt+Left / Alt+Right"
         self.boundary_offset_label = QLabel("Film Spacing Offset")
         self.boundary_offset_label.setAccessibleName("Film Spacing Offset")
         self.boundary_offset_label.setToolTip(offset_tooltip)
@@ -357,9 +435,7 @@ class RollSlotSelector(QWidget):
         self.offset_shortcut_label.setObjectName("roll_boundary_offset_shortcuts")
         self.offset_shortcut_label.setAccessibleName("Film Spacing Offset keyboard shortcuts: Alt Left and Alt Right")
         self.offset_shortcut_label.setToolTip(offset_tooltip)
-        self.offset_shortcut_label.setStyleSheet(
-            f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;"
-        )
+        self.offset_shortcut_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
         self.reload_thumbnail_button = QPushButton("Reload Thumbnail")
         self.reload_thumbnail_button.setObjectName("reload_roll_thumbnail")
         self.reload_thumbnail_button.setAccessibleName("Reload Thumbnail for current roll slot")
@@ -493,6 +569,11 @@ class RollSlotSelector(QWidget):
         """Install a replacement preview without disturbing slot selection."""
 
         self.model.update_thumbnail(slot_id, thumbnail)
+
+    def set_meter_inset_percent(self, value: int) -> None:
+        """Update the metering guide on every thumbnail card."""
+
+        self.model.set_meter_inset_percent(value)
 
     def confirm_slot_thumbnail(
         self,

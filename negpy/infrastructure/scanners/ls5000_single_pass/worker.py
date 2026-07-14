@@ -13,16 +13,27 @@ import errno
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import struct
+import sys
 import time
 from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Sequence, TypedDict
+from typing import Any, Sequence, TypedDict, cast
 
 from . import meter as meter_module
-from .bundle import CAPTURE_BUNDLE_SHA256, CAPTURE_WORKER_SHA256
+from .bundle import (
+    CAPTURE_BUNDLE_COMPONENT_SHA256,
+    CAPTURE_BUNDLE_SHA256,
+    CAPTURE_WORKER_SHA256,
+)
+from .continuation_plan import (
+    CANONICAL_CONTINUATION_PLAN_SHA256,
+    derive_equivalent_continuation_blocks,
+    verify_canonical_continuation_plan,
+)
 from .meter import (
     DEFAULT_EXPOSURES,
     MeterObservation,
@@ -198,6 +209,50 @@ class LiveFrameSelection:
                 "method": self.selected.method,
             },
         }
+
+
+@dataclass(frozen=True)
+class ExecutableContinuationStep:
+    """One pinned later-frame semantic step and its canonical USB template."""
+
+    code: str
+    entries: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class BatchFrameSpec:
+    """One frame and its parent-owned handshake paths inside a batch root."""
+
+    slot: int
+    boundary_offset_rows: int
+    output: Path
+    journal: Path
+    ack: Path
+
+
+@dataclass(frozen=True)
+class LiveBatchJob:
+    """Validated one-process/one-reservation batch contract."""
+
+    session_id: str
+    root: Path
+    frames: tuple[BatchFrameSpec, ...]
+    plan_sha256: str
+    continuation_plan_sha256: str
+    job_sha256: str
+
+    @property
+    def selected_slots(self) -> tuple[int, ...]:
+        return tuple(frame.slot for frame in self.frames)
+
+
+@dataclass
+class SessionLifecycle:
+    """Mutable scanner state shared with fail-closed batch cleanup."""
+
+    at_transaction_boundary: bool = True
+    scan_active: bool = False
+    ready_required: bool = False
 
 
 class CountedBulkInEndpoint:
@@ -490,6 +545,14 @@ def _plan_hash(plan_path: Path) -> str:
     return digest.hexdigest()
 
 
+def _meter_controller_sha256() -> str:
+    """Return the meter identity without requiring loose source in a frozen app."""
+
+    if getattr(sys, "frozen", False):
+        return CAPTURE_BUNDLE_COMPONENT_SHA256["meter.py"]
+    return _plan_hash(Path(meter_module.__file__).resolve())
+
+
 def _load_validated_plan(
     plan_path: Path,
     manifest_path: Path,
@@ -518,6 +581,237 @@ def _entry(plan: list[dict], sequence: int) -> dict:
             f"plan position {sequence} contains sequence {entry.get('seq')!r}"
         )
     return entry
+
+
+def _continuation_template_groups(
+    plan: list[dict],
+) -> tuple[tuple[dict[str, Any], ...], ...]:
+    """Collapse the canonical frame segment into the observed 89 steps.
+
+    Command 500 is deliberately absent: both later Nikon frames omit the
+    first-frame-only READ(0x8c).  Consecutive TEST UNIT READY commands are one
+    state-aware poll step; their captured repetition counts are timing noise.
+    """
+
+    groups: list[tuple[dict[str, Any], ...]] = []
+    sequence = 225
+    while sequence <= 606:
+        if sequence == 500:
+            sequence += 1
+            continue
+        current = _entry(plan, sequence)
+        if current.get("name") != "TEST_UNIT_READY":
+            groups.append((current,))
+            sequence += 1
+            continue
+        ready: list[dict[str, Any]] = []
+        while sequence <= 606 and sequence != 500:
+            candidate = _entry(plan, sequence)
+            if candidate.get("name") != "TEST_UNIT_READY":
+                break
+            ready.append(candidate)
+            sequence += 1
+        groups.append(tuple(ready))
+    return tuple(groups)
+
+
+def _window_semantic(
+    code: str,
+    entry: dict[str, Any],
+) -> list[object]:
+    raw = entry.get("data_out") if code == "S" else entry.get("expected_data_in")
+    if not isinstance(raw, str):
+        raise ProtocolError(
+            f"continuation {code} command {entry.get('seq')} has no window payload"
+        )
+    window = decode_window_block(bytes.fromhex(raw))
+    if window is None:
+        raise ProtocolError(
+            f"continuation {code} command {entry.get('seq')} has a malformed window"
+        )
+    return [
+        code,
+        window["color_id"],
+        window["resx"],
+        window["resy"],
+        window["upper_left_x"],
+        window["upper_left_y"],
+        window["width"],
+        window["height"],
+        window["multiread_byte"],
+        window["avg_negpos_byte"],
+        window["scanning_kind_byte"],
+        window["scanning_mode_byte"],
+        window["color_interleaving_byte"],
+        window["ae_byte"],
+        window["exposure_raw_10ns"],
+    ]
+
+
+def _require_semantic_match(
+    actual: Sequence[object],
+    expected: Sequence[object],
+    *,
+    step_index: int,
+) -> None:
+    if len(actual) != len(expected):
+        raise ProtocolError(
+            f"continuation step {step_index} field count changed"
+        )
+    for field_index, (observed, required) in enumerate(zip(actual, expected)):
+        if required in ("$Y", "$FOCUS", "$EXPOSURE"):
+            if isinstance(observed, bool) or not isinstance(observed, int):
+                raise ProtocolError(
+                    f"continuation step {step_index} dynamic field "
+                    f"{field_index} is not an integer"
+                )
+            continue
+        if observed != required:
+            raise ProtocolError(
+                f"continuation step {step_index} field {field_index} is "
+                f"{observed!r}, expected {required!r}"
+            )
+
+
+def compile_continuation_steps(
+    plan: list[dict],
+    continuation_plan: dict[str, Any],
+) -> tuple[ExecutableContinuationStep, ...]:
+    """Bind the pinned later-frame semantics to canonical command templates.
+
+    The result contains no reservation, roll-index upload, release, or eject
+    command.  Dynamic frame origin and exposure values remain whatever the
+    already-bound canonical plan contains; every other byte is checked against
+    the two Nikon trace blocks before any command can reach hardware.
+    """
+
+    validate_plan(plan)
+    derive_equivalent_continuation_blocks(continuation_plan)
+    raw_steps = continuation_plan["trace_equivalence"]["semantic_steps"]
+    groups = _continuation_template_groups(plan)
+    if len(groups) != 89 or len(raw_steps) != len(groups):
+        raise ProtocolError(
+            f"continuation compiler produced {len(groups)} steps, expected 89"
+        )
+
+    compiled: list[ExecutableContinuationStep] = []
+    window_origins: set[int] = set()
+    autofocus_y: int | None = None
+    for step_index, (entries, raw_step) in enumerate(
+        zip(groups, raw_steps),
+        start=1,
+    ):
+        if not isinstance(raw_step, list) or not raw_step:
+            raise ProtocolError(
+                f"continuation semantic step {step_index} is malformed"
+            )
+        required_step = cast(list[object], raw_step)
+        code = raw_step[0]
+        if not isinstance(code, str):
+            raise ProtocolError(
+                f"continuation semantic step {step_index} has no code"
+            )
+        entry = entries[0]
+        if code == "R":
+            if any(item.get("name") != "TEST_UNIT_READY" for item in entries):
+                raise ProtocolError(
+                    f"continuation step {step_index} is not a ready group"
+                )
+            if entries[-1].get("expected_sense") != "000000":
+                raise ProtocolError(
+                    f"continuation ready step {step_index} does not end ready"
+                )
+            actual = ["R"]
+        elif code == "A":
+            if entry.get("name") != "VENDOR_E0:AUTOFOCUS_EXEC":
+                raise ProtocolError(
+                    f"continuation step {step_index} is not autofocus"
+                )
+            payload = bytes.fromhex(entry.get("data_out", ""))
+            if len(payload) != 9 or payload[0] != 0:
+                raise ProtocolError("continuation autofocus payload is malformed")
+            autofocus_y = int.from_bytes(payload[5:9], "big")
+            actual = [
+                "A",
+                int.from_bytes(payload[1:5], "big"),
+                autofocus_y,
+            ]
+        elif code == "X":
+            actual = ["X"] if entry.get("name") == "EXECUTE" else ["invalid"]
+        elif code == "F":
+            if entry.get("name") != "VENDOR_E1:READ_FOCUS":
+                raise ProtocolError(
+                    f"continuation step {step_index} is not focus readback"
+                )
+            payload = bytes.fromhex(entry.get("expected_data_in", ""))
+            if len(payload) != 9:
+                raise ProtocolError("continuation focus readback is malformed")
+            actual = ["F", int.from_bytes(payload[4:6], "big")]
+        elif code == "Q":
+            if entry.get("cdb") != "28009300000100000c80":
+                raise ProtocolError(
+                    f"continuation step {step_index} is not vendor 0x93 READ"
+                )
+            actual = ["Q", entry.get("expected_data_in")]
+        elif code in ("S", "G"):
+            required_name = "SET_WINDOW" if code == "S" else "GET_WINDOW:"
+            if not str(entry.get("name", "")).startswith(required_name):
+                raise ProtocolError(
+                    f"continuation step {step_index} is not a {code} window"
+                )
+            actual = _window_semantic(code, entry)
+            window_origin = actual[5]
+            if isinstance(window_origin, bool) or not isinstance(window_origin, int):
+                raise ProtocolError(
+                    f"continuation step {step_index} has no integer window origin"
+                )
+            window_origins.add(window_origin)
+        elif code == "N":
+            if entry.get("name") != "SCAN":
+                raise ProtocolError(
+                    f"continuation step {step_index} is not SCAN"
+                )
+            actual = ["N", entry.get("expected_sense"), entry.get("data_out")]
+        elif code == "V":
+            if not str(entry.get("cdb", "")).startswith("280087"):
+                raise ProtocolError(
+                    f"continuation step {step_index} is not vendor 0x87 READ"
+                )
+            actual = [
+                "V",
+                entry.get("request_len"),
+                entry.get("expected_data_in"),
+            ]
+        elif code == "M":
+            if entry.get("name") != "READ":
+                raise ProtocolError(
+                    f"continuation step {step_index} is not meter READ"
+                )
+            actual = ["M", entry.get("cdb")]
+        else:
+            raise ProtocolError(
+                f"continuation step {step_index} has unsupported code {code!r}"
+            )
+        _require_semantic_match(actual, required_step, step_index=step_index)
+        compiled.append(ExecutableContinuationStep(code, entries))
+
+    if len(window_origins) != 1 or autofocus_y is None:
+        raise ProtocolError("continuation dynamic frame origin is inconsistent")
+    native_origin = next(iter(window_origins))
+    if autofocus_y != native_origin + FINE_NATIVE_HEIGHT // 2:
+        raise ProtocolError(
+            "continuation autofocus is not centered on the bound frame"
+        )
+    forbidden = {"RESERVE_UNIT", "RELEASE_UNIT", "VENDOR_E0:EJECT"}
+    for step in compiled:
+        for entry in step.entries:
+            if entry.get("name") in forbidden or (
+                entry.get("name") == "SEND" and entry.get("cdb", "").startswith("2a008f")
+            ):
+                raise ProtocolError(
+                    "continuation contains a forbidden session-level command"
+                )
+    return tuple(compiled)
 
 
 def _derive_index_geometry(plan: list[dict]) -> IndexGeometry:
@@ -676,6 +970,71 @@ def _derive_live_frame_selection(
     )
 
 
+def _derive_live_batch_selections(
+    plan: list[dict],
+    preview_data: bytes,
+    table_data: bytes,
+    frames: Sequence[BatchFrameSpec],
+) -> tuple[LiveFrameSelection, ...]:
+    """Pre-bind every batch frame to one same-traversal transport table."""
+
+    if not frames:
+        raise ProtocolError("live batch has no selected frames")
+    # A zero-offset selection performs the expensive same-traversal decode and
+    # gives us the unmodified detector mapping.  All requested offsets are then
+    # applied together to that mapping before SEND(0x8f) can execute.
+    context = _derive_live_frame_selection(
+        plan,
+        preview_data,
+        table_data,
+        frame=frames[0].slot,
+        boundary_offset_rows=0,
+        expected_frame_count=None,
+    )
+    validated_table, _usable_rows = validate_live_0x8e_bytes(
+        table_data,
+        context.geometry.height,
+    )
+    records = parse_live_transport_records_bytes(
+        validated_table,
+        maximum_rows=context.geometry.height,
+    )
+    combined, resolved = apply_batch_boundary_offsets(
+        context.mapping,
+        records,
+        tuple((spec.slot, spec.boundary_offset_rows) for spec in frames),
+    )
+    for origin in combined.origins[:FRAME_TABLE_SEND_RECORDS]:
+        if origin.native_origin + FINE_NATIVE_HEIGHT > context.geometry.native_height:
+            raise ProtocolError(
+                f"frame {origin.frame} fine window exceeds native transport height"
+            )
+
+    selections = tuple(
+        LiveFrameSelection(
+            frame=spec.slot,
+            frame_count=len(combined.origins),
+            geometry=context.geometry,
+            usable_rows=context.usable_rows,
+            detection=context.detection,
+            mapping=combined,
+            base_selected=base,
+            selected=selected,
+            requested_boundary_offset_rows=spec.boundary_offset_rows,
+            applied_boundary_offset_rows=(selected.lookup_row - base.lookup_row),
+            preview_sha256=context.preview_sha256,
+            table_sha256=context.table_sha256,
+            decode_report=context.decode_report,
+        )
+        for spec, (base, selected) in zip(frames, resolved, strict=True)
+    )
+    # Compile each binding before the first fine scan.  This proves that the
+    # retained table and every later autofocus/window origin agree.
+    for selection in selections:
+        _bind_plan_to_live_selection(plan, selection)
+    return selections
+
+
 def _validate_boundary_offset(frame: int, offset_rows: int) -> None:
     if isinstance(offset_rows, bool) or not isinstance(offset_rows, int):
         raise ProtocolError("boundary offset must be an integer row count")
@@ -684,6 +1043,172 @@ def _validate_boundary_offset(frame: int, offset_rows: int) -> None:
         raise ProtocolError(
             f"frame {frame} boundary offset must be in {minimum}..144 rows"
         )
+
+
+def load_validated_batch_job(
+    path: Path,
+    *,
+    expected_plan_sha256: str,
+    expected_continuation_sha256: str,
+) -> LiveBatchJob:
+    """Load an exact path-confined parent/child batch handshake contract."""
+
+    path = Path(path).expanduser().resolve()
+    try:
+        job_bytes = path.read_bytes()
+        payload = json.loads(job_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ProtocolError(f"batch job could not be read: {error}") from error
+    if not isinstance(payload, dict):
+        raise ProtocolError("batch job must be a JSON object")
+    expected_top_level = {
+        "apply_all_boundary_offsets_before_first_frame": True,
+        "capture_plan_sha256": expected_plan_sha256,
+        "continuation_plan_sha256": expected_continuation_sha256,
+        "parent_ack_required_after_every_frame": True,
+        "release_once_after_last_frame": True,
+        "schema_version": 1,
+        "session_contract": "one-process-one-reservation",
+    }
+    expected_keys = set(expected_top_level) | {"frames", "session_id"}
+    if set(payload) != expected_keys:
+        raise ProtocolError(
+            "batch job keys changed: "
+            f"expected {sorted(expected_keys)}, got {sorted(payload)}"
+        )
+    for key, expected in expected_top_level.items():
+        if payload.get(key) != expected:
+            raise ProtocolError(
+                f"batch job {key}={payload.get(key)!r}, expected {expected!r}"
+            )
+    session_id = payload.get("session_id")
+    if (
+        not isinstance(session_id, str)
+        or not 1 <= len(session_id) <= 128
+        or session_id[0] not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        or any(
+            character
+            not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+            for character in session_id
+        )
+    ):
+        raise ProtocolError("batch job session_id is not filesystem-safe")
+    raw_frames = payload.get("frames")
+    if not isinstance(raw_frames, list) or not raw_frames:
+        raise ProtocolError("batch job must contain at least one frame")
+    root = path.parent
+    frames: list[BatchFrameSpec] = []
+    for index, raw in enumerate(raw_frames, start=1):
+        if not isinstance(raw, dict):
+            raise ProtocolError(f"batch frame {index} must be an object")
+        raw = cast(dict[str, Any], raw)
+        if set(raw) != {
+            "ack",
+            "boundary_offset_rows",
+            "journal",
+            "output",
+            "slot",
+        }:
+            raise ProtocolError(f"batch frame {index} keys changed")
+        slot = raw.get("slot")
+        offset = raw.get("boundary_offset_rows")
+        if isinstance(slot, bool) or not isinstance(slot, int) or not 1 <= slot <= 40:
+            raise ProtocolError(f"batch frame {index} has an invalid slot")
+        if isinstance(offset, bool) or not isinstance(offset, int):
+            raise ProtocolError(
+                f"batch frame {index} has an invalid boundary offset"
+            )
+        _validate_boundary_offset(slot, offset)
+        expected_directory = f"frame-{slot:03d}"
+        expected_paths = {
+            "output": f"{expected_directory}/capture.bin",
+            "journal": f"{expected_directory}/journal.json",
+            "ack": f"{expected_directory}/parent-ack.json",
+        }
+        for key, expected in expected_paths.items():
+            if raw.get(key) != expected:
+                raise ProtocolError(
+                    f"batch frame {index} {key} must be {expected!r}"
+                )
+        frames.append(
+            BatchFrameSpec(
+                slot=slot,
+                boundary_offset_rows=offset,
+                output=root / expected_paths["output"],
+                journal=root / expected_paths["journal"],
+                ack=root / expected_paths["ack"],
+            )
+        )
+    slots = tuple(frame.slot for frame in frames)
+    if slots != tuple(sorted(set(slots))):
+        raise ProtocolError("batch frame slots must be unique and increasing")
+    return LiveBatchJob(
+        session_id=session_id,
+        root=root,
+        frames=tuple(frames),
+        plan_sha256=expected_plan_sha256,
+        continuation_plan_sha256=expected_continuation_sha256,
+        job_sha256=hashlib.sha256(job_bytes).hexdigest(),
+    )
+
+
+def wait_for_parent_ack(
+    path: Path,
+    *,
+    session_id: str,
+    frame_index: int,
+    slot: int,
+    nonce: str,
+    timeout_seconds: float = 1_800.0,
+    poll_seconds: float = 0.1,
+) -> str:
+    """Wait at a transaction boundary for one exact continue/stop decision."""
+
+    if timeout_seconds < 0 or poll_seconds < 0:
+        raise ValueError("parent ACK timing values cannot be negative")
+    path = Path(path).expanduser().resolve()
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if path.exists():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise SynchronizedProtocolError(
+                    f"parent ACK for slot {slot} is unreadable: {error}"
+                ) from error
+            expected = {
+                "ack_nonce": nonce,
+                "frame_index": frame_index,
+                "schema_version": 1,
+                "session_id": session_id,
+                "slot": slot,
+            }
+            if not isinstance(payload, dict):
+                raise SynchronizedProtocolError(
+                    f"parent ACK for slot {slot} must be an object"
+                )
+            if set(payload) != {*expected, "action"}:
+                raise SynchronizedProtocolError(
+                    f"parent ACK for slot {slot} has an unexpected schema"
+                )
+            for key, required in expected.items():
+                if payload.get(key) != required:
+                    raise SynchronizedProtocolError(
+                        f"parent ACK for slot {slot} has {key}="
+                        f"{payload.get(key)!r}, expected {required!r}"
+                    )
+            action = payload.get("action")
+            if action not in ("continue", "stop"):
+                raise SynchronizedProtocolError(
+                    f"parent ACK for slot {slot} has invalid action {action!r}"
+                )
+            return action
+        if time.monotonic() >= deadline:
+            raise SynchronizedProtocolError(
+                f"parent ACK for slot {slot} did not arrive before timeout"
+            )
+        if poll_seconds:
+            time.sleep(poll_seconds)
 
 
 def apply_boundary_offset(
@@ -735,6 +1260,67 @@ def apply_boundary_offset(
     origins = list(mapping.origins)
     origins[frame - 1] = selected
     return replace(mapping, origins=tuple(origins)), selected
+
+
+def apply_batch_boundary_offsets(
+    mapping: TransportMapping,
+    records: Sequence[TransportRecord],
+    frames: Sequence[tuple[int, int]],
+) -> tuple[
+    TransportMapping,
+    tuple[tuple[NativeFrameOrigin, NativeFrameOrigin], ...],
+]:
+    """Apply every selected-frame offset to one shared retained mapping.
+
+    Nikon receives ``SEND(0x8f)`` only once per reserved roll session.  Every
+    frame's operator offset therefore has to be encoded into that one table
+    before the first fine scan; later autofocus and window commands can then
+    bind to the same immutable mapping without resending the table.
+    """
+
+    if not frames:
+        raise ProtocolError("batch boundary binding requires at least one frame")
+    ordered_slots = tuple(frame for frame, _offset in frames)
+    if tuple(sorted(set(ordered_slots))) != ordered_slots:
+        raise ProtocolError(
+            "batch boundary frames must be unique and strictly increasing"
+        )
+    original = mapping
+    combined = mapping
+    resolved: list[tuple[NativeFrameOrigin, NativeFrameOrigin]] = []
+    for frame, offset_rows in frames:
+        if not 1 <= frame <= len(original.origins):
+            raise ProtocolError(
+                f"requested frame {frame} is outside mapping "
+                f"1..{len(original.origins)}"
+            )
+        base = original.origins[frame - 1]
+        if base.frame != frame:
+            raise ProtocolError("transport mapping frame order is inconsistent")
+        if not base.automatic or base.manual_review:
+            raise ProtocolError(
+                f"frame {frame} transport origin requires manual review; "
+                "refusing an unattended batch"
+            )
+        combined, selected = apply_boundary_offset(
+            combined,
+            records,
+            frame=frame,
+            offset_rows=offset_rows,
+        )
+        resolved.append((base, selected))
+
+    # Validate the exact fixed-size payload now, before any selected frame is
+    # scanned.  This also catches offsets that would make origins overlap.
+    table = build_live_frame_table_payload(combined)
+    table_count = table[2]
+    for frame in ordered_slots:
+        if frame > table_count:
+            raise ProtocolError(
+                f"requested frame {frame} is outside the scanner-addressable "
+                f"table 1..{table_count}"
+            )
+    return combined, tuple(resolved)
 
 
 def build_live_frame_table_payload(mapping: TransportMapping) -> bytes:
@@ -1655,7 +2241,11 @@ def _cleanup_synchronized(
     ready_required: bool = False,
     reserved: bool,
 ) -> dict:
-    cleanup: dict[str, Any] = {"attempted": True}
+    cleanup: dict[str, Any] = {
+        "attempted": True,
+        "release_attempted": False,
+        "release_succeeded": False,
+    }
     cancelled = False
     try:
         if scan_active:
@@ -1671,8 +2261,10 @@ def _cleanup_synchronized(
             cleanup["ready_polls"] = polls
             cleanup["stall_recoveries"] = stalls
         if reserved:
+            cleanup["release_attempted"] = True
             result = _release_unit(ep_out, ep_in)
             cleanup["release_status"] = result.status.hex()
+            cleanup["release_succeeded"] = True
         cleanup["complete"] = True
     except BaseException as cleanup_error:
         cleanup["complete"] = False
@@ -1701,6 +2293,554 @@ def _scan_lifecycle_after_transaction(
     return scan_active, ready_required
 
 
+def _run_live_continuation_frame(
+    ep_out: Any,
+    ep_in: Any,
+    plan: list[dict],
+    plan_path: Path,
+    plan_sha256: str,
+    continuation_plan: dict[str, Any],
+    continuation_plan_sha256: str,
+    frame_spec: BatchFrameSpec,
+    selection: LiveFrameSelection,
+    *,
+    batch_job: LiveBatchJob,
+    frame_index: int,
+    lifecycle: SessionLifecycle,
+) -> dict[str, Any]:
+    """Capture one later frame without reconnecting, reserving, or releasing."""
+
+    target = validate_plan(plan)
+    if continuation_plan_sha256 != CANONICAL_CONTINUATION_PLAN_SHA256:
+        raise ProtocolError("continuation plan digest is not canonical")
+    expected_bytes = EXPECTED_FINE_READS * target["request_len"]
+    output_path = frame_spec.output
+    journal_path = frame_spec.journal
+    meter_path = _full_capture_meter_path(output_path)
+    output_path.parent.mkdir(parents=False, exist_ok=False)
+    for candidate in (output_path, journal_path, frame_spec.ack, meter_path):
+        if candidate.exists():
+            raise ProtocolError(f"refusing to overwrite {candidate}")
+    free_bytes = shutil.disk_usage(output_path.parent).free
+    required_free = expected_bytes + max(1_073_741_824, expected_bytes // 10)
+    if free_bytes < required_free:
+        raise ProtocolError(
+            f"only {free_bytes} free bytes; continuation requires {required_free}"
+        )
+
+    if (
+        selection.frame != frame_spec.slot
+        or selection.requested_boundary_offset_rows
+        != frame_spec.boundary_offset_rows
+        or selection.applied_boundary_offset_rows
+        != frame_spec.boundary_offset_rows
+    ):
+        raise ProtocolError(
+            "continuation frame does not match its prevalidated batch selection"
+        )
+    active_plan = _bind_plan_to_live_selection(plan, selection)
+    initial_wire_exposures = _patch_exposure_contract(
+        active_plan,
+        DYNAMIC_WINDOW_GROUPS[0],
+        METER_GET_WINDOW_GROUPS[0],
+        dict(DEFAULT_EXPOSURES),
+    )
+    steps = compile_continuation_steps(active_plan, continuation_plan)
+    batch_identity = {
+        "frame_index": frame_index,
+        "frame_total": len(batch_job.frames),
+        "selected_slots": list(batch_job.selected_slots),
+        "session_id": batch_job.session_id,
+    }
+    journal: dict[str, Any] = {
+        "status": "starting",
+        "plan": str(plan_path.resolve()),
+        "plan_sha256": plan_sha256,
+        "continuation_plan_sha256": continuation_plan_sha256,
+        "capture_engine_sha256": CAPTURE_WORKER_SHA256,
+        "capture_bundle_sha256": CAPTURE_BUNDLE_SHA256,
+        "meter_controller_sha256": _meter_controller_sha256(),
+        "output": str(output_path.resolve()),
+        "capture_mode": "full",
+        "requested_frame": frame_spec.slot,
+        "expected_frame_count": None,
+        "requested_boundary_offset_rows": frame_spec.boundary_offset_rows,
+        "applied_boundary_offset_rows": selection.applied_boundary_offset_rows,
+        "resolved_lookup_row": selection.selected.lookup_row,
+        "resolved_native_origin": selection.selected.native_origin,
+        "expected_reads": EXPECTED_FINE_READS,
+        "expected_bytes": expected_bytes,
+        "completed_reads": 0,
+        "completed_bytes": 0,
+        "stall_recoveries": 0,
+        "started_unix": time.time(),
+        "scanner_identity": "Nikon LS-5000 ED 1.03",
+        "preview_geometry_validated_before_reads": True,
+        "live_frame_selection": selection.diagnostics(),
+        "batch_session": batch_identity,
+        "session_reservation_retained": True,
+        "unit_released": False,
+        "meter_evidence_path": str(meter_path.resolve()),
+        "meter_observed_exposures_raw_10ns": [],
+        "meter_layout": {
+            "wire_colors": list(WIRE_METER_COLORS),
+            "controller_channels": list(CONTROLLER_CHANNELS),
+            "pass_count": len(METER_READ_GROUPS),
+            "group_bytes": METER_GROUP_BYTES,
+        },
+        "meter_completed_reads": 0,
+        "meter_completed_bytes": 0,
+        "meter_pass_exposures_raw_10ns": [],
+        "meter_pass_commanded_exposures": [],
+        "meter_controller_proposals": [],
+        "meter_controller_seed": {
+            "controller_channels_raw_10ns": dict(DEFAULT_EXPOSURES),
+            "wire_colors_raw_10ns": {
+                str(color): exposure
+                for color, exposure in initial_wire_exposures.items()
+            },
+        },
+    }
+    _write_journal(journal_path, journal)
+
+    meter_window_payloads: list[list[bytes]] = [
+        [] for _group in METER_GET_WINDOW_GROUPS
+    ]
+    fine_window_payloads: list[bytes] = []
+    meter_group_bytes = [0] * len(METER_READ_GROUPS)
+    meter_group_payloads = [bytearray() for _group in METER_READ_GROUPS]
+    meter_commanded_wire: list[dict[int, int] | None] = [
+        None for _group in METER_READ_GROUPS
+    ]
+    meter_observations: list[MeterObservation] = []
+    meter_evidence_sha256 = hashlib.sha256()
+    output_sha256 = hashlib.sha256()
+    final_controller_accepted = False
+    final_wire_exposures: dict[int, int] | None = None
+    meter_evidence_persisted = False
+
+    try:
+        with output_path.open("xb") as output, meter_path.open("xb") as meter_output:
+            for step in steps:
+                if step.code == "R":
+                    journal["current_command"] = {
+                        "seq": (
+                            f"{step.entries[0]['seq']}..{step.entries[-1]['seq']}"
+                        ),
+                        "name": "TEST_UNIT_READY group",
+                        "cdb": step.entries[0]["cdb"],
+                    }
+                    lifecycle.at_transaction_boundary = False
+                    polls, stalls = _perform_ready_group(
+                        ep_out,
+                        ep_in,
+                        list(step.entries),
+                    )
+                    lifecycle.at_transaction_boundary = True
+                    lifecycle.ready_required = False
+                    journal["ready_polls"] = journal.get("ready_polls", 0) + polls
+                    journal["stall_recoveries"] += stalls
+                    continue
+
+                entry = step.entries[0]
+                sequence = entry["seq"]
+                if sequence == DYNAMIC_WINDOW_GROUPS[-1][0]:
+                    if (
+                        not final_controller_accepted
+                        or not meter_evidence_persisted
+                        or final_wire_exposures is None
+                    ):
+                        raise SynchronizedProtocolError(
+                            "continuation fine SET_WINDOW reached without accepted "
+                            "meter evidence"
+                        )
+                    preflight = _validate_live_fine_windows(
+                        [
+                            bytes.fromhex(
+                                _entry(active_plan, item).get("data_out", "")
+                            )
+                            for item in DYNAMIC_WINDOW_GROUPS[-1]
+                        ],
+                        expected_origin=selection.selected.native_origin,
+                        expected_exposures=final_wire_exposures,
+                    )
+                    journal["fine_set_windows_preflight"] = [
+                        {
+                            "color_id": window["color_id"],
+                            "origin": [
+                                window["upper_left_x"],
+                                window["upper_left_y"],
+                            ],
+                            "resolution": [window["resx"], window["resy"]],
+                            "size": [window["width"], window["height"]],
+                            "samples": (
+                                window["samples_per_scan_minus1_nibble"] + 1
+                            ),
+                            "exposure_raw_10ns": window["exposure_raw_10ns"],
+                        }
+                        for window in preflight
+                    ]
+                    journal["fine_set_windows_preflight_before_sequence"] = sequence
+                    _write_journal(journal_path, journal)
+
+                request = entry.get("request_len", 0)
+                timeout = 120_000 if request > 60_000 else 30_000
+                journal["current_command"] = {
+                    "seq": sequence,
+                    "name": entry.get("name"),
+                    "cdb": entry["cdb"],
+                    "request_len": request,
+                    "request_parts": entry.get("request_parts"),
+                }
+                lifecycle.at_transaction_boundary = False
+                result = _perform_with_busy_retry(
+                    ep_out,
+                    ep_in,
+                    entry,
+                    data_timeout_ms=timeout,
+                )
+                lifecycle.at_transaction_boundary = True
+                journal["stall_recoveries"] += result.stall_recoveries
+                (
+                    lifecycle.scan_active,
+                    lifecycle.ready_required,
+                ) = _scan_lifecycle_after_transaction(
+                    entry,
+                    result,
+                    scan_active=lifecycle.scan_active,
+                    ready_required=lifecycle.ready_required,
+                )
+
+                if sequence in METER_GET_WINDOW_SEQUENCES:
+                    group_index = next(
+                        index
+                        for index, group in enumerate(METER_GET_WINDOW_GROUPS)
+                        if sequence in group
+                    )
+                    meter_window_payloads[group_index].append(result.payload)
+                    if sequence == METER_GET_WINDOW_GROUPS[group_index][-1]:
+                        expected_exposures = {
+                            window["color_id"]: window["exposure_raw_10ns"]
+                            for window in (
+                                decode_window_block(
+                                    bytes.fromhex(
+                                        _entry(active_plan, item).get(
+                                            "data_out", ""
+                                        )
+                                    )
+                                )
+                                for item in DYNAMIC_WINDOW_GROUPS[group_index]
+                            )
+                            if window is not None
+                        }
+                        observed = _validate_live_meter_windows(
+                            meter_window_payloads[group_index],
+                            expected_origin=selection.selected.native_origin,
+                            expected_exposures=expected_exposures,
+                        )
+                        observed_wire = {
+                            window["color_id"]: window["exposure_raw_10ns"]
+                            for window in observed
+                        }
+                        meter_commanded_wire[group_index] = observed_wire
+                        observed_named = _controller_exposures_from_wire(
+                            observed_wire
+                        )
+                        observed_wire_json = {
+                            str(color): exposure
+                            for color, exposure in observed_wire.items()
+                        }
+                        journal["meter_observed_exposures_raw_10ns"].append(
+                            observed_wire_json
+                        )
+                        journal["meter_pass_exposures_raw_10ns"].append(
+                            observed_wire_json
+                        )
+                        journal["meter_pass_commanded_exposures"].append(
+                            {
+                                "pass": group_index + 1,
+                                "controller_channels_raw_10ns": observed_named,
+                                "wire_colors_raw_10ns": observed_wire_json,
+                            }
+                        )
+                        _write_journal(journal_path, journal)
+
+                if sequence in FINE_GET_WINDOW_SEQUENCES:
+                    fine_window_payloads.append(result.payload)
+
+                if sequence in METER_READ_SEQUENCES:
+                    written = meter_output.write(result.payload)
+                    if written != len(result.payload):
+                        raise SynchronizedProtocolError(
+                            f"short meter file write {written} of "
+                            f"{len(result.payload)} bytes"
+                        )
+                    meter_evidence_sha256.update(result.payload)
+                    group_index = next(
+                        index
+                        for index, group in enumerate(METER_READ_GROUPS)
+                        if sequence in group
+                    )
+                    meter_group_bytes[group_index] += len(result.payload)
+                    meter_group_payloads[group_index].extend(result.payload)
+                    journal["meter_completed_reads"] += 1
+                    journal["meter_completed_bytes"] += len(result.payload)
+                    if sequence == METER_READ_GROUPS[group_index][-1]:
+                        if meter_group_bytes[group_index] != METER_GROUP_BYTES:
+                            raise SynchronizedProtocolError(
+                                f"meter pass {group_index + 1} has "
+                                f"{meter_group_bytes[group_index]} bytes; expected "
+                                f"{METER_GROUP_BYTES}"
+                            )
+                        meter_output.flush()
+                        os.fsync(meter_output.fileno())
+                        _fsync_parent_directory(meter_path)
+                        journal["meter_evidence"] = {
+                            "path": str(meter_path.resolve()),
+                            "bytes": journal["meter_completed_bytes"],
+                            "sha256": meter_evidence_sha256.hexdigest(),
+                            "complete": False,
+                            "durable_completed_passes": group_index + 1,
+                        }
+                        _write_journal(journal_path, journal)
+                        observed_wire = meter_commanded_wire[group_index]
+                        if observed_wire is None:
+                            raise SynchronizedProtocolError(
+                                f"meter pass {group_index + 1} has no validated "
+                                "GET_WINDOW exposure echo"
+                            )
+                        observation = observe_meter_pass(
+                            bytes(meter_group_payloads[group_index]),
+                            _controller_exposures_from_wire(observed_wire),
+                        )
+                        meter_observations.append(observation)
+                        if group_index < len(METER_READ_GROUPS) - 1:
+                            previous = (
+                                meter_observations[-2]
+                                if len(meter_observations) > 1
+                                else None
+                            )
+                            proposal = propose_next_exposures(
+                                observation,
+                                previous=previous,
+                            )
+                            proposal_record: dict[str, object] = {
+                                "pass": group_index + 1,
+                                **proposal.to_dict(),
+                            }
+                            journal["meter_controller_proposals"].append(
+                                proposal_record
+                            )
+                            if not proposal.accepted:
+                                codes = ", ".join(
+                                    refusal.code for refusal in proposal.refusals
+                                )
+                                raise SynchronizedProtocolError(
+                                    f"meter pass {group_index + 1} controller "
+                                    f"refused: {codes}"
+                                )
+                            next_group = group_index + 1
+                            patched_wire = _patch_exposure_contract(
+                                active_plan,
+                                DYNAMIC_WINDOW_GROUPS[next_group],
+                                METER_GET_WINDOW_GROUPS[next_group],
+                                proposal.proposed_exposures,
+                            )
+                            proposal_record[
+                                "applied_to_next_pass_wire_colors_raw_10ns"
+                            ] = {
+                                str(color): exposure
+                                for color, exposure in patched_wire.items()
+                            }
+                            _write_journal(journal_path, journal)
+                        else:
+                            final_result = verify_final_convergence(
+                                observation,
+                                previous=meter_observations[-2],
+                            )
+                            journal["meter_controller_final_result"] = (
+                                final_result.to_dict()
+                            )
+                            if (
+                                not final_result.accepted
+                                or final_result.final_exposures is None
+                            ):
+                                codes = ", ".join(
+                                    refusal.code
+                                    for refusal in final_result.refusals
+                                )
+                                raise SynchronizedProtocolError(
+                                    "meter pass 3 final controller refused: "
+                                    f"{codes}"
+                                )
+                            final_wire = _patch_exposure_contract(
+                                active_plan,
+                                DYNAMIC_WINDOW_GROUPS[-1],
+                                FINE_GET_WINDOW_SEQUENCES,
+                                final_result.final_exposures,
+                            )
+                            final_wire_exposures = dict(final_wire)
+                            journal["meter_final_exposures"] = {
+                                "controller_channels_raw_10ns": dict(
+                                    final_result.final_exposures
+                                ),
+                                "wire_colors_raw_10ns": {
+                                    str(color): exposure
+                                    for color, exposure in final_wire.items()
+                                },
+                            }
+                            final_controller_accepted = True
+                            _write_journal(journal_path, journal)
+
+                    if sequence == METER_STOP_SEQUENCE:
+                        if any(
+                            size != METER_GROUP_BYTES
+                            for size in meter_group_bytes
+                        ):
+                            raise SynchronizedProtocolError(
+                                f"meter groups have sizes {meter_group_bytes}"
+                            )
+                        meter_evidence = b"".join(meter_group_payloads)
+                        if len(meter_evidence) != METER_CAPTURE_BYTES:
+                            raise SynchronizedProtocolError(
+                                "raw meter evidence has the wrong size"
+                            )
+                        meter_sha256 = hashlib.sha256(meter_evidence).hexdigest()
+                        if meter_sha256 != meter_evidence_sha256.hexdigest():
+                            raise SynchronizedProtocolError(
+                                "meter evidence digests disagree"
+                            )
+                        journal["meter_group_bytes"] = meter_group_bytes
+                        journal["meter_group_offsets"] = [
+                            index * METER_GROUP_BYTES
+                            for index in range(len(METER_READ_GROUPS))
+                        ]
+                        journal["meter_evidence"] = {
+                            "path": str(meter_path.resolve()),
+                            "bytes": len(meter_evidence),
+                            "sha256": meter_sha256,
+                            "complete": True,
+                            "durable_completed_passes": len(METER_READ_GROUPS),
+                        }
+                        meter_output.flush()
+                        os.fsync(meter_output.fileno())
+                        journal["meter_evidence_persisted_before_fine_arm"] = True
+                        meter_evidence_persisted = True
+                        _write_journal(journal_path, journal)
+
+            if (
+                not final_controller_accepted
+                or not meter_evidence_persisted
+                or final_wire_exposures is None
+            ):
+                raise SynchronizedProtocolError(
+                    "continuation fine capture lacks accepted metering evidence"
+                )
+            final_windows = [
+                decode_window_block(
+                    bytes.fromhex(_entry(active_plan, sequence)["data_out"])
+                )
+                for sequence in DYNAMIC_WINDOW_GROUPS[-1]
+            ]
+            if any(window is None for window in final_windows):
+                raise ProtocolError("continuation final SET_WINDOW is malformed")
+            expected_exposures = {
+                window["color_id"]: window["exposure_raw_10ns"]
+                for window in final_windows
+                if window is not None
+            }
+            fine_windows = _validate_live_fine_windows(
+                fine_window_payloads,
+                expected_origin=selection.selected.native_origin,
+                expected_exposures=expected_exposures,
+            )
+            journal["fine_windows"] = [
+                {
+                    "color_id": window["color_id"],
+                    "resolution": [window["resx"], window["resy"]],
+                    "origin": [window["upper_left_x"], window["upper_left_y"]],
+                    "size": [window["width"], window["height"]],
+                    "samples": window["samples_per_scan_minus1_nibble"] + 1,
+                    "interleave": window["color_interleaving_byte"],
+                    "exposure_raw_10ns": window["exposure_raw_10ns"],
+                }
+                for window in fine_windows
+            ]
+            journal["status"] = "fine-capture"
+            _write_journal(journal_path, journal)
+            for read_index in range(EXPECTED_FINE_READS):
+                timeout = 180_000 if read_index == 0 else 60_000
+                journal["current_command"] = {
+                    "seq": target["seq"],
+                    "name": "fine READ",
+                    "cdb": target["cdb"],
+                    "read_index": read_index,
+                    "request_len": target["request_len"],
+                    "request_parts": target.get("request_parts"),
+                }
+                lifecycle.at_transaction_boundary = False
+                result = _perform_with_busy_retry(
+                    ep_out,
+                    ep_in,
+                    target,
+                    data_timeout_ms=timeout,
+                    allow_busy_retry=True,
+                )
+                lifecycle.at_transaction_boundary = True
+                if read_index + 1 == EXPECTED_FINE_READS:
+                    lifecycle.scan_active = False
+                    lifecycle.ready_required = True
+                written = output.write(result.payload)
+                if written != len(result.payload):
+                    raise SynchronizedProtocolError(
+                        f"short file write {written} of {len(result.payload)} bytes"
+                    )
+                output_sha256.update(result.payload)
+                journal["completed_reads"] = read_index + 1
+                journal["completed_bytes"] += len(result.payload)
+                journal["stall_recoveries"] += result.stall_recoveries
+                if (read_index + 1) % 25 == 0:
+                    _write_journal(journal_path, journal)
+            output.flush()
+            os.fsync(output.fileno())
+            _fsync_parent_directory(output_path)
+
+        journal["output_sha256"] = output_sha256.hexdigest()
+        journal["disk_bytes"] = output_path.stat().st_size
+        if (
+            journal["completed_bytes"] != expected_bytes
+            or journal["disk_bytes"] != expected_bytes
+        ):
+            raise SynchronizedProtocolError(
+                "continuation capture has the wrong final byte count"
+            )
+        lifecycle.at_transaction_boundary = False
+        polls, stalls = _wait_post_scan_ready(ep_out, ep_in)
+        lifecycle.at_transaction_boundary = True
+        lifecycle.scan_active = False
+        lifecycle.ready_required = False
+        journal["post_scan_ready_polls"] = polls
+        journal["stall_recoveries"] += stalls
+        journal["ack_nonce"] = secrets.token_hex(16)
+        journal["frame_complete"] = True
+        journal["recovery_required"] = None
+        journal["status"] = "frame-complete"
+        journal["finished_unix"] = time.time()
+        _write_journal(journal_path, journal)
+        return journal
+    except BaseException as error:
+        journal["status"] = (
+            "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
+        )
+        journal["error"] = f"{type(error).__name__}: {error}"
+        journal["finished_unix"] = time.time()
+        try:
+            _write_journal(journal_path, journal)
+        except Exception:
+            pass
+        raise
+
+
 def run_live_capture(
     plan: list[dict],
     plan_path: Path,
@@ -1714,10 +2854,56 @@ def run_live_capture(
     meter_only: bool = False,
     preview_only: bool = False,
     expected_frame_count: int | None = None,
+    batch_job: LiveBatchJob | None = None,
+    continuation_plan: dict[str, Any] | None = None,
+    continuation_plan_sha256: str | None = None,
+    session_journal_path: Path | None = None,
 ) -> None:
     target = validate_plan(plan)
     if meter_only and preview_only:
         raise ProtocolError("live capture cannot be both meter-only and preview-only")
+    batch_values = (
+        batch_job,
+        continuation_plan,
+        continuation_plan_sha256,
+        session_journal_path,
+    )
+    batch_mode = any(value is not None for value in batch_values)
+    if batch_mode and any(value is None for value in batch_values):
+        raise ProtocolError("live batch capture requires every batch component")
+    if batch_mode and (meter_only or preview_only):
+        raise ProtocolError("live batch capture supports full frames only")
+    if batch_mode:
+        assert batch_job is not None
+        assert continuation_plan is not None
+        assert continuation_plan_sha256 is not None
+        assert session_journal_path is not None
+        if continuation_plan_sha256 != CANONICAL_CONTINUATION_PLAN_SHA256:
+            raise ProtocolError("live batch continuation digest is not canonical")
+        if batch_job.plan_sha256 != plan_sha256:
+            raise ProtocolError("live batch plan digest does not match its job")
+        if batch_job.continuation_plan_sha256 != continuation_plan_sha256:
+            raise ProtocolError(
+                "live batch continuation digest does not match its job"
+            )
+        derive_equivalent_continuation_blocks(continuation_plan)
+        first_spec = batch_job.frames[0]
+        if (
+            frame != first_spec.slot
+            or boundary_offset_rows != first_spec.boundary_offset_rows
+            or output_path.resolve() != first_spec.output.resolve()
+            or journal_path.resolve() != first_spec.journal.resolve()
+        ):
+            raise ProtocolError("first live batch frame does not match its job")
+        if session_journal_path.exists():
+            raise ProtocolError(
+                f"refusing to overwrite batch session journal {session_journal_path}"
+            )
+        if (
+            session_journal_path.resolve()
+            != (batch_job.root / "session-journal.json").resolve()
+        ):
+            raise ProtocolError("live batch session journal is outside its job root")
     if preview_only and frame is not None:
         raise ProtocolError("preview-only capture does not accept --frame")
     if preview_only and boundary_offset_rows != 0:
@@ -1769,13 +2955,13 @@ def run_live_capture(
         raise ProtocolError(
             f"only {free_bytes} free bytes; capture requires {required_free}"
         )
-    journal = {
+    journal: dict[str, Any] = {
         "status": "starting",
         "plan": str(plan_path.resolve()),
         "plan_sha256": plan_sha256,
         "capture_engine_sha256": CAPTURE_WORKER_SHA256,
         "capture_bundle_sha256": CAPTURE_BUNDLE_SHA256,
-        "meter_controller_sha256": _plan_hash(Path(meter_module.__file__).resolve()),
+        "meter_controller_sha256": _meter_controller_sha256(),
         "output": str(output_path.resolve()),
         "capture_mode": (
             "preview-only" if preview_only else ("meter-only" if meter_only else "full")
@@ -1797,6 +2983,48 @@ def run_live_capture(
         "stall_recoveries": 0,
         "started_unix": time.time(),
     }
+    session_journal: dict[str, Any] | None = None
+    frame_journal_finalized = False
+    batch_stopped = False
+    batch_lifecycle = SessionLifecycle()
+    if batch_mode:
+        assert batch_job is not None
+        assert continuation_plan_sha256 is not None
+        assert session_journal_path is not None
+        journal.update(
+            {
+                "ack_nonce": None,
+                "batch_session": {
+                    "frame_index": 1,
+                    "frame_total": len(batch_job.frames),
+                    "selected_slots": list(batch_job.selected_slots),
+                    "session_id": batch_job.session_id,
+                },
+                "continuation_plan_sha256": continuation_plan_sha256,
+                "frame_complete": False,
+                "session_reservation_retained": False,
+                "unit_released": False,
+            }
+        )
+        session_journal = {
+            "status": "capturing",
+            "session_id": batch_job.session_id,
+            "selected_slots": list(batch_job.selected_slots),
+            "completed_slots": [],
+            "active_frame_index": 1,
+            "active_slot": batch_job.frames[0].slot,
+            "batch_job_sha256": batch_job.job_sha256,
+            "capture_engine_sha256": CAPTURE_WORKER_SHA256,
+            "capture_bundle_sha256": CAPTURE_BUNDLE_SHA256,
+            "plan_sha256": plan_sha256,
+            "continuation_plan_sha256": continuation_plan_sha256,
+            "reservation_acquired": False,
+            "unit_release_attempts": 0,
+            "unit_released": False,
+            "recovery_required": None,
+            "started_unix": time.time(),
+        }
+        _write_journal(session_journal_path, session_journal)
     if artifact_paths:
         journal["live_index_artifacts"] = {
             key: str(path.resolve()) for key, path in artifact_paths.items()
@@ -1834,6 +3062,7 @@ def run_live_capture(
             live_sub_8e_header: bytes | None = None
             live_sub_8e_table: bytes | None = None
             live_selection: LiveFrameSelection | None = None
+            batch_selections: tuple[LiveFrameSelection, ...] | None = None
             startup_table: StartupFrameTable | None = None
             meter_group_bytes = [0] * len(METER_READ_GROUPS)
             meter_group_payloads = [bytearray() for _group in METER_READ_GROUPS]
@@ -1953,6 +3182,9 @@ def run_live_capture(
                     journal["scanner_identity"] = "Nikon LS-5000 ED 1.03"
                 if entry["seq"] == 17:
                     reserved = True
+                    if session_journal is not None and session_journal_path is not None:
+                        session_journal["reservation_acquired"] = True
+                        _write_journal(session_journal_path, session_journal)
                 if entry["seq"] == VARIABLE_FRAME_TABLE_SEQUENCE:
                     startup_table = _validate_variable_frame_table_payload(
                         result.payload
@@ -2048,14 +3280,32 @@ def run_live_capture(
                         _write_journal(journal_path, journal)
                         break
                     try:
-                        live_selection = _derive_live_frame_selection(
-                            active_plan,
-                            preview_bytes,
-                            live_sub_8e_table,
-                            frame=frame,
-                            boundary_offset_rows=boundary_offset_rows,
-                            expected_frame_count=expected_frame_count,
-                        )
+                        if frame is None:
+                            raise ProtocolError(
+                                "full capture lost its explicit frame binding"
+                            )
+                        if batch_mode:
+                            assert batch_job is not None
+                            batch_selections = _derive_live_batch_selections(
+                                active_plan,
+                                preview_bytes,
+                                live_sub_8e_table,
+                                batch_job.frames,
+                            )
+                            live_selection = batch_selections[0]
+                            journal["batch_prevalidated_frame_selections"] = [
+                                selection.diagnostics()
+                                for selection in batch_selections
+                            ]
+                        else:
+                            live_selection = _derive_live_frame_selection(
+                                active_plan,
+                                preview_bytes,
+                                live_sub_8e_table,
+                                frame=frame,
+                                boundary_offset_rows=boundary_offset_rows,
+                                expected_frame_count=expected_frame_count,
+                            )
                     except Exception as selection_error:
                         refusal = {
                             "status": "refused-before-frame-binding",
@@ -2221,15 +3471,16 @@ def run_live_capture(
                             )
                         meter_destination.flush()
                         os.fsync(meter_destination.fileno())
-                        _fsync_parent_directory(
-                            output_path if meter_only else meter_sidecar_path
-                        )
+                        meter_evidence_path = output_path
+                        if not meter_only:
+                            if meter_sidecar_path is None:
+                                raise ProtocolError(
+                                    "full capture has no meter sidecar path"
+                                )
+                            meter_evidence_path = meter_sidecar_path
+                        _fsync_parent_directory(meter_evidence_path)
                         journal["meter_evidence"] = {
-                            "path": str(
-                                (
-                                    output_path if meter_only else meter_sidecar_path
-                                ).resolve()
-                            ),
+                            "path": str(meter_evidence_path.resolve()),
                             "bytes": journal["meter_completed_bytes"],
                             "sha256": meter_evidence_sha256.hexdigest(),
                             "complete": False,
@@ -2350,12 +3601,15 @@ def run_live_capture(
                             "streamed meter evidence digest disagrees with "
                             "in-memory pass assembly"
                         )
+                    meter_evidence_path = output_path
+                    if not meter_only:
+                        if meter_sidecar_path is None:
+                            raise ProtocolError(
+                                "full capture has no meter sidecar path"
+                            )
+                        meter_evidence_path = meter_sidecar_path
                     journal["meter_evidence"] = {
-                        "path": str(
-                            (
-                                output_path if meter_only else meter_sidecar_path
-                            ).resolve()
-                        ),
+                        "path": str(meter_evidence_path.resolve()),
                         "bytes": len(meter_evidence),
                         "sha256": meter_sha256,
                         "complete": True,
@@ -2485,48 +3739,227 @@ def run_live_capture(
         ready_required = False
         journal["post_scan_ready_polls"] = polls
         journal["stall_recoveries"] += stalls
-        at_transaction_boundary = False
-        teardown = _release_unit(ep_out, ep_in)
-        at_transaction_boundary = True
-        reserved = False
-        journal["stall_recoveries"] += teardown.stall_recoveries
-        journal["unit_released"] = True
-        journal["status"] = "complete"
-        journal["finished_unix"] = time.time()
-        _write_journal(journal_path, journal)
+        if batch_mode:
+            assert batch_job is not None
+            assert continuation_plan is not None
+            assert continuation_plan_sha256 is not None
+            assert session_journal is not None
+            assert session_journal_path is not None
+            if (
+                live_sub_8e_table is None
+                or len(preview_data) != EXPECTED_PREVIEW_BYTES
+                or batch_selections is None
+            ):
+                raise SynchronizedProtocolError(
+                    "batch first frame lost its retained roll-index evidence"
+                )
+
+            journal["ack_nonce"] = secrets.token_hex(16)
+            journal["frame_complete"] = True
+            journal["recovery_required"] = None
+            journal["session_reservation_retained"] = True
+            journal["unit_released"] = False
+            journal["status"] = "frame-complete"
+            journal["finished_unix"] = time.time()
+            _write_journal(journal_path, journal)
+            frame_journal_finalized = True
+
+            completed_slots = session_journal["completed_slots"]
+            if not isinstance(completed_slots, list):
+                raise ProtocolError("batch session completed_slots is not a list")
+            completed_slots.append(batch_job.frames[0].slot)
+            session_journal.update(
+                {
+                    "active_frame_index": 1,
+                    "active_slot": batch_job.frames[0].slot,
+                    "recovery_required": None,
+                    "status": "awaiting-parent-ack",
+                }
+            )
+            _write_journal(session_journal_path, session_journal)
+            action = wait_for_parent_ack(
+                batch_job.frames[0].ack,
+                session_id=batch_job.session_id,
+                frame_index=1,
+                slot=batch_job.frames[0].slot,
+                nonce=journal["ack_nonce"],
+            )
+            batch_stopped = action == "stop"
+
+            if not batch_stopped:
+                for frame_index, (frame_spec, selection) in enumerate(
+                    zip(
+                        batch_job.frames[1:],
+                        batch_selections[1:],
+                        strict=True,
+                    ),
+                    start=2,
+                ):
+                    session_journal.update(
+                        {
+                            "active_frame_index": frame_index,
+                            "active_slot": frame_spec.slot,
+                            "status": "capturing",
+                        }
+                    )
+                    _write_journal(session_journal_path, session_journal)
+                    frame_journal = _run_live_continuation_frame(
+                        ep_out,
+                        ep_in,
+                        plan,
+                        plan_path,
+                        plan_sha256,
+                        continuation_plan,
+                        continuation_plan_sha256,
+                        frame_spec,
+                        selection,
+                        batch_job=batch_job,
+                        frame_index=frame_index,
+                        lifecycle=batch_lifecycle,
+                    )
+                    completed_slots.append(frame_spec.slot)
+                    session_journal.update(
+                        {
+                            "active_frame_index": frame_index,
+                            "active_slot": frame_spec.slot,
+                            "status": "awaiting-parent-ack",
+                        }
+                    )
+                    _write_journal(session_journal_path, session_journal)
+                    action = wait_for_parent_ack(
+                        frame_spec.ack,
+                        session_id=batch_job.session_id,
+                        frame_index=frame_index,
+                        slot=frame_spec.slot,
+                        nonce=frame_journal["ack_nonce"],
+                    )
+                    if action == "stop":
+                        batch_stopped = True
+                        break
+
+            # Persist the attempt count before crossing the release boundary.
+            # If release itself fails, the exception path must never retry it.
+            session_journal.update(
+                {
+                    "status": "releasing",
+                    "unit_release_attempts": 1,
+                }
+            )
+            _write_journal(session_journal_path, session_journal)
+            at_transaction_boundary = False
+            batch_lifecycle.at_transaction_boundary = False
+            teardown = _release_unit(ep_out, ep_in)
+            at_transaction_boundary = True
+            batch_lifecycle.at_transaction_boundary = True
+            reserved = False
+            session_journal.update(
+                {
+                    "active_frame_index": None,
+                    "active_slot": None,
+                    "finished_unix": time.time(),
+                    "recovery_required": "none",
+                    "release_stall_recoveries": teardown.stall_recoveries,
+                    "release_status": teardown.status.hex(),
+                    "status": "stopped" if batch_stopped else "complete",
+                    "unit_released": True,
+                }
+            )
+            _write_journal(session_journal_path, session_journal)
+        else:
+            at_transaction_boundary = False
+            teardown = _release_unit(ep_out, ep_in)
+            at_transaction_boundary = True
+            reserved = False
+            journal["stall_recoveries"] += teardown.stall_recoveries
+            journal["unit_released"] = True
+            journal["status"] = "complete"
+            journal["finished_unix"] = time.time()
+            _write_journal(journal_path, journal)
     except BaseException as error:
+        cleanup_scan_active = scan_active
+        cleanup_ready_required = ready_required
+        cleanup_boundary = at_transaction_boundary
+        if batch_mode and frame_journal_finalized:
+            cleanup_scan_active = batch_lifecycle.scan_active
+            cleanup_ready_required = batch_lifecycle.ready_required
+            cleanup_boundary = batch_lifecycle.at_transaction_boundary
         synchronized = (
-            at_transaction_boundary or isinstance(error, SynchronizedProtocolError)
+            cleanup_boundary or isinstance(error, SynchronizedProtocolError)
         ) and not isinstance(error, DesynchronizedProtocolError)
+        release_already_attempted = bool(
+            session_journal is not None
+            and session_journal.get("unit_release_attempts") == 1
+        )
         if (
             synchronized
             and ep_out is not None
             and ep_in is not None
-            and (reserved or scan_active or ready_required)
+            and not release_already_attempted
+            and (reserved or cleanup_scan_active or cleanup_ready_required)
         ):
             journal["cleanup"] = _cleanup_synchronized(
                 ep_out,
                 ep_in,
-                scan_active=scan_active,
-                ready_required=ready_required,
+                scan_active=cleanup_scan_active,
+                ready_required=cleanup_ready_required,
                 reserved=reserved,
             )
-        journal["status"] = (
-            "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
-        )
-        journal["error"] = f"{type(error).__name__}: {error}"
         cleanup_complete = journal.get("cleanup", {}).get("complete", False)
-        no_cleanup_needed = synchronized and not reserved and not scan_active
-        journal["recovery_required"] = (
+        no_cleanup_needed = (
+            synchronized
+            and not reserved
+            and not cleanup_scan_active
+            and not cleanup_ready_required
+        )
+        recovery_required = (
             "none"
             if synchronized and (cleanup_complete or no_cleanup_needed)
             else "power-cycle scanner before another attempt"
         )
-        journal["finished_unix"] = time.time()
-        try:
-            _write_journal(journal_path, journal)
-        except Exception:
-            pass
+        if release_already_attempted and reserved:
+            recovery_required = "power-cycle scanner before another attempt"
+
+        if session_journal is not None and session_journal_path is not None:
+            cleanup = journal.get("cleanup", {})
+            if cleanup:
+                session_journal["cleanup"] = cleanup
+            if cleanup.get("release_attempted") is True:
+                session_journal["unit_release_attempts"] = 1
+                session_journal["unit_released"] = (
+                    cleanup.get("release_succeeded") is True
+                )
+            session_journal.update(
+                {
+                    "error": f"{type(error).__name__}: {error}",
+                    "finished_unix": time.time(),
+                    "recovery_required": recovery_required,
+                    "status": (
+                        "interrupted"
+                        if isinstance(error, KeyboardInterrupt)
+                        else "failed"
+                    ),
+                }
+            )
+            try:
+                _write_journal(session_journal_path, session_journal)
+            except Exception:
+                pass
+
+        # A frame-complete journal is an immutable parent/child handoff.  The
+        # parent may already have hashed, promoted, and deleted its scratch
+        # stream, so a later ACK/continuation/release failure belongs only in
+        # the batch session receipt.
+        if not frame_journal_finalized:
+            journal["status"] = (
+                "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
+            )
+            journal["error"] = f"{type(error).__name__}: {error}"
+            journal["recovery_required"] = recovery_required
+            journal["finished_unix"] = time.time()
+            try:
+                _write_journal(journal_path, journal)
+            except Exception:
+                pass
         raise
     finally:
         if meter_output is not None:
@@ -2546,12 +3979,31 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--plan",
         type=Path,
-        default=Path(files(DATA_PACKAGE).joinpath("replay-first-rgbi4-plan.jsonl")),
+        default=Path(
+            str(files(DATA_PACKAGE).joinpath("replay-first-rgbi4-plan.jsonl"))
+        ),
     )
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path(files(DATA_PACKAGE).joinpath("replay-first-rgbi4-manifest.json")),
+        default=Path(
+            str(files(DATA_PACKAGE).joinpath("replay-first-rgbi4-manifest.json"))
+        ),
+    )
+    parser.add_argument(
+        "--batch-job",
+        type=Path,
+        help="one-process/one-reservation ordered frame job",
+    )
+    parser.add_argument(
+        "--continuation-plan",
+        type=Path,
+        help="pinned later-frame continuation recipe required by --batch-job",
+    )
+    parser.add_argument(
+        "--session-journal",
+        type=Path,
+        help="durable batch-level release receipt required by --batch-job",
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--journal", type=Path)
@@ -2620,6 +4072,86 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     plan, manifest, plan_sha256 = _load_validated_plan(args.plan, args.manifest)
     target = validate_plan(plan, manifest)
+    batch_job: LiveBatchJob | None = None
+    continuation_plan: dict[str, Any] | None = None
+    continuation_plan_sha256: str | None = None
+    batch_requested = any(
+        value is not None
+        for value in (
+            args.batch_job,
+            args.continuation_plan,
+            args.session_journal,
+        )
+    )
+    if batch_requested:
+        if any(
+            value is None
+            for value in (
+                args.batch_job,
+                args.continuation_plan,
+                args.session_journal,
+            )
+        ):
+            raise ProtocolError(
+                "--batch-job, --continuation-plan, and --session-journal are inseparable"
+            )
+        if (
+            args.output is not None
+            or args.journal is not None
+            or args.frame is not None
+            or args.boundary_offset_rows != 0
+            or args.expected_frame_count is not None
+            or args.meter_only
+            or args.preview_only
+            or args.confirm_full_capture
+        ):
+            raise ProtocolError(
+                "batch capture owns frame, output, journal, and mode arguments"
+            )
+        continuation_payload = args.continuation_plan.read_bytes()
+        continuation_plan_sha256 = hashlib.sha256(
+            continuation_payload
+        ).hexdigest()
+        continuation_plan = verify_canonical_continuation_plan(
+            continuation_payload
+        )
+        batch_job = load_validated_batch_job(
+            args.batch_job,
+            expected_plan_sha256=plan_sha256,
+            expected_continuation_sha256=continuation_plan_sha256,
+        )
+        expected_session_journal = batch_job.root / "session-journal.json"
+        if args.session_journal.resolve() != expected_session_journal.resolve():
+            raise ProtocolError(
+                "batch session journal must be session-journal.json in the job root"
+            )
+        first_frame = batch_job.frames[0]
+        output = first_frame.output
+        journal = first_frame.journal
+        print(
+            "validated RGBI4x batch: slots "
+            + ", ".join(str(slot) for slot in batch_job.selected_slots)
+            + "; one child, one reservation, one final release"
+        )
+        if not args.live:
+            print("dry run only; scanner was not accessed")
+            return
+        output.parent.mkdir(parents=False, exist_ok=False)
+        run_live_capture(
+            plan,
+            args.plan,
+            plan_sha256,
+            output,
+            journal,
+            args.reads,
+            frame=first_frame.slot,
+            boundary_offset_rows=first_frame.boundary_offset_rows,
+            batch_job=batch_job,
+            continuation_plan=continuation_plan,
+            continuation_plan_sha256=continuation_plan_sha256,
+            session_journal_path=args.session_journal,
+        )
+        return
     if args.preview_only and args.frame is not None:
         raise ProtocolError("--preview-only does not accept --frame")
     if args.preview_only and args.boundary_offset_rows != 0:

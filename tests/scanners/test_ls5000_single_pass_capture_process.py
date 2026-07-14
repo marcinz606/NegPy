@@ -6,16 +6,21 @@ import hashlib
 import json
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import FrozenInstanceError, dataclass, field
 from pathlib import Path
 
 import pytest
 
+from negpy.infrastructure.scanners import ls5000_single_pass as single_pass
 from negpy.infrastructure.scanners.ls5000_single_pass import capture_process as capture
 from negpy.infrastructure.scanners.ls5000_single_pass.bundle import (
     CAPTURE_BUNDLE_SHA256,
     CAPTURE_WORKER_SHA256,
+)
+from negpy.infrastructure.scanners.ls5000_single_pass.continuation_plan import (
+    CANONICAL_CONTINUATION_PLAN_SHA256,
 )
 from negpy.infrastructure.scanners.ls5000_single_pass.plan import (
     CANONICAL_FINE_READ_BYTES,
@@ -116,6 +121,17 @@ class Binding:
     worker_sha256: str
 
 
+def _batch_session_provenance(
+    job_path: Path,
+    worker_sha256: str,
+) -> dict[str, str]:
+    return {
+        "batch_job_sha256": hashlib.sha256(job_path.read_bytes()).hexdigest(),
+        "capture_bundle_sha256": CAPTURE_BUNDLE_SHA256,
+        "capture_engine_sha256": worker_sha256,
+    }
+
+
 @pytest.fixture
 def binding(tmp_path: Path) -> Binding:
     worker = tmp_path / "capture_rgbi4.py"
@@ -135,6 +151,771 @@ def _adapter(tmp_path: Path, binding: Binding, runner: FakeRunner) -> capture.Ca
         python_executable=sys.executable,
         runner=runner,
     )
+
+
+def test_batch_request_is_one_immutable_ordered_full_capture_unit() -> None:
+    request = capture.CaptureBatchRequest(
+        frames=(
+            capture.CaptureRequest(
+                mode=capture.CaptureMode.FULL,
+                selected_slot=17,
+                boundary_offset_rows=-12,
+            ),
+            capture.CaptureRequest(
+                mode=capture.CaptureMode.FULL,
+                selected_slot=19,
+                boundary_offset_rows=8,
+            ),
+        )
+    )
+
+    assert request.selected_slots == (17, 19)
+    with pytest.raises(FrozenInstanceError):
+        setattr(request, "frames", ())
+
+
+def test_batch_session_foundation_is_exported_from_scanner_package() -> None:
+    assert single_pass.CaptureBatchRequest is capture.CaptureBatchRequest
+    assert single_pass.PreparedCaptureBatch is capture.PreparedCaptureBatch
+
+
+def test_prepare_batch_frames_every_selected_slot_as_one_future_child_session(
+    tmp_path: Path,
+    binding: Binding,
+) -> None:
+    runner = FakeRunner(binding.worker_sha256)
+    adapter = _adapter(tmp_path, binding, runner)
+    request = capture.CaptureBatchRequest(
+        frames=(
+            capture.CaptureRequest(
+                mode=capture.CaptureMode.FULL,
+                selected_slot=17,
+                boundary_offset_rows=-12,
+            ),
+            capture.CaptureRequest(
+                mode=capture.CaptureMode.FULL,
+                selected_slot=19,
+                boundary_offset_rows=8,
+            ),
+        )
+    )
+
+    prepared = adapter.prepare_batch_session(request)
+    job = json.loads(prepared.paths.job.read_text(encoding="utf-8"))
+
+    assert runner.calls == []
+    assert prepared.request is request
+    assert _argument(prepared.argv, "--batch-job") == str(prepared.paths.job)
+    assert _argument(prepared.argv, "--plan") == str(prepared.paths.first_plan)
+    assert _argument(prepared.argv, "--continuation-plan") == str(
+        prepared.paths.continuation_plan
+    )
+    assert _argument(prepared.argv, "--session-journal") == str(
+        prepared.paths.session_journal
+    )
+    assert "--frame" not in prepared.argv
+    assert job["session_id"] == prepared.session_id
+    assert job == {
+        "apply_all_boundary_offsets_before_first_frame": True,
+        "capture_plan_sha256": CANONICAL_PLAN_SHA256,
+        "continuation_plan_sha256": CANONICAL_CONTINUATION_PLAN_SHA256,
+        "frames": [
+            {
+                "ack": "frame-017/parent-ack.json",
+                "boundary_offset_rows": -12,
+                "journal": "frame-017/journal.json",
+                "output": "frame-017/capture.bin",
+                "slot": 17,
+            },
+            {
+                "ack": "frame-019/parent-ack.json",
+                "boundary_offset_rows": 8,
+                "journal": "frame-019/journal.json",
+                "output": "frame-019/capture.bin",
+                "slot": 19,
+            },
+        ],
+        "parent_ack_required_after_every_frame": True,
+        "release_once_after_last_frame": True,
+        "schema_version": 1,
+        "session_id": prepared.session_id,
+        "session_contract": "one-process-one-reservation",
+    }
+    assert hashlib.sha256(prepared.paths.first_plan.read_bytes()).hexdigest() == (
+        CANONICAL_PLAN_SHA256
+    )
+    assert hashlib.sha256(
+        prepared.paths.continuation_plan.read_bytes()
+    ).hexdigest() == CANONICAL_CONTINUATION_PLAN_SHA256
+    assert hashlib.sha256(prepared.paths.job.read_bytes()).hexdigest() == (
+        prepared.job_sha256
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "batch_job_sha256",
+        "capture_engine_sha256",
+        "capture_bundle_sha256",
+    ],
+)
+def test_batch_session_receipt_rejects_tampered_process_identity(
+    tmp_path: Path,
+    binding: Binding,
+    field: str,
+) -> None:
+    adapter = _adapter(tmp_path, binding, FakeRunner(binding.worker_sha256))
+    request = capture.CaptureBatchRequest(
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+    )
+    prepared = adapter.prepare_batch_session(request)
+    receipt: dict[str, object] = {
+        **_batch_session_provenance(
+            prepared.paths.job,
+            binding.worker_sha256,
+        ),
+        "completed_slots": [],
+        "continuation_plan_sha256": CANONICAL_CONTINUATION_PLAN_SHA256,
+        "plan_sha256": CANONICAL_PLAN_SHA256,
+        "recovery_required": "none",
+        "reservation_acquired": True,
+        "selected_slots": [17],
+        "session_id": prepared.session_id,
+        "status": "stopped",
+        "unit_release_attempts": 1,
+        "unit_released": True,
+    }
+    receipt[field] = "f" * 64
+    prepared.paths.session_journal.write_text(
+        json.dumps(receipt),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(capture.CaptureProcessError, match=field):
+        adapter._load_and_validate_batch_session_journal(
+            prepared,
+            returncode=0,
+            handled=(),
+            stopped=True,
+        )
+
+
+def test_failed_batch_receipt_rejects_unobserved_completed_frames(
+    tmp_path: Path,
+    binding: Binding,
+) -> None:
+    adapter = _adapter(tmp_path, binding, FakeRunner(binding.worker_sha256))
+    request = capture.CaptureBatchRequest(
+        (
+            capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),
+            capture.CaptureRequest(capture.CaptureMode.FULL, 19, 0),
+        )
+    )
+    prepared = adapter.prepare_batch_session(request)
+    receipt: dict[str, object] = {
+        **_batch_session_provenance(
+            prepared.paths.job,
+            binding.worker_sha256,
+        ),
+        "completed_slots": [17, 19],
+        "continuation_plan_sha256": CANONICAL_CONTINUATION_PLAN_SHA256,
+        "plan_sha256": CANONICAL_PLAN_SHA256,
+        "recovery_required": "none",
+        "reservation_acquired": True,
+        "selected_slots": [17, 19],
+        "session_id": prepared.session_id,
+        "status": "failed",
+        "unit_release_attempts": 1,
+        "unit_released": True,
+    }
+    prepared.paths.session_journal.write_text(
+        json.dumps(receipt),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        capture.CaptureProcessError,
+        match="does not match the observed frame prefix",
+    ):
+        adapter._load_and_validate_batch_session_journal(
+            prepared,
+            returncode=1,
+            handled=(),
+            stopped=False,
+        )
+
+
+def test_stop_winning_the_launch_gate_prevents_batch_process_creation(
+    tmp_path: Path,
+    binding: Binding,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stdout_opened = threading.Event()
+    spawn_calls: list[tuple[str, ...]] = []
+    original_open = Path.open
+
+    def observe_open(path: Path, *args: object, **kwargs: object):
+        if path.name == "stdout.txt" and args and args[0] == "xb":
+            stdout_opened.set()
+        return original_open(path, *args, **kwargs)
+
+    def forbidden_spawn(
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        stdout: object,
+        stderr: object,
+    ) -> capture.RunningBatchProcess:
+        del cwd, stdout, stderr
+        spawn_calls.append(tuple(argv))
+        raise AssertionError("a stop that wins the launch gate must prevent Popen")
+
+    monkeypatch.setattr(Path, "open", observe_open)
+    adapter = capture.CaptureProcessAdapter(
+        worker_path=binding.worker,
+        expected_worker_sha256=binding.worker_sha256,
+        manifest_path=binding.manifest,
+        attempts_root=tmp_path / "attempts",
+        batch_spawner=forbidden_spawn,
+        batch_poll_seconds=0,
+    )
+    request = capture.CaptureBatchRequest(
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+    )
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            adapter.run_batch_session(
+                request,
+                frame_handler=lambda _frame: capture.BatchAckAction.CONTINUE,
+            )
+        except BaseException as error:
+            errors.append(error)
+
+    adapter._stop_gate.acquire()
+    thread = threading.Thread(target=run)
+    try:
+        thread.start()
+        assert stdout_opened.wait(timeout=5)
+        # This is the state request_stop() publishes while owning _stop_gate.
+        adapter._stop_requested.set()
+    finally:
+        adapter._stop_gate.release()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert spawn_calls == []
+    assert len(errors) == 1
+    assert isinstance(errors[0], capture.CaptureStopped)
+
+
+def test_batch_parent_finalizes_each_frame_before_acknowledging_the_next(
+    tmp_path: Path,
+    binding: Binding,
+) -> None:
+    events: list[str] = []
+
+    class FakeBatchProcess:
+        def __init__(self, argv: Sequence[str]) -> None:
+            self.job_path = Path(_argument(argv, "--batch-job"))
+            self.session_journal = Path(_argument(argv, "--session-journal"))
+            self.job = json.loads(self.job_path.read_text(encoding="utf-8"))
+            self.index = 0
+            self.returncode: int | None = None
+            self._emit_frame()
+
+        def _emit_frame(self) -> None:
+            frame = self.job["frames"][self.index]
+            directory = self.job_path.parent
+            output = directory / frame["output"]
+            journal = directory / frame["journal"]
+            output.parent.mkdir(parents=True)
+            with output.open("xb") as stream:
+                stream.truncate(
+                    CANONICAL_FINE_READ_COUNT * CANONICAL_FINE_READ_BYTES
+                )
+            journal.write_text(
+                json.dumps(
+                    {
+                        "ack_nonce": f"nonce-{frame['slot']}",
+                        "batch_session": {
+                            "frame_index": self.index + 1,
+                            "frame_total": len(self.job["frames"]),
+                            "selected_slots": [
+                                item["slot"] for item in self.job["frames"]
+                            ],
+                            "session_id": self.job["session_id"],
+                        },
+                        "capture_engine_sha256": binding.worker_sha256,
+                        "capture_mode": "full",
+                        "completed_bytes": (
+                            CANONICAL_FINE_READ_COUNT
+                            * CANONICAL_FINE_READ_BYTES
+                        ),
+                        "completed_reads": CANONICAL_FINE_READ_COUNT,
+                        "continuation_plan_sha256": (
+                            CANONICAL_CONTINUATION_PLAN_SHA256
+                        ),
+                        "disk_bytes": (
+                            CANONICAL_FINE_READ_COUNT
+                            * CANONICAL_FINE_READ_BYTES
+                        ),
+                        "expected_bytes": (
+                            CANONICAL_FINE_READ_COUNT
+                            * CANONICAL_FINE_READ_BYTES
+                        ),
+                        "expected_reads": CANONICAL_FINE_READ_COUNT,
+                        "frame_complete": True,
+                        "output": str(output.resolve()),
+                        "output_sha256": "a" * 64,
+                        "plan_sha256": CANONICAL_PLAN_SHA256,
+                        "recovery_required": None,
+                        "requested_boundary_offset_rows": frame[
+                            "boundary_offset_rows"
+                        ],
+                        "requested_frame": frame["slot"],
+                        "session_reservation_retained": True,
+                        "status": "frame-complete",
+                        "unit_released": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            events.append(f"ready-{frame['slot']}")
+
+        def poll(self) -> int | None:
+            if self.returncode is not None:
+                return self.returncode
+            frame = self.job["frames"][self.index]
+            ack_path = self.job_path.parent / frame["ack"]
+            if not ack_path.exists():
+                return None
+            ack = json.loads(ack_path.read_text(encoding="utf-8"))
+            events.append(f"ack-{frame['slot']}-{ack['action']}")
+            if ack["action"] == "continue" and self.index + 1 < len(
+                self.job["frames"]
+            ):
+                self.index += 1
+                self._emit_frame()
+                return None
+            completed = [
+                item["slot"] for item in self.job["frames"][: self.index + 1]
+            ]
+            self.session_journal.write_text(
+                json.dumps(
+                    {
+                        **_batch_session_provenance(
+                            self.job_path,
+                            binding.worker_sha256,
+                        ),
+                        "completed_slots": completed,
+                        "continuation_plan_sha256": (
+                            CANONICAL_CONTINUATION_PLAN_SHA256
+                        ),
+                        "plan_sha256": CANONICAL_PLAN_SHA256,
+                        "recovery_required": "none",
+                        "reservation_acquired": True,
+                        "selected_slots": [
+                            item["slot"] for item in self.job["frames"]
+                        ],
+                        "session_id": self.job["session_id"],
+                        "status": (
+                            "stopped" if ack["action"] == "stop" else "complete"
+                        ),
+                        "unit_release_attempts": 1,
+                        "unit_released": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.returncode = 0
+            return 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            while self.poll() is None:
+                pass
+            return int(self.returncode)
+
+    def spawn(
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        stdout: object,
+        stderr: object,
+    ) -> FakeBatchProcess:
+        del cwd, stdout, stderr
+        return FakeBatchProcess(argv)
+
+    adapter = capture.CaptureProcessAdapter(
+        worker_path=binding.worker,
+        expected_worker_sha256=binding.worker_sha256,
+        manifest_path=binding.manifest,
+        attempts_root=tmp_path / "attempts",
+        batch_spawner=spawn,
+        batch_poll_seconds=0,
+    )
+    request = capture.CaptureBatchRequest(
+        frames=(
+            capture.CaptureRequest(capture.CaptureMode.FULL, 17, -12),
+            capture.CaptureRequest(capture.CaptureMode.FULL, 19, 8),
+        )
+    )
+
+    def finalize(result: capture.CaptureAttemptResult) -> capture.BatchAckAction:
+        events.append(f"finalized-{result.request.selected_slot}")
+        # This is the scratch-deletion point.  The child must not need the raw
+        # stream again after the parent acknowledges it.
+        result.paths.output.unlink()
+        return capture.BatchAckAction.CONTINUE
+
+    result = adapter.run_batch_session(request, frame_handler=finalize)
+
+    assert result.outcome is capture.CaptureOutcome.COMPLETE
+    assert result.stopped is False
+    assert [frame.request.selected_slot for frame in result.frames] == [17, 19]
+    assert events == [
+        "ready-17",
+        "finalized-17",
+        "ack-17-continue",
+        "ready-19",
+        "finalized-19",
+        "ack-19-continue",
+    ]
+    assert result.session_journal["unit_release_attempts"] == 1
+
+
+@pytest.mark.parametrize(
+    "failure_mode",
+    [
+        "handler",
+        "handler-cleanup-before-release",
+        "handler-release-failed",
+        "journal",
+        "ack-write",
+        "stdout-read",
+    ],
+)
+def test_batch_parent_always_waits_for_child_release_after_post_spawn_failure(
+    tmp_path: Path,
+    binding: Binding,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_mode: str,
+) -> None:
+    events: list[str] = []
+
+    class SelfCleaningBatchProcess:
+        def __init__(self, argv: Sequence[str]) -> None:
+            self.job_path = Path(_argument(argv, "--batch-job"))
+            self.session_journal = Path(_argument(argv, "--session-journal"))
+            self.job = json.loads(self.job_path.read_text(encoding="utf-8"))
+            self.returncode: int | None = None
+            frame = self.job["frames"][0]
+            output = self.job_path.parent / frame["output"]
+            journal = self.job_path.parent / frame["journal"]
+            output.parent.mkdir(parents=True)
+            with output.open("xb") as stream:
+                stream.truncate(
+                    CANONICAL_FINE_READ_COUNT * CANONICAL_FINE_READ_BYTES
+                )
+            journal.write_text(
+                json.dumps(
+                    {
+                        "ack_nonce": "nonce-17",
+                        "batch_session": {
+                            "frame_index": 1,
+                            "frame_total": 1,
+                            "selected_slots": [17],
+                            "session_id": self.job["session_id"],
+                        },
+                        "capture_engine_sha256": (
+                            "f" * 64
+                            if failure_mode == "journal"
+                            else binding.worker_sha256
+                        ),
+                        "capture_mode": "full",
+                        "completed_bytes": (
+                            CANONICAL_FINE_READ_COUNT
+                            * CANONICAL_FINE_READ_BYTES
+                        ),
+                        "completed_reads": CANONICAL_FINE_READ_COUNT,
+                        "continuation_plan_sha256": (
+                            CANONICAL_CONTINUATION_PLAN_SHA256
+                        ),
+                        "disk_bytes": (
+                            CANONICAL_FINE_READ_COUNT
+                            * CANONICAL_FINE_READ_BYTES
+                        ),
+                        "expected_bytes": (
+                            CANONICAL_FINE_READ_COUNT
+                            * CANONICAL_FINE_READ_BYTES
+                        ),
+                        "expected_reads": CANONICAL_FINE_READ_COUNT,
+                        "frame_complete": True,
+                        "output": str(output.resolve()),
+                        "output_sha256": "a" * 64,
+                        "plan_sha256": CANONICAL_PLAN_SHA256,
+                        "recovery_required": None,
+                        "requested_boundary_offset_rows": 0,
+                        "requested_frame": 17,
+                        "session_reservation_retained": True,
+                        "status": "frame-complete",
+                        "unit_released": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            events.append("waited-for-child")
+            ack = self.job_path.parent / self.job["frames"][0]["ack"]
+            stopped = bool(
+                ack.exists()
+                and json.loads(ack.read_text(encoding="utf-8"))["action"] == "stop"
+            )
+            acknowledged = ack.exists()
+            cleanup_before_release = (
+                failure_mode == "handler-cleanup-before-release"
+            )
+            release_failed = failure_mode in (
+                "handler-cleanup-before-release",
+                "handler-release-failed",
+            )
+            self.session_journal.write_text(
+                json.dumps(
+                    {
+                        **_batch_session_provenance(
+                            self.job_path,
+                            binding.worker_sha256,
+                        ),
+                        "completed_slots": [17],
+                        "continuation_plan_sha256": (
+                            CANONICAL_CONTINUATION_PLAN_SHA256
+                        ),
+                        "plan_sha256": CANONICAL_PLAN_SHA256,
+                        "recovery_required": (
+                            capture.POWER_CYCLE_RECOVERY
+                            if release_failed
+                            else "none"
+                        ),
+                        "reservation_acquired": True,
+                        "selected_slots": [17],
+                        "session_id": self.job["session_id"],
+                        "status": (
+                            "failed"
+                            if release_failed or not acknowledged
+                            else ("stopped" if stopped else "complete")
+                        ),
+                        "unit_release_attempts": (
+                            0 if cleanup_before_release else 1
+                        ),
+                        "unit_released": not release_failed,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.returncode = 0 if acknowledged and not release_failed else 1
+            return self.returncode
+
+    process: SelfCleaningBatchProcess | None = None
+
+    def spawn(
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        stdout: object,
+        stderr: object,
+    ) -> SelfCleaningBatchProcess:
+        nonlocal process
+        del cwd, stdout, stderr
+        process = SelfCleaningBatchProcess(argv)
+        return process
+
+    adapter = capture.CaptureProcessAdapter(
+        worker_path=binding.worker,
+        expected_worker_sha256=binding.worker_sha256,
+        manifest_path=binding.manifest,
+        attempts_root=tmp_path / "attempts",
+        batch_spawner=spawn,
+        batch_poll_seconds=0,
+    )
+    if failure_mode == "ack-write":
+        monkeypatch.setattr(
+            adapter,
+            "_write_batch_ack",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")),
+        )
+    if failure_mode == "stdout-read":
+        original_read_text = Path.read_text
+
+        def fail_stdout_read(
+            path: Path,
+            *args: object,
+            **kwargs: object,
+        ) -> str:
+            if path.name == "stdout.txt":
+                raise OSError("diagnostic volume unavailable")
+            return original_read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", fail_stdout_read)
+
+    def handler(
+        result: capture.CaptureAttemptResult,
+    ) -> capture.BatchAckAction:
+        if failure_mode in (
+            "handler",
+            "handler-cleanup-before-release",
+            "handler-release-failed",
+        ):
+            raise RuntimeError("finalizer failed")
+        return capture.BatchAckAction.CONTINUE
+
+    request = capture.CaptureBatchRequest(
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+    )
+    with pytest.raises(capture.CaptureBatchProcessError) as raised:
+        adapter.run_batch_session(request, frame_handler=handler)
+
+    assert process is not None
+    assert events == ["waited-for-child"]
+    receipt = json.loads(process.session_journal.read_text(encoding="utf-8"))
+    assert receipt["unit_release_attempts"] == (
+        0 if failure_mode == "handler-cleanup-before-release" else 1
+    )
+    assert receipt["unit_released"] is (
+        failure_mode
+        not in ("handler-cleanup-before-release", "handler-release-failed")
+    )
+    assert raised.value.recovery_required is (
+        failure_mode
+        in ("handler-cleanup-before-release", "handler-release-failed")
+    )
+    if failure_mode == "journal":
+        assert raised.value.frames == ()
+        assert raised.value.session_journal == receipt
+        ack = process.job_path.parent / process.job["frames"][0]["ack"]
+        assert json.loads(ack.read_text(encoding="utf-8"))["action"] == "stop"
+    else:
+        assert [frame.request.selected_slot for frame in raised.value.frames] == [17]
+        assert raised.value.session_journal == receipt
+
+
+@pytest.mark.parametrize(
+    ("recovery", "expected_outcome"),
+    [
+        ("none", capture.CaptureOutcome.SYNCHRONIZED_REFUSAL),
+        (capture.POWER_CYCLE_RECOVERY, capture.CaptureOutcome.RECOVERY_REQUIRED),
+    ],
+)
+def test_failed_batch_before_reserve_preserves_recovery_without_release(
+    tmp_path: Path,
+    binding: Binding,
+    recovery: str,
+    expected_outcome: capture.CaptureOutcome,
+) -> None:
+    class ConnectFailureProcess:
+        def __init__(self, argv: Sequence[str]) -> None:
+            self.session_journal = Path(_argument(argv, "--session-journal"))
+            self.job_path = Path(_argument(argv, "--batch-job"))
+            self.job = json.loads(self.job_path.read_text(encoding="utf-8"))
+
+        def poll(self) -> int | None:
+            return 1
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.session_journal.write_text(
+                json.dumps(
+                    {
+                        **_batch_session_provenance(
+                            self.job_path,
+                            binding.worker_sha256,
+                        ),
+                        "completed_slots": [],
+                        "continuation_plan_sha256": (
+                            CANONICAL_CONTINUATION_PLAN_SHA256
+                        ),
+                        "plan_sha256": CANONICAL_PLAN_SHA256,
+                        "recovery_required": recovery,
+                        "reservation_acquired": False,
+                        "selected_slots": [17],
+                        "session_id": self.job["session_id"],
+                        "status": "failed",
+                        "unit_release_attempts": 0,
+                        "unit_released": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return 1
+
+    def spawn(
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        stdout: object,
+        stderr: object,
+    ) -> ConnectFailureProcess:
+        del cwd, stdout, stderr
+        return ConnectFailureProcess(argv)
+
+    adapter = capture.CaptureProcessAdapter(
+        worker_path=binding.worker,
+        expected_worker_sha256=binding.worker_sha256,
+        manifest_path=binding.manifest,
+        attempts_root=tmp_path / "attempts",
+        batch_spawner=spawn,
+        batch_poll_seconds=0,
+    )
+    request = capture.CaptureBatchRequest(
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+    )
+
+    with pytest.raises(capture.CaptureBatchProcessError) as raised:
+        adapter.run_batch_session(
+            request,
+            frame_handler=lambda _frame: capture.BatchAckAction.CONTINUE,
+        )
+
+    assert raised.value.outcome is expected_outcome
+    assert raised.value.recovery_required is (
+        expected_outcome is capture.CaptureOutcome.RECOVERY_REQUIRED
+    )
+    assert raised.value.session_journal is not None
+    assert raised.value.session_journal["reservation_acquired"] is False
+
+
+def test_batch_wait_defers_interrupt_until_child_cleanup_finishes(
+    tmp_path: Path,
+    binding: Binding,
+) -> None:
+    class InterruptedWait:
+        calls = 0
+
+        def poll(self) -> int | None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            return 0
+
+    adapter = _adapter(tmp_path, binding, FakeRunner(binding.worker_sha256))
+    process = InterruptedWait()
+
+    returncode, deferred = adapter._wait_for_batch_exit(process)
+
+    assert returncode == 0
+    assert isinstance(deferred, KeyboardInterrupt)
+    assert process.calls == 2
 
 
 def test_preview_uses_preview_only_without_slot_or_exposure_count(tmp_path: Path, binding: Binding) -> None:

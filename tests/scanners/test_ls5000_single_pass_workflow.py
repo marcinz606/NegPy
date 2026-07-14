@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,9 @@ import numpy as np
 import pytest
 import tifffile
 
+from negpy.infrastructure.scanners.ls5000_single_pass.continuation_plan import (
+    CANONICAL_CONTINUATION_PLAN_SHA256,
+)
 from negpy.infrastructure.tiff_contract import has_linear_scanner_rgb_marker
 from negpy.services.scanning.ls5000_single_pass_workflow import (
     LS5000SinglePassWorkflow,
@@ -70,6 +74,7 @@ def _journal(
         "expected_frame_count": 36,
         "preview_geometry_validated_before_reads": True,
         "plan_sha256": "a" * 64,
+        "continuation_plan_sha256": CANONICAL_CONTINUATION_PLAN_SHA256,
         "capture_engine_sha256": "b" * 64,
         "live_frame_selection": {
             "frame": selected_slot,
@@ -233,6 +238,184 @@ def test_finalizes_explicit_tail_slot_without_treating_roll_count_as_a_gate(tmp_
     assert smear_qc["coordinate_space"] == "scanner-native RGB before storage rotation"
     assert smear_qc["required_verdict"] == "clean"
     assert smear_qc["assessment"]["verdict"] == "clean"
+
+
+def test_finalizes_explicit_batch_frame_while_shared_reservation_is_retained(
+    tmp_path: Path,
+) -> None:
+    attempt, stream = _attempt(tmp_path)
+    batch_session_id = "batch-slot39-slot40-session"
+    attempt = replace(
+        attempt,
+        batch_session_id=batch_session_id,
+        batch_frame_index=1,
+        batch_frame_total=2,
+        batch_selected_slots=(39, 40),
+    )
+    journal = json.loads(attempt.journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        status="frame-complete",
+        frame_complete=True,
+        unit_released=False,
+        session_reservation_retained=True,
+        batch_session={
+            "frame_index": 1,
+            "frame_total": 2,
+            "selected_slots": [39, 40],
+            "session_id": batch_session_id,
+        },
+    )
+    attempt.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    completed = _workflow().finalize_attempt(attempt)
+
+    assert completed.scratch_deleted is True
+    assert not stream.exists()
+    manifest = json.loads(completed.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["capture"]["unit_released"] is False
+    assert manifest["capture"]["session_reservation_retained"] is True
+    assert manifest["capture"]["batch_session"]["session_id"] == batch_session_id
+    assert (
+        manifest["capture"]["continuation_plan_sha256"]
+        == CANONICAL_CONTINUATION_PLAN_SHA256
+    )
+
+
+def test_batch_frame_refuses_missing_continuation_plan_provenance(
+    tmp_path: Path,
+) -> None:
+    attempt, stream = _attempt(tmp_path)
+    batch_session_id = "batch-slot39-slot40-session"
+    attempt = replace(
+        attempt,
+        batch_session_id=batch_session_id,
+        batch_frame_index=1,
+        batch_frame_total=2,
+        batch_selected_slots=(39, 40),
+    )
+    journal = json.loads(attempt.journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        status="frame-complete",
+        frame_complete=True,
+        unit_released=False,
+        session_reservation_retained=True,
+        batch_session={
+            "frame_index": 1,
+            "frame_total": 2,
+            "selected_slots": [39, 40],
+            "session_id": batch_session_id,
+        },
+    )
+    del journal["continuation_plan_sha256"]
+    attempt.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    with pytest.raises(
+        SinglePassIntegrityError,
+        match="continuation_plan_sha256",
+    ):
+        _workflow().finalize_attempt(attempt)
+
+    assert stream.is_file()
+
+
+def test_single_frame_attempt_refuses_a_retained_unreleased_journal(
+    tmp_path: Path,
+) -> None:
+    attempt, stream = _attempt(tmp_path)
+    journal = json.loads(attempt.journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        unit_released=False,
+        session_reservation_retained=True,
+        frame_complete=True,
+        batch_session={
+            "frame_index": 1,
+            "frame_total": 1,
+            "selected_slots": [39],
+            "session_id": "unbound-batch",
+        },
+    )
+    attempt.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    with pytest.raises(SinglePassIntegrityError, match="unit_released"):
+        _workflow().finalize_attempt(attempt)
+
+    assert stream.is_file()
+
+
+@pytest.mark.parametrize(
+    "batch_session_mutation",
+    [
+        lambda batch: batch.__setitem__("session_id", "different-session"),
+        lambda batch: batch.__setitem__("selected_slots", [40, 39]),
+        lambda batch: batch.__setitem__("frame_index", 2),
+    ],
+)
+def test_batch_frame_refuses_session_identity_or_frame_order_mismatch(
+    tmp_path: Path,
+    batch_session_mutation: Any,
+) -> None:
+    attempt, stream = _attempt(tmp_path)
+    batch_session_id = "batch-slot39-slot40-session"
+    attempt = replace(
+        attempt,
+        batch_session_id=batch_session_id,
+        batch_frame_index=1,
+        batch_frame_total=2,
+        batch_selected_slots=(39, 40),
+    )
+    journal = json.loads(attempt.journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        status="frame-complete",
+        frame_complete=True,
+        unit_released=False,
+        session_reservation_retained=True,
+        batch_session={
+            "frame_index": 1,
+            "frame_total": 2,
+            "selected_slots": [39, 40],
+            "session_id": batch_session_id,
+        },
+    )
+    batch_session_mutation(journal["batch_session"])
+    attempt.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    with pytest.raises(SinglePassIntegrityError, match="batch_session"):
+        _workflow().finalize_attempt(attempt)
+
+    assert stream.is_file()
+
+
+def test_batch_resume_is_bound_to_the_original_parent_session(
+    tmp_path: Path,
+) -> None:
+    attempt, _stream = _attempt(tmp_path)
+    batch_session_id = "batch-slot39-slot40-session"
+    attempt = replace(
+        attempt,
+        batch_session_id=batch_session_id,
+        batch_frame_index=1,
+        batch_frame_total=2,
+        batch_selected_slots=(39, 40),
+    )
+    journal = json.loads(attempt.journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        status="frame-complete",
+        frame_complete=True,
+        unit_released=False,
+        session_reservation_retained=True,
+        batch_session={
+            "frame_index": 1,
+            "frame_total": 2,
+            "selected_slots": [39, 40],
+            "session_id": batch_session_id,
+        },
+    )
+    attempt.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    _workflow().finalize_attempt(attempt)
+
+    mismatched = replace(attempt, batch_session_id="another-batch-session")
+    with pytest.raises(SinglePassIntegrityError, match="identify this attempt"):
+        _workflow().finalize_attempt(mismatched)
 
 
 @pytest.mark.parametrize("verdict", ["smear", "indeterminate"])

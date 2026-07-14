@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from dataclasses import replace
 
@@ -70,6 +71,35 @@ class TestAppController(unittest.TestCase):
         self.controller.capture_worker.cancelled.emit()
 
         cancelled.assert_called_once_with()
+
+    def test_scan_worker_cancelled_is_forwarded(self):
+        cancelled = MagicMock()
+        self.controller.scan_cancelled.connect(cancelled)
+
+        self.controller.scan_worker.cancelled.emit()
+
+        cancelled.assert_called_once_with()
+
+    def test_start_scan_prepares_worker_before_emitting_signals(self):
+        from negpy.desktop.workers.scan_worker import ScanRequest
+
+        events: list[object] = []
+        request = ScanRequest(
+            device_id="coolscan3:test",
+            params=ScanParams(dpi=4_000, depth=16, capture_ir=False),
+            output_folder="/tmp",
+            filename_pattern='scan-{{ "%03d" % seq }}',
+            output_format="TIFF",
+        )
+        controller = SimpleNamespace(
+            scan_worker=SimpleNamespace(prepare_scan=lambda: events.append("prepare")),
+            scan_started=SimpleNamespace(emit=lambda: events.append("started")),
+            scan_requested=SimpleNamespace(emit=lambda value: events.append(("request", value))),
+        )
+
+        AppController.start_scan(controller, request)
+
+        self.assertEqual(events, ["prepare", "started", ("request", request)])
 
     def test_thumbnail_refreshes_on_config_changed_settle(self):
         """Filmstrip thumbnail is re-captured on every settled render whose config

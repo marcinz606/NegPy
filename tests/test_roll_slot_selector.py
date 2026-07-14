@@ -2,9 +2,9 @@
 
 import pytest
 from PyQt6.QtCore import QPersistentModelIndex, QPoint, QRect, Qt
-from PyQt6.QtGui import QColor, QIcon, QKeySequence, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPixmap
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QStyleOptionViewItem
 
 from negpy.desktop.view.widgets.roll_slot_model import RollPreviewSlot, RollSlotModel
 from negpy.desktop.view.widgets.roll_slot_selector import RollSlotSelector
@@ -90,6 +90,58 @@ def test_model_persists_per_slot_boundary_offsets_and_emits_the_role(qapp: QAppl
     assert model.data(second, RollSlotModel.BOUNDARY_OFFSET_ROLE) == 41
     assert model.boundary_offset_for_slot_id(2) == 41
     assert changed_roles == [[RollSlotModel.BOUNDARY_OFFSET_ROLE, int(Qt.ItemDataRole.ToolTipRole)]]
+
+
+def test_model_exposes_one_meter_inset_for_every_thumbnail_and_repaints_all_rows(
+    qapp: QApplication,
+) -> None:
+    model = RollSlotModel(_slots(3))
+    changes: list[tuple[int, int, list[int]]] = []
+    model.dataChanged.connect(lambda first, last, roles: changes.append((first.row(), last.row(), roles)))
+
+    assert all(model.data(model.index(row, 0), RollSlotModel.METER_INSET_PERCENT_ROLE) == 10 for row in range(3))
+
+    model.set_meter_inset_percent(24)
+
+    assert all(model.data(model.index(row, 0), RollSlotModel.METER_INSET_PERCENT_ROLE) == 24 for row in range(3))
+    assert changes == [(0, 2, [RollSlotModel.METER_INSET_PERCENT_ROLE])]
+
+
+def test_thumbnail_delegate_dims_only_outside_the_metering_region(
+    qapp: QApplication,
+) -> None:
+    selector = RollSlotSelector()
+    thumbnail = QPixmap(100, 60)
+    thumbnail.fill(QColor("white"))
+    selector.set_slots([RollPreviewSlot(1, thumbnail)])
+    option = QStyleOptionViewItem()
+    option.rect = QRect(0, 0, 142, 112)
+
+    def painted_values(inset: int) -> tuple[int, int]:
+        selector.set_meter_inset_percent(inset)
+        canvas = QImage(142, 112, QImage.Format.Format_ARGB32)
+        canvas.fill(QColor("black"))
+        painter = QPainter(canvas)
+        selector.grid.itemDelegate().paint(
+            painter,
+            option,
+            selector.model.index(0, 0),
+        )
+        painter.end()
+        outside = canvas.pixelColor(25, 45).value()
+        center = canvas.pixelColor(71, 45).value()
+        return outside, center
+
+    try:
+        whole_outside, whole_center = painted_values(0)
+        inset_outside, inset_center = painted_values(20)
+
+        assert abs(whole_outside - whole_center) <= 2
+        assert inset_outside < inset_center - 30
+        assert inset_center >= whole_center - 2
+        assert thumbnail.toImage().pixelColor(5, 30) == QColor("white")
+    finally:
+        selector.close()
 
 
 def test_all_addressable_slots_remain_visible_selectable_and_unrenumbered(qapp: QApplication) -> None:
@@ -274,11 +326,7 @@ def test_film_spacing_controls_have_practical_hit_areas_and_discoverable_shortcu
         decrease = selector._offset_decrease_shortcut.key().toString(QKeySequence.SequenceFormat.PortableText)
         increase = selector._offset_increase_shortcut.key().toString(QKeySequence.SequenceFormat.PortableText)
         assert (decrease, increase) == ("Alt+Left", "Alt+Right")
-        assigned = {
-            QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText)
-            for key in default_bindings().values()
-            if key
-        }
+        assigned = {QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText) for key in default_bindings().values() if key}
         assert decrease not in assigned
         assert increase not in assigned
     finally:

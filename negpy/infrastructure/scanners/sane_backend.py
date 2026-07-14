@@ -351,6 +351,18 @@ def _detect_adapter_frame_capacity(opt) -> int | None:
     return None
 
 
+def _detect_adapter_frame_control(opt) -> bool:
+    """True when SANE exposes a frame-position control.
+
+    Presence is intentional: Coolscan marks this option inactive and reports
+    a 1..0 constraint while a feeder is parked. Capacity detection must remain
+    conservative, but callers still need to distinguish that state from a
+    device with no frame transport control.
+    """
+
+    return "frame" in opt
+
+
 def _option_is_active(opt, option_name: str) -> bool:
     """True when a SANE option exists and is currently active.
 
@@ -461,6 +473,7 @@ def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
         max_area_mm=_detect_max_area(opt),
         multi_sample=_detect_multi_sample(opt),
         adapter_frame_capacity=_detect_adapter_frame_capacity(opt),
+        adapter_frame_control=_detect_adapter_frame_control(opt),
         auto_exposure=_detect_auto_exposure(opt),
         registered_geometry=_detect_registered_geometry(opt),
         can_eject=_detect_eject(opt),

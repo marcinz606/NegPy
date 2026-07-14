@@ -7,6 +7,11 @@ import json
 from importlib.resources import files
 from pathlib import Path
 
+from .continuation_plan import (
+    CANONICAL_CONTINUATION_PLAN_FILENAME,
+    CANONICAL_CONTINUATION_PLAN_SHA256,
+    canonical_continuation_plan_bytes,
+)
 from .plan import CANONICAL_PLAN_SHA256, canonical_plan_bytes
 
 
@@ -16,11 +21,15 @@ CANONICAL_MANIFEST_FILENAME = "replay-first-rgbi4-manifest.json"
 # These hashes bind the scanner-facing implementation and both wire resources.
 # Update them only after the corresponding hardware-free regression suite passes.
 CAPTURE_BUNDLE_COMPONENT_SHA256 = {
-    "worker.py": "250b64595173d9be5fd2f254d501cd21a56db92eb368c3bc66743c033814d267",
+    "worker.py": "f7fae2ec75b928c76c504a3a1f216c39573ad5dcbd74a139f8e2eaa988657766",
+    "continuation_plan.py": "bfdebfaa28075c708f3e8ef070083edce36a28b497bba622173cbb6d1466a282",
     "meter.py": "a1ffc58195cfe5335b44e154b42f6e9ece7fd7ad647975c1c0f213b67651c81e",
     "roll_index.py": "5cec9535322847e34aa980ace0f91f589579486464c68be643bd9910ae90d252",
     "window.py": "5edd64a2f55cb3c968bb380d548d0d9002b41b26f5f4713e5d9b889910d5ed4f",
     "data/replay-first-rgbi4-plan.jsonl": CANONICAL_PLAN_SHA256,
+    f"data/{CANONICAL_CONTINUATION_PLAN_FILENAME}": (
+        CANONICAL_CONTINUATION_PLAN_SHA256
+    ),
     "data/replay-first-rgbi4-manifest.json": "a87faad5aa4cb458d6044cc218ab4fc13ce84f03d5355e7ea47c04c76f290e5f",
 }
 CAPTURE_WORKER_SHA256 = CAPTURE_BUNDLE_COMPONENT_SHA256["worker.py"]
@@ -77,6 +86,11 @@ def verify_capture_bundle(*, require_python_sources: bool) -> str:
 
     if _sha256(canonical_plan_bytes()) != CANONICAL_PLAN_SHA256:
         raise CaptureBundleIntegrityError("canonical capture plan changed")
+    if (
+        _sha256(canonical_continuation_plan_bytes())
+        != CANONICAL_CONTINUATION_PLAN_SHA256
+    ):
+        raise CaptureBundleIntegrityError("canonical continuation plan changed")
     canonical_manifest_bytes()
     if require_python_sources:
         package_root = Path(__file__).resolve().parent

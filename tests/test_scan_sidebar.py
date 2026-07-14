@@ -21,14 +21,15 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QFormLayout
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState
 from negpy.desktop.view.sidebar.scan import ScanSidebar
 from negpy.desktop.view.widgets.roll_slot_model import RollSlotModel
 from negpy.desktop.workers.ls5000_roll_worker import (
+    RollOperation,
     RollPreviewRequest,
     RollScanRequest,
 )
@@ -47,7 +48,7 @@ if not QApplication.instance():
 FULL_CAPS = ScannerCapabilities(
     ir_channel=True,
     supported_dpi=(1000, 4000),
-    supported_depths=(16,),
+    supported_depths=(8, 16),
     sources=(ScanMode.NEGATIVE,),
     max_area_mm=(36.0, 24.0),
     multi_sample=True,
@@ -55,6 +56,7 @@ FULL_CAPS = ScannerCapabilities(
     auto_exposure=True,
     registered_geometry=True,
     can_eject=True,
+    adapter_frame_control=True,
 )
 FULL_DEVICE = ScannerDevice(id="coolscan3:usb:libusb:001:007", vendor="Nikon", model="LS-5000", capabilities=FULL_CAPS)
 
@@ -100,12 +102,21 @@ STOCK_SA21_CAPS = ScannerCapabilities(
     adapter_frame_capacity=6,
     auto_exposure=True,
     registered_geometry=True,
+    adapter_frame_control=True,
 )
 STOCK_SA21_DEVICE = ScannerDevice(
     id="coolscan3:usb:libusb:001:011",
     vendor="Nikon",
     model="LS-5000",
     capabilities=STOCK_SA21_CAPS,
+)
+
+PARKED_SA30_CAPS = replace(FULL_CAPS, adapter_frame_capacity=None)
+PARKED_SA30_DEVICE = ScannerDevice(
+    id="coolscan3:usb:libusb:001:012",
+    vendor="Nikon",
+    model="LS-5000",
+    capabilities=PARKED_SA30_CAPS,
 )
 
 
@@ -171,6 +182,665 @@ def _select_device(sidebar: ScanSidebar, device: ScannerDevice) -> None:
     sidebar._update_device_caps()
 
 
+class _LightweightScanController(QObject):
+    """Signal-compatible controller for pure ScanSidebar state tests.
+
+    Unlike AppController, this fixture owns no worker threads or GPU-backed
+    services. Tests that exercise controller orchestration keep using the real
+    integration fixture below.
+    """
+
+    scan_devices_ready = pyqtSignal(list)
+    scan_progress = pyqtSignal(float)
+    scan_finished = pyqtSignal(str)
+    scan_cancelled = pyqtSignal()
+    scan_error = pyqtSignal(str)
+    scan_ejected = pyqtSignal(bool)
+    scan_eject_error = pyqtSignal(str)
+    ls5000_roll_preview_ready = pyqtSignal(str, object)
+    ls5000_roll_preview_invalidated = pyqtSignal()
+    ls5000_roll_thumbnail_ready = pyqtSignal(int, int, object)
+    ls5000_roll_progress = pyqtSignal(object)
+    ls5000_roll_finished = pyqtSignal(object)
+    ls5000_roll_error = pyqtSignal(object)
+
+    def __init__(self) -> None:
+        super().__init__()
+        repo = MagicMock()
+        repo.get_global_setting.return_value = {}
+        self.session = SimpleNamespace(repo=repo)
+        self.preview_requests: list[RollPreviewRequest] = []
+        self.scan_requests: list[RollScanRequest] = []
+        self.preview_invalidations = 0
+        self.cancel_calls = 0
+
+    def reload_ls5000_roll_thumbnail(self, _slot_id: int, _offset: int) -> None:
+        pass
+
+    def invalidate_ls5000_roll_preview(self) -> None:
+        self.preview_invalidations += 1
+
+    def start_ls5000_roll_preview(self, request: RollPreviewRequest) -> None:
+        self.preview_requests.append(request)
+
+    def start_ls5000_roll_scan(self, request: RollScanRequest) -> None:
+        self.scan_requests.append(request)
+
+    def cancel_scan(self) -> None:
+        self.cancel_calls += 1
+
+
+class LightweightScanSidebarTestCase(unittest.TestCase):
+    """Real sidebar with signals, but no AppController threads or GPU state."""
+
+    def setUp(self):
+        self.controller = _LightweightScanController()
+        self.sidebar = ScanSidebar(self.controller)
+
+    def tearDown(self):
+        self.sidebar.close()
+        self.sidebar.deleteLater()
+        self.controller.deleteLater()
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+
+
+class TestLightweightParkedRollFeeder(LightweightScanSidebarTestCase):
+    def test_unknown_capacity_is_blocked_until_user_confirms_40_slot_adapter(self):
+        _select_device(self.sidebar, PARKED_SA30_DEVICE)
+
+        self.assertFalse(self.sidebar.sa30_compatible_check.isHidden())
+        self.assertFalse(self.sidebar.sa30_compatible_check.isChecked())
+        self.assertTrue(self.sidebar.roll_preview_btn.isHidden())
+        self.assertTrue(self.sidebar.roll_quality_widget.isHidden())
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Feeder parked or empty · Confirm 40-slot adapter",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "warning",
+        )
+
+    def test_opt_in_persists_and_preview_request_uses_effective_40_slots(self):
+        _select_device(self.sidebar, PARKED_SA30_DEVICE)
+        repo = self.controller.session.repo
+        repo.save_global_setting.reset_mock()
+
+        self.sidebar.sa30_compatible_check.setChecked(True)
+
+        self.assertTrue(self.sidebar.settings.sa30_compatible_roll_feeder)
+        repo.save_global_setting.assert_called()
+        persisted = repo.save_global_setting.call_args.args[1]
+        self.assertTrue(persisted["sa30_compatible_roll_feeder"])
+        self.assertFalse(self.sidebar.roll_preview_btn.isHidden())
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Feeder parked or empty · Preview can try to re-arm",
+        )
+
+        self.sidebar._on_roll_preview()
+
+        self.assertEqual(len(self.controller.preview_requests), 1)
+        self.assertEqual(
+            self.controller.preview_requests[0].adapter_frame_capacity,
+            40,
+        )
+        self.assertFalse(self.sidebar.sa30_compatible_check.isEnabled())
+
+    def test_malformed_persisted_profile_values_do_not_enable_40_slot_mode(self):
+        for malformed in (1, "true"):
+            with self.subTest(malformed=malformed):
+                controller = _LightweightScanController()
+                controller.session.repo.get_global_setting.return_value = {
+                    "dpi": 1_000,
+                    "output_folder": "/tmp/kept-setting",
+                    "sa30_compatible_roll_feeder": malformed,
+                }
+                sidebar = ScanSidebar(controller)
+                try:
+                    _select_device(sidebar, PARKED_SA30_DEVICE)
+
+                    self.assertFalse(sidebar.settings.sa30_compatible_roll_feeder)
+                    self.assertEqual(sidebar.settings.dpi, 1_000)
+                    self.assertEqual(
+                        sidebar.settings.output_folder,
+                        "/tmp/kept-setting",
+                    )
+                    self.assertIsNone(sidebar._effective_roll_capacity(PARKED_SA30_DEVICE))
+                    self.assertTrue(sidebar.roll_preview_btn.isHidden())
+                finally:
+                    sidebar.close()
+                    sidebar.deleteLater()
+                    controller.deleteLater()
+
+    def test_live_40_slot_capacity_is_authoritative_without_profile_prompt(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        self.assertTrue(self.sidebar.sa30_compatible_check.isHidden())
+        self.assertFalse(self.sidebar.roll_preview_btn.isHidden())
+        self.assertEqual(
+            self.sidebar._effective_roll_capacity(FULL_DEVICE),
+            40,
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Roll feeder ready · 40 slots",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "ready",
+        )
+
+    def test_live_6_slot_capacity_blocks_roll_even_with_saved_40_slot_profile(self):
+        self.sidebar.settings = replace(
+            self.sidebar.settings,
+            sa30_compatible_roll_feeder=True,
+        )
+
+        _select_device(self.sidebar, STOCK_SA21_DEVICE)
+
+        self.assertTrue(self.sidebar.sa30_compatible_check.isHidden())
+        self.assertTrue(self.sidebar.sa30_compatible_check.isChecked())
+        self.assertTrue(self.sidebar.roll_preview_btn.isHidden())
+        self.assertIsNone(self.sidebar._effective_roll_capacity(STOCK_SA21_DEVICE))
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Feeder ready · 6 slots",
+        )
+
+        self.sidebar._on_roll_preview()
+
+        self.assertEqual(self.controller.preview_requests, [])
+
+    def test_non_ls5000_never_uses_saved_40_slot_profile(self):
+        self.sidebar.settings = replace(
+            self.sidebar.settings,
+            sa30_compatible_roll_feeder=True,
+        )
+        non_ls5000_with_unknown_frame_control = ScannerDevice(
+            id=MINIMAL_DEVICE.id,
+            vendor=MINIMAL_DEVICE.vendor,
+            model=MINIMAL_DEVICE.model,
+            capabilities=replace(
+                MINIMAL_CAPS,
+                adapter_frame_control=True,
+            ),
+        )
+
+        _select_device(self.sidebar, non_ls5000_with_unknown_frame_control)
+
+        self.assertTrue(self.sidebar.sa30_compatible_check.isHidden())
+        self.assertTrue(self.sidebar.roll_preview_btn.isHidden())
+        self.assertIsNone(self.sidebar._effective_roll_capacity(non_ls5000_with_unknown_frame_control))
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Ready",
+        )
+
+    def test_opted_in_selected_scan_request_uses_effective_40_slots(self):
+        _select_device(self.sidebar, PARKED_SA30_DEVICE)
+        self.sidebar.sa30_compatible_check.setChecked(True)
+        self.sidebar._on_roll_preview_ready(
+            "parked-preview-token",
+            _roll_preview_session(3),
+        )
+        self.sidebar.folder_edit.setText("/tmp/negpy-parked-roll")
+
+        self.sidebar._on_roll_scan_selected([2])
+
+        self.assertEqual(len(self.controller.scan_requests), 1)
+        request = self.controller.scan_requests[0]
+        self.assertEqual(request.preview_token, "parked-preview-token")
+        self.assertEqual(request.adapter_frame_capacity, 40)
+
+
+class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
+    def test_single_frame_progress_is_visible_beside_device(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar.frame_spin.setValue(17)
+
+        self.sidebar.set_scanning(True)
+        self.assertEqual(self.sidebar._active_scan_device_id, FULL_DEVICE.id)
+        self.assertEqual(self.sidebar._active_scan_frame, 17)
+        self.assertFalse(self.sidebar.device_combo.isEnabled())
+        self.assertFalse(self.sidebar.refresh_btn.isEnabled())
+        for widget in (
+            self.sidebar.dpi_combo,
+            self.sidebar.depth_combo,
+            self.sidebar.ir_check,
+            self.sidebar.frame_spin,
+            self.sidebar.autofocus_check,
+            self.sidebar.ae_check,
+            self.sidebar.samples_combo,
+            self.sidebar.archival_split_check,
+            self.sidebar.fmt_combo,
+            self.sidebar.folder_edit,
+            self.sidebar.browse_btn,
+            self.sidebar.pattern_edit,
+            self.sidebar.registered_geometry_check,
+            self.sidebar.subframe_spin,
+            self.sidebar.br_y_spin,
+            self.sidebar.load_registration_btn,
+        ):
+            self.assertFalse(widget.isEnabled())
+
+        # Programmatic widget changes must not rename the request already in
+        # flight. Disabled controls also prevent this through the UI.
+        self.sidebar.frame_spin.setValue(18)
+        self.sidebar._on_scan_progress(0.42)
+
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Scanning frame 1 of 1 · Slot 17 · 42%",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "active",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.accessibleName(),
+            "Scanner status: Scanning frame 1 of 1 · Slot 17 · 42%",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.accessibleDescription(),
+            "Scanning frame 1 of 1 · Slot 17 · 42%",
+        )
+
+    def test_single_frame_cancel_stays_visible_until_terminal_signal(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar.set_scanning(True)
+
+        self.sidebar._on_scan()
+
+        self.assertTrue(self.sidebar._scanning)
+        self.assertTrue(self.sidebar._scan_cancel_pending)
+        self.assertEqual(self.controller.cancel_calls, 1)
+        self.assertFalse(self.sidebar.scan_btn.isEnabled())
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Stopping the current frame…",
+        )
+
+        # SANE can only observe Stop after its active blocking read returns.
+        # Progress from that read may still arrive, but must not replace the
+        # user's visible stopping state.
+        self.controller.scan_progress.emit(0.51)
+
+        self.assertEqual(self.sidebar.progress_bar.value(), 51)
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Stopping the current frame…",
+        )
+        self.sidebar._on_scan()
+        self.assertEqual(self.controller.cancel_calls, 1)
+
+    def test_single_frame_cancelled_restores_controls_and_ignores_stale_progress(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar.set_scanning(True)
+        self.sidebar._on_scan()
+
+        self.controller.scan_cancelled.emit()
+
+        self.assertFalse(self.sidebar._scanning)
+        self.assertFalse(self.sidebar._scan_cancel_pending)
+        self.assertEqual(self.sidebar.scan_btn.text(), " Scan")
+        self.assertTrue(self.sidebar.scan_btn.isEnabled())
+        self.assertTrue(self.sidebar.progress_bar.isHidden())
+        self.assertTrue(self.sidebar.eject_btn.isEnabled())
+        self.assertTrue(self.sidebar.roll_preview_btn.isEnabled())
+        self.assertTrue(self.sidebar.roll_slot_selector.isEnabled())
+        self.assertTrue(self.sidebar.device_combo.isEnabled())
+        self.assertTrue(self.sidebar.refresh_btn.isEnabled())
+        self.assertTrue(self.sidebar.dpi_combo.isEnabled())
+        self.assertTrue(self.sidebar.depth_combo.isEnabled())
+        self.assertTrue(self.sidebar.frame_spin.isEnabled())
+        self.assertTrue(self.sidebar.autofocus_check.isEnabled())
+        self.assertTrue(self.sidebar.ae_check.isEnabled())
+        self.assertTrue(self.sidebar.archival_split_check.isEnabled())
+        self.assertTrue(self.sidebar.ir_check.isEnabled())
+        self.assertTrue(self.sidebar.samples_combo.isEnabled())
+        self.assertTrue(self.sidebar.fmt_combo.isEnabled())
+        self.assertTrue(self.sidebar.folder_edit.isEnabled())
+        self.assertTrue(self.sidebar.browse_btn.isEnabled())
+        self.assertTrue(self.sidebar.pattern_edit.isEnabled())
+        self.assertTrue(self.sidebar.registered_geometry_check.isEnabled())
+        self.assertFalse(self.sidebar.subframe_spin.isEnabled())
+        self.assertFalse(self.sidebar.br_y_spin.isEnabled())
+        self.assertTrue(self.sidebar.load_registration_btn.isEnabled())
+        self.assertIsNone(self.sidebar._active_scan_device_id)
+        self.assertIsNone(self.sidebar._active_scan_frame)
+        self.assertEqual(self.sidebar.status_label.text(), "Scan stopped.")
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Scan stopped",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "ready",
+        )
+
+        self.controller.scan_progress.emit(0.75)
+
+        self.assertTrue(self.sidebar.progress_bar.isHidden())
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Scan stopped",
+        )
+
+    def test_single_frame_scan_blocks_both_roll_launch_paths(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar.set_scanning(True)
+
+        self.assertFalse(self.sidebar.roll_preview_btn.isEnabled())
+        self.assertFalse(self.sidebar.roll_slot_selector.isEnabled())
+
+        self.sidebar._on_roll_preview()
+        self.sidebar._on_roll_scan_selected([2])
+
+        self.assertEqual(self.controller.preview_requests, [])
+        self.assertEqual(self.controller.scan_requests, [])
+        self.assertFalse(self.sidebar._roll_scanning)
+
+    def test_conventional_controls_restore_minimal_device_capabilities(self):
+        _select_device(self.sidebar, MINIMAL_DEVICE)
+
+        self.sidebar.set_scanning(True)
+        self.sidebar.set_scanning(False)
+
+        self.assertTrue(self.sidebar.device_combo.isEnabled())
+        self.assertTrue(self.sidebar.refresh_btn.isEnabled())
+        self.assertTrue(self.sidebar.dpi_combo.isEnabled())
+        self.assertTrue(self.sidebar.depth_combo.isEnabled())
+        self.assertTrue(self.sidebar.autofocus_check.isEnabled())
+        self.assertTrue(self.sidebar.fmt_combo.isEnabled())
+        self.assertFalse(self.sidebar.ir_check.isEnabled())
+        self.assertFalse(self.sidebar.frame_spin.isEnabled())
+        self.assertFalse(self.sidebar.ae_check.isEnabled())
+        self.assertFalse(self.sidebar.samples_combo.isEnabled())
+        self.assertFalse(self.sidebar.archival_split_check.isEnabled())
+        self.assertFalse(self.sidebar.registered_geometry_check.isEnabled())
+
+    def test_conventional_cancel_signal_does_not_end_active_roll_preview(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview()
+        self.assertTrue(self.sidebar._roll_scanning)
+
+        self.controller.scan_cancelled.emit()
+
+        self.assertTrue(self.sidebar._roll_scanning)
+        self.assertFalse(self.sidebar._scanning)
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Making previews · Reading the whole roll",
+        )
+
+    def test_scanner_status_sits_below_device_and_reports_ready(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        layout = self.sidebar.layout()
+        self.assertLess(
+            layout.indexOf(self.sidebar.device_status_label),
+            layout.indexOf(self.sidebar.frame_label),
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · Roll feeder ready · 40 slots",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.accessibleName(),
+            "Scanner status: Connected · Roll feeder ready · 40 slots",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.accessibleDescription(),
+            "Connected · Roll feeder ready · 40 slots",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "ready",
+        )
+
+    def test_scanner_status_reports_no_detected_device(self):
+        self.sidebar._on_devices_ready([])
+
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Disconnected · No scanner detected",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.accessibleName(),
+            "Scanner status: Disconnected · No scanner detected",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.accessibleDescription(),
+            "Disconnected · No scanner detected",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "error",
+        )
+
+    def test_roll_workflow_separates_thumbnail_and_final_scan_quality(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        self.assertFalse(self.sidebar.roll_quality_widget.isHidden())
+        self.assertEqual(
+            self.sidebar.roll_preview_resolution_box.text(),
+            "97 dpi (thumbnails only)",
+        )
+        self.assertEqual(
+            self.sidebar.roll_scan_resolution_box.text(),
+            "4000 dpi (Best quality)",
+        )
+        self.assertEqual(
+            self.sidebar.roll_master_format_box.text(),
+            "16-bit TIFF (linear negative)",
+        )
+
+    def test_roll_preview_meter_inset_is_clear_bounded_and_persisted(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        repo = self.controller.session.repo
+        repo.save_global_setting.reset_mock()
+
+        field = self.sidebar.preview_meter_inset_spin
+        form = self.sidebar.roll_quality_widget.layout()
+        self.assertIsInstance(form, QFormLayout)
+        self.assertEqual(form.labelForField(field).text(), "Preview meter inset")
+        self.assertEqual((field.minimum(), field.maximum(), field.value()), (0, 30, 10))
+        self.assertEqual(field.suffix(), "% per edge")
+        self.assertIn("brightness", field.toolTip())
+        self.assertIn("whole negative", field.toolTip())
+        self.assertIn("Final scans are unaffected", field.toolTip())
+        self.assertIn("10% matches full-scan metering", field.toolTip())
+
+        field.setValue(17)
+
+        self.assertEqual(self.sidebar.settings.preview_meter_inset_percent, 17)
+        repo.save_global_setting.assert_called()
+        persisted = repo.save_global_setting.call_args.args[1]
+        self.assertEqual(persisted["preview_meter_inset_percent"], 17)
+
+    def test_changing_preview_meter_inset_rerenders_every_loaded_slot_offline(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        interior_ramp = np.linspace(20_000, 40_000, 80, dtype=np.uint16)
+        raw = np.full((100, 100, 3), 65_535, dtype=np.uint16)
+        raw[10:90, 10:90, :] = interior_ramp[:, None, None]
+        session = SimpleNamespace(
+            slots=tuple(
+                SimpleNamespace(
+                    slot_id=slot_id,
+                    thumbnail=raw,
+                    warnings=(),
+                    boundary_offset_rows=0,
+                )
+                for slot_id in (1, 2)
+            )
+        )
+        self.sidebar._on_roll_preview_ready("preview-token", session)
+        self.sidebar.roll_slot_selector.set_selected_slot_ids([2])
+        self.controller.reload_ls5000_roll_thumbnail = MagicMock()
+
+        def center_red(row: int) -> int:
+            index = self.sidebar.roll_slot_selector.model.index(row, 0)
+            icon = self.sidebar.roll_slot_selector.model.data(
+                index,
+                Qt.ItemDataRole.DecorationRole,
+            )
+            image = icon.pixmap(100, 100).toImage()
+            return image.pixelColor(image.width() // 2, image.height() // 2).red()
+
+        before = [center_red(row) for row in range(2)]
+
+        self.sidebar.preview_meter_inset_spin.setValue(0)
+        QApplication.processEvents()
+
+        after = [center_red(row) for row in range(2)]
+        self.assertTrue(all(new > old + 40 for old, new in zip(before, after, strict=True)))
+        self.assertTrue(
+            all(
+                self.sidebar.roll_slot_selector.model.data(
+                    self.sidebar.roll_slot_selector.model.index(row, 0),
+                    RollSlotModel.METER_INSET_PERCENT_ROLE,
+                )
+                == 0
+                for row in range(2)
+            )
+        )
+        self.assertEqual(self.sidebar.roll_slot_selector.selected_slot_ids(), [2])
+        self.controller.reload_ls5000_roll_thumbnail.assert_not_called()
+
+    def test_single_frame_format_does_not_claim_to_control_inversion(self):
+        dpi_label = self.sidebar.form.labelForField(self.sidebar.dpi_combo)
+        format_label = self.sidebar.form.labelForField(self.sidebar.fmt_combo)
+
+        self.assertEqual(dpi_label.text(), "Single-frame DPI")
+        self.assertEqual(format_label.text(), "Single-frame format")
+        self.assertIn("same scanner-linear capture", self.sidebar.format_hint.text())
+        self.assertIn("does not control inversion", self.sidebar.format_hint.text())
+        self.assertNotIn("negative data", self.sidebar.format_hint.text())
+
+    def test_roll_progress_reports_selected_frame_and_slot_at_device_name(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        self.sidebar._on_roll_progress(
+            SimpleNamespace(
+                completed=1,
+                total=5,
+                message="Scanning frame 2 of 5 · Slot 17",
+                operation=RollOperation.FULL_SCAN,
+            )
+        )
+
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Scanning frame 2 of 5 · Slot 17",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "active",
+        )
+
+    def test_roll_bw_progress_includes_frame_slot_and_percent(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        self.sidebar._on_roll_progress(
+            SimpleNamespace(
+                completed=2,
+                total=4,
+                message="Scanning frame 3 of 4 · Slot 07 · 63%",
+                operation=RollOperation.FULL_SCAN,
+            )
+        )
+
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Scanning frame 3 of 4 · Slot 07 · 63%",
+        )
+
+    def test_preview_completion_state_uses_typed_operation_not_message_text(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        self.sidebar._on_roll_progress(
+            SimpleNamespace(
+                completed=1,
+                total=1,
+                message="All thumbnail slots are ready",
+                operation=RollOperation.PREVIEW,
+            )
+        )
+
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● All thumbnail slots are ready",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "ready",
+        )
+
+    def test_roll_completion_and_error_are_visible_at_device_name(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        self.sidebar._on_roll_finished(
+            SimpleNamespace(
+                rgb_paths=("frame-01.tif", "frame-02.tif"),
+                stopped=False,
+                operation=RollOperation.FULL_SCAN,
+            )
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Complete · 2 frames ready",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "ready",
+        )
+
+        self.sidebar._on_roll_error(
+            SimpleNamespace(
+                message="USB endpoint stalled",
+                recovery_required=True,
+            )
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Error · Power-cycle required",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "error",
+        )
+
+    def test_preview_cannot_be_stopped_mid_transaction_and_reports_preview_stop(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+
+        self.sidebar._on_roll_preview()
+
+        self.assertTrue(self.sidebar._roll_scanning)
+        self.assertTrue(self.sidebar.roll_stop_btn.isHidden())
+        self.assertFalse(self.sidebar.roll_stop_btn.isEnabled())
+        self.sidebar._on_roll_stop()
+        self.assertEqual(self.controller.cancel_calls, 0)
+
+        self.sidebar._on_roll_finished(
+            SimpleNamespace(
+                rgb_paths=(),
+                stopped=True,
+                operation=RollOperation.PREVIEW,
+            )
+        )
+
+        self.assertFalse(self.sidebar._roll_scanning)
+        self.assertIsNone(self.sidebar._roll_operation)
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Preview stopped · No thumbnails loaded",
+        )
+        self.assertIn("preview stopped", self.sidebar.roll_status_label.text().lower())
+
+
 class ScanSidebarTestCase(unittest.TestCase):
     """Base class: real AppController + real ScanSidebar, offscreen, no device I/O."""
 
@@ -216,6 +886,7 @@ class TestNewControlsInstantiate(ScanSidebarTestCase):
         # _connect_signals() already ran in setUp via __init__; a bad signal/slot
         # signature would have raised there. Emitting confirms the real
         # pyqtSignal -> slot binding is live (not a MagicMock no-op).
+        self.sidebar.set_scanning(True)
         self.sidebar.controller.scan_progress.emit(0.5)
         self.assertEqual(self.sidebar.progress_bar.value(), 50)
 
@@ -244,6 +915,15 @@ class TestCapabilityGating(ScanSidebarTestCase):
             "4000 dpi (Best quality)",
         )
 
+    def test_device_defaults_to_16_bit_with_best_quality_label(self):
+        _select_device(self.sidebar, MINIMAL_DEVICE)
+
+        self.assertEqual(self.sidebar.depth_combo.currentData(), 16)
+        self.assertEqual(
+            self.sidebar.depth_combo.currentText(),
+            "16-bit (Best quality)",
+        )
+
     def test_device_best_quality_overrides_saved_lower_dpi(self):
         self.sidebar._settings = replace(self.sidebar._settings, dpi=1000)
 
@@ -266,6 +946,7 @@ class TestCapabilityGating(ScanSidebarTestCase):
         # Pre-existing controls unaffected by the new gating.
         self.assertFalse(self.sidebar.ir_check.isEnabled())
         self.assertTrue(self.sidebar.dpi_combo.isEnabled())
+        self.assertTrue(self.sidebar.roll_quality_widget.isHidden())
 
     def test_switching_to_a_minimal_device_clears_stale_registration(self):
         """Registered geometry is frame/device-specific; it must never
@@ -302,16 +983,31 @@ class TestCapabilityGating(ScanSidebarTestCase):
 
 
 class TestArchivalSplitInterlock(ScanSidebarTestCase):
-    def test_checking_archival_forces_and_locks_ir_and_samples(self):
+    def test_checking_archival_forces_and_locks_ir_samples_and_16_bit_depth(self):
         _select_device(self.sidebar, FULL_DEVICE)
         self.sidebar.ir_check.setChecked(False)
+        self.sidebar.depth_combo.setCurrentIndex(self.sidebar.depth_combo.findData(8))
 
         self.sidebar.archival_split_check.setChecked(True)
 
         self.assertTrue(self.sidebar.ir_check.isChecked())
         self.assertEqual(self.sidebar.samples_combo.currentData(), 4)
+        self.assertEqual(self.sidebar.depth_combo.currentData(), 16)
+        self.assertEqual(
+            self.sidebar.depth_combo.currentText(),
+            "16-bit (Best quality)",
+        )
         self.assertFalse(self.sidebar.ir_check.isEnabled())
         self.assertFalse(self.sidebar.samples_combo.isEnabled())
+        self.assertFalse(self.sidebar.depth_combo.isEnabled())
+        self.assertEqual(self.sidebar.settings.depth, 16)
+        persisted = self.controller.session.repo.save_global_setting.call_args.args[1]
+        self.assertEqual(persisted["depth"], 16)
+
+        self.sidebar.depth_combo.setCurrentIndex(self.sidebar.depth_combo.findData(8))
+
+        self.assertEqual(self.sidebar.depth_combo.currentData(), 16)
+        self.assertEqual(self.sidebar.settings.depth, 16)
 
     def test_unchecking_archival_restores_capability_derived_enabled_state(self):
         _select_device(self.sidebar, FULL_DEVICE)
@@ -321,6 +1017,7 @@ class TestArchivalSplitInterlock(ScanSidebarTestCase):
 
         self.assertTrue(self.sidebar.ir_check.isEnabled())
         self.assertTrue(self.sidebar.samples_combo.isEnabled())
+        self.assertTrue(self.sidebar.depth_combo.isEnabled())
 
     def test_archival_unavailable_on_minimal_device(self):
         _select_device(self.sidebar, MINIMAL_DEVICE)
@@ -423,6 +1120,7 @@ class TestScanParamsAssembly(ScanSidebarTestCase):
         self.sidebar._on_scan()
 
         params = captured["req"].params
+        self.assertEqual(params.depth, 16)
         self.assertTrue(params.capture_ir)
         self.assertEqual(params.samples_per_scan, 4)
         self.assertTrue(params.auto_exposure)
@@ -476,7 +1174,17 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
         )
         self.assertTrue(self.sidebar._roll_scanning)
         self.assertFalse(self.sidebar.roll_preview_btn.isEnabled())
+        self.assertTrue(self.sidebar.roll_stop_btn.isHidden())
+        self.assertFalse(self.sidebar.roll_stop_btn.isEnabled())
         self.assertIn("whole roll", self.sidebar.roll_status_label.text())
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Making previews · Reading the whole roll",
+        )
+        self.assertEqual(
+            self.sidebar.device_status_label.property("scannerState"),
+            "active",
+        )
 
     def test_decoded_preview_displays_every_fixed_scanner_slot(self):
         _select_device(self.sidebar, FULL_DEVICE)
@@ -502,6 +1210,10 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
         )
         self.assertIn("Loaded 40 scanner slots", self.sidebar.roll_status_label.text())
         self.assertFalse(self.sidebar._roll_scanning)
+        self.assertEqual(
+            self.sidebar.device_status_label.text(),
+            "● Connected · 40 previews ready",
+        )
 
     def test_refresh_clears_bound_thumbnails_and_invalidates_worker(self):
         _select_device(self.sidebar, FULL_DEVICE)
@@ -603,9 +1315,31 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
             -23,
         )
         self.assertEqual(reloads, [(3, -23)])
-        replacement = np.full((4, 96, 3), 12_345, dtype=np.uint16)
+        replacement = np.full((100, 100, 3), 65_535, dtype=np.uint16)
+        replacement[10:90, 10:90, :] = np.linspace(
+            20_000,
+            40_000,
+            80,
+            dtype=np.uint16,
+        )[:, None, None]
         self.sidebar._on_roll_thumbnail_ready(3, -23, replacement)
         self.assertTrue(self.sidebar.roll_slot_selector.scan_button.isEnabled())
+
+        index = self.sidebar.roll_slot_selector.model.index(2, 0)
+        icon_before = self.sidebar.roll_slot_selector.model.data(
+            index,
+            Qt.ItemDataRole.DecorationRole,
+        )
+        before = icon_before.pixmap(100, 100).toImage().pixelColor(50, 50).red()
+
+        self.sidebar.preview_meter_inset_spin.setValue(0)
+
+        icon_after = self.sidebar.roll_slot_selector.model.data(
+            index,
+            Qt.ItemDataRole.DecorationRole,
+        )
+        after = icon_after.pixmap(100, 100).toImage().pixelColor(50, 50).red()
+        self.assertGreater(after, before + 40)
 
     def test_color_negative_request_keeps_offsets_and_selects_rgbi_route(self):
         _select_device(self.sidebar, FULL_DEVICE)
@@ -636,6 +1370,8 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
             Path(request.attempts_root),
             Path(request.output_folder) / ".negpy-ls5000" / "attempts",
         )
+        self.assertFalse(self.sidebar.roll_stop_btn.isHidden())
+        self.assertTrue(self.sidebar.roll_stop_btn.isEnabled())
         recipe = self.sidebar.roll_slot_selector.scan_material_status_label.text()
         self.assertIn("4000 dpi", recipe)
         self.assertIn("16-bit", recipe)

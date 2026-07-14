@@ -28,6 +28,9 @@ from negpy.infrastructure.scanners.ls5000_single_pass.packed import (
     WIDTH,
     decode_full_records,
 )
+from negpy.infrastructure.scanners.ls5000_single_pass.continuation_plan import (
+    CANONICAL_CONTINUATION_PLAN_SHA256,
+)
 from negpy.infrastructure.scanners.result import ScanResult, SplitIrAlignment
 from negpy.infrastructure.tiff_contract import has_linear_scanner_rgb_marker
 from negpy.services.scanning.quality import (
@@ -92,23 +95,38 @@ class SinglePassSession:
 
 
 class _AttemptPathsLike(Protocol):
-    directory: Path
-    output: Path
-    journal: Path
+    @property
+    def directory(self) -> Path: ...
+
+    @property
+    def output(self) -> Path: ...
+
+    @property
+    def journal(self) -> Path: ...
 
 
 class _AttemptRequestLike(Protocol):
-    selected_slot: int | None
-    boundary_offset_rows: int
-    mode: object
+    @property
+    def selected_slot(self) -> int | None: ...
+
+    @property
+    def boundary_offset_rows(self) -> int: ...
+
+    @property
+    def mode(self) -> object: ...
 
 
 class CaptureAttemptResultLike(Protocol):
     """Structural seam for ``capture_process.CaptureAttemptResult``."""
 
-    paths: _AttemptPathsLike
-    request: _AttemptRequestLike
-    returncode: int
+    @property
+    def paths(self) -> _AttemptPathsLike: ...
+
+    @property
+    def request(self) -> _AttemptRequestLike: ...
+
+    @property
+    def returncode(self) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -123,6 +141,10 @@ class SinglePassAttempt:
     selected_slot: int
     worker_returncode: int
     boundary_offset_rows: int = 0
+    batch_session_id: str | None = None
+    batch_frame_index: int | None = None
+    batch_frame_total: int | None = None
+    batch_selected_slots: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if not _SAFE_ID.fullmatch(self.attempt_id):
@@ -150,6 +172,35 @@ class SinglePassAttempt:
                 f"slot {self.selected_slot} boundary offset must be an integer "
                 f"in {minimum_offset}..144"
             )
+        object.__setattr__(self, "batch_selected_slots", tuple(self.batch_selected_slots))
+        batch_values = (
+            self.batch_session_id,
+            self.batch_frame_index,
+            self.batch_frame_total,
+        )
+        if all(value is None for value in batch_values) and not self.batch_selected_slots:
+            return
+        if any(value is None for value in batch_values):
+            raise ValueError("batch attempt identity must be complete or absent")
+        if not isinstance(self.batch_session_id, str) or not _SAFE_ID.fullmatch(
+            self.batch_session_id
+        ):
+            raise ValueError("batch_session_id must be filesystem-safe")
+        if (
+            type(self.batch_frame_index) is not int
+            or type(self.batch_frame_total) is not int
+            or not 1 <= self.batch_frame_index <= self.batch_frame_total
+        ):
+            raise ValueError("batch frame index must be inside the batch total")
+        if (
+            len(self.batch_selected_slots) != self.batch_frame_total
+            or tuple(sorted(set(self.batch_selected_slots)))
+            != self.batch_selected_slots
+            or any(type(slot) is not int or not 1 <= slot <= 40 for slot in self.batch_selected_slots)
+        ):
+            raise ValueError("batch selected slots must be ordered, unique, and complete")
+        if self.batch_selected_slots[self.batch_frame_index - 1] != self.selected_slot:
+            raise ValueError("batch frame order does not identify this selected slot")
 
     @classmethod
     def from_capture_result(
@@ -174,6 +225,10 @@ class SinglePassAttempt:
             selected_slot=slot,
             worker_returncode=result.returncode,
             boundary_offset_rows=result.request.boundary_offset_rows,
+            batch_session_id=getattr(result, "batch_session_id", None),
+            batch_frame_index=getattr(result, "batch_frame_index", None),
+            batch_frame_total=getattr(result, "batch_frame_total", None),
+            batch_selected_slots=getattr(result, "batch_selected_slots", ()),
         )
 
 
@@ -323,6 +378,23 @@ def _canonical_output_paths(attempt: SinglePassAttempt) -> tuple[Path, dict[str,
     }
 
 
+def _attempt_identity(attempt: SinglePassAttempt) -> dict[str, object]:
+    identity: dict[str, object] = {
+        "session_id": attempt.session.session_id,
+        "attempt_id": attempt.attempt_id,
+        "selected_slot": attempt.selected_slot,
+        "boundary_offset_rows": attempt.boundary_offset_rows,
+    }
+    if attempt.batch_session_id is not None:
+        identity["batch_session"] = {
+            "session_id": attempt.batch_session_id,
+            "frame_index": attempt.batch_frame_index,
+            "frame_total": attempt.batch_frame_total,
+            "selected_slots": list(attempt.batch_selected_slots),
+        }
+    return identity
+
+
 class LS5000SinglePassWorkflow:
     """Validate, decode, commit, verify, and optionally clean one attempt."""
 
@@ -466,15 +538,29 @@ class LS5000SinglePassWorkflow:
             }
 
         roll_metadata = self._roll_metadata(attempt, journal)
+        batch_session = self._batch_session_evidence(attempt)
+        capture_evidence: dict[str, object] = {
+            "status": "frame-complete" if batch_session is not None else "complete",
+            "mode": "full",
+            "scanner_identity": scanner_identity,
+            "fine_reads": self._contract.records,
+            "fine_bytes": self._contract.stream_bytes,
+            "unit_released": batch_session is None,
+            "plan_sha256": journal["plan_sha256"],
+            "capture_engine_sha256": journal["capture_engine_sha256"],
+        }
+        if batch_session is not None:
+            capture_evidence.update(
+                session_reservation_retained=True,
+                batch_session=batch_session,
+                continuation_plan_sha256=journal[
+                    "continuation_plan_sha256"
+                ],
+            )
         manifest: dict[str, object] = {
             "version": WORKFLOW_VERSION,
             "kind": WORKFLOW_KIND,
-            "identity": {
-                "session_id": attempt.session.session_id,
-                "attempt_id": attempt.attempt_id,
-                "selected_slot": attempt.selected_slot,
-                "boundary_offset_rows": attempt.boundary_offset_rows,
-            },
+            "identity": _attempt_identity(attempt),
             "sources": {
                 "packed_stream": {
                     "path": attempt.stream_path.name,
@@ -487,16 +573,7 @@ class LS5000SinglePassWorkflow:
                     "bytes": journal_bytes,
                 },
             },
-            "capture": {
-                "status": "complete",
-                "mode": "full",
-                "scanner_identity": scanner_identity,
-                "fine_reads": self._contract.records,
-                "fine_bytes": self._contract.stream_bytes,
-                "unit_released": True,
-                "plan_sha256": journal["plan_sha256"],
-                "capture_engine_sha256": journal["capture_engine_sha256"],
-            },
+            "capture": capture_evidence,
             "roll_metadata": roll_metadata,
             "frame_evidence": frame_evidence,
             "exposure_evidence": exposure_evidence,
@@ -570,6 +647,19 @@ class LS5000SinglePassWorkflow:
             scratch_deleted=scratch_deleted,
         )
 
+    @staticmethod
+    def _batch_session_evidence(
+        attempt: SinglePassAttempt,
+    ) -> dict[str, object] | None:
+        if attempt.batch_session_id is None:
+            return None
+        return {
+            "session_id": attempt.batch_session_id,
+            "frame_index": attempt.batch_frame_index,
+            "frame_total": attempt.batch_frame_total,
+            "selected_slots": list(attempt.batch_selected_slots),
+        }
+
     def _validate_completed_capture(
         self,
         attempt: SinglePassAttempt,
@@ -580,17 +670,34 @@ class LS5000SinglePassWorkflow:
     ) -> tuple[dict[str, object], dict[str, object], str]:
         contract = self._contract
         for key, expected in (
-            ("status", "complete"),
             ("capture_mode", "full"),
             ("expected_reads", contract.records),
             ("completed_reads", contract.records),
             ("expected_bytes", contract.stream_bytes),
             ("completed_bytes", contract.stream_bytes),
             ("disk_bytes", contract.stream_bytes),
-            ("unit_released", True),
             ("preview_geometry_validated_before_reads", True),
         ):
             _require_exact(journal, key, expected)
+        batch_session = self._batch_session_evidence(attempt)
+        if batch_session is None:
+            _require_exact(journal, "status", "complete")
+            _require_exact(journal, "unit_released", True)
+            if journal.get("session_reservation_retained") not in (None, False):
+                raise SinglePassIntegrityError(
+                    "single-frame capture cannot retain a batch reservation"
+                )
+        else:
+            _require_exact(journal, "status", "frame-complete")
+            _require_exact(journal, "frame_complete", True)
+            _require_exact(journal, "unit_released", False)
+            _require_exact(journal, "session_reservation_retained", True)
+            _require_exact(journal, "batch_session", batch_session)
+            _require_exact(
+                journal,
+                "continuation_plan_sha256",
+                CANONICAL_CONTINUATION_PLAN_SHA256,
+            )
         if journal.get("recovery_required") not in (None, "none"):
             raise SinglePassIntegrityError("completed worker journal requests scanner recovery")
         if stream_bytes != contract.stream_bytes:
@@ -813,12 +920,7 @@ class LS5000SinglePassWorkflow:
         if not _is_sha256(binding) or not hmac.compare_digest(cast(str, binding), _manifest_binding(manifest)):
             raise SinglePassIntegrityError("existing completion manifest binding no longer verifies")
         identity = manifest.get("identity")
-        expected_identity = {
-            "session_id": attempt.session.session_id,
-            "attempt_id": attempt.attempt_id,
-            "selected_slot": attempt.selected_slot,
-            "boundary_offset_rows": attempt.boundary_offset_rows,
-        }
+        expected_identity = _attempt_identity(attempt)
         if manifest.get("kind") != WORKFLOW_KIND or manifest.get("version") != WORKFLOW_VERSION or identity != expected_identity:
             raise SinglePassIntegrityError("existing completion manifest does not identify this attempt")
         quality_control = manifest.get("quality_control")

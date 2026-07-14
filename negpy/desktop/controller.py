@@ -173,6 +173,7 @@ class AppController(QObject):
     scan_devices_ready = pyqtSignal(list)
     scan_progress = pyqtSignal(float)
     scan_finished = pyqtSignal(str)
+    scan_cancelled = pyqtSignal()
     scan_error = pyqtSignal(str)
     scan_started = pyqtSignal()
     scan_eject_requested = pyqtSignal(str)
@@ -433,6 +434,7 @@ class AppController(QObject):
         self.scan_worker.devices_ready.connect(self.scan_devices_ready.emit)
         self.scan_worker.progress.connect(self.scan_progress.emit)
         self.scan_worker.finished.connect(self._on_scan_finished)
+        self.scan_worker.cancelled.connect(self.scan_cancelled.emit)
         self.scan_worker.error.connect(self.scan_error.emit)
         self.scan_requested.connect(self.scan_worker.run_scan)
         self.scan_eject_requested.connect(self.scan_worker.eject)
@@ -1619,6 +1621,7 @@ class AppController(QObject):
 
     def start_scan(self, req: ScanRequest) -> None:
         """Start a scan. The UI connects to scan signals for state updates."""
+        self.scan_worker.prepare_scan()
         self.scan_started.emit()
         self.scan_requested.emit(req)
 

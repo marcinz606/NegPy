@@ -34,6 +34,12 @@ class ScannerCapabilities:
     # only to decide whether to show an Eject button; SaneBackend.eject()
     # repeats the capability check before touching the transport.
     can_eject: bool = False
+    # Device exposes a frame-position control even if its current capacity is
+    # unavailable. Coolscan feeders report a 1..0 range while parked, so this
+    # preserves the distinction between a parked transport and no transport
+    # control at all without inventing an adapter capacity. Appended to keep
+    # the positional order of older capability fields backward compatible.
+    adapter_frame_control: bool = False
 
 
 @dataclass(frozen=True)

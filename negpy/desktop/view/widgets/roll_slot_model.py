@@ -11,6 +11,10 @@ from typing import Any, Sequence
 from PyQt6.QtCore import QAbstractListModel, QByteArray, QModelIndex, QSize, Qt
 from PyQt6.QtGui import QIcon, QImage, QPixmap
 
+from negpy.infrastructure.scanners.settings import (
+    DEFAULT_PREVIEW_METER_INSET_PERCENT,
+    MAX_PREVIEW_METER_INSET_PERCENT,
+)
 from negpy.services.scanning.roll_preview_controls import validate_boundary_offset
 
 
@@ -54,12 +58,14 @@ class RollSlotModel(QAbstractListModel):
     HAS_WARNINGS_ROLE = WARNINGS_ROLE + 1
     BOUNDARY_OFFSET_ROLE = HAS_WARNINGS_ROLE + 1
     BOUNDARY_OFFSET_CONFIRMED_ROLE = BOUNDARY_OFFSET_ROLE + 1
+    METER_INSET_PERCENT_ROLE = BOUNDARY_OFFSET_CONFIRMED_ROLE + 1
 
     _CELL_SIZE = QSize(142, 112)
 
     def __init__(self, slots: Sequence[RollPreviewSlot] = (), parent=None) -> None:
         super().__init__(parent)
         self._slots: tuple[RollPreviewSlot, ...] = ()
+        self._meter_inset_percent = DEFAULT_PREVIEW_METER_INSET_PERCENT
         self.replace_slots(slots)
 
     def replace_slots(self, slots: Sequence[RollPreviewSlot]) -> None:
@@ -110,6 +116,8 @@ class RollSlotModel(QAbstractListModel):
             return slot.boundary_offset
         if role == self.BOUNDARY_OFFSET_CONFIRMED_ROLE:
             return slot.boundary_offset == slot.confirmed_boundary_offset
+        if role == self.METER_INSET_PERCENT_ROLE:
+            return self._meter_inset_percent
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
@@ -124,7 +132,24 @@ class RollSlotModel(QAbstractListModel):
         names[self.HAS_WARNINGS_ROLE] = QByteArray(b"hasWarnings")
         names[self.BOUNDARY_OFFSET_ROLE] = QByteArray(b"boundaryOffset")
         names[self.BOUNDARY_OFFSET_CONFIRMED_ROLE] = QByteArray(b"boundaryOffsetConfirmed")
+        names[self.METER_INSET_PERCENT_ROLE] = QByteArray(b"meterInsetPercent")
         return names
+
+    def set_meter_inset_percent(self, value: int) -> None:
+        """Set one display-only metering guide for the complete contact sheet."""
+
+        if type(value) is not int or not 0 <= value <= MAX_PREVIEW_METER_INSET_PERCENT:
+            raise ValueError("preview meter inset must be an integer from 0 to 30 percent")
+        if value == self._meter_inset_percent:
+            return
+        self._meter_inset_percent = value
+        if not self._slots:
+            return
+        self.dataChanged.emit(
+            self.index(0, 0),
+            self.index(len(self._slots) - 1, 0),
+            [self.METER_INSET_PERCENT_ROLE],
+        )
 
     def slot_id_for_row(self, row: int) -> int:
         if row < 0 or row >= len(self._slots):

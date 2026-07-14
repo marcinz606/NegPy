@@ -105,6 +105,7 @@ def _preview_fixture(
     tmp_path: Path,
     *,
     content_frames: int = 40,
+    slot_capacity_hint: int = 40,
 ) -> PreviewFixture:
     attempt = tmp_path / "preview-attempt"
     attempt.mkdir()
@@ -120,7 +121,7 @@ def _preview_fixture(
     table_path.write_bytes(table)
     receipt = {
         "status": "preview-only-complete",
-        "slot_capacity_hint": 40,
+        "slot_capacity_hint": slot_capacity_hint,
         "slot_capacity_semantics": ("scanner-addressable preview slots; not an exposure count"),
         "preview_bytes": len(preview),
         "preview_sha256": _sha256(preview),
@@ -159,7 +160,7 @@ def _preview_fixture(
             }
             for color in (1, 2, 3)
         ],
-        "live_startup_0x8f": {"count": 40},
+        "live_startup_0x8f": {"count": slot_capacity_hint},
         "live_index_artifacts": {
             "mapping": str(mapping_path.resolve()),
             "preview": str(preview_path.resolve()),
@@ -226,6 +227,18 @@ def test_complete_preview_builds_fixed_order_session_with_exact_transport_origin
     origin = session.resolve_origin(18, 0)
     assert origin.native_origin == 42 * origin.lookup_row
     assert origin is session.slots[17].base_origin
+
+
+def test_preview_refuses_a_live_startup_table_that_is_not_40_slots(
+    tmp_path: Path,
+) -> None:
+    fixture = _preview_fixture(tmp_path, slot_capacity_hint=6)
+
+    with pytest.raises(
+        RollSessionIntegrityError,
+        match="40-slot|SA-30",
+    ):
+        build_roll_preview_session(fixture.result)
 
 
 def test_reload_thumbnail_recrops_the_saved_full_width_preview_at_exact_offset(

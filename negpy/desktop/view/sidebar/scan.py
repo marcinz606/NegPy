@@ -29,6 +29,7 @@ from negpy.desktop.view.widgets.roll_thumbnail_renderer import (
     render_roll_thumbnail_rgb8,
 )
 from negpy.desktop.workers.ls5000_roll_worker import (
+    RollOperation,
     RollPreviewRequest,
     RollScanCompletion,
     RollScanRequest,
@@ -36,8 +37,23 @@ from negpy.desktop.workers.ls5000_roll_worker import (
     frame_choices,
 )
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
-from negpy.infrastructure.scanners.settings import ScannerSettings
+from negpy.infrastructure.scanners.settings import (
+    MAX_PREVIEW_METER_INSET_PERCENT,
+    ScannerSettings,
+)
 from negpy.kernel.system.config import APP_CONFIG
+
+
+_SCANNER_STATUS_COLORS = {
+    "muted": "#888780",
+    "ready": "#1D9E75",
+    "active": "#4A8FE8",
+    "warning": "#C8922E",
+    "error": "#E24B4A",
+}
+
+_ROLL_OPERATION_PREVIEW = "preview"
+_ROLL_OPERATION_SELECTED_SCAN = "selected-scan"
 
 
 class ScanSidebar(QWidget):
@@ -49,9 +65,14 @@ class ScanSidebar(QWidget):
         self._settings: ScannerSettings = self._load_settings()
         self._devices: list[ScannerDevice] = []
         self._scanning = False
+        self._scan_cancel_pending = False
+        self._active_scan_device_id: str | None = None
+        self._active_scan_frame: int | None = None
         self._roll_scanning = False
+        self._roll_operation: str | None = None
         self._ejecting = False
         self._roll_preview_token: str | None = None
+        self._roll_preview_thumbnails: dict[int, object] = {}
         self._devices_loaded = False
         self._init_ui()
         self._connect_signals()
@@ -112,18 +133,74 @@ class ScanSidebar(QWidget):
         device_row.addWidget(self.eject_btn)
         layout.addLayout(device_row)
 
+        self.device_status_label = QLabel()
+        self.device_status_label.setObjectName("scanner_status")
+        self.device_status_label.setWordWrap(True)
+        layout.addWidget(self.device_status_label)
+        self._set_scanner_status("Detecting scanners…", "active")
+
         # ── CAPS INFO ───────────────────────────────────────
         self.frame_label = hint_label("")
         layout.addWidget(self.frame_label)
 
         # ── LS-5000 ROLL WORKFLOW ──────────────────────────
+        self.sa30_compatible_check = QCheckBox("SA-30 / converted SA-21 (40 slots)")
+        self.sa30_compatible_check.setAccessibleName("Use 40-slot SA-30-compatible roll feeder")
+        self.sa30_compatible_check.setToolTip(
+            "Enable only for a genuine SA-30 or an SA-21 converted to the "
+            "same 40-slot transport. A parked feeder cannot report its capacity."
+        )
+        self.sa30_compatible_check.setVisible(False)
+        layout.addWidget(self.sa30_compatible_check)
+
         self.roll_preview_btn = QPushButton(" Load Roll Thumbnails")
         self.roll_preview_btn.setIcon(qta.icon("fa5s.images", color=THEME.text_primary))
         self.roll_preview_btn.setToolTip("Read the complete low-resolution roll index before choosing full-quality scans")
         self.roll_preview_btn.setVisible(False)
         layout.addWidget(self.roll_preview_btn)
 
+        self.roll_quality_widget = QWidget()
+        roll_quality_form = QFormLayout(self.roll_quality_widget)
+        roll_quality_form.setContentsMargins(0, 0, 0, 0)
+        roll_quality_form.setSpacing(6)
+
+        self.roll_preview_resolution_box = QLineEdit("97 dpi (thumbnails only)")
+        self.roll_preview_resolution_box.setReadOnly(True)
+        self.roll_preview_resolution_box.setAccessibleName("Roll preview resolution")
+        self.roll_preview_resolution_box.setToolTip("Low-resolution roll thumbnails used only to choose and align frames")
+        roll_quality_form.addRow("Roll preview", self.roll_preview_resolution_box)
+
+        self.preview_meter_inset_spin = QSpinBox()
+        self.preview_meter_inset_spin.setObjectName("roll_preview_meter_inset")
+        self.preview_meter_inset_spin.setAccessibleName("Preview meter inset percentage per edge")
+        self.preview_meter_inset_spin.setRange(0, MAX_PREVIEW_METER_INSET_PERCENT)
+        self.preview_meter_inset_spin.setValue(self._settings.preview_meter_inset_percent)
+        self.preview_meter_inset_spin.setSuffix("% per edge")
+        self.preview_meter_inset_spin.setToolTip(
+            "The outlined box shows the brightness meter. Ignore this much of each edge "
+            "only when calculating thumbnail brightness. "
+            "The whole negative and rebate stay visible. Final scans are unaffected. "
+            "10% matches full-scan metering."
+        )
+        roll_quality_form.addRow("Preview meter inset", self.preview_meter_inset_spin)
+
+        self.roll_scan_resolution_box = QLineEdit("4000 dpi (Best quality)")
+        self.roll_scan_resolution_box.setReadOnly(True)
+        self.roll_scan_resolution_box.setAccessibleName("Full roll scan resolution")
+        self.roll_scan_resolution_box.setToolTip("Native-resolution capture used for every selected full-quality frame")
+        roll_quality_form.addRow("Final scan", self.roll_scan_resolution_box)
+
+        self.roll_master_format_box = QLineEdit("16-bit TIFF (linear negative)")
+        self.roll_master_format_box.setReadOnly(True)
+        self.roll_master_format_box.setAccessibleName("Roll master format")
+        self.roll_master_format_box.setToolTip("The roll workflow saves scanner-linear negative data; inversion happens in Process")
+        roll_quality_form.addRow("Saved master", self.roll_master_format_box)
+
+        self.roll_quality_widget.setVisible(False)
+        layout.addWidget(self.roll_quality_widget)
+
         self.roll_slot_selector = RollSlotSelector()
+        self.roll_slot_selector.set_meter_inset_percent(self._settings.preview_meter_inset_percent)
         self.roll_slot_selector.setVisible(False)
         layout.addWidget(self.roll_slot_selector)
 
@@ -142,9 +219,11 @@ class ScanSidebar(QWidget):
         self.form.setSpacing(6)
 
         self.dpi_combo = QComboBox()
-        self.dpi_combo.setToolTip("Resolution (DPI)")
+        self.dpi_combo.setToolTip(
+            "Resolution for a conventional single-frame scan. Roll thumbnails use 97 dpi; selected roll frames use 4000 dpi."
+        )
         self.dpi_combo.setEditable(True)
-        self.form.addRow("DPI", self.dpi_combo)
+        self.form.addRow("Single-frame DPI", self.dpi_combo)
 
         self.ir_check = QCheckBox("IR")
         self.ir_check.setToolTip("Scan a separate infrared channel for dust detection")
@@ -184,8 +263,17 @@ class ScanSidebar(QWidget):
 
         self.fmt_combo = QComboBox()
         self.fmt_combo.addItems(["TIFF", "DNG"])
-        self.fmt_combo.setToolTip("Output file format")
-        self.form.addRow("Format", self.fmt_combo)
+        self.fmt_combo.setToolTip(
+            "TIFF and DNG are containers for the same scanner-linear capture. "
+            "The file format does not control inversion; use Process for that."
+        )
+        self.form.addRow("Single-frame format", self.fmt_combo)
+
+        self.format_hint = hint_label(
+            "TIFF and DNG contain the same scanner-linear capture. File format does not control inversion; use Process for that."
+        )
+        self.format_hint.setWordWrap(True)
+        self.form.addRow("", self.format_hint)
 
         folder_row = QHBoxLayout()
         self.folder_edit = QLineEdit()
@@ -275,6 +363,7 @@ class ScanSidebar(QWidget):
         self.autofocus_check.setChecked(self._settings.autofocus)
         self.ae_check.setChecked(self._settings.auto_exposure)
         self.archival_split_check.setChecked(self._settings.archival_split_capture)
+        self.sa30_compatible_check.setChecked(self._settings.sa30_compatible_roll_feeder)
 
     def _connect_signals(self) -> None:
         self.refresh_btn.clicked.connect(self._on_refresh)
@@ -286,7 +375,7 @@ class ScanSidebar(QWidget):
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.fmt_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
-        self.depth_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
+        self.depth_combo.currentTextChanged.connect(self._on_depth_changed)
         self.ir_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.autofocus_check.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_check.toggled.connect(lambda: self._update_settings_from_ui())
@@ -294,6 +383,8 @@ class ScanSidebar(QWidget):
         self.archival_split_check.toggled.connect(self._on_archival_split_toggled)
         self.registered_geometry_check.toggled.connect(self._on_registered_geometry_toggled)
         self.load_registration_btn.clicked.connect(self._on_load_registration_json)
+        self.sa30_compatible_check.toggled.connect(self._on_sa30_compatible_toggled)
+        self.preview_meter_inset_spin.valueChanged.connect(self._on_preview_meter_inset_changed)
         self.roll_preview_btn.clicked.connect(self._on_roll_preview)
         self.roll_stop_btn.clicked.connect(self._on_roll_stop)
         self.roll_slot_selector.scan_requested.connect(self._on_roll_scan_selected)
@@ -303,13 +394,12 @@ class ScanSidebar(QWidget):
         self.controller.scan_devices_ready.connect(self._on_devices_ready)
         self.controller.scan_progress.connect(self._on_scan_progress)
         self.controller.scan_finished.connect(self._on_scan_finished)
+        self.controller.scan_cancelled.connect(self._on_scan_cancelled)
         self.controller.scan_error.connect(self._on_scan_error)
         self.controller.scan_ejected.connect(self._on_ejected)
         self.controller.scan_eject_error.connect(self._on_eject_error)
         self.controller.ls5000_roll_preview_ready.connect(self._on_roll_preview_ready)
-        self.controller.ls5000_roll_preview_invalidated.connect(
-            self._on_roll_preview_invalidated
-        )
+        self.controller.ls5000_roll_preview_invalidated.connect(self._on_roll_preview_invalidated)
         self.controller.ls5000_roll_thumbnail_ready.connect(self._on_roll_thumbnail_ready)
         self.controller.ls5000_roll_progress.connect(self._on_roll_progress)
         self.controller.ls5000_roll_finished.connect(self._on_roll_finished)
@@ -333,6 +423,7 @@ class ScanSidebar(QWidget):
         self.device_combo.addItem("Detecting scanners…", None)
         self.device_combo.setEnabled(False)
         self.status_label.setText("Detecting scanners…")
+        self._set_scanner_status("Detecting scanners…", "active")
         self.controller.request_scan_devices()
 
     @staticmethod
@@ -356,6 +447,7 @@ class ScanSidebar(QWidget):
         self.device_combo.setEnabled(False)
         self.scan_btn.setEnabled(False)
         self.status_label.setText(f"Scanner support requires SANE (libsane).\n\nTo enable:\n{hint}")
+        self._set_scanner_status("Unavailable · SANE is not installed", "error")
 
     def _on_refresh(self) -> None:
         self._invalidate_roll_preview()
@@ -370,6 +462,7 @@ class ScanSidebar(QWidget):
         self.refresh_btn.setEnabled(False)
         self.eject_btn.setEnabled(False)
         self.status_label.setText("Ejecting film…")
+        self._set_scanner_status("Ejecting film…", "active")
         self.controller.eject_scanner(device.id)
 
     @pyqtSlot(bool)
@@ -382,8 +475,10 @@ class ScanSidebar(QWidget):
         if ejected:
             self._invalidate_roll_preview()
             self.status_label.setText("Film ejected.")
+            self._set_scanner_status("Connected · Film ejected", "ready")
         else:
             self.status_label.setText("This scanner does not expose a film-eject control.")
+            self._set_scanner_status("Connected · Eject unavailable", "warning")
 
     @pyqtSlot(str)
     def _on_eject_error(self, message: str) -> None:
@@ -393,6 +488,7 @@ class ScanSidebar(QWidget):
         device = self._current_device()
         self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject))
         self.status_label.setText(f"Could not eject film: {message}")
+        self._set_scanner_status("Error · Eject failed", "error")
 
     @pyqtSlot(list)
     def _on_devices_ready(self, devices: list) -> None:
@@ -405,6 +501,7 @@ class ScanSidebar(QWidget):
             self.device_combo.addItem("No scanners detected", None)
             self.device_combo.setEnabled(False)
             self.status_label.setText("No scanners detected. Plug in your scanner and click Refresh.")
+            self._set_scanner_status("Disconnected · No scanner detected", "error")
             self.scan_btn.setEnabled(False)
             return
 
@@ -435,19 +532,46 @@ class ScanSidebar(QWidget):
         return None
 
     @staticmethod
-    def _supports_ls5000_roll_workflow(device: ScannerDevice | None) -> bool:
+    def _is_ls5000(device: ScannerDevice | None) -> bool:
         if device is None:
             return False
         normalized_model = device.model.upper().replace(" ", "-")
-        return (
-            "LS-5000" in normalized_model
-            and device.capabilities.adapter_frame_capacity == 40
-        )
+        return "LS-5000" in normalized_model
+
+    def _can_configure_sa30_profile(
+        self,
+        device: ScannerDevice | None,
+    ) -> bool:
+        if not self._is_ls5000(device) or device is None:
+            return False
+        caps = device.capabilities
+        return caps.adapter_frame_control and caps.adapter_frame_capacity is None
+
+    def _effective_roll_capacity(
+        self,
+        device: ScannerDevice | None,
+    ) -> int | None:
+        if not self._is_ls5000(device) or device is None:
+            return None
+        caps = device.capabilities
+        if caps.adapter_frame_capacity is not None:
+            return 40 if caps.adapter_frame_capacity == 40 else None
+        profile_enabled = type(self._settings.sa30_compatible_roll_feeder) is bool and self._settings.sa30_compatible_roll_feeder
+        if caps.adapter_frame_control and profile_enabled:
+            return 40
+        return None
+
+    def _supports_ls5000_roll_workflow(
+        self,
+        device: ScannerDevice | None,
+    ) -> bool:
+        return self._effective_roll_capacity(device) == 40
 
     def _clear_roll_preview(self) -> None:
         """Clear stale thumbnails without sending another worker command."""
 
         self._roll_preview_token = None
+        self._roll_preview_thumbnails.clear()
         self.roll_slot_selector.set_slots([])
         self.roll_slot_selector.setVisible(False)
         self.roll_preview_btn.setText(" Load Roll Thumbnails")
@@ -461,6 +585,8 @@ class ScanSidebar(QWidget):
     def _update_device_caps(self) -> None:
         device = self._current_device()
         if device is None:
+            if self._devices_loaded:
+                self._set_scanner_status("Disconnected · No scanner selected", "muted")
             self.scan_btn.setEnabled(False)
             self.frame_label.setText("")
             self.dpi_combo.setEnabled(False)
@@ -471,7 +597,10 @@ class ScanSidebar(QWidget):
             self.ae_check.setEnabled(False)
             self.archival_split_check.setEnabled(False)
             self.registered_geometry_check.setEnabled(False)
+            self.sa30_compatible_check.setVisible(False)
+            self.sa30_compatible_check.setEnabled(False)
             self.roll_preview_btn.setVisible(False)
+            self.roll_quality_widget.setVisible(False)
             self.roll_slot_selector.setVisible(False)
             self.roll_status_label.setVisible(False)
             self.eject_btn.setVisible(False)
@@ -486,15 +615,17 @@ class ScanSidebar(QWidget):
         self.samples_combo.setEnabled(True)
         self.frame_label.setText(f"Frame: {caps.max_area_mm[0]:.0f} × {caps.max_area_mm[1]:.0f} mm")
         self.eject_btn.setVisible(caps.can_eject)
-        self.eject_btn.setEnabled(
-            caps.can_eject
-            and not self._scanning
-            and not self._roll_scanning
-            and not self._ejecting
-        )
+        self.eject_btn.setEnabled(caps.can_eject and not self._scanning and not self._roll_scanning and not self._ejecting)
+        can_configure_sa30 = self._can_configure_sa30_profile(device)
+        self.sa30_compatible_check.blockSignals(True)
+        self.sa30_compatible_check.setChecked(self._settings.sa30_compatible_roll_feeder)
+        self.sa30_compatible_check.blockSignals(False)
+        self.sa30_compatible_check.setVisible(can_configure_sa30)
+        self.sa30_compatible_check.setEnabled(can_configure_sa30 and not self._scanning and not self._roll_scanning)
         roll_supported = self._supports_ls5000_roll_workflow(device)
         self.roll_preview_btn.setVisible(roll_supported)
-        self.roll_preview_btn.setEnabled(roll_supported and not self._roll_scanning)
+        self.roll_preview_btn.setEnabled(roll_supported and not self._scanning and not self._roll_scanning)
+        self.roll_quality_widget.setVisible(roll_supported)
         if not roll_supported:
             self.roll_slot_selector.setVisible(False)
             self.roll_status_label.setVisible(False)
@@ -502,9 +633,32 @@ class ScanSidebar(QWidget):
         # If no film sources, show banner
         if not caps.sources:
             self.status_label.setText("This scanner reports no film/transparency sources. NegPy v1 supports film scanning only.")
+            self._set_scanner_status("Connected · Film source unavailable", "warning")
             self.scan_btn.setEnabled(False)
         else:
             self.status_label.setText("")
+            if can_configure_sa30 and not roll_supported:
+                self._set_scanner_status(
+                    "Connected · Feeder parked or empty · Confirm 40-slot adapter",
+                    "warning",
+                )
+            elif can_configure_sa30:
+                self._set_scanner_status(
+                    "Connected · Feeder parked or empty · Preview can try to re-arm",
+                    "warning",
+                )
+            elif self._is_ls5000(device) and caps.adapter_frame_capacity == 40:
+                self._set_scanner_status(
+                    "Connected · Roll feeder ready · 40 slots",
+                    "ready",
+                )
+            elif self._is_ls5000(device) and caps.adapter_frame_capacity is not None:
+                self._set_scanner_status(
+                    f"Connected · Feeder ready · {caps.adapter_frame_capacity} slots",
+                    "ready",
+                )
+            else:
+                self._set_scanner_status("Connected · Ready", "ready")
             self.scan_btn.setEnabled(True)
 
         self._populate_form(caps)
@@ -536,8 +690,12 @@ class ScanSidebar(QWidget):
         # Depth
         self.depth_combo.clear()
         if caps.supported_depths:
+            best_depth = max(caps.supported_depths)
             for d in caps.supported_depths:
-                self.depth_combo.addItem(f"{d}-bit", d)
+                label = f"{d}-bit"
+                if d == best_depth:
+                    label += " (Best quality)"
+                self.depth_combo.addItem(label, d)
         if self._settings.depth:
             idx = self.depth_combo.findData(self._settings.depth)
             if idx >= 0:
@@ -587,7 +745,7 @@ class ScanSidebar(QWidget):
             self.ae_check.setToolTip("Hardware auto-exposure not supported by this device")
 
         # Archival split-capture (validated RGB4x + IR1x practical-parity recipe)
-        archival_supported = caps.ir_channel and caps.multi_sample
+        archival_supported = caps.ir_channel and caps.multi_sample and 16 in caps.supported_depths
         self.archival_split_check.setEnabled(archival_supported)
         if archival_supported:
             self.archival_split_check.setChecked(self._settings.archival_split_capture)
@@ -641,8 +799,14 @@ class ScanSidebar(QWidget):
             self.samples_combo.blockSignals(True)
             self.samples_combo.setCurrentIndex(idx)
             self.samples_combo.blockSignals(False)
+        depth_index = self.depth_combo.findData(16)
+        if depth_index >= 0:
+            self.depth_combo.blockSignals(True)
+            self.depth_combo.setCurrentIndex(depth_index)
+            self.depth_combo.blockSignals(False)
         self.ir_check.setEnabled(False)
         self.samples_combo.setEnabled(False)
+        self.depth_combo.setEnabled(False)
 
     def _on_archival_split_toggled(self, _checked: bool) -> None:
         if not self.archival_split_check.isChecked():
@@ -651,7 +815,13 @@ class ScanSidebar(QWidget):
             caps = device.capabilities if device is not None else None
             self.ir_check.setEnabled(caps.ir_channel if caps is not None else False)
             self.samples_combo.setEnabled(caps.multi_sample if caps is not None else False)
+            self.depth_combo.setEnabled(device is not None)
         self._apply_archival_split_interlock()
+        self._update_settings_from_ui()
+
+    def _on_depth_changed(self, _text: str) -> None:
+        if self.archival_split_check.isChecked() and self.archival_split_check.isEnabled() and self.depth_combo.currentData() != 16:
+            self._apply_archival_split_interlock()
         self._update_settings_from_ui()
 
     def _on_registered_geometry_toggled(self, _checked: bool) -> None:
@@ -695,42 +865,57 @@ class ScanSidebar(QWidget):
             self.folder_edit.setText(folder)
             self._update_settings_from_ui()
 
+    def _on_sa30_compatible_toggled(self, _checked: bool) -> None:
+        device = self._current_device()
+        if not self._can_configure_sa30_profile(device):
+            self.sa30_compatible_check.blockSignals(True)
+            self.sa30_compatible_check.setChecked(self._settings.sa30_compatible_roll_feeder)
+            self.sa30_compatible_check.blockSignals(False)
+            return
+        self._update_settings_from_ui()
+        self._invalidate_roll_preview()
+        self._update_device_caps()
+
     def _on_roll_preview(self) -> None:
-        if self._roll_scanning:
+        if self._scanning or self._roll_scanning:
             return
         device = self._current_device()
-        if not self._supports_ls5000_roll_workflow(device):
+        adapter_frame_capacity = self._effective_roll_capacity(device)
+        if adapter_frame_capacity is None or device is None:
             self.roll_status_label.setText("Whole-roll thumbnails require a Nikon LS-5000 roll feeder.")
             self.roll_status_label.setVisible(True)
             return
         attempts_root = Path(APP_CONFIG.cache_dir) / "ls5000-roll" / "preview-attempts"
         self._invalidate_roll_preview()
-        self._set_roll_scanning(True)
+        self._set_roll_scanning(True, operation=_ROLL_OPERATION_PREVIEW)
         self.roll_status_label.setText("Reading the whole roll for thumbnails…")
         self.roll_status_label.setVisible(True)
+        self._set_scanner_status("Making previews · Reading the whole roll", "active")
         self.controller.start_ls5000_roll_preview(
             RollPreviewRequest(
                 attempts_root=str(attempts_root),
                 device_id=device.id,
-                adapter_frame_capacity=device.capabilities.adapter_frame_capacity,
+                adapter_frame_capacity=adapter_frame_capacity,
             )
         )
 
     def _on_roll_stop(self) -> None:
+        if not self._roll_scanning or self._roll_operation != _ROLL_OPERATION_SELECTED_SCAN:
+            return
         self.controller.cancel_scan()
         self.roll_stop_btn.setEnabled(False)
         self.roll_status_label.setText("Stopping safely after the active scanner transaction…")
+        self._set_scanner_status("Stopping safely after the current frame…", "warning")
 
     def _on_roll_scan_selected(self, slot_ids: list[int]) -> None:
-        if self._roll_scanning or not slot_ids:
+        if self._scanning or self._roll_scanning or not slot_ids:
             return
         device = self._current_device()
-        if not self._supports_ls5000_roll_workflow(device) or device is None:
+        adapter_frame_capacity = self._effective_roll_capacity(device)
+        if adapter_frame_capacity is None or device is None:
             return
         if self._roll_preview_token is None:
-            self.roll_status_label.setText(
-                "Load a new whole-roll preview before scanning selected frames."
-            )
+            self.roll_status_label.setText("Load a new whole-roll preview before scanning selected frames.")
             self.roll_status_label.setVisible(True)
             return
 
@@ -764,7 +949,7 @@ class ScanSidebar(QWidget):
         attempts_root = Path(output_folder) / ".negpy-ls5000" / "attempts"
         request = RollScanRequest(
             device_id=device.id,
-            adapter_frame_capacity=device.capabilities.adapter_frame_capacity,
+            adapter_frame_capacity=adapter_frame_capacity,
             preview_token=self._roll_preview_token,
             attempts_root=str(attempts_root),
             output_folder=output_folder,
@@ -774,14 +959,16 @@ class ScanSidebar(QWidget):
         )
         self._update_settings_from_ui()
         self._save_settings()
-        self._set_roll_scanning(True)
+        self._set_roll_scanning(True, operation=_ROLL_OPERATION_SELECTED_SCAN)
         self.controller.start_ls5000_roll_scan(request)
 
-    @staticmethod
-    def _roll_thumbnail_qimage(thumbnail: object) -> QImage:
+    def _roll_thumbnail_qimage(self, thumbnail: object) -> QImage:
         """Make a small positive display image from scanner-linear negative RGB."""
 
-        display = render_roll_thumbnail_rgb8(thumbnail)
+        display = render_roll_thumbnail_rgb8(
+            thumbnail,
+            meter_inset_percent=self.preview_meter_inset_spin.value(),
+        )
         image = QImage(
             display.data,
             display.shape[1],
@@ -794,6 +981,7 @@ class ScanSidebar(QWidget):
     @pyqtSlot(str, object)
     def _on_roll_preview_ready(self, preview_token: str, session: object) -> None:
         try:
+            raw_thumbnails = {slot.slot_id: slot.thumbnail for slot in session.slots}
             slots = [
                 RollPreviewSlot(
                     slot_id=slot.slot_id,
@@ -812,6 +1000,7 @@ class ScanSidebar(QWidget):
             )
             return
         self._roll_preview_token = preview_token
+        self._roll_preview_thumbnails = raw_thumbnails
         self.roll_slot_selector.set_slots(slots)
         self.roll_slot_selector.setVisible(True)
         self.roll_preview_btn.setText(" Reload Roll Thumbnails")
@@ -821,6 +1010,7 @@ class ScanSidebar(QWidget):
             "If the film is ejected or reinserted, reload the whole roll first."
         )
         self._set_roll_scanning(False)
+        self._set_scanner_status(f"Connected · {len(slots)} previews ready", "ready")
 
     @pyqtSlot()
     def _on_roll_preview_invalidated(self) -> None:
@@ -834,14 +1024,34 @@ class ScanSidebar(QWidget):
         thumbnail: object,
     ) -> None:
         try:
+            display = self._roll_thumbnail_qimage(thumbnail)
             self.roll_slot_selector.confirm_slot_thumbnail(
                 slot_id,
                 boundary_offset,
-                self._roll_thumbnail_qimage(thumbnail),
+                display,
             )
+            self._roll_preview_thumbnails[slot_id] = thumbnail
             self.roll_status_label.setText(f"Reloaded slot {slot_id:02d} at Film Spacing Offset {boundary_offset:+d}.")
+            count = self.roll_slot_selector.model.rowCount()
+            self._set_scanner_status(f"Connected · {count} previews ready", "ready")
         except Exception as error:
             self.roll_status_label.setText(f"Could not display reloaded slot {slot_id:02d}: {error}")
+            self._set_scanner_status("Error · Preview adjustment failed", "error")
+
+    @pyqtSlot(int)
+    def _on_preview_meter_inset_changed(self, _value: int) -> None:
+        """Persist and rerender the retained contact sheet without scanner I/O."""
+
+        self._update_settings_from_ui()
+        self.roll_slot_selector.set_meter_inset_percent(self.preview_meter_inset_spin.value())
+        try:
+            rendered = {slot_id: self._roll_thumbnail_qimage(thumbnail) for slot_id, thumbnail in self._roll_preview_thumbnails.items()}
+            for slot_id, image in rendered.items():
+                self.roll_slot_selector.update_slot_thumbnail(slot_id, image)
+        except Exception as error:
+            self.roll_status_label.setText(f"Could not update preview brightness: {error}")
+            self.roll_status_label.setVisible(True)
+            self._set_scanner_status("Error · Preview display update failed", "error")
 
     @pyqtSlot(object)
     def _on_roll_progress(self, progress: object) -> None:
@@ -851,15 +1061,30 @@ class ScanSidebar(QWidget):
         self.progress_bar.setFormat(str(progress.message))
         self.roll_status_label.setText(str(progress.message))
         self.roll_status_label.setVisible(True)
+        message = str(progress.message)
+        operation = getattr(progress, "operation", None)
+        preview_complete = operation is RollOperation.PREVIEW and int(progress.completed) >= total
+        state = "ready" if preview_complete else "active"
+        self._set_scanner_status(message, state)
 
     @pyqtSlot(object)
     def _on_roll_finished(self, completion: RollScanCompletion) -> None:
+        operation = getattr(completion, "operation", RollOperation.FULL_SCAN)
         self._set_roll_scanning(False)
         count = len(completion.rgb_paths)
-        if completion.stopped:
+        if completion.stopped and operation is RollOperation.PREVIEW:
+            self.roll_status_label.setText("Whole-roll preview stopped before completion. No thumbnails were loaded.")
+            self._set_scanner_status(
+                "Preview stopped · No thumbnails loaded",
+                "warning",
+            )
+        elif completion.stopped:
             self.roll_status_label.setText(f"Stopped safely after completing {count} frame(s).")
+            self._set_scanner_status(f"Stopped safely · {count} frames ready", "warning")
         else:
             self.roll_status_label.setText(f"Finished {count} full-quality frame(s); added them to NegPy.")
+            noun = "frame" if count == 1 else "frames"
+            self._set_scanner_status(f"Complete · {count} {noun} ready", "ready")
 
     @pyqtSlot(object)
     def _on_roll_error(self, failure: RollWorkerFailure) -> None:
@@ -869,22 +1094,38 @@ class ScanSidebar(QWidget):
         suffix = " Power-cycle the scanner before trying again." if failure.recovery_required else ""
         self.roll_status_label.setText(f"{failure.message}{suffix}")
         self.roll_status_label.setVisible(True)
+        if failure.recovery_required:
+            self._set_scanner_status("Error · Power-cycle required", "error")
+        else:
+            self._set_scanner_status("Error · Check scan details", "error")
 
-    def _set_roll_scanning(self, active: bool) -> None:
+    def _set_roll_scanning(
+        self,
+        active: bool,
+        *,
+        operation: str | None = None,
+    ) -> None:
+        if active:
+            if operation not in {
+                _ROLL_OPERATION_PREVIEW,
+                _ROLL_OPERATION_SELECTED_SCAN,
+            }:
+                raise ValueError("an active roll operation must identify preview or selected-scan")
+            self._roll_operation = operation
+        else:
+            self._roll_operation = None
         self._roll_scanning = active
         self.device_combo.setEnabled(not active)
+        self.sa30_compatible_check.setEnabled(not active and self._can_configure_sa30_profile(self._current_device()))
         self.roll_preview_btn.setEnabled(not active)
         self.roll_slot_selector.setEnabled(not active)
         self.scan_btn.setEnabled(not active)
         self.refresh_btn.setEnabled(not active)
         device = self._current_device()
-        self.eject_btn.setEnabled(
-            not active
-            and not self._ejecting
-            and bool(device and device.capabilities.can_eject)
-        )
-        self.roll_stop_btn.setVisible(active)
-        self.roll_stop_btn.setEnabled(active)
+        self.eject_btn.setEnabled(not active and not self._ejecting and bool(device and device.capabilities.can_eject))
+        can_stop_after_frame = active and self._roll_operation == _ROLL_OPERATION_SELECTED_SCAN
+        self.roll_stop_btn.setVisible(can_stop_after_frame)
+        self.roll_stop_btn.setEnabled(can_stop_after_frame)
         self.progress_bar.setVisible(active)
         if active:
             self.progress_bar.setRange(0, 100)
@@ -898,6 +1139,12 @@ class ScanSidebar(QWidget):
             return
         if self._scanning:
             # Cancel
+            if self._scan_cancel_pending:
+                return
+            self._scan_cancel_pending = True
+            self.scan_btn.setEnabled(False)
+            self.status_label.setText("Stopping the current frame…")
+            self._set_scanner_status("Stopping the current frame…", "warning")
             self.controller.cancel_scan()
             return
 
@@ -943,6 +1190,7 @@ class ScanSidebar(QWidget):
             )
         except ValueError as exc:
             self.status_label.setText(f"Cannot start scan: {exc}")
+            self._set_scanner_status("Error · Scan could not start", "error")
             return
 
         req = ScanRequest(
@@ -961,39 +1209,147 @@ class ScanSidebar(QWidget):
 
     @pyqtSlot(float)
     def _on_scan_progress(self, progress: float) -> None:
+        if not self._scanning:
+            return
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(int(progress * 100))
+        if self._scan_cancel_pending:
+            return
+        self._set_scanner_status(self._single_frame_progress_text(progress), "active")
 
     @pyqtSlot(str)
     def _on_scan_finished(self, path: str) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         self.status_label.setText(f"Scanned: {path}")
+        self._set_scanner_status("Complete · 1 frame ready", "ready")
+
+    @pyqtSlot()
+    def _on_scan_cancelled(self) -> None:
+        """Restore conventional scan controls without disturbing a roll job."""
+
+        if not self._scanning:
+            return
+        self.set_scanning(False)
+        self.status_label.setText("Scan stopped.")
+        self._set_scanner_status("Connected · Scan stopped", "ready")
 
     @pyqtSlot(str)
     def _on_scan_error(self, msg: str) -> None:
         self.set_scanning(False)
-        self.progress_bar.setVisible(False)
         self.status_label.setText(f"Error: {msg}")
+        self._set_scanner_status("Error · Scan failed", "error")
 
     # ── state helpers ─────────────────────────────────────────────────
 
     def set_scanning(self, active: bool) -> None:
+        was_scanning = self._scanning
+        if active and not was_scanning:
+            device = self._current_device()
+            frame = self.frame_spin.value()
+            self._active_scan_device_id = device.id if device is not None else None
+            self._active_scan_frame = frame if frame > 0 else None
+
         self._scanning = active
+        self._scan_cancel_pending = False
         device = self._current_device()
-        self.eject_btn.setEnabled(
-            not active
-            and not self._ejecting
-            and bool(device and device.capabilities.can_eject)
-        )
+        self._set_conventional_request_controls_enabled(not active, device)
+        self.eject_btn.setEnabled(not active and not self._ejecting and bool(device and device.capabilities.can_eject))
+        roll_supported = self._supports_ls5000_roll_workflow(device)
+        self.sa30_compatible_check.setEnabled(not active and not self._roll_scanning and self._can_configure_sa30_profile(device))
+        self.roll_preview_btn.setEnabled(not active and not self._roll_scanning and roll_supported)
+        self.roll_slot_selector.setEnabled(not active and not self._roll_scanning)
         if active:
+            self.scan_btn.setEnabled(True)
             self.scan_btn.setText(" Stop")
             self.scan_btn.setIcon(qta.icon("fa5s.stop", color=THEME.text_primary))
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
+            self._set_scanner_status(self._single_frame_progress_text(), "active")
         else:
+            self.scan_btn.setEnabled(not self._roll_scanning and device is not None)
             self.scan_btn.setText(" Scan")
             self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_primary))
+            self.progress_bar.setVisible(False)
+            self.progress_bar.setFormat("Scanning… %p%")
+
+        if not active:
+            self._active_scan_device_id = None
+            self._active_scan_frame = None
+
+    def _set_conventional_request_controls_enabled(
+        self,
+        enabled: bool,
+        device: ScannerDevice | None,
+    ) -> None:
+        """Lock a conventional request while its scanner transaction is active."""
+
+        self.device_combo.setEnabled(enabled and bool(self._devices))
+        self.refresh_btn.setEnabled(enabled)
+
+        request_widgets = (
+            self.dpi_combo,
+            self.depth_combo,
+            self.ir_check,
+            self.frame_spin,
+            self.autofocus_check,
+            self.ae_check,
+            self.samples_combo,
+            self.archival_split_check,
+            self.fmt_combo,
+            self.folder_edit,
+            self.browse_btn,
+            self.pattern_edit,
+            self.registered_geometry_check,
+            self.subframe_spin,
+            self.br_y_spin,
+            self.load_registration_btn,
+        )
+        if not enabled:
+            for widget in request_widgets:
+                widget.setEnabled(False)
+            return
+
+        caps = device.capabilities if device is not None else None
+        self.dpi_combo.setEnabled(device is not None)
+        self.depth_combo.setEnabled(device is not None)
+        self.frame_spin.setEnabled(caps is not None and caps.adapter_frame_capacity is not None)
+        self.autofocus_check.setEnabled(device is not None)
+        self.ae_check.setEnabled(caps is not None and caps.auto_exposure)
+        self.archival_split_check.setEnabled(caps is not None and caps.ir_channel and caps.multi_sample and 16 in caps.supported_depths)
+        self.ir_check.setEnabled(caps is not None and caps.ir_channel)
+        self.samples_combo.setEnabled(caps is not None and caps.multi_sample)
+        self.registered_geometry_check.setEnabled(caps is not None and caps.registered_geometry)
+
+        self.fmt_combo.setEnabled(True)
+        self.folder_edit.setEnabled(True)
+        self.browse_btn.setEnabled(True)
+        self.pattern_edit.setEnabled(True)
+
+        self._apply_archival_split_interlock()
+        self._update_registration_fields_enabled()
+
+    def _single_frame_progress_text(self, progress: float | None = None) -> str:
+        frame = self._active_scan_frame if self._scanning else self.frame_spin.value()
+        frame = frame or 0
+        location = f"Slot {frame:02d}" if frame > 0 else "Current position"
+        message = f"Scanning frame 1 of 1 · {location}"
+        if progress is not None:
+            percent = max(0, min(100, round(float(progress) * 100)))
+            message += f" · {percent}%"
+        return message
+
+    def _set_scanner_status(self, message: str, state: str) -> None:
+        """Keep scanner connection and operation state visible near its name."""
+
+        color = _SCANNER_STATUS_COLORS.get(state, _SCANNER_STATUS_COLORS["muted"])
+        self.device_status_label.setProperty("scannerState", state)
+        self.device_status_label.setText(f"● {message}")
+        self.device_status_label.setAccessibleName(f"Scanner status: {message}")
+        self.device_status_label.setAccessibleDescription(message)
+        self.device_status_label.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")
+        self.device_status_label.setToolTip(
+            f"{message}. Connection is updated when scanners are detected, refreshed, or an operation reports a failure."
+        )
 
     def _update_settings_from_ui(self) -> None:
         dpi_text = self.dpi_combo.currentData() or self.dpi_combo.currentText()
@@ -1023,6 +1379,8 @@ class ScanSidebar(QWidget):
             output_folder=self.folder_edit.text().strip(),
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
+            sa30_compatible_roll_feeder=(self.sa30_compatible_check.isChecked()),
+            preview_meter_inset_percent=self.preview_meter_inset_spin.value(),
         )
 
 

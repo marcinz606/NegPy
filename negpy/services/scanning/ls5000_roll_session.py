@@ -51,6 +51,7 @@ from negpy.services.scanning.roll_preview_controls import (
 
 LS5000_NATIVE_RESOLUTION = 4_000
 LS5000_FINE_NATIVE_HEIGHT = 5_959
+SA30_ADAPTER_FRAME_CAPACITY = 40
 SESSION_VERSION = 1
 _PREVIEW_SLOT_SEMANTICS = "scanner-addressable preview slots; not an exposure count"
 
@@ -489,8 +490,15 @@ def _validate_preview_result(
         raise RollSessionIntegrityError("preview journal evidence does not bind the saved artifacts")
     slot_capacity = journal_receipt.get("slot_capacity_hint")
     startup = _require_mapping(journal, "live_startup_0x8f")
-    if type(slot_capacity) is not int or not 1 <= slot_capacity <= 40 or startup.get("count") != slot_capacity:
-        raise RollSessionIntegrityError("preview slot-capacity evidence is inconsistent")
+    if (
+        type(slot_capacity) is not int
+        or slot_capacity != SA30_ADAPTER_FRAME_CAPACITY
+        or startup.get("count") != SA30_ADAPTER_FRAME_CAPACITY
+    ):
+        raise RollSessionIntegrityError(
+            "preview does not contain matching live proof of an "
+            "SA-30-compatible 40-slot adapter"
+        )
 
     return (
         journal,

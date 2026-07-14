@@ -2,23 +2,31 @@
 
 The hardware capture remains process-isolated.  This Qt worker owns only the
 application workflow around those attempts: build the thumbnail index, apply
-Boundary Offset choices, finalize color RGBI captures, or route conventional
+Film Spacing Offset choices, finalize color RGBI captures, or route conventional
 silver B&W through the proven SANE RGB4x path with infrared disabled.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date as dt_date
+from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
+    BatchAckAction,
     CaptureAttemptResult,
+    CaptureBatchProcessError,
+    CaptureBatchRequest,
+    CaptureBatchResult,
     CaptureMode,
     CaptureOutcome,
     CaptureProcessAdapter,
@@ -132,11 +140,21 @@ class RollScanRequest:
         object.__setattr__(self, "frames", frames)
 
 
+class RollOperation(StrEnum):
+    """Stable operation identity for UI status and completion handling."""
+
+    PREVIEW = "preview"
+    FULL_SCAN = "full-scan"
+
+
 @dataclass(frozen=True)
 class RollProgress:
     completed: int
     total: int
     message: str
+    operation: RollOperation = RollOperation.FULL_SCAN
+    slot_id: int | None = None
+    percent: int | None = None
 
 
 @dataclass(frozen=True)
@@ -144,6 +162,7 @@ class RollScanCompletion:
     rgb_paths: tuple[str, ...]
     black_and_white: bool
     stopped: bool
+    operation: RollOperation = RollOperation.FULL_SCAN
 
 
 @dataclass(frozen=True)
@@ -155,7 +174,7 @@ class RollWorkerFailure:
 AdapterFactory = Callable[[Path], CaptureProcessAdapter]
 ScannerServiceFactory = Callable[[], ScannerService]
 FinalizerFactory = Callable[[], LS5000SinglePassWorkflow]
-ResultValidator = Callable[[object], object]
+ResultValidator = Callable[..., object]
 TiffValidator = Callable[[str | Path], object]
 
 
@@ -243,6 +262,18 @@ class LS5000RollWorker(QObject):
             recovery_required=result.outcome is CaptureOutcome.RECOVERY_REQUIRED,
         )
 
+    @staticmethod
+    def _failure_for_batch_result(
+        result: CaptureBatchResult,
+        operation: str,
+    ) -> RollWorkerFailure:
+        worker_error = result.session_journal.get("error")
+        detail = worker_error or result.stderr.strip() or f"worker exit {result.returncode}"
+        return RollWorkerFailure(
+            message=f"{operation} failed: {detail}",
+            recovery_required=result.outcome is CaptureOutcome.RECOVERY_REQUIRED,
+        )
+
     @pyqtSlot(object)
     def load_preview(self, request: RollPreviewRequest) -> None:
         """Capture and decode the complete low-resolution roll index."""
@@ -257,7 +288,14 @@ class LS5000RollWorker(QObject):
         try:
             adapter = self._adapter_for(Path(request.attempts_root))
             adapter.clear_stop()
-            self.progress.emit(RollProgress(0, 1, "Reading the whole-roll thumbnail index"))
+            self.progress.emit(
+                RollProgress(
+                    0,
+                    1,
+                    "Making previews · Reading the whole roll",
+                    operation=RollOperation.PREVIEW,
+                )
+            )
             result = adapter.run_attempt(CaptureRequest(mode=CaptureMode.PREVIEW))
             if result.outcome is not CaptureOutcome.COMPLETE:
                 failure = self._failure_for_result(result, "Roll preview")
@@ -273,10 +311,25 @@ class LS5000RollWorker(QObject):
             self._preview_device_id = request.device_id
             self._preview_adapter_capacity = request.adapter_frame_capacity
             self._recovery_required = False
-            self.progress.emit(RollProgress(1, 1, f"Loaded {len(session.slots)} scanner slots"))
+            self.progress.emit(
+                RollProgress(
+                    1,
+                    1,
+                    f"Preview complete · {len(session.slots)} scanner slots loaded",
+                    operation=RollOperation.PREVIEW,
+                    percent=100,
+                )
+            )
             self.preview_ready.emit(token, session)
         except CaptureStopped:
-            self.finished.emit(RollScanCompletion((), False, True))
+            self.finished.emit(
+                RollScanCompletion(
+                    (),
+                    False,
+                    True,
+                    operation=RollOperation.PREVIEW,
+                )
+            )
         except Exception as error:
             self.error.emit(RollWorkerFailure(f"Roll preview failed: {error}", False))
 
@@ -344,28 +397,29 @@ class LS5000RollWorker(QObject):
         adapter.clear_stop()
         total = len(request.frames)
         paths: list[str] = []
-        next_sequence = 1
         try:
-            for index, frame in enumerate(request.frames):
-                if self._stop_after_current.is_set():
-                    break
-                self.progress.emit(
-                    RollProgress(
-                        index,
-                        total,
-                        f"Scanning slot {frame.slot_id:02d} at full quality",
-                    )
+            if request.material is ScanMaterial.COLOR_NEGATIVE:
+                stopped = self._scan_color_batch(
+                    adapter,
+                    attempts_root=attempts_root,
+                    output_folder=output_folder,
+                    filename_pattern=request.filename_pattern,
+                    frames=request.frames,
+                    paths=paths,
                 )
-                if request.material is ScanMaterial.COLOR_NEGATIVE:
-                    path, next_sequence = self._scan_color_frame(
-                        adapter,
-                        attempts_root=attempts_root,
-                        output_folder=output_folder,
-                        filename_pattern=request.filename_pattern,
-                        frame=frame,
-                        minimum_sequence=next_sequence,
+            else:
+                for index, frame in enumerate(request.frames):
+                    if self._stop_after_current.is_set():
+                        break
+                    self.progress.emit(
+                        RollProgress(
+                            index,
+                            total,
+                            f"Scanning frame {index + 1} of {total} · "
+                            f"Slot {frame.slot_id:02d}",
+                            slot_id=frame.slot_id,
+                        )
                     )
-                else:
                     path = self._scan_bw_frame(
                         request,
                         session=session,
@@ -373,14 +427,24 @@ class LS5000RollWorker(QObject):
                         progress_index=index,
                         progress_total=total,
                     )
-                paths.append(path)
-                self.frame_finished.emit(frame.slot_id, path)
-                self.progress.emit(RollProgress(index + 1, total, f"Finished slot {frame.slot_id:02d}"))
+                    paths.append(path)
+                    self.frame_finished.emit(frame.slot_id, path)
+                    self.progress.emit(
+                        RollProgress(
+                            index + 1,
+                            total,
+                            f"Finished frame {index + 1} of {total} · "
+                            f"Slot {frame.slot_id:02d}",
+                            slot_id=frame.slot_id,
+                            percent=100,
+                        )
+                    )
+                stopped = self._stop_after_current.is_set()
             self.finished.emit(
                 RollScanCompletion(
                     rgb_paths=tuple(paths),
                     black_and_white=request.material is ScanMaterial.BLACK_AND_WHITE_NEGATIVE,
-                    stopped=self._stop_after_current.is_set(),
+                    stopped=stopped,
                 )
             )
         except CaptureStopped:
@@ -390,6 +454,33 @@ class LS5000RollWorker(QObject):
                     tuple(paths),
                     request.material is ScanMaterial.BLACK_AND_WHITE_NEGATIVE,
                     True,
+                )
+            )
+        except CaptureBatchProcessError as error:
+            receipt_error: Exception | None = None
+            if error.session_journal is not None:
+                try:
+                    self._promote_batch_session_receipt(
+                        error.paths.session_journal,
+                        error.session_journal,
+                        output_folder,
+                    )
+                except Exception as promotion_error:
+                    receipt_error = promotion_error
+            self._emit_partial_completion(paths, request.material)
+            self._discard_preview(
+                recovery_required=error.recovery_required,
+            )
+            self.error.emit(
+                RollWorkerFailure(
+                    "Full-quality roll scan failed: "
+                    f"{error}"
+                    + (
+                        f"; could not preserve batch receipt: {receipt_error}"
+                        if receipt_error is not None
+                        else ""
+                    ),
+                    error.recovery_required,
                 )
             )
         except _CaptureRefusal as refusal:
@@ -402,6 +493,143 @@ class LS5000RollWorker(QObject):
             self._emit_partial_completion(paths, request.material)
             self._discard_preview()
             self.error.emit(RollWorkerFailure(f"Full-quality roll scan failed: {error}", False))
+
+    def _scan_color_batch(
+        self,
+        adapter: CaptureProcessAdapter,
+        *,
+        attempts_root: Path,
+        output_folder: Path,
+        filename_pattern: str,
+        frames: tuple[RollFrameChoice, ...],
+        paths: list[str],
+    ) -> bool:
+        batch_request = CaptureBatchRequest(
+            frames=tuple(
+                CaptureRequest(
+                    mode=CaptureMode.FULL,
+                    selected_slot=frame.slot_id,
+                    boundary_offset_rows=frame.boundary_offset_rows,
+                )
+                for frame in frames
+            )
+        )
+        finalizer = self._finalizer_factory()
+        capture_session: SinglePassSession | None = None
+        next_sequence = 1
+        total = len(frames)
+
+        def emit_scanning(index: int) -> None:
+            frame = frames[index]
+            self.progress.emit(
+                RollProgress(
+                    index,
+                    total,
+                    f"Scanning frame {index + 1} of {total} · "
+                    f"Slot {frame.slot_id:02d}",
+                    slot_id=frame.slot_id,
+                )
+            )
+
+        def finalize_frame(result: CaptureAttemptResult) -> BatchAckAction:
+            nonlocal capture_session, next_sequence
+            index = len(paths)
+            if index >= total:
+                raise RuntimeError("batch worker produced an unexpected extra frame")
+            frame = frames[index]
+            if (
+                result.request.selected_slot != frame.slot_id
+                or result.request.boundary_offset_rows != frame.boundary_offset_rows
+            ):
+                raise RuntimeError("batch worker frame order changed before finalization")
+            if result.batch_session_id is None:
+                raise RuntimeError("batch worker result has no session identity")
+            if capture_session is None:
+                capture_session = SinglePassSession(
+                    root=attempts_root,
+                    session_id=result.batch_session_id,
+                )
+            elif capture_session.session_id != result.batch_session_id:
+                raise RuntimeError("batch worker session identity changed between frames")
+            attempt = SinglePassAttempt.from_capture_result(
+                session=capture_session,
+                result=result,
+            )
+            finalization = finalizer.finalize_attempt(
+                attempt,
+                delete_scratch=True,
+            )
+            promoted = self._promoter(
+                finalization,
+                output_folder=output_folder,
+                filename_pattern=filename_pattern,
+                minimum_sequence=next_sequence,
+            )
+            path = str(promoted.rgb_path)
+            next_sequence = promoted.sequence + 1
+            paths.append(path)
+            self.frame_finished.emit(frame.slot_id, path)
+            self.progress.emit(
+                RollProgress(
+                    index + 1,
+                    total,
+                    f"Finished frame {index + 1} of {total} · "
+                    f"Slot {frame.slot_id:02d}",
+                    slot_id=frame.slot_id,
+                    percent=100,
+                )
+            )
+            if self._stop_after_current.is_set():
+                return BatchAckAction.STOP
+            if index + 1 < total:
+                emit_scanning(index + 1)
+            return BatchAckAction.CONTINUE
+
+        emit_scanning(0)
+        result = adapter.run_batch_session(
+            batch_request,
+            frame_handler=finalize_frame,
+        )
+        self._promote_batch_session_receipt(
+            result.paths.session_journal,
+            result.session_journal,
+            output_folder,
+        )
+        if result.outcome is not CaptureOutcome.COMPLETE:
+            failed_index = len(result.frames)
+            operation = "Full-quality roll scan"
+            if failed_index < total:
+                operation = f"Slot {frames[failed_index].slot_id:02d}"
+            raise _CaptureRefusal(self._failure_for_batch_result(result, operation))
+        return result.stopped or self._stop_after_current.is_set()
+
+    @staticmethod
+    def _promote_batch_session_receipt(
+        source: Path,
+        expected: dict[str, Any],
+        output_folder: Path,
+    ) -> Path:
+        """Copy the immutable final release receipt beside promoted frames."""
+
+        payload = source.read_bytes()
+        if json.loads(payload) != expected:
+            raise RuntimeError("batch session receipt changed after validation")
+        session_id = expected.get("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            raise RuntimeError("batch session receipt has no session identity")
+        output_folder.mkdir(parents=True, exist_ok=True)
+        destination = output_folder / f"negpy-ls5000-batch-{session_id}.json"
+        with destination.open("xb") as stream:
+            if stream.write(payload) != len(payload):
+                raise OSError("short batch session receipt write")
+            stream.flush()
+            os.fsync(stream.fileno())
+        directory = os.open(output_folder, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        return destination
 
     def _emit_partial_completion(
         self,
@@ -418,45 +646,6 @@ class LS5000RollWorker(QObject):
                     stopped=True,
                 )
             )
-
-    def _scan_color_frame(
-        self,
-        adapter: CaptureProcessAdapter,
-        *,
-        attempts_root: Path,
-        output_folder: Path,
-        filename_pattern: str,
-        frame: RollFrameChoice,
-        minimum_sequence: int,
-    ) -> tuple[str, int]:
-        result = adapter.run_attempt(
-            CaptureRequest(
-                mode=CaptureMode.FULL,
-                selected_slot=frame.slot_id,
-                boundary_offset_rows=frame.boundary_offset_rows,
-            )
-        )
-        if result.outcome is not CaptureOutcome.COMPLETE:
-            raise _CaptureRefusal(self._failure_for_result(result, f"Slot {frame.slot_id:02d}"))
-        capture_session = SinglePassSession(
-            root=attempts_root,
-            session_id=f"roll-{uuid.uuid4().hex}",
-        )
-        attempt = SinglePassAttempt.from_capture_result(
-            session=capture_session,
-            result=result,
-        )
-        finalization = self._finalizer_factory().finalize_attempt(
-            attempt,
-            delete_scratch=True,
-        )
-        promoted = self._promoter(
-            finalization,
-            output_folder=output_folder,
-            filename_pattern=filename_pattern,
-            minimum_sequence=minimum_sequence,
-        )
-        return str(promoted.rgb_path), promoted.sequence + 1
 
     def _scan_bw_frame(
         self,
@@ -489,7 +678,10 @@ class LS5000RollWorker(QObject):
                 RollProgress(
                     progress_index,
                     progress_total,
-                    f"Scanning B&W slot {frame.slot_id:02d}: {percent}%",
+                    f"Scanning frame {progress_index + 1} of {progress_total} · "
+                    f"Slot {frame.slot_id:02d} · {percent}%",
+                    slot_id=frame.slot_id,
+                    percent=percent,
                 )
             )
 
@@ -543,6 +735,7 @@ def frame_choices(
 __all__ = [
     "LS5000RollWorker",
     "RollFrameChoice",
+    "RollOperation",
     "RollPreviewRequest",
     "RollProgress",
     "RollScanCompletion",

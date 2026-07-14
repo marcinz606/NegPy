@@ -11,6 +11,8 @@ NegPy can read a whole roll in the Nikon LS-5000, show small previews, and scan 
 
 The 40 slots are positions the feeder can address. They are not an exposure count. A 24 or 36 exposure roll can end with blank, partial, or otherwise unusable slots.
 
+NegPy enables the roll controls when the scanner reports a live 40-slot capacity. If a parked feeder cannot report its capacity, you can explicitly enable the **SA-30 / converted SA-21 (40 slots)** profile. A live non-40 capacity always overrides that saved profile and keeps the roll controls unavailable.
+
 ## Preview and select a roll
 
 1. Insert the film and open the Scan panel.
@@ -22,6 +24,12 @@ The 40 slots are positions the feeder can address. They are not an exposure coun
 Warnings on the last few slots are advisory. They usually mean that the preview looks blank, partial, or uncertain. Check the thumbnail before including one in a full scan.
 
 The contact sheet uses its own display levels so that dense negatives and the orange mask remain readable. Those levels do not change scanner auto-exposure or the pixels written to the TIFF.
+
+**Preview meter inset** controls which part of each thumbnail NegPy uses to calculate its display brightness. You can inset the meter by 0% to 30% from every edge; the default is 10%. At that setting, the calculation uses the center 80% of the image in each direction, which keeps a dark rebate from driving the preview levels. A translucent box on every thumbnail shows the area being metered. The full thumbnail, including the rebate, stays visible.
+
+Changing the inset rerenders every loaded thumbnail immediately from the saved preview data. It does not move the film, run scanner auto-exposure again, or change the final scan.
+
+The line under the scanner name shows what the device is doing. It reports detection, preview loading, the current selected frame and slot, completion, and recovery errors. "Connected" means the scanner responded to the most recent detection or refresh. NegPy does not probe the USB device in the background while a scan owns it.
 
 ![NegPy LS-5000 full-roll contact sheet](images/ls5000-full-roll-preview.jpg)
 
@@ -49,15 +57,27 @@ Color scans produce four files with the same base name:
 - A mask that marks valid IR samples: `_IR_VALID.tif`
 - A scan receipt: `_SCAN.json`
 
+A selected color batch also produces a `negpy-ls5000-batch-<session-id>.json` receipt beside the finished frames. Each frame receipt records that the scanner reservation was still open when the worker handed the frame to NegPy for finalization. The batch receipt uses the same session ID and records the single release after the last frame or a safe stop. It also identifies the exact batch request, capture worker, and packaged capture bundle that produced the frames.
+
 The RGB and IR files come from one scanner traversal. NegPy averages four transferred RGB samples. The packed stream carries one IR plane. The scanner may combine IR samples in firmware, but the wire data does not prove that, so NegPy records its IR multisample semantics as unresolved.
 
-Black-and-white scans produce one RGB TIFF. NegPy does not request IR, create an IR sidecar, or enable IR dust repair. Silver blocks infrared light, so an IR defect map cannot distinguish dust from the photograph. Chromogenic black-and-white films such as Ilford XP2 are different. Scan those as C-41 if you want to use IR dust removal.
+Black-and-white scans produce one RGB TIFF. NegPy does not request IR, create an IR sidecar, or enable IR dust repair. Silver blocks infrared light, so an IR defect map cannot distinguish dust from the photograph. Chromogenic black-and-white films such as Ilford XP2 are different. Scan those as C-41 if you want IR dust removal.
 
-Both routes use autofocus and hardware auto-exposure on the positioned frame. NegPy checks the requested geometry before capture and verifies the dimensions, bit depth, resolution, and transport-smear result before accepting the TIFF. Large packed capture files are scratch data and are removed after the verified color TIFF set is complete.
+Both routes use autofocus and hardware auto-exposure on the positioned frame. NegPy checks the requested geometry before capture and verifies the dimensions, bit depth, resolution, and transport-smear result before accepting the TIFF. Each frame's large packed capture file is scratch data. NegPy removes it after that frame's TIFF set has been verified and promoted, before it acknowledges the frame and lets the scanner begin the next one.
 
-The resolution menu marks the highest resolution reported by the selected scanner as **Best quality** and selects it when you choose the scanner. You can still pick a lower resolution for a faster scan.
+The roll controls show their two resolutions separately. Whole-roll thumbnails use 97 dpi. Every selected full-quality frame uses 4000 dpi, 16-bit, and a scanner-linear TIFF master.
 
-Each selected color frame currently opens its own direct scanner session. The scanner may travel across the roll again before the next frame. This is slower than Nikon Scan's long-lived batch session, but it does not change the saved image data.
+The depth menu defaults to **16-bit (Best quality)**. Turning on **Archival Split (RGB4x + IR1x)** selects 16-bit and locks the depth control until you turn Archival Split off.
+
+The **Single-frame DPI** and **Single-frame format** controls apply only to conventional single-frame scans. The resolution menu selects the highest value reported by the device and marks it **Best quality**. TIFF and DNG contain the same scanner-linear capture. The file format does not control inversion; use the Process panel for that.
+
+Roll preview is a separate, short scanner operation. It reads the roll table and thumbnails, then releases the device before a full scan begins.
+
+Selected color frames share one direct scanner session. NegPy reads the roll index once, resolves all selected Film Spacing Offsets, and sends one combined Nikon frame table. It keeps the scanner reservation open while it captures the selected frames, using the retained origin for each autofocus and scan window. If an offset cannot be represented safely, the batch stops before the first full scan. A clean finish or safe stop sends one release at the end.
+
+Selected black-and-white frames still use the SANE route, which opens one scanner session per frame.
+
+The shared C-41 session has offline coverage for command order, acknowledgments, partial results, receipts, stops, and cleanup. Its final live multi-frame scanner run is still pending.
 
 ## Stopping and recovery
 
@@ -67,4 +87,4 @@ If a USB failure leaves the feeder in an uncertain state, NegPy stops the queue 
 
 Use the **Eject** button beside the scanner selector when the device reports an eject control. A successful eject clears the contact sheet because its frame coordinates no longer belong to the film's current position.
 
-The direct C-41 preview sequence can wake a parked roll feeder. The SANE black-and-white route cannot yet do that reliably. If a parked black-and-white session reports zero frames, power-cycle the scanner, reinsert the film, and load the roll again before scanning.
+The whole-roll preview tries to re-arm a parked feeder, but some parked states still time out. A successful preview validates the live startup frame table before it enables selected scans. If the preview times out, power-cycle the scanner, reinsert the film, and load the roll again. The SANE black-and-white route also needs an awake feeder.
