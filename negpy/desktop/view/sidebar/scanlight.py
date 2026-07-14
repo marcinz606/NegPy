@@ -817,6 +817,10 @@ class ScanlightSidebar(QWidget):
 
     def _start_live_view_worker(self) -> None:
         """Spawn the live-view stream subprocess (shared by toggle-on and resume)."""
+        # Blank the previous session's frame *before* the window is shown, so reopening live view
+        # goes straight to black + the buffering spinner instead of flashing the stale image until
+        # the first fresh frame lands (`_on_live_view_started` re-blanks + pins the mtime).
+        self._lv_target.clear_frame()
         self._lv_target.set_loading(True)  # buffering spinner until the first frame lands
         from negpy.desktop.workers.capture_worker import LiveViewRequest
 
