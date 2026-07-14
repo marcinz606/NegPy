@@ -12,6 +12,12 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 | `Left Arrow` | Previous image |
 | `Right Arrow` | Next image |
 
+## Triage
+| Key | Action |
+|-----|--------|
+| `C` | Circle frame — mark "print this" on the contact sheet |
+| `Shift + X` | Strike frame — cut it from the roll (skipped by batch export) |
+
 ## Image Adjustments (High Speed)
 | Key | Action |
 |-----|--------|

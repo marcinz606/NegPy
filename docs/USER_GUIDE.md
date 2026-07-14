@@ -305,6 +305,15 @@ The file browser at the top of the session panel.
 *   **Filter input**: Filter the file list by filename (substring match by default).
 *   **Regex toggle (`.*`)**: When on, the filter is interpreted as a regular expression.
 
+### Triage (grease pencil)
+
+Mark up the roll like a real contact sheet — a wax-pencil mark drawn on the thumbnail:
+
+*   **Circle** (`C`, or right-click → Circle): "print this". A circled frame gets a pencil ellipse.
+*   **Strike** (`Shift+X`, or right-click → Strike): "cut". A struck frame is crossed out and dimmed, stays visible on the sheet, and is skipped by batch exports and sidecar writes (the contact sheet still shows the whole roll). The file on disk is never touched.
+*   **Sheet filter** (funnel button next to Sort): All frames / Circled only / Hide struck. With a filter active, striking the open frame advances to the next visible one.
+*   A tally under the filter box counts the roll: "36 frames · 12 circled · 3 struck". Marks apply to the multi-selection when one exists and persist across sessions.
+
 ### Session tabs
 
 Switches the panel below between modes. These are containers, not edit controls — content for each is documented in its own section above:

@@ -1,6 +1,10 @@
 # Change Log
 
 
+## 0.38.0
+
+- New: **Grease pencil for the contact sheet** — triage a roll like a real contact sheet: `C` circles a frame ("print this"), `Shift+X` strikes it ("cut"), drawn in wax pencil right on the thumbnail. Struck frames stay on the sheet but drop out of batch exports and sidecar writes automatically. A new Sheet filter next to Sort shows All frames / Circled only / Hide struck, a tally under the filter box counts the roll ("36 frames · 12 circled · 3 struck"), and marks persist per file across sessions. Also available from the thumbnail right-click menu; works on multi-selections.
+
 ## 0.37.2
 
 - New: **Drag to heal** — the Heal tool now paints while you drag: a plain click still heals a single spot, but click-and-drag sweeps a heal along the cursor and commits the whole path as one stroke (one undo, one render). @linkmodo

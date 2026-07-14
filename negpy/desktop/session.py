@@ -132,6 +132,7 @@ class AssetListModel(QAbstractListModel):
         self._filter_text: str = ""
         self._filter_regex: bool = False
         self._filter_pattern: Optional[re.Pattern] = None
+        self._sheet_filter: str = "all"  # "all" | "circled" | "uncut"
         self._sorted_indices: list[int] = []
         self._rebuild_indices()
 
@@ -158,7 +159,23 @@ class AssetListModel(QAbstractListModel):
                 needle = self._filter_text
                 indices = [i for i in indices if needle in files[i]["name"].lower()]
 
+        if self._sheet_filter == "circled":
+            indices = [i for i in indices if files[i].get("circled")]
+        elif self._sheet_filter == "uncut":
+            indices = [i for i in indices if not files[i].get("excluded")]
+
         self._sorted_indices = indices
+
+    def set_sheet_filter(self, mode: str) -> None:
+        if mode not in ("all", "circled", "uncut"):
+            mode = "all"
+        self._sheet_filter = mode
+        self._rebuild_indices()
+        self.layoutChanged.emit()
+
+    @property
+    def sheet_filter(self) -> str:
+        return self._sheet_filter
 
     def set_sort_order(self, order: str) -> None:
         self._sort_order = order
@@ -232,6 +249,9 @@ class AssetListModel(QAbstractListModel):
 
         if role == Qt.ItemDataRole.ToolTipRole:
             return file_info["path"]
+
+        if role == Qt.ItemDataRole.UserRole:
+            return file_info
 
         return None
 
@@ -748,6 +768,29 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = indices
         self.state_changed.emit()
 
+    def toggle_mark(self, mark: str) -> None:
+        """Grease-pencil triage on the contact sheet: 'circled' (print this) or
+        'excluded' (strike/cut). Applies to the multi-selection if one exists, else
+        the active frame; a block toggles off only when every target already has the
+        mark. The two marks are mutually exclusive per frame. Not part of
+        WorkspaceConfig — Ctrl+Z never unmarks a frame."""
+        if mark not in ("circled", "excluded"):
+            return
+        state = self.state
+        targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
+        if not targets:
+            return
+        other = "excluded" if mark == "circled" else "circled"
+        set_all = not all(state.uploaded_files[i].get(mark) for i in targets)
+        for i in targets:
+            f = state.uploaded_files[i]
+            f[mark] = set_all
+            if set_all:
+                f[other] = False
+            self.repo.save_file_mark(f["hash"], mark if set_all else None)
+        self.asset_model.refresh()
+        self.files_changed.emit()
+
     def sync_selected_settings(self, aspects: frozenset, scope: str = "selection") -> int:
         """
         Apply the active frame's settings to other frames. Returns the count changed.
@@ -1001,6 +1044,14 @@ class DesktopSessionManager(QObject):
                     from negpy.kernel.system.logging import get_logger
 
                     get_logger(__name__).error(f"Failed to add {path}: {e}")
+
+        # Restore persisted grease-pencil marks (DB is the source of truth — in-session
+        # toggles write through, so overlaying unconditionally cannot lose a mark).
+        marks = self.repo.load_file_marks()
+        for f in self.state.uploaded_files:
+            m = marks.get(f["hash"])
+            f["circled"] = m == "circled"
+            f["excluded"] = m == "excluded"
 
         self.asset_model.refresh()
         self.files_changed.emit()

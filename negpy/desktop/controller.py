@@ -1315,9 +1315,14 @@ class AppController(QObject):
             crop_status = f"Crop status: all {total} files are cropped."
             crop_warning = "Analysis will run on each file's cropped negative area."
 
+        sheet_note = ""
+        if self.session.asset_model.sheet_filter != "all":
+            sheet_note = f"Note: the Sheet filter is on — only the {total} visible frame(s) are analyzed.\n\n"
+
         reply = QMessageBox.question(
             None,
             "Batch Analysis",
+            f"{sheet_note}"
             f"{crop_status}\n"
             f"{crop_warning}\n\n"
             "Batch Analysis measures the exposure bounds of every file and applies "
@@ -1953,7 +1958,7 @@ class AppController(QObject):
     def request_export_selected(self) -> None:
         """Batch-exports the currently selected files using each file's own saved settings."""
         selected = [self.state.uploaded_files[i] for i in self.state.selected_indices if 0 <= i < len(self.state.uploaded_files)]
-        self.request_batch_export(files=selected)
+        self.request_batch_export(files=[f for f in selected if not f.get("excluded")])
 
     def request_batch_export(self, override_settings: bool = False, files: list[dict] | None = None) -> None:
         """Batch-exports the given files (all visible by default) using current settings, optionally applied to all."""
@@ -1967,7 +1972,11 @@ class AppController(QObject):
         sync_metadata = self.state.config.metadata.sync_to_batch
 
         if files is None:
-            files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+            files = [
+                self.state.uploaded_files[i]
+                for i in self.session.asset_model.visible_actual_indices_ordered()
+                if not self.state.uploaded_files[i].get("excluded")
+            ]
 
         if len(files) > 1 and not self._confirm_bulk_export(f"Export {len(files)} frames?"):
             return
@@ -2210,7 +2219,11 @@ class AppController(QObject):
 
     def export_edit_sidecars(self) -> None:
         """Explicit batch sidecar export for all visible files (ignores the on-export toggle)."""
-        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        visible_files = [
+            self.state.uploaded_files[i]
+            for i in self.session.asset_model.visible_actual_indices_ordered()
+            if not self.state.uploaded_files[i].get("excluded")
+        ]
         if not visible_files:
             return
         written = self._write_edit_sidecars(visible_files)
