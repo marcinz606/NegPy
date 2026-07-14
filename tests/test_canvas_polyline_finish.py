@@ -157,3 +157,88 @@ def test_heal_drag_outside_image_is_ignored() -> None:
 
     assert clicks == []
     assert overlay._heal_drag_pts == []
+
+
+def test_esc_ladder_first_clears_points_then_nothing() -> None:
+    overlay = _overlay_with_view()
+    overlay.set_tool_mode(ToolMode.SCRATCH_PICK)
+    overlay._scratch_pts = [QPointF(10, 10), QPointF(40, 40)]
+
+    assert overlay.cancel_in_progress() is True
+    assert overlay._scratch_pts == []
+    # Second rung: nothing left in progress — caller exits the tool instead.
+    assert overlay.cancel_in_progress() is False
+
+
+def test_esc_ladder_clears_straighten_line() -> None:
+    overlay = _overlay_with_view()
+    overlay.set_tool_mode(ToolMode.STRAIGHTEN)
+    overlay._straighten_p1 = QPointF(10, 10)
+    overlay._straighten_p2 = QPointF(90, 12)
+
+    assert overlay.cancel_in_progress() is True
+    assert overlay._straighten_p1 is None
+
+
+def test_context_cancel_two_stage() -> None:
+    from unittest.mock import MagicMock
+
+    from negpy.desktop.view.keyboard_shortcuts import _context_cancel
+
+    controller, window = MagicMock(), MagicMock()
+    window.canvas.overlay.cancel_in_progress.return_value = True
+    _context_cancel(controller, window)
+    controller.cancel_active_tool.assert_not_called()
+
+    window.canvas.overlay.cancel_in_progress.return_value = False
+    _context_cancel(controller, window)
+    controller.cancel_active_tool.assert_called_once()
+
+
+def _crop_overlay(rect=(0.2, 0.2, 0.8, 0.8)) -> CanvasOverlay:
+    overlay = _overlay_with_parent()
+    overlay.set_tool_mode(ToolMode.CROP_MANUAL)
+    overlay._crop_rect_norm = rect
+    return overlay
+
+
+def test_stray_click_outside_crop_keeps_rect() -> None:
+    overlay = _crop_overlay()
+    emitted: list = []
+    overlay.crop_rect_changed.connect(lambda *a: emitted.append(a))
+
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(5, 5)))
+    overlay.mouseMoveEvent(_mouse_event(QEvent.Type.MouseMove, QPointF(10, 8)))  # < slop
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(10, 8), Qt.MouseButton.NoButton))
+
+    assert emitted == []
+    assert overlay._crop_rect_norm == (0.2, 0.2, 0.8, 0.8)
+    assert overlay._crop_drag_mode is None
+
+
+def test_drag_outside_crop_redraws_past_slop() -> None:
+    overlay = _crop_overlay()
+    emitted: list = []
+    overlay.crop_rect_changed.connect(lambda *a: emitted.append(a))
+
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(5, 5)))
+    overlay.mouseMoveEvent(_mouse_event(QEvent.Type.MouseMove, QPointF(60, 60)))
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(60, 60), Qt.MouseButton.NoButton))
+
+    assert len(emitted) == 1
+    x1, y1, x2, y2, _final = emitted[0]
+    assert abs(x1 - 0.05) < 0.02 and abs(x2 - 0.6) < 0.02
+
+
+def test_fresh_crop_draw_keeps_immediate_feel() -> None:
+    overlay = _crop_overlay(rect=None)
+    overlay._crop_rect_norm = None
+    emitted: list = []
+    overlay.crop_rect_changed.connect(lambda *a: emitted.append(a))
+
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(10, 10)))
+    assert overlay._crop_draw_armed is True
+    overlay.mouseMoveEvent(_mouse_event(QEvent.Type.MouseMove, QPointF(20, 20)))
+    overlay.mouseReleaseEvent(_mouse_event(QEvent.Type.MouseButtonRelease, QPointF(20, 20), Qt.MouseButton.NoButton))
+
+    assert len(emitted) == 1
