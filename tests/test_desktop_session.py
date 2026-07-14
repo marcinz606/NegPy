@@ -673,7 +673,7 @@ class TestSessionEmptied(unittest.TestCase):
         self.assertEqual(self.session.state.selected_file_idx, 0)
 
 
-class TestGreasePencilTriage(unittest.TestCase):
+class TestTriageMarks(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock(spec=StorageRepository)
         self.mock_repo.load_file_settings.return_value = None
@@ -690,7 +690,7 @@ class TestGreasePencilTriage(unittest.TestCase):
         self.session.state.selected_file_idx = 0
         self.session.asset_model.refresh()
 
-    def test_strike_toggles_and_persists(self):
+    def test_reject_toggles_and_persists(self):
         self.session.toggle_mark("excluded")
         self.assertTrue(self.session.state.uploaded_files[0]["excluded"])
         self.mock_repo.save_file_mark.assert_called_with("hash1", "excluded")
@@ -700,50 +700,50 @@ class TestGreasePencilTriage(unittest.TestCase):
         self.mock_repo.save_file_mark.assert_called_with("hash1", None)
 
     def test_marks_are_mutually_exclusive(self):
-        self.session.toggle_mark("circled")
+        self.session.toggle_mark("keeper")
         self.session.toggle_mark("excluded")
         f = self.session.state.uploaded_files[0]
         self.assertTrue(f["excluded"])
-        self.assertFalse(f["circled"])
+        self.assertFalse(f["keeper"])
 
     def test_multi_selection_toggles_as_block(self):
-        self.session.state.uploaded_files[0]["circled"] = True
+        self.session.state.uploaded_files[0]["keeper"] = True
         self.session.state.selected_indices = [0, 1]
 
         # Mixed block: mark all (not clear the one already marked)
-        self.session.toggle_mark("circled")
-        self.assertTrue(all(self.session.state.uploaded_files[i].get("circled") for i in (0, 1)))
+        self.session.toggle_mark("keeper")
+        self.assertTrue(all(self.session.state.uploaded_files[i].get("keeper") for i in (0, 1)))
 
         # Uniform block: clear all
-        self.session.toggle_mark("circled")
-        self.assertFalse(any(self.session.state.uploaded_files[i].get("circled") for i in (0, 1)))
+        self.session.toggle_mark("keeper")
+        self.assertFalse(any(self.session.state.uploaded_files[i].get("keeper") for i in (0, 1)))
 
     def test_invalid_mark_is_noop(self):
         self.session.toggle_mark("starred")
         self.mock_repo.save_file_mark.assert_not_called()
 
-    def test_sheet_filter_uncut_hides_struck(self):
+    def test_sheet_filter_unrejected_hides_rejected(self):
         self.session.state.uploaded_files[1]["excluded"] = True
-        self.session.asset_model.set_sheet_filter("uncut")
+        self.session.asset_model.set_sheet_filter("unrejected")
         self.assertEqual(self.session.asset_model.visible_actual_indices(), {0, 2})
 
-    def test_sheet_filter_circled_only(self):
-        self.session.state.uploaded_files[2]["circled"] = True
-        self.session.asset_model.set_sheet_filter("circled")
+    def test_sheet_filter_keepers_only(self):
+        self.session.state.uploaded_files[2]["keeper"] = True
+        self.session.asset_model.set_sheet_filter("keepers")
         self.assertEqual(self.session.asset_model.visible_actual_indices(), {2})
 
-    def test_sheet_filter_all_shows_struck(self):
+    def test_sheet_filter_all_shows_rejected(self):
         self.session.state.uploaded_files[1]["excluded"] = True
         self.session.asset_model.set_sheet_filter("all")
         self.assertEqual(self.session.asset_model.visible_actual_indices(), {0, 1, 2})
 
     def test_add_files_restores_marks_from_repo(self):
-        self.mock_repo.load_file_marks.return_value = {"hash9": "circled", "hash2": "excluded"}
+        self.mock_repo.load_file_marks.return_value = {"hash9": "keeper", "hash2": "excluded"}
         self.session.add_files([], validated_info=[{"name": "f9.dng", "path": "p9", "hash": "hash9"}])
         files = self.session.state.uploaded_files
-        self.assertTrue(files[3]["circled"])
+        self.assertTrue(files[3]["keeper"])
         self.assertTrue(files[1]["excluded"])
-        self.assertFalse(files[0]["circled"] or files[0]["excluded"])
+        self.assertFalse(files[0]["keeper"] or files[0]["excluded"])
 
 
 class TestRollActionRecoveryRoundTrip(unittest.TestCase):

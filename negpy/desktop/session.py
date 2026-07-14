@@ -132,7 +132,7 @@ class AssetListModel(QAbstractListModel):
         self._filter_text: str = ""
         self._filter_regex: bool = False
         self._filter_pattern: Optional[re.Pattern] = None
-        self._sheet_filter: str = "all"  # "all" | "circled" | "uncut"
+        self._sheet_filter: str = "all"  # "all" | "keepers" | "unrejected"
         self._sorted_indices: list[int] = []
         self._rebuild_indices()
 
@@ -159,15 +159,15 @@ class AssetListModel(QAbstractListModel):
                 needle = self._filter_text
                 indices = [i for i in indices if needle in files[i]["name"].lower()]
 
-        if self._sheet_filter == "circled":
-            indices = [i for i in indices if files[i].get("circled")]
-        elif self._sheet_filter == "uncut":
+        if self._sheet_filter == "keepers":
+            indices = [i for i in indices if files[i].get("keeper")]
+        elif self._sheet_filter == "unrejected":
             indices = [i for i in indices if not files[i].get("excluded")]
 
         self._sorted_indices = indices
 
     def set_sheet_filter(self, mode: str) -> None:
-        if mode not in ("all", "circled", "uncut"):
+        if mode not in ("all", "keepers", "unrejected"):
             mode = "all"
         self._sheet_filter = mode
         self._rebuild_indices()
@@ -772,17 +772,17 @@ class DesktopSessionManager(QObject):
         self.state_changed.emit()
 
     def toggle_mark(self, mark: str) -> None:
-        """Grease-pencil triage: 'circled' (print this) or 'excluded' (strike/cut),
-        mutually exclusive per frame. Targets the multi-selection (else the active
-        frame); a block clears only when every target already has the mark. Kept out
-        of WorkspaceConfig so Ctrl+Z never unmarks a frame."""
-        if mark not in ("circled", "excluded"):
+        """Triage marks: 'keeper' or 'excluded' (reject), mutually exclusive per
+        frame. Targets the multi-selection (else the active frame); a block clears
+        only when every target already has the mark. Kept out of WorkspaceConfig so
+        Ctrl+Z never unmarks a frame."""
+        if mark not in ("keeper", "excluded"):
             return
         state = self.state
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         if not targets:
             return
-        other = "excluded" if mark == "circled" else "circled"
+        other = "excluded" if mark == "keeper" else "keeper"
         set_all = not all(state.uploaded_files[i].get(mark) for i in targets)
         for i in targets:
             f = state.uploaded_files[i]
@@ -1059,7 +1059,7 @@ class DesktopSessionManager(QObject):
         marks = self.repo.load_file_marks()
         for f in self.state.uploaded_files:
             m = marks.get(f["hash"])
-            f["circled"] = m == "circled"
+            f["keeper"] = m == "keeper"
             f["excluded"] = m == "excluded"
 
         self.asset_model.refresh()

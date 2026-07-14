@@ -37,8 +37,8 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     draws a subtle 1px border hugging the image outline (no cell box). The selected
     image is shown full-brightness with a white frame while the others are dimmed; a
     dirty active file gets an accent line along the image's bottom edge. Triage marks
-    are small bottom-right badges: check = circled ("print this"), cross + heavy dim =
-    struck ("cut"); the top-right badge is reserved for decode failures."""
+    are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
+    top-right badge is reserved for decode failures."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
@@ -105,20 +105,20 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         # Selected image full-brightness with the armed-red frame; others dimmed.
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        struck = bool(file_info.get("excluded"))
-        circled = bool(file_info.get("circled"))
+        rejected = bool(file_info.get("excluded"))
+        keeper = bool(file_info.get("keeper"))
 
         clip = QPainterPath()
         clip.addRoundedRect(QRectF(img_rect), self._RADIUS, self._RADIUS)
         painter.setClipPath(clip)
         base_opacity = 1.0 if (selected or hover) else 0.5
-        painter.setOpacity(0.25 if struck else base_opacity)
+        painter.setOpacity(0.25 if rejected else base_opacity)
         painter.drawPixmap(img_rect.topLeft(), scaled)
         painter.setOpacity(1.0)
 
-        if struck:
+        if rejected:
             self._draw_mark_badge(painter, img_rect, check=False)
-        elif circled:
+        elif keeper:
             self._draw_mark_badge(painter, img_rect, check=True)
         painter.setClipping(False)
 
@@ -273,14 +273,14 @@ class FileBrowser(QWidget):
         self._sheet_group = QActionGroup(self)
         self._sheet_group.setExclusive(True)
         self.act_sheet_all = sheet_menu.addAction("All frames")
-        self.act_sheet_circled = sheet_menu.addAction("Circled only")
-        self.act_sheet_uncut = sheet_menu.addAction("Hide struck")
-        for act in (self.act_sheet_all, self.act_sheet_circled, self.act_sheet_uncut):
+        self.act_sheet_keepers = sheet_menu.addAction("Keepers only")
+        self.act_sheet_unrejected = sheet_menu.addAction("Hide rejected")
+        for act in (self.act_sheet_all, self.act_sheet_keepers, self.act_sheet_unrejected):
             act.setCheckable(True)
             self._sheet_group.addAction(act)
         self.act_sheet_all.triggered.connect(lambda: self._apply_sheet_filter("all"))
-        self.act_sheet_circled.triggered.connect(lambda: self._apply_sheet_filter("circled"))
-        self.act_sheet_uncut.triggered.connect(lambda: self._apply_sheet_filter("uncut"))
+        self.act_sheet_keepers.triggered.connect(lambda: self._apply_sheet_filter("keepers"))
+        self.act_sheet_unrejected.triggered.connect(lambda: self._apply_sheet_filter("unrejected"))
         self.sheet_btn.setMenu(sheet_menu)
 
         # Sort dropdown
@@ -402,7 +402,7 @@ class FileBrowser(QWidget):
 
     def _on_files_changed(self) -> None:
         # A mark toggle can hide the active frame under a Sheet filter — pruning then
-        # auto-advances the selection to the next visible frame (strike → move on).
+        # auto-advances the selection to the next visible frame (reject → move on).
         if self.session.asset_model.sheet_filter != "all":
             self._prune_selection_to_visible()
         self.sync_ui()
@@ -524,8 +524,8 @@ class FileBrowser(QWidget):
 
     def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:
         self.act_sheet_all.setChecked(mode == "all")
-        self.act_sheet_circled.setChecked(mode == "circled")
-        self.act_sheet_uncut.setChecked(mode == "uncut")
+        self.act_sheet_keepers.setChecked(mode == "keepers")
+        self.act_sheet_unrejected.setChecked(mode == "unrejected")
         icon_color = "white" if mode != "all" else THEME.text_primary
         self.sheet_btn.setIcon(qta.icon("fa5s.filter", color=icon_color))
         self.session.asset_model.set_sheet_filter(mode)
@@ -539,14 +539,14 @@ class FileBrowser(QWidget):
         if not files:
             self.tally_label.setVisible(False)
             return
-        circled = sum(1 for f in files if f.get("circled"))
-        struck = sum(1 for f in files if f.get("excluded"))
+        keepers = sum(1 for f in files if f.get("keeper"))
+        rejected = sum(1 for f in files if f.get("excluded"))
         n = len(files)
         text = f"{n} frame{'s' if n != 1 else ''}"
-        if circled:
-            text += f" · {circled} circled"
-        if struck:
-            text += f" · {struck} struck"
+        if keepers:
+            text += f" · {keepers} keeper{'s' if keepers != 1 else ''}"
+        if rejected:
+            text += f" · {rejected} rejected"
         self.tally_label.setText(text)
         self.tally_label.setVisible(True)
 
@@ -676,14 +676,14 @@ class FileBrowser(QWidget):
         menu.addSeparator()
         targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
         n = len(targets)
-        act_circle = menu.addAction(f"Circle {n} frames (print these)" if multi else "Circle (print this)")
-        act_circle.setCheckable(True)
-        act_circle.setChecked(bool(targets) and all(state.uploaded_files[i].get("circled") for i in targets))
-        act_circle.triggered.connect(lambda: self.session.toggle_mark("circled"))
-        act_strike = menu.addAction(f"Strike {n} frames (cut)" if multi else "Strike (cut)")
-        act_strike.setCheckable(True)
-        act_strike.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
-        act_strike.triggered.connect(lambda: self.session.toggle_mark("excluded"))
+        act_keep = menu.addAction(f"Keep {n} frames" if multi else "Keep")
+        act_keep.setCheckable(True)
+        act_keep.setChecked(bool(targets) and all(state.uploaded_files[i].get("keeper") for i in targets))
+        act_keep.triggered.connect(lambda: self.session.toggle_mark("keeper"))
+        act_reject = menu.addAction(f"Reject {n} frames" if multi else "Reject")
+        act_reject.setCheckable(True)
+        act_reject.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
+        act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
         menu.addAction("Apply settings…").triggered.connect(self._open_apply_dialog)
         if not multi:

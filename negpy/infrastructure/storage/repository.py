@@ -171,7 +171,7 @@ class StorageRepository(IRepository):
             conn.execute("DELETE FROM flatfield_profiles WHERE name = ?", (name,))
 
     def save_file_mark(self, file_hash: str, mark: Optional[str]) -> None:
-        """Persists a grease-pencil triage mark ('circled'/'excluded'); None clears it."""
+        """Persists a triage mark ('keeper'/'excluded'); None clears it."""
         with self._connect(self.edits_db_path) as conn:
             if mark:
                 conn.execute("INSERT OR REPLACE INTO file_marks (file_hash, mark) VALUES (?, ?)", (file_hash, mark))

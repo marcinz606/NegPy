@@ -15,8 +15,8 @@ Numpad keys can be bound separately from the number row (e.g. `Num+9` vs `9`). N
 ## Triage
 | Key | Action |
 |-----|--------|
-| `C` | Circle frame — mark "print this" on the contact sheet |
-| `Shift + X` | Strike frame — cut it from the roll (skipped by batch export) |
+| `K` | Mark frame as keeper |
+| `Shift + X` | Reject frame (skipped by batch export and sidecar writes) |
 
 ## Image Adjustments (High Speed)
 | Key | Action |

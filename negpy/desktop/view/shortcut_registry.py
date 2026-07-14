@@ -19,8 +19,8 @@ class ShortcutEntry:
 REGISTRY: dict[str, ShortcutEntry] = {
     "prev_file": ShortcutEntry("Left", "Previous file", "Navigation"),
     "next_file": ShortcutEntry("Right", "Next file", "Navigation"),
-    "toggle_circle": ShortcutEntry("C", "Circle frame (print this)", "Triage"),
-    "toggle_strike": ShortcutEntry("Shift+X", "Strike frame (cut from roll)", "Triage"),
+    "toggle_keep": ShortcutEntry("K", "Mark frame as keeper", "Triage"),
+    "toggle_reject": ShortcutEntry("Shift+X", "Reject frame (skipped by batch export)", "Triage"),
     "toggle_compare": ShortcutEntry("\\", "Before/after (auto baseline)", "Tools"),
     "rotate_cw": ShortcutEntry("]", "Rotate 90° CW", "Geometry"),
     "rotate_ccw": ShortcutEntry("[", "Rotate 90° CCW", "Geometry"),

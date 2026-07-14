@@ -800,7 +800,7 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(len(tasks), 2)
         self.assertEqual({t.file_info["name"] for t in tasks}, {"IMG_0002.cr2"})
 
-    def test_batch_export_default_skips_struck(self):
+    def test_batch_export_default_skips_rejected(self):
         self.mock_session_manager.state.uploaded_files[1]["excluded"] = True
         self.controller._ensure_valid_export_path = MagicMock(return_value="/tmp")
         self.controller._confirm_bulk_export = MagicMock(return_value=True)
@@ -811,7 +811,7 @@ class TestPresetExportSelected(unittest.TestCase):
         names = [t.file_info["name"] for t in tasks]
         self.assertEqual(names, ["IMG_0001.cr2", "scan.tif"])
 
-    def test_export_selected_skips_struck(self):
+    def test_export_selected_skips_rejected(self):
         self.mock_session_manager.state.uploaded_files[0]["excluded"] = True
         self.controller._ensure_valid_export_path = MagicMock(return_value="/tmp")
         self.controller._confirm_bulk_export = MagicMock(return_value=True)

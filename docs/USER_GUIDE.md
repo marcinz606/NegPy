@@ -305,14 +305,14 @@ The file browser at the top of the session panel.
 *   **Filter input**: Filter the file list by filename (substring match by default).
 *   **Regex toggle (`.*`)**: When on, the filter is interpreted as a regular expression.
 
-### Triage (grease pencil)
+### Triage
 
-Mark up the roll like a real contact sheet — a wax-pencil mark drawn on the thumbnail:
+Cull the roll right on the contact sheet:
 
-*   **Circle** (`C`, or right-click → Circle): "print this". A circled frame gets a small check badge in its corner.
-*   **Strike** (`Shift+X`, or right-click → Strike): "cut". A struck frame gets a cross badge and is dimmed, stays visible on the sheet, and is skipped by batch exports and sidecar writes (the contact sheet still shows the whole roll). The file on disk is never touched.
-*   **Sheet filter** (funnel button next to Sort): All frames / Circled only / Hide struck. With a filter active, striking the open frame advances to the next visible one.
-*   A tally under the filter box counts the roll: "36 frames · 12 circled · 3 struck". Marks apply to the multi-selection when one exists and persist across sessions.
+*   **Keep** (`K`, or right-click → Keep): marks the frame as a keeper — a small check badge in its corner.
+*   **Reject** (`Shift+X`, or right-click → Reject): a cross badge + dim. Rejected frames stay visible on the sheet but are skipped by batch exports and sidecar writes (the contact sheet still shows the whole roll). The file on disk is never touched.
+*   **Sheet filter** (funnel button next to Sort): All frames / Keepers only / Hide rejected. With a filter active, rejecting the open frame advances to the next visible one.
+*   A tally under the filter box counts the roll: "36 frames · 12 keepers · 3 rejected". Marks apply to the multi-selection when one exists and persist across sessions.
 
 ### Session tabs
 

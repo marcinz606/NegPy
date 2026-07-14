@@ -73,8 +73,8 @@ class ShortcutManager:
         actions: dict[str, Callable[[], None]] = {
             "prev_file": controller.session.prev_file,
             "next_file": controller.session.next_file,
-            "toggle_circle": lambda: controller.session.toggle_mark("circled"),
-            "toggle_strike": lambda: controller.session.toggle_mark("excluded"),
+            "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
+            "toggle_reject": lambda: controller.session.toggle_mark("excluded"),
             "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),
             "rotate_cw": lambda: toolbar.rotate(-1),
