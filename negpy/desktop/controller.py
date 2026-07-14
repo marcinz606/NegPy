@@ -461,8 +461,6 @@ class AppController(QObject):
                 u8_arr = np.array(pil_img.convert("RGB"))
                 self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
 
-        # Thumbnail failures are silently filtered out of the results — badge the
-        # requested-but-missing files so unreadable frames don't blend into the roll.
         # Consume the request list: update_rendered() re-emits this same signal with
         # single-file dicts after every settled render, and evaluating those against
         # a stale batch list would falsely badge every other frame.
@@ -726,8 +724,6 @@ class AppController(QObject):
         self.image_updated.emit()
 
     def _on_preview_load_failed(self, file_path: str, message: str) -> None:
-        """Badge the frame in the contact-sheet grid — the toast alone evaporates and
-        the file would sit there silently unreadable."""
         for f in self.state.uploaded_files:
             if f["path"] == file_path:
                 f["decode_failed"] = message

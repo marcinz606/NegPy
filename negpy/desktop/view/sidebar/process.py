@@ -98,8 +98,6 @@ class ProcessSidebar(BaseSidebar):
         self.layout.addLayout(raw_row)
 
         buf_row = QHBoxLayout()
-        # Tooltips for the shortcut-bearing controls (buffer, clips, WP/BP, crosstalk
-        # strength, lock bounds) live in ControlsPanel.apply_shortcut_tooltips.
         self.analysis_buffer_slider = CompactSlider("Analysis Buffer", 0.0, 0.25, conf.analysis_buffer)
         self.analysis_region_btn = self._tool_toggle(
             "fa5s.vector-square",

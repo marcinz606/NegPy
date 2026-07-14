@@ -165,11 +165,10 @@ class CanvasOverlay(QWidget):
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         # Widget-context shortcuts (Enter finish, Backspace take-back) need focus to
-        # fire; clicking the canvas to draw grants it. Esc deliberately has NO widget
-        # shortcut here: a second Esc binding alongside the window-scope cancel_tool
-        # one made Qt fire only activatedAmbiguously (connected to neither), so Esc
-        # went dead exactly while points were in progress. The window-scope handler
-        # owns the whole Esc ladder via cancel_in_progress().
+        # fire; clicking the canvas to draw grants it. No widget-scope Esc here — a
+        # second Esc binding is ambiguous against the window-scope cancel_tool one
+        # (only activatedAmbiguously fires) and the key goes dead mid-draw; that
+        # handler owns the Esc ladder via cancel_in_progress().
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
         # Enter finishes an in-progress scratch/lasso polyline or confirms the
@@ -1205,9 +1204,8 @@ class CanvasOverlay(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
-        # Clicked outside the existing rect: draw a fresh one from scratch. With a
-        # rect already tuned, the gesture stays disarmed until the cursor travels a
-        # slop distance — a stray click can no longer discard the crop.
+        # Clicked outside the existing rect: draw a fresh one from scratch (disarmed
+        # until slop travel when a rect already exists).
         px = np.clip(pos.x(), self._view_rect.left(), self._view_rect.right())
         py = np.clip(pos.y(), self._view_rect.top(), self._view_rect.bottom())
         self._crop_drag_mode = "draw"
@@ -1648,7 +1646,6 @@ class CanvasOverlay(QWidget):
 
         if self._crop_drag_mode == "draw":
             if not self._crop_draw_armed:
-                # Swallowed stray click outside a tuned crop — the rect survives.
                 hud = getattr(self.parent(), "hud", None)
                 if hud is not None and not self._crop_redraw_hint_shown:
                     self._crop_redraw_hint_shown = True

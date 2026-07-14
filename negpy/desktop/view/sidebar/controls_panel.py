@@ -157,8 +157,8 @@ class ControlsPanel(QWidget):
 
         self.colour_sidebar = ColourSidebar(self.controller)
         self.colour_histogram = MiniRGBHistogramWidget()
-        # "Filtration" (dichroic-head CMY + temperature + cast removal) — deliberately
-        # not "Colour", which names the Lab & Toning tab. The "colour" key persists.
+        # "Filtration", not "Colour" — that names the Lab & Toning tab; the persisted
+        # "colour" section key stays.
         self.colour_section = self._make_section(
             "Filtration",
             "colour",
@@ -315,6 +315,9 @@ class ControlsPanel(QWidget):
         self.roll_section.reset_requested.connect(self.controller.clear_roll_baseline)
 
     def apply_shortcut_tooltips(self) -> None:
+        """Single source for every shortcut-bearing widget tooltip — re-run on each
+        rebind to re-render the key chips. Don't set these locally in the sidebars:
+        this pass overwrites them."""
         col = self.colour_sidebar
         exp = self.tone_sidebar
         geo = self.geometry_sidebar

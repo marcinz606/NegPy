@@ -772,11 +772,10 @@ class DesktopSessionManager(QObject):
         self.state_changed.emit()
 
     def toggle_mark(self, mark: str) -> None:
-        """Grease-pencil triage on the contact sheet: 'circled' (print this) or
-        'excluded' (strike/cut). Applies to the multi-selection if one exists, else
-        the active frame; a block toggles off only when every target already has the
-        mark. The two marks are mutually exclusive per frame. Not part of
-        WorkspaceConfig — Ctrl+Z never unmarks a frame."""
+        """Grease-pencil triage: 'circled' (print this) or 'excluded' (strike/cut),
+        mutually exclusive per frame. Targets the multi-selection (else the active
+        frame); a block clears only when every target already has the mark. Kept out
+        of WorkspaceConfig so Ctrl+Z never unmarks a frame."""
         if mark not in ("circled", "excluded"):
             return
         state = self.state
@@ -1055,8 +1054,8 @@ class DesktopSessionManager(QObject):
 
                     get_logger(__name__).error(f"Failed to add {path}: {e}")
 
-        # Restore persisted grease-pencil marks (DB is the source of truth — in-session
-        # toggles write through, so overlaying unconditionally cannot lose a mark).
+        # Marks: DB is the source of truth; toggles write through, so the
+        # unconditional overlay can't lose one.
         marks = self.repo.load_file_marks()
         for f in self.state.uploaded_files:
             m = marks.get(f["hash"])

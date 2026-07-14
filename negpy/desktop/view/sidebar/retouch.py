@@ -15,8 +15,6 @@ class RetouchSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.retouch
 
-        # Tooltips for threshold/auto-size/brush-size/heal-tool live in
-        # ControlsPanel.apply_shortcut_tooltips (single source, key chips on rebind).
         auto_row = QHBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
         self.auto_size_slider = CompactSlider("Auto Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")

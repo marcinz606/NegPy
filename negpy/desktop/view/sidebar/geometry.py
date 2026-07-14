@@ -65,8 +65,6 @@ class GeometrySidebar(BaseSidebar):
         self.layout.addLayout(ratio_row)
 
         btn_row = QHBoxLayout()
-        # Tooltips for manual_crop/auto/offset/fine-rot/straighten live in
-        # ControlsPanel.apply_shortcut_tooltips (single source, re-rendered on rebind).
         self.manual_crop_btn = CropToolButton(" Crop")
         self.manual_crop_btn.setCheckable(True)
         self.manual_crop_btn.setIcon(qta.icon("fa5s.crop-alt", color=THEME.text_primary, color_on="#FFFFFF"))

@@ -502,6 +502,5 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event) -> None:
         paths = [u.toLocalFile() for u in event.mimeData().urls()]
         if paths:
-            # auto_open matches the Add Files / Add Folder dialogs.
             self.controller.request_asset_discovery(paths, auto_open=True)
         event.acceptProposedAction()

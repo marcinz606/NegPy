@@ -18,10 +18,6 @@ class ToneSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
 
-        # Tooltips for the shortcut-bearing sliders (density, grade, zone density,
-        # split grade, toe/shoulder/width, Snap) live in
-        # ControlsPanel.apply_shortcut_tooltips — the single source that re-renders
-        # key chips on every rebind. Only trim sliders keep local tooltips.
         self.density_slider = CompactSlider("Print Density", 0.0, 2.0, conf.density)
         self.grade_slider = CompactSlider("ISO-R Grade", 50.0, 180.0, conf.grade, step=1.0, inverted=True)
         self.grade_trim_slider = CompactSlider("Grade", -30.0, 30.0, 0.0, step=1.0, inverted=True)

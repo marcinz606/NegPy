@@ -20,8 +20,6 @@ class ToningSidebar(BaseSidebar):
         )
         self.layout.addWidget(self.chemical_header)
 
-        # Selenium/sepia and split-toning tooltips live in
-        # ControlsPanel.apply_shortcut_tooltips (single source, key chips on rebind).
         self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength)
         self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength)
         self.gold_slider = CompactSlider("Gold", 0.0, 2.0, conf.gold_strength)

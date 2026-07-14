@@ -67,8 +67,6 @@ class ColourSidebar(BaseSidebar):
         self.layout.addLayout(tools_row)
 
         # Temperature lever over the selected region's M/Y pair (real darkroom: cyan stays 0).
-        # Tooltips for the WB sliders live in ControlsPanel.apply_shortcut_tooltips —
-        # the single source that re-renders key chips on every rebind.
         self.temp_slider = KelvinSlider("Temperature")
         self.temp_slider.setValue(wb_to_kelvin(conf.wb_magenta, conf.wb_yellow))
         self._temp_anchor = None

@@ -62,7 +62,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
             if failed:
-                # No thumbnail at all (unreadable file): a blank-leader placeholder.
                 painter.save()
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
                 area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
@@ -107,7 +106,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         pencil = QPen(self._PENCIL, 3, cap=Qt.PenCapStyle.RoundCap)
         if struck:
             painter.setPen(pencil)
-            # X inscribed in the circle mark's footprint, not corner-to-corner.
             c = img_rect.center()
             o = int((min(img_rect.width(), img_rect.height()) // 2 - 5) * 0.707)
             painter.drawLine(c.x() - o, c.y() - o, c.x() + o, c.y() + o)
@@ -261,7 +259,7 @@ class FileBrowser(QWidget):
         self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
         self.apply_btn.clicked.connect(self._open_apply_dialog)
 
-        # Sheet filter dropdown (grease-pencil triage view)
+        # Sheet filter dropdown
         self.sheet_btn = QToolButton()
         self.sheet_btn.setToolTip("Sheet — filter the contact sheet by triage mark")
         self.sheet_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -355,7 +353,6 @@ class FileBrowser(QWidget):
         search_row.addWidget(self.regex_btn)
         layout.addLayout(search_row)
 
-        # Roll tally: "36 frames · 12 circled · 3 struck"
         self.tally_label = QLabel("")
         self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 10px;")
         self.tally_label.setVisible(False)
@@ -523,7 +520,6 @@ class FileBrowser(QWidget):
         self.act_sheet_all.setChecked(mode == "all")
         self.act_sheet_circled.setChecked(mode == "circled")
         self.act_sheet_uncut.setChecked(mode == "uncut")
-        # Active filter highlights the icon like the Hot Folder / RGB Scan toggles.
         icon_color = "white" if mode != "all" else THEME.text_primary
         self.sheet_btn.setIcon(qta.icon("fa5s.filter", color=icon_color))
         self.session.asset_model.set_sheet_filter(mode)

@@ -17,8 +17,6 @@ class LabSidebar(BaseSidebar):
         self.color_header = section_subheader("COLOUR")
         self.layout.addWidget(self.color_header)
 
-        # All Lab slider tooltips live in ControlsPanel.apply_shortcut_tooltips —
-        # the single source that re-renders key chips on every rebind.
         row1 = QHBoxLayout()
         self.saturation_slider = CompactSlider("Saturation", 0.0, 2.0, conf.saturation, has_neutral=True)
         self.vibrance_slider = CompactSlider("Vibrance", 0.0, 2.0, conf.vibrance, has_neutral=True)
