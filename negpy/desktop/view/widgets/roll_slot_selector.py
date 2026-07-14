@@ -64,7 +64,7 @@ class _SignedOffsetSpinBox(QSpinBox):
 
 
 class _RollSlotDelegate(QStyledItemDelegate):
-    """Film-frame cells with a persistent slot number and advisory badge."""
+    """Film-frame cells with a persistent slot number and review badge."""
 
     _CELL_MARGIN = 6
     _LABEL_HEIGHT = 22
@@ -358,7 +358,10 @@ class RollSlotSelector(QWidget):
         self.grid.setModel(self.model)
         self.grid.setItemDelegate(_RollSlotDelegate(self.grid))
         self.grid.setAccessibleName("Roll preview slots")
-        self.grid.setToolTip("Select physical scanner slots. Preview warnings never prevent selection.")
+        self.grid.setToolTip(
+            "Select physical scanner slots. Warnings identify frames that need review; "
+            "an inferred transport origin stops a C-41 scan before full-quality capture."
+        )
 
         self.title_label = QLabel("ROLL PREVIEW")
         self.title_label.setStyleSheet(
@@ -374,7 +377,9 @@ class RollSlotSelector(QWidget):
         header.addWidget(self.summary_label)
 
         self.help_label = QLabel(
-            "All scanner slots stay visible. Use Ctrl/Cmd-click, Shift-click, or drag to choose frames; warnings are advisory."
+            "All scanner slots stay visible. Use Ctrl/Cmd-click, Shift-click, or drag to choose frames. "
+            "A warning means review the alignment. If the transport origin is inferred, the C-41 safety recheck "
+            "stops before full-quality capture."
         )
         self.help_label.setWordWrap(True)
         self.help_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")

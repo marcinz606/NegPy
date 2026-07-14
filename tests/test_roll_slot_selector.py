@@ -156,12 +156,79 @@ def test_all_addressable_slots_remain_visible_selectable_and_unrenumbered(qapp: 
         assert flags & Qt.ItemFlag.ItemIsEnabled
         assert flags & Qt.ItemFlag.ItemIsSelectable
         assert selector.model.data(warning_index, RollSlotModel.HAS_WARNINGS_ROLE) is True
-        assert "This slot can still be selected" in selector.model.data(warning_index, Qt.ItemDataRole.ToolTipRole)
+        tooltip = selector.model.data(warning_index, Qt.ItemDataRole.ToolTipRole)
+        assert "remains selectable" in tooltip
 
         selector.set_selected_slot_ids([40])
         assert selector.selected_slot_ids() == [40]
     finally:
         selector.close()
+
+
+def test_transport_warning_codes_are_explained_in_plain_language() -> None:
+    model = RollSlotModel(
+        [
+            RollPreviewSlot(
+                1,
+                warnings=(
+                    "start-broad-clear-region",
+                    "broad-clear-region",
+                    "transport-origin-inferred",
+                ),
+            )
+        ]
+    )
+
+    tooltip = model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole)
+
+    assert "starting boundary" in tooltip
+    assert "wider than a normal frame gap" in tooltip
+    assert tooltip.count("wider than a normal frame gap") == 1
+    assert "position was inferred" in tooltip
+    assert "live safety recheck" in tooltip
+    assert "before full-quality capture" in tooltip
+    assert "leader" not in tooltip
+    assert "start-broad-clear-region" not in tooltip
+    assert "broad-clear-region" not in tooltip
+    assert "transport-origin-inferred" not in tooltip
+
+
+@pytest.mark.parametrize(
+    ("warning", "expected"),
+    (
+        ("start-outside-index-raster", "starting boundary falls outside"),
+        ("start-broad-clear-region", "starting boundary is in a clear region"),
+        ("start-narrow-gap-evidence", "starting boundary has clear-gap evidence"),
+        ("start-no-local-gap-run", "starting boundary has no clear film-gap evidence"),
+        ("start-low-gap-evidence", "starting boundary has weak film-gap evidence"),
+        ("end-outside-index-raster", "ending boundary falls outside"),
+        ("end-broad-clear-region", "ending boundary is in a clear region"),
+        ("end-narrow-gap-evidence", "ending boundary has clear-gap evidence"),
+        ("end-no-local-gap-run", "ending boundary has no clear film-gap evidence"),
+        ("end-low-gap-evidence", "ending boundary has weak film-gap evidence"),
+        ("outside-index-raster", "boundary used to position the scanner falls outside"),
+        ("broad-clear-region", "boundary used to position the scanner is in a clear region"),
+        ("narrow-gap-evidence", "boundary used to position the scanner has clear-gap evidence"),
+        ("no-local-gap-run", "boundary used to position the scanner has no clear film-gap evidence"),
+        ("low-gap-evidence", "boundary used to position the scanner has weak film-gap evidence"),
+        ("low-content-support", "too little image content"),
+        ("partial-index-coverage", "Only part of this slot"),
+        ("spacing-outlier", "differs from the roll's regular frame spacing"),
+        ("transport-origin-inferred", "position was inferred"),
+        ("ambiguous-content-tail-boundary", "more than one plausible point"),
+        ("beyond-advisory-content-end", "past the last likely photographed frame"),
+    ),
+)
+def test_every_roll_warning_code_has_context_safe_plain_language(
+    warning: str,
+    expected: str,
+) -> None:
+    model = RollSlotModel([RollPreviewSlot(1, warnings=(warning,))])
+
+    tooltip = model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole)
+
+    assert expected in tooltip
+    assert warning not in tooltip
 
 
 def test_ctrl_and_command_click_toggle_individual_slots(qapp: QApplication) -> None:

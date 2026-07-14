@@ -38,6 +38,10 @@ class ScannerSettings:
     # remains visible; this percentage is ignored at each edge only while
     # choosing display levels. Appended to preserve positional compatibility.
     preview_meter_inset_percent: int = DEFAULT_PREVIEW_METER_INSET_PERCENT
+    # Display-only polarity for the whole-roll contact sheet. The default is a
+    # readable positive; enabling this shows the leveled scanner negative.
+    # Capture data and final output are unchanged in either mode.
+    preview_show_non_inverted_negative: bool = False
 
     def __post_init__(self) -> None:
         """Normalize persisted settings that must never rely on truthiness.
@@ -63,6 +67,8 @@ class ScannerSettings:
         else:
             inset = max(0, min(MAX_PREVIEW_METER_INSET_PERCENT, inset))
         object.__setattr__(self, "preview_meter_inset_percent", inset)
+        if type(self.preview_show_non_inverted_negative) is not bool:
+            object.__setattr__(self, "preview_show_non_inverted_negative", False)
 
     @classmethod
     def defaults(cls) -> "ScannerSettings":

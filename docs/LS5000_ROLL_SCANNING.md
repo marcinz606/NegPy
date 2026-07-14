@@ -21,13 +21,19 @@ NegPy enables the roll controls when the scanner reports a live 40-slot capacity
 4. Select the frames you want. Ctrl-click, Cmd-click, Shift-click, and drag selection all work.
 5. Click **Scan selected**.
 
-Warnings on the last few slots are advisory. They usually mean that the preview looks blank, partial, or uncertain. Check the thumbnail before including one in a full scan.
+An orange `!` means that NegPy wants you to review that slot. Blank or partial tail slots often get one because the feeder exposes positions beyond the last photographed frame. If NegPy had to infer the scanner position, the C-41 safety recheck stops before full-quality capture.
+
+Slot 1 can get a warning when the film has a long clear leader. The first boundary then looks unlike a normal frame gap, so NegPy works out its position from the regular spacing of the later frames. The thumbnail can still look correct, but this draft has no way to approve an inferred transport position. If you include that slot in a C-41 batch, NegPy has to reread the low-resolution roll index before it can catch the problem. The film may travel once more, but no full-quality capture starts. Deselect it and scan the directly measured slots. Hover over the badge to read the reason in plain English.
 
 The contact sheet uses its own display levels so that dense negatives and the orange mask remain readable. Those levels do not change scanner auto-exposure or the pixels written to the TIFF.
 
 **Preview meter inset** controls which part of each thumbnail NegPy uses to calculate its display brightness. You can inset the meter by 0% to 30% from every edge; the default is 10%. At that setting, the calculation uses the center 80% of the image in each direction, which keeps a dark rebate from driving the preview levels. A translucent box on every thumbnail shows the area being metered. The full thumbnail, including the rebate, stays visible.
 
 Changing the inset rerenders every loaded thumbnail immediately from the saved preview data. It does not move the film, run scanner auto-exposure again, or change the final scan.
+
+**Preview display** defaults to an inverted positive so the contact sheet is easy to read. Turn on **Show non-inverted negative** to see a display-leveled negative instead. NegPy uses one shared RGB display range in this mode so the film base and channel balance remain visible. Switching modes rerenders the saved 97 dpi preview and does not contact the scanner.
+
+The positive contact sheet is a quick linear inversion for choosing frames. It is not the full NegPy C-41 render. Full-quality scans remain scanner-linear negative masters; NegPy applies its C-41 color processing after import and can export the processed positive.
 
 The line under the scanner name shows what the device is doing. It reports detection, preview loading, the current selected frame and slot, completion, and recovery errors. "Connected" means the scanner responded to the most recent detection or refresh. NegPy does not probe the USB device in the background while a scan owns it.
 

@@ -18,12 +18,59 @@ from negpy.infrastructure.scanners.settings import (
 from negpy.services.scanning.roll_preview_controls import validate_boundary_offset
 
 
+_BOUNDARY_WARNING_TEXT = {
+    "outside-index-raster": "falls outside the captured roll preview.",
+    "broad-clear-region": "is in a clear region wider than a normal frame gap.",
+    "narrow-gap-evidence": "has clear-gap evidence that is narrower than expected.",
+    "no-local-gap-run": "has no clear film-gap evidence near its expected position.",
+    "low-gap-evidence": "has weak film-gap evidence.",
+}
+
+_WARNING_DISPLAY_TEXT = {
+    "low-content-support": "The preview contains too little image content to confirm this slot automatically.",
+    "partial-index-coverage": "Only part of this slot is present in the captured roll preview.",
+    "spacing-outlier": "The distance between this slot's boundaries differs from the roll's regular frame spacing.",
+    "transport-origin-inferred": (
+        "The scanner position was inferred from the roll's spacing and transport data rather than a clear local gap."
+    ),
+    "ambiguous-content-tail-boundary": (
+        "NegPy found more than one plausible point where photographed content ends; this slot is in that uncertain range."
+    ),
+    "beyond-advisory-content-end": "This slot is past the last likely photographed frame detected in the preview.",
+}
+
+
+def _display_warning(warning: str) -> str:
+    for prefix, position in (("start-", "starting"), ("end-", "ending")):
+        if warning.startswith(prefix):
+            boundary_text = _BOUNDARY_WARNING_TEXT.get(warning.removeprefix(prefix))
+            if boundary_text is not None:
+                return f"The frame's {position} boundary {boundary_text}"
+    boundary_text = _BOUNDARY_WARNING_TEXT.get(warning)
+    if boundary_text is not None:
+        return f"The boundary used to position the scanner {boundary_text}"
+    display = _WARNING_DISPLAY_TEXT.get(warning)
+    if display is not None:
+        return display
+    return f"Review required: {warning.replace('-', ' ')}."
+
+
+def _display_warnings(warnings: tuple[str, ...]) -> tuple[str, ...]:
+    """Translate current review codes and suppress duplicated boundary evidence."""
+
+    contextual_boundary_reasons = {
+        warning.removeprefix(prefix) for warning in warnings for prefix in ("start-", "end-") if warning.startswith(prefix)
+    }
+    return tuple(_display_warning(warning) for warning in warnings if warning not in contextual_boundary_reasons)
+
+
 @dataclass(frozen=True)
 class RollPreviewSlot:
     """One 1-based, scanner-addressable preview slot.
 
-    ``warnings`` are advisory annotations (for example, low coverage or a
-    likely blank tail slot).  They never make a slot unselectable.
+    ``warnings`` are review annotations (for example, low coverage or a likely
+    blank tail slot). They never hide a slot. An inferred transport origin
+    makes the C-41 safety recheck stop before full-quality capture.
     ``boundary_offset`` is a scanner transport lookup adjustment retained for
     an explicit thumbnail reload; it does not crop the current image.
     """
@@ -99,8 +146,14 @@ class RollSlotModel(QAbstractListModel):
                 offset_line += " (reload required)"
             if not slot.warnings:
                 return f"Slot {slot.slot_id}\n{offset_line}\nNo preview warnings"
-            warning_lines = "\n".join(f"• {warning}" for warning in slot.warnings)
-            return f"Slot {slot.slot_id}\n{offset_line}\nPreview warnings:\n{warning_lines}\n\nThis slot can still be selected."
+            warning_lines = "\n".join(f"• {warning}" for warning in _display_warnings(slot.warnings))
+            consequence = (
+                "This slot remains visible for review. Its C-41 scan will stop "
+                "after the live safety recheck and before full-quality capture."
+                if "transport-origin-inferred" in slot.warnings
+                else "This slot remains selectable; check the thumbnail before scanning."
+            )
+            return f"Slot {slot.slot_id}\n{offset_line}\nPreview warnings:\n{warning_lines}\n\n{consequence}"
         if role == Qt.ItemDataRole.AccessibleTextRole:
             warning_suffix = "" if not slot.warnings else f", {len(slot.warnings)} preview warning(s)"
             return f"Roll slot {slot.slot_id}{warning_suffix}"

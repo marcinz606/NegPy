@@ -55,6 +55,56 @@ def test_roll_thumbnail_renderer_accepts_a_configurable_meter_inset() -> None:
     assert int(whole_negative_meter[50, 50, 0]) > int(center_meter[50, 50, 0]) + 40
 
 
+def test_roll_thumbnail_renderer_can_show_the_non_inverted_negative() -> None:
+    ramp = np.linspace(0, 65_535, 101, dtype=np.uint16)
+    raw = np.repeat(ramp[:, None, None], 7, axis=1)
+    raw = np.repeat(raw, 3, axis=2)
+
+    positive = render_roll_thumbnail_rgb8(raw, inverted=True)
+    negative = render_roll_thumbnail_rgb8(raw, inverted=False)
+
+    assert int(positive[3, 0, 0]) == 255
+    assert int(negative[3, 0, 0]) == 0
+    assert int(positive[3, -1, 0]) == 0
+    assert int(negative[3, -1, 0]) == 255
+    np.testing.assert_allclose(
+        positive.astype(np.int16) + negative.astype(np.int16),
+        255,
+        atol=1,
+    )
+
+
+def test_non_inverted_preview_preserves_negative_channel_balance() -> None:
+    ramp = np.linspace(1_000, 5_000, 101, dtype=np.uint16)
+    raw = np.stack(
+        (
+            ramp + 9_000,
+            ramp + 5_000,
+            ramp + 1_000,
+        ),
+        axis=1,
+    )[:, None, :]
+    raw = np.repeat(raw, 7, axis=1)
+
+    negative = render_roll_thumbnail_rgb8(raw, inverted=False)
+    red, green, blue = (int(value) for value in negative[3, 50])
+
+    assert red > green > blue
+
+
+@pytest.mark.parametrize("bad_inverted", (0, 1, "false", None))
+def test_roll_thumbnail_renderer_rejects_non_boolean_polarity(
+    bad_inverted: object,
+) -> None:
+    raw = np.zeros((8, 10, 3), dtype=np.uint16)
+
+    with pytest.raises(ValueError, match="inverted"):
+        render_roll_thumbnail_rgb8(
+            raw,
+            inverted=bad_inverted,  # type: ignore[arg-type]
+        )
+
+
 @pytest.mark.parametrize(
     "bad_inset",
     (-1, 31, True, 10.5, "10", None),

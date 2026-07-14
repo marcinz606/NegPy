@@ -14,6 +14,7 @@ def render_roll_thumbnail_rgb8(
     thumbnail: object,
     *,
     meter_inset_percent: int = DEFAULT_PREVIEW_METER_INSET_PERCENT,
+    inverted: bool = True,
 ) -> np.ndarray:
     """Turn one scanner-linear negative thumbnail into an upright RGB8 preview.
 
@@ -21,9 +22,12 @@ def render_roll_thumbnail_rgb8(
     percentile levels from the configured center region make the orange mask
     readable without letting clear rebate or transport edges set the display
     exposure. The default 10% inset meters the center 80%. The whole crop
-    remains visible for alignment. A direct linear inversion preserves
-    highlight detail; applying another 1/2.2 curve made the contact sheet look
-    roughly one stop too bright even though the scanner data was not clipped.
+    remains visible for alignment. ``inverted=True`` uses a direct linear
+    inversion. ``False`` shows the scanner-negative values without inversion
+    and uses one shared RGB display range so the negative's channel balance is
+    retained. Neither mode changes the captured scan data. Applying another
+    1/2.2 curve made the positive contact sheet look roughly one stop too
+    bright even though the scanner data was not clipped.
     """
 
     raw = np.asarray(thumbnail)
@@ -33,6 +37,8 @@ def render_roll_thumbnail_rgb8(
         raise ValueError("roll thumbnail must contain uint16 scanner samples")
     if type(meter_inset_percent) is not int or not 0 <= meter_inset_percent <= MAX_PREVIEW_METER_INSET_PERCENT:
         raise ValueError("preview meter inset must be an integer from 0 to 30 percent")
+    if type(inverted) is not bool:
+        raise ValueError("inverted must be a boolean")
 
     pixels = np.rot90(raw.astype(np.float32), k=1, axes=(0, 1))
     meter_inset_fraction = meter_inset_percent / 100
@@ -45,10 +51,19 @@ def render_roll_thumbnail_rgb8(
             row_inset : pixels.shape[0] - row_inset,
             column_inset : pixels.shape[1] - column_inset,
         ]
-    low = np.percentile(meter, 1.0, axis=(0, 1), keepdims=True)
-    high = np.percentile(meter, 99.0, axis=(0, 1), keepdims=True)
-    positive = np.clip(1.0 - (pixels - low) / np.maximum(high - low, 1.0), 0.0, 1.0)
-    return np.ascontiguousarray(np.rint(positive * 255.0).astype(np.uint8))
+    if inverted:
+        low = np.percentile(meter, 1.0, axis=(0, 1), keepdims=True)
+        high = np.percentile(meter, 99.0, axis=(0, 1), keepdims=True)
+    else:
+        # One common range keeps the film-base/channel balance visible. Using
+        # separate levels here would make the image non-inverted but would
+        # largely neutralize the orange mask, which is not what this toggle
+        # promises.
+        low = float(np.percentile(meter, 1.0))
+        high = float(np.percentile(meter, 99.0))
+    normalized = np.clip((pixels - low) / np.maximum(high - low, 1.0), 0.0, 1.0)
+    display = 1.0 - normalized if inverted else normalized
+    return np.ascontiguousarray(np.rint(display * 255.0).astype(np.uint8))
 
 
 __all__ = ["render_roll_thumbnail_rgb8"]

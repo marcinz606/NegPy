@@ -26,6 +26,7 @@ def test_sa30_profile_is_default_off_for_legacy_settings_and_round_trips() -> No
 
     assert migrated.sa30_compatible_roll_feeder is False
     assert migrated.preview_meter_inset_percent == 10
+    assert migrated.preview_show_non_inverted_negative is False
     assert asdict(opted_in)["sa30_compatible_roll_feeder"] is True
     assert reloaded == opted_in
 
@@ -64,6 +65,18 @@ def test_preview_meter_inset_clamps_integer_bounds_and_defaults_malformed_values
         assert settings.preview_meter_inset_percent == expected
         assert settings.dpi == 4_000
         assert settings.output_folder == "/tmp/scans"
+
+
+def test_preview_non_inverted_negative_toggle_round_trips_and_malformed_values_fail_closed() -> None:
+    enabled = ScannerSettings(preview_show_non_inverted_negative=True)
+
+    assert ScannerSettings(**asdict(enabled)).preview_show_non_inverted_negative is True
+    for malformed in (0, 1, "false", "true", None):
+        settings = ScannerSettings(
+            preview_show_non_inverted_negative=malformed,  # type: ignore[arg-type]
+        )
+
+        assert settings.preview_show_non_inverted_negative is False
 
 
 def test_persisted_archival_split_recipe_always_restores_at_16_bit() -> None:

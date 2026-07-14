@@ -661,6 +661,92 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
         persisted = repo.save_global_setting.call_args.args[1]
         self.assertEqual(persisted["preview_meter_inset_percent"], 17)
 
+    def test_roll_preview_non_inverted_negative_toggle_is_clear_and_persisted(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        repo = self.controller.session.repo
+        repo.save_global_setting.reset_mock()
+
+        toggle = self.sidebar.preview_non_inverted_negative_check
+        form = self.sidebar.roll_quality_widget.layout()
+        self.assertIsInstance(form, QFormLayout)
+        self.assertEqual(form.labelForField(toggle).text(), "Preview display")
+        self.assertFalse(toggle.isChecked())
+        self.assertIn("display only", toggle.toolTip().lower())
+        self.assertIn("saved scan", toggle.toolTip().lower())
+
+        toggle.setChecked(True)
+
+        self.assertTrue(self.sidebar.settings.preview_show_non_inverted_negative)
+        repo.save_global_setting.assert_called()
+        persisted = repo.save_global_setting.call_args.args[1]
+        self.assertIs(persisted["preview_show_non_inverted_negative"], True)
+
+    def test_preview_display_changes_preserve_disabled_scan_preferences(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar.ae_check.setChecked(True)
+        self.sidebar.archival_split_check.setChecked(True)
+        self.assertTrue(self.sidebar.settings.auto_exposure)
+        self.assertTrue(self.sidebar.settings.archival_split_capture)
+
+        self.sidebar.set_scanning(True)
+        self.assertFalse(self.sidebar.ae_check.isEnabled())
+        self.assertFalse(self.sidebar.archival_split_check.isEnabled())
+        self.assertTrue(self.sidebar.ae_check.isChecked())
+        self.assertTrue(self.sidebar.archival_split_check.isChecked())
+
+        repo = self.controller.session.repo
+        repo.save_global_setting.reset_mock()
+        self.sidebar.preview_meter_inset_spin.setValue(17)
+        self.sidebar.preview_non_inverted_negative_check.setChecked(True)
+
+        self.assertTrue(self.sidebar.settings.auto_exposure)
+        self.assertTrue(self.sidebar.settings.archival_split_capture)
+        persisted = repo.save_global_setting.call_args.args[1]
+        self.assertTrue(persisted["auto_exposure"])
+        self.assertTrue(persisted["archival_split_capture"])
+        self.assertEqual(persisted["preview_meter_inset_percent"], 17)
+        self.assertTrue(persisted["preview_show_non_inverted_negative"])
+
+    def test_changing_preview_polarity_rerenders_every_loaded_slot_offline(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        raw = np.arange(100 * 100 * 3, dtype=np.uint16).reshape(100, 100, 3)
+        session = SimpleNamespace(
+            slots=tuple(
+                SimpleNamespace(
+                    slot_id=slot_id,
+                    thumbnail=raw,
+                    warnings=(),
+                    boundary_offset_rows=0,
+                )
+                for slot_id in (1, 2)
+            )
+        )
+        self.sidebar._on_roll_preview_ready("preview-token", session)
+        self.sidebar.roll_slot_selector.set_selected_slot_ids([2])
+        self.controller.reload_ls5000_roll_thumbnail = MagicMock()
+
+        before = [
+            self.sidebar.roll_slot_selector.model.data(
+                self.sidebar.roll_slot_selector.model.index(row, 0),
+                Qt.ItemDataRole.DecorationRole,
+            ).cacheKey()
+            for row in range(2)
+        ]
+
+        self.sidebar.preview_non_inverted_negative_check.setChecked(True)
+        QApplication.processEvents()
+
+        after = [
+            self.sidebar.roll_slot_selector.model.data(
+                self.sidebar.roll_slot_selector.model.index(row, 0),
+                Qt.ItemDataRole.DecorationRole,
+            ).cacheKey()
+            for row in range(2)
+        ]
+        self.assertTrue(all(new != old for old, new in zip(before, after, strict=True)))
+        self.assertEqual(self.sidebar.roll_slot_selector.selected_slot_ids(), [2])
+        self.controller.reload_ls5000_roll_thumbnail.assert_not_called()
+
     def test_changing_preview_meter_inset_rerenders_every_loaded_slot_offline(self):
         _select_device(self.sidebar, FULL_DEVICE)
         interior_ramp = np.linspace(20_000, 40_000, 80, dtype=np.uint16)

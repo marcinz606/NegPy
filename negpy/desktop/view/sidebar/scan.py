@@ -1,5 +1,6 @@
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import qtawesome as qta
@@ -183,6 +184,17 @@ class ScanSidebar(QWidget):
             "10% matches full-scan metering."
         )
         roll_quality_form.addRow("Preview meter inset", self.preview_meter_inset_spin)
+
+        self.preview_non_inverted_negative_check = QCheckBox("Show non-inverted negative")
+        self.preview_non_inverted_negative_check.setObjectName("roll_preview_non_inverted_negative")
+        self.preview_non_inverted_negative_check.setAccessibleName("Show non-inverted roll previews")
+        self.preview_non_inverted_negative_check.setChecked(self._settings.preview_show_non_inverted_negative)
+        self.preview_non_inverted_negative_check.setToolTip(
+            "Display only. Off shows a readable inverted positive; on shows a "
+            "display-leveled negative without inversion while retaining its channel "
+            "balance. The saved scan is unchanged."
+        )
+        roll_quality_form.addRow("Preview display", self.preview_non_inverted_negative_check)
 
         self.roll_scan_resolution_box = QLineEdit("4000 dpi (Best quality)")
         self.roll_scan_resolution_box.setReadOnly(True)
@@ -385,6 +397,7 @@ class ScanSidebar(QWidget):
         self.load_registration_btn.clicked.connect(self._on_load_registration_json)
         self.sa30_compatible_check.toggled.connect(self._on_sa30_compatible_toggled)
         self.preview_meter_inset_spin.valueChanged.connect(self._on_preview_meter_inset_changed)
+        self.preview_non_inverted_negative_check.toggled.connect(self._on_preview_polarity_changed)
         self.roll_preview_btn.clicked.connect(self._on_roll_preview)
         self.roll_stop_btn.clicked.connect(self._on_roll_stop)
         self.roll_slot_selector.scan_requested.connect(self._on_roll_scan_selected)
@@ -963,11 +976,12 @@ class ScanSidebar(QWidget):
         self.controller.start_ls5000_roll_scan(request)
 
     def _roll_thumbnail_qimage(self, thumbnail: object) -> QImage:
-        """Make a small positive display image from scanner-linear negative RGB."""
+        """Make a small display image from scanner-linear negative RGB."""
 
         display = render_roll_thumbnail_rgb8(
             thumbnail,
             meter_inset_percent=self.preview_meter_inset_spin.value(),
+            inverted=not self.preview_non_inverted_negative_check.isChecked(),
         )
         image = QImage(
             display.data,
@@ -1042,14 +1056,32 @@ class ScanSidebar(QWidget):
     def _on_preview_meter_inset_changed(self, _value: int) -> None:
         """Persist and rerender the retained contact sheet without scanner I/O."""
 
-        self._update_settings_from_ui()
+        self.settings = replace(
+            self._settings,
+            preview_meter_inset_percent=self.preview_meter_inset_spin.value(),
+        )
         self.roll_slot_selector.set_meter_inset_percent(self.preview_meter_inset_spin.value())
+        self._rerender_roll_thumbnails()
+
+    @pyqtSlot(bool)
+    def _on_preview_polarity_changed(self, _checked: bool) -> None:
+        """Switch contact-sheet polarity offline without changing scan data."""
+
+        self.settings = replace(
+            self._settings,
+            preview_show_non_inverted_negative=self.preview_non_inverted_negative_check.isChecked(),
+        )
+        self._rerender_roll_thumbnails()
+
+    def _rerender_roll_thumbnails(self) -> None:
+        """Rebuild every retained thumbnail from the saved scanner preview."""
+
         try:
             rendered = {slot_id: self._roll_thumbnail_qimage(thumbnail) for slot_id, thumbnail in self._roll_preview_thumbnails.items()}
             for slot_id, image in rendered.items():
                 self.roll_slot_selector.update_slot_thumbnail(slot_id, image)
         except Exception as error:
-            self.roll_status_label.setText(f"Could not update preview brightness: {error}")
+            self.roll_status_label.setText(f"Could not update preview display: {error}")
             self.roll_status_label.setVisible(True)
             self._set_scanner_status("Error · Preview display update failed", "error")
 
@@ -1381,6 +1413,7 @@ class ScanSidebar(QWidget):
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
             sa30_compatible_roll_feeder=(self.sa30_compatible_check.isChecked()),
             preview_meter_inset_percent=self.preview_meter_inset_spin.value(),
+            preview_show_non_inverted_negative=self.preview_non_inverted_negative_check.isChecked(),
         )
 
 
