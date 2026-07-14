@@ -37,12 +37,13 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     draws a subtle 1px border hugging the image outline (no cell box). The selected
     image is shown full-brightness with a white frame while the others are dimmed; a
     dirty active file gets an accent line along the image's bottom edge. Grease-pencil
-    triage marks render like a chinagraph pencil on a contact sheet: circled = wax
-    ellipse ("print this"), struck = corner-to-corner strokes + heavy dim ("cut")."""
+    triage marks render like a red chinagraph pencil on a contact sheet: circled =
+    pencil ellipse ("print this"), struck = a centered X inscribed in the same circle
+    footprint + heavy dim ("cut")."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
-    _PENCIL = QColor(232, 227, 208, 225)  # warm chinagraph white
+    _PENCIL = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
 
     def _draw_failed_badge(self, painter: QPainter, img_rect: QRect) -> None:
         r = 9
@@ -106,8 +107,11 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         pencil = QPen(self._PENCIL, 3, cap=Qt.PenCapStyle.RoundCap)
         if struck:
             painter.setPen(pencil)
-            painter.drawLine(img_rect.topLeft(), img_rect.bottomRight())
-            painter.drawLine(img_rect.topRight(), img_rect.bottomLeft())
+            # X inscribed in the circle mark's footprint, not corner-to-corner.
+            c = img_rect.center()
+            o = int((min(img_rect.width(), img_rect.height()) // 2 - 5) * 0.707)
+            painter.drawLine(c.x() - o, c.y() - o, c.x() + o, c.y() + o)
+            painter.drawLine(c.x() + o, c.y() - o, c.x() - o, c.y() + o)
         elif circled:
             painter.setPen(pencil)
             painter.setBrush(Qt.BrushStyle.NoBrush)
