@@ -39,6 +39,18 @@ def _toggle_tool_button(window, tab_key: str, button) -> None:
     button.toggle()
 
 
+def _toggle_contact_sheet_mark(controller, window, mark: str) -> None:
+    """Keep asset culling shortcuts away from scanner-slot previews."""
+
+    workspace = getattr(window, "central_workspace", None)
+    if (
+        workspace is not None
+        and workspace.is_showing_roll_preview() is True
+    ):
+        return
+    controller.session.toggle_mark(mark)
+
+
 def _show_shortcuts(window) -> None:
     from negpy.desktop.view.widgets.shortcuts_overlay import ShortcutsOverlay
 
@@ -73,8 +85,16 @@ class ShortcutManager:
         actions: dict[str, Callable[[], None]] = {
             "prev_file": controller.session.prev_file,
             "next_file": controller.session.next_file,
-            "toggle_keep": lambda: controller.session.toggle_mark("keeper"),
-            "toggle_reject": lambda: controller.session.toggle_mark("excluded"),
+            "toggle_keep": lambda: _toggle_contact_sheet_mark(
+                controller,
+                self.window,
+                "keeper",
+            ),
+            "toggle_reject": lambda: _toggle_contact_sheet_mark(
+                controller,
+                self.window,
+                "excluded",
+            ),
             "toggle_compare": controller.toggle_compare,
             "rotate_ccw": lambda: toolbar.rotate(1),
             "rotate_cw": lambda: toolbar.rotate(-1),

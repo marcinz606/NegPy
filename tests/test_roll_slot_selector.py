@@ -648,7 +648,7 @@ def test_scan_material_choice_exposes_capture_and_ir_repair_behavior(qapp: QAppl
     selector.scan_material_changed.connect(changes.append)
     try:
         assert selector.scan_material() is ScanMaterial.COLOR_NEGATIVE
-        assert selector.scan_material_combo.currentText() == "Color negative (C-41)"
+        assert selector.scan_material_combo.currentText() == "Colour negative (C-41)"
         assert "RGB 4× + IR" in selector.scan_material_status_label.text()
         assert "IR repair: On after import" in selector.ir_repair_status_label.text()
         assert "scanner-linear master stays unchanged" in selector.ir_repair_status_label.text()

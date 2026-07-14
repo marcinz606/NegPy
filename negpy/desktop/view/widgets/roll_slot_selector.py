@@ -419,7 +419,12 @@ class RollSlotSelector(QWidget):
         self.scan_material_combo.setObjectName("roll_scan_material")
         self.scan_material_combo.setAccessibleName("Scan material")
         for material in ScanMaterial:
-            self.scan_material_combo.addItem(material.value, material.value)
+            label = (
+                "Colour negative (C-41)"
+                if material is ScanMaterial.COLOR_NEGATIVE
+                else material.value
+            )
+            self.scan_material_combo.addItem(label, material.value)
         self.scan_material_status_label = QLabel()
         self.scan_material_status_label.setObjectName("roll_scan_material_status")
         self.scan_material_status_label.setAccessibleName("Scan material capture behavior")

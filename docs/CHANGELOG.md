@@ -3,6 +3,7 @@
 
 ## 0.38.0
 
+- New: **Nikon LS-5000 roll scanning**. With an SA-30 or converted SA-21, the Scan panel can load a 97 dpi contact sheet, adjust spacing frame by frame, and capture selected C-41 frames at 4000 dpi and 16-bit as RGB 4x plus aligned IR. Conventional B&W uses RGB 4x with IR off. The workflow keeps scanner-linear masters, supports safe stop and retry, and records the physical slot and reviewed roll evidence with each colour capture.
 - New: **Keep / Reject triage on the contact sheet** — cull a roll where you see it: `K` marks a frame as a keeper (small check badge), `Shift+X` rejects it (cross badge + dim). Rejected frames stay on the sheet but drop out of batch exports and sidecar writes; a Sheet filter (All / Keepers only / Hide rejected) sits next to Sort, a tally counts the roll, and marks persist across sessions.
 - New: **Unreadable files get a badge** — a frame that fails to decode or thumbnail wears a red badge with the reason in its tooltip instead of sitting silently in the grid; clicking it retries, a successful load clears it.
 - Change: **Roll-wide actions are undoable** — Batch Analysis, roll-baseline loads and "Apply settings" now write each affected frame's edit history: `Ctrl+Z` on any frame steps back to before the roll action. Reset Settings and preset loads are recorded the same way instead of bypassing the log.

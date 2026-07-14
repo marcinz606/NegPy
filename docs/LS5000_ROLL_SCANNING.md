@@ -17,7 +17,7 @@ NegPy enables the roll controls when the scanner reports a live 40-slot capacity
 
 1. Insert the film and open the Scan panel.
 2. Choose the LS-5000 and click **Load Roll Thumbnails**. The feeder travels across the roll once and NegPy places a contact sheet in the main workspace.
-3. Choose **Color negative (C-41)** or **Black-and-white negative**.
+3. Choose **Colour negative (C-41)** or **Black-and-white negative**.
 4. Select the frames you want. Ctrl-click, Cmd-click, Shift-click, and drag selection all work.
 5. Click **Scan selected**.
 
@@ -55,17 +55,17 @@ If you eject or reinsert the film, or power-cycle the scanner, load the whole ro
 
 | Material | Scanner capture | Infrared | Import behavior |
 | --- | --- | --- | --- |
-| Color negative (C-41) | 4000 dpi, 16-bit, RGB 4x | One scanner IR plane | C-41 mode, IR dust repair on |
+| Colour negative (C-41) | 4000 dpi, 16-bit, RGB 4x | One scanner IR plane | C-41 mode, IR dust repair on |
 | Conventional silver B&W | 4000 dpi, 16-bit, RGB 4x | Off | B&W mode, IR dust repair off |
 
-Color scans produce four files with the same base name:
+Colour scans produce four files with the same base name:
 
 - The RGB negative master: `.tif`
 - The scanner IR plane: `_IR.tif`
 - A mask that marks valid IR samples: `_IR_VALID.tif`
 - A scan receipt: `_SCAN.json`
 
-A selected color batch also produces a `negpy-ls5000-batch-<session-id>.json` receipt beside the finished frames. Each frame receipt records its physical roll slot, Film Spacing Offset, reviewed roll identity, clipping telemetry, and a scene-dependent focus-detail score. A low focus score asks for a 100% visual check; it does not reject a smooth photograph as out of focus. The batch receipt uses the same session ID and records the single release after the last frame or a safe stop. It also identifies the exact request, capture worker, and packaged capture bundle that produced the frames.
+A selected colour batch also produces a `negpy-ls5000-batch-<session-id>.json` receipt beside the finished frames. Each frame receipt records its physical roll slot, Film Spacing Offset, reviewed roll identity, clipping telemetry, and a scene-dependent focus-detail score. A low focus score asks for a 100% visual check; it does not reject a smooth photograph as out of focus. The batch receipt uses the same session ID and records the single release after the last frame or a safe stop. It also identifies the exact request, capture worker, and packaged capture bundle that produced the frames.
 
 The RGB and IR files come from one scanner traversal. NegPy averages four transferred RGB samples. The packed stream carries one IR plane. The scanner may combine IR samples in firmware, but the wire data does not prove that, so NegPy records its IR multisample semantics as unresolved.
 
@@ -83,7 +83,7 @@ The **Single-frame DPI** and **Single-frame format** controls apply only to conv
 
 Roll preview is a separate, short scanner operation. It reads the roll table and thumbnails, then releases the device before a full scan begins.
 
-Selected color frames share one direct scanner session. At the start of that session, NegPy rereads the low-resolution roll index and confirms that it matches the roll you reviewed. It then resolves every selected Film Spacing Offset and sends one combined Nikon frame table. The scanner reservation stays open while it captures the selected frames, so it does not close and travel across the roll again between frames. If the roll identity, an approval, or an offset is stale, the batch stops before the first full scan. A clean finish or safe stop sends one release at the end.
+Selected colour frames share one direct scanner session. At the start of that session, NegPy rereads the low-resolution roll index and confirms that it matches the roll you reviewed. It then resolves every selected Film Spacing Offset and sends one combined Nikon frame table. The scanner reservation stays open while it captures the selected frames, so it does not close and travel across the roll again between frames. If the roll identity, an approval, or an offset is stale, the batch stops before the first full scan. A clean finish or safe stop sends one release at the end.
 
 Selected black-and-white frames still use the SANE route, which opens one scanner session per frame.
 
