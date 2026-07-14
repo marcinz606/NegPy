@@ -342,6 +342,8 @@ class PreviewLoadWorker(QObject):
     finished = pyqtSignal(str, object, object, str, object, str)
     splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
     error = pyqtSignal(str)
+    # (file_path, message) — error carries no path, so badge attribution needs this
+    load_failed = pyqtSignal(str, str)
 
     def __init__(self, preview_service) -> None:
         super().__init__()
@@ -420,6 +422,7 @@ class PreviewLoadWorker(QObject):
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
             self.error.emit(str(e))
+            self.load_failed.emit(task.file_path, str(e))
 
     def _detect_mode(self, task: PreviewLoadTask, raw) -> str:
         """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""

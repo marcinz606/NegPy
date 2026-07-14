@@ -69,6 +69,8 @@ from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
 
+_THUMB_FAILED_MSG = "thumbnail failed — file may be unreadable"
+
 
 @dataclass(frozen=True)
 class _PendingCaptureImport:
@@ -400,6 +402,7 @@ class AppController(QObject):
         self.preview_load_worker.splash.connect(self._on_splash_preview)
         self.preview_load_worker.finished.connect(self._on_preview_loaded)
         self.preview_load_worker.error.connect(self._on_render_error)
+        self.preview_load_worker.load_failed.connect(self._on_preview_load_failed)
 
         self.scan_devices_requested.connect(self.scan_worker.list_devices)
         self.scan_worker.devices_ready.connect(self.scan_devices_ready.emit)
@@ -439,6 +442,7 @@ class AppController(QObject):
     def generate_missing_thumbnails(self) -> None:
         missing = [f for f in self.state.uploaded_files if f["name"] not in self.state.thumbnails]
         if missing:
+            self._thumb_requested = [f["name"] for f in missing]
             self.set_status("GENERATING THUMBNAILS...")
             self._begin_batch("Generating thumbnails", abortable=False)
             self.thumbnail_requested.emit(missing)
@@ -456,6 +460,16 @@ class AppController(QObject):
             if pil_img:
                 u8_arr = np.array(pil_img.convert("RGB"))
                 self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
+
+        # Thumbnail failures are silently filtered out of the results — badge the
+        # requested-but-missing files so unreadable frames don't blend into the roll.
+        requested = getattr(self, "_thumb_requested", [])
+        failed = {n for n in requested if not new_thumbs.get(n)}
+        for f in self.state.uploaded_files:
+            if f["name"] in failed:
+                f.setdefault("decode_failed", _THUMB_FAILED_MSG)
+            elif f["name"] in new_thumbs and f.get("decode_failed") == _THUMB_FAILED_MSG:
+                del f["decode_failed"]
         self.session.asset_model.refresh()
 
     # --- Batch progress popup -------------------------------------------------
@@ -707,7 +721,19 @@ class AppController(QObject):
             self.state.last_metrics["splash"] = True
         self.image_updated.emit()
 
+    def _on_preview_load_failed(self, file_path: str, message: str) -> None:
+        """Badge the frame in the contact-sheet grid — the toast alone evaporates and
+        the file would sit there silently unreadable."""
+        for f in self.state.uploaded_files:
+            if f["path"] == file_path:
+                f["decode_failed"] = message
+                self.session.asset_model.refresh()
+                return
+
     def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
+        for f in self.state.uploaded_files:
+            if f["path"] == file_path and f.pop("decode_failed", None) is not None:
+                self.session.asset_model.refresh()
         if self._requested_file_path != file_path:
             return
         logger.info(

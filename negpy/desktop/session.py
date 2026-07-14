@@ -248,6 +248,9 @@ class AssetListModel(QAbstractListModel):
             return self._state.thumbnails.get(file_info["name"])
 
         if role == Qt.ItemDataRole.ToolTipRole:
+            failed = file_info.get("decode_failed")
+            if failed:
+                return f"{file_info['path']}\nFailed to load: {failed}\nClick to retry."
             return file_info["path"]
 
         if role == Qt.ItemDataRole.UserRole:

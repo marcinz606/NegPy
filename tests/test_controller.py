@@ -62,6 +62,36 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_called_once_with(1.0)
         self.assertFalse(self.controller.state.hq_preview)
 
+    def test_decode_failure_badges_file_and_success_clears_it(self):
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"}]
+
+        self.controller._on_preview_load_failed("/tmp/a.dng", "decode boom")
+        self.assertEqual(state.uploaded_files[0]["decode_failed"], "decode boom")
+
+        # A later successful load clears the badge even when the frame is no longer
+        # the requested one (the handler prefix runs before the early return).
+        self.controller._requested_file_path = "/tmp/other.dng"
+        self.controller._on_preview_loaded("/tmp/a.dng", None, (0, 0), "", None, "")
+        self.assertNotIn("decode_failed", state.uploaded_files[0])
+
+    def test_thumbnail_miss_marks_file_unreadable(self):
+        from PIL import Image
+
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {"name": "bad.dng", "path": "/tmp/bad.dng", "hash": "h1"},
+            {"name": "good.dng", "path": "/tmp/good.dng", "hash": "h2"},
+        ]
+        self.controller._thumb_requested = ["bad.dng", "good.dng"]
+
+        self.controller._on_thumbnails_finished({"good.dng": Image.new("RGB", (4, 4))})
+
+        self.assertIn("decode_failed", state.uploaded_files[0])
+        self.assertNotIn("decode_failed", state.uploaded_files[1])
+
     def test_capture_worker_cancelled_is_forwarded(self):
         cancelled = MagicMock()
         self.controller.capture_cancelled.connect(cancelled)

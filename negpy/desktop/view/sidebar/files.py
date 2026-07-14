@@ -44,9 +44,32 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
     _PENCIL = QColor(232, 227, 208, 225)  # warm chinagraph white
 
+    def _draw_failed_badge(self, painter: QPainter, img_rect: QRect) -> None:
+        r = 9
+        cx, cy = img_rect.right() - r - 4, img_rect.top() + r + 4
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(THEME.accent_primary))
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        painter.setPen(QPen(QColor("#FFFFFF"), 2))
+        painter.drawLine(cx, cy - 4, cx, cy + 1)
+        painter.drawPoint(cx, cy + 4)
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        file_info = index.data(Qt.ItemDataRole.UserRole) or {}
+        failed = bool(file_info.get("decode_failed"))
+
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
+            if failed:
+                # No thumbnail at all (unreadable file): a blank-leader placeholder.
+                painter.save()
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+                painter.setPen(QPen(QColor(THEME.border_color), 1))
+                painter.setBrush(QColor(20, 20, 20))
+                painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
+                self._draw_failed_badge(painter, area)
+                painter.restore()
             return
         base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
         if base.isNull():
@@ -69,7 +92,6 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         # Selected image full-brightness with the armed-red frame; others dimmed.
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        file_info = index.data(Qt.ItemDataRole.UserRole) or {}
         struck = bool(file_info.get("excluded"))
         circled = bool(file_info.get("circled"))
 
@@ -101,6 +123,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(img_rect.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
+
+        if failed:
+            self._draw_failed_badge(painter, img_rect)
 
         painter.restore()
 
