@@ -1,6 +1,7 @@
 import glob
 import os
 import platform
+import plistlib
 import shutil
 import subprocess
 
@@ -125,6 +126,28 @@ elif is_macos:
         params.append("--icon=media/icons/icon.icns")
     elif os.path.exists("media/icons/icon.png"):
         params.append("--icon=media/icons/icon.png")
+
+
+def stamp_macos_bundle_version(app_path, version: str, *, resign: bool = True) -> None:
+    """Write the project version into a PyInstaller macOS bundle.
+
+    PyInstaller's command-line build otherwise leaves
+    ``CFBundleShortVersionString`` at ``0.0.0``.  Updating Info.plist changes
+    the signed bundle, so production builds receive a fresh ad-hoc signature.
+    """
+    app_path = os.fspath(app_path)
+    info_path = os.path.join(app_path, "Contents", "Info.plist")
+    with open(info_path, "rb") as stream:
+        info = plistlib.load(stream)
+    info["CFBundleShortVersionString"] = version
+    info["CFBundleVersion"] = version
+    with open(info_path, "wb") as stream:
+        plistlib.dump(info, stream)
+    if resign:
+        subprocess.run(
+            ["codesign", "--force", "--deep", "--sign", "-", app_path],
+            check=True,
+        )
 
 
 def package_linux():
@@ -360,6 +383,9 @@ def build():
     print("PyInstaller parameters:", params)
 
     PyInstaller.__main__.run(params)
+
+    if is_macos:
+        stamp_macos_bundle_version(os.path.join("dist", f"{APP_NAME}.app"), VERSION)
 
     print("Build complete.")
     if os.path.exists("dist"):

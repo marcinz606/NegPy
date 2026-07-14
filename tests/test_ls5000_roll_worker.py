@@ -24,6 +24,7 @@ from negpy.desktop.workers.ls5000_roll_worker import (
     RollPreviewRequest,
     RollScanCompletion,
     RollScanRequest,
+    RollWorkerFailure,
 )
 from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
     AttemptPaths,
@@ -881,6 +882,55 @@ def test_full_color_recovery_required_error_skips_finalize_and_completion(
     assert len(errors) == 1
     assert errors[0].recovery_required is True
     assert errors[0].message == "Slot 04 failed: power cycle scanner before another attempt"
+
+
+def test_failed_receipt_promotion_cannot_hide_scanner_recovery_state(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    attempts_root = tmp_path / "attempts"
+
+    def result_for(request: CaptureRequest) -> CaptureAttemptResult:
+        if request.mode is CaptureMode.PREVIEW:
+            return _attempt_result(attempts_root, request)
+        return _attempt_result(
+            attempts_root,
+            request,
+            outcome=CaptureOutcome.RECOVERY_REQUIRED,
+            error="power cycle scanner before another attempt",
+        )
+
+    worker, _adapter, _session, _factory_roots = _worker(
+        tmp_path,
+        result_for=result_for,
+    )
+    preview_token = _load_preview(worker, tmp_path)
+
+    def fail_receipt_promotion(*_args: Any, **_kwargs: Any) -> Path:
+        raise OSError("receipt filesystem is read-only")
+
+    monkeypatch.setattr(
+        worker,
+        "_promote_batch_session_receipt",
+        fail_receipt_promotion,
+    )
+    errors: list[RollWorkerFailure] = []
+    worker.error.connect(errors.append)
+
+    worker.scan_selected(
+        _scan_request(
+            tmp_path,
+            material=ScanMaterial.COLOR_NEGATIVE,
+            frames=(RollFrameChoice(4),),
+            preview_token=preview_token,
+        )
+    )
+
+    assert len(errors) == 1
+    assert errors[0].recovery_required is True
+    assert "power cycle scanner before another attempt" in errors[0].message
+    assert "could not preserve batch receipt" in errors[0].message
+    assert "receipt filesystem is read-only" in errors[0].message
 
 
 def test_failure_after_completed_frame_publishes_the_partial_queue(

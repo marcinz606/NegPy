@@ -26,6 +26,18 @@ def _result(with_ir: bool = True) -> ScanResult:
     return ScanResult(rgb=rgb, ir=ir, dpi=1200, device_model="TestScanner")
 
 
+def test_backup_name_stays_reserved_until_atomic_replace(tmp_path) -> None:
+    target = tmp_path / "frame.tif"
+    target.write_bytes(b"old scan")
+
+    backup = writer._unused_sibling_path(str(target))
+    try:
+        assert os.path.exists(backup)
+        assert os.path.getsize(backup) == 0
+    finally:
+        writer._unlink_if_present(backup)
+
+
 class TestIrFailureAfterRgbSucceeds:
     """monkeypatch tifffile.imwrite to fail on the 2nd call (the IR write),
     simulating a disk/codec failure after the RGB payload already succeeded."""

@@ -1247,7 +1247,7 @@ class TestBuildScanParams(unittest.TestCase):
     Scan-tab control values to a ScanParams recipe, independent of any Qt
     widgets, session state, or a live device. This is the part the archival
     Scan-tab controls (frame selection, hardware AE, registered geometry, the
-    RGB4x+IR1x split-capture toggle) actually depend on, so it is covered
+    archival RGB 4x plus IR toggle) actually depend on, so it is covered
     directly rather than only through sidebar/widget interaction."""
 
     def test_plain_scan_no_frame_no_geometry(self):
@@ -1267,9 +1267,11 @@ class TestBuildScanParams(unittest.TestCase):
         self.assertIsNone(params.registered_geometry)
 
     def test_archival_recipe_matches_practical_parity_runner(self):
-        """The exact recipe validated by practical_parity_runner.PROFILES and
-        roll_scan_runner._fine_params: capture_ir=True, samples_per_scan=4,
-        autofocus=True, auto_exposure=True — the "practical parity" mode."""
+        """The archival control still maps to RGB 4x plus an IR request.
+
+        The packed roll worker and the legacy SANE fallback implement that
+        request differently, but both require autofocus and auto-exposure.
+        """
         params = AppController.build_scan_params(
             dpi=4000, depth=16, capture_ir=True, autofocus=True, samples_per_scan=4, auto_exposure=True
         )

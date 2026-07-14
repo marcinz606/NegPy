@@ -77,7 +77,7 @@ The roll picker estimates disk use before scanning. It budgets 256 MiB for each 
 
 The roll controls show their two resolutions separately. Whole-roll thumbnails use 97 dpi. Every selected full-quality frame uses 4000 dpi, 16-bit, and a scanner-linear TIFF master.
 
-The depth menu defaults to **16-bit (Best quality)**. Turning on **Archival Split (RGB4x + IR1x)** selects 16-bit and locks the depth control until you turn Archival Split off.
+The depth menu defaults to **16-bit (Best quality)**. Turning on **Archival RGB 4x + IR** selects 16-bit and locks the depth control until you turn Archival off. The packed LS-5000 stream supplies one aligned IR plane; its internal IR sampling remains unknown.
 
 The **Single-frame DPI** and **Single-frame format** controls apply only to conventional single-frame scans. The resolution menu selects the highest value reported by the device and marks it **Best quality**. TIFF and DNG contain the same scanner-linear capture. The file format does not control inversion; use the Process panel for that.
 

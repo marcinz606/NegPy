@@ -438,7 +438,10 @@ def _build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--allow-unverified", type=parse_frames, default=(), help="visually accepted frame numbers")
     approve.add_argument("--yes", action="store_true", help="confirm the verification policy and named exceptions")
 
-    fine = subparsers.add_parser("fine", help="scan explicitly selected approved frames at 4000 dpi with RGB4x + RGBI1x")
+    fine = subparsers.add_parser(
+        "fine",
+        help="run the legacy SANE two-capture diagnostic for explicitly approved frames",
+    )
     fine.add_argument("--plan", type=Path, required=True)
     fine.add_argument("--frames", type=parse_frames, required=True, help="explicit approved exposures")
     fine.add_argument("--dpi", type=int, choices=(1000, 4000), default=4000, help="1000 dpi discriminator or 4000 dpi archival scan")
@@ -447,7 +450,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     full = subparsers.add_parser(
         "full-negative",
-        help="capture approved full negatives as RGB4x plus aligned IR using a bounded successor tail",
+        help="run the legacy SANE full-negative path as RGB 4x plus aligned IR",
     )
     full.add_argument("--plan", type=Path, required=True)
     full.add_argument("--output", type=Path, required=True)

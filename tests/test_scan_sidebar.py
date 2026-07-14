@@ -4,7 +4,7 @@ Constructs the real ScanSidebar + AppController under QT_QPA_PLATFORM=offscreen
 (set globally by tests/conftest.py) with a mocked DesktopSessionManager and a
 fabricated ScannerDevice/ScannerCapabilities -- no live SANE device is ever
 opened. This proves the new controls (frame selection, hardware AE, the
-RGB4x+IR1x archival split-capture toggle, registered geometry) instantiate,
+archival RGB 4x plus IR toggle, registered geometry) instantiate,
 capability-gate, and wire their Qt signals correctly.
 
 It does NOT and cannot verify that the rendered UI looks/behaves right on a
@@ -51,7 +51,7 @@ if not QApplication.instance():
 
 # A device exposing every capability the new controls gate on: frame
 # selection, hardware auto-exposure, registered geometry, and both IR +
-# multi-sampling (needed together for the archival split-capture toggle).
+# multi-sampling (needed together for the archival RGB plus IR toggle).
 FULL_CAPS = ScannerCapabilities(
     ir_channel=True,
     supported_dpi=(1000, 4000),
@@ -1155,6 +1155,20 @@ class TestNewControlsInstantiate(ScanSidebarTestCase):
         self.sidebar.set_scanning(True)
         self.sidebar.controller.scan_progress.emit(0.5)
         self.assertEqual(self.sidebar.progress_bar.value(), 50)
+
+    def test_archival_label_describes_output_without_claiming_split_or_ir_sample_count(self):
+        self.assertEqual(
+            self.sidebar.archival_split_check.text(),
+            "Archival RGB 4x + IR",
+        )
+        public_copy = " ".join(
+            (
+                self.sidebar.archival_split_check.text(),
+                self.sidebar.archival_split_check.toolTip(),
+            )
+        ).lower()
+        self.assertNotIn("split", public_copy)
+        self.assertNotIn("ir1x", public_copy)
 
 
 class TestCapabilityGating(ScanSidebarTestCase):

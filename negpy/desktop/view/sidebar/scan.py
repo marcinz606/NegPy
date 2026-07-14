@@ -300,7 +300,7 @@ class ScanSidebar(QWidget):
             self.samples_combo.addItem(f"{n}x", n)
         self.form.addRow("Samples/pass", self.samples_combo)
 
-        self.archival_split_check = QCheckBox("Archival Split (RGB4x + IR1x)")
+        self.archival_split_check = QCheckBox("Archival RGB 4x + IR")
         self.archival_split_check.setToolTip("Requires both IR and hardware multi-sampling support")
         self.form.addRow("Archival", self.archival_split_check)
 
@@ -810,13 +810,16 @@ class ScanSidebar(QWidget):
             self.ae_check.setChecked(False)
             self.ae_check.setToolTip("Hardware auto-exposure not supported by this device")
 
-        # Archival split-capture (validated RGB4x + IR1x practical-parity recipe)
+        # Archival RGB plus IR recipe. The public label deliberately does not
+        # claim an IR sample count: the packed LS-5000 stream transfers one
+        # aligned IR plane, but does not reveal how firmware produced it.
         archival_supported = caps.ir_channel and caps.multi_sample and 16 in caps.supported_depths
         self.archival_split_check.setEnabled(archival_supported)
         if archival_supported:
             self.archival_split_check.setChecked(self._settings.archival_split_capture)
             self.archival_split_check.setToolTip(
-                "Validated archival recipe: 4× hardware-multisampled RGB plus a registered single-pass IR channel"
+                "4× hardware-multisampled RGB plus one aligned IR plane; "
+                "the scanner's internal IR sampling is not known"
             )
         else:
             self.archival_split_check.setChecked(False)
@@ -853,8 +856,7 @@ class ScanSidebar(QWidget):
     # ── new-control interlocks ───────────────────────────────────────────
 
     def _apply_archival_split_interlock(self) -> None:
-        """Force + lock IR/samples to the validated RGB4x+IR1x recipe while
-        archival split-capture is active; leaves them alone otherwise."""
+        """Lock the controls to the archival RGB 4x plus IR recipe."""
         if not (self.archival_split_check.isChecked() and self.archival_split_check.isEnabled()):
             return
         self.ir_check.blockSignals(True)

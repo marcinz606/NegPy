@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""Observable, fail-closed runner for the LS-5000
-RGB+IR practical-parity capture through NegPy's production scan path.
+"""Observable runner for the LS-5000 legacy SANE split-capture fallback.
+
+The packaged whole-roll workflow uses the decoded packed single-traversal
+stream instead. This diagnostic remains useful for testing the older SANE
+reader, which cannot decode that packed layout and therefore captures RGB and
+IR separately.
 
 Replaces the quarantined parity-test.sh/preflight.sh. This runner:
 
@@ -12,8 +16,8 @@ Replaces the quarantined parity-test.sh/preflight.sh. This runner:
   * Refuses to proceed (dry or live) while any precondition fails — an
     inactive or zero-max `frame` constraint (no film / exhausted feeder)
     is a refusal, never a "try anyway".
-  * In live mode, drives negpy.SaneBackend.scan() — the exact production
-    split-capture path — through a recording wrapper that logs every option
+  * In live mode, drives the legacy SANE split-capture fallback through a
+    recording wrapper that logs every option
     write, start, read, cancel and close with timestamps, then derives the
     acceptance assertions from that log: one device open, exactly two starts,
     no geometry write after the first start, samples N->1, infrared
@@ -23,9 +27,10 @@ Replaces the quarantined parity-test.sh/preflight.sh. This runner:
     tifffile to verify dtype/shape/DPI, and records SHA-256 hashes.
   * Re-opens the device afterwards to prove the scanner is still responsive.
 
-Hardware safety: never interrupt a running transfer; never issue
-infrared=yes with samples-per-scan > 1 (the NegPy path guarantees this);
-do not run --live until film is confirmed loaded and a fresh dry-run passes.
+Hardware safety: never interrupt a running transfer. This legacy reader does
+not issue infrared=yes with samples-per-scan > 1 because it cannot decode the
+packed response. That is a reader limitation, not a scanner firmware limit.
+Do not run --live until film is confirmed loaded and a fresh dry-run passes.
 
 Run from the NegPy project so `negpy` and python-sane resolve. The canonical
 entry point is the package module:

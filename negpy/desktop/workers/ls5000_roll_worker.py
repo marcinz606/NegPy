@@ -452,28 +452,29 @@ class LS5000RollWorker(QObject):
                 not origin.automatic or origin.manual_review
             )
             approval = frame.manual_review_approval
-            if requires_approval and approval is None:
-                self.error.emit(
-                    RollWorkerFailure(
-                        f"slot {frame.slot_id} uses an inferred transport origin; "
-                        "approve its current thumbnail before scanning",
-                        False,
+            if requires_approval:
+                if approval is None:
+                    self.error.emit(
+                        RollWorkerFailure(
+                            f"slot {frame.slot_id} uses an inferred transport origin; "
+                            "approve its current thumbnail before scanning",
+                            False,
+                        )
                     )
-                )
-                return
-            if requires_approval and not session.validate_manual_approval(
-                approval,
-                slot_id=frame.slot_id,
-                boundary_offset_rows=frame.boundary_offset_rows,
-            ):
-                self.error.emit(
-                    RollWorkerFailure(
-                        f"slot {frame.slot_id} manual approval is stale or belongs "
-                        "to another thumbnail; review it again",
-                        False,
+                    return
+                if not session.validate_manual_approval(
+                    approval,
+                    slot_id=frame.slot_id,
+                    boundary_offset_rows=frame.boundary_offset_rows,
+                ):
+                    self.error.emit(
+                        RollWorkerFailure(
+                            f"slot {frame.slot_id} manual approval is stale or belongs "
+                            "to another thumbnail; review it again",
+                            False,
+                        )
                     )
-                )
-                return
+                    return
             if not requires_approval and approval is not None:
                 self.error.emit(
                     RollWorkerFailure(
@@ -689,17 +690,29 @@ class LS5000RollWorker(QObject):
             batch_request,
             frame_handler=finalize_frame,
         )
-        self._promote_batch_session_receipt(
-            result.paths.session_journal,
-            result.session_journal,
-            output_folder,
-        )
         if result.outcome is not CaptureOutcome.COMPLETE:
             failed_index = len(result.frames)
             operation = "Full-quality roll scan"
             if failed_index < total:
                 operation = f"Slot {frames[failed_index].slot_id:02d}"
-            raise _CaptureRefusal(self._failure_for_batch_result(result, operation))
+            failure = self._failure_for_batch_result(result, operation)
+            try:
+                self._promote_batch_session_receipt(
+                    result.paths.session_journal,
+                    result.session_journal,
+                    output_folder,
+                )
+            except Exception as receipt_error:
+                failure = RollWorkerFailure(
+                    f"{failure.message}; could not preserve batch receipt: {receipt_error}",
+                    failure.recovery_required,
+                )
+            raise _CaptureRefusal(failure)
+        self._promote_batch_session_receipt(
+            result.paths.session_journal,
+            result.session_journal,
+            output_folder,
+        )
         return result.stopped or self._stop_after_current.is_set()
 
     @staticmethod

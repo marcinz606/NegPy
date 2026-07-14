@@ -25,6 +25,12 @@ from negpy.services.scanning.provenance import PlanIdentity
 from negpy.services.scanning.quality import inspect_tiff_payload
 
 
+def test_cli_marks_the_two_capture_fine_path_as_legacy_sane() -> None:
+    help_text = runner._build_parser().format_help()
+    assert "legacy SANE" in help_text
+    assert "RGBI1x" not in help_text
+
+
 TEST_IDENTITY = PlanIdentity(
     "11111111-1111-4111-8111-111111111111",
     "22222222-2222-4222-8222-222222222222",

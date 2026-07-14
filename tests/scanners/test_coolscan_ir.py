@@ -1917,7 +1917,7 @@ class TestRegisteredGeometry:
         )
         backend = _make_backend(dev)
 
-        with pytest.raises(RuntimeError, match="requires the scanner's 'infrared' option"):
+        with pytest.raises(RuntimeError, match="writable infrared control so infrared can be proven off"):
             backend.scan(
                 "coolscan3:usb:libusb:001:007",
                 ScanParams(

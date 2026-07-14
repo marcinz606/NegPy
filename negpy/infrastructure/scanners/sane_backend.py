@@ -1666,11 +1666,13 @@ class SaneBackend:
                 )
             elif strict_ls5000_bw:
                 if ir_opt is None:
-                    raise RuntimeError("LS-5000 B&W RGB4x scanning requires the scanner's 'infrared' option")
+                    raise RuntimeError(
+                        "LS-5000 B&W RGB4x scanning requires a writable infrared control so infrared can be proven off"
+                    )
                 required_options.append(
                     (
                         ir_opt,
-                        "LS-5000 B&W RGB4x scanning requires the scanner's 'infrared' option",
+                        "LS-5000 B&W RGB4x scanning requires a writable infrared control so infrared can be proven off",
                     )
                 )
                 required_options.append(
@@ -1740,7 +1742,9 @@ class SaneBackend:
             # wrong channel layout, then prove it stayed off before start.
             if strict_ls5000_bw:
                 if ir_opt is None:
-                    raise RuntimeError("LS-5000 B&W RGB4x scanning lost its preflighted infrared option")
+                    raise RuntimeError(
+                        "LS-5000 B&W RGB4x scanning lost the infrared control needed to prove infrared is off"
+                    )
                 try:
                     setattr(dev, ir_opt, False)
                 except Exception as e:
@@ -1781,9 +1785,11 @@ class SaneBackend:
                 if ir_opt is None:
                     raise RuntimeError("IR option strategy selected but the device's IR option is unavailable")
                 try:
-                    # The LS-5000 wedges when coolscan3 requests multisampling
-                    # on the IR window.  Capture the multisampled RGB first;
-                    # the 1x RGBI capture follows on this same open reservation.
+                    # The legacy coolscan3 reader cannot decode the packed
+                    # combined stream. Use its two-transfer fallback here:
+                    # multisampled RGB first, then 1x RGBI on the same open
+                    # reservation. The LS-5000 firmware itself supports the
+                    # packed single-traversal mode used by the roll workflow.
                     setattr(dev, ir_opt, not split_coolscan_ir)
                 except Exception as e:
                     raise RuntimeError(f"IR capture requested but enabling option {ir_opt!r} failed: {e}") from e
@@ -1817,6 +1823,10 @@ class SaneBackend:
             if strict_ls5000_bw:
                 if geometry is None:
                     raise RuntimeError("LS-5000 B&W RGB4x scanning lost its registered geometry")
+                if ir_opt is None:
+                    raise RuntimeError(
+                        "LS-5000 B&W RGB4x scanning lost the infrared control needed to prove infrared is off"
+                    )
                 _validate_ls5000_silver_bw_option_readback(
                     dev,
                     frame=requested_frame,

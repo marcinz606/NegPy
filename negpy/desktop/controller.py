@@ -1731,6 +1731,16 @@ class AppController(QObject):
         self.scan_worker.cancel()
         self.ls5000_roll_worker.request_stop()
 
+    def request_ls5000_roll_stop(self) -> None:
+        """Ask a roll operation to stop at its next hardware-safe boundary."""
+
+        self.ls5000_roll_worker.request_stop()
+
+    def ls5000_roll_operation_active(self) -> bool:
+        """Return whether a roll preview or selected-frame scan still owns the scanner."""
+
+        return self._ls5000_roll_power_assertion is not None
+
     def _on_scan_finished(self, path: str) -> None:
         """Auto-add scanned file to NegPy file list and select it."""
         self.scan_finished.emit(path)

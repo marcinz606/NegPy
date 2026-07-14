@@ -152,7 +152,7 @@ def write_split_source_bundle(
     output_dir: str | os.PathLike[str],
     dpi: int,
 ) -> dict[str, object]:
-    """Commit one immutable RGB4x + RGBI1x source bundle.
+    """Commit one immutable legacy SANE RGB-plus-IR source bundle.
 
     The bundle directory is addressed by the exact array content and DPI.
     TIFF payloads are written inside a hidden staging directory; the manifest
@@ -244,11 +244,13 @@ def write_split_source_bundle(
 
 
 def _unused_sibling_path(target_path: str) -> str:
-    """Reserve a unique sibling name, then remove the placeholder.
+    """Reserve a unique sibling name until the caller atomically replaces it.
 
     The returned path is used as a rename target for an existing TIFF while a
     replacement pair is committed. Keeping it in the same directory preserves
     the atomic-rename guarantee of ``os.replace`` for each individual file.
+    The placeholder must remain present so another process cannot reserve the
+    same backup name before the replace.
     """
     fd, backup_path = tempfile.mkstemp(
         prefix=f".{os.path.basename(target_path)}.",
@@ -256,7 +258,6 @@ def _unused_sibling_path(target_path: str) -> str:
         dir=os.path.dirname(target_path) or ".",
     )
     os.close(fd)
-    os.unlink(backup_path)
     return backup_path
 
 
@@ -318,6 +319,15 @@ def _commit_tiff_pair(tmp_rgb: str, tmp_ir: str | None, rgb_path: str, ir_path: 
                 _unlink_if_present(cleanup_path)
             except BaseException as cleanup_error:
                 rollback_errors.append(f"{label}: {cleanup_error}")
+        for label, backup_path, moved_old in (
+            ("RGB backup reservation", backup_rgb, moved_old_rgb),
+            ("IR backup reservation", backup_ir, moved_old_ir),
+        ):
+            if backup_path is not None and not moved_old:
+                try:
+                    _unlink_if_present(backup_path)
+                except BaseException as cleanup_error:
+                    rollback_errors.append(f"{label}: {cleanup_error}")
 
         if rollback_errors:
             details = "; ".join(rollback_errors)
@@ -376,6 +386,13 @@ def _commit_tiff_triplet(temporaries: dict[str, str], targets: dict[str, str]) -
                 _unlink_if_present(temporaries[role])
             except BaseException as cleanup_error:
                 rollback_errors.append(f"{role} temp: {cleanup_error}")
+        for role in roles:
+            backup = backups[role]
+            if backup is not None and role not in moved_old:
+                try:
+                    _unlink_if_present(backup)
+                except BaseException as cleanup_error:
+                    rollback_errors.append(f"{role} backup reservation: {cleanup_error}")
         if rollback_errors:
             raise RuntimeError("TIFF triplet commit failed and rollback was incomplete; " + "; ".join(rollback_errors)) from commit_error
         raise

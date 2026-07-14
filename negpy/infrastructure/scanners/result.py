@@ -40,7 +40,7 @@ class SplitIrAlignment:
 
 @dataclass(frozen=True)
 class SplitSourceCapture:
-    """Unmodified arrays returned by one RGB4x + RGBI1x reservation."""
+    """Unmodified arrays returned by the legacy two-transfer SANE reservation."""
 
     rgb4x: np.ndarray
     rgb1x_proxy: np.ndarray

@@ -36,6 +36,10 @@ from negpy.services.export.print import PrintService
 logger = get_logger(__name__)
 
 _DEFAULT_W, _DEFAULT_H = 1400, 900
+_SAFE_ROLL_CLOSE_MESSAGE = (
+    "Finishing the current scanner frame or preview operation. NegPy will close "
+    "automatically when the scanner is safe. Do not Force Quit or disconnect the scanner."
+)
 
 
 def _clamp_geometry(
@@ -129,12 +133,15 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.state = controller.state
+        self._close_after_ls5000_roll = False
+        self._ls5000_safe_close_notice: QMessageBox | None = None
 
         self._restore_window_geometry()
         self.setAcceptDrops(True)
 
         self._init_ui()
         self._connect_signals()
+        self._connect_ls5000_safe_close_signals()
         self.shortcut_manager = setup_keyboard_shortcuts(self)
         self._update_title()
 
@@ -163,11 +170,57 @@ class MainWindow(QMainWindow):
         self.move(x, y)
 
     def closeEvent(self, event) -> None:
+        if self.controller.ls5000_roll_operation_active():
+            event.ignore()
+            request_stop = not self._close_after_ls5000_roll
+            self._close_after_ls5000_roll = True
+            self._show_ls5000_safe_close_notice()
+            if request_stop:
+                self.controller.request_ls5000_roll_stop()
+            return
         try:
             self.controller.session.repo.save_global_setting("window_geometry", [self.x(), self.y(), self.width(), self.height()])
         except Exception:
             logger.exception("Failed to persist window geometry")
         super().closeEvent(event)
+
+    def _show_ls5000_safe_close_notice(self) -> None:
+        """Keep scanner shutdown guidance visible without blocking the Qt event loop."""
+
+        self.controller.set_status(_SAFE_ROLL_CLOSE_MESSAGE)
+        notice = self._ls5000_safe_close_notice
+        if notice is None:
+            notice = QMessageBox(self)
+            notice.setIcon(QMessageBox.Icon.Information)
+            notice.setWindowTitle("Finishing scanner operation")
+            notice.setText("NegPy is waiting for the scanner to reach a safe stopping point.")
+            notice.setInformativeText(_SAFE_ROLL_CLOSE_MESSAGE)
+            notice.setStandardButtons(QMessageBox.StandardButton.NoButton)
+            notice.setWindowModality(Qt.WindowModality.NonModal)
+            self._ls5000_safe_close_notice = notice
+        notice.show()
+        notice.raise_()
+
+    def _connect_ls5000_safe_close_signals(self) -> None:
+        """Close only after the controller has published a terminal roll result."""
+
+        self.controller.ls5000_roll_preview_ready.connect(
+            self._on_ls5000_roll_terminal
+        )
+        self.controller.ls5000_roll_finished.connect(self._on_ls5000_roll_terminal)
+        self.controller.ls5000_roll_error.connect(self._on_ls5000_roll_terminal)
+
+    def _on_ls5000_roll_terminal(self, *_args: object) -> None:
+        if (
+            not self._close_after_ls5000_roll
+            or self.controller.ls5000_roll_operation_active()
+        ):
+            return
+        self._close_after_ls5000_roll = False
+        if self._ls5000_safe_close_notice is not None:
+            self._ls5000_safe_close_notice.hide()
+        self.controller.set_status("Scanner operation finished. Closing NegPy...")
+        QTimer.singleShot(0, self.close)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

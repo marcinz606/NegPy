@@ -21,6 +21,11 @@ from negpy.infrastructure.scanners.sane_backend import (
 )
 
 
+def test_module_doc_does_not_present_legacy_split_capture_as_the_packed_production_path() -> None:
+    assert "legacy SANE split-capture fallback" in runner.__doc__
+    assert "exact production split-capture path" not in runner.__doc__
+
+
 @dataclass
 class FakeOption:
     constraint: Any = None

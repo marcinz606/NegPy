@@ -46,6 +46,7 @@ class _ControllerHarness:
     start_ls5000_roll_preview = AppController.start_ls5000_roll_preview
     start_ls5000_roll_scan = AppController.start_ls5000_roll_scan
     cancel_scan = AppController.cancel_scan
+    ls5000_roll_operation_active = AppController.ls5000_roll_operation_active
     _on_ls5000_roll_preview_ready = AppController._on_ls5000_roll_preview_ready
     _on_ls5000_roll_finished = AppController._on_ls5000_roll_finished
     _on_ls5000_roll_error = AppController._on_ls5000_roll_error
@@ -121,6 +122,7 @@ def test_preview_assertion_spans_request_until_preview_ready(
 
     controller.start_ls5000_roll_preview(request)
 
+    assert controller.ls5000_roll_operation_active()
     assert reasons == ["NegPy LS-5000 roll preview"]
     assert assertion.release_calls == 0
     assert controller.scan_started.calls == [()]
@@ -128,6 +130,7 @@ def test_preview_assertion_spans_request_until_preview_ready(
 
     controller._on_ls5000_roll_preview_ready("preview-token", session)
 
+    assert not controller.ls5000_roll_operation_active()
     assert assertion.release_calls == 1
     assert controller._ls5000_roll_power_assertion is None
     assert controller.ls5000_roll_preview_ready.calls == [("preview-token", session)]
