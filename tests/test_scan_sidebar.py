@@ -459,10 +459,12 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
 
     def test_load_roll_thumbnails_sends_preview_request_and_locks_controls(self):
         _select_device(self.sidebar, FULL_DEVICE)
+        self.controller.invalidate_ls5000_roll_preview = MagicMock()
         self.controller.start_ls5000_roll_preview = MagicMock()
 
         self.sidebar._on_roll_preview()
 
+        self.controller.invalidate_ls5000_roll_preview.assert_called_once()
         self.controller.start_ls5000_roll_preview.assert_called_once()
         request = self.controller.start_ls5000_roll_preview.call_args.args[0]
         self.assertIsInstance(request, RollPreviewRequest)
