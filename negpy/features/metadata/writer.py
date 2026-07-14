@@ -125,7 +125,7 @@ def _build_custom_exif(payload: MetadataPayload) -> dict:
 
     if user_comment_parts:
         lines = [f"{k.replace('_', ' ').title()}: {v}" for k, v in user_comment_parts.items()]
-        uc_bytes = b"ASCII\x00\x00\x00" + "\n".join(lines).encode("ascii")
+        uc_bytes = b"ASCII\x00\x00\x00" + "\n".join(lines).encode("ascii", "replace")
         exif[piexif.ExifIFD.UserComment] = uc_bytes
 
     if flags.exposure and payload.capture_exposure:
@@ -630,7 +630,9 @@ def _fold_user_comment_into_description(description: str | None, extratags: list
             continue
         raw = bytes(value)
         if raw[:8] == b"ASCII\x00\x00\x00":
-            uc_text = raw[8:].decode("ascii", "replace").rstrip("\x00").strip()
+            uc_text = _decode_ascii(raw[8:])
+            if uc_text is not None:
+                uc_text = uc_text.strip()
         break
 
     if not uc_text:
