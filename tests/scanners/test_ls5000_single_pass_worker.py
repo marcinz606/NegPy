@@ -9,9 +9,15 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from negpy.infrastructure.scanners.ls5000_single_pass import worker as worker_module
+from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
+    ManualFrameApproval,
+    ReviewedRollFingerprint,
+    build_reviewed_roll_fingerprint,
+)
 from negpy.infrastructure.scanners.ls5000_single_pass.roll_index import (
     NativeFrameOrigin,
     TransportMapping,
@@ -87,6 +93,18 @@ LIVE8_TRANSPORT_FIELDS = (
 )
 
 
+def _reviewed_fingerprint() -> ReviewedRollFingerprint:
+    return ReviewedRollFingerprint(
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+        preview_shape=(6_104, 96, 3),
+        frame_start_rows=tuple(100 + 143 * index for index in range(40)),
+        frame_native_origins=tuple(6_000 + 6_000 * index for index in range(40)),
+        frame_visual_hashes=tuple(f"{index:064x}" for index in range(40)),
+        frame_visual_log_spans=(2.0,) * 40,
+    )
+
+
 def test_frozen_worker_uses_pinned_meter_identity_without_loose_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -128,6 +146,16 @@ def test_batch_job_loader_binds_ordered_frame_paths_and_parent_ack_contract(
     tmp_path: Path,
 ) -> None:
     session_id = "batch-slot17-slot19-session"
+    fingerprint = _reviewed_fingerprint()
+    approval = ManualFrameApproval(
+        reviewed_fingerprint_sha256=fingerprint.binding_sha256,
+        slot=17,
+        boundary_offset_rows=-12,
+        thumbnail_sha256="3" * 64,
+        reviewed_lookup_row=2_400,
+        reviewed_native_origin=100_000,
+        review_reasons=("transport-origin-inferred",),
+    )
     job_path = tmp_path / "batch-job.json"
     job_path.write_text(
         json.dumps(
@@ -140,6 +168,7 @@ def test_batch_job_loader_binds_ordered_frame_paths_and_parent_ack_contract(
                         "ack": "frame-017/parent-ack.json",
                         "boundary_offset_rows": -12,
                         "journal": "frame-017/journal.json",
+                        "manual_review_approval": approval.to_payload(),
                         "output": "frame-017/capture.bin",
                         "slot": 17,
                     },
@@ -147,13 +176,15 @@ def test_batch_job_loader_binds_ordered_frame_paths_and_parent_ack_contract(
                         "ack": "frame-019/parent-ack.json",
                         "boundary_offset_rows": 8,
                         "journal": "frame-019/journal.json",
+                        "manual_review_approval": None,
                         "output": "frame-019/capture.bin",
                         "slot": 19,
                     },
                 ],
                 "parent_ack_required_after_every_frame": True,
                 "release_once_after_last_frame": True,
-                "schema_version": 1,
+                "reviewed_roll_fingerprint": fingerprint.to_payload(),
+                "schema_version": 2,
                 "session_contract": "one-process-one-reservation",
                 "session_id": session_id,
             }
@@ -169,6 +200,9 @@ def test_batch_job_loader_binds_ordered_frame_paths_and_parent_ack_contract(
 
     assert job.session_id == session_id
     assert job.selected_slots == (17, 19)
+    assert job.reviewed_fingerprint == fingerprint
+    assert job.frames[0].manual_review_approval == approval
+    assert job.frames[1].manual_review_approval is None
     assert [frame.boundary_offset_rows for frame in job.frames] == [-12, 8]
     assert job.job_sha256 == hashlib.sha256(job_path.read_bytes()).hexdigest()
     assert job.frames[0].output == tmp_path / "frame-017" / "capture.bin"
@@ -219,6 +253,7 @@ def test_batch_cli_dry_run_validates_one_session_without_single_frame_flags(
     plan_path = Path(data.joinpath("replay-first-rgbi4-plan.jsonl"))
     manifest_path = Path(data.joinpath("replay-first-rgbi4-manifest.json"))
     continuation_path = Path(data.joinpath("replay-next-rgbi4-plan.json"))
+    fingerprint = _reviewed_fingerprint()
     job_path = tmp_path / "batch-job.json"
     job_path.write_text(
         json.dumps(
@@ -235,6 +270,7 @@ def test_batch_cli_dry_run_validates_one_session_without_single_frame_flags(
                         "ack": "frame-017/parent-ack.json",
                         "boundary_offset_rows": -12,
                         "journal": "frame-017/journal.json",
+                        "manual_review_approval": None,
                         "output": "frame-017/capture.bin",
                         "slot": 17,
                     },
@@ -242,13 +278,15 @@ def test_batch_cli_dry_run_validates_one_session_without_single_frame_flags(
                         "ack": "frame-019/parent-ack.json",
                         "boundary_offset_rows": 8,
                         "journal": "frame-019/journal.json",
+                        "manual_review_approval": None,
                         "output": "frame-019/capture.bin",
                         "slot": 19,
                     },
                 ],
                 "parent_ack_required_after_every_frame": True,
                 "release_once_after_last_frame": True,
-                "schema_version": 1,
+                "reviewed_roll_fingerprint": fingerprint.to_payload(),
+                "schema_version": 2,
                 "session_contract": "one-process-one-reservation",
                 "session_id": "batch-dry-run",
             }
@@ -328,6 +366,7 @@ def test_live_batch_connect_failure_records_no_reservation_and_no_recovery(
         session_id="batch-connect-failure",
         root=root,
         frames=(frame,),
+        reviewed_fingerprint=_reviewed_fingerprint(),
         plan_sha256=CANONICAL_PLAN_SHA256,
         continuation_plan_sha256=(
             worker_module.CANONICAL_CONTINUATION_PLAN_SHA256
@@ -600,6 +639,240 @@ def test_batch_offsets_share_the_one_retained_table_and_later_frame_origins() ->
             assert window["upper_left_y"] == origin
 
 
+def test_inferred_batch_origin_requires_its_receipt_bound_operator_approval() -> None:
+    records = tuple(
+        TransportRecord(
+            row=row,
+            code=6 * (row % 18),
+            selector=row // 18,
+            native_origin=42 * row,
+        )
+        for row in range(6_000)
+    )
+    lookup_rows = tuple(100 + 143 * index for index in range(37))
+    origins = tuple(
+        NativeFrameOrigin(
+            frame=frame,
+            boundary_index=frame - 1,
+            boundary_output_row=row - 4,
+            lookup_row=row,
+            code=records[row].code,
+            selector=records[row].selector,
+            native_origin=records[row].native_origin,
+            method=("affine-guided-local-lookup" if frame == 18 else "direct-gap-trailing-row"),
+            automatic=frame != 18,
+            manual_review=frame == 18,
+            review_reasons=(("transport-origin-inferred",) if frame == 18 else ()),
+            affine_residual_rows=0.0,
+        )
+        for frame, row in enumerate(lookup_rows, start=1)
+    )
+    mapping = TransportMapping(6_000, 0.0, 42.0, 0.0, 0.0, origins)
+
+    with pytest.raises(ProtocolError, match="requires manual review"):
+        apply_batch_boundary_offsets(mapping, records, ((18, -11),))
+
+    combined, resolved = apply_batch_boundary_offsets(
+        mapping,
+        records,
+        ((18, -11),),
+        approved_manual_slots=frozenset({18}),
+    )
+
+    assert resolved[0][0] is origins[17]
+    assert resolved[0][1].lookup_row == origins[17].lookup_row - 11
+    assert combined.origins[17] is resolved[0][1]
+
+
+def test_fresh_batch_index_refuses_a_different_roll_before_plan_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame_height = 20
+    intervals = tuple(
+        (slot * frame_height, (slot + 1) * frame_height) for slot in range(37)
+    )
+    reviewed_frames = []
+    for slot in range(37):
+        rng = np.random.default_rng(20_000 + slot)
+        reviewed_frames.append(
+            np.repeat(
+                np.repeat(
+                    rng.integers(2_000, 50_000, size=(10, 10, 3), dtype=np.uint16),
+                    2,
+                    axis=0,
+                ),
+                2,
+                axis=1,
+            )
+        )
+    reviewed_rgb = np.concatenate(reviewed_frames, axis=0)
+    fresh_rgb = np.concatenate(list(reversed(reviewed_frames)), axis=0)
+    records = tuple(
+        TransportRecord(
+            row=row,
+            code=6 * (row % 18),
+            selector=row // 18,
+            native_origin=42 * row,
+        )
+        for row in range(6_000)
+    )
+    lookup_rows = tuple(100 + 143 * index for index in range(37))
+    origins = tuple(
+        NativeFrameOrigin(
+            frame=frame,
+            boundary_index=frame - 1,
+            boundary_output_row=intervals[frame - 1][0],
+            lookup_row=row,
+            code=records[row].code,
+            selector=records[row].selector,
+            native_origin=records[row].native_origin,
+            method="direct-gap-trailing-row",
+            automatic=True,
+            manual_review=False,
+            review_reasons=(),
+            affine_residual_rows=0.0,
+        )
+        for frame, row in enumerate(lookup_rows, start=1)
+    )
+    mapping = TransportMapping(6_000, 0.0, 42.0, 0.0, 0.0, origins)
+    reviewed = build_reviewed_roll_fingerprint(
+        reviewed_rgb,
+        frame_intervals=intervals,
+        frame_native_origins=tuple(origin.native_origin for origin in origins),
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+    )
+    geometry = SimpleNamespace(
+        requested_resolution=97,
+        native_resolution=4_000,
+        pitch=41,
+        native_width=3_946,
+        native_height=250_278,
+        width=20,
+        height=len(fresh_rgb),
+        block_bytes=1,
+        expected_stream_bytes=1,
+    )
+    detection = SimpleNamespace(
+        confidence="high",
+        intervals=tuple(
+            SimpleNamespace(start_row=start, end_row=end) for start, end in intervals
+        ),
+        boundaries=(),
+        diagnostics=lambda: {},
+    )
+    frame_root = tmp_path / "batch"
+    frame = worker_module.BatchFrameSpec(
+        slot=17,
+        boundary_offset_rows=0,
+        manual_review_approval=None,
+        output=frame_root / "frame-017" / "capture.bin",
+        journal=frame_root / "frame-017" / "journal.json",
+        ack=frame_root / "frame-017" / "parent-ack.json",
+    )
+    monkeypatch.setattr(worker_module, "_derive_index_geometry", lambda _plan: geometry)
+    monkeypatch.setattr(
+        worker_module,
+        "validate_live_0x8e_bytes",
+        lambda table, _height: (table, len(fresh_rgb)),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "decode_full_index_bytes",
+        lambda *_args, **_kwargs: (
+            fresh_rgb,
+            np.ones(len(fresh_rgb), dtype=bool),
+            {},
+        ),
+    )
+    monkeypatch.setattr(worker_module, "detect_roll_frames", lambda *_args, **_kwargs: detection)
+    monkeypatch.setattr(worker_module, "parse_live_transport_records_bytes", lambda *_args, **_kwargs: records)
+    monkeypatch.setattr(worker_module, "derive_transport_mapping", lambda *_args, **_kwargs: mapping)
+
+    with pytest.raises(ProtocolError, match="reviewed roll fingerprint"):
+        worker_module._derive_live_batch_selections(
+            [],
+            b"fresh-preview",
+            b"fresh-table",
+            (frame,),
+            reviewed_fingerprint=reviewed,
+        )
+
+
+def test_batch_selected_slot_gate_runs_for_every_slot_before_plan_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reviewed = _reviewed_fingerprint()
+    fresh = _reviewed_fingerprint()
+    context = SimpleNamespace(
+        fresh_fingerprint=fresh,
+        fingerprint_comparison=worker_module.compare_reviewed_roll_fingerprints(
+            reviewed,
+            fresh,
+        ),
+    )
+    frame_root = tmp_path / "selected-slot-gate"
+    frames = tuple(
+        worker_module.BatchFrameSpec(
+            slot=slot,
+            boundary_offset_rows=0,
+            manual_review_approval=None,
+            output=frame_root / f"frame-{slot:03d}" / "capture.bin",
+            journal=frame_root / f"frame-{slot:03d}" / "journal.json",
+            ack=frame_root / f"frame-{slot:03d}" / "parent-ack.json",
+        )
+        for slot in (7, 17)
+    )
+    checked: list[int] = []
+    plan_bound = False
+
+    def compare_selected(
+        _reviewed: ReviewedRollFingerprint,
+        _fresh: ReviewedRollFingerprint,
+        *,
+        slot: int,
+    ) -> SimpleNamespace:
+        checked.append(slot)
+        return SimpleNamespace(
+            matches=slot != 17,
+            reason=("matched" if slot != 17 else "selected-visual-content-mismatch"),
+        )
+
+    def bind_plan(*_args: object, **_kwargs: object) -> None:
+        nonlocal plan_bound
+        plan_bound = True
+
+    monkeypatch.setattr(
+        worker_module,
+        "_derive_live_frame_selection",
+        lambda *_args, **_kwargs: context,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "compare_selected_roll_fingerprint",
+        compare_selected,
+        raising=False,
+    )
+    monkeypatch.setattr(worker_module, "_bind_plan_to_live_selection", bind_plan)
+
+    with pytest.raises(
+        ProtocolError,
+        match="selected frame 17.*selected-visual-content-mismatch",
+    ):
+        worker_module._derive_live_batch_selections(
+            [],
+            b"fresh-preview",
+            b"fresh-table",
+            frames,
+            reviewed_fingerprint=reviewed,
+        )
+
+    assert checked == [7, 17]
+    assert plan_bound is False
+
+
 def test_continuation_executor_runs_all_89_steps_with_fake_usb(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -671,6 +944,7 @@ def test_continuation_executor_runs_all_89_steps_with_fake_usb(
         "continuation-session",
         root,
         (first, second),
+        _reviewed_fingerprint(),
         CANONICAL_PLAN_SHA256,
         worker_module.CANONICAL_CONTINUATION_PLAN_SHA256,
         "c" * 64,
@@ -906,6 +1180,7 @@ def test_live_two_frame_batch_uses_one_combined_table_and_one_release(
         "successful-batch",
         root,
         (first, second),
+        _reviewed_fingerprint(),
         CANONICAL_PLAN_SHA256,
         worker_module.CANONICAL_CONTINUATION_PLAN_SHA256,
         "c" * 64,
@@ -959,11 +1234,14 @@ def test_live_two_frame_batch_uses_one_combined_table_and_one_release(
         preview: bytes,
         table: bytes,
         frames: tuple[worker_module.BatchFrameSpec, ...],
+        *,
+        reviewed_fingerprint: ReviewedRollFingerprint,
     ) -> tuple[SimpleNamespace, ...]:
         nonlocal prevalidated
         assert len(preview) == len(worker_module.PREVIEW_READ_SEQUENCES)
         assert table == header_8e
         assert frames == batch.frames
+        assert reviewed_fingerprint == batch.reviewed_fingerprint
         prevalidated = True
         return selections
 

@@ -24,6 +24,9 @@ from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
     CaptureMode,
     CaptureOutcome,
     CaptureRequest,
+    ManualFrameApproval,
+    ReviewedRollFingerprint,
+    build_reviewed_roll_fingerprint,
 )
 from negpy.infrastructure.scanners.ls5000_single_pass.plan import (
     CANONICAL_PLAN_SHA256,
@@ -228,6 +231,70 @@ class RollPreviewSession:
             native_origin=record.native_origin,
             method=f"{slot.base_origin.method}+operator-boundary-offset",
             automatic=False,
+        )
+
+    def reviewed_fingerprint(self) -> ReviewedRollFingerprint:
+        """Bind the exact reviewed artifacts to a reread-tolerant roll identity."""
+
+        return build_reviewed_roll_fingerprint(
+            self.preview.rgb,
+            frame_intervals=tuple(slot.boundary_rows for slot in self.slots),
+            frame_native_origins=tuple(
+                slot.base_origin.native_origin for slot in self.slots
+            ),
+            source_preview_sha256=self.preview.preview_artifact.sha256,
+            source_table_sha256=self.preview.table_artifact.sha256,
+        )
+
+    def approve_manual_origin(
+        self,
+        slot_id: int,
+        boundary_offset_rows: int = 0,
+    ) -> ManualFrameApproval:
+        """Create an immutable receipt for one visually reviewed manual origin."""
+
+        slot = self._slot(slot_id)
+        if slot.base_origin.automatic or not slot.base_origin.manual_review:
+            raise ValueError(f"slot {slot_id} does not require manual review")
+        thumbnail = reload_thumbnail(
+            self.preview,
+            slot,
+            boundary_offset_rows,
+        )
+        origin = self.resolve_origin(slot_id, boundary_offset_rows)
+        thumbnail_digest = hashlib.sha256()
+        thumbnail_digest.update(str(thumbnail.shape).encode("ascii"))
+        thumbnail_digest.update(thumbnail.dtype.str.encode("ascii"))
+        thumbnail_digest.update(np.ascontiguousarray(thumbnail).tobytes())
+        reasons = tuple(
+            dict.fromkeys((*slot.warnings, *slot.base_origin.review_reasons))
+        )
+        if not reasons:
+            reasons = ("transport-origin-manual-review",)
+        return ManualFrameApproval(
+            reviewed_fingerprint_sha256=self.reviewed_fingerprint().binding_sha256,
+            slot=slot_id,
+            boundary_offset_rows=boundary_offset_rows,
+            thumbnail_sha256=thumbnail_digest.hexdigest(),
+            reviewed_lookup_row=origin.lookup_row,
+            reviewed_native_origin=origin.native_origin,
+            review_reasons=reasons,
+        )
+
+    def validate_manual_approval(
+        self,
+        approval: ManualFrameApproval,
+        *,
+        slot_id: int,
+        boundary_offset_rows: int,
+    ) -> bool:
+        """Return whether an approval exactly matches this reviewed thumbnail."""
+
+        if not isinstance(approval, ManualFrameApproval):
+            return False
+        return approval == self.approve_manual_origin(
+            slot_id,
+            boundary_offset_rows,
         )
 
     def with_material(self, material: ScanMaterial) -> RollPreviewSession:

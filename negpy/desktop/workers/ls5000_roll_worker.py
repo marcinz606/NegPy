@@ -12,7 +12,7 @@ import json
 import os
 import threading
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date as dt_date
 from enum import StrEnum
@@ -32,6 +32,8 @@ from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
     CaptureProcessAdapter,
     CaptureRequest,
     CaptureStopped,
+    ManualFrameApproval,
+    ReviewedRollFingerprint,
 )
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.services.scanning.ls5000_roll_outputs import (
@@ -89,11 +91,23 @@ class RollPreviewRequest:
 class RollFrameChoice:
     slot_id: int
     boundary_offset_rows: int = 0
+    manual_review_approval: ManualFrameApproval | None = None
 
     def __post_init__(self) -> None:
         if type(self.slot_id) is not int or not 1 <= self.slot_id <= 40:
             raise ValueError("slot_id must be an integer in 1..40")
         validate_boundary_offset(self.slot_id, self.boundary_offset_rows)
+        approval = self.manual_review_approval
+        if approval is not None:
+            if not isinstance(approval, ManualFrameApproval):
+                raise TypeError("manual_review_approval has the wrong type")
+            if (
+                approval.slot != self.slot_id
+                or approval.boundary_offset_rows != self.boundary_offset_rows
+            ):
+                raise ValueError(
+                    "manual_review_approval does not match the selected slot and offset"
+                )
 
 
 @dataclass(frozen=True)
@@ -106,6 +120,7 @@ class RollScanRequest:
     filename_pattern: str
     material: ScanMaterial
     frames: tuple[RollFrameChoice, ...]
+    reviewed_fingerprint: ReviewedRollFingerprint | None = None
 
     def __post_init__(self) -> None:
         if not self.device_id.strip():
@@ -134,6 +149,11 @@ class RollScanRequest:
             raise ValueError("at least one frame must be selected")
         if any(not isinstance(frame, RollFrameChoice) for frame in frames):
             raise TypeError("frames must contain RollFrameChoice values")
+        if self.reviewed_fingerprint is not None and not isinstance(
+            self.reviewed_fingerprint,
+            ReviewedRollFingerprint,
+        ):
+            raise TypeError("reviewed_fingerprint has the wrong type")
         slot_ids = [frame.slot_id for frame in frames]
         if slot_ids != sorted(set(slot_ids)):
             raise ValueError("selected roll slots must be unique and ordered")
@@ -171,6 +191,15 @@ class RollWorkerFailure:
     recovery_required: bool
 
 
+@dataclass(frozen=True)
+class RollThumbnailReloadFailure:
+    """Nonterminal failure for one identified offline thumbnail adjustment."""
+
+    slot_id: int
+    boundary_offset_rows: int
+    message: str
+
+
 AdapterFactory = Callable[[Path], CaptureProcessAdapter]
 ScannerServiceFactory = Callable[[], ScannerService]
 FinalizerFactory = Callable[[], LS5000SinglePassWorkflow]
@@ -184,6 +213,7 @@ class LS5000RollWorker(QObject):
     preview_ready = pyqtSignal(str, object)  # stable token, RollPreviewSession
     preview_invalidated = pyqtSignal()
     thumbnail_ready = pyqtSignal(int, int, object)  # slot ID, offset, uint16 HxWx3
+    thumbnail_error = pyqtSignal(object)  # RollThumbnailReloadFailure
     progress = pyqtSignal(object)  # RollProgress
     frame_finished = pyqtSignal(int, str)
     finished = pyqtSignal(object)  # RollScanCompletion
@@ -355,7 +385,13 @@ class LS5000RollWorker(QObject):
             session.resolve_origin(slot_id, boundary_offset_rows)
             self.thumbnail_ready.emit(slot_id, boundary_offset_rows, thumbnail)
         except Exception as error:
-            self.error.emit(RollWorkerFailure(f"Could not reload thumbnail: {error}", False))
+            self.thumbnail_error.emit(
+                RollThumbnailReloadFailure(
+                    slot_id=slot_id,
+                    boundary_offset_rows=boundary_offset_rows,
+                    message=f"Could not reload thumbnail: {error}",
+                )
+            )
 
     @pyqtSlot(object)
     def scan_selected(self, request: RollScanRequest) -> None:
@@ -390,6 +426,64 @@ class LS5000RollWorker(QObject):
             )
             return
 
+        reviewed_fingerprint = request.reviewed_fingerprint
+        current_fingerprint = session.reviewed_fingerprint()
+        if reviewed_fingerprint is None:
+            self.error.emit(
+                RollWorkerFailure(
+                    "reviewed roll fingerprint is missing; load and review the whole roll again",
+                    False,
+                )
+            )
+            return
+        if reviewed_fingerprint != current_fingerprint:
+            self._discard_preview()
+            self.error.emit(
+                RollWorkerFailure(
+                    "reviewed roll fingerprint does not match the loaded thumbnails; load the whole roll again",
+                    False,
+                )
+            )
+            return
+        for frame in request.frames:
+            slot = session.slots[frame.slot_id - 1]
+            origin = slot.base_origin
+            requires_approval = bool(
+                not origin.automatic or origin.manual_review
+            )
+            approval = frame.manual_review_approval
+            if requires_approval and approval is None:
+                self.error.emit(
+                    RollWorkerFailure(
+                        f"slot {frame.slot_id} uses an inferred transport origin; "
+                        "approve its current thumbnail before scanning",
+                        False,
+                    )
+                )
+                return
+            if requires_approval and not session.validate_manual_approval(
+                approval,
+                slot_id=frame.slot_id,
+                boundary_offset_rows=frame.boundary_offset_rows,
+            ):
+                self.error.emit(
+                    RollWorkerFailure(
+                        f"slot {frame.slot_id} manual approval is stale or belongs "
+                        "to another thumbnail; review it again",
+                        False,
+                    )
+                )
+                return
+            if not requires_approval and approval is not None:
+                self.error.emit(
+                    RollWorkerFailure(
+                        f"slot {frame.slot_id} no longer requires its manual approval; "
+                        "review the current thumbnails again",
+                        False,
+                    )
+                )
+                return
+
         self._stop_after_current.clear()
         attempts_root = Path(request.attempts_root).expanduser().resolve()
         output_folder = Path(request.output_folder).expanduser().resolve()
@@ -405,6 +499,7 @@ class LS5000RollWorker(QObject):
                     output_folder=output_folder,
                     filename_pattern=request.filename_pattern,
                     frames=request.frames,
+                    reviewed_fingerprint=reviewed_fingerprint,
                     paths=paths,
                 )
             else:
@@ -502,6 +597,7 @@ class LS5000RollWorker(QObject):
         output_folder: Path,
         filename_pattern: str,
         frames: tuple[RollFrameChoice, ...],
+        reviewed_fingerprint: ReviewedRollFingerprint,
         paths: list[str],
     ) -> bool:
         batch_request = CaptureBatchRequest(
@@ -510,9 +606,11 @@ class LS5000RollWorker(QObject):
                     mode=CaptureMode.FULL,
                     selected_slot=frame.slot_id,
                     boundary_offset_rows=frame.boundary_offset_rows,
+                    manual_review_approval=frame.manual_review_approval,
                 )
                 for frame in frames
-            )
+            ),
+            reviewed_fingerprint=reviewed_fingerprint,
         )
         finalizer = self._finalizer_factory()
         capture_session: SinglePassSession | None = None
@@ -564,6 +662,7 @@ class LS5000RollWorker(QObject):
                 output_folder=output_folder,
                 filename_pattern=filename_pattern,
                 minimum_sequence=next_sequence,
+                selected_slot=frame.slot_id,
             )
             path = str(promoted.rgb_path)
             next_sequence = promoted.sequence + 1
@@ -701,6 +800,7 @@ class LS5000RollWorker(QObject):
             output_folder=request.output_folder,
             filename_pattern=request.filename_pattern,
             output_format="TIFF",
+            slot=frame.slot_id,
         )
         try:
             self._bw_tiff_validator(output)
@@ -726,10 +826,19 @@ class _CaptureRefusal(RuntimeError):
 def frame_choices(
     slot_ids: Iterable[int],
     offsets: dict[int, int],
+    approvals: Mapping[int, ManualFrameApproval] | None = None,
 ) -> tuple[RollFrameChoice, ...]:
     """Build the ordered immutable request payload used by the sidebar."""
 
-    return tuple(RollFrameChoice(slot_id=slot_id, boundary_offset_rows=offsets.get(slot_id, 0)) for slot_id in sorted(set(slot_ids)))
+    approval_by_slot = {} if approvals is None else approvals
+    return tuple(
+        RollFrameChoice(
+            slot_id=slot_id,
+            boundary_offset_rows=offsets.get(slot_id, 0),
+            manual_review_approval=approval_by_slot.get(slot_id),
+        )
+        for slot_id in sorted(set(slot_ids))
+    )
 
 
 __all__ = [
@@ -740,6 +849,7 @@ __all__ = [
     "RollProgress",
     "RollScanCompletion",
     "RollScanRequest",
+    "RollThumbnailReloadFailure",
     "RollWorkerFailure",
     "SA30_ADAPTER_FRAME_CAPACITY",
     "frame_choices",

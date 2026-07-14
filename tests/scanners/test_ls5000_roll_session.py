@@ -368,6 +368,30 @@ def test_blank_tail_remains_selectable_fixed_slots_with_manual_review_warnings(
         }.intersection(slot.warnings)
 
 
+def test_manual_origin_approval_is_bound_to_exact_reviewed_thumbnail_and_roll(
+    tmp_path: Path,
+) -> None:
+    session = build_roll_preview_session(
+        _preview_fixture(tmp_path, content_frames=36).result,
+        expected_frame_count=36,
+    )
+
+    fingerprint = session.reviewed_fingerprint()
+    approval = session.approve_manual_origin(37, 0)
+
+    assert fingerprint.source_preview_sha256 == session.preview.preview_artifact.sha256
+    assert fingerprint.source_table_sha256 == session.preview.table_artifact.sha256
+    assert len(fingerprint.frame_visual_hashes) == len(session.slots) == 40
+    assert approval.reviewed_fingerprint_sha256 == fingerprint.binding_sha256
+    assert approval.slot == 37
+    assert approval.boundary_offset_rows == 0
+    assert approval.review_reasons
+    assert session.validate_manual_approval(approval, slot_id=37, boundary_offset_rows=0)
+
+    with pytest.raises(ValueError, match="does not require manual review"):
+        session.approve_manual_origin(2, 0)
+
+
 def test_session_pixel_arrays_cannot_be_made_writeable(tmp_path: Path) -> None:
     session = build_roll_preview_session(_preview_fixture(tmp_path).result)
 

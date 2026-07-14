@@ -312,6 +312,24 @@ class TestRenderScanFilename:
             assert os.path.exists(path2)
             assert path1 != path2
 
+    def test_write_result_renders_a_bound_roll_slot(self, tmp_path) -> None:
+        result = ScanResult(
+            rgb=np.zeros((4, 4, 3), dtype=np.uint16),
+            ir=None,
+            dpi=4_000,
+            device_model="Nikon LS-5000 ED",
+        )
+
+        output = ScannerService().write_result(
+            result,
+            str(tmp_path),
+            '{{ date }}_slot{{ "%02d" % slot }}_{{ "%03d" % seq }}',
+            "TIFF",
+            slot=7,
+        )
+
+        assert os.path.basename(output).endswith("_slot07_001.tif")
+
     def test_write_refuses_a_pattern_that_does_not_vary_with_sequence(
         self,
         tmp_path,

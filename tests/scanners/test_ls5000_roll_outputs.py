@@ -17,6 +17,7 @@ from negpy.services.scanning.ls5000_roll_outputs import (
 class _Finalization:
     manifest_path: Path
     output_paths: dict[str, Path]
+    manifest: dict[str, object]
 
 
 def _finalization(tmp_path: Path) -> _Finalization:
@@ -29,9 +30,35 @@ def _finalization(tmp_path: Path) -> _Finalization:
     }
     for role, path in outputs.items():
         path.write_bytes((role + "\n").encode() * 11)
-    manifest = source / "manifest.json"
-    manifest.write_text('{"verified": true}\n', encoding="utf-8")
-    return _Finalization(manifest, outputs)
+    manifest_path = source / "manifest.json"
+    manifest = {
+        "identity": {"selected_slot": 7, "boundary_offset_rows": -3},
+        "frame_evidence": {
+            "roll_identity": {
+                "reviewed_fingerprint_sha256": "c" * 64,
+                "fresh_fingerprint_sha256": "d" * 64,
+                "comparison": {"matches": True, "reason": "matched"},
+                "selected_slot_comparison": {
+                    "matches": True,
+                    "reason": "matched",
+                    "slot": 7,
+                },
+            },
+            "manual_review_approval": {
+                "binding_sha256": "e" * 64,
+                "slot": 7,
+            },
+        },
+        "quality_control": {
+            "capture_clipping": {"warning": False},
+            "focus_detail": {
+                "verdict": "measured",
+                "score": 0.03125,
+            },
+        },
+    }
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    return _Finalization(manifest_path, outputs, manifest)
 
 
 def test_promotes_triplet_without_overwrite_and_binds_receipt(tmp_path: Path) -> None:
@@ -41,22 +68,33 @@ def test_promotes_triplet_without_overwrite_and_binds_receipt(tmp_path: Path) ->
     first = promote_single_pass_frame(
         finalization,
         output_folder=output,
-        filename_pattern='roll_{{ "%03d" % seq }}',
+        filename_pattern='roll_slot{{ "%02d" % slot }}_{{ "%03d" % seq }}',
+        selected_slot=7,
     )
     second = promote_single_pass_frame(
         finalization,
         output_folder=output,
-        filename_pattern='roll_{{ "%03d" % seq }}',
+        filename_pattern='roll_slot{{ "%02d" % slot }}_{{ "%03d" % seq }}',
+        selected_slot=7,
     )
 
     assert first.sequence == 1
-    assert first.rgb_path.name == "roll_001.tif"
-    assert first.ir_path.name == "roll_001_IR.tif"
-    assert first.ir_valid_mask_path.name == "roll_001_IR_VALID.tif"
+    assert first.rgb_path.name == "roll_slot07_001.tif"
+    assert first.ir_path.name == "roll_slot07_001_IR.tif"
+    assert first.ir_valid_mask_path.name == "roll_slot07_001_IR_VALID.tif"
     assert second.sequence == 2
     assert first.rgb_path.read_bytes() == finalization.output_paths["rgb"].read_bytes()
     receipt = json.loads(first.receipt_path.read_text(encoding="utf-8"))
     assert receipt["kind"] == "negpy.ls5000-promoted-frame"
+    assert receipt["roll_slot"] == 7
+    assert receipt["capture_summary"] == {
+        "boundary_offset_rows": -3,
+        "manual_review_approval": finalization.manifest["frame_evidence"][
+            "manual_review_approval"
+        ],
+        "quality_control": finalization.manifest["quality_control"],
+        "roll_identity": finalization.manifest["frame_evidence"]["roll_identity"],
+    }
     assert receipt["outputs"]["rgb"]["path"] == first.rgb_path.name
 
 
@@ -74,6 +112,37 @@ def test_existing_sidecar_reserves_the_whole_basename(tmp_path: Path) -> None:
 
     assert result.sequence == 2
     assert (output / "roll_001_IR.tif").read_bytes() == b"unrelated"
+
+
+def test_promoter_refuses_a_slot_label_that_disagrees_with_capture_evidence(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(RollOutputError, match="slot differs"):
+        promote_single_pass_frame(
+            _finalization(tmp_path),
+            output_folder=tmp_path / "scans",
+            filename_pattern='roll_slot{{ "%02d" % slot }}_{{ seq }}',
+            selected_slot=8,
+        )
+
+
+def test_promoter_refuses_a_slot_label_when_capture_evidence_omits_the_slot(
+    tmp_path: Path,
+) -> None:
+    finalization = _finalization(tmp_path)
+    finalization.manifest["identity"].pop("selected_slot")
+    finalization.manifest_path.write_text(
+        json.dumps(finalization.manifest) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RollOutputError, match="has no selected slot"):
+        promote_single_pass_frame(
+            finalization,
+            output_folder=tmp_path / "scans",
+            filename_pattern='roll_slot{{ "%02d" % slot }}_{{ seq }}',
+            selected_slot=7,
+        )
 
 
 def test_constant_filename_pattern_is_rejected_before_collision_search(

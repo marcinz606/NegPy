@@ -10,6 +10,11 @@ import numpy as np
 import pytest
 import tifffile
 
+from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
+    ManualFrameApproval,
+    RollFingerprintComparison,
+    SelectedRollFingerprintComparison,
+)
 from negpy.infrastructure.scanners.ls5000_single_pass.continuation_plan import (
     CANONICAL_CONTINUATION_PLAN_SHA256,
 )
@@ -22,7 +27,12 @@ from negpy.services.scanning.ls5000_single_pass_workflow import (
     SinglePassSession,
     SinglePassWorkflowError,
 )
-from negpy.services.scanning.quality import StoppedTransportSmearAssessment
+from negpy.services.scanning import ls5000_single_pass_workflow as workflow_module
+from negpy.services.scanning.quality import (
+    FocusDetailTelemetry,
+    ScanClippingTelemetry,
+    StoppedTransportSmearAssessment,
+)
 from negpy.services.scanning.writer import write_full_negative_tiff
 
 
@@ -38,6 +48,41 @@ def _journal(
     boundary_offset_rows: int = 0,
 ) -> dict[str, Any]:
     origin = 109_060
+    reviewed_fingerprint_sha256 = "c" * 64
+    manual_approval = ManualFrameApproval(
+        reviewed_fingerprint_sha256=reviewed_fingerprint_sha256,
+        slot=selected_slot,
+        boundary_offset_rows=boundary_offset_rows,
+        thumbnail_sha256="e" * 64,
+        reviewed_lookup_row=2_580 + boundary_offset_rows,
+        reviewed_native_origin=origin,
+        review_reasons=("transport-origin-inferred",),
+    ).to_payload()
+    roll_comparison = RollFingerprintComparison(
+        matches=True,
+        reason="matched",
+        compared_frames=37,
+        preview_height_delta_rows=2,
+        visual_median_hamming=6.0,
+        visual_p90_hamming=12,
+        frame_start_median_delta_rows=2.0,
+        frame_start_max_delta_rows=8,
+        native_origin_median_delta=14.0,
+        native_origin_max_delta=42,
+        discriminative_frames=37,
+        minimum_discriminative_frames=3,
+        minimum_visual_log_span=0.5,
+    ).to_payload()
+    selected_comparison = SelectedRollFingerprintComparison(
+        matches=True,
+        reason="matched",
+        slot=selected_slot,
+        visual_hamming=8,
+        maximum_visual_hamming=48,
+        reviewed_visual_log_span=2.0,
+        fresh_visual_log_span=1.9,
+        minimum_visual_log_span=0.5,
+    ).to_payload()
     exposures = {"1": 107_262, "2": 276_334, "3": 336_777, "9": 311_725}
     common_windows = [
         {
@@ -76,12 +121,20 @@ def _journal(
         "plan_sha256": "a" * 64,
         "continuation_plan_sha256": CANONICAL_CONTINUATION_PLAN_SHA256,
         "capture_engine_sha256": "b" * 64,
+        "reviewed_roll_fingerprint_sha256": reviewed_fingerprint_sha256,
+        "manual_review_approval": manual_approval,
         "live_frame_selection": {
             "frame": selected_slot,
             "frame_count": 37,
             "usable_rows": 5_200,
             "preview_sha256": "1" * 64,
             "table_sha256": "2" * 64,
+            "roll_identity": {
+                "reviewed_fingerprint_sha256": reviewed_fingerprint_sha256,
+                "fresh_fingerprint_sha256": "d" * 64,
+                "comparison": roll_comparison,
+                "selected_slot_comparison": selected_comparison,
+            },
             "selected": {
                 "automatic": False,
                 "manual_review": True,
@@ -233,11 +286,49 @@ def test_finalizes_explicit_tail_slot_without_treating_roll_count_as_a_gate(tmp_
     assert manifest["roll_metadata"]["observed_candidate_count"] == 37
     assert manifest["roll_metadata"]["count_is_advisory"] is True
     assert manifest["frame_evidence"]["selected"]["manual_review"] is True
+    assert manifest["frame_evidence"]["roll_identity"]["comparison"]["matches"] is True
+    assert manifest["frame_evidence"]["manual_review_approval"]["slot"] == 39
     assert manifest["orientation"]["source_to_storage"] == "numpy rot90(k=1, axes=(0,1))"
     smear_qc = manifest["quality_control"]["stopped_transport_smear"]
     assert smear_qc["coordinate_space"] == "scanner-native RGB before storage rotation"
     assert smear_qc["required_verdict"] == "clean"
     assert smear_qc["assessment"]["verdict"] == "clean"
+
+
+def test_finalization_records_capture_clipping_and_focus_telemetry(
+    tmp_path: Path,
+) -> None:
+    attempt, _stream = _attempt(tmp_path)
+    workflow = _workflow(
+        clipping_measurer=lambda _rgb: ScanClippingTelemetry(
+            fractions=(0.02, 0.001, 0.0),
+            clip_level=0.99,
+            warning_fraction=0.01,
+            warning=True,
+        ),
+        focus_measurer=lambda _rgb: FocusDetailTelemetry(
+            method="normalized-gradient-v1",
+            verdict="measured",
+            score=0.03125,
+            texture_span=12_345.0,
+        ),
+    )
+
+    completed = workflow.finalize_attempt(attempt, delete_scratch=False)
+
+    quality = completed.manifest["quality_control"]
+    assert quality["capture_clipping"] == {
+        "fractions": [0.02, 0.001, 0.0],
+        "clip_level": 0.99,
+        "warning_fraction": 0.01,
+        "warning": True,
+    }
+    assert quality["focus_detail"] == {
+        "method": "normalized-gradient-v1",
+        "verdict": "measured",
+        "score": 0.03125,
+        "texture_span": 12_345.0,
+    }
 
 
 def test_finalizes_explicit_batch_frame_while_shared_reservation_is_retained(
@@ -279,6 +370,69 @@ def test_finalizes_explicit_batch_frame_while_shared_reservation_is_retained(
         manifest["capture"]["continuation_plan_sha256"]
         == CANONICAL_CONTINUATION_PLAN_SHA256
     )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda journal: journal["live_frame_selection"]["roll_identity"][
+                "comparison"
+            ].update(matches=False, reason="visual-content-mismatch"),
+            "roll fingerprint comparison",
+        ),
+        (
+            lambda journal: journal["live_frame_selection"]["roll_identity"].update(
+                fresh_fingerprint_sha256="bad"
+            ),
+            "fresh roll fingerprint",
+        ),
+        (
+            lambda journal: journal["live_frame_selection"]["roll_identity"][
+                "selected_slot_comparison"
+            ].update(matches=False, reason="selected-visual-content-mismatch"),
+            "selected-slot roll fingerprint",
+        ),
+        (
+            lambda journal: journal.__setitem__("manual_review_approval", None),
+            "manual review approval",
+        ),
+    ],
+)
+def test_batch_finalization_refuses_unproven_roll_or_manual_review_evidence(
+    tmp_path: Path,
+    mutate: Any,
+    message: str,
+) -> None:
+    attempt, stream = _attempt(tmp_path)
+    batch_session_id = "batch-slot39-session"
+    attempt = replace(
+        attempt,
+        batch_session_id=batch_session_id,
+        batch_frame_index=1,
+        batch_frame_total=1,
+        batch_selected_slots=(39,),
+    )
+    journal = json.loads(attempt.journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        status="frame-complete",
+        frame_complete=True,
+        unit_released=False,
+        session_reservation_retained=True,
+        batch_session={
+            "frame_index": 1,
+            "frame_total": 1,
+            "selected_slots": [39],
+            "session_id": batch_session_id,
+        },
+    )
+    mutate(journal)
+    attempt.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    with pytest.raises(SinglePassIntegrityError, match=message):
+        _workflow().finalize_attempt(attempt)
+
+    assert stream.is_file()
 
 
 def test_batch_frame_refuses_missing_continuation_plan_provenance(
@@ -633,4 +787,20 @@ def test_resume_rejects_semantically_tampered_manifest_even_when_outputs_are_unc
     completed.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(SinglePassIntegrityError, match="binding"):
+        _workflow().finalize_attempt(attempt)
+
+
+@pytest.mark.parametrize("missing", ["capture_clipping", "focus_detail"])
+def test_resume_rejects_legacy_manifest_missing_required_quality_evidence(
+    tmp_path: Path,
+    missing: str,
+) -> None:
+    attempt, _stream = _attempt(tmp_path)
+    completed = _workflow().finalize_attempt(attempt)
+    manifest = json.loads(completed.manifest_path.read_text(encoding="utf-8"))
+    manifest["quality_control"].pop(missing)
+    manifest["binding_sha256"] = workflow_module._manifest_binding(manifest)
+    completed.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(SinglePassIntegrityError, match=missing.replace("_", " ")):
         _workflow().finalize_attempt(attempt)

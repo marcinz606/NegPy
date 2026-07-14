@@ -39,6 +39,8 @@ _WARNING_DISPLAY_TEXT = {
     "beyond-advisory-content-end": "This slot is past the last likely photographed frame detected in the preview.",
 }
 
+_BLOCKING_REVIEW_WARNINGS = frozenset({"transport-origin-inferred"})
+
 
 def _display_warning(warning: str) -> str:
     for prefix, position in (("start-", "starting"), ("end-", "ending")):
@@ -64,13 +66,22 @@ def _display_warnings(warnings: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(_display_warning(warning) for warning in warnings if warning not in contextual_boundary_reasons)
 
 
+def _warning_state(
+    warnings: tuple[str, ...],
+    blocking_review_approved: bool = False,
+) -> str:
+    if any(warning in _BLOCKING_REVIEW_WARNINGS for warning in warnings):
+        return "reviewed" if blocking_review_approved else "blocking"
+    return "advisory" if warnings else "none"
+
+
 @dataclass(frozen=True)
 class RollPreviewSlot:
     """One 1-based, scanner-addressable preview slot.
 
     ``warnings`` are review annotations (for example, low coverage or a likely
     blank tail slot). They never hide a slot. An inferred transport origin
-    makes the C-41 safety recheck stop before full-quality capture.
+    requires an explicit thumbnail review before it can enter a scan request.
     ``boundary_offset`` is a scanner transport lookup adjustment retained for
     an explicit thumbnail reload; it does not crop the current image.
     """
@@ -80,6 +91,7 @@ class RollPreviewSlot:
     warnings: tuple[str, ...] = ()
     boundary_offset: int = 0
     confirmed_boundary_offset: int | None = None
+    blocking_review_approved: bool = False
 
     def __post_init__(self) -> None:
         if isinstance(self.slot_id, bool) or not isinstance(self.slot_id, int) or self.slot_id < 1:
@@ -89,6 +101,10 @@ class RollPreviewSlot:
         if any(not isinstance(warning, str) or not warning.strip() for warning in warnings):
             raise ValueError("warnings must contain non-empty strings")
         object.__setattr__(self, "warnings", warnings)
+        if type(self.blocking_review_approved) is not bool:
+            raise ValueError("blocking_review_approved must be a boolean")
+        if self.blocking_review_approved and not _BLOCKING_REVIEW_WARNINGS.intersection(warnings):
+            raise ValueError("only a blocking preview warning can be reviewed")
         validate_boundary_offset(self.slot_id, self.boundary_offset)
         confirmed = self.confirmed_boundary_offset
         if confirmed is None:
@@ -103,7 +119,8 @@ class RollSlotModel(QAbstractListModel):
     SLOT_ID_ROLE = int(Qt.ItemDataRole.UserRole) + 1
     WARNINGS_ROLE = SLOT_ID_ROLE + 1
     HAS_WARNINGS_ROLE = WARNINGS_ROLE + 1
-    BOUNDARY_OFFSET_ROLE = HAS_WARNINGS_ROLE + 1
+    WARNING_STATE_ROLE = HAS_WARNINGS_ROLE + 1
+    BOUNDARY_OFFSET_ROLE = WARNING_STATE_ROLE + 1
     BOUNDARY_OFFSET_CONFIRMED_ROLE = BOUNDARY_OFFSET_ROLE + 1
     METER_INSET_PERCENT_ROLE = BOUNDARY_OFFSET_CONFIRMED_ROLE + 1
 
@@ -147,15 +164,31 @@ class RollSlotModel(QAbstractListModel):
             if not slot.warnings:
                 return f"Slot {slot.slot_id}\n{offset_line}\nNo preview warnings"
             warning_lines = "\n".join(f"• {warning}" for warning in _display_warnings(slot.warnings))
-            consequence = (
-                "This slot remains visible for review. Its C-41 scan will stop "
-                "after the live safety recheck and before full-quality capture."
-                if "transport-origin-inferred" in slot.warnings
-                else "This slot remains selectable; check the thumbnail before scanning."
-            )
-            return f"Slot {slot.slot_id}\n{offset_line}\nPreview warnings:\n{warning_lines}\n\n{consequence}"
+            state = _warning_state(slot.warnings, slot.blocking_review_approved)
+            if state == "blocking":
+                heading = "Blocking review:"
+                consequence = (
+                    "Review this inferred position before adding it to a scan request. "
+                    "The live safety recheck still runs and may stop before full-quality capture."
+                )
+            elif state == "reviewed":
+                heading = "Reviewed blocking warning:"
+                consequence = (
+                    "The operator reviewed this thumbnail. The live safety recheck still runs "
+                    "and may stop before full-quality capture."
+                )
+            else:
+                heading = "Advisory preview warning:"
+                consequence = "This slot remains selectable; check the thumbnail before scanning."
+            return f"Slot {slot.slot_id}\n{offset_line}\n{heading}\n{warning_lines}\n\n{consequence}"
         if role == Qt.ItemDataRole.AccessibleTextRole:
-            warning_suffix = "" if not slot.warnings else f", {len(slot.warnings)} preview warning(s)"
+            state = _warning_state(slot.warnings, slot.blocking_review_approved)
+            warning_suffix = {
+                "none": "",
+                "advisory": ", advisory preview warning",
+                "blocking": ", blocking review required",
+                "reviewed": ", blocking warning reviewed",
+            }[state]
             return f"Roll slot {slot.slot_id}{warning_suffix}"
         if role == Qt.ItemDataRole.SizeHintRole:
             return self._CELL_SIZE
@@ -165,6 +198,8 @@ class RollSlotModel(QAbstractListModel):
             return slot.warnings
         if role == self.HAS_WARNINGS_ROLE:
             return bool(slot.warnings)
+        if role == self.WARNING_STATE_ROLE:
+            return _warning_state(slot.warnings, slot.blocking_review_approved)
         if role == self.BOUNDARY_OFFSET_ROLE:
             return slot.boundary_offset
         if role == self.BOUNDARY_OFFSET_CONFIRMED_ROLE:
@@ -183,6 +218,7 @@ class RollSlotModel(QAbstractListModel):
         names[self.SLOT_ID_ROLE] = QByteArray(b"slotId")
         names[self.WARNINGS_ROLE] = QByteArray(b"warnings")
         names[self.HAS_WARNINGS_ROLE] = QByteArray(b"hasWarnings")
+        names[self.WARNING_STATE_ROLE] = QByteArray(b"warningState")
         names[self.BOUNDARY_OFFSET_ROLE] = QByteArray(b"boundaryOffset")
         names[self.BOUNDARY_OFFSET_CONFIRMED_ROLE] = QByteArray(b"boundaryOffsetConfirmed")
         names[self.METER_INSET_PERCENT_ROLE] = QByteArray(b"meterInsetPercent")
@@ -229,9 +265,55 @@ class RollSlotModel(QAbstractListModel):
         slot = self._slots[row]
         if slot.boundary_offset == boundary_offset:
             return
-        self._replace_slot(row, replace(slot, boundary_offset=boundary_offset))
+        approval_was_reset = slot.blocking_review_approved
+        self._replace_slot(
+            row,
+            replace(
+                slot,
+                boundary_offset=boundary_offset,
+                blocking_review_approved=False,
+            ),
+        )
         index = self.index(row, 0)
-        self.dataChanged.emit(index, index, [self.BOUNDARY_OFFSET_ROLE, int(Qt.ItemDataRole.ToolTipRole)])
+        roles = [self.BOUNDARY_OFFSET_ROLE, int(Qt.ItemDataRole.ToolTipRole)]
+        if approval_was_reset:
+            roles.extend(
+                [
+                    self.WARNING_STATE_ROLE,
+                    int(Qt.ItemDataRole.AccessibleTextRole),
+                ]
+            )
+        self.dataChanged.emit(
+            index,
+            index,
+            roles,
+        )
+
+    def set_blocking_review_approved(self, slot_id: int, approved: bool) -> None:
+        """Record an operator review for one inferred-position thumbnail."""
+
+        if type(approved) is not bool:
+            raise ValueError("approved must be a boolean")
+        row = self.row_for_slot_id(slot_id)
+        slot = self._slots[row]
+        if not _BLOCKING_REVIEW_WARNINGS.intersection(slot.warnings):
+            raise ValueError(f"slot {slot_id} has no blocking preview warning")
+        if slot.blocking_review_approved == approved:
+            return
+        self._replace_slot(
+            row,
+            replace(slot, blocking_review_approved=approved),
+        )
+        index = self.index(row, 0)
+        self.dataChanged.emit(
+            index,
+            index,
+            [
+                self.WARNING_STATE_ROLE,
+                int(Qt.ItemDataRole.ToolTipRole),
+                int(Qt.ItemDataRole.AccessibleTextRole),
+            ],
+        )
 
     def boundary_offset_is_confirmed(self, slot_id: int) -> bool:
         slot = self._slots[self.row_for_slot_id(slot_id)]
@@ -253,23 +335,33 @@ class RollSlotModel(QAbstractListModel):
                 f"current value is {slot.boundary_offset:+d}"
             )
         self._as_icon(thumbnail)
+        approval_was_reset = slot.blocking_review_approved
         self._replace_slot(
             row,
             replace(
                 slot,
                 thumbnail=thumbnail,
                 confirmed_boundary_offset=boundary_offset,
+                blocking_review_approved=False,
             ),
         )
         index = self.index(row, 0)
+        roles = [
+            int(Qt.ItemDataRole.DecorationRole),
+            self.BOUNDARY_OFFSET_CONFIRMED_ROLE,
+            int(Qt.ItemDataRole.ToolTipRole),
+        ]
+        if approval_was_reset:
+            roles.extend(
+                [
+                    self.WARNING_STATE_ROLE,
+                    int(Qt.ItemDataRole.AccessibleTextRole),
+                ]
+            )
         self.dataChanged.emit(
             index,
             index,
-            [
-                int(Qt.ItemDataRole.DecorationRole),
-                self.BOUNDARY_OFFSET_CONFIRMED_ROLE,
-                int(Qt.ItemDataRole.ToolTipRole),
-            ],
+            roles,
         )
 
     def update_thumbnail(self, slot_id: int, thumbnail: QIcon | QImage | QPixmap | None) -> None:

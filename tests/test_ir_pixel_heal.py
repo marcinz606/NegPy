@@ -163,6 +163,24 @@ def test_retouch_processor_keeps_manual_membrane_path_after_ir() -> None:
     assert output[40, 50, 0] < 0.9
     assert "ir_dust_support" in context.metrics
     assert context.metrics["ir_dust_mask_pixels"] == 9
+    assert context.metrics["ir_dust_status"] == "applied"
+
+
+def test_requested_ir_repair_reports_when_no_ir_plane_is_available() -> None:
+    image = np.full((40, 50, 3), 0.4, dtype=np.float32)
+    context = PipelineContext(
+        original_size=(40, 50),
+        scale_factor=1.0,
+        ir_buffer=None,
+    )
+
+    output = RetouchProcessor(
+        RetouchConfig(ir_dust_remove=True)
+    ).process(image, context)
+
+    np.testing.assert_array_equal(output, image)
+    assert context.metrics["ir_dust_status"] == "skipped"
+    assert context.metrics["ir_dust_skipped"] == "No IR channel is available for this scan"
 
 
 def test_ir_only_config_stays_explicit_instead_of_becoming_membrane_strokes() -> None:

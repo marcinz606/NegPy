@@ -11,7 +11,11 @@ def test_get_app_version(tmp_path):
     # We need to mock get_resource_path or just hope it finds VERSION in root
     # Since we are in tests, root is the current directory.
     v = get_app_version()
-    assert isinstance(v, str)
+    expected = (
+        get_resource_path("VERSION")
+    )
+    with open(expected, encoding="utf-8") as version_file:
+        assert v == version_file.read().strip()
 
 
 def test_get_resource_path():

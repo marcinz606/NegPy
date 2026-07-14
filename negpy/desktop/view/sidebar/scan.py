@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -34,8 +35,13 @@ from negpy.desktop.workers.ls5000_roll_worker import (
     RollPreviewRequest,
     RollScanCompletion,
     RollScanRequest,
+    RollThumbnailReloadFailure,
     RollWorkerFailure,
     frame_choices,
+)
+from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
+    ReviewedRollFingerprint,
+    compare_reviewed_roll_fingerprints,
 )
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.settings import (
@@ -43,6 +49,7 @@ from negpy.infrastructure.scanners.settings import (
     ScannerSettings,
 )
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.scanning.roll_preview_controls import ScanMaterial
 
 
 _SCANNER_STATUS_COLORS = {
@@ -55,6 +62,9 @@ _SCANNER_STATUS_COLORS = {
 
 _ROLL_OPERATION_PREVIEW = "preview"
 _ROLL_OPERATION_SELECTED_SCAN = "selected-scan"
+_ROLL_DEFAULT_FILENAME_PATTERN = (
+    '{{ date }}_slot{{ "%02d" % slot }}_{{ "%03d" % seq }}'
+)
 
 
 class ScanSidebar(QWidget):
@@ -73,10 +83,21 @@ class ScanSidebar(QWidget):
         self._roll_operation: str | None = None
         self._ejecting = False
         self._roll_preview_token: str | None = None
+        self._roll_preview_session: object | None = None
         self._roll_preview_thumbnails: dict[int, object] = {}
+        self._roll_thumbnail_reload_pending: tuple[int, int] | None = None
+        self._roll_batch_selected_slots: tuple[int, ...] = ()
+        self._roll_completed_slots: set[int] = set()
+        self._roll_batch_fingerprint: ReviewedRollFingerprint | None = None
+        self._roll_batch_material: ScanMaterial | None = None
+        self._roll_retry_pending_slots: tuple[int, ...] = ()
+        self._roll_retry_fingerprint: ReviewedRollFingerprint | None = None
+        self._roll_retry_material: ScanMaterial | None = None
+        self._roll_batch_in_progress = False
         self._devices_loaded = False
         self._init_ui()
         self._connect_signals()
+        self._update_roll_storage_estimate()
 
     # ── settings persistence ──────────────────────────────────────────
 
@@ -222,6 +243,16 @@ class ScanSidebar(QWidget):
         self.roll_stop_btn.setVisible(False)
         layout.addWidget(self.roll_stop_btn)
 
+        self.retry_remaining_btn = QPushButton("Select remaining")
+        self.retry_remaining_btn.setObjectName("roll_retry_remaining")
+        self.retry_remaining_btn.setAccessibleName("Select unfinished roll slots")
+        self.retry_remaining_btn.setToolTip(
+            "Reselect only slots that did not finish in the last roll scan. "
+            "Review their current thumbnails before scanning again."
+        )
+        self.retry_remaining_btn.setVisible(False)
+        layout.addWidget(self.retry_remaining_btn)
+
         self.roll_status_label = hint_label("")
         self.roll_status_label.setVisible(False)
         layout.addWidget(self.roll_status_label)
@@ -299,7 +330,10 @@ class ScanSidebar(QWidget):
         self.form.addRow("Folder", folder_row)
 
         self.pattern_edit = QLineEdit()
-        self.pattern_edit.setToolTip('Jinja2 template. Variables: {{ date }}, {{ seq }}.\nExample: {{ date }}_{{ "%03d" % seq }}')
+        self.pattern_edit.setToolTip(
+            'Jinja2 template. Variables: {{ date }}, {{ seq }}, and {{ slot }} for roll scans.\n'
+            'The default roll name includes its physical slot automatically.'
+        )
         self.form.addRow("Filename", self.pattern_edit)
 
         layout.addLayout(self.form)
@@ -383,7 +417,7 @@ class ScanSidebar(QWidget):
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)
         self.browse_btn.clicked.connect(self._on_browse)
         self.scan_btn.clicked.connect(self._on_scan)
-        self.folder_edit.textChanged.connect(lambda: self._update_settings_from_ui())
+        self.folder_edit.textChanged.connect(self._on_output_folder_changed)
         self.pattern_edit.textChanged.connect(lambda: self._update_settings_from_ui())
         self.fmt_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
         self.dpi_combo.currentTextChanged.connect(lambda: self._update_settings_from_ui())
@@ -400,8 +434,11 @@ class ScanSidebar(QWidget):
         self.preview_non_inverted_negative_check.toggled.connect(self._on_preview_polarity_changed)
         self.roll_preview_btn.clicked.connect(self._on_roll_preview)
         self.roll_stop_btn.clicked.connect(self._on_roll_stop)
+        self.retry_remaining_btn.clicked.connect(self._select_roll_retry_remaining)
         self.roll_slot_selector.scan_requested.connect(self._on_roll_scan_selected)
-        self.roll_slot_selector.thumbnail_reload_requested.connect(self.controller.reload_ls5000_roll_thumbnail)
+        self.roll_slot_selector.thumbnail_reload_requested.connect(
+            self._on_roll_thumbnail_reload_requested
+        )
 
         # Controller signals
         self.controller.scan_devices_ready.connect(self._on_devices_ready)
@@ -414,7 +451,11 @@ class ScanSidebar(QWidget):
         self.controller.ls5000_roll_preview_ready.connect(self._on_roll_preview_ready)
         self.controller.ls5000_roll_preview_invalidated.connect(self._on_roll_preview_invalidated)
         self.controller.ls5000_roll_thumbnail_ready.connect(self._on_roll_thumbnail_ready)
+        self.controller.ls5000_roll_thumbnail_error.connect(
+            self._on_roll_thumbnail_error
+        )
         self.controller.ls5000_roll_progress.connect(self._on_roll_progress)
+        self.controller.ls5000_roll_frame_finished.connect(self._on_roll_frame_finished)
         self.controller.ls5000_roll_finished.connect(self._on_roll_finished)
         self.controller.ls5000_roll_error.connect(self._on_roll_error)
 
@@ -463,12 +504,20 @@ class ScanSidebar(QWidget):
         self._set_scanner_status("Unavailable · SANE is not installed", "error")
 
     def _on_refresh(self) -> None:
+        if self._scanning or self._roll_scanning or self._roll_thumbnail_reload_pending:
+            return
         self._invalidate_roll_preview()
         self._request_devices()
 
     def _on_eject(self) -> None:
         device = self._current_device()
-        if device is None or self._scanning or self._roll_scanning or self._ejecting:
+        if (
+            device is None
+            or self._scanning
+            or self._roll_scanning
+            or self._roll_thumbnail_reload_pending
+            or self._ejecting
+        ):
             return
         self._ejecting = True
         self.device_combo.setEnabled(False)
@@ -584,14 +633,17 @@ class ScanSidebar(QWidget):
         """Clear stale thumbnails without sending another worker command."""
 
         self._roll_preview_token = None
+        self._roll_preview_session = None
         self._roll_preview_thumbnails.clear()
         self.roll_slot_selector.set_slots([])
         self.roll_slot_selector.setVisible(False)
         self.roll_preview_btn.setText(" Load Roll Thumbnails")
 
-    def _invalidate_roll_preview(self) -> None:
+    def _invalidate_roll_preview(self, *, clear_retry: bool = True) -> None:
         """Clear the UI and invalidate the worker-owned coordinate binding."""
 
+        if clear_retry:
+            self._clear_roll_retry_state()
         self._clear_roll_preview()
         self.controller.invalidate_ls5000_roll_preview()
 
@@ -628,16 +680,17 @@ class ScanSidebar(QWidget):
         self.samples_combo.setEnabled(True)
         self.frame_label.setText(f"Frame: {caps.max_area_mm[0]:.0f} × {caps.max_area_mm[1]:.0f} mm")
         self.eject_btn.setVisible(caps.can_eject)
-        self.eject_btn.setEnabled(caps.can_eject and not self._scanning and not self._roll_scanning and not self._ejecting)
+        reload_idle = self._roll_thumbnail_reload_pending is None
+        self.eject_btn.setEnabled(caps.can_eject and not self._scanning and not self._roll_scanning and reload_idle and not self._ejecting)
         can_configure_sa30 = self._can_configure_sa30_profile(device)
         self.sa30_compatible_check.blockSignals(True)
         self.sa30_compatible_check.setChecked(self._settings.sa30_compatible_roll_feeder)
         self.sa30_compatible_check.blockSignals(False)
         self.sa30_compatible_check.setVisible(can_configure_sa30)
-        self.sa30_compatible_check.setEnabled(can_configure_sa30 and not self._scanning and not self._roll_scanning)
+        self.sa30_compatible_check.setEnabled(can_configure_sa30 and not self._scanning and not self._roll_scanning and reload_idle)
         roll_supported = self._supports_ls5000_roll_workflow(device)
         self.roll_preview_btn.setVisible(roll_supported)
-        self.roll_preview_btn.setEnabled(roll_supported and not self._scanning and not self._roll_scanning)
+        self.roll_preview_btn.setEnabled(roll_supported and not self._scanning and not self._roll_scanning and reload_idle)
         self.roll_quality_widget.setVisible(roll_supported)
         if not roll_supported:
             self.roll_slot_selector.setVisible(False)
@@ -878,6 +931,28 @@ class ScanSidebar(QWidget):
             self.folder_edit.setText(folder)
             self._update_settings_from_ui()
 
+    def _on_output_folder_changed(self, _text: str) -> None:
+        self._update_settings_from_ui()
+        self._update_roll_storage_estimate()
+
+    def _update_roll_storage_estimate(self) -> None:
+        """Read free space from the closest existing output-folder ancestor."""
+
+        raw_folder = self.folder_edit.text().strip()
+        if not raw_folder:
+            self.roll_slot_selector.set_available_storage_bytes(None)
+            return
+        candidate = Path(raw_folder).expanduser()
+        while not candidate.exists() and candidate.parent != candidate:
+            candidate = candidate.parent
+        if candidate.is_file():
+            candidate = candidate.parent
+        try:
+            available_bytes = shutil.disk_usage(candidate).free
+        except OSError:
+            available_bytes = None
+        self.roll_slot_selector.set_available_storage_bytes(available_bytes)
+
     def _on_sa30_compatible_toggled(self, _checked: bool) -> None:
         device = self._current_device()
         if not self._can_configure_sa30_profile(device):
@@ -890,7 +965,11 @@ class ScanSidebar(QWidget):
         self._update_device_caps()
 
     def _on_roll_preview(self) -> None:
-        if self._scanning or self._roll_scanning:
+        if (
+            self._scanning
+            or self._roll_scanning
+            or self._roll_thumbnail_reload_pending is not None
+        ):
             return
         device = self._current_device()
         adapter_frame_capacity = self._effective_roll_capacity(device)
@@ -899,7 +978,7 @@ class ScanSidebar(QWidget):
             self.roll_status_label.setVisible(True)
             return
         attempts_root = Path(APP_CONFIG.cache_dir) / "ls5000-roll" / "preview-attempts"
-        self._invalidate_roll_preview()
+        self._invalidate_roll_preview(clear_retry=False)
         self._set_roll_scanning(True, operation=_ROLL_OPERATION_PREVIEW)
         self.roll_status_label.setText("Reading the whole roll for thumbnails…")
         self.roll_status_label.setVisible(True)
@@ -921,7 +1000,12 @@ class ScanSidebar(QWidget):
         self._set_scanner_status("Stopping safely after the current frame…", "warning")
 
     def _on_roll_scan_selected(self, slot_ids: list[int]) -> None:
-        if self._scanning or self._roll_scanning or not slot_ids:
+        if (
+            self._scanning
+            or self._roll_scanning
+            or self._roll_thumbnail_reload_pending is not None
+            or not slot_ids
+        ):
             return
         device = self._current_device()
         adapter_frame_capacity = self._effective_roll_capacity(device)
@@ -929,6 +1013,12 @@ class ScanSidebar(QWidget):
             return
         if self._roll_preview_token is None:
             self.roll_status_label.setText("Load a new whole-roll preview before scanning selected frames.")
+            self.roll_status_label.setVisible(True)
+            return
+        if self._roll_preview_session is None:
+            self.roll_status_label.setText(
+                "The reviewed roll evidence is unavailable. Load new roll thumbnails before scanning."
+            )
             self.roll_status_label.setVisible(True)
             return
 
@@ -958,18 +1048,49 @@ class ScanSidebar(QWidget):
                 return
 
         offsets = {slot_id: self.roll_slot_selector.model.boundary_offset_for_slot_id(slot_id) for slot_id in slot_ids}
-        choices = frame_choices(slot_ids, offsets)
+        approved_slots = set(
+            self.roll_slot_selector.approved_blocking_slot_ids()
+        ).intersection(slot_ids)
+        try:
+            reviewed_fingerprint = self._roll_preview_session.reviewed_fingerprint()
+            approvals = {
+                slot_id: self._roll_preview_session.approve_manual_origin(
+                    slot_id,
+                    offsets[slot_id],
+                )
+                for slot_id in approved_slots
+            }
+            choices = frame_choices(slot_ids, offsets, approvals=approvals)
+        except Exception as error:
+            self.roll_status_label.setText(
+                f"Could not bind reviewed thumbnails to this scan: {error}"
+            )
+            self.roll_status_label.setVisible(True)
+            return
         attempts_root = Path(output_folder) / ".negpy-ls5000" / "attempts"
+        filename_pattern = self.pattern_edit.text().strip()
+        if not filename_pattern or filename_pattern == ScannerSettings.defaults().filename_pattern:
+            filename_pattern = _ROLL_DEFAULT_FILENAME_PATTERN
         request = RollScanRequest(
             device_id=device.id,
             adapter_frame_capacity=adapter_frame_capacity,
             preview_token=self._roll_preview_token,
             attempts_root=str(attempts_root),
             output_folder=output_folder,
-            filename_pattern=(self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}'),
+            filename_pattern=filename_pattern,
             material=material,
             frames=choices,
+            reviewed_fingerprint=reviewed_fingerprint,
         )
+        self._roll_batch_selected_slots = tuple(slot_ids)
+        self._roll_completed_slots.clear()
+        self._roll_batch_fingerprint = reviewed_fingerprint
+        self._roll_batch_material = material
+        self._roll_retry_pending_slots = ()
+        self._roll_retry_fingerprint = None
+        self._roll_retry_material = None
+        self._roll_batch_in_progress = True
+        self._sync_roll_retry_ui()
         self._update_settings_from_ui()
         self._save_settings()
         self._set_roll_scanning(True, operation=_ROLL_OPERATION_SELECTED_SCAN)
@@ -1014,21 +1135,72 @@ class ScanSidebar(QWidget):
             )
             return
         self._roll_preview_token = preview_token
+        self._roll_preview_session = session
         self._roll_preview_thumbnails = raw_thumbnails
         self.roll_slot_selector.set_slots(slots)
         self.roll_slot_selector.setVisible(True)
         self.roll_preview_btn.setText(" Reload Roll Thumbnails")
-        self.roll_status_label.setText(
+        status = (
             f"Loaded {len(slots)} scanner slots. Adjust Film Spacing Offset and "
             "reload any thumbnail that does not show the complete negative. "
             "If the film is ejected or reinserted, reload the whole roll first."
         )
+        if self._roll_retry_pending_slots:
+            if self._roll_retry_matches_current_preview():
+                if self._roll_retry_material is not None:
+                    self.roll_slot_selector.set_scan_material(
+                        self._roll_retry_material
+                    )
+                status += " The unfinished selection is ready to restore."
+            else:
+                self._clear_roll_retry_state()
+                status += (
+                    " The previous unfinished selection was cleared because "
+                    "this preview appears to be a different roll."
+                )
+        self.roll_status_label.setText(status)
+        self._sync_roll_retry_ui()
         self._set_roll_scanning(False)
         self._set_scanner_status(f"Connected · {len(slots)} previews ready", "ready")
 
     @pyqtSlot()
     def _on_roll_preview_invalidated(self) -> None:
+        if self._roll_batch_in_progress:
+            self._remember_remaining_roll_slots()
         self._clear_roll_preview()
+        self._sync_roll_retry_ui()
+
+    @pyqtSlot(int, int)
+    def _on_roll_thumbnail_reload_requested(
+        self,
+        slot_id: int,
+        boundary_offset: int,
+    ) -> None:
+        """Start one identified offline reload while locking scanner controls."""
+
+        if (
+            self._scanning
+            or self._roll_scanning
+            or self._ejecting
+            or self._roll_thumbnail_reload_pending is not None
+        ):
+            return
+        self._roll_thumbnail_reload_pending = (slot_id, boundary_offset)
+        self._sync_roll_thumbnail_reload_controls()
+        self.roll_status_label.setText(
+            f"Reloading slot {slot_id:02d} at Film Spacing Offset "
+            f"{boundary_offset:+d}…"
+        )
+        self.roll_status_label.setVisible(True)
+        try:
+            self.controller.reload_ls5000_roll_thumbnail(
+                slot_id,
+                boundary_offset,
+            )
+        except BaseException:
+            self._roll_thumbnail_reload_pending = None
+            self._sync_roll_thumbnail_reload_controls()
+            raise
 
     @pyqtSlot(int, int, object)
     def _on_roll_thumbnail_ready(
@@ -1037,6 +1209,8 @@ class ScanSidebar(QWidget):
         boundary_offset: int,
         thumbnail: object,
     ) -> None:
+        if self._roll_thumbnail_reload_pending != (slot_id, boundary_offset):
+            return
         try:
             display = self._roll_thumbnail_qimage(thumbnail)
             self.roll_slot_selector.confirm_slot_thumbnail(
@@ -1051,6 +1225,25 @@ class ScanSidebar(QWidget):
         except Exception as error:
             self.roll_status_label.setText(f"Could not display reloaded slot {slot_id:02d}: {error}")
             self._set_scanner_status("Error · Preview adjustment failed", "error")
+        finally:
+            self._roll_thumbnail_reload_pending = None
+            self._sync_roll_thumbnail_reload_controls()
+
+    @pyqtSlot(object)
+    def _on_roll_thumbnail_error(
+        self,
+        failure: RollThumbnailReloadFailure,
+    ) -> None:
+        if not isinstance(failure, RollThumbnailReloadFailure):
+            return
+        identity = (failure.slot_id, failure.boundary_offset_rows)
+        if self._roll_thumbnail_reload_pending != identity:
+            return
+        self._roll_thumbnail_reload_pending = None
+        self._sync_roll_thumbnail_reload_controls()
+        self.roll_status_label.setText(failure.message)
+        self.roll_status_label.setVisible(True)
+        self._set_scanner_status("Error · Preview adjustment failed", "error")
 
     @pyqtSlot(int)
     def _on_preview_meter_inset_changed(self, _value: int) -> None:
@@ -1099,9 +1292,20 @@ class ScanSidebar(QWidget):
         state = "ready" if preview_complete else "active"
         self._set_scanner_status(message, state)
 
+    @pyqtSlot(int, str)
+    def _on_roll_frame_finished(self, slot_id: int, _rgb_path: str) -> None:
+        if self._roll_batch_in_progress and slot_id in self._roll_batch_selected_slots:
+            self._roll_completed_slots.add(slot_id)
+        self._update_roll_storage_estimate()
+
     @pyqtSlot(object)
     def _on_roll_finished(self, completion: RollScanCompletion) -> None:
         operation = getattr(completion, "operation", RollOperation.FULL_SCAN)
+        if operation is RollOperation.FULL_SCAN and self._roll_batch_in_progress:
+            if completion.stopped:
+                self._remember_remaining_roll_slots()
+            else:
+                self._clear_roll_retry_state()
         self._set_roll_scanning(False)
         count = len(completion.rgb_paths)
         if completion.stopped and operation is RollOperation.PREVIEW:
@@ -1120,6 +1324,8 @@ class ScanSidebar(QWidget):
 
     @pyqtSlot(object)
     def _on_roll_error(self, failure: RollWorkerFailure) -> None:
+        if self._roll_batch_in_progress:
+            self._remember_remaining_roll_slots()
         self._set_roll_scanning(False)
         if failure.recovery_required:
             self._clear_roll_preview()
@@ -1130,6 +1336,105 @@ class ScanSidebar(QWidget):
             self._set_scanner_status("Error · Power-cycle required", "error")
         else:
             self._set_scanner_status("Error · Check scan details", "error")
+
+    def _remember_remaining_roll_slots(self) -> None:
+        """Retain unfinished physical slots from the active batch only."""
+
+        self._roll_retry_pending_slots = tuple(
+            slot_id
+            for slot_id in self._roll_batch_selected_slots
+            if slot_id not in self._roll_completed_slots
+        )
+        if self._roll_retry_pending_slots:
+            self._roll_retry_fingerprint = self._roll_batch_fingerprint
+            self._roll_retry_material = self._roll_batch_material
+        else:
+            self._roll_retry_fingerprint = None
+            self._roll_retry_material = None
+        self._roll_batch_in_progress = False
+        self._sync_roll_retry_ui()
+
+    def _clear_roll_retry_state(self) -> None:
+        self._roll_batch_selected_slots = ()
+        self._roll_completed_slots.clear()
+        self._roll_batch_fingerprint = None
+        self._roll_batch_material = None
+        self._roll_retry_pending_slots = ()
+        self._roll_retry_fingerprint = None
+        self._roll_retry_material = None
+        self._roll_batch_in_progress = False
+        self._sync_roll_retry_ui()
+
+    def _roll_retry_matches_current_preview(self) -> bool:
+        """Return whether the loaded preview is the physical roll being retried."""
+
+        if (
+            self._roll_preview_session is None
+            or self._roll_retry_fingerprint is None
+            or self._roll_retry_material is None
+        ):
+            return False
+        try:
+            fresh_fingerprint = self._roll_preview_session.reviewed_fingerprint()
+            comparison = compare_reviewed_roll_fingerprints(
+                self._roll_retry_fingerprint,
+                fresh_fingerprint,
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
+        return comparison.matches
+
+    def _sync_roll_retry_ui(self) -> None:
+        if not hasattr(self, "retry_remaining_btn"):
+            return
+        count = len(self._roll_retry_pending_slots)
+        self.retry_remaining_btn.setVisible(count > 0)
+        if count == 0:
+            self.retry_remaining_btn.setEnabled(False)
+            self.retry_remaining_btn.setText("Select remaining")
+            return
+        preview_ready = (
+            self._roll_preview_token is not None
+            and self._roll_retry_matches_current_preview()
+        )
+        self.retry_remaining_btn.setEnabled(
+            preview_ready
+            and not self._scanning
+            and not self._roll_scanning
+            and self._roll_thumbnail_reload_pending is None
+        )
+        if preview_ready:
+            self.retry_remaining_btn.setText(f"Select remaining ({count})")
+        else:
+            self.retry_remaining_btn.setText(
+                f"Reload thumbnails to select remaining ({count})"
+            )
+
+    def _select_roll_retry_remaining(self) -> None:
+        if self._roll_preview_token is None or self._roll_scanning or self._scanning:
+            return
+        if not self._roll_retry_matches_current_preview():
+            self._clear_roll_retry_state()
+            self.roll_status_label.setText(
+                "Could not restore unfinished slots because this is not the reviewed roll."
+            )
+            self.roll_status_label.setVisible(True)
+            return
+        if self._roll_retry_material is not None:
+            self.roll_slot_selector.set_scan_material(self._roll_retry_material)
+        available = set(range(1, self.roll_slot_selector.model.rowCount() + 1))
+        remaining = [
+            slot_id
+            for slot_id in self._roll_retry_pending_slots
+            if slot_id in available
+        ]
+        if not remaining:
+            return
+        self.roll_slot_selector.set_selected_slot_ids(remaining)
+        self.roll_status_label.setText(
+            f"Selected {len(remaining)} unfinished slots. Review their alignment, then scan selected."
+        )
+        self.roll_status_label.setVisible(True)
 
     def _set_roll_scanning(
         self,
@@ -1147,14 +1452,7 @@ class ScanSidebar(QWidget):
         else:
             self._roll_operation = None
         self._roll_scanning = active
-        self.device_combo.setEnabled(not active)
-        self.sa30_compatible_check.setEnabled(not active and self._can_configure_sa30_profile(self._current_device()))
-        self.roll_preview_btn.setEnabled(not active)
-        self.roll_slot_selector.setEnabled(not active)
-        self.scan_btn.setEnabled(not active)
-        self.refresh_btn.setEnabled(not active)
-        device = self._current_device()
-        self.eject_btn.setEnabled(not active and not self._ejecting and bool(device and device.capabilities.can_eject))
+        self._sync_roll_thumbnail_reload_controls()
         can_stop_after_frame = active and self._roll_operation == _ROLL_OPERATION_SELECTED_SCAN
         self.roll_stop_btn.setVisible(can_stop_after_frame)
         self.roll_stop_btn.setEnabled(can_stop_after_frame)
@@ -1165,9 +1463,37 @@ class ScanSidebar(QWidget):
         else:
             self.progress_bar.setVisible(False)
             self.progress_bar.setFormat("Scanning… %p%")
+        self._sync_roll_retry_ui()
+
+    def _sync_roll_thumbnail_reload_controls(self) -> None:
+        """Serialize an offline thumbnail job against every scanner command."""
+
+        device = self._current_device()
+        blocked = (
+            self._roll_scanning
+            or self._roll_thumbnail_reload_pending is not None
+        )
+        controls_available = not self._scanning and not blocked
+        self.device_combo.setEnabled(controls_available and bool(self._devices))
+        self.refresh_btn.setEnabled(controls_available)
+        self.sa30_compatible_check.setEnabled(
+            controls_available and self._can_configure_sa30_profile(device)
+        )
+        self.roll_preview_btn.setEnabled(
+            controls_available and self._supports_ls5000_roll_workflow(device)
+        )
+        self.roll_slot_selector.setEnabled(controls_available)
+        if not self._scanning:
+            self.scan_btn.setEnabled(controls_available and device is not None)
+        self.eject_btn.setEnabled(
+            controls_available
+            and not self._ejecting
+            and bool(device and device.capabilities.can_eject)
+        )
+        self._sync_roll_retry_ui()
 
     def _on_scan(self) -> None:
-        if self._roll_scanning:
+        if self._roll_scanning or self._roll_thumbnail_reload_pending is not None:
             return
         if self._scanning:
             # Cancel
@@ -1284,12 +1610,13 @@ class ScanSidebar(QWidget):
         self._scanning = active
         self._scan_cancel_pending = False
         device = self._current_device()
-        self._set_conventional_request_controls_enabled(not active, device)
-        self.eject_btn.setEnabled(not active and not self._ejecting and bool(device and device.capabilities.can_eject))
+        reload_idle = self._roll_thumbnail_reload_pending is None
+        self._set_conventional_request_controls_enabled(not active and reload_idle, device)
+        self.eject_btn.setEnabled(not active and reload_idle and not self._ejecting and bool(device and device.capabilities.can_eject))
         roll_supported = self._supports_ls5000_roll_workflow(device)
-        self.sa30_compatible_check.setEnabled(not active and not self._roll_scanning and self._can_configure_sa30_profile(device))
-        self.roll_preview_btn.setEnabled(not active and not self._roll_scanning and roll_supported)
-        self.roll_slot_selector.setEnabled(not active and not self._roll_scanning)
+        self.sa30_compatible_check.setEnabled(not active and reload_idle and not self._roll_scanning and self._can_configure_sa30_profile(device))
+        self.roll_preview_btn.setEnabled(not active and reload_idle and not self._roll_scanning and roll_supported)
+        self.roll_slot_selector.setEnabled(not active and reload_idle and not self._roll_scanning)
         if active:
             self.scan_btn.setEnabled(True)
             self.scan_btn.setText(" Stop")
@@ -1298,7 +1625,7 @@ class ScanSidebar(QWidget):
             self.progress_bar.setValue(0)
             self._set_scanner_status(self._single_frame_progress_text(), "active")
         else:
-            self.scan_btn.setEnabled(not self._roll_scanning and device is not None)
+            self.scan_btn.setEnabled(reload_idle and not self._roll_scanning and device is not None)
             self.scan_btn.setText(" Scan")
             self.scan_btn.setIcon(qta.icon("fa5s.camera-retro", color=THEME.text_primary))
             self.progress_bar.setVisible(False)

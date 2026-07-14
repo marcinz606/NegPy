@@ -22,8 +22,18 @@ class RetouchProcessor:
         img = image
 
         ir = context.metrics.get("ir_post_geometry")
-        if self.config.ir_dust_remove and ir is not None:
-            if ir.shape[:2] != img.shape[:2]:
+        if self.config.ir_dust_remove:
+            if ir is None:
+                context.metrics["ir_dust_status"] = "skipped"
+                context.metrics["ir_dust_skipped"] = (
+                    "No IR channel is available for this scan"
+                )
+                logger.warning(
+                    "IR dust repair skipped: %s",
+                    context.metrics["ir_dust_skipped"],
+                )
+            elif ir.shape[:2] != img.shape[:2]:
+                context.metrics["ir_dust_status"] = "skipped"
                 context.metrics["ir_dust_skipped"] = f"RGB {img.shape[:2]} and IR {ir.shape[:2]} shapes differ"
                 logger.warning("IR dust repair skipped: %s", context.metrics["ir_dust_skipped"])
             else:
@@ -33,6 +43,7 @@ class RetouchProcessor:
                 except IRSupportError as exc:
                     # Fail closed: a bad/opaque IR plane must never turn the
                     # whole photograph into one giant heal operation.
+                    context.metrics["ir_dust_status"] = "skipped"
                     context.metrics["ir_dust_skipped"] = str(exc)
                     logger.warning("IR dust repair skipped: %s", exc)
                 else:
@@ -46,6 +57,7 @@ class RetouchProcessor:
                     )
                     context.metrics["ir_dust_support"] = support.to_dict()
                     context.metrics["ir_dust_mask_pixels"] = int((mask > 0).sum())
+                    context.metrics["ir_dust_status"] = "applied"
 
         if not (self.config.manual_heal_strokes or self.config.manual_dust_spots):
             return img

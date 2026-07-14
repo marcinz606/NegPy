@@ -85,10 +85,13 @@ class ScannerService:
         output_folder: str,
         filename_pattern: str,
         output_format: str = "TIFF",
+        *,
+        slot: int | None = None,
     ) -> str:
         """Write ScanResult to disk. Returns path to the RGB file.
 
-        Filename pattern is a Jinja2 template with variables: date, seq.
+        Filename patterns receive ``date`` and ``seq``. Roll callers can also
+        bind the physical feeder ``slot`` so a B&W master keeps its identity.
         """
         from datetime import date as dt_date
 
@@ -99,11 +102,24 @@ class ScannerService:
         date_str = dt_date.today().strftime("%Y%m%d")
         ext = ".dng" if output_format.upper() == "DNG" else ".tif"
 
+        if slot is not None and (type(slot) is not int or not 1 <= slot <= 40):
+            raise ValueError("slot must be an integer in 1..40 or None")
+
         seq = 1
-        require_sequence_varying_scan_filename(filename_pattern, date_str, seq)
+        require_sequence_varying_scan_filename(
+            filename_pattern,
+            date_str,
+            seq,
+            slot=slot,
+        )
         seen_basenames: set[str] = set()
         while True:
-            basename = render_scan_filename(filename_pattern, date_str, seq)
+            basename = render_scan_filename(
+                filename_pattern,
+                date_str,
+                seq,
+                slot=slot,
+            )
             if basename in seen_basenames:
                 raise ValueError(
                     "filename pattern repeated a basename while resolving an output collision"

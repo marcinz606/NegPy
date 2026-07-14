@@ -36,6 +36,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -56,6 +57,21 @@ from negpy.desktop.view.widgets.roll_slot_model import RollPreviewSlot, RollSlot
 from negpy.services.scanning.roll_preview_controls import ScanMaterial, boundary_offset_range
 
 
+# One accepted C-41 RGB/IR/validity set reached 239,157,208 bytes after LZW.
+# Budget a round 256 MiB per selected frame so expansion cannot make the UI's
+# free-space gate more optimistic than observed output.
+_LS5000_C41_FINAL_BUDGET_BYTES_PER_FRAME = 256 * 1024**2
+_LS5000_C41_PACKED_SCRATCH_BYTES = 619_458_560
+_LS5000_C41_REQUIRED_FREE_BYTES = 1_693_200_384
+
+# The conventional B&W route writes one RGB-only 16-bit TIFF and never creates
+# the C-41 packed RGBI stream.  A 3946x5959 RGB16 frame is about 135 MiB before
+# TIFF overhead, so 192 MiB per frame plus a 256 MiB filesystem reserve remains
+# conservative without falsely demanding color-capture scratch space.
+_LS5000_BW_FINAL_BUDGET_BYTES_PER_FRAME = 192 * 1024**2
+_LS5000_BW_REQUIRED_FREE_BYTES = 256 * 1024**2
+
+
 class _SignedOffsetSpinBox(QSpinBox):
     """Compact, stable-width display for a signed film-spacing offset."""
 
@@ -70,6 +86,8 @@ class _RollSlotDelegate(QStyledItemDelegate):
     _LABEL_HEIGHT = 22
     _FRAME_RADIUS = 3
     _WARNING = QColor("#D6A84B")
+    _BLOCKING = QColor("#E24B4A")
+    _REVIEWED = QColor("#4A8FE8")
 
     def paint(self, painter: QPainter | None, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         if painter is None:
@@ -133,18 +151,29 @@ class _RollSlotDelegate(QStyledItemDelegate):
         label_rect = QRect(cell.left() + 5, frame.bottom() + 1, cell.width() - 10, self._LABEL_HEIGHT - 1)
         painter.drawText(label_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"SLOT {slot_id:02d}")
 
-        if index.data(RollSlotModel.HAS_WARNINGS_ROLE):
+        warning_state = index.data(RollSlotModel.WARNING_STATE_ROLE)
+        if warning_state != "none":
             badge_size = 18
             badge = QRect(frame.right() - badge_size - 5, frame.top() + 5, badge_size, badge_size)
             painter.setPen(QPen(QColor("#201A0D"), 1))
-            painter.setBrush(self._WARNING)
+            painter.setBrush(
+                self._BLOCKING
+                if warning_state == "blocking"
+                else self._REVIEWED
+                if warning_state == "reviewed"
+                else self._WARNING
+            )
             painter.drawEllipse(badge)
             badge_font = painter.font()
             badge_font.setBold(True)
             badge_font.setPixelSize(12)
             painter.setFont(badge_font)
             painter.setPen(QColor("#201A0D"))
-            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "!")
+            painter.drawText(
+                badge,
+                Qt.AlignmentFlag.AlignCenter,
+                "✓" if warning_state == "reviewed" else "!",
+            )
 
         painter.restore()
 
@@ -360,7 +389,7 @@ class RollSlotSelector(QWidget):
         self.grid.setAccessibleName("Roll preview slots")
         self.grid.setToolTip(
             "Select physical scanner slots. Warnings identify frames that need review; "
-            "an inferred transport origin stops a C-41 scan before full-quality capture."
+            "an inferred transport origin needs explicit approval before scanning."
         )
 
         self.title_label = QLabel("ROLL PREVIEW")
@@ -378,8 +407,8 @@ class RollSlotSelector(QWidget):
 
         self.help_label = QLabel(
             "All scanner slots stay visible. Use Ctrl/Cmd-click, Shift-click, or drag to choose frames. "
-            "A warning means review the alignment. If the transport origin is inferred, the C-41 safety recheck "
-            "stops before full-quality capture."
+            "Amber warnings are advisory. A red inferred-position warning must be reviewed explicitly; "
+            "the live scanner safety check still runs before full-quality capture."
         )
         self.help_label.setWordWrap(True)
         self.help_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
@@ -395,6 +424,10 @@ class RollSlotSelector(QWidget):
         self.scan_material_status_label.setObjectName("roll_scan_material_status")
         self.scan_material_status_label.setAccessibleName("Scan material capture behavior")
         self.scan_material_status_label.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;")
+        self.ir_repair_status_label = QLabel()
+        self.ir_repair_status_label.setObjectName("roll_ir_repair_status")
+        self.ir_repair_status_label.setAccessibleName("Infrared dust repair status")
+        self.ir_repair_status_label.setWordWrap(True)
 
         material_controls = QHBoxLayout()
         material_controls.setContentsMargins(0, 0, 0, 0)
@@ -455,6 +488,15 @@ class RollSlotSelector(QWidget):
         thumbnail_controls.addWidget(self.offset_shortcut_label)
         thumbnail_controls.addWidget(self.reload_thumbnail_button)
 
+        self.review_approval_check = QCheckBox("I reviewed this inferred position")
+        self.review_approval_check.setObjectName("roll_inferred_origin_review")
+        self.review_approval_check.setAccessibleName("Approve reviewed inferred scanner position")
+        self.review_approval_check.setToolTip(
+            "Confirms that you reviewed this thumbnail so it can be included in the request. "
+            "The live scanner safety recheck still decides whether capture can start."
+        )
+        self.review_approval_check.setVisible(False)
+
         self.select_all_button = QPushButton("Select all")
         self.select_all_button.setAccessibleName("Select all roll slots")
         self.clear_button = QPushButton("Clear")
@@ -465,6 +507,15 @@ class RollSlotSelector(QWidget):
         self.scan_button.setProperty("primary", True)
         self.scan_button.setEnabled(False)
         self.scan_button.setAccessibleName("Scan selected roll slots")
+
+        self.storage_estimate_label = QLabel("Select frames to estimate storage.")
+        self.storage_estimate_label.setObjectName("roll_storage_estimate")
+        self.storage_estimate_label.setAccessibleName("Estimated roll scan storage")
+        self.storage_estimate_label.setWordWrap(True)
+        self.storage_estimate_label.setStyleSheet(
+            f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;"
+        )
+        self._available_storage_bytes: int | None = None
 
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
@@ -480,9 +531,12 @@ class RollSlotSelector(QWidget):
         layout.addLayout(header)
         layout.addWidget(self.help_label)
         layout.addLayout(material_controls)
+        layout.addWidget(self.ir_repair_status_label)
         layout.addWidget(self.grid, 1)
         layout.addLayout(thumbnail_controls)
+        layout.addWidget(self.review_approval_check)
         layout.addLayout(actions)
+        layout.addWidget(self.storage_estimate_label)
 
         selection_model = self._selection_model()
         selection_model.selectionChanged.connect(self._on_selection_changed)
@@ -493,14 +547,12 @@ class RollSlotSelector(QWidget):
         self.boundary_offset_spin.valueChanged.connect(self._on_boundary_offset_changed)
         self.boundary_offset_slider.valueChanged.connect(self.boundary_offset_spin.setValue)
         self.reload_thumbnail_button.clicked.connect(self.request_thumbnail_reload)
+        self.review_approval_check.toggled.connect(self._on_review_approval_toggled)
         self.scan_material_combo.currentIndexChanged.connect(self._on_scan_material_changed)
 
         self._select_all_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.SelectAll), self.grid)
         self._select_all_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         self._select_all_shortcut.activated.connect(self.select_all)
-        self._clear_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self.grid)
-        self._clear_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
-        self._clear_shortcut.activated.connect(self.clear_selection)
         self._offset_decrease_shortcut = QShortcut(QKeySequence("Alt+Left"), self)
         self._offset_decrease_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._offset_decrease_shortcut.activated.connect(lambda: self._nudge_boundary_offset(-1))
@@ -518,12 +570,26 @@ class RollSlotSelector(QWidget):
         self.summary_label.setText("No preview loaded" if count == 0 else f"{count} scanner slots")
         self._sync_selection_ui()
         self._sync_boundary_offset_ui()
+        self._sync_review_approval_ui()
 
     def selected_slot_ids(self) -> list[int]:
         """Return explicit physical slot IDs in display order, not click order."""
 
         rows = sorted(index.row() for index in self._selection_model().selectedIndexes())
         return [self.model.slot_id_for_row(row) for row in rows]
+
+    def approved_blocking_slot_ids(self) -> list[int]:
+        """Return inferred-position slots explicitly reviewed in this preview."""
+
+        return [
+            self.model.slot_id_for_row(row)
+            for row in range(self.model.rowCount())
+            if self.model.data(
+                self.model.index(row, 0),
+                RollSlotModel.WARNING_STATE_ROLE,
+            )
+            == "reviewed"
+        ]
 
     def set_selected_slot_ids(self, slot_ids: Iterable[int]) -> None:
         """Replace the selection using physical 1-based slot IDs."""
@@ -580,6 +646,18 @@ class RollSlotSelector(QWidget):
 
         self.model.set_meter_inset_percent(value)
 
+    def set_available_storage_bytes(self, available_bytes: int | None) -> None:
+        """Show advisory output-space context and enforce the worker's minimum."""
+
+        if available_bytes is not None and (
+            isinstance(available_bytes, bool)
+            or not isinstance(available_bytes, int)
+            or available_bytes < 0
+        ):
+            raise ValueError("available storage must be a non-negative integer or None")
+        self._available_storage_bytes = available_bytes
+        self._sync_selection_ui()
+
     def confirm_slot_thumbnail(
         self,
         slot_id: int,
@@ -590,6 +668,7 @@ class RollSlotSelector(QWidget):
 
         self.model.confirm_thumbnail(slot_id, boundary_offset, thumbnail)
         self._sync_selection_ui()
+        self._sync_review_approval_ui()
 
     def request_thumbnail_reload(self) -> None:
         """Emit the current physical slot and its persisted boundary offset."""
@@ -598,6 +677,10 @@ class RollSlotSelector(QWidget):
         if not current.isValid():
             return
         slot_id = self.model.slot_id_for_row(current.row())
+        if self.model.data(current, RollSlotModel.WARNING_STATE_ROLE) == "reviewed":
+            self.model.set_blocking_review_approved(slot_id, False)
+            self._sync_selection_ui()
+            self._sync_review_approval_ui()
         self.thumbnail_reload_requested.emit(slot_id, self.model.boundary_offset_for_slot_id(slot_id))
 
     def _on_selection_changed(self, _selected: QItemSelection, _deselected: QItemSelection) -> None:
@@ -606,6 +689,7 @@ class RollSlotSelector(QWidget):
 
     def _on_current_slot_changed(self, _current: QModelIndex, _previous: QModelIndex) -> None:
         self._sync_boundary_offset_ui()
+        self._sync_review_approval_ui()
 
     def _on_boundary_offset_changed(self, boundary_offset: int) -> None:
         slider_blocker = QSignalBlocker(self.boundary_offset_slider)
@@ -615,6 +699,33 @@ class RollSlotSelector(QWidget):
         if current.isValid():
             self.model.set_boundary_offset(self.model.slot_id_for_row(current.row()), boundary_offset)
             self._sync_selection_ui()
+            self._sync_review_approval_ui()
+
+    def _on_review_approval_toggled(self, approved: bool) -> None:
+        current = self._selection_model().currentIndex()
+        if not current.isValid():
+            return
+        slot_id = self.model.slot_id_for_row(current.row())
+        if self.model.data(current, RollSlotModel.WARNING_STATE_ROLE) not in {
+            "blocking",
+            "reviewed",
+        }:
+            return
+        self.model.set_blocking_review_approved(slot_id, approved)
+        self._sync_selection_ui()
+
+    def _sync_review_approval_ui(self) -> None:
+        current = self._selection_model().currentIndex()
+        state = (
+            self.model.data(current, RollSlotModel.WARNING_STATE_ROLE)
+            if current.isValid()
+            else "none"
+        )
+        visible = state in {"blocking", "reviewed"}
+        self.review_approval_check.setVisible(visible)
+        blocker = QSignalBlocker(self.review_approval_check)
+        self.review_approval_check.setChecked(state == "reviewed")
+        del blocker
 
     def _nudge_boundary_offset(self, delta: int) -> None:
         """Move the current selected frame by one valid transport row."""
@@ -630,6 +741,7 @@ class RollSlotSelector(QWidget):
 
     def _on_scan_material_changed(self, _index: int) -> None:
         self._sync_scan_material_ui()
+        self._sync_selection_ui()
         self.scan_material_changed.emit(self.scan_material())
 
     def _sync_selection_ui(self) -> None:
@@ -638,12 +750,89 @@ class RollSlotSelector(QWidget):
         total = self.model.rowCount()
         self.selected_count_label.setText(f"{selected} of {total} selected")
         unconfirmed = [slot_id for slot_id in selected_ids if not self.model.boundary_offset_is_confirmed(slot_id)]
-        self.scan_button.setEnabled(selected > 0 and not unconfirmed)
-        self.scan_button.setToolTip(
-            "Reload each edited thumbnail before scanning"
-            if unconfirmed
-            else "Scan the selected slots at the material's full-quality recipe"
+        unreviewed = [
+            slot_id
+            for slot_id in selected_ids
+            if self.model.data(
+                self.model.index(self.model.row_for_slot_id(slot_id), 0),
+                RollSlotModel.WARNING_STATE_ROLE,
+            )
+            == "blocking"
+        ]
+        required_storage = self._required_storage_bytes(selected)
+        insufficient_storage = (
+            selected > 0 and self._available_storage_bytes is not None
+            and self._available_storage_bytes < required_storage
         )
+        self.scan_button.setEnabled(
+            selected > 0
+            and not unconfirmed
+            and not unreviewed
+            and not insufficient_storage
+        )
+        if unconfirmed:
+            tooltip = "Reload each edited thumbnail before scanning"
+        elif unreviewed:
+            formatted = ", ".join(f"{slot_id:02d}" for slot_id in unreviewed)
+            tooltip = f"Review slot {formatted} before scanning"
+        elif insufficient_storage:
+            free = self._format_gib(self._available_storage_bytes or 0)
+            needed = self._format_gib(required_storage)
+            tooltip = f"Full-quality capture needs {needed}; only {free} is free"
+        else:
+            tooltip = "Scan the selected slots at the material's full-quality recipe"
+        self.scan_button.setToolTip(tooltip)
+        self._sync_storage_estimate(selected)
+
+    def _sync_storage_estimate(self, selected: int) -> None:
+        if selected == 0:
+            self.storage_estimate_label.setText("Select frames to estimate storage.")
+            return
+
+        final_per_frame, scratch_bytes, _required_floor = self._storage_budget()
+        final_mib = round(selected * final_per_frame / 1024**2)
+        scratch = (
+            f"{round(scratch_bytes / 1024**2)} MiB"
+            if scratch_bytes
+            else "none"
+        )
+        free = (
+            "free space unknown"
+            if self._available_storage_bytes is None
+            else f"{self._format_gib(self._available_storage_bytes)} free"
+        )
+        noun = "frame" if selected == 1 else "frames"
+        required_storage = self._required_storage_bytes(selected)
+        self.storage_estimate_label.setText(
+            f"{selected} {noun} · final budget {final_mib} MiB · "
+            f"scratch {scratch} · "
+            f"{self._format_gib(required_storage)} working space needed · {free}"
+        )
+
+    def _storage_budget(self) -> tuple[int, int, int]:
+        """Return final/frame, visible scratch, and required-space floor."""
+
+        if self.scan_material().captures_infrared:
+            return (
+                _LS5000_C41_FINAL_BUDGET_BYTES_PER_FRAME,
+                _LS5000_C41_PACKED_SCRATCH_BYTES,
+                _LS5000_C41_REQUIRED_FREE_BYTES,
+            )
+        return (
+            _LS5000_BW_FINAL_BUDGET_BYTES_PER_FRAME,
+            0,
+            _LS5000_BW_REQUIRED_FREE_BYTES,
+        )
+
+    def _required_storage_bytes(self, selected: int) -> int:
+        """Reserve the worker floor plus a conservative output set per frame."""
+
+        final_per_frame, _scratch_bytes, required_floor = self._storage_budget()
+        return required_floor + selected * final_per_frame
+
+    @staticmethod
+    def _format_gib(byte_count: int) -> str:
+        return f"{byte_count / 1024**3:.2f} GiB"
 
     def _sync_boundary_offset_ui(self) -> None:
         current = self._selection_model().currentIndex()
@@ -668,9 +857,24 @@ class RollSlotSelector(QWidget):
 
     def _sync_scan_material_ui(self) -> None:
         if self.scan_material().captures_infrared:
-            self.scan_material_status_label.setText("Full quality: 4000 dpi · 16-bit · RGB 4× + IR · IR dust repair available")
+            self.scan_material_status_label.setText("Full quality: 4000 dpi · 16-bit · RGB 4× + IR")
+            self.ir_repair_status_label.setText(
+                "IR repair: On after import · scanner-linear master stays unchanged"
+            )
+            self.ir_repair_status_label.setProperty("irRepairState", "on")
+            self.ir_repair_status_label.setStyleSheet(
+                f"color: {THEME.status_success}; font-size: {THEME.font_size_xs}px; "
+                f"font-weight: {THEME.weight_semibold};"
+            )
         else:
-            self.scan_material_status_label.setText("Full quality: 4000 dpi · 16-bit · RGB only, 4× · IR/dust repair off")
+            self.scan_material_status_label.setText("Full quality: 4000 dpi · 16-bit · RGB only, 4×")
+            self.ir_repair_status_label.setText(
+                "IR repair: Off · no infrared channel is captured"
+            )
+            self.ir_repair_status_label.setProperty("irRepairState", "off")
+            self.ir_repair_status_label.setStyleSheet(
+                f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px;"
+            )
 
     def _selection_model(self) -> QItemSelectionModel:
         selection_model = self.grid.selectionModel()

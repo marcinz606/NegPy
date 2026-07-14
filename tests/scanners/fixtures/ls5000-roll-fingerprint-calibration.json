@@ -1,0 +1,101 @@
+{
+  "algorithm": "per-slot 16x16 log-luma median hash plus preview lattice and native transport origins",
+  "baseline": {
+    "path": "local-mac/single-pass-wire/rgbi4-gold-frame18-full-live5-preview.bin",
+    "sha256": "127c9151ed76abc74baab24013cb40cff83e7f17af862b6cd95aeb857e8a41e7"
+  },
+  "different_roll": {
+    "common_slot_visual_hamming_min": 58,
+    "common_slot_visual_hamming_median": 106.0,
+    "frame_start_delta_median_rows": 120.0,
+    "native_origin_delta_median": 5306.0,
+    "path": "local-mac/roll-preview-live/roll-preview-run12.bin",
+    "sha256": "0d8e0b1e223b29df0a5cd18fb5ac56490215af0704a741d1a14a2e5086f9467e",
+    "slot_count": 38
+  },
+  "discriminative_guard": {
+    "archived_frame_count": 280,
+    "same_roll_selected_visual_hamming_max": 32,
+    "same_roll_visual_log_span_min": 1.5727689422174471
+  },
+  "same_roll_rereads": [
+    {
+      "frame_start_max_delta_rows": 1,
+      "frame_start_median_delta_rows": 1.0,
+      "native_origin_max_delta": 42,
+      "native_origin_median_delta": 14.0,
+      "path": "local-mac/single-pass-wire/rgbi4-gold-frame18-full-live6-preview.bin",
+      "preview_height_delta_rows": 2,
+      "sha256": "cc2eabcaba87174783161dac440090a8cfd39201007dc4d2efb1ae12722922dc",
+      "visual_median_hamming": 2.0,
+      "visual_p90_hamming": 8
+    },
+    {
+      "frame_start_max_delta_rows": 2,
+      "frame_start_median_delta_rows": 1.0,
+      "native_origin_max_delta": 42,
+      "native_origin_median_delta": 14.0,
+      "path": "local-mac/single-pass-wire/rgbi4-gold-frame18-full-live7-preview.bin",
+      "preview_height_delta_rows": 2,
+      "sha256": "4b2dea704e7a19e68666bf86c5935cfd35bc756c01f9e63b6bd3c3d18a5b2540",
+      "visual_median_hamming": 5.0,
+      "visual_p90_hamming": 10
+    },
+    {
+      "frame_start_max_delta_rows": 10,
+      "frame_start_median_delta_rows": 3.5,
+      "native_origin_max_delta": 56,
+      "native_origin_median_delta": 21.0,
+      "path": "local-mac/single-pass-wire/rgbi4-gold-frame18-full-live8-preview.bin",
+      "preview_height_delta_rows": 11,
+      "sha256": "42b8fa06ab0acc572bcc6a339a612b9e15e0cae9b426bd979488fc20bca49cc5",
+      "visual_median_hamming": 8.0,
+      "visual_p90_hamming": 16
+    },
+    {
+      "frame_start_max_delta_rows": 12,
+      "frame_start_median_delta_rows": 4.5,
+      "native_origin_max_delta": 42,
+      "native_origin_median_delta": 14.0,
+      "path": "local-mac/single-pass-wire/rgbi4-gold-frame18-full-live9-preview.bin",
+      "preview_height_delta_rows": 12,
+      "sha256": "03ba0839ac0ab039a43530cc4deb1dedf9cf307c1a83684473b82d5e09c8f97b",
+      "visual_median_hamming": 6.0,
+      "visual_p90_hamming": 12
+    },
+    {
+      "frame_start_max_delta_rows": 11,
+      "frame_start_median_delta_rows": 4.5,
+      "native_origin_max_delta": 42,
+      "native_origin_median_delta": 14.0,
+      "path": "local-mac/single-pass-wire/rgbi4-gold-preview-live4-preview.bin",
+      "preview_height_delta_rows": 10,
+      "sha256": "7d675b157bc894d5f1389adb3277a6c2739844853b03724edbf9e71b64a6a7b8",
+      "visual_median_hamming": 6.0,
+      "visual_p90_hamming": 10
+    },
+    {
+      "frame_start_max_delta_rows": 7,
+      "frame_start_median_delta_rows": 2.0,
+      "native_origin_max_delta": 56,
+      "native_origin_median_delta": 21.0,
+      "path": "local-mac/single-pass-wire/rgbi4-gold36-frame18-meter2-preview.bin",
+      "preview_height_delta_rows": 7,
+      "sha256": "9dba5adba20d2f3518993954526e2c4a4541c2a71f4c9617b90b315371f34928",
+      "visual_median_hamming": 8.0,
+      "visual_p90_hamming": 16
+    }
+  ],
+  "thresholds": {
+    "frame_start_max_delta_rows": 32,
+    "frame_start_median_delta_rows": 16,
+    "native_origin_max_delta": 256,
+    "native_origin_median_delta": 128,
+    "preview_height_delta_rows": 32,
+    "selected_visual_hamming": 48,
+    "visual_log_span_min": 0.5,
+    "minimum_discriminative_frames": 3,
+    "visual_median_hamming": 24,
+    "visual_p90_hamming": 48
+  }
+}

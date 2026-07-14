@@ -37,6 +37,8 @@ from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
     CaptureOutcome,
     CaptureRequest,
     CaptureStopped,
+    ManualFrameApproval,
+    ReviewedRollFingerprint,
 )
 from negpy.infrastructure.scanners.params import RegisteredScanGeometry
 from negpy.infrastructure.scanners.result import ScanResult
@@ -51,6 +53,7 @@ from negpy.services.scanning.roll_preview_controls import ScanMaterial
 @dataclass(frozen=True)
 class _Slot:
     slot_id: int
+    base_origin: Any
 
 
 class _PreviewSession:
@@ -65,11 +68,23 @@ class _PreviewSession:
         *,
         slot_count: int = 8,
         origins: dict[tuple[int, int], int] | None = None,
+        manual_slots: frozenset[int] = frozenset(),
+        fingerprint: ReviewedRollFingerprint | None = None,
     ) -> None:
         self.preview = object()
-        self.slots = tuple(_Slot(slot_id) for slot_id in range(1, slot_count + 1))
+        self.slots = tuple(
+            _Slot(
+                slot_id,
+                SimpleNamespace(
+                    automatic=slot_id not in manual_slots,
+                    manual_review=slot_id in manual_slots,
+                ),
+            )
+            for slot_id in range(1, slot_count + 1)
+        )
         self.origins = origins or {}
         self.resolve_calls: list[tuple[int, int]] = []
+        self.fingerprint = fingerprint or _reviewed_fingerprint(slot_count)
 
     def resolve_origin(self, slot_id: int, boundary_offset_rows: int = 0) -> int:
         self.resolve_calls.append((slot_id, boundary_offset_rows))
@@ -77,6 +92,51 @@ class _PreviewSession:
         if key in self.origins:
             return self.origins[key]
         return (slot_id - 1) * LS5000_FRAME_PITCH_UNITS + boundary_offset_rows
+
+    def reviewed_fingerprint(self) -> ReviewedRollFingerprint:
+        return self.fingerprint
+
+    def validate_manual_approval(
+        self,
+        approval: ManualFrameApproval,
+        *,
+        slot_id: int,
+        boundary_offset_rows: int,
+    ) -> bool:
+        return (
+            approval.reviewed_fingerprint_sha256 == self.fingerprint.binding_sha256
+            and approval.slot == slot_id
+            and approval.boundary_offset_rows == boundary_offset_rows
+        )
+
+
+def _reviewed_fingerprint(slot_count: int = 8) -> ReviewedRollFingerprint:
+    return ReviewedRollFingerprint(
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+        preview_shape=(6_104, 96, 3),
+        frame_start_rows=tuple(100 + 143 * index for index in range(slot_count)),
+        frame_native_origins=tuple(6_000 + 6_000 * index for index in range(slot_count)),
+        frame_visual_hashes=tuple(f"{index:064x}" for index in range(slot_count)),
+        frame_visual_log_spans=tuple(2.0 for _index in range(slot_count)),
+    )
+
+
+def _manual_approval(
+    fingerprint: ReviewedRollFingerprint,
+    *,
+    slot: int,
+    offset: int = 0,
+) -> ManualFrameApproval:
+    return ManualFrameApproval(
+        reviewed_fingerprint_sha256=fingerprint.binding_sha256,
+        slot=slot,
+        boundary_offset_rows=offset,
+        thumbnail_sha256="3" * 64,
+        reviewed_lookup_row=2_400,
+        reviewed_native_origin=100_000,
+        review_reasons=("transport-origin-inferred",),
+    )
 
 
 class _Adapter:
@@ -327,7 +387,9 @@ def _default_promoter(
     output_folder: Path,
     filename_pattern: str,
     minimum_sequence: int,
+    selected_slot: int | None = None,
 ) -> PromotedFrame:
+    del selected_slot
     stem = f"frame-{minimum_sequence:03d}"
     return PromotedFrame(
         rgb_path=output_folder / f"{stem}.tif",
@@ -365,6 +427,7 @@ def _scan_request(
     frames: tuple[RollFrameChoice, ...],
     preview_token: str,
     device_id: str = "coolscan3:libusb:001:002",
+    reviewed_fingerprint: ReviewedRollFingerprint | None = None,
 ) -> RollScanRequest:
     return RollScanRequest(
         device_id=device_id,
@@ -375,6 +438,7 @@ def _scan_request(
         filename_pattern='roll_{{ "%03d" % seq }}',
         material=material,
         frames=frames,
+        reviewed_fingerprint=(reviewed_fingerprint or _reviewed_fingerprint()),
     )
 
 
@@ -463,6 +527,79 @@ def test_reload_thumbnail_is_offline_and_checks_same_boundary_origin(
     assert errors == []
 
 
+def test_reload_thumbnail_failure_is_typed_and_never_terminal(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    worker, _adapter, _session, _factory_roots = _worker(tmp_path)
+    _load_preview(worker, tmp_path)
+
+    def fail_reload(_preview: Any, _slot: Any, _offset: int) -> np.ndarray:
+        raise ValueError("offset is outside the decoded frame")
+
+    monkeypatch.setattr(roll_worker_module, "reload_thumbnail", fail_reload)
+    reload_errors: list[Any] = []
+    terminal_errors: list[Any] = []
+    worker.thumbnail_error.connect(reload_errors.append)
+    worker.error.connect(terminal_errors.append)
+
+    worker.reload_preview_thumbnail(2, -17)
+
+    assert reload_errors == [
+        roll_worker_module.RollThumbnailReloadFailure(
+            slot_id=2,
+            boundary_offset_rows=-17,
+            message=(
+                "Could not reload thumbnail: offset is outside the decoded frame"
+            ),
+        )
+    ]
+    assert terminal_errors == []
+
+
+def test_inferred_transport_origin_requires_exact_operator_approval_before_batch(
+    tmp_path: Path,
+) -> None:
+    fingerprint = _reviewed_fingerprint()
+    session = _PreviewSession(
+        manual_slots=frozenset({2}),
+        fingerprint=fingerprint,
+    )
+    worker, adapter, _session, _factory_roots = _worker(tmp_path, session=session)
+    preview_token = _load_preview(worker, tmp_path)
+    errors: list[Any] = []
+    worker.error.connect(errors.append)
+
+    worker.scan_selected(
+        _scan_request(
+            tmp_path,
+            material=ScanMaterial.COLOR_NEGATIVE,
+            frames=(RollFrameChoice(2),),
+            preview_token=preview_token,
+            reviewed_fingerprint=fingerprint,
+        )
+    )
+
+    assert adapter.batch_requests == []
+    assert errors[-1].message == (
+        "slot 2 uses an inferred transport origin; approve its current thumbnail before scanning"
+    )
+
+    approval = _manual_approval(fingerprint, slot=2)
+    worker.scan_selected(
+        _scan_request(
+            tmp_path,
+            material=ScanMaterial.COLOR_NEGATIVE,
+            frames=(RollFrameChoice(2, manual_review_approval=approval),),
+            preview_token=preview_token,
+            reviewed_fingerprint=fingerprint,
+        )
+    )
+
+    assert adapter.batch_requests[-1].reviewed_fingerprint == fingerprint
+    assert adapter.batch_requests[-1].frames[0].manual_review_approval == approval
+
+
 def test_color_scan_carries_each_boundary_offset_through_finalize_and_promote(
     tmp_path: Path,
 ) -> None:
@@ -511,7 +648,8 @@ def test_color_scan_carries_each_boundary_offset_through_finalize_and_promote(
                     selected_slot=7,
                     boundary_offset_rows=23,
                 ),
-            )
+            ),
+            reviewed_fingerprint=_reviewed_fingerprint(),
         )
     ]
     assert adapter.batch_actions == [
@@ -613,6 +751,7 @@ def test_bw_scan_is_4000dpi_16bit_rgb4_without_ir_at_exact_registered_geometry(
     assert write_call["output_folder"] == request.output_folder
     assert write_call["filename_pattern"] == request.filename_pattern
     assert write_call["output_format"] == "TIFF"
+    assert write_call["slot"] == 7
     assert any(item.message == "Scanning frame 1 of 1 · Slot 07 · 25%" for item in progress)
     assert [item.operation for item in progress] == [RollOperation.FULL_SCAN] * 4
     assert [item.slot_id for item in progress] == [7, 7, 7, 7]
@@ -655,7 +794,8 @@ def test_stop_during_active_frame_finishes_it_and_never_launches_next_frame(
             frames=(
                 CaptureRequest(mode=CaptureMode.FULL, selected_slot=2),
                 CaptureRequest(mode=CaptureMode.FULL, selected_slot=3),
-            )
+            ),
+            reviewed_fingerprint=_reviewed_fingerprint(),
         )
     ]
     assert adapter.batch_actions == [BatchAckAction.STOP]

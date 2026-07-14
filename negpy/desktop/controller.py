@@ -9,6 +9,10 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.desktop.converters import ImageConverter
+from negpy.desktop.power_assertion import (
+    UnattendedPowerAssertion,
+    acquire_unattended_power_assertion,
+)
 from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan
 from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_conflicts
 from negpy.desktop.workers.render import (
@@ -186,6 +190,7 @@ class AppController(QObject):
     ls5000_roll_preview_ready = pyqtSignal(str, object)
     ls5000_roll_preview_invalidated = pyqtSignal()
     ls5000_roll_thumbnail_ready = pyqtSignal(int, int, object)
+    ls5000_roll_thumbnail_error = pyqtSignal(object)
     ls5000_roll_progress = pyqtSignal(object)
     ls5000_roll_frame_finished = pyqtSignal(int, str)
     ls5000_roll_finished = pyqtSignal(object)
@@ -232,6 +237,7 @@ class AppController(QObject):
         self._gpu_fallback_notified = False
         self._cleaned_up = False
         self._active_batch: Optional[str] = None
+        self._ls5000_roll_power_assertion: UnattendedPowerAssertion | None = None
 
         self.preview_service = PreviewManager()
         self.watcher = FolderWatchService()
@@ -446,15 +452,18 @@ class AppController(QObject):
         )
         self.ls5000_roll_thumbnail_reload_requested.connect(self.ls5000_roll_worker.reload_preview_thumbnail)
         self.ls5000_roll_scan_requested.connect(self.ls5000_roll_worker.scan_selected)
-        self.ls5000_roll_worker.preview_ready.connect(self.ls5000_roll_preview_ready.emit)
+        self.ls5000_roll_worker.preview_ready.connect(self._on_ls5000_roll_preview_ready)
         self.ls5000_roll_worker.preview_invalidated.connect(
             self.ls5000_roll_preview_invalidated.emit
         )
         self.ls5000_roll_worker.thumbnail_ready.connect(self.ls5000_roll_thumbnail_ready.emit)
+        self.ls5000_roll_worker.thumbnail_error.connect(
+            self._on_ls5000_roll_thumbnail_error
+        )
         self.ls5000_roll_worker.progress.connect(self.ls5000_roll_progress.emit)
         self.ls5000_roll_worker.frame_finished.connect(self.ls5000_roll_frame_finished.emit)
         self.ls5000_roll_worker.finished.connect(self._on_ls5000_roll_finished)
-        self.ls5000_roll_worker.error.connect(self.ls5000_roll_error.emit)
+        self.ls5000_roll_worker.error.connect(self._on_ls5000_roll_error)
         self.capture_light_requested.connect(self.capture_worker.set_light)
         self.capture_requested.connect(self.capture_worker.run_capture)
         self.capture_worker.light_set.connect(self.capture_light_set.emit)
@@ -1633,8 +1642,13 @@ class AppController(QObject):
     def start_ls5000_roll_preview(self, request: RollPreviewRequest) -> None:
         """Read the scanner's complete low-resolution roll index."""
 
-        self.scan_started.emit()
-        self.ls5000_roll_preview_requested.emit(request)
+        self._begin_ls5000_roll_power_assertion("NegPy LS-5000 roll preview")
+        try:
+            self.scan_started.emit()
+            self.ls5000_roll_preview_requested.emit(request)
+        except BaseException:
+            self._release_ls5000_roll_power_assertion()
+            raise
 
     def invalidate_ls5000_roll_preview(self) -> None:
         """Discard thumbnail coordinates that no longer identify this film."""
@@ -1656,8 +1670,13 @@ class AppController(QObject):
     def start_ls5000_roll_scan(self, request: RollScanRequest) -> None:
         """Scan selected roll slots sequentially at the material's full recipe."""
 
-        self.scan_started.emit()
-        self.ls5000_roll_scan_requested.emit(request)
+        self._begin_ls5000_roll_power_assertion("NegPy LS-5000 full-roll scan")
+        try:
+            self.scan_started.emit()
+            self.ls5000_roll_scan_requested.emit(request)
+        except BaseException:
+            self._release_ls5000_roll_power_assertion()
+            raise
 
     def cancel_scan(self) -> None:
         self.scan_worker.cancel()
@@ -1669,9 +1688,44 @@ class AppController(QObject):
         self._pending_scanned_file = path
         self.request_asset_discovery([path])
 
+    def _begin_ls5000_roll_power_assertion(self, reason: str) -> None:
+        """Keep macOS awake for exactly one queued roll operation."""
+
+        if self._ls5000_roll_power_assertion is not None:
+            raise RuntimeError("an LS-5000 roll operation already owns the power assertion")
+        self._ls5000_roll_power_assertion = acquire_unattended_power_assertion(reason)
+
+    def _release_ls5000_roll_power_assertion(self) -> None:
+        assertion = self._ls5000_roll_power_assertion
+        self._ls5000_roll_power_assertion = None
+        if assertion is None:
+            return
+        try:
+            assertion.release()
+        except Exception:
+            logger.warning("could not release the LS-5000 roll power assertion", exc_info=True)
+
+    def _on_ls5000_roll_preview_ready(self, preview_token: str, session: object) -> None:
+        """Release preview protection before publishing the completed index."""
+
+        self._release_ls5000_roll_power_assertion()
+        self.ls5000_roll_preview_ready.emit(preview_token, session)
+
+    def _on_ls5000_roll_error(self, failure: object) -> None:
+        """Release protection before forwarding any terminal worker failure."""
+
+        self._release_ls5000_roll_power_assertion()
+        self.ls5000_roll_error.emit(failure)
+
+    def _on_ls5000_roll_thumbnail_error(self, failure: object) -> None:
+        """Forward an offline thumbnail failure without ending a roll operation."""
+
+        self.ls5000_roll_thumbnail_error.emit(failure)
+
     def _on_ls5000_roll_finished(self, completion: RollScanCompletion) -> None:
         """Import every completed frame, including a safely stopped partial queue."""
 
+        self._release_ls5000_roll_power_assertion()
         self.ls5000_roll_finished.emit(completion)
         if completion.rgb_paths:
             self.import_negative_roll_scans(
@@ -2650,11 +2704,14 @@ class AppController(QObject):
         if self.preview_load_thread.isRunning():
             self.preview_load_thread.quit()
             self.preview_load_thread.wait()
-        self.scan_worker.cancel()
-        self.ls5000_roll_worker.request_stop()
-        if self.scan_thread.isRunning():
-            self.scan_thread.quit()
-            self.scan_thread.wait()
+        try:
+            self.scan_worker.cancel()
+            self.ls5000_roll_worker.request_stop()
+            if self.scan_thread.isRunning():
+                self.scan_thread.quit()
+                self.scan_thread.wait()
+        finally:
+            self._release_ls5000_roll_power_assertion()
         self.capture_worker.shutdown()
         if self.capture_thread.isRunning():
             self.capture_thread.quit()

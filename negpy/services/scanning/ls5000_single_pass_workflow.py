@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import tempfile
@@ -31,17 +32,34 @@ from negpy.infrastructure.scanners.ls5000_single_pass.packed import (
 from negpy.infrastructure.scanners.ls5000_single_pass.continuation_plan import (
     CANONICAL_CONTINUATION_PLAN_SHA256,
 )
+from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
+    MAX_FRAME_START_DELTA_ROWS,
+    MAX_FRAME_START_MEDIAN_DELTA_ROWS,
+    MAX_NATIVE_ORIGIN_DELTA,
+    MAX_NATIVE_ORIGIN_MEDIAN_DELTA,
+    MAX_PREVIEW_HEIGHT_DELTA_ROWS,
+    MAX_SELECTED_VISUAL_HAMMING,
+    MAX_VISUAL_MEDIAN_HAMMING,
+    MAX_VISUAL_P90_HAMMING,
+    MIN_DISCRIMINATIVE_FRAME_COUNT,
+    MIN_VISUAL_LOG_SPAN,
+    ManualFrameApproval,
+)
 from negpy.infrastructure.scanners.result import ScanResult, SplitIrAlignment
 from negpy.infrastructure.tiff_contract import has_linear_scanner_rgb_marker
 from negpy.services.scanning.quality import (
+    FocusDetailTelemetry,
+    ScanClippingTelemetry,
     StoppedTransportSmearAssessment,
     assess_stopped_transport_smear,
+    measure_focus_detail,
+    measure_scan_clipping,
 )
 from negpy.services.scanning.writer import write_full_negative_tiff
 
 
 WORKFLOW_KIND = "negpy.ls5000-single-pass-finalization"
-WORKFLOW_VERSION = 1
+WORKFLOW_VERSION = 2
 EXPECTED_COLOR_IDS = frozenset({1, 2, 3, 9})
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -247,6 +265,8 @@ StableHasher = Callable[[Path], tuple[str, int]]
 ManifestWriter = Callable[[Path, bytes], None]
 StreamDeleter = Callable[[Path], None]
 SmearAssessor = Callable[..., StoppedTransportSmearAssessment]
+ClippingMeasurer = Callable[[np.ndarray], ScanClippingTelemetry]
+FocusMeasurer = Callable[[np.ndarray], FocusDetailTelemetry]
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -367,6 +387,59 @@ def _require_exact(journal: Mapping[str, Any], key: str, expected: object) -> No
         raise SinglePassIntegrityError(f"journal {key} is {actual!r}, expected {expected!r}")
 
 
+def _finite_number(value: object, *, minimum: float = 0.0) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and float(value) >= minimum
+    )
+
+
+def _validate_quality_control_evidence(raw: object) -> None:
+    if type(raw) is not dict:
+        raise SinglePassIntegrityError("quality control evidence is missing")
+    quality = cast(dict[str, Any], raw)
+    clipping = quality.get("capture_clipping")
+    if type(clipping) is not dict:
+        raise SinglePassIntegrityError("capture clipping evidence is missing")
+    clipping = cast(dict[str, Any], clipping)
+    fractions = clipping.get("fractions")
+    if (
+        set(clipping)
+        != {"clip_level", "fractions", "warning", "warning_fraction"}
+        or type(fractions) is not list
+        or len(fractions) != 3
+        or not all(
+            _finite_number(value) and float(value) <= 1.0 for value in fractions
+        )
+        or not _finite_number(clipping.get("clip_level"))
+        or not 0.0 < float(clipping["clip_level"]) <= 1.0
+        or not _finite_number(clipping.get("warning_fraction"))
+        or float(clipping["warning_fraction"]) > 1.0
+        or type(clipping.get("warning")) is not bool
+        or clipping["warning"]
+        is not (max(float(value) for value in fractions) > clipping["warning_fraction"])
+    ):
+        raise SinglePassIntegrityError("capture clipping evidence is malformed")
+
+    focus = quality.get("focus_detail")
+    if type(focus) is not dict:
+        raise SinglePassIntegrityError("focus detail evidence is missing")
+    focus = cast(dict[str, Any], focus)
+    verdict = focus.get("verdict")
+    score = focus.get("score")
+    if (
+        set(focus) != {"method", "score", "texture_span", "verdict"}
+        or focus.get("method") != "normalized-gradient-v1"
+        or verdict not in ("measured", "indeterminate")
+        or not _finite_number(focus.get("texture_span"))
+        or (verdict == "measured" and not _finite_number(score))
+        or (verdict == "indeterminate" and score is not None)
+    ):
+        raise SinglePassIntegrityError("focus detail evidence is malformed")
+
+
 def _canonical_output_paths(attempt: SinglePassAttempt) -> tuple[Path, dict[str, Path]]:
     root = attempt.directory / "final"
     rgb = root / f"frame{attempt.selected_slot:03d}.tif"
@@ -408,6 +481,8 @@ class LS5000SinglePassWorkflow:
         manifest_writer: ManifestWriter = _write_exclusive_fsynced,
         stream_deleter: StreamDeleter = Path.unlink,
         smear_assessor: SmearAssessor = assess_stopped_transport_smear,
+        clipping_measurer: ClippingMeasurer = measure_scan_clipping,
+        focus_measurer: FocusMeasurer = measure_focus_detail,
     ) -> None:
         self._contract = PackedCaptureContract() if contract is None else contract
         self._decoder = decoder if decoder is not None else self._decode_default
@@ -416,6 +491,8 @@ class LS5000SinglePassWorkflow:
         self._write_manifest = manifest_writer
         self._delete_stream = stream_deleter
         self._assess_smear = smear_assessor
+        self._measure_clipping = clipping_measurer
+        self._measure_focus = focus_measurer
 
     def _decode_default(self, path: Path) -> tuple[np.ndarray, Mapping[str, object]]:
         return decode_full_records(path, width=self._contract.width, height=self._contract.height)
@@ -495,6 +572,26 @@ class LS5000SinglePassWorkflow:
         rgb = upright[..., :3]
         ir = upright[..., 3]
         valid = np.ones(ir.shape, dtype=np.bool_)
+        try:
+            clipping = self._measure_clipping(rgb)
+            focus_detail = self._measure_focus(rgb)
+        except Exception as error:
+            raise SinglePassIntegrityError(
+                f"capture quality telemetry could not assess decoded RGB: {error}"
+            ) from error
+        if not isinstance(clipping, ScanClippingTelemetry):
+            raise SinglePassIntegrityError(
+                "capture clipping telemetry returned invalid evidence"
+            )
+        if not isinstance(focus_detail, FocusDetailTelemetry):
+            raise SinglePassIntegrityError(
+                "focus-detail telemetry returned invalid evidence"
+            )
+        clipping_evidence = asdict(clipping)
+        # JSON has no tuple type. Normalize before binding the manifest so the
+        # in-memory evidence and its durable round-trip remain byte-for-byte
+        # comparable.
+        clipping_evidence["fractions"] = list(clipping.fractions)
         result = ScanResult(
             rgb=rgb,
             ir=ir,
@@ -592,6 +689,8 @@ class LS5000SinglePassWorkflow:
                     "required_verdict": "clean",
                     "assessment": asdict(smear_assessment),
                 },
+                "capture_clipping": clipping_evidence,
+                "focus_detail": asdict(focus_detail),
             },
             "alignment": {
                 "mode": "identity",
@@ -618,6 +717,7 @@ class LS5000SinglePassWorkflow:
                 "source_bytes": stream_bytes,
             },
         }
+        _validate_quality_control_evidence(manifest["quality_control"])
         manifest["binding_sha256"] = _manifest_binding(manifest)
         manifest_payload = _json_bytes(manifest)
         self._write_manifest(manifest_path, manifest_payload)
@@ -737,6 +837,13 @@ class LS5000SinglePassWorkflow:
         for key in ("preview_sha256", "table_sha256"):
             if not _is_sha256(selection.get(key)):
                 raise SinglePassIntegrityError(f"live frame selection {key} is missing or malformed")
+        roll_identity, manual_review_approval = self._validated_roll_evidence(
+            attempt,
+            journal,
+            selection,
+            selected,
+            required=batch_session is not None,
+        )
 
         preflight = self._validated_windows(
             journal.get("fine_set_windows_preflight"),
@@ -784,6 +891,9 @@ class LS5000SinglePassWorkflow:
             "detection": deepcopy(selection.get("detection")),
             "transport_mapping": deepcopy(selection.get("transport_mapping")),
         }
+        if roll_identity is not None:
+            frame_evidence["roll_identity"] = roll_identity
+            frame_evidence["manual_review_approval"] = manual_review_approval
         exposure_evidence: dict[str, object] = {
             "controller_final": deepcopy(controller),
             "accepted_contract": deepcopy(final_exposures),
@@ -791,6 +901,183 @@ class LS5000SinglePassWorkflow:
             "fine_get_windows": [deepcopy(fine[color]) for color in sorted(fine)],
         }
         return frame_evidence, exposure_evidence, identity
+
+    @staticmethod
+    def _validated_roll_evidence(
+        attempt: SinglePassAttempt,
+        journal: Mapping[str, Any],
+        selection: Mapping[str, Any],
+        selected: Mapping[str, Any],
+        *,
+        required: bool,
+    ) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+        raw_identity = selection.get("roll_identity")
+        if type(raw_identity) is not dict:
+            if required:
+                raise SinglePassIntegrityError("batch frame has no roll identity evidence")
+            return None, None
+        roll_identity = cast(dict[str, Any], raw_identity)
+        expected_identity_keys = {
+            "comparison",
+            "fresh_fingerprint_sha256",
+            "reviewed_fingerprint_sha256",
+            "selected_slot_comparison",
+        }
+        if set(roll_identity) != expected_identity_keys:
+            raise SinglePassIntegrityError("roll identity evidence keys changed")
+        if all(roll_identity.get(key) is None for key in expected_identity_keys):
+            if required:
+                raise SinglePassIntegrityError("batch frame has no roll identity evidence")
+            return None, None
+
+        reviewed_sha = roll_identity.get("reviewed_fingerprint_sha256")
+        fresh_sha = roll_identity.get("fresh_fingerprint_sha256")
+        if not _is_sha256(reviewed_sha):
+            raise SinglePassIntegrityError("reviewed roll fingerprint identity is malformed")
+        if not _is_sha256(fresh_sha):
+            raise SinglePassIntegrityError("fresh roll fingerprint identity is malformed")
+        if journal.get("reviewed_roll_fingerprint_sha256") != reviewed_sha:
+            raise SinglePassIntegrityError(
+                "reviewed roll fingerprint identity changed between journal fields"
+            )
+
+        comparison = roll_identity.get("comparison")
+        comparison_keys = {
+            "compared_frames",
+            "discriminative_frames",
+            "frame_start_max_delta_rows",
+            "frame_start_median_delta_rows",
+            "matches",
+            "minimum_discriminative_frames",
+            "minimum_visual_log_span",
+            "native_origin_max_delta",
+            "native_origin_median_delta",
+            "preview_height_delta_rows",
+            "reason",
+            "visual_median_hamming",
+            "visual_p90_hamming",
+        }
+        if type(comparison) is not dict or set(comparison) != comparison_keys:
+            raise SinglePassIntegrityError("roll fingerprint comparison is malformed")
+        comparison = cast(dict[str, Any], comparison)
+        compared = comparison.get("compared_frames")
+        discriminative = comparison.get("discriminative_frames")
+        minimum_discriminative = comparison.get("minimum_discriminative_frames")
+        integer_metrics = (
+            comparison.get("preview_height_delta_rows"),
+            comparison.get("visual_p90_hamming"),
+            comparison.get("frame_start_max_delta_rows"),
+            comparison.get("native_origin_max_delta"),
+        )
+        float_metrics = (
+            comparison.get("visual_median_hamming"),
+            comparison.get("frame_start_median_delta_rows"),
+            comparison.get("native_origin_median_delta"),
+            comparison.get("minimum_visual_log_span"),
+        )
+        if (
+            comparison.get("matches") is not True
+            or comparison.get("reason") != "matched"
+            or type(compared) is not int
+            or compared < 1
+            or type(discriminative) is not int
+            or type(minimum_discriminative) is not int
+            or not 1 <= compared <= 40
+            or minimum_discriminative
+            != min(MIN_DISCRIMINATIVE_FRAME_COUNT, compared)
+            or not 1 <= minimum_discriminative <= discriminative <= compared
+            or any(type(value) is not int or value < 0 for value in integer_metrics)
+            or any(not _finite_number(value) for value in float_metrics)
+            or comparison["preview_height_delta_rows"]
+            > MAX_PREVIEW_HEIGHT_DELTA_ROWS
+            or comparison["visual_median_hamming"]
+            > MAX_VISUAL_MEDIAN_HAMMING
+            or comparison["visual_p90_hamming"] > MAX_VISUAL_P90_HAMMING
+            or comparison["frame_start_median_delta_rows"]
+            > MAX_FRAME_START_MEDIAN_DELTA_ROWS
+            or comparison["frame_start_max_delta_rows"]
+            > MAX_FRAME_START_DELTA_ROWS
+            or comparison["native_origin_median_delta"]
+            > MAX_NATIVE_ORIGIN_MEDIAN_DELTA
+            or comparison["native_origin_max_delta"] > MAX_NATIVE_ORIGIN_DELTA
+            or comparison["minimum_visual_log_span"] != MIN_VISUAL_LOG_SPAN
+        ):
+            raise SinglePassIntegrityError(
+                "roll fingerprint comparison did not prove the reviewed roll"
+            )
+
+        selected_comparison = roll_identity.get("selected_slot_comparison")
+        selected_keys = {
+            "fresh_visual_log_span",
+            "matches",
+            "maximum_visual_hamming",
+            "minimum_visual_log_span",
+            "reason",
+            "reviewed_visual_log_span",
+            "slot",
+            "visual_hamming",
+        }
+        if (
+            type(selected_comparison) is not dict
+            or set(selected_comparison) != selected_keys
+        ):
+            raise SinglePassIntegrityError(
+                "selected-slot roll fingerprint comparison is malformed"
+            )
+        selected_comparison = cast(dict[str, Any], selected_comparison)
+        visual_hamming = selected_comparison.get("visual_hamming")
+        maximum_hamming = selected_comparison.get("maximum_visual_hamming")
+        minimum_span = selected_comparison.get("minimum_visual_log_span")
+        reviewed_span = selected_comparison.get("reviewed_visual_log_span")
+        fresh_span = selected_comparison.get("fresh_visual_log_span")
+        if (
+            selected_comparison.get("matches") is not True
+            or selected_comparison.get("reason") != "matched"
+            or selected_comparison.get("slot") != attempt.selected_slot
+            or type(visual_hamming) is not int
+            or type(maximum_hamming) is not int
+            or maximum_hamming != MAX_SELECTED_VISUAL_HAMMING
+            or not 0 <= visual_hamming <= maximum_hamming
+            or not _finite_number(minimum_span)
+            or minimum_span != MIN_VISUAL_LOG_SPAN
+            or not _finite_number(reviewed_span)
+            or not _finite_number(fresh_span)
+            or float(reviewed_span) < float(minimum_span)
+            or float(fresh_span) < float(minimum_span)
+        ):
+            raise SinglePassIntegrityError(
+                "selected-slot roll fingerprint did not prove the reviewed frame"
+            )
+
+        automatic = selected.get("automatic")
+        manual_review = selected.get("manual_review")
+        if type(automatic) is not bool or type(manual_review) is not bool:
+            raise SinglePassIntegrityError(
+                "selected frame manual-review state is malformed"
+            )
+        raw_approval = journal.get("manual_review_approval")
+        approval_payload: dict[str, object] | None = None
+        if not automatic or manual_review:
+            try:
+                approval = ManualFrameApproval.from_payload(raw_approval)
+            except (TypeError, ValueError) as error:
+                raise SinglePassIntegrityError(
+                    f"manual review approval is missing or malformed: {error}"
+                ) from error
+            if (
+                approval.reviewed_fingerprint_sha256 != reviewed_sha
+                or approval.slot != attempt.selected_slot
+                or approval.boundary_offset_rows != attempt.boundary_offset_rows
+            ):
+                raise SinglePassIntegrityError(
+                    "manual review approval does not bind this frame selection"
+                )
+            approval_payload = approval.to_payload()
+        elif raw_approval is not None:
+            raise SinglePassIntegrityError(
+                "automatic frame unexpectedly carries manual review approval"
+            )
+        return deepcopy(roll_identity), approval_payload
 
     def _validated_windows(
         self,
@@ -924,6 +1211,7 @@ class LS5000SinglePassWorkflow:
         if manifest.get("kind") != WORKFLOW_KIND or manifest.get("version") != WORKFLOW_VERSION or identity != expected_identity:
             raise SinglePassIntegrityError("existing completion manifest does not identify this attempt")
         quality_control = manifest.get("quality_control")
+        _validate_quality_control_evidence(quality_control)
         smear_control = (
             quality_control.get("stopped_transport_smear")
             if type(quality_control) is dict

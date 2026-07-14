@@ -34,6 +34,15 @@ from .continuation_plan import (
     derive_equivalent_continuation_blocks,
     verify_canonical_continuation_plan,
 )
+from .capture_process import (
+    ManualFrameApproval,
+    ReviewedRollFingerprint,
+    RollFingerprintComparison,
+    SelectedRollFingerprintComparison,
+    build_reviewed_roll_fingerprint,
+    compare_reviewed_roll_fingerprints,
+    compare_selected_roll_fingerprint,
+)
 from .meter import (
     DEFAULT_EXPOSURES,
     MeterObservation,
@@ -169,6 +178,10 @@ class LiveFrameSelection:
     preview_sha256: str
     table_sha256: str
     decode_report: dict[str, Any]
+    reviewed_fingerprint_sha256: str | None = None
+    fresh_fingerprint: ReviewedRollFingerprint | None = None
+    fingerprint_comparison: RollFingerprintComparison | None = None
+    selected_fingerprint_comparison: SelectedRollFingerprintComparison | None = None
 
     def diagnostics(self) -> dict[str, Any]:
         return {
@@ -177,6 +190,24 @@ class LiveFrameSelection:
             "usable_rows": self.usable_rows,
             "preview_sha256": self.preview_sha256,
             "table_sha256": self.table_sha256,
+            "roll_identity": {
+                "reviewed_fingerprint_sha256": self.reviewed_fingerprint_sha256,
+                "fresh_fingerprint_sha256": (
+                    None
+                    if self.fresh_fingerprint is None
+                    else self.fresh_fingerprint.binding_sha256
+                ),
+                "comparison": (
+                    None
+                    if self.fingerprint_comparison is None
+                    else self.fingerprint_comparison.to_payload()
+                ),
+                "selected_slot_comparison": (
+                    None
+                    if self.selected_fingerprint_comparison is None
+                    else self.selected_fingerprint_comparison.to_payload()
+                ),
+            },
             "geometry": {
                 "requested_resolution": self.geometry.requested_resolution,
                 "native_resolution": self.geometry.native_resolution,
@@ -228,6 +259,7 @@ class BatchFrameSpec:
     output: Path
     journal: Path
     ack: Path
+    manual_review_approval: ManualFrameApproval | None = None
 
 
 @dataclass(frozen=True)
@@ -237,6 +269,7 @@ class LiveBatchJob:
     session_id: str
     root: Path
     frames: tuple[BatchFrameSpec, ...]
+    reviewed_fingerprint: ReviewedRollFingerprint
     plan_sha256: str
     continuation_plan_sha256: str
     job_sha256: str
@@ -907,6 +940,8 @@ def _derive_live_frame_selection(
     frame: int,
     boundary_offset_rows: int = 0,
     expected_frame_count: int | None = None,
+    reviewed_fingerprint: ReviewedRollFingerprint | None = None,
+    manual_review_approved: bool = False,
 ) -> LiveFrameSelection:
     """Resolve one automatic frame origin from same-traversal live data."""
 
@@ -934,15 +969,54 @@ def _derive_live_frame_selection(
         len(detection.intervals),
         records,
     )
+    fresh_fingerprint: ReviewedRollFingerprint | None = None
+    fingerprint_comparison: RollFingerprintComparison | None = None
+    if reviewed_fingerprint is not None:
+        fresh_fingerprint = build_reviewed_roll_fingerprint(
+            rgb16,
+            frame_intervals=tuple(
+                (interval.start_row, interval.end_row)
+                for interval in detection.intervals
+            ),
+            frame_native_origins=tuple(
+                origin.native_origin for origin in mapping.origins
+            ),
+            source_preview_sha256=hashlib.sha256(preview_data).hexdigest(),
+            source_table_sha256=hashlib.sha256(validated_table).hexdigest(),
+        )
+        fingerprint_comparison = compare_reviewed_roll_fingerprints(
+            reviewed_fingerprint,
+            fresh_fingerprint,
+        )
+        if not fingerprint_comparison.matches:
+            raise ProtocolError(
+                "fresh live index does not match the reviewed roll fingerprint: "
+                f"{fingerprint_comparison.reason}"
+            )
     frame_count = len(mapping.origins)
     if not 1 <= frame <= frame_count:
         raise ProtocolError(
             f"requested frame {frame} is outside detected roll 1..{frame_count}"
         )
+    selected_fingerprint_comparison: SelectedRollFingerprintComparison | None = None
+    if reviewed_fingerprint is not None and fresh_fingerprint is not None:
+        selected_fingerprint_comparison = compare_selected_roll_fingerprint(
+            reviewed_fingerprint,
+            fresh_fingerprint,
+            slot=frame,
+        )
+        if not selected_fingerprint_comparison.matches:
+            raise ProtocolError(
+                f"selected frame {frame} does not match its reviewed visual "
+                f"fingerprint: {selected_fingerprint_comparison.reason}"
+            )
     base_selected = mapping.origins[frame - 1]
     if base_selected.frame != frame:
         raise ProtocolError("transport mapping frame order is inconsistent")
-    if not base_selected.automatic or base_selected.manual_review:
+    if (
+        (not base_selected.automatic or base_selected.manual_review)
+        and not manual_review_approved
+    ):
         raise ProtocolError(
             f"frame {frame} transport origin requires manual review; "
             "refusing an unattended fine scan"
@@ -967,6 +1041,14 @@ def _derive_live_frame_selection(
         preview_sha256=hashlib.sha256(preview_data).hexdigest(),
         table_sha256=hashlib.sha256(validated_table).hexdigest(),
         decode_report=decode_report,
+        reviewed_fingerprint_sha256=(
+            None
+            if reviewed_fingerprint is None
+            else reviewed_fingerprint.binding_sha256
+        ),
+        fresh_fingerprint=fresh_fingerprint,
+        fingerprint_comparison=fingerprint_comparison,
+        selected_fingerprint_comparison=selected_fingerprint_comparison,
     )
 
 
@@ -975,6 +1057,8 @@ def _derive_live_batch_selections(
     preview_data: bytes,
     table_data: bytes,
     frames: Sequence[BatchFrameSpec],
+    *,
+    reviewed_fingerprint: ReviewedRollFingerprint,
 ) -> tuple[LiveFrameSelection, ...]:
     """Pre-bind every batch frame to one same-traversal transport table."""
 
@@ -990,7 +1074,27 @@ def _derive_live_batch_selections(
         frame=frames[0].slot,
         boundary_offset_rows=0,
         expected_frame_count=None,
+        reviewed_fingerprint=reviewed_fingerprint,
+        manual_review_approved=frames[0].manual_review_approval is not None,
     )
+    if context.fresh_fingerprint is None:
+        raise ProtocolError("fresh batch roll fingerprint was not retained")
+    selected_fingerprint_comparisons: dict[
+        int,
+        SelectedRollFingerprintComparison,
+    ] = {}
+    for spec in frames:
+        selected_comparison = compare_selected_roll_fingerprint(
+            reviewed_fingerprint,
+            context.fresh_fingerprint,
+            slot=spec.slot,
+        )
+        if not selected_comparison.matches:
+            raise ProtocolError(
+                f"selected frame {spec.slot} does not match its reviewed visual "
+                f"fingerprint: {selected_comparison.reason}"
+            )
+        selected_fingerprint_comparisons[spec.slot] = selected_comparison
     validated_table, _usable_rows = validate_live_0x8e_bytes(
         table_data,
         context.geometry.height,
@@ -1003,6 +1107,11 @@ def _derive_live_batch_selections(
         context.mapping,
         records,
         tuple((spec.slot, spec.boundary_offset_rows) for spec in frames),
+        approved_manual_slots=frozenset(
+            spec.slot
+            for spec in frames
+            if spec.manual_review_approval is not None
+        ),
     )
     for origin in combined.origins[:FRAME_TABLE_SEND_RECORDS]:
         if origin.native_origin + FINE_NATIVE_HEIGHT > context.geometry.native_height:
@@ -1025,6 +1134,12 @@ def _derive_live_batch_selections(
             preview_sha256=context.preview_sha256,
             table_sha256=context.table_sha256,
             decode_report=context.decode_report,
+            reviewed_fingerprint_sha256=context.reviewed_fingerprint_sha256,
+            fresh_fingerprint=context.fresh_fingerprint,
+            fingerprint_comparison=context.fingerprint_comparison,
+            selected_fingerprint_comparison=(
+                selected_fingerprint_comparisons[spec.slot]
+            ),
         )
         for spec, (base, selected) in zip(frames, resolved, strict=True)
     )
@@ -1067,10 +1182,14 @@ def load_validated_batch_job(
         "continuation_plan_sha256": expected_continuation_sha256,
         "parent_ack_required_after_every_frame": True,
         "release_once_after_last_frame": True,
-        "schema_version": 1,
+        "schema_version": 2,
         "session_contract": "one-process-one-reservation",
     }
-    expected_keys = set(expected_top_level) | {"frames", "session_id"}
+    expected_keys = set(expected_top_level) | {
+        "frames",
+        "reviewed_roll_fingerprint",
+        "session_id",
+    }
     if set(payload) != expected_keys:
         raise ProtocolError(
             "batch job keys changed: "
@@ -1093,6 +1212,12 @@ def load_validated_batch_job(
         )
     ):
         raise ProtocolError("batch job session_id is not filesystem-safe")
+    try:
+        reviewed_fingerprint = ReviewedRollFingerprint.from_payload(
+            payload.get("reviewed_roll_fingerprint")
+        )
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"batch reviewed roll fingerprint is invalid: {error}") from error
     raw_frames = payload.get("frames")
     if not isinstance(raw_frames, list) or not raw_frames:
         raise ProtocolError("batch job must contain at least one frame")
@@ -1106,6 +1231,7 @@ def load_validated_batch_job(
             "ack",
             "boundary_offset_rows",
             "journal",
+            "manual_review_approval",
             "output",
             "slot",
         }:
@@ -1119,6 +1245,26 @@ def load_validated_batch_job(
                 f"batch frame {index} has an invalid boundary offset"
             )
         _validate_boundary_offset(slot, offset)
+        raw_approval = raw.get("manual_review_approval")
+        approval: ManualFrameApproval | None = None
+        if raw_approval is not None:
+            try:
+                approval = ManualFrameApproval.from_payload(raw_approval)
+            except (TypeError, ValueError) as error:
+                raise ProtocolError(
+                    f"batch frame {index} manual review approval is invalid: {error}"
+                ) from error
+            if approval.slot != slot or approval.boundary_offset_rows != offset:
+                raise ProtocolError(
+                    f"batch frame {index} manual review approval changed frames"
+                )
+            if (
+                approval.reviewed_fingerprint_sha256
+                != reviewed_fingerprint.binding_sha256
+            ):
+                raise ProtocolError(
+                    f"batch frame {index} manual review approval belongs to another preview"
+                )
         expected_directory = f"frame-{slot:03d}"
         expected_paths = {
             "output": f"{expected_directory}/capture.bin",
@@ -1134,6 +1280,7 @@ def load_validated_batch_job(
             BatchFrameSpec(
                 slot=slot,
                 boundary_offset_rows=offset,
+                manual_review_approval=approval,
                 output=root / expected_paths["output"],
                 journal=root / expected_paths["journal"],
                 ack=root / expected_paths["ack"],
@@ -1146,6 +1293,7 @@ def load_validated_batch_job(
         session_id=session_id,
         root=root,
         frames=tuple(frames),
+        reviewed_fingerprint=reviewed_fingerprint,
         plan_sha256=expected_plan_sha256,
         continuation_plan_sha256=expected_continuation_sha256,
         job_sha256=hashlib.sha256(job_bytes).hexdigest(),
@@ -1266,6 +1414,8 @@ def apply_batch_boundary_offsets(
     mapping: TransportMapping,
     records: Sequence[TransportRecord],
     frames: Sequence[tuple[int, int]],
+    *,
+    approved_manual_slots: frozenset[int] = frozenset(),
 ) -> tuple[
     TransportMapping,
     tuple[tuple[NativeFrameOrigin, NativeFrameOrigin], ...],
@@ -1297,7 +1447,10 @@ def apply_batch_boundary_offsets(
         base = original.origins[frame - 1]
         if base.frame != frame:
             raise ProtocolError("transport mapping frame order is inconsistent")
-        if not base.automatic or base.manual_review:
+        if (
+            (not base.automatic or base.manual_review)
+            and frame not in approved_manual_slots
+        ):
             raise ProtocolError(
                 f"frame {frame} transport origin requires manual review; "
                 "refusing an unattended batch"
@@ -2377,6 +2530,14 @@ def _run_live_continuation_frame(
         "scanner_identity": "Nikon LS-5000 ED 1.03",
         "preview_geometry_validated_before_reads": True,
         "live_frame_selection": selection.diagnostics(),
+        "manual_review_approval": (
+            None
+            if frame_spec.manual_review_approval is None
+            else frame_spec.manual_review_approval.to_payload()
+        ),
+        "reviewed_roll_fingerprint_sha256": (
+            batch_job.reviewed_fingerprint.binding_sha256
+        ),
         "batch_session": batch_identity,
         "session_reservation_retained": True,
         "unit_released": False,
@@ -3002,6 +3163,14 @@ def run_live_capture(
                 },
                 "continuation_plan_sha256": continuation_plan_sha256,
                 "frame_complete": False,
+                "manual_review_approval": (
+                    None
+                    if batch_job.frames[0].manual_review_approval is None
+                    else batch_job.frames[0].manual_review_approval.to_payload()
+                ),
+                "reviewed_roll_fingerprint_sha256": (
+                    batch_job.reviewed_fingerprint.binding_sha256
+                ),
                 "session_reservation_retained": False,
                 "unit_released": False,
             }
@@ -3018,6 +3187,17 @@ def run_live_capture(
             "capture_bundle_sha256": CAPTURE_BUNDLE_SHA256,
             "plan_sha256": plan_sha256,
             "continuation_plan_sha256": continuation_plan_sha256,
+            "manual_review_approval_sha256_by_slot": {
+                str(spec.slot): (
+                    None
+                    if spec.manual_review_approval is None
+                    else spec.manual_review_approval.binding_sha256
+                )
+                for spec in batch_job.frames
+            },
+            "reviewed_roll_fingerprint_sha256": (
+                batch_job.reviewed_fingerprint.binding_sha256
+            ),
             "reservation_acquired": False,
             "unit_release_attempts": 0,
             "unit_released": False,
@@ -3291,6 +3471,9 @@ def run_live_capture(
                                 preview_bytes,
                                 live_sub_8e_table,
                                 batch_job.frames,
+                                reviewed_fingerprint=(
+                                    batch_job.reviewed_fingerprint
+                                ),
                             )
                             live_selection = batch_selections[0]
                             journal["batch_prevalidated_frame_selections"] = [

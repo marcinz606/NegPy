@@ -12,8 +12,10 @@ real device -- that remains an unverified gap requiring a live app + hardware.
 """
 
 import gc
+import hashlib
 import json
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -28,10 +30,15 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState
 from negpy.desktop.view.sidebar.scan import ScanSidebar
 from negpy.desktop.view.widgets.roll_slot_model import RollSlotModel
+from negpy.desktop.workers import ls5000_roll_worker as roll_worker_module
 from negpy.desktop.workers.ls5000_roll_worker import (
     RollOperation,
     RollPreviewRequest,
     RollScanRequest,
+)
+from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
+    ManualFrameApproval,
+    ReviewedRollFingerprint,
 )
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import ScanMode
@@ -120,20 +127,61 @@ PARKED_SA30_DEVICE = ScannerDevice(
 )
 
 
-def _roll_preview_session(count: int = 40):
+def _roll_preview_session(
+    count: int = 40,
+    *,
+    inferred_slots: frozenset[int] = frozenset(),
+    source_marker: str = "a",
+    visual_xor: int = 0,
+):
     """Build a tiny decoded roll index with no scanner or filesystem I/O."""
 
     thumbnail = np.arange(6 * 8 * 3, dtype=np.uint16).reshape(6, 8, 3)
+    fingerprint = ReviewedRollFingerprint(
+        source_preview_sha256=source_marker * 64,
+        source_table_sha256=("b" if source_marker == "a" else "d") * 64,
+        preview_shape=(count * 6, 8, 3),
+        frame_start_rows=tuple(range(0, count * 6, 6)),
+        frame_native_origins=tuple(range(1_000, 1_000 + count)),
+        frame_visual_hashes=tuple(
+            f"{int(hashlib.sha256(f'roll-slot-{slot_id}'.encode()).hexdigest(), 16) ^ visual_xor:064x}"
+            for slot_id in range(1, count + 1)
+        ),
+        frame_visual_log_spans=tuple(2.0 for _slot_id in range(1, count + 1)),
+    )
+
+    def approve_manual_origin(
+        slot_id: int,
+        boundary_offset_rows: int = 0,
+    ) -> ManualFrameApproval:
+        return ManualFrameApproval(
+            reviewed_fingerprint_sha256=fingerprint.binding_sha256,
+            slot=slot_id,
+            boundary_offset_rows=boundary_offset_rows,
+            thumbnail_sha256=f"{slot_id:064x}",
+            reviewed_lookup_row=slot_id,
+            reviewed_native_origin=1_000 + slot_id,
+            review_reasons=("transport-origin-inferred",),
+        )
+
     return SimpleNamespace(
         slots=tuple(
             SimpleNamespace(
                 slot_id=slot_id,
                 thumbnail=thumbnail,
-                warnings=("Likely blank tail slot",) if slot_id == count else (),
+                warnings=(
+                    ("transport-origin-inferred",)
+                    if slot_id in inferred_slots
+                    else ("Likely blank tail slot",)
+                    if slot_id == count
+                    else ()
+                ),
                 boundary_offset_rows=0,
             )
             for slot_id in range(1, count + 1)
-        )
+        ),
+        reviewed_fingerprint=lambda: fingerprint,
+        approve_manual_origin=approve_manual_origin,
     )
 
 
@@ -200,7 +248,9 @@ class _LightweightScanController(QObject):
     ls5000_roll_preview_ready = pyqtSignal(str, object)
     ls5000_roll_preview_invalidated = pyqtSignal()
     ls5000_roll_thumbnail_ready = pyqtSignal(int, int, object)
+    ls5000_roll_thumbnail_error = pyqtSignal(object)
     ls5000_roll_progress = pyqtSignal(object)
+    ls5000_roll_frame_finished = pyqtSignal(int, str)
     ls5000_roll_finished = pyqtSignal(object)
     ls5000_roll_error = pyqtSignal(object)
 
@@ -212,10 +262,11 @@ class _LightweightScanController(QObject):
         self.preview_requests: list[RollPreviewRequest] = []
         self.scan_requests: list[RollScanRequest] = []
         self.preview_invalidations = 0
+        self.reload_requests: list[tuple[int, int]] = []
         self.cancel_calls = 0
 
-    def reload_ls5000_roll_thumbnail(self, _slot_id: int, _offset: int) -> None:
-        pass
+    def reload_ls5000_roll_thumbnail(self, slot_id: int, offset: int) -> None:
+        self.reload_requests.append((slot_id, offset))
 
     def invalidate_ls5000_roll_preview(self) -> None:
         self.preview_invalidations += 1
@@ -638,6 +689,22 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
             "16-bit TIFF (linear negative)",
         )
 
+    def test_roll_storage_estimate_uses_the_selected_output_filesystem(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview_ready(
+            "preview-token",
+            _roll_preview_session(3),
+        )
+
+        with tempfile.TemporaryDirectory() as output_folder:
+            self.sidebar.folder_edit.setText(output_folder)
+            self.sidebar.roll_slot_selector.set_selected_slot_ids([1, 2])
+
+            estimate = self.sidebar.roll_slot_selector.storage_estimate_label.text()
+            self.assertIn("2 frames", estimate)
+            self.assertIn("GiB free", estimate)
+            self.assertNotIn("free space unknown", estimate)
+
     def test_roll_preview_meter_inset_is_clear_bounded_and_persisted(self):
         _select_device(self.sidebar, FULL_DEVICE)
         repo = self.controller.session.repo
@@ -925,6 +992,119 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
             "● Preview stopped · No thumbnails loaded",
         )
         self.assertIn("preview stopped", self.sidebar.roll_status_label.text().lower())
+
+    def test_stopped_roll_can_reselect_only_unfinished_slots(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview_ready(
+            "preview-token",
+            _roll_preview_session(5),
+        )
+        self.sidebar.folder_edit.setText("/tmp/negpy-roll-retry")
+        self.sidebar.roll_slot_selector.set_selected_slot_ids([1, 3, 5])
+
+        self.sidebar._on_roll_scan_selected([1, 3, 5])
+        self.controller.ls5000_roll_frame_finished.emit(1, "frame-01.tif")
+        self.sidebar._on_roll_finished(
+            SimpleNamespace(
+                rgb_paths=("frame-01.tif",),
+                stopped=True,
+                operation=RollOperation.FULL_SCAN,
+            )
+        )
+
+        self.assertFalse(self.sidebar.retry_remaining_btn.isHidden())
+        self.assertTrue(self.sidebar.retry_remaining_btn.isEnabled())
+        self.assertEqual(self.sidebar.retry_remaining_btn.text(), "Select remaining (2)")
+
+        self.sidebar.retry_remaining_btn.click()
+
+        self.assertEqual(
+            self.sidebar.roll_slot_selector.selected_slot_ids(),
+            [3, 5],
+        )
+        self.assertIn("Selected 2 unfinished slots", self.sidebar.roll_status_label.text())
+
+    def test_failed_roll_keeps_remaining_slots_through_preview_reload(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview_ready(
+            "preview-token",
+            _roll_preview_session(4),
+        )
+        self.sidebar.folder_edit.setText("/tmp/negpy-roll-retry")
+        self.sidebar._on_roll_scan_selected([1, 2, 4])
+        self.controller.ls5000_roll_frame_finished.emit(1, "frame-01.tif")
+
+        self.controller.ls5000_roll_preview_invalidated.emit()
+        self.sidebar._on_roll_error(
+            SimpleNamespace(
+                message="USB endpoint stalled",
+                recovery_required=True,
+            )
+        )
+
+        self.assertFalse(self.sidebar.retry_remaining_btn.isHidden())
+        self.assertFalse(self.sidebar.retry_remaining_btn.isEnabled())
+        self.assertIn("Reload thumbnails", self.sidebar.retry_remaining_btn.text())
+
+        self.sidebar._on_roll_preview_ready(
+            "replacement-token",
+            _roll_preview_session(4, source_marker="c"),
+        )
+
+        self.assertTrue(self.sidebar.retry_remaining_btn.isEnabled())
+        self.assertEqual(self.sidebar.retry_remaining_btn.text(), "Select remaining (2)")
+        self.sidebar.retry_remaining_btn.click()
+        self.assertEqual(
+            self.sidebar.roll_slot_selector.selected_slot_ids(),
+            [2, 4],
+        )
+
+    def test_failed_roll_retry_is_cleared_when_preview_is_a_different_roll(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview_ready(
+            "preview-token",
+            _roll_preview_session(4),
+        )
+        self.sidebar.folder_edit.setText("/tmp/negpy-roll-retry")
+        self.sidebar._on_roll_scan_selected([1, 2, 4])
+        self.controller.ls5000_roll_frame_finished.emit(1, "frame-01.tif")
+        self.controller.ls5000_roll_preview_invalidated.emit()
+
+        self.sidebar._on_roll_preview_ready(
+            "different-roll-token",
+            _roll_preview_session(4, source_marker="c", visual_xor=(1 << 256) - 1),
+        )
+
+        self.assertTrue(self.sidebar.retry_remaining_btn.isHidden())
+        self.assertEqual(self.sidebar._roll_retry_pending_slots, ())
+        self.assertIn("different roll", self.sidebar.roll_status_label.text().lower())
+
+    def test_equivalent_retry_preview_restores_original_scan_material(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview_ready(
+            "preview-token",
+            _roll_preview_session(4),
+        )
+        self.sidebar.folder_edit.setText("/tmp/negpy-roll-retry")
+        self.sidebar.roll_slot_selector.set_scan_material(
+            ScanMaterial.BLACK_AND_WHITE_NEGATIVE
+        )
+        self.sidebar._on_roll_scan_selected([1, 2])
+        self.controller.ls5000_roll_preview_invalidated.emit()
+        self.sidebar.roll_slot_selector.set_scan_material(
+            ScanMaterial.COLOR_NEGATIVE
+        )
+
+        self.sidebar._on_roll_preview_ready(
+            "replacement-token",
+            _roll_preview_session(4, source_marker="c"),
+        )
+
+        self.assertEqual(
+            self.sidebar.roll_slot_selector.scan_material(),
+            ScanMaterial.BLACK_AND_WHITE_NEGATIVE,
+        )
+        self.assertTrue(self.sidebar.retry_remaining_btn.isEnabled())
 
 
 class ScanSidebarTestCase(unittest.TestCase):
@@ -1427,6 +1607,37 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
         after = icon_after.pixmap(100, 100).toImage().pixelColor(50, 50).red()
         self.assertGreater(after, before + 40)
 
+    def test_thumbnail_reload_serializes_controls_and_failure_is_nonterminal(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview_ready("preview-token", _roll_preview_session(4))
+        self.sidebar.roll_slot_selector.set_selected_slot_ids([2])
+        self.sidebar.roll_slot_selector.boundary_offset_spin.setValue(-17)
+        self.controller.reload_ls5000_roll_thumbnail = MagicMock()
+        self.controller.start_ls5000_roll_preview = MagicMock()
+
+        self.sidebar.roll_slot_selector.reload_thumbnail_button.click()
+
+        self.controller.reload_ls5000_roll_thumbnail.assert_called_once_with(2, -17)
+        self.assertEqual(self.sidebar._roll_thumbnail_reload_pending, (2, -17))
+        self.assertFalse(self.sidebar.roll_preview_btn.isEnabled())
+        self.assertFalse(self.sidebar.roll_slot_selector.isEnabled())
+        self.sidebar._on_roll_preview()
+        self.controller.start_ls5000_roll_preview.assert_not_called()
+
+        self.controller.ls5000_roll_thumbnail_error.emit(
+            roll_worker_module.RollThumbnailReloadFailure(
+                slot_id=2,
+                boundary_offset_rows=-17,
+                message="Could not reload thumbnail: invalid offset",
+            )
+        )
+
+        self.assertIsNone(self.sidebar._roll_thumbnail_reload_pending)
+        self.assertFalse(self.sidebar._roll_scanning)
+        self.assertTrue(self.sidebar.roll_preview_btn.isEnabled())
+        self.assertTrue(self.sidebar.roll_slot_selector.isEnabled())
+        self.assertIn("invalid offset", self.sidebar.roll_status_label.text())
+
     def test_color_negative_request_keeps_offsets_and_selects_rgbi_route(self):
         _select_device(self.sidebar, FULL_DEVICE)
         self.sidebar._on_roll_preview_ready("preview-token", _roll_preview_session(8))
@@ -1462,7 +1673,53 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
         self.assertIn("4000 dpi", recipe)
         self.assertIn("16-bit", recipe)
         self.assertIn("RGB 4× + IR", recipe)
-        self.assertIn("IR dust repair available", recipe)
+        self.assertIn(
+            "IR repair: On after import",
+            self.sidebar.roll_slot_selector.ir_repair_status_label.text(),
+        )
+
+    def test_default_roll_filename_keeps_physical_slot_identity(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        self.sidebar._on_roll_preview_ready(
+            "preview-token",
+            _roll_preview_session(8),
+        )
+        self.sidebar.folder_edit.setText("/tmp/negpy-roll-slot-name")
+        self.controller.start_ls5000_roll_scan = MagicMock()
+
+        self.sidebar._on_roll_scan_selected([7])
+
+        request = self.controller.start_ls5000_roll_scan.call_args.args[0]
+        self.assertEqual(
+            request.filename_pattern,
+            '{{ date }}_slot{{ "%02d" % slot }}_{{ "%03d" % seq }}',
+        )
+
+    def test_scan_request_binds_explicit_inferred_origin_review_to_preview(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        session = _roll_preview_session(
+            4,
+            inferred_slots=frozenset({2}),
+        )
+        self.sidebar._on_roll_preview_ready("preview-token", session)
+        self.sidebar.folder_edit.setText("/tmp/negpy-roll-reviewed-origin")
+        self.sidebar.roll_slot_selector.set_selected_slot_ids([2])
+        self.sidebar.roll_slot_selector.boundary_offset_spin.setValue(-17)
+        self.sidebar.roll_slot_selector.confirm_slot_thumbnail(2, -17, None)
+        self.sidebar.roll_slot_selector.review_approval_check.setChecked(True)
+        self.sidebar.roll_slot_selector.set_selected_slot_ids([2, 4])
+        self.controller.start_ls5000_roll_scan = MagicMock()
+
+        self.sidebar._on_roll_scan_selected([2, 4])
+
+        request = self.controller.start_ls5000_roll_scan.call_args.args[0]
+        self.assertEqual(request.reviewed_fingerprint, session.reviewed_fingerprint())
+        choices = {choice.slot_id: choice for choice in request.frames}
+        self.assertEqual(
+            choices[2].manual_review_approval,
+            session.approve_manual_origin(2, -17),
+        )
+        self.assertIsNone(choices[4].manual_review_approval)
 
     def test_black_and_white_request_selects_rgb_only_route(self):
         _select_device(self.sidebar, FULL_DEVICE)
@@ -1486,7 +1743,10 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
         self.assertIn("4000 dpi", recipe)
         self.assertIn("16-bit", recipe)
         self.assertIn("RGB only, 4×", recipe)
-        self.assertIn("IR/dust repair off", recipe)
+        self.assertIn(
+            "IR repair: Off",
+            self.sidebar.roll_slot_selector.ir_repair_status_label.text(),
+        )
 
     def test_black_and_white_refuses_missing_sane_capability_but_color_remains_available(
         self,

@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import FrozenInstanceError, dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from negpy.infrastructure.scanners import ls5000_single_pass as single_pass
@@ -124,12 +125,103 @@ class Binding:
 def _batch_session_provenance(
     job_path: Path,
     worker_sha256: str,
-) -> dict[str, str]:
+) -> dict[str, object]:
+    job = json.loads(job_path.read_text(encoding="utf-8"))
     return {
         "batch_job_sha256": hashlib.sha256(job_path.read_bytes()).hexdigest(),
         "capture_bundle_sha256": CAPTURE_BUNDLE_SHA256,
         "capture_engine_sha256": worker_sha256,
+        "manual_review_approval_sha256_by_slot": {
+            str(frame["slot"]): (
+                None
+                if frame["manual_review_approval"] is None
+                else frame["manual_review_approval"]["binding_sha256"]
+            )
+            for frame in job["frames"]
+        },
+        "reviewed_roll_fingerprint_sha256": job[
+            "reviewed_roll_fingerprint"
+        ]["binding_sha256"],
     }
+
+
+def _reviewed_fingerprint() -> capture.ReviewedRollFingerprint:
+    return capture.ReviewedRollFingerprint(
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+        preview_shape=(6_104, 96, 3),
+        frame_start_rows=tuple(100 + 143 * index for index in range(40)),
+        frame_native_origins=tuple(6_000 + 6_000 * index for index in range(40)),
+        frame_visual_hashes=tuple(f"{index:064x}" for index in range(40)),
+        frame_visual_log_spans=(2.0,) * 40,
+    )
+
+
+def _manual_approval(
+    fingerprint: capture.ReviewedRollFingerprint,
+    *,
+    slot: int,
+    offset: int,
+) -> capture.ManualFrameApproval:
+    return capture.ManualFrameApproval(
+        reviewed_fingerprint_sha256=fingerprint.binding_sha256,
+        slot=slot,
+        boundary_offset_rows=offset,
+        thumbnail_sha256="3" * 64,
+        reviewed_lookup_row=2_400,
+        reviewed_native_origin=100_000,
+        review_reasons=("transport-origin-inferred",),
+    )
+
+
+def _roll_identity_evidence(
+    reviewed_fingerprint_sha256: str,
+    *,
+    slot: int,
+) -> dict[str, object]:
+    return {
+        "reviewed_fingerprint_sha256": reviewed_fingerprint_sha256,
+        "fresh_fingerprint_sha256": "d" * 64,
+        "comparison": capture.RollFingerprintComparison(
+            matches=True,
+            reason="matched",
+            compared_frames=40,
+            preview_height_delta_rows=2,
+            visual_median_hamming=6.0,
+            visual_p90_hamming=12,
+            frame_start_median_delta_rows=2.0,
+            frame_start_max_delta_rows=8,
+            native_origin_median_delta=14.0,
+            native_origin_max_delta=42,
+            discriminative_frames=40,
+            minimum_discriminative_frames=3,
+            minimum_visual_log_span=0.5,
+        ).to_payload(),
+        "selected_slot_comparison": capture.SelectedRollFingerprintComparison(
+            matches=True,
+            reason="matched",
+            slot=slot,
+            visual_hamming=8,
+            maximum_visual_hamming=48,
+            reviewed_visual_log_span=2.0,
+            fresh_visual_log_span=1.9,
+            minimum_visual_log_span=0.5,
+        ).to_payload(),
+    }
+
+
+def _fingerprint_raster() -> tuple[np.ndarray, tuple[tuple[int, int], ...]]:
+    frame_height = 20
+    frames = []
+    for slot in range(40):
+        rng = np.random.default_rng(10_000 + slot)
+        coarse = rng.integers(2_000, 50_000, size=(10, 10, 3), dtype=np.uint16)
+        frames.append(np.repeat(np.repeat(coarse, 2, axis=0), 2, axis=1))
+    rgb = np.concatenate(frames, axis=0).clip(0, 65_535).astype(np.uint16)
+    intervals = tuple(
+        (slot * frame_height, (slot + 1) * frame_height) for slot in range(40)
+    )
+    return rgb, intervals
 
 
 @pytest.fixture
@@ -154,24 +246,224 @@ def _adapter(tmp_path: Path, binding: Binding, runner: FakeRunner) -> capture.Ca
 
 
 def test_batch_request_is_one_immutable_ordered_full_capture_unit() -> None:
+    fingerprint = _reviewed_fingerprint()
+    approval = _manual_approval(fingerprint, slot=17, offset=-12)
     request = capture.CaptureBatchRequest(
         frames=(
             capture.CaptureRequest(
                 mode=capture.CaptureMode.FULL,
                 selected_slot=17,
                 boundary_offset_rows=-12,
+                manual_review_approval=approval,
             ),
             capture.CaptureRequest(
                 mode=capture.CaptureMode.FULL,
                 selected_slot=19,
                 boundary_offset_rows=8,
             ),
-        )
+        ),
+        reviewed_fingerprint=fingerprint,
     )
 
     assert request.selected_slots == (17, 19)
+    assert request.reviewed_fingerprint is fingerprint
+    assert request.frames[0].manual_review_approval is approval
     with pytest.raises(FrozenInstanceError):
         setattr(request, "frames", ())
+
+
+def test_roll_fingerprint_accepts_harmless_reread_noise_but_rejects_reordered_film() -> None:
+    rgb, intervals = _fingerprint_raster()
+    origins = tuple(6_000 + 6_000 * index for index in range(40))
+    reviewed = capture.build_reviewed_roll_fingerprint(
+        rgb,
+        frame_intervals=intervals,
+        frame_native_origins=origins,
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+    )
+    rng = np.random.default_rng(17)
+    reread = np.clip(
+        rgb.astype(np.float64) * 1.08 + rng.normal(0.0, 12.0, rgb.shape),
+        0,
+        65_535,
+    ).astype(np.uint16)
+    reread = np.concatenate(
+        (reread, np.repeat(reread[-1:, :, :], 8, axis=0)),
+        axis=0,
+    )
+    fresh = capture.build_reviewed_roll_fingerprint(
+        reread,
+        frame_intervals=intervals,
+        frame_native_origins=tuple(value + (-28 if index % 2 else 28) for index, value in enumerate(origins)),
+        source_preview_sha256="4" * 64,
+        source_table_sha256="5" * 64,
+    )
+
+    accepted = capture.compare_reviewed_roll_fingerprints(reviewed, fresh)
+
+    assert accepted.matches is True
+    assert accepted.visual_median_hamming <= 24
+    assert accepted.visual_p90_hamming <= 48
+
+    frame_height = intervals[0][1] - intervals[0][0]
+    reordered = np.concatenate(
+        [
+            rgb[start:end]
+            for start, end in reversed(intervals)
+        ],
+        axis=0,
+    )
+    changed = capture.build_reviewed_roll_fingerprint(
+        reordered,
+        frame_intervals=tuple(
+            (slot * frame_height, (slot + 1) * frame_height)
+            for slot in range(40)
+        ),
+        frame_native_origins=origins,
+        source_preview_sha256="6" * 64,
+        source_table_sha256="7" * 64,
+    )
+
+    refused = capture.compare_reviewed_roll_fingerprints(reviewed, changed)
+
+    assert refused.matches is False
+    assert refused.reason == "visual-content-mismatch"
+
+
+def test_selected_slot_fingerprint_refuses_one_changed_outlier() -> None:
+    rgb, intervals = _fingerprint_raster()
+    origins = tuple(6_000 + 6_000 * index for index in range(40))
+    reviewed = capture.build_reviewed_roll_fingerprint(
+        rgb,
+        frame_intervals=intervals,
+        frame_native_origins=origins,
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+    )
+    changed_rgb = rgb.copy()
+    start, end = intervals[16]
+    rng = np.random.default_rng(91_017)
+    changed_rgb[start:end] = rng.integers(
+        1,
+        65_535,
+        size=changed_rgb[start:end].shape,
+        dtype=np.uint16,
+    )
+    fresh = capture.build_reviewed_roll_fingerprint(
+        changed_rgb,
+        frame_intervals=intervals,
+        frame_native_origins=origins,
+        source_preview_sha256="3" * 64,
+        source_table_sha256="4" * 64,
+    )
+
+    # The roll-level aggregate is deliberately tolerant of a small number of
+    # damaged/blank candidates, but a selected frame must prove its own image.
+    assert capture.compare_reviewed_roll_fingerprints(reviewed, fresh).matches
+    selected = capture.compare_selected_roll_fingerprint(
+        reviewed,
+        fresh,
+        slot=17,
+    )
+
+    assert selected.matches is False
+    assert selected.reason == "selected-visual-content-mismatch"
+    assert selected.visual_hamming > selected.maximum_visual_hamming
+    assert selected.to_payload()["slot"] == 17
+
+
+def test_roll_fingerprint_refuses_flat_non_discriminative_signatures() -> None:
+    intervals = tuple((slot * 20, (slot + 1) * 20) for slot in range(40))
+    origins = tuple(6_000 + 6_000 * index for index in range(40))
+    reviewed = capture.build_reviewed_roll_fingerprint(
+        np.full((800, 20, 3), 1_000, dtype=np.uint16),
+        frame_intervals=intervals,
+        frame_native_origins=origins,
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+    )
+    fresh = capture.build_reviewed_roll_fingerprint(
+        np.full((800, 20, 3), 50_000, dtype=np.uint16),
+        frame_intervals=intervals,
+        frame_native_origins=origins,
+        source_preview_sha256="3" * 64,
+        source_table_sha256="4" * 64,
+    )
+
+    comparison = capture.compare_reviewed_roll_fingerprints(reviewed, fresh)
+
+    assert comparison.matches is False
+    assert comparison.reason == "visual-signature-indeterminate"
+    assert comparison.discriminative_frames == 0
+    assert comparison.minimum_discriminative_frames == 3
+
+
+def test_roll_fingerprint_ignores_blank_tail_slots_in_visual_aggregate() -> None:
+    starts = tuple(100 + 143 * index for index in range(40))
+    origins = tuple(6_000 + 6_000 * index for index in range(40))
+    informative_hashes = tuple(f"{index + 1:064x}" for index in range(24))
+    reviewed = capture.ReviewedRollFingerprint(
+        source_preview_sha256="1" * 64,
+        source_table_sha256="2" * 64,
+        preview_shape=(6_104, 96, 3),
+        frame_start_rows=starts,
+        frame_native_origins=origins,
+        frame_visual_hashes=informative_hashes + ("0" * 64,) * 16,
+        frame_visual_log_spans=(2.0,) * 24 + (0.0,) * 16,
+    )
+    fresh = capture.ReviewedRollFingerprint(
+        source_preview_sha256="3" * 64,
+        source_table_sha256="4" * 64,
+        preview_shape=(6_104, 96, 3),
+        frame_start_rows=starts,
+        frame_native_origins=origins,
+        frame_visual_hashes=informative_hashes + ("f" * 64,) * 16,
+        frame_visual_log_spans=(2.0,) * 24 + (0.0,) * 16,
+    )
+
+    comparison = capture.compare_reviewed_roll_fingerprints(reviewed, fresh)
+
+    assert comparison.matches is True
+    assert comparison.reason == "matched"
+    assert comparison.discriminative_frames == 24
+    assert comparison.visual_median_hamming == 0.0
+    assert comparison.visual_p90_hamming == 0
+
+
+def test_roll_fingerprint_thresholds_retain_archived_same_roll_margin() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).parent
+            / "fixtures"
+            / "ls5000-roll-fingerprint-calibration.json"
+        ).read_text(encoding="utf-8")
+    )
+    thresholds = fixture["thresholds"]
+    assert thresholds == {
+        "frame_start_max_delta_rows": capture.MAX_FRAME_START_DELTA_ROWS,
+        "frame_start_median_delta_rows": capture.MAX_FRAME_START_MEDIAN_DELTA_ROWS,
+        "native_origin_max_delta": capture.MAX_NATIVE_ORIGIN_DELTA,
+        "native_origin_median_delta": capture.MAX_NATIVE_ORIGIN_MEDIAN_DELTA,
+        "preview_height_delta_rows": capture.MAX_PREVIEW_HEIGHT_DELTA_ROWS,
+        "selected_visual_hamming": capture.MAX_SELECTED_VISUAL_HAMMING,
+        "visual_log_span_min": capture.MIN_VISUAL_LOG_SPAN,
+        "minimum_discriminative_frames": capture.MIN_DISCRIMINATIVE_FRAME_COUNT,
+        "visual_median_hamming": capture.MAX_VISUAL_MEDIAN_HAMMING,
+        "visual_p90_hamming": capture.MAX_VISUAL_P90_HAMMING,
+    }
+    same_roll = fixture["same_roll_rereads"]
+    assert max(item["visual_p90_hamming"] for item in same_roll) <= 16
+    assert max(item["frame_start_max_delta_rows"] for item in same_roll) <= 12
+    assert max(item["native_origin_max_delta"] for item in same_roll) <= 56
+    guard = fixture["discriminative_guard"]
+    assert guard["same_roll_selected_visual_hamming_max"] <= 32
+    assert guard["same_roll_selected_visual_hamming_max"] < thresholds["selected_visual_hamming"]
+    assert guard["same_roll_visual_log_span_min"] > 3 * thresholds["visual_log_span_min"]
+    different = fixture["different_roll"]
+    assert different["common_slot_visual_hamming_median"] > thresholds["visual_median_hamming"]
+    assert different["frame_start_delta_median_rows"] > thresholds["frame_start_median_delta_rows"]
+    assert different["native_origin_delta_median"] > thresholds["native_origin_median_delta"]
 
 
 def test_batch_session_foundation_is_exported_from_scanner_package() -> None:
@@ -185,19 +477,23 @@ def test_prepare_batch_frames_every_selected_slot_as_one_future_child_session(
 ) -> None:
     runner = FakeRunner(binding.worker_sha256)
     adapter = _adapter(tmp_path, binding, runner)
+    fingerprint = _reviewed_fingerprint()
+    approval = _manual_approval(fingerprint, slot=17, offset=-12)
     request = capture.CaptureBatchRequest(
         frames=(
             capture.CaptureRequest(
                 mode=capture.CaptureMode.FULL,
                 selected_slot=17,
                 boundary_offset_rows=-12,
+                manual_review_approval=approval,
             ),
             capture.CaptureRequest(
                 mode=capture.CaptureMode.FULL,
                 selected_slot=19,
                 boundary_offset_rows=8,
             ),
-        )
+        ),
+        reviewed_fingerprint=fingerprint,
     )
 
     prepared = adapter.prepare_batch_session(request)
@@ -224,6 +520,7 @@ def test_prepare_batch_frames_every_selected_slot_as_one_future_child_session(
                 "ack": "frame-017/parent-ack.json",
                 "boundary_offset_rows": -12,
                 "journal": "frame-017/journal.json",
+                "manual_review_approval": approval.to_payload(),
                 "output": "frame-017/capture.bin",
                 "slot": 17,
             },
@@ -231,13 +528,15 @@ def test_prepare_batch_frames_every_selected_slot_as_one_future_child_session(
                 "ack": "frame-019/parent-ack.json",
                 "boundary_offset_rows": 8,
                 "journal": "frame-019/journal.json",
+                "manual_review_approval": None,
                 "output": "frame-019/capture.bin",
                 "slot": 19,
             },
         ],
         "parent_ack_required_after_every_frame": True,
         "release_once_after_last_frame": True,
-        "schema_version": 1,
+        "reviewed_roll_fingerprint": fingerprint.to_payload(),
+        "schema_version": 2,
         "session_id": prepared.session_id,
         "session_contract": "one-process-one-reservation",
     }
@@ -267,7 +566,8 @@ def test_batch_session_receipt_rejects_tampered_process_identity(
 ) -> None:
     adapter = _adapter(tmp_path, binding, FakeRunner(binding.worker_sha256))
     request = capture.CaptureBatchRequest(
-        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),),
+        reviewed_fingerprint=_reviewed_fingerprint(),
     )
     prepared = adapter.prepare_batch_session(request)
     receipt: dict[str, object] = {
@@ -310,7 +610,8 @@ def test_failed_batch_receipt_rejects_unobserved_completed_frames(
         (
             capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),
             capture.CaptureRequest(capture.CaptureMode.FULL, 19, 0),
-        )
+        ),
+        reviewed_fingerprint=_reviewed_fingerprint(),
     )
     prepared = adapter.prepare_batch_session(request)
     receipt: dict[str, object] = {
@@ -381,7 +682,8 @@ def test_stop_winning_the_launch_gate_prevents_batch_process_creation(
         batch_poll_seconds=0,
     )
     request = capture.CaptureBatchRequest(
-        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),),
+        reviewed_fingerprint=_reviewed_fingerprint(),
     )
     errors: list[BaseException] = []
 
@@ -468,6 +770,18 @@ def test_batch_parent_finalizes_each_frame_before_acknowledging_the_next(
                         ),
                         "expected_reads": CANONICAL_FINE_READ_COUNT,
                         "frame_complete": True,
+                        "live_frame_selection": {
+                            "frame": frame["slot"],
+                            "roll_identity": _roll_identity_evidence(
+                                self.job["reviewed_roll_fingerprint"][
+                                    "binding_sha256"
+                                ],
+                                slot=frame["slot"],
+                            ),
+                        },
+                        "manual_review_approval": frame[
+                            "manual_review_approval"
+                        ],
                         "output": str(output.resolve()),
                         "output_sha256": "a" * 64,
                         "plan_sha256": CANONICAL_PLAN_SHA256,
@@ -476,6 +790,9 @@ def test_batch_parent_finalizes_each_frame_before_acknowledging_the_next(
                             "boundary_offset_rows"
                         ],
                         "requested_frame": frame["slot"],
+                        "reviewed_roll_fingerprint_sha256": self.job[
+                            "reviewed_roll_fingerprint"
+                        ]["binding_sha256"],
                         "session_reservation_retained": True,
                         "status": "frame-complete",
                         "unit_released": False,
@@ -561,7 +878,8 @@ def test_batch_parent_finalizes_each_frame_before_acknowledging_the_next(
         frames=(
             capture.CaptureRequest(capture.CaptureMode.FULL, 17, -12),
             capture.CaptureRequest(capture.CaptureMode.FULL, 19, 8),
-        )
+        ),
+        reviewed_fingerprint=_reviewed_fingerprint(),
     )
 
     def finalize(result: capture.CaptureAttemptResult) -> capture.BatchAckAction:
@@ -585,6 +903,69 @@ def test_batch_parent_finalizes_each_frame_before_acknowledging_the_next(
         "ack-19-continue",
     ]
     assert result.session_journal["unit_release_attempts"] == 1
+
+
+def test_batch_adapter_refuses_false_roll_comparison_before_parent_handler(
+    tmp_path: Path,
+    binding: Binding,
+) -> None:
+    adapter = _adapter(tmp_path, binding, FakeRunner(binding.worker_sha256))
+    fingerprint = _reviewed_fingerprint()
+    request = capture.CaptureBatchRequest(
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),),
+        reviewed_fingerprint=fingerprint,
+    )
+    prepared = adapter.prepare_batch_session(request)
+    frame_request = request.frames[0]
+    paths = adapter._batch_frame_paths(prepared, frame_request)
+    paths.output.parent.mkdir(parents=True)
+    with paths.output.open("xb") as stream:
+        stream.truncate(CANONICAL_FINE_READ_COUNT * CANONICAL_FINE_READ_BYTES)
+    roll_identity = _roll_identity_evidence(
+        fingerprint.binding_sha256,
+        slot=17,
+    )
+    roll_identity["comparison"]["matches"] = False
+    roll_identity["comparison"]["reason"] = "visual-content-mismatch"
+    payload = {
+        "ack_nonce": "nonce-17",
+        "batch_session": {
+            "frame_index": 1,
+            "frame_total": 1,
+            "selected_slots": [17],
+            "session_id": prepared.session_id,
+        },
+        "capture_engine_sha256": binding.worker_sha256,
+        "capture_mode": "full",
+        "completed_bytes": CANONICAL_FINE_READ_COUNT * CANONICAL_FINE_READ_BYTES,
+        "completed_reads": CANONICAL_FINE_READ_COUNT,
+        "continuation_plan_sha256": CANONICAL_CONTINUATION_PLAN_SHA256,
+        "disk_bytes": CANONICAL_FINE_READ_COUNT * CANONICAL_FINE_READ_BYTES,
+        "expected_bytes": CANONICAL_FINE_READ_COUNT * CANONICAL_FINE_READ_BYTES,
+        "expected_reads": CANONICAL_FINE_READ_COUNT,
+        "frame_complete": True,
+        "live_frame_selection": {"frame": 17, "roll_identity": roll_identity},
+        "manual_review_approval": None,
+        "output": str(paths.output.resolve()),
+        "output_sha256": "a" * 64,
+        "plan_sha256": CANONICAL_PLAN_SHA256,
+        "recovery_required": None,
+        "requested_boundary_offset_rows": 0,
+        "requested_frame": 17,
+        "reviewed_roll_fingerprint_sha256": fingerprint.binding_sha256,
+        "session_reservation_retained": True,
+        "status": "frame-complete",
+        "unit_released": False,
+    }
+
+    with pytest.raises(capture.CaptureProcessError, match="roll fingerprint comparison"):
+        adapter._validate_batch_frame_result(
+            prepared,
+            frame_request,
+            paths,
+            payload,
+            frame_index=1,
+        )
 
 
 @pytest.mark.parametrize(
@@ -654,12 +1035,27 @@ def test_batch_parent_always_waits_for_child_release_after_post_spawn_failure(
                         ),
                         "expected_reads": CANONICAL_FINE_READ_COUNT,
                         "frame_complete": True,
+                        "live_frame_selection": {
+                            "frame": 17,
+                            "roll_identity": _roll_identity_evidence(
+                                self.job["reviewed_roll_fingerprint"][
+                                    "binding_sha256"
+                                ],
+                                slot=17,
+                            ),
+                        },
+                        "manual_review_approval": frame[
+                            "manual_review_approval"
+                        ],
                         "output": str(output.resolve()),
                         "output_sha256": "a" * 64,
                         "plan_sha256": CANONICAL_PLAN_SHA256,
                         "recovery_required": None,
                         "requested_boundary_offset_rows": 0,
                         "requested_frame": 17,
+                        "reviewed_roll_fingerprint_sha256": self.job[
+                            "reviewed_roll_fingerprint"
+                        ]["binding_sha256"],
                         "session_reservation_retained": True,
                         "status": "frame-complete",
                         "unit_released": False,
@@ -777,7 +1173,8 @@ def test_batch_parent_always_waits_for_child_release_after_post_spawn_failure(
         return capture.BatchAckAction.CONTINUE
 
     request = capture.CaptureBatchRequest(
-        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),),
+        reviewed_fingerprint=_reviewed_fingerprint(),
     )
     with pytest.raises(capture.CaptureBatchProcessError) as raised:
         adapter.run_batch_session(request, frame_handler=handler)
@@ -874,7 +1271,8 @@ def test_failed_batch_before_reserve_preserves_recovery_without_release(
         batch_poll_seconds=0,
     )
     request = capture.CaptureBatchRequest(
-        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),)
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),),
+        reviewed_fingerprint=_reviewed_fingerprint(),
     )
 
     with pytest.raises(capture.CaptureBatchProcessError) as raised:

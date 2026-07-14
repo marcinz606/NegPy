@@ -2,7 +2,15 @@
 
 import pytest
 from PyQt6.QtCore import QPersistentModelIndex, QPoint, QRect, Qt
-from PyQt6.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPixmap
+from PyQt6.QtGui import (
+    QColor,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPixmap,
+    QShortcut,
+)
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QStyleOptionViewItem
 
@@ -193,6 +201,24 @@ def test_transport_warning_codes_are_explained_in_plain_language() -> None:
     assert "transport-origin-inferred" not in tooltip
 
 
+def test_model_distinguishes_advisory_from_blocking_review_warnings() -> None:
+    model = RollSlotModel(
+        [
+            RollPreviewSlot(1, warnings=("beyond-advisory-content-end",)),
+            RollPreviewSlot(2, warnings=("transport-origin-inferred",)),
+        ]
+    )
+
+    advisory = model.index(0, 0)
+    blocking = model.index(1, 0)
+
+    assert model.data(advisory, RollSlotModel.WARNING_STATE_ROLE) == "advisory"
+    assert model.data(blocking, RollSlotModel.WARNING_STATE_ROLE) == "blocking"
+    assert "Advisory preview warning" in model.data(advisory, Qt.ItemDataRole.ToolTipRole)
+    assert "Blocking review" in model.data(blocking, Qt.ItemDataRole.ToolTipRole)
+    assert "blocking review required" in model.data(blocking, Qt.ItemDataRole.AccessibleTextRole)
+
+
 @pytest.mark.parametrize(
     ("warning", "expected"),
     (
@@ -316,6 +342,77 @@ def test_select_all_clear_and_selected_count(qapp: QApplication) -> None:
         selector.close()
 
 
+def test_selected_frames_show_final_scratch_and_free_space_estimates(qapp: QApplication) -> None:
+    selector = _shown_selector(qapp, 3)
+    try:
+        assert selector.storage_estimate_label.text() == "Select frames to estimate storage."
+
+        selector.set_available_storage_bytes(8 * 1024**3)
+        selector.set_selected_slot_ids([1, 3])
+
+        estimate = selector.storage_estimate_label.text()
+        assert "2 frames" in estimate
+        assert "final budget 512 MiB" in estimate
+        assert "scratch 591 MiB" in estimate
+        assert "2.08 GiB working space needed" in estimate
+        assert "8.00 GiB free" in estimate
+        assert selector.scan_button.isEnabled()
+
+        selector.set_available_storage_bytes(1024**3)
+
+        assert not selector.scan_button.isEnabled()
+        assert "only 1.00 GiB is free" in selector.scan_button.toolTip()
+    finally:
+        selector.close()
+
+
+def test_storage_gate_includes_conservative_output_budget_for_every_selected_frame(
+    qapp: QApplication,
+) -> None:
+    selector = _shown_selector(qapp, 3)
+    required_for_two = 1_693_200_384 + 2 * 256 * 1024**2
+    try:
+        selector.set_available_storage_bytes(required_for_two)
+        selector.set_selected_slot_ids([1, 2])
+
+        assert selector.scan_button.isEnabled()
+
+        selector.set_available_storage_bytes(required_for_two - 1)
+
+        assert not selector.scan_button.isEnabled()
+        assert "Full-quality capture needs" in selector.scan_button.toolTip()
+    finally:
+        selector.close()
+
+
+def test_storage_gate_resyncs_immediately_for_color_and_black_and_white(
+    qapp: QApplication,
+) -> None:
+    selector = _shown_selector(qapp, 3)
+    try:
+        selector.set_available_storage_bytes(1024**3)
+        selector.set_selected_slot_ids([1, 2])
+
+        assert selector.scan_material() is ScanMaterial.COLOR_NEGATIVE
+        assert not selector.scan_button.isEnabled()
+        assert "final budget 512 MiB" in selector.storage_estimate_label.text()
+        assert "scratch 591 MiB" in selector.storage_estimate_label.text()
+
+        selector.set_scan_material(ScanMaterial.BLACK_AND_WHITE_NEGATIVE)
+
+        assert selector.scan_button.isEnabled()
+        assert "final budget 384 MiB" in selector.storage_estimate_label.text()
+        assert "scratch none" in selector.storage_estimate_label.text()
+        assert "0.62 GiB working space needed" in selector.storage_estimate_label.text()
+
+        selector.set_scan_material(ScanMaterial.COLOR_NEGATIVE)
+
+        assert not selector.scan_button.isEnabled()
+        assert "scratch 591 MiB" in selector.storage_estimate_label.text()
+    finally:
+        selector.close()
+
+
 def test_scan_action_emits_explicit_slot_ids_in_display_order(qapp: QApplication) -> None:
     selector = _shown_selector(qapp, 12, warning_slots={9})
     requests: list[list[int]] = []
@@ -328,6 +425,59 @@ def test_scan_action_emits_explicit_slot_ids_in_display_order(qapp: QApplication
         QTest.mouseClick(selector.scan_button, Qt.MouseButton.LeftButton)
 
         assert requests == [[2, 5, 9]]
+    finally:
+        selector.close()
+
+
+def test_inferred_origin_requires_explicit_review_before_scan_request(
+    qapp: QApplication,
+) -> None:
+    selector = RollSlotSelector()
+    selector.set_slots(
+        [
+            RollPreviewSlot(1),
+            RollPreviewSlot(2, warnings=("transport-origin-inferred",)),
+        ]
+    )
+    requests: list[list[int]] = []
+    selector.scan_requested.connect(requests.append)
+    selector.show()
+    qapp.processEvents()
+    try:
+        selector.set_selected_slot_ids([2])
+
+        assert selector.review_approval_check.isVisible()
+        assert selector.review_approval_check.text() == "I reviewed this inferred position"
+        assert not selector.review_approval_check.isChecked()
+        assert not selector.scan_button.isEnabled()
+        assert "review slot 02" in selector.scan_button.toolTip().lower()
+
+        selector.review_approval_check.setChecked(True)
+
+        assert selector.model.data(selector.model.index(1, 0), RollSlotModel.WARNING_STATE_ROLE) == "reviewed"
+        assert selector.approved_blocking_slot_ids() == [2]
+        assert selector.scan_button.isEnabled()
+
+        selector.request_thumbnail_reload()
+
+        assert selector.approved_blocking_slot_ids() == []
+        assert not selector.scan_button.isEnabled()
+        selector.review_approval_check.setChecked(True)
+        QTest.mouseClick(selector.scan_button, Qt.MouseButton.LeftButton)
+        assert requests == [[2]]
+
+        selector.confirm_slot_thumbnail(2, 0, None)
+
+        assert selector.approved_blocking_slot_ids() == []
+        assert selector.model.data(selector.model.index(1, 0), RollSlotModel.WARNING_STATE_ROLE) == "blocking"
+        assert not selector.review_approval_check.isChecked()
+        assert not selector.scan_button.isEnabled()
+
+        selector.review_approval_check.setChecked(True)
+        selector.boundary_offset_spin.setValue(-1)
+
+        assert selector.approved_blocking_slot_ids() == []
+        assert selector.model.data(selector.model.index(1, 0), RollSlotModel.WARNING_STATE_ROLE) == "blocking"
     finally:
         selector.close()
 
@@ -396,6 +546,20 @@ def test_film_spacing_controls_have_practical_hit_areas_and_discoverable_shortcu
         assigned = {QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText) for key in default_bindings().values() if key}
         assert decrease not in assigned
         assert increase not in assigned
+    finally:
+        selector.close()
+
+
+def test_roll_selector_does_not_compete_for_the_window_escape_shortcut(
+    qapp: QApplication,
+) -> None:
+    selector = _shown_selector(qapp, 3)
+    try:
+        escape = QKeySequence(Qt.Key.Key_Escape)
+        assert all(
+            shortcut.key() != escape
+            for shortcut in selector.findChildren(QShortcut)
+        )
     finally:
         selector.close()
 
@@ -486,14 +650,18 @@ def test_scan_material_choice_exposes_capture_and_ir_repair_behavior(qapp: QAppl
         assert selector.scan_material() is ScanMaterial.COLOR_NEGATIVE
         assert selector.scan_material_combo.currentText() == "Color negative (C-41)"
         assert "RGB 4× + IR" in selector.scan_material_status_label.text()
-        assert "IR dust repair available" in selector.scan_material_status_label.text()
+        assert "IR repair: On after import" in selector.ir_repair_status_label.text()
+        assert "scanner-linear master stays unchanged" in selector.ir_repair_status_label.text()
+        assert selector.ir_repair_status_label.property("irRepairState") == "on"
 
         selector.set_scan_material(ScanMaterial.BLACK_AND_WHITE_NEGATIVE)
 
         assert selector.scan_material() is ScanMaterial.BLACK_AND_WHITE_NEGATIVE
         assert selector.scan_material_combo.currentText() == "Black-and-white negative"
         assert "RGB only" in selector.scan_material_status_label.text()
-        assert "IR/dust repair off" in selector.scan_material_status_label.text()
+        assert "IR repair: Off" in selector.ir_repair_status_label.text()
+        assert "no infrared channel is captured" in selector.ir_repair_status_label.text()
+        assert selector.ir_repair_status_label.property("irRepairState") == "off"
         assert changes == [ScanMaterial.BLACK_AND_WHITE_NEGATIVE]
     finally:
         selector.close()
