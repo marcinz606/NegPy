@@ -165,6 +165,26 @@ class ContactSheetTemplates:
         return name in ContactSheetTemplates._scan()
 
     @staticmethod
+    def delete(name: str) -> bool:
+        """Delete a custom template by display name; Default is not deletable.
+        The display name comes from the TOML `name` field, not the filename, so
+        the file is found by parsing rather than via path_for_name."""
+        if not name or name == DEFAULT_NAME:
+            return False
+        templates_dir = ContactSheetTemplates._templates_dir()
+        if not os.path.isdir(templates_dir):
+            return False
+        for fname in os.listdir(templates_dir):
+            if not fname.endswith(".toml"):
+                continue
+            path = os.path.join(templates_dir, fname)
+            parsed = ContactSheetTemplates._parse_file(path)
+            if parsed is not None and parsed[0] == name:
+                os.remove(path)
+                return True
+        return False
+
+    @staticmethod
     def save(name: str, layout: ContactSheetLayout) -> str:
         """Write a template TOML and return its path."""
         templates_dir = ContactSheetTemplates._templates_dir()

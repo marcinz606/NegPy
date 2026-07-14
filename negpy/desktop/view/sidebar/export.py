@@ -96,6 +96,7 @@ class ExportSidebar(BaseSidebar):
 
         self.contact_sheet_btn.clicked.connect(self.controller.request_contact_sheet)
         self.cs_save_template_btn.clicked.connect(self._on_save_contact_sheet_template)
+        self.cs_delete_template_btn.clicked.connect(self._on_delete_contact_sheet_template)
         self.cs_template_combo.currentTextChanged.connect(self._on_contact_sheet_template_changed)
 
         self.sidecars_enabled_btn.toggled.connect(lambda _: self.update_timer.start())
@@ -173,6 +174,12 @@ class ExportSidebar(BaseSidebar):
         )
         template_row.addWidget(self.cs_template_combo)
         content_layout.addLayout(template_row)
+
+        self.cs_delete_template_btn = QPushButton()
+        self.cs_delete_template_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
+        self.cs_delete_template_btn.setToolTip("Delete the selected template (Default can't be deleted)")
+        self.cs_delete_template_btn.setFixedWidth(32)
+        template_row.addWidget(self.cs_delete_template_btn)
 
         self.cs_save_template_btn = QPushButton(" Save as template")
         self.cs_save_template_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
@@ -350,6 +357,27 @@ class ExportSidebar(BaseSidebar):
             contact_sheet_template=name,
             **ContactSheetTemplates.active_layout_field_updates(layout),
         )
+
+    def _on_delete_contact_sheet_template(self) -> None:
+        name = self.cs_template_combo.currentText()
+        if not name or name == ContactSheetTemplates.DEFAULT_NAME:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Contact Sheet Template",
+            f'Delete template "{name}"?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        ContactSheetTemplates.delete(name)
+        self._refresh_contact_sheet_templates()
+        # Fall back to Default explicitly — the refresh keeps signals blocked.
+        self.cs_template_combo.blockSignals(True)
+        self.cs_template_combo.setCurrentText(ContactSheetTemplates.DEFAULT_NAME)
+        self.cs_template_combo.blockSignals(False)
+        self._on_contact_sheet_template_changed(ContactSheetTemplates.DEFAULT_NAME)
 
     def _on_save_contact_sheet_template(self) -> None:
         current = self.cs_template_combo.currentText()

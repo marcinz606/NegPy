@@ -310,6 +310,7 @@ class ControlsPanel(QWidget):
         self.retouch_section.reset_requested.connect(lambda: self.controller.session.reset_section("retouch"))
         self.local_section.reset_requested.connect(lambda: self.controller.session.reset_section("local"))
         self.finish_section.reset_requested.connect(lambda: self.controller.session.reset_section("finish"))
+        self.roll_section.reset_requested.connect(self.controller.clear_roll_baseline)
 
     def apply_shortcut_tooltips(self) -> None:
         col = self.colour_sidebar
@@ -447,7 +448,8 @@ class ControlsPanel(QWidget):
         )
         geo.fine_rot_slider.setToolTip(
             tooltip_with_shortcut(
-                "Sub-degree rotation correction for tilted scans: positive turns clockwise, negative counter-clockwise",
+                "Sub-degree rotation correction for tilted scans: positive turns clockwise, negative counter-clockwise. "
+                "For quick rotation, drag the round handles outside the crop box in the Crop tool",
                 ["fine_rot_inc", "fine_rot_dec"],
             )
         )
@@ -466,25 +468,30 @@ class ControlsPanel(QWidget):
         )
         proc.luma_range_clip_slider.setToolTip(
             tooltip_with_shortcut(
-                "Luma range: percentile clip driving the black/white-point span (dynamic range). Higher = tighter, more highlight/shadow compression",
+                "Tonal-range normalization (black/white-point span). Neutral already applies a small robust clip. "
+                "Positive: clips the top/bottom for more aggressive highlight/shadow recovery. "
+                "Negative: outward headroom — lifted blacks / unclipped highlights for a gentler stretch",
                 ["luma_range_clip_inc", "luma_range_clip_dec"],
             )
         )
         proc.color_range_clip_slider.setToolTip(
             tooltip_with_shortcut(
-                "Colour range: per-channel balance clip for orange-mask cast removal, independent of tonal range. Higher = more aggressive cast removal",
+                "Per-channel colour-balance clip percentile (orange-mask cast removal), independent of tonal range. "
+                "Neutral: P1 clip. Negative: gentler, samples nearer the extremes. Positive: tighter channel balance",
                 ["color_range_clip_inc", "color_range_clip_dec"],
             )
         )
         proc.white_point_slider.setToolTip(
             tooltip_with_shortcut(
-                "Manual offset on top of the auto-detected white point. Positive = brighter; negative = pull highlights back",
+                "Shifts the normalization floor (scan white point). Positive = brighter; negative = pull highlights "
+                "back. In R/G/B mode: this layer's trim — per-layer film-base correction",
                 ["white_point_inc", "white_point_dec"],
             )
         )
         proc.black_point_slider.setToolTip(
             tooltip_with_shortcut(
-                "Manual offset for the black point. Positive = lifted blacks; negative = deeper blacks",
+                "Shifts the normalization ceiling (scan black point). Positive = lifted blacks; negative = deeper "
+                "blacks. In R/G/B mode: this layer's trim — per-layer Dmax correction",
                 ["black_point_inc", "black_point_dec"],
             )
         )
@@ -572,7 +579,8 @@ class ControlsPanel(QWidget):
         )
         ton.sepia_slider.setToolTip(
             tooltip_with_shortcut(
-                "Simulates sepia bleach-redevelop toning — warms the highlights first while shadows hold. B&W mode only",
+                "Simulates sepia bleach-redevelop toning — warms the highlights first while shadows hold; "
+                "partial strength gives the classic split-sepia look. B&W mode only",
                 ["sepia_inc", "sepia_dec"],
             )
         )
@@ -750,6 +758,14 @@ class ControlsPanel(QWidget):
             ]
         )
 
+        roll_count = sum(
+            [
+                bool(proc.use_luma_average),
+                bool(proc.use_colour_average),
+                proc.roll_name is not None,
+            ]
+        )
+
         self.colour_section.set_modified(colour_count)
         self.tone_section.set_modified(tone_count)
         self.lab_section.set_modified(lab_count)
@@ -759,6 +775,7 @@ class ControlsPanel(QWidget):
         self.retouch_section.set_modified(retouch_count)
         self.local_section.set_modified(len(cfg.local.masks))
         self.finish_section.set_modified(finish_count)
+        self.roll_section.set_modified(roll_count)
         self.modified_synced.emit()
 
     def _sync_tool_buttons(self) -> None:

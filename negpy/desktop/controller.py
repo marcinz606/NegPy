@@ -1473,6 +1473,19 @@ class AppController(QObject):
             self.set_status(f"Applied Roll '{name}'", 2000)
             self.request_render()
 
+    def clear_roll_baseline(self) -> None:
+        """Roll Analysis section reset: take the current frame off the roll baseline
+        (both averaging axes + named roll) and re-meter it per-frame."""
+        new_process = replace(
+            self.state.config.process,
+            use_luma_average=False,
+            use_colour_average=False,
+            roll_name=None,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+        self.session.update_config(replace(self.state.config, process=new_process), persist=True)
+        self.request_render()
+
     def reanalyze_current_file(self) -> None:
         """
         Clears cached local floors and forces a fresh analysis render.

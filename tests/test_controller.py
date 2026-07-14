@@ -76,6 +76,20 @@ class TestAppController(unittest.TestCase):
         self.controller._on_preview_loaded("/tmp/a.dng", None, (0, 0), "", None, "")
         self.assertNotIn("decode_failed", state.uploaded_files[0])
 
+    def test_clear_roll_baseline_resets_axes(self):
+        state = self.mock_session_manager.state
+        state.config = replace(
+            state.config,
+            process=replace(state.config.process, use_luma_average=True, use_colour_average=True, roll_name="PORTRA-04"),
+        )
+
+        self.controller.clear_roll_baseline()
+
+        cfg = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertFalse(cfg.process.use_luma_average)
+        self.assertFalse(cfg.process.use_colour_average)
+        self.assertIsNone(cfg.process.roll_name)
+
     def test_thumbnail_miss_marks_file_unreadable(self):
         from PIL import Image
 

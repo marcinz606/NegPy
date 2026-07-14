@@ -71,3 +71,11 @@ class Presets:
         if not os.path.exists(APP_CONFIG.presets_dir):
             return []
         return [f[:-5] for f in os.listdir(APP_CONFIG.presets_dir) if f.endswith(".json")]
+
+    @staticmethod
+    def delete_preset(name: str) -> bool:
+        filepath = os.path.join(APP_CONFIG.presets_dir, f"{name}.json")
+        if not os.path.exists(filepath):
+            return False
+        os.remove(filepath)
+        return True
