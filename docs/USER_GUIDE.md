@@ -7,7 +7,7 @@ NegPy follows a non-destructive pipeline:
 2.  **Process**: Choose your film mode and perform roll-wide normalization.
 3.  **Geometry**: Crop and fine-tune rotation.
 4.  **Exposure**: Fine-tune the density, grade, and characteristic curve (Sigmoid).
-5.  **Lab**: Apply local contrast (CLAHE), sharpening, and color enhancements.
+5.  **Lab**: Apply local contrast (CLAHE), sharpening, and colour enhancements.
 6.  **Toning**: Apply split tones, sepia/selenium, or a paper profile.
 7.  **Retouch**: Remove dust automatically or by hand.
 8.  **Finish**: Add vignette and border.
@@ -47,7 +47,7 @@ The foundation of your edit — film type, exposure analysis, and roll-wide base
 
 ### BATCH
 
-*   **Batch Analysis**: Scans every loaded file and computes a "Roll Average" baseline — average per-channel density and color balance with outliers discarded. Run this once after importing a roll.
+*   **Batch Analysis**: Scans every loaded file and computes a "Roll Average" baseline — average per-channel density and colour balance with outliers discarded. Run this once after importing a roll.
 *   **Use Luma Average**: Takes the roll-wide tonal-range (black/white-point) baseline from Batch Analysis for this frame, while colour balance still re-derives per frame.
 *   **Use Colour Average**: Takes the roll-wide per-channel colour-balance baseline from Batch Analysis, while the tonal range still re-derives per frame. Enable both for a fully consistent roll-wide look; leave both off for per-image local auto-exposure.
 
@@ -80,15 +80,15 @@ Crop and rotation.
 ---
 
 ## 5. Exposure Panel
-Shaping the light and color.
+Shaping the light and colour.
 
 ### Regional CMY
 
 The three CMY sliders target one of three tonal regions selected by the radio group at the top:
 
 *   **Global**: Affects the whole image (overall white balance).
-*   **Shadows**: Color shift biased to low densities.
-*   **Highlights**: Color shift biased to high densities.
+*   **Shadows**: Colour shift biased to low densities.
+*   **Highlights**: Colour shift biased to high densities.
 
 For the selected region:
 
@@ -118,22 +118,22 @@ Two transition zones at either end of the tone curve:
 ---
 
 ## 6. Lab Panel
-Final polish and detail. Several sliders are hidden in B&W mode (where color manipulation doesn't apply).
+Final polish and detail. Several sliders are hidden in B&W mode (where colour manipulation doesn't apply).
 
-### Color (hidden in B&W)
+### Colour (hidden in B&W)
 
-*   **Denoise** (0.0–5.0): Chroma denoise in Lab space. Smooths color noise (especially in shadows) while preserving the luminance grain that gives film its character.
+*   **Denoise** (0.0–5.0): Chroma denoise in Lab space. Smooths colour noise (especially in shadows) while preserving the luminance grain that gives film its character.
 
 > Spectral **Crosstalk** (formerly "Separation") moved to the Process panel — it now
 > unmixes the raw negative densities before inversion, the domain the film matrices
 > are actually calibrated in. See docs/CROSSTALK.md.
 *   **Saturation** (0.0–2.0): Linear saturation. 1.0 = unchanged, 0 = greyscale, 2.0 = double saturation. Neutral-center slider.
-*   **Vibrance** (0.0–2.0): Smart saturation that boosts muted colors more than already-saturated ones — gentler on skin tones than raw Saturation. Neutral-center.
+*   **Vibrance** (0.0–2.0): Smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones than raw Saturation. Neutral-center.
 
 ### Detail
 
 *   **CLAHE** (0.0–1.0): Contrast Limited Adaptive Histogram Equalization. Adds local contrast without blowing global highlights or crushing shadows. Use sparingly — values near 1.0 can look cartoonish.
-*   **Sharpening** (0.0–1.0): L-channel unsharp mask. Crisps detail without introducing color halos around edges.
+*   **Sharpening** (0.0–1.0): L-channel unsharp mask. Crisps detail without introducing colour halos around edges.
 
 ### Effects
 
@@ -143,7 +143,7 @@ Final polish and detail. Several sliders are hidden in B&W mode (where color man
 ---
 
 ## 7. Toning Panel
-Color treatments applied late in the pipeline.
+Colour treatments applied late in the pipeline.
 
 ### Toners (B&W only)
 
@@ -152,11 +152,11 @@ Color treatments applied late in the pipeline.
 
 ### Split Tone
 
-Two color injections — one in shadows, one in highlights — each with its own hue and strength. Works in any process mode.
+Two colour injections — one in shadows, one in highlights — each with its own hue and strength. Works in any process mode.
 
-*   **Shadow Hue**: Hue wheel for the shadow split-tone color.
+*   **Shadow Hue**: Hue wheel for the shadow split-tone colour.
 *   **Shadow Strength** (0.0–1.0): How strongly the shadow hue is mixed in.
-*   **Highlight Hue**: Hue wheel for the highlight split-tone color.
+*   **Highlight Hue**: Hue wheel for the highlight split-tone colour.
 *   **Highlight Strength** (0.0–1.0): How strongly the highlight hue is mixed in.
 
 ### Paper
@@ -194,7 +194,7 @@ Vignette and border — applied at the very end of the pipeline.
 ### Border
 
 *   **Width** (0.0–2.5): Border thickness as a fraction of the image dimensions. Zero means no border.
-*   **Border Color**: Square color swatch — click to open a color picker and pick any RGB color for the border.
+*   **Border Colour**: Square colour swatch — click to open a colour picker and pick any RGB colour for the border.
 
 ---
 
@@ -254,7 +254,7 @@ Delivering the final image.
 ### Format
 
 *   **Format**: `JPEG` (compressed) or `TIFF` (high bit-depth).
-*   **Color Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `Wide Gamut RGB`, `ACES`, `P3 D65`, `Rec 2020`, `XYZ`, or `Greyscale` (true B&W output).
+*   **Colour Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `Wide Gamut RGB`, `ACES`, `P3 D65`, `Rec 2020`, `XYZ`, or `Greyscale` (true B&W output).
 *   **Paper Aspect Ratio**: Final paper ratio — `Original` (no resize), or one of the standard ratios for fitting print stock.
 
 ### Resolution (mutually exclusive)
@@ -277,7 +277,7 @@ Delivering the final image.
 ### Batch
 
 *   **Export All**: Triggers batch export of every loaded file using the current settings.
-*   **Sync export settings**: When on (default), the current Format / Color Space / Size / DPI / Border are applied uniformly to every file in the batch. When off, each file keeps its own per-image export settings.
+*   **Sync export settings**: When on (default), the current Format / Colour Space / Size / DPI / Border are applied uniformly to every file in the batch. When off, each file keeps its own per-image export settings.
 
 ---
 

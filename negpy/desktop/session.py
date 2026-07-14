@@ -268,7 +268,7 @@ _ASPECT_LABELS = {
     "crop": "Crop",
     "rotation": "Rotation",
     "exposure": "Exposure",
-    "color": "Color",
+    "color": "Lab & Toning",
     "finish": "Finish",
     "bounds_luma": "Tonal span",
     "bounds_colour": "Colour balance",

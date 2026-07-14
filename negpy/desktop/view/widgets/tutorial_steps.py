@@ -303,7 +303,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="tone_section",
         ),
         TutorialStep(
-            title="Exposure — Color Balance",
+            title="Exposure — Filtration",
             body=(
                 "White balance is real CC filtration — ±1.0 on a slider is ±20cc of dichroic "
                 "density. The <b>Global / Shadows / Highlights</b> buttons on top scope the "
@@ -366,7 +366,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Lab Panel — Film Aesthetics",
             body=(
-                "<b>Color:</b> "
+                "<b>Colour:</b> "
                 "<b>Separation</b> amplifies R/G/B channel differences for richer colour. "
                 "<b>Saturation</b> boosts all tones equally; "
                 "<b>Vibrance</b> lifts muted tones while protecting already-saturated ones. "

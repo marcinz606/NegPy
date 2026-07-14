@@ -128,7 +128,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "tab_setup": ShortcutEntry("Ctrl+1", "Setup tab", "Tabs"),
     "tab_geometry": ShortcutEntry("Ctrl+2", "Geometry tab", "Tabs"),
     "tab_tone": ShortcutEntry("Ctrl+3", "Tone tab", "Tabs"),
-    "tab_color": ShortcutEntry("Ctrl+4", "Color tab", "Tabs"),
+    "tab_color": ShortcutEntry("Ctrl+4", "Colour tab (Lab & Toning)", "Tabs"),
     "tab_finish": ShortcutEntry("Ctrl+5", "Finish tab", "Tabs"),
     "tab_history": ShortcutEntry("Ctrl+6", "History tab", "Tabs"),
     "tab_export": ShortcutEntry("Ctrl+7", "Export tab", "Tabs"),

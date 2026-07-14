@@ -204,7 +204,7 @@ class GearLibraryDialog(QDialog):
         self._register_form_row("stock_name", "Stock name", self.stock_name_edit)
         self._register_form_row("iso", "ISO", self.iso_spin)
         self._register_form_row("format", "Format", self.format_combo)
-        self._register_form_row("color_type", "Color type", self.color_combo)
+        self._register_form_row("color_type", "Colour type", self.color_combo)
         self._register_form_row("preset_camera", "Camera", self.preset_camera_combo)
         self._register_form_row("preset_lens", "Lens", self.preset_lens_combo)
         self._register_form_row("preset_film", "Film stock", self.preset_film_combo)

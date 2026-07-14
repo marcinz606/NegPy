@@ -14,7 +14,7 @@ class LabSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.lab
 
-        self.color_header = section_subheader("COLOR")
+        self.color_header = section_subheader("COLOUR")
         self.layout.addWidget(self.color_header)
 
         # All Lab slider tooltips live in ControlsPanel.apply_shortcut_tooltips —

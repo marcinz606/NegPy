@@ -31,7 +31,7 @@ from negpy.desktop.view.sidebar.retouch import RetouchSidebar
 from negpy.desktop.view.sidebar.local import LocalSidebar
 from negpy.desktop.view.sidebar.finish import FinishSidebar
 
-# Exposure field partitions — the Colour and Tone sections split ExposureConfig; used for both
+# Exposure field partitions — the Filtration and Tone sections split ExposureConfig; used for both
 # per-section modified counts and scoped resets. render_intent is in neither (flat-master output).
 _COLOUR_FIELDS = (
     "wb_cyan",
@@ -157,8 +157,10 @@ class ControlsPanel(QWidget):
 
         self.colour_sidebar = ColourSidebar(self.controller)
         self.colour_histogram = MiniRGBHistogramWidget()
+        # "Filtration" (dichroic-head CMY + temperature + cast removal) — deliberately
+        # not "Colour", which names the Lab & Toning tab. The "colour" key persists.
         self.colour_section = self._make_section(
-            "Colour",
+            "Filtration",
             "colour",
             self.colour_sidebar,
             icon=qta.icon("fa5s.palette", color=icon_color),
@@ -234,11 +236,11 @@ class ControlsPanel(QWidget):
             (
                 "tone",
                 "fa5s.sun",
-                "Exposure — Colour, Tone, Dodge & Burn",
+                "Exposure — Filtration, Tone, Dodge & Burn",
                 [self.colour_section, self.tone_section, self.local_section],
                 ["colour_section", "tone_section", "local_section"],
             ),
-            ("color", "fa5s.palette", "Color — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
+            ("color", "fa5s.palette", "Colour — Lab, Toning", [self.lab_section, self.toning_section], ["lab_section", "toning_section"]),
             (
                 "finish",
                 "fa5s.brush",
