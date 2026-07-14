@@ -54,6 +54,15 @@ def test_describe_hardware_known_and_unknown():
     assert proto.describe_hardware(7) == "hw7"
 
 
+def test_has_white_channel():
+    # Only the Big Scanlight (0) and v4 (1) have a dedicated white LED.
+    assert proto.has_white_channel(0) is True
+    assert proto.has_white_channel(1) is True
+    # v1-v3 (and any unrecognised id) are RGB-only.
+    assert proto.has_white_channel(2) is False
+    assert proto.has_white_channel(7) is False
+
+
 def test_big_scanlight_set_color_is_wire_identical_to_v4():
     # Big Scanlight SET_COLOR firmware reads 5 bytes (R,G,B,W,IR) + byte[5]=save,
     # exactly what encode_set_color emits — so one encoder drives both devices.

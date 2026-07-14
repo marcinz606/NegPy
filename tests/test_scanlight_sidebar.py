@@ -598,15 +598,21 @@ def test_builtin_white_preset_turns_rgb_off_and_white_full():
     assert w.w_slider.value() == 255  # white on full
 
 
-def test_framing_white_is_fixed_regardless_of_the_slider():
+@pytest.mark.parametrize("has_white", [True, False])
+def test_live_view_frames_with_the_preset_rgb_values(has_white):
+    # The framing/focusing light IS the preset's RGB (one light for scanning and focusing), never
+    # white — so it works on every Scanlight, incl. an RGB-only body with no white LED (issue #455).
     w = _sidebar()
-    w._set_slider(w.w_slider, 0)  # RGB preset state: white off on the slider
+    w._light_has_white = has_white
+    w._set_slider(w.r_slider, 200)
+    w._set_slider(w.g_slider, 100)
+    w._set_slider(w.b_slider, 150)
     w.lv_btn.blockSignals(True)
     w.lv_btn.setChecked(True)  # live view → framing/focusing
     w.lv_btn.blockSignals(False)
     w.controller.set_scanlight_color.reset_mock()
     w._push_light()
-    assert w.controller.set_scanlight_color.call_args[0][:4] == (0, 0, 0, 255)  # plain white to focus by
+    assert w.controller.set_scanlight_color.call_args[0][:4] == (200, 100, 150, 0)
 
 
 def test_calibration_window_has_iso_and_aperture_but_no_shutter():
@@ -884,6 +890,39 @@ def test_selecting_manual_without_a_camera_is_refused():
     w._on_preset_selected(midx)
     assert not w._manual_mode  # refused — no body to source valid ISO/shutter/aperture from
     assert w.preset_combo.currentData() is None  # reverted to "— Select preset —"
+
+
+def _white_preset_item(w):
+    from PyQt6.QtGui import QStandardItemModel
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    idx = w.preset_combo.findData(next(iter(sl._BUILTIN_WHITE_PRESETS)))
+    model = w.preset_combo.model()
+    assert isinstance(model, QStandardItemModel)
+    return model.item(idx)
+
+
+def test_rgb_only_scanlight_hides_white_slider_and_preset():
+    w = _sidebar()
+    w._light_has_white = False  # a v1-v3 body: no white LED
+    w._refresh_light_channels()
+    assert w._slider_rows[w.w_slider].isHidden()  # W slider gone
+    assert not _white_preset_item(w).isEnabled()  # white-light preset greyed out
+
+
+def test_white_scanlight_keeps_white_slider_and_preset():
+    w = _sidebar()
+    w._light_has_white = True  # v4 / Big
+    w._refresh_light_channels()
+    assert not w._slider_rows[w.w_slider].isHidden()
+    assert _white_preset_item(w).isEnabled()
+
+
+def test_poll_status_carries_white_capability_to_the_ui():
+    w = _sidebar()
+    w._on_poll_status({"light_ok": True, "light_detail": "hw2 (fw1)", "light_has_white": False, "usb_ok": False, "usb_model": ""})
+    assert w._light_has_white is False and w._slider_rows[w.w_slider].isHidden()
 
 
 def test_rgb_preset_shows_the_exposure_fields(monkeypatch):

@@ -56,11 +56,6 @@ _MANUAL_PRESET = "\x00create-manual"
 # 400 ms was conservative). A fixed tuning constant, not a user/persisted setting.
 _LED_SETTLE_S = 0.15
 
-# Plain white to light the frame while framing/focusing an RGB scan in live view. It's fixed, not
-# taken from the W slider: the sliders configure the preset, so W reads 0 for an RGB preset, but you
-# still want light to focus by.
-_FRAMING_WHITE = 255
-
 
 class _NoWheel(QObject):
     """Event filter that swallows wheel events so scrolling can't change a value."""
@@ -87,6 +82,8 @@ class ScanlightSidebar(QWidget):
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
         self._settings_loaded = False  # have the live camera-setting dropdowns been populated yet?
         self._slider_readouts: dict = {}  # slider → its value label (updated on preset apply, where signals are blocked)
+        self._slider_rows: dict = {}  # slider → its row widget, so the W row can be hidden on an RGB-only Scanlight
+        self._light_has_white = True  # does the connected Scanlight have a white LED? (False = v1-v3, RGB-only)
         self._suppress_camera_release = False  # true only mid hand-off between lv_window/calib_window
         self._no_wheel = _NoWheel(self)
 
@@ -169,7 +166,9 @@ class ScanlightSidebar(QWidget):
     # ── UI construction ───────────────────────────────────────────────
 
     def _slider_row(self, letter: str, value: int) -> QSlider:
-        row = QHBoxLayout()
+        row_widget = QWidget()  # wrapped so the whole row (W) can be hidden on an RGB-only Scanlight
+        row = QHBoxLayout(row_widget)
+        row.setContentsMargins(0, 0, 0, 0)
         tag = QLabel(letter)
         tag.setFixedWidth(14)
         tag.setStyleSheet(f"color: {_CHANNEL_COLORS[letter]}; font-weight: bold;")
@@ -182,8 +181,9 @@ class ScanlightSidebar(QWidget):
         row.addWidget(tag)
         row.addWidget(slider, 1)
         row.addWidget(readout)
-        self._light_layout.addLayout(row)
+        self._light_layout.addWidget(row_widget)
         self._slider_readouts[slider] = readout  # so preset apply (signals blocked) can refresh it
+        self._slider_rows[slider] = row_widget
         slider.valueChanged.connect(lambda v, lbl=readout: lbl.setText(str(v)))
         slider.valueChanged.connect(lambda _v: self._light_debounce.start())
         return slider
@@ -424,15 +424,11 @@ class ScanlightSidebar(QWidget):
         if self._settings.white_mode:
             # A white-light preset: the W slider is the scan light itself.
             self.controller.set_scanlight_color(0, 0, 0, self.w_slider.value(), self._settings.port)
-        elif self._manual_mode:
-            # Building an RGB preset by hand: show the R/G/B mix being dialled in so the sliders have
-            # a visible effect. White stays off — the Scanlight can't light white together with RGB.
-            self.controller.set_scanlight_color(self.r_slider.value(), self.g_slider.value(), self.b_slider.value(), 0, self._settings.port)
-        elif self.lv_btn.isChecked() or self.calib_window.isVisible():
-            # Framing/focusing an RGB scan: plain white to see by, independent of the RGB sliders
-            # (they configure the preset, so W reads 0, but you still want light to focus).
-            self.controller.set_scanlight_color(0, 0, 0, _FRAMING_WHITE, self._settings.port)
         else:
+            # Any RGB state — a selected preset, manual building, or framing/focusing in live view —
+            # lights the R/G/B mix from the sliders. The preset's own values are the framing light too
+            # (one light for scanning and focusing), so it works on every Scanlight and never assumes a
+            # white LED an RGB-only body lacks. White stays off: the Scanlight can't mix white with RGB.
             self.controller.set_scanlight_color(self.r_slider.value(), self.g_slider.value(), self.b_slider.value(), 0, self._settings.port)
         self._update_settings_from_ui()
 
@@ -817,6 +813,10 @@ class ScanlightSidebar(QWidget):
 
     def _start_live_view_worker(self) -> None:
         """Spawn the live-view stream subprocess (shared by toggle-on and resume)."""
+        # Blank the previous session's frame *before* the window is shown, so reopening live view
+        # goes straight to black + the buffering spinner instead of flashing the stale image until
+        # the first fresh frame lands (`_on_live_view_started` re-blanks + pins the mtime).
+        self._lv_target.clear_frame()
         self._lv_target.set_loading(True)  # buffering spinner until the first frame lands
         from negpy.desktop.workers.capture_worker import LiveViewRequest
 
@@ -1219,7 +1219,9 @@ class ScanlightSidebar(QWidget):
         was_verified = self._camera_verified
         self._set_conn_status(self.light_status, status["light_ok"], "Light", f"Scanlight: {status['light_detail']}")
         self._light_verified = status["light_ok"]
+        self._light_has_white = status.get("light_has_white", True)  # RGB-only Scanlights (v1-v3) have no white LED
         self._set_rgb_mode(status["light_ok"])  # Scanlight present → RGB scanning; absent → normal white-light
+        self._refresh_light_channels()  # show/hide the W slider + white preset for the connected model
         self._camera_verified = bool(status["usb_ok"])
         self._set_cam_status(self._camera_verified, status["usb_model"])
         if self._camera_verified and not was_verified:
@@ -1330,6 +1332,27 @@ class ScanlightSidebar(QWidget):
             item = model.item(manual_idx)
             if item is not None:
                 item.setEnabled(self._camera_verified)
+
+    def _refresh_light_channels(self) -> None:
+        """Adapt the light controls to the connected Scanlight. An RGB-only body (v1-v3, no white
+        LED) hides the W slider and greys out the white-light preset, since neither can do anything;
+        the live-view framing then lights all three RGB channels instead of a missing white one
+        (`_push_light`). A body with a white LED (v4 / Big) keeps them."""
+        has_white = self._light_has_white
+        w_row = self._slider_rows.get(self.w_slider)
+        if w_row is not None:
+            w_row.setVisible(has_white)
+        white_name = next(iter(_BUILTIN_WHITE_PRESETS))  # the built-in white-light preset
+        white_idx = self.preset_combo.findData(white_name)
+        model = self.preset_combo.model()
+        if white_idx >= 0 and isinstance(model, QStandardItemModel):
+            item = model.item(white_idx)
+            if item is not None:
+                item.setEnabled(has_white)
+        # If a white-light preset was somehow selected on an RGB-only body, drop it — it can't run.
+        if not has_white and self.preset_combo.currentData() in _BUILTIN_WHITE_PRESETS:
+            self.preset_combo.setCurrentIndex(0)
+            self._on_preset_selected(0)
 
     def _set_rgb_mode(self, on: bool) -> None:
         """Switch between RGB (Scanlight) and normal white-light scanning, driven by the
