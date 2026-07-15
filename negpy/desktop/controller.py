@@ -135,6 +135,7 @@ class AppController(QObject):
     export_finished = pyqtSignal(float, int)
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
+    prefetch_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
     analysis_buffer_preview_requested = pyqtSignal(float)
     rotation_guide_requested = pyqtSignal()
@@ -244,6 +245,14 @@ class AppController(QObject):
         self.preview_load_worker = PreviewLoadWorker(self.preview_service)
         self.preview_load_worker.moveToThread(self.preview_load_thread)
         self.preview_load_thread.start()
+
+        # Neighbour prefetch runs on its own worker/thread (sharing the same thread-safe
+        # preview cache) so a slow background decode — e.g. a 2-4s read off a network
+        # share — can never block the decode for the frame the user actually lands on.
+        self.prefetch_thread = QThread()
+        self.prefetch_worker = PreviewLoadWorker(self.preview_service)
+        self.prefetch_worker.moveToThread(self.prefetch_thread)
+        self.prefetch_thread.start()
 
         self.scan_thread = QThread()
         self.scan_worker = ScanWorker()
@@ -412,6 +421,7 @@ class AppController(QObject):
         self.discovery_worker.error.connect(self._on_render_error)
 
         self.preview_load_requested.connect(self.preview_load_worker.process)
+        self.prefetch_requested.connect(self.prefetch_worker.process)
         self.preview_load_worker.splash.connect(self._on_splash_preview)
         self.preview_load_worker.finished.connect(self._on_preview_loaded)
         self.preview_load_worker.error.connect(self._on_render_error)
@@ -710,7 +720,7 @@ class AppController(QObject):
 
         self._prefetch_gen += 1
         # Drop any prefetch decodes still queued for the frame we're leaving.
-        self.preview_load_worker.set_latest_prefetch_gen(self._prefetch_gen)
+        self.prefetch_worker.set_latest_prefetch_gen(self._prefetch_gen)
         self._preview_load_seq += 1
         self.preview_load_worker.set_latest_preview_seq(self._preview_load_seq)
         self._requested_file_path = file_path
@@ -863,7 +873,7 @@ class AppController(QObject):
                 # the wrong key and navigation re-decodes anyway.
                 saved = self.session.repo.load_file_settings(h) if h else None
                 linear_raw = saved.process.linear_raw if saved else False
-                self.preview_load_requested.emit(
+                self.prefetch_requested.emit(
                     PreviewLoadTask(
                         file_path=path,
                         workspace_color_space=self.state.workspace_color_space,
@@ -2666,6 +2676,9 @@ class AppController(QObject):
         if self.preview_load_thread.isRunning():
             self.preview_load_thread.quit()
             self.preview_load_thread.wait()
+        if self.prefetch_thread.isRunning():
+            self.prefetch_thread.quit()
+            self.prefetch_thread.wait()
         self.scan_worker.cancel()
         if self.scan_thread.isRunning():
             self.scan_thread.quit()

@@ -46,8 +46,10 @@ class AppConfig:
     # Multi-core Numba kernels on the CPU pipeline: None = platform default
     # (on everywhere except macOS), True/False = explicit override.toml choice.
     cpu_parallel: bool | None = None
-    # Preview buffer LRU (decoded float preview before render pipeline)
-    preview_cache_max_entries: int = 8
+    # Preview buffer LRU (decoded float preview before render pipeline). Sized to keep a
+    # good run of recently-viewed frames resident so sustained scrubbing — especially off
+    # a slow network share — reuses decoded buffers instead of re-reading/decoding.
+    preview_cache_max_entries: int = 24
     preview_cache_max_bytes: int = 1_200_000_000
     # Full-resolution (HQ) entries are hundreds of MB each, so they get their own
     # slot budget inside the LRU: enough to make navigating back to the previous

@@ -44,6 +44,7 @@ class TestAppController(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -635,6 +636,7 @@ class TestBatchExportFiltering(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -750,6 +752,7 @@ class TestPresetBatchExport(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -848,6 +851,7 @@ class TestPresetExportSelected(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -949,6 +953,7 @@ class TestSessionRestore(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -1012,6 +1017,7 @@ class TestRgbScanModeReload(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -1087,6 +1093,7 @@ class TestDiscoveryProgressPopup(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -1192,6 +1199,7 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -1249,6 +1257,7 @@ class TestContactSheetOutputDir(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
@@ -1326,6 +1335,7 @@ class TestRetouchPersistence(unittest.TestCase):
             self.controller.norm_thread,
             self.controller.discovery_thread,
             self.controller.preview_load_thread,
+            self.controller.prefetch_thread,
             self.controller.scan_thread,
         ]:
             if thread is not None and thread.isRunning():
