@@ -59,6 +59,18 @@ _IR_DEGENERATE_FRAC = 0.05
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
 _IR_XTALK_MIN = 0.02  # |b| sum below this is a noise-level fit → exact no-op
 _IR_XTALK_TRIM = 2.0  # fit drops this bottom-ratio percentile (the dust minority)
+# γ fit sample: keep this flattest fraction of the band by visible Laplacian, dropping the
+# restriction below _IR_FIT_MIN_PX rather than fitting a handful of pixels. See _fit_refraction_gammas.
+_IR_FIT_FLAT_PCT = 40
+_IR_FIT_MIN_PX = 200
+# Clean-base cap window (detection-scale px, odd). The bake may never lift a pixel above its
+# own local clean base — past that it invents signal rather than recovering it. Needed because
+# downsample_ir is min-preserving while the visible arrives area-averaged, so at detection scale
+# the ratio's dip runs deeper and ~1 px wider than the defect the visible carries (0.816 against
+# 0.892); uncapped, that skirt lifts clean film and every speck and hair renders with a dark
+# outline. Reaches ±4 px, past _DETECT_PAD_PX's skirt: wider re-admits the rim (25 px leaves 3x
+# the residual), narrower sits inside the skirt and caps real correction away.
+_IR_CAP_WIN = 9
 
 # Strong hairs/scratches (auto/IR) route to structure-following inpaint instead of
 # the membrane clone: a long twist crosses varied background, and one clone-source
@@ -838,11 +850,33 @@ def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> np.ndarray:
     return np.clip(ratio / np.exp((vis_log * b).sum(-1)), 0.0, 1.5).astype(np.float32)
 
 
+def _fit_refraction_gammas(ratio: np.ndarray, vis_log: np.ndarray, img_det: np.ndarray) -> Tuple[float, ...]:
+    """Per-channel refraction γ: the slope of log(vis_norm) on log(ratio) over the
+    shallow-dust band, as the median of the per-pixel slopes over locally flat film.
+
+    Median and flat restriction are both load-bearing. The band selects on the IR ratio
+    alone, so besides dust it collects ``_ir_decontaminate``'s residue at hard image edges,
+    and least squares through the origin is x²-weighted — that deep non-dust minority
+    dominated it, reading γ 1.9/2.2/2.2 for dust measuring ~1.0/1.1/1.2 and over-correcting
+    every speck into a dark cyan blob. Median alone reads 1.3/1.8/1.8, flat-only least
+    squares 1.4/2.1/2.0, and γ 1.5 already tints."""
+    band = (ratio > 0.70) & (ratio < 0.92)
+    if int(band.sum()) < 500:
+        return (_IR_GAMMA_FALLBACK,) * 3
+    # ksize=5 carries its own smoothing, so no separate blur.
+    edge = np.abs(cv2.Laplacian(img_det[:, :, 1], cv2.CV_32F, ksize=5))
+    flat = band & (edge < np.percentile(edge[band], _IR_FIT_FLAT_PCT))
+    fit = flat if int(flat.sum()) >= _IR_FIT_MIN_PX else band
+    # The band bounds ratio away from 1, so the per-pixel slope needs no guard.
+    xb = np.log(ratio[fit])
+    return tuple(float(np.clip(np.median(vis_log[:, :, c][fit] / xb), _IR_GAMMA_LO, _IR_GAMMA_HI)) for c in range(3))
+
+
 def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
     """Detection-scale ``(ratio, gain HxWx3, degenerate, gammas)`` for IR-division
-    attenuation: semi-transparent dust recovered by ``RGB / ratio^γ``, γ from a
-    per-channel LS fit of log(vis) on log(ir). ``degenerate`` = IR carrying image
-    content (B&W/Kodachrome) → caller skips bake and strokes."""
+    attenuation: semi-transparent dust recovered by ``RGB / ratio^γ``, γ per channel from
+    ``_fit_refraction_gammas``. ``degenerate`` = IR carrying image content
+    (B&W/Kodachrome) → caller skips bake and strokes."""
     ratio = normalize_ir(ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det)
     img_det = np.ascontiguousarray(img_det, dtype=np.float32)
     if img_det.shape[:2] != ratio.shape[:2]:
@@ -858,21 +892,17 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     vis_log = np.stack([np.log(np.clip(normalize_ir(img_det[:, :, c]), 1e-4, 1.0)) for c in range(3)], axis=-1)
     ratio = _ir_decontaminate(ratio, vis_log)
 
-    band = (ratio > 0.70) & (ratio < 0.92)
-    x = np.log(np.clip(ratio, 1e-4, 1.0))
-    xb = x[band]
-    sxx = float(np.sum(xb * xb))
+    gammas = _fit_refraction_gammas(ratio, vis_log, img_det)
     base = np.clip(ratio / _IR_GAIN_IDENTITY, 1e-4, 1.0)
-    gammas = []
     gain = np.empty(ratio.shape + (3,), dtype=np.float32)
     for c in range(3):
-        if int(band.sum()) >= 500 and sxx > 1e-9:
-            g = float(np.clip(np.sum(xb * vis_log[:, :, c][band]) / sxx, _IR_GAMMA_LO, _IR_GAMMA_HI))
-        else:
-            g = _IR_GAMMA_FALLBACK
-        gammas.append(g)
-        gain[:, :, c] = np.minimum(_IR_GAIN_CLAMP, base ** (-g))
-    return ratio, gain, degenerate, tuple(gammas)
+        gain[:, :, c] = np.minimum(_IR_GAIN_CLAMP, base ** (-gammas[c]))
+    # Never lift a pixel past its own local clean base (see _IR_CAP_WIN); floored at 1 so the
+    # cap only ever holds the bake back, never darkens a pixel itself.
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (_IR_CAP_WIN, _IR_CAP_WIN))
+    clean = cv2.blur(cv2.dilate(img_det, kernel), (_IR_CAP_WIN, _IR_CAP_WIN))
+    np.minimum(gain, np.maximum(clean / np.maximum(img_det, 1e-5), 1.0), out=gain)
+    return ratio, gain, degenerate, gammas
 
 
 def apply_ir_attenuation(img: ImageBuffer, gain_det: np.ndarray) -> ImageBuffer:

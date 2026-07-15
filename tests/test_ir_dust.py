@@ -9,6 +9,9 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
     _HAIR_INPAINT_GAMMA,
     _HAIR_INPAINT_RADIUS,
+    _IR_GAMMA_FALLBACK,
+    _IR_GAMMA_HI,
+    _fit_refraction_gammas,
     _mask_to_strokes,
     apply_hair_inpaint,
     apply_ir_attenuation,
@@ -208,7 +211,8 @@ def test_ir_bake_token_active_and_empty():
 
 def test_ir_ratio_and_gain_properties():
     """Gain never darkens a clean pixel, clamps at 2.0, and is identity on clean
-    film (ratio≈1); γ stays inside the clamp."""
+    film (ratio≈1); γ stays inside the clamp. Dust the visible really carries still gets its
+    correction — the clean-base cap may only bite where the visible is clean."""
     h = w = 200
     ir = np.full((h, w), 0.9, dtype=np.float32)
     ir[95:105, 95:105] = 0.2  # opaque-ish core
@@ -226,6 +230,8 @@ def test_ir_ratio_and_gain_properties():
     assert clean.any()
     assert abs(float(gain[np.broadcast_to(clean[..., None], gain.shape)].reshape(-1, 3).mean()) - 1.0) < 1e-3
     assert all(1.0 <= g <= 2.2 for g in gammas)
+    assert gain[62, 62].min() > 1.05  # the semi-transparent speck is still corrected
+    assert gain[100, 100].min() > 1.5  # ...and so is the opaque core
 
 
 def test_ir_ratio_and_gain_degenerate_on_image_content():
@@ -291,6 +297,93 @@ def test_ir_gain_median_near_unity_with_ghost():
     img, ir, _ = _ghosted_frame(ghost=0.15)
     _, gain, _, _ = ir_ratio_and_gain(ir, img)
     assert abs(float(np.median(gain)) - 1.0) < 1e-3
+
+
+def _fit_inputs(gamma_true: float, residue_slope: float, size: int = 200):
+    """Inputs for the γ fit: dust on flat film with a known slope, plus a *larger*
+    population of `_ir_decontaminate` residue over textured content carrying a steeper
+    spurious one. Returns (ratio, vis_log, img_det).
+
+    Residue outnumbering dust is the real case (a treeline frame put ~1300 residue pixels
+    in the band against ~860 of dust), and is why the median needs the flat restriction
+    under it. Built directly rather than rendered from a synthetic frame: residue only
+    appears where real content beats normalize_ir's base, and a frame tuned until that
+    happens would test the tuning, not the estimator."""
+    rng = np.random.default_rng(3)
+    img = np.full((size, size, 3), 0.5, dtype=np.float32)
+    img[100:, :] = np.where(rng.random((size - 100, size, 1)) > 0.5, 0.5, 0.12)  # foliage
+    img += rng.normal(0, 0.002, img.shape).astype(np.float32)  # grain: no exact-zero Laplacian
+    ratio = np.ones((size, size), dtype=np.float32)
+    vis_log = np.zeros((size, size, 3), dtype=np.float32)
+
+    def _paint(rows: slice, cols: slice, slope: float) -> None:
+        a = rng.uniform(0.72, 0.90, (rows.stop - rows.start, cols.stop - cols.start)).astype(np.float32)
+        ratio[rows, cols] = a
+        vis_log[rows, cols, :] = (slope * np.log(a))[:, :, None]
+
+    _paint(slice(10, 40), slice(10, 40), gamma_true)  # 900 px of dust, on flat film
+    _paint(slice(110, 150), slice(10, 50), residue_slope)  # 1600 px of residue, on foliage
+    return ratio, vis_log.astype(np.float32), img.astype(np.float32)
+
+
+def test_gamma_fit_ignores_decontamination_residue_at_image_edges():
+    """The reported bug: dust on sky came back darker than the sky, tinted cyan — the fit
+    read the edge residue as dust and the bake overshot the film base. It must return the
+    dust's slope, not a blend."""
+    ratio, vis_log, img = _fit_inputs(gamma_true=1.1, residue_slope=6.0)
+    gammas = _fit_refraction_gammas(ratio, vis_log, img)
+    assert all(abs(g - 1.1) < 0.15 for g in gammas), gammas
+
+    # The least-squares fit this replaced, on the very same input: dragged to the cap.
+    band = (ratio > 0.70) & (ratio < 0.92)
+    xb = np.log(ratio[band])
+    ls = [float(np.sum(xb * vis_log[:, :, c][band]) / np.sum(xb * xb)) for c in range(3)]
+    assert all(g > 2.0 for g in ls), ls
+
+
+def test_gamma_fit_still_reaches_the_cap_for_strongly_scattering_dust():
+    """Dust that genuinely attenuates visible far harder than IR still pins γ at the cap —
+    robustness must not cost the scans (iSRD-style) that legitimately want a high γ."""
+    ratio, vis_log, img = _fit_inputs(gamma_true=3.0, residue_slope=3.0)
+    assert all(abs(g - _IR_GAMMA_HI) < 1e-5 for g in _fit_refraction_gammas(ratio, vis_log, img))
+
+
+def test_ir_gain_never_lifts_a_pixel_past_its_local_clean_base():
+    """The reported dark outline: downsample_ir is min-preserving while the visible arrives
+    area-averaged, so the IR dip is wider than the defect the visible carries (9 px against
+    3 here) and the uncapped gain skirt lifts clean film."""
+    h = w = 300  # roomy enough that the specks stay under the degenerate-coverage guard
+    ir = np.full((h, w), 0.9, dtype=np.float32)
+    img = np.full((h, w, 3), 0.30, dtype=np.float32)
+    ir_dip = np.zeros((h, w), dtype=bool)
+    vis_dip = np.zeros((h, w), dtype=bool)
+    rng = np.random.default_rng(5)
+    for _ in range(40):
+        y, x = int(rng.integers(12, h - 14)), int(rng.integers(12, w - 14))
+        ir[y - 3 : y + 6, x - 3 : x + 6] *= 0.82  # IR: 9 px wide (the min-pooled footprint)
+        img[y : y + 3, x : x + 3] *= 0.82  # visible: only the middle 3 px are really dust
+        ir_dip[y - 3 : y + 6, x - 3 : x + 6] = True
+        vis_dip[y : y + 3, x : x + 3] = True
+    _, gain, degenerate, _ = ir_ratio_and_gain(ir, img)
+    assert not degenerate
+
+    out = np.asarray(apply_ir_attenuation(img, gain))
+    skirt = ir_dip & ~vis_dip  # clean film the IR dips over: the bake must leave it alone
+    assert skirt.sum() > 2000
+    assert np.abs(out[skirt] / 0.30 - 1.0).max() < 0.02, "the gain skirt lifted clean film"
+    # These cores can't also check that real dust survives the cap: the IR and visible dips
+    # are exactly proportional here, so _ir_decontaminate unmixes them away. That side is
+    # asserted in test_ir_ratio_and_gain_properties.
+
+
+def test_gamma_fit_falls_back_when_the_band_is_too_small():
+    """A frame with almost no semi-transparent dust has nothing to fit — the gain is ~1
+    regardless of γ, so the fallback stands rather than fitting noise."""
+    ratio = np.ones((200, 200), dtype=np.float32)
+    ratio[:10, :10] = 0.8  # 100 px, under the 500-px gate
+    vis_log = np.zeros((200, 200, 3), dtype=np.float32)
+    img = np.full((200, 200, 3), 0.5, dtype=np.float32)
+    assert _fit_refraction_gammas(ratio, vis_log, img) == (_IR_GAMMA_FALLBACK,) * 3
 
 
 def test_hysteresis_grows_from_cores_but_admits_no_new_defects():
