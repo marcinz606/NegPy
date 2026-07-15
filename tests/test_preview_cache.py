@@ -13,6 +13,7 @@ def _small_cfg() -> SimpleNamespace:
     return SimpleNamespace(
         preview_cache_max_entries=2,
         preview_cache_max_bytes=10**9,
+        preview_cache_max_full_res_entries=1,
         preview_render_size=2000,
         canvas_zoom_min=0.25,
         canvas_zoom_max=8.0,
@@ -28,6 +29,63 @@ def test_cache_eviction_by_count() -> None:
     c.put(PreviewCacheKey("h3", False, "Adobe RGB", False), a.copy(), (4, 4), {})
     assert c.get(PreviewCacheKey("h1", False, "Adobe RGB", False)) is None
     assert c.get(PreviewCacheKey("h3", False, "Adobe RGB", False)) is not None
+
+
+def test_cache_skips_entry_larger_than_byte_cap() -> None:
+    """An over-cap buffer must be rejected outright, not inserted and then
+    evicted along with every other entry."""
+    cfg = _small_cfg()
+    cfg.preview_cache_max_bytes = 100
+    c = PreviewBufferCache(cfg)
+    small = np.zeros((2, 2, 3), dtype=np.float32)  # 48 B
+    huge = np.zeros((8, 8, 3), dtype=np.float32)  # 768 B > cap
+    c.put(PreviewCacheKey("small", False, "Adobe RGB", False), small, (2, 2), {})
+    c.put(PreviewCacheKey("huge", False, "Adobe RGB", True), huge, (8, 8), {})
+    assert c.get(PreviewCacheKey("huge", False, "Adobe RGB", True)) is None
+    # The resident small entry must survive the rejected insert.
+    assert c.get(PreviewCacheKey("small", False, "Adobe RGB", False)) is not None
+
+
+def test_full_resolution_entries_respect_slot_budget() -> None:
+    """Full-res (HQ) buffers beyond the slot budget evict oldest-first instead of
+    pushing every small preview out through the byte cap."""
+    cfg = _small_cfg()  # budget of 1: any new HQ entry replaces the previous one
+    c = PreviewBufferCache(cfg)
+    small = np.zeros((2, 2, 3), dtype=np.float32)
+    full = np.zeros((4, 4, 3), dtype=np.float32)
+    c.put(PreviewCacheKey("frame1", False, "Adobe RGB", False), small, (2, 2), {})
+    c.put(PreviewCacheKey("frame1", False, "Adobe RGB", True), full, (4, 4), {})
+    c.put(PreviewCacheKey("frame2", False, "Adobe RGB", True), full.copy(), (4, 4), {})
+    assert c.get(PreviewCacheKey("frame1", False, "Adobe RGB", True)) is None
+    assert c.get(PreviewCacheKey("frame2", False, "Adobe RGB", True)) is not None
+    assert c.get(PreviewCacheKey("frame1", False, "Adobe RGB", False)) is not None
+
+
+def test_full_resolution_budget_keeps_previous_frame() -> None:
+    """With the default budget of 2, navigating A -> B -> A hits the cache for A
+    (no HQ re-decode); a third frame evicts the oldest (A) first."""
+    cfg = _small_cfg()
+    cfg.preview_cache_max_entries = 4
+    cfg.preview_cache_max_full_res_entries = 2
+    c = PreviewBufferCache(cfg)
+    full = np.zeros((4, 4, 3), dtype=np.float32)
+    c.put(PreviewCacheKey("A", False, "Adobe RGB", True), full, (4, 4), {})
+    c.put(PreviewCacheKey("B", False, "Adobe RGB", True), full.copy(), (4, 4), {})
+    assert c.get(PreviewCacheKey("A", False, "Adobe RGB", True)) is not None  # navigate back: hit
+    c.put(PreviewCacheKey("C", False, "Adobe RGB", True), full.copy(), (4, 4), {})
+    # A was refreshed by the get above, so LRU-oldest B goes first.
+    assert c.get(PreviewCacheKey("B", False, "Adobe RGB", True)) is None
+    assert c.get(PreviewCacheKey("A", False, "Adobe RGB", True)) is not None
+    assert c.get(PreviewCacheKey("C", False, "Adobe RGB", True)) is not None
+
+
+def test_full_resolution_reput_same_key_keeps_entry() -> None:
+    c = PreviewBufferCache(_small_cfg())
+    full = np.zeros((4, 4, 3), dtype=np.float32)
+    key = PreviewCacheKey("frame1", False, "Adobe RGB", True)
+    c.put(key, full, (4, 4), {})
+    c.put(key, full.copy(), (4, 4), {})
+    assert c.get(key) is not None
 
 
 def test_cache_bypasses_second_postprocess() -> None:
@@ -60,10 +118,14 @@ def test_cache_bypasses_second_postprocess() -> None:
         patch("negpy.services.rendering.preview_manager.APP_CONFIG", _small_cfg()),
     ):
         lf.get_loader.return_value = (_Ctx(), {"color_space": "Adobe RGB"})
-        pm.load_linear_preview("/x.dng", file_hash="abc")
+        out, _, _ = pm.load_linear_preview("/x.dng", file_hash="abc")
         assert n_calls[0] == 1
         pm.load_linear_preview("/x.dng", file_hash="abc")
         assert n_calls[0] == 1
+        # Cold load and cache share one buffer (read-only contract) — the
+        # defensive copy doubled steady RSS on HQ loads.
+        hit = pm._cache.get(PreviewCacheKey("abc", False, "Adobe RGB", False))
+        assert hit is not None and hit[0] is out
 
 
 def test_cache_warm_task_does_not_emit_finished() -> None:

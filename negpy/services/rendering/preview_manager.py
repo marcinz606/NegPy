@@ -153,6 +153,7 @@ class PreviewManager:
         # Bake EXIF orientation into the buffer (postprocess runs with user_flip=0).
         orientation = metadata.get("orientation", 1)
         full_linear = apply_exif_orientation(uint16_to_float32(np.ascontiguousarray(rgb)), orientation)
+        del rgb  # release the uint16 decode buffer before the resize/copy peak
         ir_full = metadata.get("ir")
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
@@ -180,11 +181,14 @@ class PreviewManager:
                 )
             )
         else:
-            preview_raw = full_linear.copy()
+            # Full-res (or already preview-sized): hand the decoded buffer through
+            # as-is — a defensive copy here doubles peak RSS on HQ loads of large
+            # scans for no benefit (preview buffers are read-only downstream).
+            preview_raw = full_linear
         log("load-timing decode.resize %.0fms", (time.perf_counter() - t_resize0) * 1000)
 
         # IR channel travels with the preview; resize it to match the final preview dims.
-        if ir_full is not None and ir_full.shape[:2] == full_linear.shape[:2]:
+        if ir_full is not None and ir_full.shape[:2] == (h_p, w_p):
             ph, pw = preview_raw.shape[:2]
             if (ph, pw) != ir_full.shape[:2]:
                 metadata["ir_preview"] = cv2.resize(
@@ -193,9 +197,11 @@ class PreviewManager:
                     interpolation=cv2.INTER_AREA,
                 ).astype(np.float32)
             else:
-                metadata["ir_preview"] = ir_full.astype(np.float32).copy()
+                # copy=False: at most one conversion copy; the buffer is read-only downstream.
+                metadata["ir_preview"] = ir_full.astype(np.float32, copy=False)
         else:
             metadata["ir_preview"] = None
+        del full_linear  # in the resize branch this frees the full-res buffer early
 
         out = ensure_image(preview_raw)
         log(
@@ -209,7 +215,10 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
             )
-            self._cache.put(ck, out.copy(), (h_orig, w_orig), dict(metadata))
+            # The cache entry aliases the returned buffer — the same read-only
+            # contract as a cache hit (callers must not mutate preview buffers),
+            # so no defensive copy; on HQ loads that copy was ~40% of steady RSS.
+            self._cache.put(ck, out, (h_orig, w_orig), dict(metadata))
         return out, (h_orig, w_orig), metadata
 
     # ------------------------------------------------------------------
@@ -369,7 +378,8 @@ class PreviewManager:
         merged = assemble_rgb(red, _match(green_out), _match(blue_out), align=align)
         out = ensure_image(merged)
         if merged_key is not None:
-            self._cache.put(merged_key, out.copy(), dims, dict(meta))
+            # Freshly assembled buffer — cache and caller alias it (read-only contract).
+            self._cache.put(merged_key, out, dims, dict(meta))
         return out, dims, meta
 
     def load_splash_and_linear(
