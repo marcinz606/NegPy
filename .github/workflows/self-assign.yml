@@ -1,0 +1,49 @@
+# Lets contributors self-assign issues via /assign and /unassign comments.
+# issue_comment runs with the base-repo GITHUB_TOKEN (write-capable), and a
+# user becomes assignable once they comment — so this works for contributors
+# who only have read access and can't use the assignee UI.
+name: Self-assign issues
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  assign:
+    if: >-
+      ${{ !github.event.issue.pull_request &&
+          (contains(github.event.comment.body, '/assign') ||
+           contains(github.event.comment.body, '/unassign')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const body = context.payload.comment.body;
+            const user = context.payload.comment.user.login;
+            const issue_number = context.issue.number;
+            const { owner, repo } = context.repo;
+
+            const isUnassign = /(^|\s)\/unassign(\s|$)/m.test(body);
+            const isAssign = /(^|\s)\/assign(\s|$)/m.test(body);
+
+            if (isUnassign) {
+              await github.rest.issues.removeAssignees({
+                owner, repo, issue_number, assignees: [user],
+              });
+            } else if (isAssign) {
+              await github.rest.issues.addAssignees({
+                owner, repo, issue_number, assignees: [user],
+              });
+            } else {
+              return;
+            }
+
+            await github.rest.reactions.createForIssueComment({
+              owner, repo,
+              comment_id: context.payload.comment.id,
+              content: 'eyes',
+            });

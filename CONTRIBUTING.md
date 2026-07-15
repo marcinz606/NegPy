@@ -2,6 +2,16 @@
 
 Thank you for your interest in contributing to **NegPy**!
 
+## 🙋 Claiming an Issue
+
+Contributors with read access can't use GitHub's assignee UI, so NegPy lets you
+self-assign by commenting on an issue:
+
+- `/assign` — assign the issue to yourself
+- `/unassign` — remove yourself from the issue
+
+A 👀 reaction on your comment confirms the command ran.
+
 ## 🛠️ Development Setup
 
 NegPy requires **Python 3.13+**. We use **uv** for environment and dependency management.
