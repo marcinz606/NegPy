@@ -288,6 +288,10 @@ class AppController(QObject):
         self._preview_load_seq = 0
         self._preview_load_t0 = 0.0
         self._requested_file_path: str = ""
+        # Filmstrip scrub direction (+1 fwd / -1 back / 0 unknown) and the last committed
+        # index, used to bias neighbour prefetch toward where the user is heading.
+        self._nav_direction = 0
+        self._last_committed_idx: Optional[int] = None
 
         self._connect_signals()
 
@@ -699,7 +703,14 @@ class AppController(QObject):
         """
         Dispatches RAW decode to a background worker to keep the UI thread free.
         """
+        idx_now = self.state.selected_file_idx
+        if self._last_committed_idx is not None and idx_now != self._last_committed_idx:
+            self._nav_direction = 1 if idx_now > self._last_committed_idx else -1
+        self._last_committed_idx = idx_now
+
         self._prefetch_gen += 1
+        # Drop any prefetch decodes still queued for the frame we're leaving.
+        self.preview_load_worker.set_latest_prefetch_gen(self._prefetch_gen)
         self._preview_load_seq += 1
         self.preview_load_worker.set_latest_preview_seq(self._preview_load_seq)
         self._requested_file_path = file_path
@@ -833,16 +844,20 @@ class AppController(QObject):
         self._schedule_prefetch_neighbors()
 
     def _schedule_prefetch_neighbors(self) -> None:
-        from negpy.desktop.prefetch_logic import neighbor_paths_and_hashes
+        from negpy.desktop.prefetch_logic import prefetch_paths_and_hashes, prefetch_window
 
         g = self._prefetch_gen
+        direction = self._nav_direction
 
         def _run() -> None:
             if g != self._prefetch_gen:
                 return
             idx = self.state.selected_file_idx
             files = self.state.uploaded_files
-            for path, h in neighbor_paths_and_hashes(files, idx):
+            # Warm frames ahead of the scrub first — those are the likely next landings, so
+            # a steady scrub keeps hitting warm frames instead of cold-decoding each stop.
+            indices = prefetch_window(len(files), idx, direction)
+            for path, h in prefetch_paths_and_hashes(files, indices):
                 # Match the cache key load_file will use for this neighbour: its own saved
                 # linear_raw, not the current file's. Otherwise the warm buffer lands under
                 # the wrong key and navigation re-decodes anyway.
@@ -859,6 +874,7 @@ class AppController(QObject):
                         file_hash=h,
                         use_splash=False,
                         for_cache_warm=True,
+                        prefetch_gen=g,
                     )
                 )
 

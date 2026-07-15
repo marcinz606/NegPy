@@ -465,6 +465,13 @@ class FileBrowser(QWidget):
         finally:
             selection_model.blockSignals(False)
 
+        # Signals were blocked (to avoid re-triggering a selection commit), so the view
+        # was never told to repaint the moved highlight. A plain update() only posts a
+        # low-priority paint event, which a rapid burst of arrow-key events starves until
+        # input stops — making the red frame lag behind the keystrokes. Repaint the moved
+        # cells synchronously so the highlight tracks every hop in real time.
+        self.list_view.viewport().repaint()
+
     def _on_current_changed(self, current, previous) -> None:
         """The list view's current (cursor) item changed — via keyboard arrows or a
         click. Treat it as the active frame unless a modifier says the user is building

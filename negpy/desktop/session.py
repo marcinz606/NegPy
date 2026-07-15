@@ -14,8 +14,11 @@ from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.sidecar import load_or_promote
 
-# Filmstrip hops coalesce into one heavy per-frame commit after navigation settles (ms).
-NAV_COMMIT_DEBOUNCE_MS = 90
+# Filmstrip hops coalesce into one heavy per-frame commit once navigation goes idle for
+# this long (ms). A RAW decode can't be interrupted once started, so this must comfortably
+# exceed the gap between rapid key presses — otherwise an intermediate frame commits
+# mid-burst, its decode blocks the worker, and the next hops stall behind it.
+NAV_COMMIT_DEBOUNCE_MS = 300
 
 
 class ToolMode(Enum):

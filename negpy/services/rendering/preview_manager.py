@@ -1,7 +1,7 @@
 import io
 import os
 import time
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -390,6 +390,7 @@ class PreviewManager:
         full_resolution: bool = False,
         file_hash: str | None = None,
         log_timings: bool = False,
+        on_splash: Optional[Callable[[ImageBuffer, Dimensions], None]] = None,
     ) -> Tuple[Optional[Tuple[ImageBuffer, Dimensions]], Tuple[ImageBuffer, Dimensions, dict]]:
         """
         Open the RAW file once and return both the splash preview and the linear
@@ -443,6 +444,10 @@ class PreviewManager:
         with ctx_mgr as raw:
             if not full_resolution:
                 splash_result = self._try_splash_from_open_raw(raw, file_path)
+                # Hand the splash to the caller immediately — before the linear decode —
+                # so the UI can paint the embedded preview without waiting for demosaic.
+                if splash_result is not None and on_splash is not None:
+                    on_splash(*splash_result)
             linear_result = self._load_from_open_raw(
                 raw,
                 metadata,

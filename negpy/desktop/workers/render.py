@@ -100,6 +100,9 @@ class PreviewLoadTask:
     align: bool = True  # sub-pixel registration of the triplet
     # Monotonic id from the controller; older queued decodes are skipped without I/O.
     load_seq: int = 0
+    # Monotonic id for cache-warm (prefetch) tasks; a newer navigation bumps it so queued
+    # prefetches for a frame the user has already left are dropped before any decode.
+    prefetch_gen: int = 0
 
 
 class RenderWorker(QObject):
@@ -358,17 +361,28 @@ class PreviewLoadWorker(QObject):
         super().__init__()
         self._preview_service = preview_service
         self._latest_preview_seq = 0
+        self._latest_prefetch_gen = 0
 
     def set_latest_preview_seq(self, seq: int) -> None:
         """Updated synchronously from the UI thread before each decode is queued."""
         self._latest_preview_seq = seq
 
+    def set_latest_prefetch_gen(self, gen: int) -> None:
+        """Updated synchronously from the UI thread on every navigation commit so stale
+        prefetch tasks (for a frame already navigated away from) can be skipped."""
+        self._latest_prefetch_gen = gen
+
     def _preview_superseded(self, task: PreviewLoadTask) -> bool:
         return not task.for_cache_warm and task.load_seq < self._latest_preview_seq
+
+    def _prefetch_superseded(self, task: PreviewLoadTask) -> bool:
+        return task.prefetch_gen != 0 and task.prefetch_gen < self._latest_prefetch_gen
 
     @pyqtSlot(PreviewLoadTask)
     def process(self, task: PreviewLoadTask) -> None:
         if task.for_cache_warm:
+            if self._prefetch_superseded(task):
+                return
             try:
                 self._preview_service.load_linear_preview(
                     task.file_path,
@@ -409,18 +423,23 @@ class PreviewLoadWorker(QObject):
                     self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
                 return
             if task.use_splash and not task.full_resolution:
-                # Open the file once; get splash + linear in a single pass.
-                sp, (raw, dims, metadata) = self._preview_service.load_splash_and_linear(
+                # Open the file once; get splash + linear in a single pass. The embedded
+                # thumbnail is extracted before the (slow) linear decode, so paint it the
+                # moment it's available instead of waiting out the whole decode — this is
+                # what makes a cold landing feel instant rather than frozen.
+                def _emit_splash(sbuf, sdims):
+                    if not self._preview_superseded(task):
+                        self.splash.emit(task.file_path, sbuf, sdims)
+
+                _, (raw, dims, metadata) = self._preview_service.load_splash_and_linear(
                     task.file_path,
                     task.workspace_color_space,
                     use_camera_wb=task.use_camera_wb,
                     full_resolution=task.full_resolution,
                     file_hash=task.file_hash,
                     log_timings=True,
+                    on_splash=_emit_splash,
                 )
-                if sp is not None and not self._preview_superseded(task):
-                    sbuf, sdims = sp
-                    self.splash.emit(task.file_path, sbuf, sdims)
             else:
                 raw, dims, metadata = self._preview_service.load_linear_preview(
                     task.file_path,
