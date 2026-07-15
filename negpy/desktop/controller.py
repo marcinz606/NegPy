@@ -2445,6 +2445,15 @@ class AppController(QObject):
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
         self._is_rendering = False
 
+        src = metrics.get("source_hash")
+        if src is not None and src != self.state.current_file_hash:
+            if self._pending_render_task:
+                task = self._pending_render_task
+                self._pending_render_task = None
+                self._is_rendering = True
+                self.render_requested.emit(task)
+            return
+
         if self._first_render_t0 is not None and not metrics.get("ephemeral"):
             logger.info(
                 "load-timing first_render %.0fms (buffer -> painted) %s",
@@ -2497,16 +2506,16 @@ class AppController(QObject):
         """
         Handles late-arriving metrics and persists analysis results.
         """
+        src = metrics.get("source_hash")
+        if src is not None and src != self.state.current_file_hash:
+            return
+
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
         self.metrics_available.emit(metrics)
 
-        # Don't persist bounds from an ephemeral (splash) render or a render of a different
-        # file (late metric after a fast switch) — they aren't this frame's bounds.
+        # Don't persist bounds from an ephemeral (splash) render — they aren't this frame's bounds.
         if metrics.get("ephemeral"):
-            return
-        src = metrics.get("source_hash")
-        if src is not None and src != self.state.current_file_hash:
             return
 
         # Persist the per-frame *base* (not the final mix) — re-feeding a mix as the next

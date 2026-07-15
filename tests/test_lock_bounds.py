@@ -313,6 +313,12 @@ class TestRenderWritebackRespectsLock(unittest.TestCase):
         self.ctrl._on_metrics_updated({"log_bounds": FakeBounds((0.1, 0.1, 0.1), (0.9, 0.9, 0.9)), "source_hash": "other_file"})
         self.ctrl.session.update_config.assert_not_called()
 
+    def test_metrics_updated_skips_stale_last_metrics(self):
+        self.ctrl.state.current_file_hash = "current"
+        self.ctrl.state.last_metrics["histogram"] = [9, 9, 9]
+        self.ctrl._on_metrics_updated({"histogram": [1, 2, 3], "source_hash": "other_file"})
+        self.assertEqual(self.ctrl.state.last_metrics["histogram"], [9, 9, 9])
+
     def test_writeback_runs_when_source_hash_matches(self):
         _set_process(self.ctrl, local_floors=(0.0, 0.0, 0.0), local_ceils=(0.0, 0.0, 0.0), lock_bounds=False)
         new_floors = (0.05, 0.06, 0.07)

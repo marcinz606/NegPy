@@ -182,6 +182,53 @@ class TestAppController(unittest.TestCase):
         self.controller._on_render_finished(None, {"ephemeral": True})
         self.controller._update_thumbnail_from_state.assert_not_called()
 
+    def test_render_finished_skips_stale_source_hash(self):
+        """A late render from a previous file must not repaint or overwrite metrics."""
+        import numpy as np
+
+        stale = np.zeros((4, 4, 3), dtype=np.float32)
+        current = np.ones((4, 4, 3), dtype=np.float32)
+        self.controller.state.current_file_hash = "current"
+        self.controller.state.last_metrics["base_positive"] = current
+
+        image_updated = MagicMock()
+        self.controller.image_updated.connect(image_updated)
+        self.controller._update_thumbnail_from_state = MagicMock()
+
+        self.controller._on_render_finished(
+            None,
+            {"source_hash": "stale", "base_positive": stale, "histogram_raw": [1, 2, 3]},
+        )
+
+        image_updated.assert_not_called()
+        self.controller._update_thumbnail_from_state.assert_not_called()
+        self.assertIs(self.controller.state.last_metrics["base_positive"], current)
+        self.assertNotIn("histogram_raw", self.controller.state.last_metrics)
+
+    def test_render_finished_stale_still_dispatches_pending_task(self):
+        """Rejecting a stale frame must not strand a queued render for the current file."""
+        import numpy as np
+
+        from negpy.domain.models import WorkspaceConfig
+        from negpy.desktop.workers.render import RenderTask
+
+        pending = RenderTask(
+            buffer=np.zeros((1, 1, 3), np.float32),
+            config=WorkspaceConfig(),
+            source_hash="current",
+            preview_size=1.0,
+        )
+        self.controller.state.current_file_hash = "current"
+        self.controller._pending_render_task = pending
+        render_requested = MagicMock()
+        self.controller.render_requested.connect(render_requested)
+
+        self.controller._on_render_finished(None, {"source_hash": "stale"})
+
+        self.assertIsNone(self.controller._pending_render_task)
+        self.assertTrue(self.controller._is_rendering)
+        render_requested.assert_called_once_with(pending)
+
     def test_proof_active_gated_by_toggle(self):
         """proof_active() is False unless the soft-proof toggle is on, even with an
         export color space set (which always resolves an output profile)."""
