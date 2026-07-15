@@ -404,8 +404,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Retouch Panel — Dust Removal",
             body=(
-                "<b>Auto Dust</b> detects and removes small particles based on a density threshold. "
-                "Lower the threshold to be more aggressive.<br><br>"
+                "<b>Optical Removal</b> detects and removes small particles on the visible scan by "
+                "local contrast. Lower the threshold to be more aggressive. <b>IR Removal</b> does the "
+                "same from the scanner's infrared channel, catching dust the eye can't separate from grain.<br><br>"
                 "<b>Heal Tool</b>: click individual dust spots in the preview — each heal "
                 "clones a matching patch from elsewhere in the frame and blends the seam, so "
                 "grain stays intact.<br><br>"

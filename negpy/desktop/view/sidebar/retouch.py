@@ -11,6 +11,10 @@ _IR_REMOVAL_TIP = (
     "semi-transparent specks are divided back out to recover the image underneath, and only opaque cores are cloned."
 )
 _IR_THRESH_TIP = "Lower catches more dust, higher is conservative. Smooth response, no cliff."
+_OPTICAL_TIP = (
+    "Find and remove dust specks on the visible scan by local contrast — no infrared channel needed. "
+    "Set sensitivity with Threshold and Size below."
+)
 
 
 class RetouchSidebar(BaseSidebar):
@@ -21,23 +25,45 @@ class RetouchSidebar(BaseSidebar):
     def _init_ui(self) -> None:
         conf = self.state.config.retouch
 
-        # --- AUTO DUST -------------------------------------------------------
-        self.layout.addWidget(section_subheader("AUTO DUST"))
+        # --- Overlay inspector (applies to every detection source) ----------
+        self.overlay_btn = QPushButton(" Overlay: Off")
+        self.overlay_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
+        self.overlay_btn.setToolTip(
+            "Cycle the dust-detection overlay: Off → Marked → IR. "
+            "Enable Optical / IR Removal so the overlay has detected spots to show."
+        )
+        self.layout.addWidget(self.overlay_btn)
+
+        # --- OPTICAL REMOVAL (visible-scan speck detection) -----------------
+        self.layout.addWidget(section_subheader("OPTICAL REMOVAL"))
+        self.auto_dust_btn = self._small_toggle("fa5s.magic", "Optical Removal", conf.dust_remove, _OPTICAL_TIP)
+        self.layout.addWidget(self.auto_dust_btn)
         auto_row = QHBoxLayout()
         self.threshold_slider = CompactSlider("Threshold", 0.01, 1.0, conf.dust_threshold)
-        self.auto_size_slider = CompactSlider("Auto Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
+        self.auto_size_slider = CompactSlider("Size", 3.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
         auto_row.addWidget(self.threshold_slider)
         auto_row.addWidget(self.auto_size_slider)
         self.layout.addLayout(auto_row)
-        self.auto_dust_btn = self._small_toggle(
-            "fa5s.magic",
-            "Auto Dust",
-            conf.dust_remove,
-            "Enable automatic dust removal using the Threshold and Auto Size settings above",
-        )
-        self.layout.addWidget(self.auto_dust_btn)
 
-        # --- MANUAL HEAL -----------------------------------------------------
+        # --- IR REMOVAL ------------------------------------------------------
+        self.ir_subheader = section_subheader("IR REMOVAL")
+        self.layout.addWidget(self.ir_subheader)
+        self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP)
+        self.ir_threshold_slider = CompactSlider("IR Threshold", 0.05, 0.95, float(conf.ir_threshold))
+        self.ir_threshold_slider.setToolTip(_IR_THRESH_TIP)
+        ir_row = QHBoxLayout()
+        ir_row.addWidget(self.ir_dust_btn, stretch=1)
+        ir_row.addWidget(self.ir_threshold_slider, stretch=1)
+        self.layout.addLayout(ir_row)
+
+        # Restored whenever the scan has IR (never let a stale "No IR channel" tip linger).
+        self._ir_tooltips = {
+            self.ir_subheader: "Detect and remove dust/scratches using the scanner's infrared channel",
+            self.ir_dust_btn: _IR_REMOVAL_TIP,
+            self.ir_threshold_slider: _IR_THRESH_TIP,
+        }
+
+        # --- MANUAL HEAL (bottom) -------------------------------------------
         self.heals_subheader = section_subheader("MANUAL HEAL · 0")
         self.layout.addWidget(self.heals_subheader)
         tools_row = QHBoxLayout()
@@ -67,33 +93,6 @@ class RetouchSidebar(BaseSidebar):
         actions_row.addWidget(self.undo_btn, 1)
         actions_row.addWidget(self.clear_btn, 1)
         self.layout.addLayout(actions_row)
-
-        # --- IR REMOVAL ------------------------------------------------------
-        self.ir_subheader = section_subheader("IR REMOVAL")
-        self.layout.addWidget(self.ir_subheader)
-        self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP)
-        self.ir_threshold_slider = CompactSlider("IR Threshold", 0.05, 0.95, float(conf.ir_threshold))
-        self.ir_threshold_slider.setToolTip(_IR_THRESH_TIP)
-        ir_row = QHBoxLayout()
-        ir_row.addWidget(self.ir_dust_btn, stretch=1)
-        ir_row.addWidget(self.ir_threshold_slider, stretch=1)
-        self.layout.addLayout(ir_row)
-
-        # Restored whenever the scan has IR (never let a stale "No IR channel" tip linger).
-        self._ir_tooltips = {
-            self.ir_subheader: "Detect and remove dust/scratches using the scanner's infrared channel",
-            self.ir_dust_btn: _IR_REMOVAL_TIP,
-            self.ir_threshold_slider: _IR_THRESH_TIP,
-        }
-
-        # --- Overlay inspector (applies to every detection source) ----------
-        self.overlay_btn = QPushButton(" Overlay: Off")
-        self.overlay_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
-        self.overlay_btn.setToolTip(
-            "Cycle the dust-detection overlay: Off → Marked → IR. "
-            "Enable Auto Dust / IR Dust so the overlay has detected spots to show."
-        )
-        self.layout.addWidget(self.overlay_btn)
 
         self.layout.addStretch()
 
