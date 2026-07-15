@@ -1,4 +1,7 @@
-from unittest.mock import MagicMock
+from dataclasses import replace
+from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
@@ -6,7 +9,13 @@ from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
 from negpy.desktop.workers.export import ExportTask, ExportWorker
-from negpy.desktop.workers.render import NormalizationTask, NormalizationWorker
+from negpy.desktop.workers.render import (
+    AutocropBatchTask,
+    AutocropBatchWorker,
+    NormalizationTask,
+    NormalizationWorker,
+)
+from negpy.features.geometry.batch_autocrop import AutocropCandidate
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 
 
@@ -110,6 +119,112 @@ def test_export_batch_keeps_source_cache_for_consecutive_same_file(tmp_path) -> 
     flat = replace(DEFAULT_WORKSPACE_CONFIG, flatfield=replace(DEFAULT_WORKSPACE_CONFIG.flatfield, apply=True, reference_path="/f.dng"))
     a_flat = ExportTask(file_info=a.file_info, params=flat, export_settings=preset)
     assert not _same_decode_source(a, a_flat)
+
+
+def test_autocrop_all_skips_manual_crops_and_returns_calibrated_results() -> None:
+    preview = MagicMock()
+    preview.load_linear_preview.return_value = (
+        np.zeros((200, 300, 3), dtype=np.float32),
+        (200, 300),
+        {},
+    )
+    repo = MagicMock()
+    manual = replace(
+        DEFAULT_WORKSPACE_CONFIG,
+        geometry=replace(
+            DEFAULT_WORKSPACE_CONFIG.geometry,
+            manual_crop_rect=(0.1, 0.1, 0.9, 0.9),
+        ),
+    )
+    repo.load_file_settings.side_effect = lambda source_hash: manual if source_hash == "manual" else None
+    worker = AutocropBatchWorker(preview, repo)
+    task = AutocropBatchTask(
+        files=[
+            {"name": "manual.tif", "path": "/tmp/manual.tif", "hash": "manual"},
+            {"name": "auto.tif", "path": "/tmp/auto.tif", "hash": "auto"},
+        ],
+        workspace_color_space="Adobe RGB",
+        default_config=DEFAULT_WORKSPACE_CONFIG,
+        frame_ratio=1.5,
+    )
+    candidate = AutocropCandidate(
+        source_id="auto",
+        roi=(14, 184, 22, 277),
+        canvas=(200, 300),
+        angle=0.3,
+        plausible_geometry=True,
+        top_found=True,
+        left_found=True,
+        right_found=True,
+    )
+    completed: list[dict] = []
+    worker.finished.connect(completed.append)
+
+    with patch(
+        "negpy.features.geometry.batch_autocrop.detect_autocrop_candidate",
+        return_value=candidate,
+    ):
+        worker.process(task)
+
+    assert len(completed) == 1
+    assert completed[0]["skipped"] == {"manual"}
+    assert completed[0]["results"]["auto"].method == "two-corner"
+    preview.load_linear_preview.assert_called_once()
+
+
+def test_autocrop_all_uses_each_assets_rgb_triplet() -> None:
+    from negpy.features.rgbscan.models import RgbScanConfig
+
+    preview = MagicMock()
+    preview.load_linear_preview_rgb.return_value = (
+        np.zeros((200, 300, 3), dtype=np.float32),
+        (200, 300),
+        {},
+    )
+    repo = MagicMock()
+    repo.load_file_settings.return_value = None
+    worker = AutocropBatchWorker(preview, repo)
+    default_config = replace(
+        DEFAULT_WORKSPACE_CONFIG,
+        rgbscan=RgbScanConfig(
+            enabled=True,
+            green_path="/current-green.tif",
+            blue_path="/current-blue.tif",
+        ),
+    )
+    task = AutocropBatchTask(
+        files=[
+            {
+                "name": "frame.tif",
+                "path": "/frame-red.tif",
+                "hash": "frame",
+                "green_path": "/frame-green.tif",
+                "blue_path": "/frame-blue.tif",
+            }
+        ],
+        workspace_color_space="Adobe RGB",
+        default_config=default_config,
+        frame_ratio=1.5,
+    )
+    candidate = AutocropCandidate(
+        source_id="frame",
+        roi=(14, 184, 22, 277),
+        canvas=(200, 300),
+        angle=0.0,
+        plausible_geometry=True,
+        top_found=True,
+        left_found=True,
+        right_found=True,
+    )
+
+    with patch(
+        "negpy.features.geometry.batch_autocrop.detect_autocrop_candidate",
+        return_value=candidate,
+    ):
+        worker.process(task)
+
+    args = preview.load_linear_preview_rgb.call_args.args
+    assert args[:3] == ("/frame-red.tif", "/frame-green.tif", "/frame-blue.tif")
 
 
 def test_normalization_worker_cancel_emits_cancelled_no_baseline() -> None:

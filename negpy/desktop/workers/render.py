@@ -68,6 +68,16 @@ class NormalizationTask:
 
 
 @dataclass(frozen=True)
+class AutocropBatchTask:
+    """Request to detect and calibrate crops across the visible roll."""
+
+    files: list[dict]
+    workspace_color_space: str
+    default_config: WorkspaceConfig
+    frame_ratio: float
+
+
+@dataclass(frozen=True)
 class AssetDiscoveryTask:
     """Request to find and hash image files in paths."""
 
@@ -599,3 +609,112 @@ class NormalizationWorker(QObject):
         except Exception as e:
             logger.error(f"Batch Normalization failure: {e}")
             self.error.emit(str(e))
+
+
+class AutocropBatchWorker(QObject):
+    """Detects crop evidence for a roll and resolves it as one calibrated batch."""
+
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(dict)
+    cancelled = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, preview_service, repo) -> None:
+        super().__init__()
+        self._preview_service = preview_service
+        self._repo = repo
+        self._cancel = threading.Event()
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    @pyqtSlot(AutocropBatchTask)
+    def process(self, task: AutocropBatchTask) -> None:
+        from negpy.desktop.session import resolve_asset_rgbscan
+        from negpy.features.flatfield.logic import apply_flatfield
+        from negpy.features.geometry.batch_autocrop import (
+            BatchDetectParams,
+            detect_autocrop_candidate,
+            finalize_autocrop_batch,
+            prepare_autocrop_image,
+        )
+
+        self._cancel.clear()
+        candidates = []
+        configs: dict[str, WorkspaceConfig] = {}
+        skipped: set[str] = set()
+        failed: dict[str, str] = {}
+        total = len(task.files)
+        params = BatchDetectParams(frame_ratio=task.frame_ratio)
+
+        try:
+            for index, file_info in enumerate(task.files):
+                if self._cancel.is_set():
+                    self.cancelled.emit()
+                    return
+
+                source_hash = file_info["hash"]
+                config = resolve_asset_rgbscan(
+                    self._repo.load_file_settings(source_hash) or task.default_config,
+                    file_info,
+                )
+                geometry = config.geometry
+                if geometry.manual_crop_rect is not None:
+                    skipped.add(source_hash)
+                    self.progress.emit(index + 1, total, f"{file_info['name']} [manual crop]")
+                    continue
+
+                try:
+                    rgbscan = config.rgbscan
+                    if rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
+                        image, _, _ = self._preview_service.load_linear_preview_rgb(
+                            file_info["path"],
+                            rgbscan.green_path,
+                            rgbscan.blue_path,
+                            task.workspace_color_space,
+                            use_camera_wb=not config.process.linear_raw,
+                            full_resolution=False,
+                            file_hash=source_hash,
+                            align=rgbscan.align,
+                        )
+                    else:
+                        image, _, _ = self._preview_service.load_linear_preview(
+                            file_info["path"],
+                            task.workspace_color_space,
+                            not config.process.linear_raw,
+                            False,
+                            source_hash,
+                        )
+                    image = apply_flatfield(image, config.flatfield)
+                    transformed = prepare_autocrop_image(
+                        image,
+                        geometry,
+                        config.flatfield.k1 if config.flatfield.apply else 0.0,
+                    )
+                    candidates.append(detect_autocrop_candidate(transformed, source_hash, params))
+                    configs[source_hash] = config
+                    self.progress.emit(index + 1, total, file_info["name"])
+                except Exception as exc:
+                    logger.error("Auto Crop All failed for %s: %s", file_info["name"], exc)
+                    failed[source_hash] = str(exc)
+                    self.progress.emit(index + 1, total, f"{file_info['name']} [failed]")
+
+            if self._cancel.is_set():
+                self.cancelled.emit()
+                return
+            if not candidates:
+                raise RuntimeError("No uncropped files were available for Auto Crop All")
+
+            self.finished.emit(
+                {
+                    "results": finalize_autocrop_batch(candidates, params),
+                    "canvases": {candidate.source_id: candidate.canvas for candidate in candidates},
+                    "configs": configs,
+                    "skipped": skipped,
+                    "failed": failed,
+                }
+            )
+        except Exception as exc:
+            logger.error("Auto Crop All failure: %s", exc)
+            self.error.emit(str(exc))

@@ -445,6 +445,7 @@ class TestBatchExportFiltering(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.fresh_file_config.return_value = WorkspaceConfig()
 
         self.mock_session_manager.state.uploaded_files = [
             {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
@@ -948,6 +949,7 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
         self.mock_session_manager.state = AppState()
         self.mock_session_manager.repo = MagicMock()
         self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.mock_session_manager.fresh_file_config.return_value = WorkspaceConfig()
 
         self.mock_session_manager.state.uploaded_files = [
             {"name": "IMG_0001.cr2", "path": "/tmp/IMG_0001.cr2", "hash": "h1"},
@@ -970,6 +972,9 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
 
         self.emitted = []
         self.controller.normalization_requested.connect(self.emitted.append)
+        self.autocrop_emitted = []
+        self.controller.autocrop_batch_requested.disconnect(self.controller.autocrop_batch_worker.process)
+        self.controller.autocrop_batch_requested.connect(self.autocrop_emitted.append)
 
     def tearDown(self):
         import gc
@@ -1005,6 +1010,90 @@ class TestBatchAnalysisFiltering(unittest.TestCase):
             mock_box.question.return_value = 1
             self.controller.request_batch_normalization()
         self.assertEqual(self.emitted, [])
+
+    def test_analysis_does_not_start_during_auto_crop_all(self):
+        self.controller._active_batch = "Auto cropping roll"
+
+        self.controller.request_batch_normalization()
+
+        self.assertEqual(self.emitted, [])
+
+    def test_auto_crop_all_respects_filter(self):
+        self.visible_indices = [1, 2]
+        with patch("negpy.desktop.controller.QMessageBox") as mock_box:
+            mock_box.StandardButton.Yes = 1
+            mock_box.question.return_value = 1
+            self.controller.apply_auto_crop_all()
+
+        self.assertEqual(len(self.autocrop_emitted), 1)
+        self.assertEqual(
+            [file_info["name"] for file_info in self.autocrop_emitted[0].files],
+            ["IMG_0002.cr2", "scan.tif"],
+        )
+        self.assertEqual(self.autocrop_emitted[0].default_config, WorkspaceConfig())
+
+    def test_auto_crop_all_persists_explicit_crop(self):
+        from negpy.features.geometry.batch_autocrop import AutocropResult
+
+        self.mock_session_manager.state.current_file_hash = "h1"
+        config = self.mock_session_manager.state.config
+        payload = {
+            "results": {"h1": AutocropResult((20, 180, 30, 270), 1.25, "two-corner")},
+            "canvases": {"h1": (200, 300)},
+            "configs": {"h1": config},
+            "skipped": set(),
+            "failed": {},
+        }
+
+        self.controller._on_autocrop_batch_finished(payload)
+
+        saved = self.mock_session_manager.repo.save_file_settings.call_args.args[1]
+        self.assertEqual(saved.geometry.manual_crop_rect, (0.1, 0.1, 0.9, 0.9))
+        self.assertEqual(saved.geometry.fine_rotation, 1.25)
+        self.assertFalse(saved.geometry.auto_crop_enabled)
+        self.mock_session_manager.update_config.assert_called_once()
+
+    def test_auto_crop_all_preserves_manual_crop_added_while_running(self):
+        from negpy.features.geometry.batch_autocrop import AutocropResult
+
+        captured = self.mock_session_manager.state.config
+        latest = replace(
+            captured,
+            geometry=replace(captured.geometry, manual_crop_rect=(0.2, 0.2, 0.8, 0.8)),
+        )
+        self.mock_session_manager.repo.load_file_settings.return_value = latest
+        payload = {
+            "results": {"h1": AutocropResult((20, 180, 30, 270), 1.25, "two-corner")},
+            "canvases": {"h1": (200, 300)},
+            "configs": {"h1": captured},
+            "skipped": set(),
+            "failed": {},
+        }
+
+        self.controller._on_autocrop_batch_finished(payload)
+
+        self.mock_session_manager.repo.save_file_settings.assert_not_called()
+
+    def test_auto_crop_all_skips_geometry_changed_while_running(self):
+        from negpy.features.geometry.batch_autocrop import AutocropResult
+
+        captured = self.mock_session_manager.state.config
+        latest = replace(
+            captured,
+            geometry=replace(captured.geometry, fine_rotation=2.0),
+        )
+        self.mock_session_manager.repo.load_file_settings.return_value = latest
+        payload = {
+            "results": {"h1": AutocropResult((20, 180, 30, 270), 1.25, "two-corner")},
+            "canvases": {"h1": (200, 300)},
+            "configs": {"h1": captured},
+            "skipped": set(),
+            "failed": {},
+        }
+
+        self.controller._on_autocrop_batch_finished(payload)
+
+        self.mock_session_manager.repo.save_file_settings.assert_not_called()
 
 
 class TestContactSheetOutputDir(unittest.TestCase):

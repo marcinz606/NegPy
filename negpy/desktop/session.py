@@ -644,6 +644,10 @@ class DesktopSessionManager(QObject):
 
         return config
 
+    def fresh_file_config(self) -> WorkspaceConfig:
+        """Build the same clean, sticky-aware config used for a newly opened file."""
+        return self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+
     def _persist_sticky_settings(self, config: WorkspaceConfig) -> None:
         """
         Saves current settings to global storage in a single transaction.

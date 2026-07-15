@@ -14,6 +14,8 @@ from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_c
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
+    AutocropBatchTask,
+    AutocropBatchWorker,
     NormalizationTask,
     NormalizationWorker,
     PreviewLoadTask,
@@ -133,6 +135,7 @@ class AppController(QObject):
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
+    autocrop_batch_requested = pyqtSignal(AutocropBatchTask)
     analysis_buffer_preview_requested = pyqtSignal(float)
     rotation_guide_requested = pyqtSignal()
     crop_guide_changed = pyqtSignal()
@@ -229,6 +232,8 @@ class AppController(QObject):
         self.norm_thread = QThread()
         self.norm_worker = NormalizationWorker(self.preview_service, self.session.repo)
         self.norm_worker.moveToThread(self.norm_thread)
+        self.autocrop_batch_worker = AutocropBatchWorker(self.preview_service, self.session.repo)
+        self.autocrop_batch_worker.moveToThread(self.norm_thread)
         self.norm_thread.start()
 
         self.discovery_thread = QThread()
@@ -390,6 +395,13 @@ class AppController(QObject):
         self.norm_worker.error.connect(self._on_render_error)
         self.norm_worker.error.connect(self._on_batch_error)
 
+        self.autocrop_batch_requested.connect(self.autocrop_batch_worker.process)
+        self.autocrop_batch_worker.progress.connect(self._on_autocrop_batch_progress)
+        self.autocrop_batch_worker.finished.connect(self._on_autocrop_batch_finished)
+        self.autocrop_batch_worker.cancelled.connect(self._on_batch_cancelled)
+        self.autocrop_batch_worker.error.connect(self._on_render_error)
+        self.autocrop_batch_worker.error.connect(self._on_batch_error)
+
         self.asset_discovery_requested.connect(self.discovery_worker.process)
         self.discovery_worker.progress.connect(self._on_discovery_progress)
         self.discovery_worker.finished.connect(self._on_discovery_finished)
@@ -435,6 +447,8 @@ class AppController(QObject):
         self.session.files_changed.connect(self._render_debounce.start)
 
     def generate_missing_thumbnails(self) -> None:
+        if self._active_batch is not None:
+            return
         missing = [f for f in self.state.uploaded_files if f["name"] not in self.state.thumbnails]
         if missing:
             self.set_status("GENERATING THUMBNAILS...")
@@ -459,7 +473,7 @@ class AppController(QObject):
     # --- Batch progress popup -------------------------------------------------
 
     def _begin_batch(self, title: str, abortable: bool) -> None:
-        self._active_batch = title if abortable else None
+        self._active_batch = title
         self.batch_started.emit(title, abortable)
 
     def _end_batch(self) -> None:
@@ -482,6 +496,8 @@ class AppController(QObject):
             self.export_worker.cancel()
         elif self._active_batch == "Analyzing roll":
             self.norm_worker.cancel()
+        elif self._active_batch == "Auto cropping roll":
+            self.autocrop_batch_worker.cancel()
 
     def saved_session_paths(self) -> List[str]:
         """Returns last session's file paths that still exist on disk."""
@@ -514,6 +530,9 @@ class AppController(QObject):
         appending) and reselects `reselect_path` — used when re-running discovery
         over already-loaded files (e.g. an RGB-scan mode toggle).
         """
+        if self._active_batch is not None and not self._discovery_running:
+            self.set_status(f"Wait for {self._active_batch.lower()} to finish", 3000)
+            return
         request = _DiscoveryRequest(
             paths=tuple(paths),
             auto_open=auto_open,
@@ -942,6 +961,111 @@ class AppController(QObject):
         )
         self.request_render()
 
+    def apply_auto_crop_all(self) -> None:
+        """Detect, calibrate, and persist crops for every visible uncropped frame."""
+        if self._active_batch is not None:
+            return
+        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        if not visible_files:
+            return
+
+        ratio_str = self.state.config.geometry.autocrop_ratio
+        try:
+            first, second = (float(part) for part in ratio_str.split(":", 1))
+            frame_ratio = max(first, second) / min(first, second)
+        except (TypeError, ValueError, ZeroDivisionError):
+            frame_ratio = 1.5
+
+        manual_count = 0
+        for file_info in visible_files:
+            config = self.session.repo.load_file_settings(file_info["hash"])
+            if config and config.geometry.manual_crop_rect is not None:
+                manual_count += 1
+
+        reply = QMessageBox.question(
+            None,
+            "Auto Crop All",
+            f"Analyze {len(visible_files)} visible frame(s) together using the {ratio_str} ratio?\n\n"
+            "Confident frames calibrate ambiguous ones. Existing manual crops will be "
+            f"kept ({manual_count}), and unsupported frames will remain unchanged.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.set_status("Starting Auto Crop All...")
+        self._begin_batch("Auto cropping roll", abortable=True)
+        self.autocrop_batch_requested.emit(
+            AutocropBatchTask(
+                files=visible_files,
+                workspace_color_space=self.state.workspace_color_space,
+                default_config=self.session.fresh_file_config(),
+                frame_ratio=frame_ratio,
+            )
+        )
+
+    def _on_autocrop_batch_progress(self, current: int, total: int, label: str) -> None:
+        self.set_status(f"Auto cropping {current}/{total}: {label}...")
+        self.status_progress_requested.emit(current, total)
+        self.batch_progress.emit(current, total, label)
+
+    def _on_autocrop_batch_finished(self, payload: dict) -> None:
+        from negpy.features.geometry.batch_autocrop import autocrop_input_signature, geometry_from_autocrop_result
+
+        self._end_batch()
+        results = payload["results"]
+        canvases = payload["canvases"]
+        applied = 0
+        unchanged = len(payload["failed"])
+        skipped = len(payload["skipped"])
+        current_config = None
+
+        for file_info in self.state.uploaded_files:
+            source_hash = file_info["hash"]
+            result = results.get(source_hash)
+            if result is None:
+                continue
+            if result.method == "manual":
+                unchanged += 1
+                continue
+
+            captured_config = payload["configs"][source_hash]
+            latest_config = self.session.repo.load_file_settings(source_hash)
+            config = resolve_asset_rgbscan(latest_config, file_info) if latest_config is not None else captured_config
+            if config.geometry.manual_crop_rect is not None:
+                skipped += 1
+                continue
+            if autocrop_input_signature(config) != autocrop_input_signature(captured_config):
+                unchanged += 1
+                continue
+            new_geometry = geometry_from_autocrop_result(
+                config.geometry,
+                result,
+                canvases[source_hash],
+            )
+            if new_geometry is None:
+                unchanged += 1
+                continue
+
+            new_process = replace(config.process, **invalidate_local_bounds(config.process))
+            updated = replace(config, geometry=new_geometry, process=new_process)
+            self.session.repo.save_file_settings(source_hash, updated)
+            if source_hash == self.state.current_file_hash:
+                current_config = updated
+            applied += 1
+
+        if current_config is not None:
+            self.session.update_config(current_config, persist=False, render=True, record_history=False)
+
+        self.status_progress_requested.emit(0, 0)
+        self.set_status(
+            f"Auto Crop All: cropped {applied}, kept {skipped} manual, left {unchanged} unchanged",
+            5000,
+        )
+        if current_config is not None:
+            self.request_render()
+
     def detect_aspect_ratio(self) -> None:
         img = self.state.preview_raw
         if img is None:
@@ -1276,6 +1400,8 @@ class AppController(QObject):
         """
         Initiates background analysis for batch normalization.
         """
+        if self._active_batch is not None:
+            return
         visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
         if not visible_files:
             return
@@ -2129,6 +2255,8 @@ class AppController(QObject):
 
     def request_contact_sheet(self) -> None:
         """Renders all visible files small and writes darkroom contact sheet(s)."""
+        if self._active_batch is not None:
+            return
         visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
         if not visible_files:
             return
@@ -2191,6 +2319,8 @@ class AppController(QObject):
         self.set_status(f"Wrote {written} edit sidecar(s)", 4000)
 
     def _run_export_tasks(self, tasks: List[ExportTask]) -> None:
+        if self._active_batch is not None:
+            return
         # Reject unencodable format/colour-space pairings before anything else.
         blocked = [t for t in tasks if export_blocked(t.export_settings.export_fmt, t.export_settings.export_color_space)]
         if blocked:
@@ -2437,6 +2567,8 @@ class AppController(QObject):
         if self.thumb_thread.isRunning():
             self.thumb_thread.quit()
             self.thumb_thread.wait()
+        self.norm_worker.cancel()
+        self.autocrop_batch_worker.cancel()
         if self.norm_thread.isRunning():
             self.norm_thread.quit()
             self.norm_thread.wait()
