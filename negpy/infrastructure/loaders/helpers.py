@@ -83,29 +83,6 @@ def identify_color_space_from_icc(icc_bytes: Optional[bytes]) -> Optional[str]:
     return None
 
 
-def detect_color_space_from_raw(raw: Any) -> Optional[str]:
-    """
-    Try to read the color space declared in a RAW file's embedded JPEG thumbnail EXIF.
-    Returns a ColorSpace.value string or None if detection fails.
-    EXIF tag 0xa001: 1=sRGB, 65535=Adobe RGB (manufacturer convention).
-    """
-    import io
-    from PIL import Image
-
-    try:
-        thumb = raw.extract_thumb()
-        if thumb.format == rawpy.ThumbFormat.JPEG:
-            with Image.open(io.BytesIO(thumb.data)) as img:
-                cs_tag = img.getexif().get(0xA001)
-                if cs_tag == 1:
-                    return ColorSpace.SRGB.value
-                if cs_tag == 65535:
-                    return ColorSpace.ADOBE_RGB.value
-    except Exception:
-        pass
-    return None
-
-
 class NonStandardFileWrapper:
     """
     numpy -> rawpy-like interface.

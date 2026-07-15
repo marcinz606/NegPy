@@ -451,7 +451,9 @@ class ImageProcessor:
             return self._source_cache_value
 
         rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode)
-        source_cs = str(metadata.get("color_space", ColorSpace.ADOBE_RGB.value))
+        # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
+        # already in the working space, so "Same as Source" exports without converting.
+        source_cs = str(metadata.get("color_space") or WORKING_COLOR_SPACE)
         ir_full = metadata.get("ir")
 
         if is_triplet:

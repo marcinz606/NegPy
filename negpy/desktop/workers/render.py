@@ -8,6 +8,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.analysis import output_histogram
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -385,7 +386,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     align=task.align,
                 )
-                source_cs = metadata.get("color_space", "")
+                source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
                 detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
                 logger.info(
@@ -417,7 +418,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     log_timings=True,
                 )
-            source_cs = metadata.get("color_space", "")
+            source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
             detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
             logger.info(

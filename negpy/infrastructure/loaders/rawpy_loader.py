@@ -6,8 +6,7 @@ import rawpy
 import tifffile
 
 from negpy.domain.interfaces import IImageLoader
-from negpy.domain.models import ColorSpace
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, detect_color_space_from_raw, read_orientation
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, read_orientation
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -81,7 +80,8 @@ class RawpyLoader(IImageLoader):
             metadata = {
                 "orientation": read_orientation(file_path),
                 "raw_flip": 0,
-                "color_space": ColorSpace.ADOBE_RGB.value,
+                # Sensor-native linear samples; no ColorSpace names them.
+                "color_space": None,
                 "ir": ir,
             }
             return NonStandardFileWrapper(rgb), metadata
@@ -91,7 +91,8 @@ class RawpyLoader(IImageLoader):
         metadata = {
             "orientation": read_orientation(file_path),
             "raw_flip": 0,
-            "color_space": detect_color_space_from_raw(raw) or "Adobe RGB",
+            # Decoded output_color=raw, so the file's own tags characterise nothing here.
+            "color_space": None,
             "ir": None,
         }
 

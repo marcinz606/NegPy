@@ -135,10 +135,10 @@ class TiffLoader(IImageLoader):
             icc_bytes = None
 
         color_space = identify_color_space_from_icc(icc_bytes)
-        if color_space is None:
-            # No ICC: 8-bit is display-encoded in practice, 16-bit is scanner-raw
-            # linear; Adobe RGB mirrors RawpyLoader's LinearRaw DNG default.
-            color_space = ColorSpace.SRGB.value if img.dtype == np.uint8 else ColorSpace.ADOBE_RGB.value
+        if color_space is None and img.dtype == np.uint8:
+            # Untagged 8-bit is display-encoded in practice. Untagged 16-bit is
+            # scanner-raw linear, which no ColorSpace names, so it stays None.
+            color_space = ColorSpace.SRGB.value
         if color_space == ColorSpace.SRGB.value:
             f32 = srgb_to_linear(f32)
         metadata = {"orientation": read_orientation(file_path), "color_space": color_space, "icc_profile": icc_bytes, "ir": ir}

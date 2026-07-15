@@ -10,6 +10,7 @@ from PIL import Image
 import rawpy
 
 from negpy.domain.types import Dimensions, ImageBuffer
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, is_xtrans
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
@@ -272,7 +273,7 @@ class PreviewManager:
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
 
         if color_space is None:
-            color_space = metadata.get("color_space", "Adobe RGB")
+            color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
             # Re-check now that color_space is resolved from metadata.
             if file_hash:
                 ck = PreviewCacheKey(
@@ -422,7 +423,7 @@ class PreviewManager:
             raise
 
         if color_space is None:
-            color_space = metadata.get("color_space", "Adobe RGB")
+            color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
             # Re-check now that color_space is resolved from metadata.
             if file_hash:
                 ck = PreviewCacheKey(
