@@ -10,6 +10,7 @@
 - Change: **Naming and panel tidy-up** — visible labels standardize on "colour", and the white-balance section is renamed **Filtration** so "Colour" unambiguously means the Lab & Toning tab; Tone's four "Width" sliders become "Toe Width" / "Shoulder Width"; editing presets and contact-sheet templates can be deleted from their panels; the Roll Analysis section gets a header reset; drag-and-drop opens the first frame like Add Files.
 - Fix: **Scanner TIFFs now develop exactly like their DNGs** — 16-bit TIFFs without an embedded colour profile were wrongly treated as sRGB, so the same scan rendered and exported differently as TIFF and DNG. They now load as linear scanner data (existing ones will render slightly differently), and scanner-TIFF and JPEG thumbnails no longer appear nearly black.
 - Fix: **Colour no longer squeezed on output** — a stale Adobe RGB override stood in for the ProPhoto RGB working space on the way out (preview, exports and thumbnails), compressing the gamut and leaving everything darker and more muted than intended. Scans and RAWs also no longer claim to be Adobe RGB when they carry no colour profile at all, so **Same as Source** keeps them at full width instead of squeezing them on the way out; a file with an embedded profile still exports to that profile. Re-export older edits to pick up the correction.
+- Fix: **True Black sticks across frames** — it was the one toggle in its group that reset on every frame; it now carries to the next like the Snap, Auto Density, Auto Grade and Paper White toggles it sits beside.
 
 ## 0.37.2
 

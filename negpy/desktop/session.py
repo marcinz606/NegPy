@@ -648,13 +648,14 @@ class DesktopSessionManager(QObject):
             config = replace(config, process=replace(config.process, linear_raw=bool(sticky_linear_raw)))
 
         # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
-        # White) are workflow preferences, not per-image looks: carry them to
-        # fresh files unless explicitly changed per file.
+        # White / True Black) are workflow preferences, not per-image looks: carry
+        # them to fresh files unless explicitly changed per file.
         new_exp = config.exposure
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
             ("last_paper_dmin", "paper_dmin"),
+            ("last_true_black", "true_black"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
@@ -697,6 +698,7 @@ class DesktopSessionManager(QObject):
                 "last_auto_exposure": config.exposure.auto_exposure,
                 "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
                 "last_paper_dmin": config.exposure.paper_dmin,
+                "last_true_black": config.exposure.true_black,
                 "last_paper_profile": config.exposure.paper_profile,
                 "last_toe": config.exposure.toe,
                 "last_toe_width": config.exposure.toe_width,

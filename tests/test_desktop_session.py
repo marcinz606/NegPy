@@ -77,6 +77,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertIn("last_process_mode", saved)
         self.assertIn("last_export_config", saved)
         self.assertIn("last_dust_remove", saved)
+        self.assertIn("last_true_black", saved)
         self.assertIn("last_protect_original_metadata", saved)
 
     def test_protect_original_metadata_carries_globally(self):
@@ -105,6 +106,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_auto_exposure": True,
             "last_auto_normalize_contrast": True,
             "last_paper_dmin": True,
+            "last_true_black": True,
             "last_paper_profile": "ilford_mg_rc",
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
@@ -112,7 +114,16 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertTrue(config.exposure.auto_exposure)
         self.assertTrue(config.exposure.auto_normalize_contrast)
         self.assertTrue(config.exposure.paper_dmin)
+        self.assertTrue(config.exposure.true_black)
         self.assertEqual(config.exposure.paper_profile, "ilford_mg_rc")
+
+    def test_true_black_off_carries_to_new_files(self):
+        """Sticky must carry an explicit off, not just on — default is already False."""
+        sticky = {"last_export_config": {}, "last_true_black": False}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, true_black=True))
+        config = self.session._apply_sticky_settings(base, only_global=False)
+        self.assertFalse(config.exposure.true_black)
 
     def test_roll_average_not_seeded_onto_fresh_files(self):
         # A roll baseline must not leak onto a fresh (sidecar-less) file.
