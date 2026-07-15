@@ -43,6 +43,14 @@ class RetouchSidebar(BaseSidebar):
         buttons_row.addWidget(self.pick_scratch_btn)
         self.layout.addLayout(buttons_row)
 
+        self.overlay_btn = QPushButton(" Overlay: Off")
+        self.overlay_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
+        self.overlay_btn.setToolTip(
+            "Cycle the dust-detection overlay: Off → Spots → Marked → IR. "
+            "Enable Auto Dust / IR Dust so the overlay has detected spots to show."
+        )
+        self.layout.addWidget(self.overlay_btn)
+
         self.manual_size_slider = CompactSlider("Brush Size", 2.0, 16.0, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px")
         self.layout.addWidget(self.manual_size_slider)
 
@@ -97,11 +105,22 @@ class RetouchSidebar(BaseSidebar):
         )
         self.undo_btn.clicked.connect(self.controller.undo_last_retouch)
         self.clear_btn.clicked.connect(self.controller.clear_retouch)
+        self.overlay_btn.clicked.connect(self._on_overlay_clicked)
 
         self.ir_dust_btn.toggled.connect(lambda c: self.update_config_section("retouch", persist=True, render=True, ir_dust_remove=c))
         self.ir_threshold_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, ir_threshold=float(v))
         )
+
+    def _on_overlay_clicked(self) -> None:
+        # cycle_dust_overlay emits dust_overlay_changed (repaints the canvas) but
+        # not config_updated, so the sidebar never re-syncs — update the label here.
+        self.controller.cycle_dust_overlay()
+        self._sync_overlay_label()
+
+    def _sync_overlay_label(self) -> None:
+        label = {"off": "Off", "spots": "Spots", "marked": "Marked", "ir": "IR"}.get(self.state.dust_overlay_mode, "Off")
+        self.overlay_btn.setText(f" Overlay: {label}")
 
     def _on_pick_toggled(self, checked: bool) -> None:
         self.controller.set_active_tool(ToolMode.DUST_PICK if checked else ToolMode.NONE)
@@ -139,6 +158,8 @@ class RetouchSidebar(BaseSidebar):
             self.ir_dust_btn.setChecked(conf.ir_dust_remove)
             self.ir_threshold_slider.setValue(float(conf.ir_threshold))
             self._set_ir_controls_enabled(self.state.has_ir)
+
+            self._sync_overlay_label()
         finally:
             self.block_signals(False)
 

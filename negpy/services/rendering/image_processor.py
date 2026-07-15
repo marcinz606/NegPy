@@ -7,7 +7,7 @@ import imagecodecs
 import numpy as np
 from dataclasses import replace as dc_replace
 from PIL import Image, ImageCms
-from typing import Tuple, Optional, Any, Dict, List
+from typing import Tuple, Optional, Any, Dict
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.domain.types import ImageBuffer
@@ -92,7 +92,7 @@ class ImageProcessor:
         # the key (strokes are source-normalized); resolution excluded so an
         # export reuses the exact preview-detected regions.
         self._retouch_detect_key: Optional[tuple] = None
-        self._retouch_detect_value: Optional[List[tuple]] = None
+        self._retouch_detect_value: Optional[Dict[str, list]] = None
         # Threshold-independent stat maps — survive threshold-slider drags.
         self._dust_stats_key: Optional[tuple] = None
         self._dust_stats_value: Optional[tuple] = None
@@ -123,16 +123,18 @@ class ImageProcessor:
         img: np.ndarray,
         ir_buffer: Optional[np.ndarray],
         source_key: str,
-    ) -> WorkspaceConfig:
+    ) -> Tuple[WorkspaceConfig, Optional[Dict[str, list]]]:
         """Source-space dust detection → synthesized heal strokes on a
         render-local config (auto flags cleared — the engines only see strokes).
         The caller's config is untouched, so synthesized strokes never reach
-        sidecars, presets or the DB."""
+        sidecars, presets or the DB. Also returns the detected strokes split by
+        source ({"luma", "ir"}) for the display overlay, or None when detection
+        is off."""
         ret = settings.retouch
         do_luma = ret.dust_remove
         do_ir = ret.ir_dust_remove and ir_buffer is not None
         if self._is_flat(settings) or not (do_luma or do_ir):
-            return settings
+            return settings, None
 
         key = (
             source_key,
@@ -145,7 +147,7 @@ class ImageProcessor:
             settings.process.process_mode,
         )
         if key == self._retouch_detect_key and self._retouch_detect_value is not None:
-            synth = self._retouch_detect_value
+            detected = self._retouch_detect_value
         else:
             stats_key = (source_key, int(ret.dust_size))
             if stats_key == self._dust_stats_key and self._dust_stats_value is not None:
@@ -154,23 +156,26 @@ class ImageProcessor:
                 stats = compute_dust_stats(_detection_downsample(img), ret.dust_size)
                 self._dust_stats_key = stats_key
                 self._dust_stats_value = stats
-            synth = []
+            synth_ir = []
             if do_ir and ir_buffer is not None:
-                synth += detect_ir_regions(
+                synth_ir = detect_ir_regions(
                     _detection_downsample(ir_buffer),
                     1.0 - ret.ir_threshold,
                     pad_px=float(ret.ir_inpaint_radius),
                     guide=stats[0],
                 )
+            synth_luma = []
             if do_luma:
                 # Ungated like IR: the detector already confirmed the defect, and
                 # the bright-only gate leaves half-healed fringe rings (halos)
                 # around soft-edged specks (also, E6 dust is dark — gate would
                 # veto it entirely).
-                synth += detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0, stats=stats)
+                synth_luma = detect_luma_regions(_detection_downsample(img), ret.dust_threshold, ret.dust_size, gate=0.0, stats=stats)
+            detected = {"ir": synth_ir, "luma": synth_luma}
             self._retouch_detect_key = key
-            self._retouch_detect_value = synth
+            self._retouch_detect_value = detected
 
+        synth = list(detected["ir"]) + list(detected["luma"])
         budget = max(0, 512 - len(ret.manual_heal_strokes) - len(ret.manual_dust_spots))
         if len(synth) > budget:
             logger.warning("Retouch: healing %d of %d detected defects (region cap)", budget, len(synth))
@@ -183,7 +188,7 @@ class ImageProcessor:
                 ir_dust_remove=False,
                 manual_heal_strokes=synth + list(ret.manual_heal_strokes),
             ),
-        )
+        ), detected
 
     def run_pipeline(
         self,
@@ -212,7 +217,7 @@ class ImageProcessor:
         base_hash = source_hash + flatfield_token(settings.flatfield) + rgbscan_token(settings.rgbscan) + linear_raw_token(settings.process)
         source_hash = base_hash + f"|res{w_cols}x{h_orig}"
 
-        settings = self._augment_retouch(settings, img, ir_buffer, base_hash)
+        settings, detected_dust = self._augment_retouch(settings, img, ir_buffer, base_hash)
 
         scale_factor = max(h_orig, w_cols) / float(APP_CONFIG.preview_render_size)
 
@@ -225,6 +230,11 @@ class ImageProcessor:
         )
         if metrics:
             context.metrics.update(metrics)
+        # Display-overlay data: the detection set that would be healed, split by
+        # source. Absent when detection is off (so the overlay draws nothing).
+        if detected_dust is not None:
+            context.metrics["detected_dust_luma"] = detected_dust["luma"]
+            context.metrics["detected_dust_ir"] = detected_dust["ir"]
 
         if self._is_flat(settings) or crop_preview_full:
             # The crop tool's "show full uncropped frame" preview only needs a single
@@ -390,7 +400,7 @@ class ImageProcessor:
             color_space = str(target_cs)
 
             detect_key = source_hash + flatfield_token(params.flatfield) + rgbscan_token(params.rgbscan) + linear_raw_token(params.process)
-            params = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
+            params, _ = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
 
             h_raw, w_raw = f32_buffer.shape[:2]
             export_scale = max(h_raw, w_raw) / float(APP_CONFIG.preview_render_size)
@@ -596,7 +606,7 @@ class ImageProcessor:
             scale_factor = max(1.0, max(h_raw, w_raw) / float(target_long_px))
 
             detect_key = source_hash + flatfield_token(params.flatfield) + rgbscan_token(params.rgbscan) + linear_raw_token(params.process)
-            params = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
+            params, _ = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
 
             if self._is_flat(params):
                 prefer_gpu = False

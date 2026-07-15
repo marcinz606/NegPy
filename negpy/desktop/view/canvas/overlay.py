@@ -2,6 +2,7 @@ import math
 import sys
 from typing import Dict, List, Optional, Tuple
 
+import cv2
 import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
@@ -28,6 +29,11 @@ _ROT_FINE_SENSITIVITY = 0.2  # Shift-drag sensitivity, like the crop-move fine d
 _ROTATION_GRID_DIVISIONS = 10
 _GRID_ALPHA = 70
 _MASK_RASTER_MAX = 384  # px cap for feathered overlay rasters
+
+# Dust-overlay marker colours: bright, distinct from the muted accent used by
+# manual heals so detected auto vs IR spots are told apart at a glance.
+_DUST_MARK_LUMA = QColor(57, 255, 20)  # neon green — auto-luma detection
+_DUST_MARK_IR = QColor(255, 0, 255)  # neon magenta — IR detection
 
 
 def grid_interior_fractions(divisions: int) -> List[float]:
@@ -136,6 +142,10 @@ class CanvasOverlay(QWidget):
         self._heal_drag_pts: List[QPointF] = []
         self._local_mask_screen_polys: List[List[QPointF]] = []
         self._mask_img_cache: Dict[tuple, QImage] = {}
+
+        # Geometry-aligned IR layer raster, cached by (uv_grid, preview_ir)
+        # identity so it rebuilds only when the render or source changes.
+        self._ir_layer_cache: Optional[Tuple[tuple, QImage]] = None
 
         # Working screen points while a selected-mask vertex is dragged/added.
         self._local_edit_verts: Optional[List[QPointF]] = None
@@ -447,6 +457,9 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.STRAIGHTEN:
             self._draw_straighten_line(painter)
 
+        if self.state.dust_overlay_mode != "off":
+            self._draw_dust_overlay(painter)
+
         if self._rotation_grid_visible:
             self._draw_rotation_grid(painter, visible_rect)
 
@@ -637,6 +650,81 @@ class CanvasOverlay(QWidget):
             center = self._raw_to_screen(rx, ry, uv_grid)
             radius = max(2.0, self._brush_screen_radius(size))
             painter.drawEllipse(center, radius, radius)
+
+    def _draw_dust_overlay(self, painter: QPainter) -> None:
+        """Display-only visualization of the auto/IR dust-detection set. Modes:
+        'spots' (neon markers over a blanked frame), 'marked' (markers over the
+        image), 'ir' (the geometry-aligned raw IR channel, no markers)."""
+        mode = self.state.dust_overlay_mode
+        if mode == "ir":
+            img = self._ir_layer_qimage()
+            if img is not None:
+                painter.drawImage(self._view_rect, img)
+            return
+
+        if mode == "spots":
+            painter.fillRect(self._view_rect, QColor(10, 10, 10))
+
+        with self.state.metrics_lock:
+            luma = self.state.last_metrics.get("detected_dust_luma")
+            ir = self.state.last_metrics.get("detected_dust_ir")
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None:
+            return
+        # Green = auto-luma, magenta = IR; absent lists (detection off) draw nothing.
+        self._draw_detection_strokes(painter, luma, uv_grid, _DUST_MARK_LUMA)
+        self._draw_detection_strokes(painter, ir, uv_grid, _DUST_MARK_IR)
+
+    def _draw_detection_strokes(self, painter: QPainter, strokes, uv_grid: np.ndarray, color: QColor) -> None:
+        """Neon outlines of detected dust strokes (mirrors _draw_placed_heals)."""
+        if not strokes:
+            return
+        pen = QPen(color, 1.0, Qt.PenStyle.SolidLine)
+        pen.setCosmetic(True)
+        for stroke in strokes:
+            points, size = stroke[0], stroke[1]
+            screen_pts = [self._raw_to_screen(px, py, uv_grid) for px, py in points]
+            radius = max(2.0, self._brush_screen_radius(size))
+            if len(screen_pts) == 1:
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(screen_pts[0], radius, radius)
+            else:
+                if len(screen_pts) >= 3:
+                    screen_pts = [QPointF(x, y) for x, y in smooth_polyline([(p.x(), p.y()) for p in screen_pts], closed=False)]
+                fill = QColor(color)
+                fill.setAlpha(90)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(fill)
+                painter.drawPath(self._heal_region_path(screen_pts, radius))
+
+    def _ir_layer_qimage(self) -> Optional[QImage]:
+        """Geometry-aligned IR layer: preview_ir resampled through the render's
+        uv_grid so it matches the displayed (cropped/rotated) frame. Cached by
+        object identity — rebuilds only when the render or source changes.
+
+        ponytail: id()-keyed cache; a stale hit is possible only if both objects
+        are GC'd and reallocated to the same ids between renders, and self-heals
+        on the next geometry change."""
+        ir = self.state.preview_ir
+        if ir is None:
+            return None
+        with self.state.metrics_lock:
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if uv_grid is None:
+            return None
+        key = (id(uv_grid), id(ir))
+        if self._ir_layer_cache is not None and self._ir_layer_cache[0] == key:
+            return self._ir_layer_cache[1]
+        h_ir, w_ir = ir.shape[:2]
+        map_x = (uv_grid[..., 0] * (w_ir - 1)).astype(np.float32)
+        map_y = (uv_grid[..., 1] * (h_ir - 1)).astype(np.float32)
+        remapped = cv2.remap(np.ascontiguousarray(ir, dtype=np.float32), map_x, map_y, interpolation=cv2.INTER_LINEAR)
+        gray = np.ascontiguousarray((np.clip(remapped, 0.0, 1.0) * 255.0).astype(np.uint8))
+        gh, gw = gray.shape[:2]
+        img = QImage(gray.data, gw, gh, gw, QImage.Format.Format_Grayscale8).copy()
+        self._ir_layer_cache = (key, img)
+        return img
 
     def _raw_to_screen(self, rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> QPointF:
         """

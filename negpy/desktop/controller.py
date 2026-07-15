@@ -139,6 +139,7 @@ class AppController(QObject):
     analysis_buffer_preview_requested = pyqtSignal(float)
     rotation_guide_requested = pyqtSignal()
     crop_guide_changed = pyqtSignal()
+    dust_overlay_changed = pyqtSignal()
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -792,6 +793,8 @@ class AppController(QObject):
         self.state.preview_raw = raw
         self.state.preview_ir = ir_preview
         self.state.has_ir = ir_preview is not None
+        if not self.state.has_ir and self.state.dust_overlay_mode == "ir":
+            self.state.dust_overlay_mode = "off"
         self.state.original_res = dims
         self.state.current_file_path = file_path
         self.state.source_cs = source_cs
@@ -896,6 +899,17 @@ class AppController(QObject):
     def cycle_crop_guide_orientation(self) -> None:
         self.session.set_crop_guide_orientation((self.state.crop_guide_orientation + 1) % 8)
         self.crop_guide_changed.emit()
+
+    def cycle_dust_overlay(self) -> None:
+        """Advance the dust-detection overlay: Off → Spots → Marked → IR → Off
+        (IR skipped when the scan has no IR channel). Repaint only — the data is
+        already in state.last_metrics / state.preview_ir, no re-render needed."""
+        seq = ["off", "spots", "marked", "ir"]
+        if not self.state.has_ir:
+            seq.remove("ir")
+        cur = self.state.dust_overlay_mode if self.state.dust_overlay_mode in seq else "off"
+        self.state.dust_overlay_mode = seq[(seq.index(cur) + 1) % len(seq)]
+        self.dust_overlay_changed.emit()
 
     def handle_crop_rect_changed(self, nx1: float, ny1: float, nx2: float, ny2: float, persist: bool) -> None:
         """Live-updates (persist=False) or commits (persist=True) the manual crop rect

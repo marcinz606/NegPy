@@ -1293,6 +1293,31 @@ class TestRetouchPersistence(unittest.TestCase):
         saved = self.mock_session_manager.update_config.call_args.args[0]
         self.assertEqual(saved.retouch.manual_heal_strokes, [])
 
+    def test_cycle_dust_overlay_with_ir(self):
+        self.controller.state.has_ir = True
+        self.controller.state.dust_overlay_mode = "off"
+        seq = []
+        for _ in range(5):
+            self.controller.cycle_dust_overlay()
+            seq.append(self.controller.state.dust_overlay_mode)
+        self.assertEqual(seq, ["spots", "marked", "ir", "off", "spots"])
+
+    def test_cycle_dust_overlay_skips_ir_without_ir(self):
+        self.controller.state.has_ir = False
+        self.controller.state.dust_overlay_mode = "off"
+        seq = []
+        for _ in range(4):
+            self.controller.cycle_dust_overlay()
+            seq.append(self.controller.state.dust_overlay_mode)
+        self.assertEqual(seq, ["spots", "marked", "off", "spots"])
+
+    def test_cycle_dust_overlay_from_ir_when_ir_lost(self):
+        # Mode was "ir" but the new frame has none: cycling treats it as off.
+        self.controller.state.has_ir = False
+        self.controller.state.dust_overlay_mode = "ir"
+        self.controller.cycle_dust_overlay()
+        self.assertEqual(self.controller.state.dust_overlay_mode, "spots")
+
 
 if __name__ == "__main__":
     unittest.main()
