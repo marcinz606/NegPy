@@ -10,6 +10,7 @@ from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSigna
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.sidecar import load_or_promote
@@ -36,7 +37,7 @@ class AppState:
     current_file_hash: Optional[str] = None
     source_cs: str = ""
     config: WorkspaceConfig = field(default_factory=WorkspaceConfig)
-    workspace_color_space: str = "Adobe RGB"
+    workspace_color_space: str = WORKING_COLOR_SPACE
     is_processing: bool = False
     active_tool: ToolMode = ToolMode.NONE
     # Colour page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
