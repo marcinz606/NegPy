@@ -36,7 +36,7 @@ def render_roll_thumbnail_rgb8(
     if raw.dtype != np.uint16:
         raise ValueError("roll thumbnail must contain uint16 scanner samples")
     if type(meter_inset_percent) is not int or not 0 <= meter_inset_percent <= MAX_PREVIEW_METER_INSET_PERCENT:
-        raise ValueError("preview meter inset must be an integer from 0 to 30 percent")
+        raise ValueError("metering crop must be an integer from 0 to 30 percent per edge")
     if type(inverted) is not bool:
         raise ValueError("inverted must be a boolean")
 

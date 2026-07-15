@@ -196,17 +196,17 @@ class ScanSidebar(QWidget):
 
         self.preview_meter_inset_spin = QSpinBox()
         self.preview_meter_inset_spin.setObjectName("roll_preview_meter_inset")
-        self.preview_meter_inset_spin.setAccessibleName("Preview meter inset percentage per edge")
+        self.preview_meter_inset_spin.setAccessibleName("Metering crop percentage per edge")
         self.preview_meter_inset_spin.setRange(0, MAX_PREVIEW_METER_INSET_PERCENT)
         self.preview_meter_inset_spin.setValue(self._settings.preview_meter_inset_percent)
         self.preview_meter_inset_spin.setSuffix("% per edge")
         self.preview_meter_inset_spin.setToolTip(
-            "The outlined box shows the brightness meter. Ignore this much of each edge "
-            "only when calculating thumbnail brightness. "
-            "The whole negative and rebate stay visible. Final scans are unaffected. "
+            "Crop this percentage from every edge only when calculating thumbnail brightness. "
+            "Changing it recalculates all loaded previews from saved thumbnail data; it does not scan the film again. "
+            "The outlined box shows the metered area. The full negative and rebate stay visible, and the saved negative is unchanged. "
             "10% matches full-scan metering."
         )
-        roll_quality_form.addRow("Preview meter inset", self.preview_meter_inset_spin)
+        roll_quality_form.addRow("Metering crop", self.preview_meter_inset_spin)
 
         self.preview_non_inverted_negative_check = QCheckBox("Show non-inverted negative")
         self.preview_non_inverted_negative_check.setObjectName("roll_preview_non_inverted_negative")

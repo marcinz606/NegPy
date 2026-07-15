@@ -1289,6 +1289,97 @@ def test_failed_batch_before_reserve_preserves_recovery_without_release(
     assert raised.value.session_journal["reservation_acquired"] is False
 
 
+def test_terminal_batch_receipt_wakes_parent_before_repeated_process_polling(
+    tmp_path: Path,
+    binding: Binding,
+) -> None:
+    """A released failure receipt is a durable wake-up, not just post-exit data."""
+
+    class TerminalFailureProcess:
+        def __init__(self, argv: Sequence[str]) -> None:
+            self.session_journal = Path(_argument(argv, "--session-journal"))
+            self.job_path = Path(_argument(argv, "--batch-job"))
+            self.job = json.loads(self.job_path.read_text(encoding="utf-8"))
+            self.poll_calls = 0
+            self.wait_calls = 0
+            self.session_journal.write_text(
+                json.dumps(
+                    {
+                        **_batch_session_provenance(
+                            self.job_path,
+                            binding.worker_sha256,
+                        ),
+                        "completed_slots": [],
+                        "continuation_plan_sha256": (
+                            CANONICAL_CONTINUATION_PLAN_SHA256
+                        ),
+                        "error": "SynchronizedProtocolError: metering refused",
+                        "finished_unix": 123.0,
+                        "plan_sha256": CANONICAL_PLAN_SHA256,
+                        "recovery_required": "none",
+                        "reservation_acquired": True,
+                        "selected_slots": [17],
+                        "session_id": self.job["session_id"],
+                        "status": "failed",
+                        "unit_release_attempts": 1,
+                        "unit_released": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def poll(self) -> int | None:
+            self.poll_calls += 1
+            raise AssertionError(
+                "the terminal release receipt should wake the parent before poll"
+            )
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.wait_calls += 1
+            return 1
+
+    process: TerminalFailureProcess | None = None
+
+    def spawn(
+        argv: Sequence[str],
+        *,
+        cwd: Path,
+        stdout: object,
+        stderr: object,
+    ) -> TerminalFailureProcess:
+        nonlocal process
+        del cwd, stdout, stderr
+        process = TerminalFailureProcess(argv)
+        return process
+
+    adapter = capture.CaptureProcessAdapter(
+        worker_path=binding.worker,
+        expected_worker_sha256=binding.worker_sha256,
+        manifest_path=binding.manifest,
+        attempts_root=tmp_path / "attempts",
+        batch_spawner=spawn,
+        batch_poll_seconds=0,
+    )
+    request = capture.CaptureBatchRequest(
+        (capture.CaptureRequest(capture.CaptureMode.FULL, 17, 0),),
+        reviewed_fingerprint=_reviewed_fingerprint(),
+    )
+
+    result = adapter.run_batch_session(
+        request,
+        frame_handler=lambda _frame: capture.BatchAckAction.CONTINUE,
+    )
+
+    assert process is not None
+    assert process.poll_calls == 0
+    assert process.wait_calls == 1
+    assert result.outcome is capture.CaptureOutcome.SYNCHRONIZED_REFUSAL
+    assert result.returncode == 1
+    assert result.frames == ()
+    assert result.session_journal["error"].endswith("metering refused")
+
+
 def test_batch_wait_defers_interrupt_until_child_cleanup_finishes(
     tmp_path: Path,
     binding: Binding,

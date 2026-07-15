@@ -408,7 +408,11 @@ def propose_next_exposures(
                     channel,
                 )
             )
-        if stats.full_high >= stats.ceiling_value and requested_increase:
+        if (
+            stats.full_high >= stats.ceiling_value
+            and exposure > 0
+            and bounded_exposure > exposure
+        ):
             refusals.append(
                 SafetyRefusal(
                     "clipped_increase",

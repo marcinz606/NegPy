@@ -705,7 +705,7 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
             self.assertIn("GiB free", estimate)
             self.assertNotIn("free space unknown", estimate)
 
-    def test_roll_preview_meter_inset_is_clear_bounded_and_persisted(self):
+    def test_roll_preview_metering_crop_is_clear_bounded_and_persisted(self):
         _select_device(self.sidebar, FULL_DEVICE)
         repo = self.controller.session.repo
         repo.save_global_setting.reset_mock()
@@ -713,12 +713,15 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
         field = self.sidebar.preview_meter_inset_spin
         form = self.sidebar.roll_quality_widget.layout()
         self.assertIsInstance(form, QFormLayout)
-        self.assertEqual(form.labelForField(field).text(), "Preview meter inset")
+        self.assertEqual(form.labelForField(field).text(), "Metering crop")
+        self.assertEqual(field.accessibleName(), "Metering crop percentage per edge")
         self.assertEqual((field.minimum(), field.maximum(), field.value()), (0, 30, 10))
         self.assertEqual(field.suffix(), "% per edge")
-        self.assertIn("brightness", field.toolTip())
-        self.assertIn("whole negative", field.toolTip())
-        self.assertIn("Final scans are unaffected", field.toolTip())
+        self.assertIn("thumbnail brightness", field.toolTip())
+        self.assertIn("recalculates all loaded previews", field.toolTip())
+        self.assertIn("does not scan the film again", field.toolTip())
+        self.assertIn("full negative", field.toolTip())
+        self.assertIn("saved negative is unchanged", field.toolTip())
         self.assertIn("10% matches full-scan metering", field.toolTip())
 
         field.setValue(17)
@@ -814,7 +817,7 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
         self.assertEqual(self.sidebar.roll_slot_selector.selected_slot_ids(), [2])
         self.controller.reload_ls5000_roll_thumbnail.assert_not_called()
 
-    def test_changing_preview_meter_inset_rerenders_every_loaded_slot_offline(self):
+    def test_changing_metering_crop_rerenders_every_loaded_slot_offline(self):
         _select_device(self.sidebar, FULL_DEVICE)
         interior_ramp = np.linspace(20_000, 40_000, 80, dtype=np.uint16)
         raw = np.full((100, 100, 3), 65_535, dtype=np.uint16)

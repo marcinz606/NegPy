@@ -228,7 +228,7 @@ class RollSlotModel(QAbstractListModel):
         """Set one display-only metering guide for the complete contact sheet."""
 
         if type(value) is not int or not 0 <= value <= MAX_PREVIEW_METER_INSET_PERCENT:
-            raise ValueError("preview meter inset must be an integer from 0 to 30 percent")
+            raise ValueError("metering crop must be an integer from 0 to 30 percent per edge")
         if value == self._meter_inset_percent:
             return
         self._meter_inset_percent = value

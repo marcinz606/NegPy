@@ -167,6 +167,10 @@ class _BatchFrameRefused(CaptureProcessError):
         self.slot = slot
 
 
+class _BatchTerminalReceiptObserved(Exception):
+    """The child published a terminal session receipt before ``poll()`` noticed."""
+
+
 @dataclass(frozen=True)
 class ReviewedRollFingerprint:
     """Exact reviewed artifacts plus a reread-tolerant physical-roll signature."""
@@ -1235,6 +1239,13 @@ class CaptureProcessAdapter:
                         if action is BatchAckAction.STOP:
                             stopped = True
                             break
+                except _BatchTerminalReceiptObserved:
+                    # A terminal journal is only a wake-up here.  The parent
+                    # still joins the child below, then validates the complete
+                    # cleanup/release receipt before returning anything to the
+                    # UI.  This avoids depending exclusively on Popen.poll(),
+                    # which can lag behind an already-exited frozen helper.
+                    pass
                 except BaseException as error:
                     monitor_error = error
                     if isinstance(error, _BatchFrameRefused):
@@ -1638,6 +1649,8 @@ class CaptureProcessAdapter:
                             f"stopped: {error}",
                             slot=slot,
                         ) from error
+            if self._terminal_batch_receipt_is_published(prepared):
+                raise _BatchTerminalReceiptObserved
             returncode = process.poll()
             if returncode is not None:
                 raise CaptureProcessError(
@@ -1646,6 +1659,31 @@ class CaptureProcessAdapter:
                 )
             if self._batch_poll_seconds:
                 time.sleep(self._batch_poll_seconds)
+
+    @staticmethod
+    def _terminal_batch_receipt_is_published(
+        prepared: PreparedCaptureBatch,
+    ) -> bool:
+        """Return whether this exact child published a terminal failure notice.
+
+        This deliberately does not accept the receipt as valid or release the
+        caller.  It only moves the monitor to its mandatory child-join path;
+        ``_load_and_validate_batch_session_journal`` remains the authority for
+        cleanup, release, recovery, and provenance after the child is reaped.
+        """
+
+        try:
+            payload = json.loads(
+                prepared.paths.session_journal.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return False
+        return bool(
+            isinstance(payload, dict)
+            and payload.get("status") in ("failed", "interrupted")
+            and payload.get("session_id") == prepared.session_id
+            and payload.get("batch_job_sha256") == prepared.job_sha256
+        )
 
     def _validate_batch_frame_result(
         self,

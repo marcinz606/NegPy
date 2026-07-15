@@ -114,7 +114,7 @@ def test_roll_thumbnail_renderer_rejects_invalid_meter_insets(
 ) -> None:
     raw = np.zeros((8, 10, 3), dtype=np.uint16)
 
-    with pytest.raises(ValueError, match="meter inset"):
+    with pytest.raises(ValueError, match="metering crop"):
         render_roll_thumbnail_rgb8(
             raw,
             meter_inset_percent=bad_inset,  # type: ignore[arg-type]

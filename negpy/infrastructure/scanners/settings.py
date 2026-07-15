@@ -51,7 +51,7 @@ class ScannerSettings:
         A valid saved archival split recipe always restores its required
         16-bit depth.
 
-        Preview meter insets accept only JSON integers and clamp them to the
+        Preview metering crops accept only JSON integers and clamp them to the
         safe UI range; all other values fall back to the documented default.
         """
 

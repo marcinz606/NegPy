@@ -241,7 +241,7 @@ def test_parent_ack_is_bound_to_session_frame_slot_and_fresh_nonce(
     assert action == "continue"
 
     assert _meter_controller_sha256() == (
-        "a1ffc58195cfe5335b44e154b42f6e9ece7fd7ad647975c1c0f213b67651c81e"
+        "c7d00c9c8796b7264a553848106a1fe075ab4a25315fbe5a05d05bc35515ca10"
     )
 
 

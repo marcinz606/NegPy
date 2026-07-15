@@ -29,9 +29,9 @@ The approval is not a bypass. It records the exact thumbnail, offset, scanner or
 
 The contact sheet uses its own display levels so that dense negatives and the orange mask remain readable. Those levels do not change scanner auto-exposure or the pixels written to the TIFF.
 
-**Preview meter inset** controls which part of each thumbnail NegPy uses to calculate its display brightness. You can inset the meter by 0% to 30% from every edge; the default is 10%. At that setting, the calculation uses the center 80% of the image in each direction, which keeps a dark rebate from driving the preview levels. A translucent box on every thumbnail shows the area being metered. The full thumbnail, including the rebate, stays visible.
+**Metering crop** controls which part of each thumbnail NegPy uses to calculate its display brightness. Set the crop from 0% to 30% per edge; the default is 10%. At that setting, the calculation uses the center 80% of the image in each direction, which keeps a dark rebate from driving the preview levels. A translucent box on every thumbnail shows the area being metered. This is only a crop of the brightness measurement: the full thumbnail, including the rebate, stays visible.
 
-Changing the inset rerenders every loaded thumbnail immediately from the saved preview data. It does not move the film, run scanner auto-exposure again, or change the final scan.
+Changing the metering crop recalculates the display brightness of every loaded thumbnail immediately from the saved preview data. It does not move the film, run scanner auto-exposure again, crop the saved image, or change the final scan.
 
 **Preview display** defaults to an inverted positive so the contact sheet is easy to read. Turn on **Show non-inverted negative** to see a display-leveled negative instead. NegPy uses one shared RGB display range in this mode so the film base and channel balance remain visible. Switching modes rerenders the saved 97 dpi preview and does not contact the scanner.
 

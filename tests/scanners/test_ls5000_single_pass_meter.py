@@ -153,3 +153,20 @@ def test_final_acceptance_requires_fresh_previous_pass_linearity() -> None:
     result = verify_final_convergence(observation)
     assert not result.accepted
     assert "missing_previous_linearity" in {item.code for item in result.refusals}
+
+
+def test_predictive_ceiling_hold_is_not_refused_as_clipped_increase() -> None:
+    image = _textured((50_000,) * 4)
+    image[:2, :25, :] = 64_000
+
+    proposal = propose_next_exposures(
+        observe_meter_pass(_payload(image), DEFAULT_EXPOSURES)
+    )
+
+    assert proposal.proposed_exposures == DEFAULT_EXPOSURES
+    for channel in CHANNELS:
+        diagnostics = proposal.channel_diagnostics[channel]
+        assert diagnostics["full_high_q99_99"] >= diagnostics["ceiling_value"]
+        assert diagnostics["bounded_by_predictive_ceiling"] is True
+        assert diagnostics["effective_update_ratio"] == 1.0
+    assert proposal.accepted, proposal.to_dict()
