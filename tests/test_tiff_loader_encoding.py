@@ -1,9 +1,4 @@
-"""Scanner TIFFs must decode identically to their LinearRaw DNG twins.
-
-The scan service writes the same raw linear uint16 data to both formats;
-the loaders must not diverge (untagged 16-bit TIFF used to get an unwanted
-sRGB decode, rendering differently from the DNG of the same scan).
-"""
+"""Scanner TIFFs must decode identically to their LinearRaw DNG twins."""
 
 import os
 import tempfile
@@ -22,7 +17,7 @@ from negpy.services.scanning.writer import write_dng_linear, write_tiff_16bit
 
 def _rgb16(seed: int = 0) -> np.ndarray:
     rng = np.random.default_rng(seed)
-    # Dark values typical of a linear negative scan — the range the sRGB toe distorts most.
+    # dark linear-scan range, where the sRGB toe distorts most
     return rng.integers(0, 30000, (32, 48, 3), dtype=np.uint16)
 
 

@@ -139,8 +139,7 @@ class NonStandardFileWrapper:
             data = data[::2, ::2]
 
         if gamma is None or tuple(gamma) != (1, 1):
-            # Mirror LibRaw's default display gamma (BT.709) so linear sources
-            # thumbnail like real raws instead of near-black.
+            # LibRaw's default BT.709 display gamma — else linear thumbnails go near-black.
             data = np.where(data < 0.018, data * 4.5, 1.099 * np.power(np.maximum(data, 0.0), 1.0 / 2.222) - 0.099)
 
         if bps == 16:
