@@ -33,7 +33,7 @@ def _edited_config() -> WorkspaceConfig:
         exposure=replace(cfg.exposure, density=0.7),
         lab=replace(cfg.lab, saturation=1.6),
         toning=replace(cfg.toning, selenium_strength=0.5),
-        finish=replace(cfg.finish, vignette_strength=0.4),
+        finish=replace(cfg.finish, vignette_stops=0.4),
     )
 
 

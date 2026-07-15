@@ -582,9 +582,7 @@ class ImageProcessor:
                 )
             else:
                 img_int = float_to_uint16(buffer)
-                img_out, icc_bytes = self._apply_color_management_u16(
-                    img_int, working_color_space, color_space, icc_output, icc_input
-                )
+                img_out, icc_bytes = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
 
             output_buf = io.BytesIO()
             tifffile.imwrite(
@@ -771,7 +769,11 @@ class ImageProcessor:
     def _apply_scaling_and_border_f32(self, img: np.ndarray, params: WorkspaceConfig, export_settings: ExportConfig) -> np.ndarray:
         """CPU fallback for layout application."""
         result, _ = PrintService.apply_layout(
-            img, export_settings, border_size=params.finish.border_size, border_color=params.finish.border_color
+            img,
+            export_settings,
+            border_size=params.finish.border_size,
+            border_color=PrintService.effective_border_color(params.finish, params.toning),
+            finish=params.finish,
         )
         return result
 

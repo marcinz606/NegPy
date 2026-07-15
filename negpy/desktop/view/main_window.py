@@ -466,7 +466,11 @@ class MainWindow(QMainWindow):
         if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:
             finish_conf = self.state.config.finish
             export_conf = self.state.config.export
-            should_preview = finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
+            should_preview = (
+                finish_conf.border_size > 0
+                or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
+                or finish_conf.border_corner_style != "square"
+            )
 
             if should_preview:
                 pil_img = Image.fromarray(float_to_uint8(buffer))
@@ -476,8 +480,9 @@ class MainWindow(QMainWindow):
                         export_conf.paper_aspect_ratio,
                         finish_conf.border_size,
                         export_conf.export_print_size,
-                        finish_conf.border_color,
+                        PrintService.effective_border_color(finish_conf, self.state.config.toning),
                         APP_CONFIG.preview_render_size,
+                        finish=finish_conf,
                     )
                     buffer = np.array(pil_img).astype(np.float32) / 255.0
                 except Exception as e:

@@ -15,7 +15,7 @@ def _source() -> WorkspaceConfig:
         exposure=replace(c.exposure, density=2.0, grade=130.0),
         lab=replace(c.lab, saturation=1.5),
         toning=replace(c.toning, sepia_strength=0.4),
-        finish=replace(c.finish, vignette_strength=0.3),
+        finish=replace(c.finish, vignette_stops=0.3),
         process=replace(c.process, process_mode="E-6", analysis_buffer=0.2),
         geometry=replace(c.geometry, rotation=90, flip_horizontal=True, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
         retouch=replace(
