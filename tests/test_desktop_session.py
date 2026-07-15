@@ -1,11 +1,17 @@
+import sys
 import unittest
 from unittest.mock import MagicMock
 from dataclasses import replace
+
+from PyQt6.QtWidgets import QApplication
 
 from negpy.desktop.session import AppState, AssetListModel, DesktopSessionManager
 from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, ProcessConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+
+if not QApplication.instance():
+    _app = QApplication(sys.argv)
 
 
 class TestDesktopSessionSync(unittest.TestCase):
@@ -39,6 +45,53 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.select_file(1)
         self.assertEqual(self.session.state.selected_file_idx, 1)
         self.assertEqual(self.session.state.selected_indices, [1])
+
+    def test_navigate_to_moves_highlight_instantly_but_defers_commit(self):
+        selection_changed = MagicMock()
+        file_selected = MagicMock()
+        self.session.selection_changed.connect(selection_changed)
+        self.session.file_selected.connect(file_selected)
+
+        self.session.navigate_to(1)
+
+        # Highlight moved right away; the heavy per-frame commit has not run yet.
+        self.assertEqual(self.session.state.selected_file_idx, 1)
+        selection_changed.assert_called_once_with()
+        file_selected.assert_not_called()
+        self.assertIsNone(self.session.state.current_file_path)
+
+    def test_rapid_navigation_commits_only_settled_frame(self):
+        self.session.state.uploaded_files.append({"name": "file3.dng", "path": "path3", "hash": "hash3"})
+        self.session.asset_model.refresh()
+        file_selected = MagicMock()
+        self.session.file_selected.connect(file_selected)
+
+        self.session.navigate_to(0)
+        self.session.navigate_to(1)
+        self.session.navigate_to(2)
+        file_selected.assert_not_called()
+
+        # Simulate the debounce firing once navigation settles.
+        self.session._commit_pending_navigation()
+
+        file_selected.assert_called_once_with("path3")
+        self.assertEqual(self.session.state.current_file_hash, "hash3")
+
+    def test_navigate_saves_outgoing_committed_frame_only(self):
+        # Land on frame 0 (committed), edit it, then hop 0 -> 1 -> 2 quickly.
+        self.session.state.uploaded_files.append({"name": "file3.dng", "path": "path3", "hash": "hash3"})
+        self.session.asset_model.refresh()
+        self.session.select_file(0)
+        self.session.state.is_dirty = True
+        self.mock_repo.save_file_settings.reset_mock()
+
+        self.session.navigate_to(1)
+        self.session.navigate_to(2)
+        self.session._commit_pending_navigation()
+
+        # Exactly one save, for the frame we actually left (hash1), not the skipped hash2.
+        saved_hashes = [c.args[0] for c in self.mock_repo.save_file_settings.call_args_list]
+        self.assertEqual(saved_hashes, ["hash1"])
 
     def test_rediscovery_refreshes_same_path_in_place(self):
         refreshed = {

@@ -387,9 +387,15 @@ class FileBrowser(QWidget):
         self.list_view.doubleClicked.connect(self._on_item_double_clicked)
         self.list_view.customContextMenuRequested.connect(self._show_context_menu)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        # The grid view owns keyboard arrow navigation while it has focus, so the current
+        # item is the single authority for the active frame — drive navigation off it so
+        # arrow keys work whether the canvas or the filmstrip is focused.
+        self.list_view.selectionModel().currentChanged.connect(self._on_current_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
         self.session.state_changed.connect(self.sync_ui)
+        # Instant highlight move on every filmstrip hop, before the frame commit settles.
+        self.session.selection_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
@@ -458,6 +464,23 @@ class FileBrowser(QWidget):
                     self.list_view.scrollTo(qt_idx)
         finally:
             selection_model.blockSignals(False)
+
+    def _on_current_changed(self, current, previous) -> None:
+        """The list view's current (cursor) item changed — via keyboard arrows or a
+        click. Treat it as the active frame unless a modifier says the user is building
+        a multi-selection (that path is handled by selectionChanged/_commit_selection).
+
+        Gated on list focus so programmatic reorders (sort/filter/refresh) can shuffle
+        the current row without hijacking the viewer."""
+        if not self.list_view.hasFocus():
+            return
+        if QApplication.keyboardModifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+            return
+        if not current.isValid():
+            return
+        actual = self.session.asset_model.display_to_actual(current.row())
+        if actual >= 0 and actual != self.session.state.selected_file_idx:
+            self.session.navigate_to(actual)
 
     def _on_selection_changed(self, selected, deselected) -> None:
         self.selection_timer.start()
@@ -603,10 +626,10 @@ class FileBrowser(QWidget):
 
     def _activate_file(self, index) -> None:
         """Load a thumbnail into the main viewer, skipping a redundant reload of the
-        already-active frame."""
+        already-active frame. Coalesces rapid clicks so only the settled frame loads."""
         actual = self.session.asset_model.display_to_actual(index.row())
         if actual >= 0 and actual != self.session.state.selected_file_idx:
-            self.session.select_file(actual)
+            self.session.navigate_to(actual)
 
     def _on_item_clicked(self, index) -> None:
         # Plain single click sets the active frame instantly. Ctrl/Shift clicks build a

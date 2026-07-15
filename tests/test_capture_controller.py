@@ -47,6 +47,7 @@ def _hydrate_and_load(controller, path, process_mode, *, autodetect=True):
     controller._file_hash_for_path.return_value = None
 
     AppController.load_file(controller, path)
+    AppController._dispatch_preview_load(controller)
     return controller.preview_load_requested.emit.call_args.args[0]
 
 

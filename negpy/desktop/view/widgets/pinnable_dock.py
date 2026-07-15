@@ -37,9 +37,7 @@ class PinnableDockWidget(QDockWidget):
             layout.setSpacing(6)
 
             label = QLabel(self.windowTitle())
-            label.setStyleSheet(
-                f"color: {THEME.text_primary}; font-weight: bold; background: transparent;"
-            )
+            label.setStyleSheet(f"color: {THEME.text_primary}; font-weight: bold; background: transparent;")
 
             pin = QToolButton()
             pin.setIcon(qta.icon("fa5s.thumbtack", color=THEME.text_primary))

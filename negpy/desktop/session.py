@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
 
-from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, QTimer, pyqtSignal
 
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
@@ -13,6 +13,9 @@ from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.sidecar import load_or_promote
+
+# Filmstrip hops coalesce into one heavy per-frame commit after navigation settles (ms).
+NAV_COMMIT_DEBOUNCE_MS = 90
 
 
 class ToolMode(Enum):
@@ -405,6 +408,9 @@ class DesktopSessionManager(QObject):
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
     session_emptied = pyqtSignal()  # Last file removed — the viewer must blank the stale frame
+    # Instant, cheap: the highlighted frame changed. Fired on every filmstrip hop so the
+    # UI can move the selection immediately, before the heavy per-frame commit runs.
+    selection_changed = pyqtSignal()
 
     @property
     def _config_dirty(self) -> bool:
@@ -420,6 +426,15 @@ class DesktopSessionManager(QObject):
         self.state = AppState()
         self.asset_model = AssetListModel(self.state)
         # is_dirty initialised to False via AppState default
+
+        # Filmstrip navigation coalescing: hops bump _nav_seq and move the highlight
+        # instantly; the heavy per-frame commit (config hydrate, EXIF, history, decode)
+        # is debounced so only the frame the user lands on is loaded.
+        self._nav_seq = 0
+        self._nav_commit_timer = QTimer(self)
+        self._nav_commit_timer.setSingleShot(True)
+        self._nav_commit_timer.setInterval(NAV_COMMIT_DEBOUNCE_MS)
+        self._nav_commit_timer.timeout.connect(self._commit_pending_navigation)
 
         # Load global hardware settings
         saved_gpu = self.repo.get_global_setting("gpu_enabled")
@@ -712,59 +727,104 @@ class DesktopSessionManager(QObject):
 
     def select_file(self, index: int, selection_override: Optional[List[int]] = None) -> None:
         """
-        Changes active file and hydrates state from repository.
+        Changes active file and hydrates state from repository — synchronously.
+
+        Used by programmatic/one-shot callers (session restore, add/remove, select-by-path)
+        that expect the frame to be fully active on return. Interactive filmstrip navigation
+        should call ``navigate_to`` instead, which coalesces rapid hops.
         """
-        if 0 <= index < len(self.state.uploaded_files):
-            # Save current before switching, but only if user actually made explicit edits
-            if self.state.current_file_hash and self._config_dirty:
-                self.repo.save_file_settings(self.state.current_file_hash, self.state.config, file_path=self.state.current_file_path or "")
-                self.settings_saved.emit()
-                self.active_file_changing.emit()
-            self._config_dirty = False
+        if not (0 <= index < len(self.state.uploaded_files)):
+            return
+        self._set_selection(index, selection_override)
+        self._activate_selection()
 
-            file_info = self.state.uploaded_files[index]
-            self.state.selected_file_idx = index
-            self.state.selected_indices = selection_override if selection_override is not None else [index]
-            self.state.current_file_path = file_info["path"]
-            self.state.current_file_hash = file_info["hash"]
+    def navigate_to(self, index: int, selection_override: Optional[List[int]] = None) -> None:
+        """
+        Interactive filmstrip navigation: moves the highlight instantly and debounces the
+        heavy per-frame commit so a burst of hops only loads the frame the user lands on.
+        """
+        if not (0 <= index < len(self.state.uploaded_files)):
+            return
+        self._set_selection(index, selection_override)
+        self._nav_seq += 1
+        # Instant, cheap feedback: move the filmstrip highlight now. The current frame stays
+        # on the canvas (the viewer keeps the last render) until the commit settles.
+        self.selection_changed.emit()
+        self._nav_commit_timer.start()
 
-            # Read source EXIF for metadata display
-            from negpy.infrastructure.loaders.helpers import read_exif_from_file
+    def _commit_pending_navigation(self) -> None:
+        """Debounced tail of navigate_to: hydrate + load the frame the user settled on."""
+        self._activate_selection()
 
-            exif = read_exif_from_file(file_info["path"])
-            if exif:
-                self.state.source_exif[file_info["hash"]] = exif
-            elif file_info["hash"] in self.state.source_exif:
-                del self.state.source_exif[file_info["hash"]]
+    def _set_selection(self, index: int, selection_override: Optional[List[int]]) -> None:
+        """Instant selection bookkeeping — no I/O. Leaves current_file_* on the last
+        committed frame so a still-pending commit can still save the outgoing edit."""
+        self.state.selected_file_idx = index
+        self.state.selected_indices = selection_override if selection_override is not None else [index]
 
-            # Restore history state for file
-            self.state.undo_index = self.repo.get_max_history_index(file_info["hash"])
-            self.state.max_history_index = self.state.undo_index
+    def _activate_selection(self) -> None:
+        """Heavy per-frame commit: save the outgoing edit, hydrate config, restore history,
+        and announce the switch. Runs for the settled frame only."""
+        # A synchronous select_file may preempt a queued navigation commit.
+        self._nav_commit_timer.stop()
 
-            saved_config = load_or_promote(self.repo, file_info["hash"], file_info["path"])
-            self.state.current_file_is_new = saved_config is None
+        index = self.state.selected_file_idx
+        if not (0 <= index < len(self.state.uploaded_files)):
+            return
 
-            if saved_config:
-                self.state.config = self._apply_sticky_settings(saved_config, only_global=True)
-            else:
-                self.state.config = self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        # Save current before switching, but only if user actually made explicit edits.
+        # current_file_hash still points at the last committed frame here.
+        if self.state.current_file_hash and self._config_dirty:
+            self.repo.save_file_settings(self.state.current_file_hash, self.state.config, file_path=self.state.current_file_path or "")
+            self.settings_saved.emit()
+            self.active_file_changing.emit()
+        self._config_dirty = False
 
-            # RGB-scan triplet: the green/blue exposures travel with the asset entry.
-            green, blue = file_info.get("green_path"), file_info.get("blue_path")
-            if green and blue:
-                from negpy.features.rgbscan.models import RgbScanConfig
+        file_info = self.state.uploaded_files[index]
+        self.state.current_file_path = file_info["path"]
+        self.state.current_file_hash = file_info["hash"]
 
-                align = bool(file_info.get("align", self.state.config.rgbscan.align))
-                self.state.config = replace(
-                    self.state.config, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align)
-                )
+        self._read_source_exif(file_info)
 
-            # Mask hide-state is keyed by index into this file's masks; the swap invalidates it.
-            self.state.local_hidden_masks = set()
+        # Restore history state for file
+        self.state.undo_index = self.repo.get_max_history_index(file_info["hash"])
+        self.state.max_history_index = self.state.undo_index
 
-            self.file_selected.emit(file_info["path"])
-            self.state_changed.emit()
-            self._persist_session()
+        saved_config = load_or_promote(self.repo, file_info["hash"], file_info["path"])
+        self.state.current_file_is_new = saved_config is None
+
+        if saved_config:
+            self.state.config = self._apply_sticky_settings(saved_config, only_global=True)
+        else:
+            self.state.config = self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+
+        # RGB-scan triplet: the green/blue exposures travel with the asset entry.
+        green, blue = file_info.get("green_path"), file_info.get("blue_path")
+        if green and blue:
+            from negpy.features.rgbscan.models import RgbScanConfig
+
+            align = bool(file_info.get("align", self.state.config.rgbscan.align))
+            self.state.config = replace(
+                self.state.config, rgbscan=RgbScanConfig(enabled=True, green_path=green, blue_path=blue, align=align)
+            )
+
+        # Mask hide-state is keyed by index into this file's masks; the swap invalidates it.
+        self.state.local_hidden_masks = set()
+
+        self.file_selected.emit(file_info["path"])
+        self.state_changed.emit()
+        self._persist_session()
+
+    def _read_source_exif(self, file_info: Dict[str, Any]) -> None:
+        """Populate source EXIF for the metadata panel / export, caching by hash so
+        navigating back to a frame never re-opens the file."""
+        from negpy.infrastructure.loaders.helpers import read_exif_from_file
+
+        file_hash = file_info["hash"]
+        if file_hash in self.state.source_exif:
+            return
+        # Cache the result (including a None miss) so revisits skip the disk read.
+        self.state.source_exif[file_hash] = read_exif_from_file(file_info["path"])
 
     def update_selection(self, indices: List[int]) -> None:
         """Updates the list of currently selected indices."""
@@ -844,14 +904,14 @@ class DesktopSessionManager(QObject):
         if display_idx == -1:
             return
         if display_idx < self.asset_model.rowCount() - 1:
-            self.select_file(self.asset_model.display_to_actual(display_idx + 1))
+            self.navigate_to(self.asset_model.display_to_actual(display_idx + 1))
 
     def prev_file(self) -> None:
         display_idx = self.asset_model.actual_to_display(self.state.selected_file_idx)
         if display_idx == -1:
             return
         if display_idx > 0:
-            self.select_file(self.asset_model.display_to_actual(display_idx - 1))
+            self.navigate_to(self.asset_model.display_to_actual(display_idx - 1))
 
     def update_config(self, config: WorkspaceConfig, persist: bool = False, render: bool = True, record_history: bool = True) -> None:
         """

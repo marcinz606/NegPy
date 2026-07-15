@@ -98,6 +98,8 @@ class PreviewLoadTask:
     green_path: str = ""  # RGB-scan triplet: green/blue exposures merged with file_path (red).
     blue_path: str = ""
     align: bool = True  # sub-pixel registration of the triplet
+    # Monotonic id from the controller; older queued decodes are skipped without I/O.
+    load_seq: int = 0
 
 
 class RenderWorker(QObject):
@@ -355,6 +357,14 @@ class PreviewLoadWorker(QObject):
     def __init__(self, preview_service) -> None:
         super().__init__()
         self._preview_service = preview_service
+        self._latest_preview_seq = 0
+
+    def set_latest_preview_seq(self, seq: int) -> None:
+        """Updated synchronously from the UI thread before each decode is queued."""
+        self._latest_preview_seq = seq
+
+    def _preview_superseded(self, task: PreviewLoadTask) -> bool:
+        return not task.for_cache_warm and task.load_seq < self._latest_preview_seq
 
     @pyqtSlot(PreviewLoadTask)
     def process(self, task: PreviewLoadTask) -> None:
@@ -369,6 +379,8 @@ class PreviewLoadWorker(QObject):
                 )
             except Exception as e:
                 logger.debug("Preview cache warm failed for %s: %s", task.file_path, e)
+            return
+        if self._preview_superseded(task):
             return
         t0 = time.perf_counter()
         try:
@@ -393,7 +405,8 @@ class PreviewLoadWorker(QObject):
                     (time.perf_counter() - t0) * 1000,
                     task.file_path,
                 )
-                self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
+                if not self._preview_superseded(task):
+                    self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
                 return
             if task.use_splash and not task.full_resolution:
                 # Open the file once; get splash + linear in a single pass.
@@ -405,7 +418,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     log_timings=True,
                 )
-                if sp is not None:
+                if sp is not None and not self._preview_superseded(task):
                     sbuf, sdims = sp
                     self.splash.emit(task.file_path, sbuf, sdims)
             else:
@@ -425,8 +438,11 @@ class PreviewLoadWorker(QObject):
                 (time.perf_counter() - t0) * 1000,
                 task.file_path,
             )
-            self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
+            if not self._preview_superseded(task):
+                self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
         except Exception as e:
+            if self._preview_superseded(task):
+                return
             logger.exception(f"Asset load failed: {task.file_path}")
             self.error.emit(str(e))
             self.load_failed.emit(task.file_path, str(e))

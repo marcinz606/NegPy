@@ -268,6 +268,7 @@ class TestAppController(unittest.TestCase):
         self.controller.preview_loaded.connect(mock_slot)
         self.controller.request_render = MagicMock()
         self.controller._requested_file_path = "dummy.dng"
+        self.controller.state.current_file_path = "dummy.dng"
 
         raw = object()
         dims = (1234, 5678)
@@ -276,7 +277,6 @@ class TestAppController(unittest.TestCase):
 
         self.assertIs(self.controller.state.preview_raw, raw)
         self.assertEqual(self.controller.state.original_res, dims)
-        self.assertEqual(self.controller.state.current_file_path, "dummy.dng")
         self.assertFalse(self.controller.state.has_ir)
         self.assertIsNone(self.controller.state.preview_ir)
         mock_slot.assert_called_once_with()
@@ -288,12 +288,58 @@ class TestAppController(unittest.TestCase):
         per-source analysis cache (green/red cast on the new file)."""
         self.controller.request_render = MagicMock()
         self.controller._requested_file_path = "current.dng"
+        self.controller.state.current_file_path = "current.dng"
         self.controller.state.preview_raw = None
 
         self.controller._on_preview_loaded("stale.dng", object(), (10, 20), "", None, "")
 
         self.assertIsNone(self.controller.state.preview_raw)
         self.controller.request_render.assert_not_called()
+
+    def test_stale_preview_decode_dropped_when_session_moved_on(self):
+        """Requested path can lag session.current_file_path during fast filmstrip hops."""
+        self.controller.request_render = MagicMock()
+        self.controller._requested_file_path = "stale.dng"
+        self.controller.state.current_file_path = "current.dng"
+
+        self.controller._on_preview_loaded("stale.dng", object(), (10, 20), "", None, "")
+
+        self.assertIsNone(self.controller.state.preview_raw)
+        self.controller.request_render.assert_not_called()
+
+    def test_load_file_emits_loading_started_immediately(self):
+        loading = MagicMock()
+        self.controller.loading_started.connect(loading)
+        self.controller.load_file("dummy.dng")
+        loading.assert_called_once_with()
+
+    def test_load_file_clears_pending_render_task(self):
+        import numpy as np
+
+        from negpy.domain.models import WorkspaceConfig
+        from negpy.desktop.workers.render import RenderTask
+
+        self.controller._pending_render_task = RenderTask(
+            buffer=np.zeros((1, 1, 3), np.float32),
+            config=WorkspaceConfig(),
+            source_hash="old",
+            preview_size=1.0,
+        )
+        self.controller.load_file("dummy.dng")
+        self.assertIsNone(self.controller._pending_render_task)
+
+    def test_load_file_dispatches_preview_immediately(self):
+        # Navigation coalescing now lives in the session; by the time load_file runs the
+        # user has settled, so the decode is dispatched at once.
+        self.controller.preview_load_requested.disconnect(self.controller.preview_load_worker.process)
+        emit = MagicMock()
+        self.controller.preview_load_requested.connect(emit)
+        self.controller.state.current_file_path = "/c.dng"
+
+        self.controller.load_file("/c.dng")
+
+        emit.assert_called_once()
+        self.assertEqual(emit.call_args.args[0].file_path, "/c.dng")
 
     def test_apply_auto_crop_enables_auto_crop_and_clears_manual_rect(self):
         geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9), auto_crop_enabled=False)

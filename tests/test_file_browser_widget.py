@@ -272,6 +272,43 @@ def test_add_files_falls_back_to_empty_dir_when_unset(browser, session):
     assert not any(c.args and c.args[0] == "last_open_folder" for c in session.repo.save_global_setting.call_args_list)
 
 
+def test_current_changed_navigates_on_focused_keyboard_move(browser, session):
+    session.navigate_to = MagicMock()
+    browser.list_view.hasFocus = lambda: True
+    session.state.selected_file_idx = session.asset_model.display_to_actual(0)
+
+    target = session.asset_model.index(1, 0)
+    browser._on_current_changed(target, session.asset_model.index(0, 0))
+
+    session.navigate_to.assert_called_once_with(session.asset_model.display_to_actual(1))
+
+
+def test_current_changed_ignored_without_focus(browser, session):
+    session.navigate_to = MagicMock()
+    browser.list_view.hasFocus = lambda: False
+
+    target = session.asset_model.index(1, 0)
+    browser._on_current_changed(target, session.asset_model.index(0, 0))
+
+    session.navigate_to.assert_not_called()
+
+
+def test_current_changed_ignored_while_building_multiselection(browser, session):
+    from PyQt6.QtCore import Qt
+
+    session.navigate_to = MagicMock()
+    browser.list_view.hasFocus = lambda: True
+
+    target = session.asset_model.index(1, 0)
+    with patch(
+        "negpy.desktop.view.sidebar.files.QApplication.keyboardModifiers",
+        return_value=Qt.KeyboardModifier.ShiftModifier,
+    ):
+        browser._on_current_changed(target, session.asset_model.index(0, 0))
+
+    session.navigate_to.assert_not_called()
+
+
 def test_clearing_filter_clears_error_stylesheet(browser):
     browser.regex_btn.setChecked(True)
     browser.search_input.setText("[")

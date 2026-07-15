@@ -274,6 +274,8 @@ class AppController(QObject):
         self._render_debounce.setInterval(80)
         self._render_debounce.timeout.connect(self.request_render)
 
+        self._pending_preview_force_detect = False
+
         self._crop_bounds_dirty = False
 
         self._cursor_readout_timer = QTimer()
@@ -283,6 +285,7 @@ class AppController(QObject):
         self._pending_cursor_nx: Optional[float] = None
         self._pending_cursor_ny: Optional[float] = None
         self._prefetch_gen = 0
+        self._preview_load_seq = 0
         self._preview_load_t0 = 0.0
         self._requested_file_path: str = ""
 
@@ -688,26 +691,34 @@ class AppController(QObject):
         )
         return hashlib.md5(repr(parts).encode()).hexdigest()
 
+    def _preview_load_still_wanted(self, file_path: str) -> bool:
+        """True when a decode/splash completion belongs to the active filmstrip frame."""
+        return file_path == self._requested_file_path and file_path == self.state.current_file_path
+
     def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
         Dispatches RAW decode to a background worker to keep the UI thread free.
         """
         self._prefetch_gen += 1
-        self._preview_load_t0 = time.perf_counter()
+        self._preview_load_seq += 1
+        self.preview_load_worker.set_latest_preview_seq(self._preview_load_seq)
         self._requested_file_path = file_path
-
-        # Navigate-back fast path: the frame's last render is memoized and nothing
-        # that shaped it has changed (select_file already hydrated its config), so
-        # paint it now — no spinner, no toasts — and let the real render refresh
-        # metrics quietly underneath.
-        target_hash = self._file_hash_for_path(file_path)
-        memo = self._render_memo.get(target_hash, self._render_memo_key()) if target_hash else None
+        self._pending_preview_force_detect = force_detect
+        self._pending_render_task = None
+        self._render_debounce.stop()
 
         if not preserve_zoom:
             self.zoom_requested.emit(1.0)
+        self.loading_started.emit()
+
+        # Navigate-back fast path: the frame's last render is memoized and nothing
+        # that shaped it has changed (select_file already hydrated its config), so
+        # paint it now — no toasts — and let the real render refresh metrics quietly.
+        target_hash = self._file_hash_for_path(file_path)
+        memo = self._render_memo.get(target_hash, self._render_memo_key()) if target_hash else None
+
         if memo is None:
             self.set_status(f"Loading {os.path.basename(file_path)}...")
-            self.loading_started.emit()
         self._thumb_config = None
 
         self._render_cleanup_requested.emit()
@@ -728,6 +739,24 @@ class AppController(QObject):
         self.state.has_ir = False
         self.state.original_res = (0, 0)
 
+        # Navigation coalescing now lives in the session (filmstrip hops debounce the
+        # per-frame commit), so load_file is only reached once the user has settled —
+        # dispatch the decode immediately for a snappy landing.
+        self._dispatch_preview_load()
+
+    def _dispatch_preview_load(self) -> None:
+        """Decode the active (settled) frame."""
+        file_path = self._requested_file_path
+        if not file_path or not self._preview_load_still_wanted(file_path):
+            return
+
+        load_seq = self._preview_load_seq
+        self.preview_load_worker.set_latest_preview_seq(load_seq)
+        self._preview_load_t0 = time.perf_counter()
+
+        target_hash = self._file_hash_for_path(file_path)
+        memo = self._render_memo.get(target_hash, self._render_memo_key()) if target_hash else None
+
         pending_import = self._pending_capture_imports.pop(_capture_import_key(file_path), None)
         if pending_import is not None and pending_import.process_mode is not None:
             process = self.state.config.process
@@ -739,6 +768,7 @@ class AppController(QObject):
             self.state.config = replace(self.state.config, process=process)
             self.state.is_dirty = True
 
+        force_detect = self._pending_preview_force_detect
         rgbscan = self.state.config.rgbscan
         self.preview_load_requested.emit(
             PreviewLoadTask(
@@ -758,11 +788,12 @@ class AppController(QObject):
                 green_path=rgbscan.green_path if rgbscan.enabled else "",
                 blue_path=rgbscan.blue_path if rgbscan.enabled else "",
                 align=rgbscan.align,
+                load_seq=load_seq,
             )
         )
 
     def _on_splash_preview(self, file_path: str, raw: Any, dims: Any) -> None:
-        if self._requested_file_path != file_path:
+        if not self._preview_load_still_wanted(file_path):
             return
         self.state.original_res = dims
         # Paint the embedded sRGB thumbnail directly — no pipeline; the real render replaces it.
@@ -782,7 +813,7 @@ class AppController(QObject):
         for f in self.state.uploaded_files:
             if f["path"] == file_path and f.pop("decode_failed", None) is not None:
                 self.session.asset_model.refresh()
-        if self._requested_file_path != file_path:
+        if not self._preview_load_still_wanted(file_path):
             return
         logger.info(
             "load-timing preview_e2e %.0fms (load request -> decoded buffer) %s",
@@ -793,7 +824,6 @@ class AppController(QObject):
         self.state.preview_ir = ir_preview
         self.state.has_ir = ir_preview is not None
         self.state.original_res = dims
-        self.state.current_file_path = file_path
         self.state.source_cs = source_cs
         self._apply_detected_mode(detected_mode)
         self.preview_loaded.emit()
