@@ -137,6 +137,24 @@ def test_tiff_loader_no_ir_when_rgb_only():
         assert metadata["ir"] is None
 
 
+def test_rawpy_loader_dng_thumbnail_subifd_ir():
+    """VueScan/Adobe-style DNG: thumbnail IFD0 + SubIFD carrying the 4-sample LinearRaw
+    RGB+IR data (img02.dng's structure) — not NegPy's own single-IFD DNG output."""
+    h, w = 8, 10
+    thumb = np.zeros((4, 5, 3), dtype=np.uint8)
+    full = np.random.randint(0, 65535, (h, w, 4)).astype(np.uint16)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "scan.dng")
+        with tifffile.TiffWriter(path) as tw:
+            tw.write(thumb, photometric="rgb", subfiletype=1, subifds=1)
+            tw.write(full, photometric=34892, subfiletype=0, planarconfig="CONTIG")
+        ctx_mgr, metadata = LoaderFactory().get_loader(path)
+        with ctx_mgr:
+            pass
+        assert metadata["ir"] is not None
+        assert metadata["ir"].shape == (h, w)
+
+
 def test_tiff_loader_silverfast_multipage_ir():
     """SilverFast iSRD: IR stored as page 2 with NewSubfileType=4 (transparency mask)."""
     h, w = 16, 24

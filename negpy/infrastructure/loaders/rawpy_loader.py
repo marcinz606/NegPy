@@ -16,26 +16,37 @@ logger = get_logger(__name__)
 _LINEAR_RAW = 34892
 
 
+def _find_linearraw_page(tif: "tifffile.TiffFile") -> Optional[Any]:
+    """Return the page carrying 4-sample LinearRaw data: page 0 itself (NegPy's own
+    single-IFD DNGs) or one of its SubIFDs (VueScan/Adobe-style thumbnail + SubIFD DNGs)."""
+    page0 = tif.pages[0]
+    for page in (page0, *(page0.pages or [])):
+        tags = getattr(page, "tags", None)
+        if tags is None:
+            continue
+        spp_tag = tags.get("SamplesPerPixel")
+        photo_tag = tags.get("PhotometricInterpretation")
+        spp = int(spp_tag.value) if spp_tag is not None else 0
+        photo = int(photo_tag.value) if photo_tag is not None else 0
+        if spp == 4 and photo == _LINEAR_RAW:
+            return page
+    return None
+
+
 def _peek_linearraw_4ch(file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Inspect a DNG. If it carries 4 linear samples (RGB + IR), return (rgb, ir) as float32 [0,1].
 
-    NegPy's own `write_dng_linear` produces exactly this format; we close the loop here.
-    Returns None for camera DNGs (Bayer, 3-channel, etc.) so rawpy can handle them.
+    NegPy's own `write_dng_linear` produces a single-IFD DNG; VueScan and Adobe-style DNGs
+    put the full-res data in a SubIFD behind a reduced-resolution thumbnail IFD0 — both are
+    checked. Returns None for camera DNGs (Bayer, 3-channel, etc.) so rawpy can handle them.
     """
     ext = os.path.splitext(file_path)[1].lower()
     if ext != ".dng":
         return None
     try:
         with tifffile.TiffFile(file_path) as tif:
-            page = tif.pages[0]
-            tags = getattr(page, "tags", None)
-            if tags is None:
-                return None
-            spp_tag = tags.get("SamplesPerPixel")
-            photo_tag = tags.get("PhotometricInterpretation")
-            spp = int(spp_tag.value) if spp_tag is not None else 0
-            photo = int(photo_tag.value) if photo_tag is not None else 0
-            if spp != 4 or photo != _LINEAR_RAW:
+            page = _find_linearraw_page(tif)
+            if page is None:
                 return None
             arr = page.asarray()  # type: ignore[attr-defined]
     except Exception as e:
