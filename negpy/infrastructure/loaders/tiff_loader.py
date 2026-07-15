@@ -134,7 +134,13 @@ class TiffLoader(IImageLoader):
         except Exception:
             icc_bytes = None
 
-        color_space = identify_color_space_from_icc(icc_bytes) or ColorSpace.SRGB.value
+        color_space = identify_color_space_from_icc(icc_bytes)
+        if color_space is None:
+            # No ICC: 8-bit TIFFs are display-encoded in practice; 16-bit/float are
+            # scanner-raw linear (SANE, VueScan raw, NegPy's own scan writer). Linear
+            # files record Adobe RGB to mirror RawpyLoader's LinearRaw DNG default,
+            # so a scan's TIFF and DNG twins behave identically downstream.
+            color_space = ColorSpace.SRGB.value if img.dtype == np.uint8 else ColorSpace.ADOBE_RGB.value
         if color_space == ColorSpace.SRGB.value:
             f32 = srgb_to_linear(f32)
         metadata = {"orientation": read_orientation(file_path), "color_space": color_space, "icc_profile": icc_bytes, "ir": ir}

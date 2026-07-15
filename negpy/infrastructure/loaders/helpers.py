@@ -133,9 +133,15 @@ class NonStandardFileWrapper:
     def postprocess(self, **kwargs: Any) -> np.ndarray:
         bps = kwargs.get("output_bps", 8)
         half_size = kwargs.get("half_size", False)
+        gamma = kwargs.get("gamma")
         data = self.data
         if half_size:
             data = data[::2, ::2]
+
+        if gamma is None or tuple(gamma) != (1, 1):
+            # Mirror LibRaw's default display gamma (BT.709) so linear sources
+            # thumbnail like real raws instead of near-black.
+            data = np.where(data < 0.018, data * 4.5, 1.099 * np.power(np.maximum(data, 0.0), 1.0 / 2.222) - 0.099)
 
         if bps == 16:
             return (data * 65535.0).astype(np.uint16)
