@@ -605,7 +605,7 @@ class ImageProcessor:
                 img_int = np.stack([img_lum, img_lum, img_lum], axis=-1) if img_lum.ndim == 2 else img_lum
             else:
                 img_int = float_to_uint16(buffer)
-            img_out, _icc = self._apply_color_management_u16_rgb(img_int, working_color_space, color_space, icc_output, icc_input)
+            img_out, _icc = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
             return self._encode_dng_bytes(img_out), "dng"
         elif fmt == ExportFormat.PNG:
             if is_greyscale:
@@ -642,7 +642,7 @@ class ImageProcessor:
                 img_out, _icc = self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
             else:
                 img_int = float_to_uint16(buffer)
-                img_out, _icc = self._apply_color_management_u16_rgb(img_int, working_color_space, color_space, icc_output, icc_input)
+                img_out, _icc = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
             bits = imagecodecs.jpegxl_encode(
                 np.ascontiguousarray(img_out),
                 bitspersample=16,
