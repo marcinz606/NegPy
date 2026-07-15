@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -98,6 +99,34 @@ def test_promotes_triplet_without_overwrite_and_binds_receipt(tmp_path: Path) ->
     assert receipt["outputs"]["rgb"]["path"] == first.rgb_path.name
 
 
+def test_promoted_outputs_are_independent_copies_without_hard_links(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    finalization = _finalization(tmp_path)
+
+    def forbid_hard_link(*_args, **_kwargs):
+        raise AssertionError("frame publication must not call os.link")
+
+    monkeypatch.setattr(os, "link", forbid_hard_link)
+    result = promote_single_pass_frame(
+        finalization,
+        output_folder=tmp_path / "scans",
+        filename_pattern="roll_{{ seq }}",
+    )
+
+    promoted = {
+        "rgb": result.rgb_path,
+        "ir": result.ir_path,
+        "ir_valid_mask": result.ir_valid_mask_path,
+    }
+    for role, source in finalization.output_paths.items():
+        destination = promoted[role]
+        assert source.is_file()
+        assert destination.read_bytes() == source.read_bytes()
+        assert destination.stat().st_ino != source.stat().st_ino
+
+
 def test_existing_sidecar_reserves_the_whole_basename(tmp_path: Path) -> None:
     finalization = _finalization(tmp_path)
     output = tmp_path / "scans"
@@ -176,18 +205,17 @@ def test_repeating_filename_pattern_cannot_cycle_forever(tmp_path: Path) -> None
 def test_partial_publication_is_removed_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     finalization = _finalization(tmp_path)
     output = tmp_path / "scans"
-    original_link = os.link
+    original_copy = shutil.copyfileobj
     calls = 0
 
-    def fail_second(source, destination):
+    def fail_second(source, destination, *, length=0):
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise OSError("simulated link and copy failure")
-        return original_link(source, destination)
+            raise OSError("simulated copy failure")
+        return original_copy(source, destination, length=length)
 
-    monkeypatch.setattr(os, "link", fail_second)
-    monkeypatch.setattr("shutil.copyfileobj", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("copy failed")))
+    monkeypatch.setattr("shutil.copyfileobj", fail_second)
 
     with pytest.raises(RollOutputError, match="could not publish"):
         promote_single_pass_frame(

@@ -21,7 +21,7 @@ CANONICAL_MANIFEST_FILENAME = "replay-first-rgbi4-manifest.json"
 # These hashes bind the scanner-facing implementation and both wire resources.
 # Update them only after the corresponding hardware-free regression suite passes.
 CAPTURE_BUNDLE_COMPONENT_SHA256 = {
-    "capture_process.py": "2a04f3ec59866a00f4453461d038fd15d3d050237150db3e75430bc542a92b51",
+    "capture_process.py": "5133c2ccb6dccccaa41d2fec11e0aecccedb96a5d2a66bcd9146adf534813e5e",
     "worker.py": "41dde02011d9c857c92de6dbc3935720dddf6cc6cae604a5960b7c8609f0a561",
     "continuation_plan.py": "bfdebfaa28075c708f3e8ef070083edce36a28b497bba622173cbb6d1466a282",
     "meter.py": "c7d00c9c8796b7264a553848106a1fe075ab4a25315fbe5a05d05bc35515ca10",

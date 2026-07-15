@@ -13,7 +13,6 @@ import hashlib
 import json
 import os
 import shutil
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date as dt_date
@@ -67,19 +66,16 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _copy_exclusive(source: Path, destination: Path) -> None:
-    """Publish one file without a replace/overwrite race.
+    """Copy one file without replacing an existing output.
 
-    A hard link is instant when capture scratch and output share a filesystem.
-    The exclusive-copy fallback covers a separately mounted output folder.
+    Do not use a hard-link fast path here.  On macOS a protected output folder
+    can leave ``link(2)`` blocked indefinitely, which prevents the scanner
+    parent from acknowledging a completed frame.  Opening the destination in
+    exclusive mode preserves the no-overwrite contract and gives failures a
+    deterministic cleanup path.  If the process itself is killed mid-copy,
+    the incomplete file remains a reserved basename without a receipt; a
+    later scan will never overwrite it.
     """
-
-    try:
-        os.link(source, destination)
-        return
-    except FileExistsError:
-        raise
-    except OSError:
-        pass
 
     try:
         with source.open("rb") as reader, destination.open("xb") as writer:
@@ -92,21 +88,21 @@ def _copy_exclusive(source: Path, destination: Path) -> None:
 
 
 def _write_receipt_exclusive(path: Path, payload: dict[str, Any]) -> None:
+    """Write the completion marker once, removing it after handled failures.
+
+    A process kill can leave a partial marker, but that marker still reserves
+    the basename and cannot be mistaken for valid JSON by receipt consumers.
+    """
+
     encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temporary = Path(temporary_name)
-    linked = False
     try:
-        with os.fdopen(descriptor, "wb") as stream:
+        with path.open("xb") as stream:
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
-        os.link(temporary, path)
-        linked = True
-        temporary.unlink()
-    finally:
-        if not linked:
-            temporary.unlink(missing_ok=True)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def promote_single_pass_frame(

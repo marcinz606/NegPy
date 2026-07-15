@@ -245,6 +245,24 @@ def _adapter(tmp_path: Path, binding: Binding, runner: FakeRunner) -> capture.Ca
     )
 
 
+def test_parent_ack_publish_is_exclusive_without_a_hard_link(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "parent-ack.json"
+    payload = b'{"action":"stop"}\n'
+
+    def forbid_hard_link(*_args, **_kwargs):
+        raise AssertionError("parent ACK publication must not call os.link")
+
+    monkeypatch.setattr("os.link", forbid_hard_link)
+    capture._publish_exclusive(path, payload)
+
+    assert path.read_bytes() == payload
+    with pytest.raises(FileExistsError):
+        capture._publish_exclusive(path, payload)
+
+
 def test_batch_request_is_one_immutable_ordered_full_capture_unit() -> None:
     fingerprint = _reviewed_fingerprint()
     approval = _manual_approval(fingerprint, slot=17, offset=-12)

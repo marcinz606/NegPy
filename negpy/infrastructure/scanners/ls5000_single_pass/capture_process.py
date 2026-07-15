@@ -19,6 +19,8 @@ interface: the adapter never emits ``--expected-frame-count``.
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import json
 import math
@@ -958,15 +960,61 @@ def _write_exclusive(path: Path, payload: bytes) -> None:
         os.fsync(stream.fileno())
 
 
+def _rename_exclusive(source: Path, destination: Path) -> None:
+    """Atomically publish ``source`` without replacing ``destination``.
+
+    The former hard-link publication can block indefinitely in a protected
+    macOS folder.  Both supported direct-scanner platforms expose an atomic
+    no-replace rename, so use that primitive instead.  Windows ``os.rename``
+    already refuses an existing destination.  Unknown platforms fail closed
+    rather than risk overwriting a parent decision.
+    """
+
+    source_bytes = os.fsencode(source)
+    destination_bytes = os.fsencode(destination)
+    if sys.platform == "darwin":
+        library = ctypes.CDLL(None, use_errno=True)
+        rename = library.renamex_np
+        rename.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+        rename.restype = ctypes.c_int
+        result = rename(source_bytes, destination_bytes, 0x00000004)
+    elif sys.platform.startswith("linux"):
+        library = ctypes.CDLL(None, use_errno=True)
+        rename = library.renameat2
+        rename.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        rename.restype = ctypes.c_int
+        result = rename(-100, source_bytes, -100, destination_bytes, 0x00000001)
+    elif os.name == "nt":
+        os.rename(source, destination)
+        return
+    else:
+        raise OSError(
+            errno.ENOTSUP,
+            "atomic exclusive rename is unavailable on this platform",
+            str(destination),
+        )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(
+            error_number,
+            os.strerror(error_number),
+            str(destination),
+        )
+
+
 def _publish_exclusive(path: Path, payload: bytes) -> None:
     """Atomically publish a complete never-overwritten handshake file."""
 
     temporary = path.with_suffix(path.suffix + ".tmp")
     _write_exclusive(temporary, payload)
     try:
-        # Linking a fully flushed inode makes the final name visible in one
-        # step and, unlike replace(), refuses a stale/replayed destination.
-        os.link(temporary, path)
+        _rename_exclusive(temporary, path)
         try:
             directory = os.open(path.parent, os.O_RDONLY)
             try:
