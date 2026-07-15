@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -69,6 +69,8 @@ _ROLL_DEFAULT_FILENAME_PATTERN = (
 
 class ScanSidebar(QWidget):
     """Scanner control panel — replaces the originally planned modal ScanDialog."""
+
+    roll_retry_selection_restored = pyqtSignal()
 
     def __init__(self, controller) -> None:
         super().__init__()
@@ -1437,6 +1439,7 @@ class ScanSidebar(QWidget):
             f"Selected {len(remaining)} unfinished slots. Review their alignment, then scan selected."
         )
         self.roll_status_label.setVisible(True)
+        self.roll_retry_selection_restored.emit()
 
     def _set_roll_scanning(
         self,

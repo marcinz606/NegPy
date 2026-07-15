@@ -375,11 +375,7 @@ class MainWindow(QMainWindow):
         self.controller.load_failed.connect(self._on_load_failed)
         self.controller.zoom_changed.connect(self._on_zoom_info_changed)
 
-        if self.roll_slot_selector is not None:
-            self.controller.ls5000_roll_preview_ready.connect(self.central_workspace.show_loaded_roll_preview)
-            self.controller.ls5000_roll_preview_invalidated.connect(self.central_workspace.show_canvas)
-            self.controller.ls5000_roll_finished.connect(self.central_workspace.show_canvas_after_roll_scan)
-            self.controller.ls5000_roll_error.connect(self.central_workspace.show_canvas_after_roll_error)
+        self._connect_roll_workspace_signals()
 
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)
@@ -424,6 +420,31 @@ class MainWindow(QMainWindow):
         self.dash_timer.timeout.connect(self._refresh_dashboard)
         self.dash_timer.start(2000)
         self._refresh_dashboard()
+
+    def _connect_roll_workspace_signals(self) -> None:
+        """Keep roll lifecycle and explicit retry navigation on one workspace."""
+
+        if self.roll_slot_selector is None:
+            return
+        self.controller.ls5000_roll_preview_ready.connect(
+            self.central_workspace.show_loaded_roll_preview
+        )
+        self.controller.ls5000_roll_preview_invalidated.connect(
+            self.central_workspace.show_canvas
+        )
+        self.controller.ls5000_roll_finished.connect(
+            self.central_workspace.show_canvas_after_roll_scan
+        )
+        self.controller.ls5000_roll_error.connect(
+            self.central_workspace.show_canvas_after_roll_error
+        )
+        retry_signal = getattr(
+            self.right_panel.scan_sidebar,
+            "roll_retry_selection_restored",
+            None,
+        )
+        if retry_signal is not None:
+            retry_signal.connect(self.central_workspace.show_roll_preview)
 
     def _refresh_dashboard(self) -> None:
         self.toolbar.refresh_gpu_status()

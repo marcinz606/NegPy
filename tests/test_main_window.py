@@ -192,5 +192,54 @@ class TestSafeRollClose(unittest.TestCase):
         window.deleteLater()
 
 
+class TestRollWorkspaceNavigation(unittest.TestCase):
+    def test_retry_selection_restored_reopens_the_existing_contact_sheet(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from negpy.desktop.view.main_window import MainWindow
+
+        class Signal:
+            def __init__(self):
+                self.callbacks = []
+
+            def connect(self, callback):
+                self.callbacks.append(callback)
+
+            def emit(self, *args):
+                for callback in self.callbacks:
+                    callback(*args)
+
+        retry_restored = Signal()
+        controller = SimpleNamespace(
+            ls5000_roll_preview_ready=Signal(),
+            ls5000_roll_preview_invalidated=Signal(),
+            ls5000_roll_finished=Signal(),
+            ls5000_roll_error=Signal(),
+        )
+        workspace = SimpleNamespace(
+            show_loaded_roll_preview=MagicMock(),
+            show_canvas=MagicMock(),
+            show_canvas_after_roll_scan=MagicMock(),
+            show_canvas_after_roll_error=MagicMock(),
+            show_roll_preview=MagicMock(),
+        )
+        window = SimpleNamespace(
+            roll_slot_selector=object(),
+            controller=controller,
+            central_workspace=workspace,
+            right_panel=SimpleNamespace(
+                scan_sidebar=SimpleNamespace(
+                    roll_retry_selection_restored=retry_restored,
+                )
+            ),
+        )
+
+        MainWindow._connect_roll_workspace_signals(window)
+        retry_restored.emit()
+
+        workspace.show_roll_preview.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()

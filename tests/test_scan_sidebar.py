@@ -995,6 +995,10 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
 
     def test_stopped_roll_can_reselect_only_unfinished_slots(self):
         _select_device(self.sidebar, FULL_DEVICE)
+        restored: list[bool] = []
+        self.sidebar.roll_retry_selection_restored.connect(
+            lambda: restored.append(True)
+        )
         self.sidebar._on_roll_preview_ready(
             "preview-token",
             _roll_preview_session(5),
@@ -1022,6 +1026,7 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
             self.sidebar.roll_slot_selector.selected_slot_ids(),
             [3, 5],
         )
+        self.assertEqual(restored, [True])
         self.assertIn("Selected 2 unfinished slots", self.sidebar.roll_status_label.text())
 
     def test_failed_roll_keeps_remaining_slots_through_preview_reload(self):
