@@ -24,5 +24,6 @@ class RetouchConfig:
     ir_threshold: float = 0.35
     ir_inpaint_radius: int = 3
     # IR-division tier: recover the image under semi-transparent dust (no cloning).
-    # Off = detect + clone only (escape hatch for misregistered/absent IR).
+    # Tracks ir_dust_remove from the single "IR Removal" control; B&W/Kodachrome
+    # frames are auto-skipped by the degenerate guard, not this flag.
     ir_attenuation: bool = True

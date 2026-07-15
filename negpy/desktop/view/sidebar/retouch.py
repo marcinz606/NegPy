@@ -6,10 +6,9 @@ from negpy.desktop.session import ToolMode
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 
-_IR_DUST_TIP = "Use the scanner's infrared channel to detect dust and scratches (invisible to colour dyes) and clone them out."
-_IR_RESTORE_TIP = (
-    "Recover the image hidden under faint, semi-transparent dust by dividing it back out of the infrared channel — "
-    "subtler than cloning, so soft specks fade instead of leaving patches. Off: detect and clone only."
+_IR_REMOVAL_TIP = (
+    "Use the scanner's infrared channel to remove dust and scratches (invisible to the colour dyes): faint "
+    "semi-transparent specks are divided back out to recover the image underneath, and only opaque cores are cloned."
 )
 _IR_THRESH_TIP = "Lower catches more dust, higher is conservative. Smooth response, no cliff."
 
@@ -69,25 +68,21 @@ class RetouchSidebar(BaseSidebar):
         actions_row.addWidget(self.clear_btn, 1)
         self.layout.addLayout(actions_row)
 
-        # --- IR DUST ---------------------------------------------------------
-        self.ir_subheader = section_subheader("IR DUST")
+        # --- IR REMOVAL ------------------------------------------------------
+        self.ir_subheader = section_subheader("IR REMOVAL")
         self.layout.addWidget(self.ir_subheader)
-        ir_btn_row = QHBoxLayout()
-        self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Dust", conf.ir_dust_remove, _IR_DUST_TIP)
-        self.ir_atten_btn = self._small_toggle("fa5s.tint", "IR Restore", conf.ir_attenuation, _IR_RESTORE_TIP)
-        ir_btn_row.addWidget(self.ir_dust_btn, stretch=1)
-        ir_btn_row.addWidget(self.ir_atten_btn, stretch=1)
-        self.layout.addLayout(ir_btn_row)
-
+        self.ir_dust_btn = self._small_toggle("fa5s.broom", "IR Removal", conf.ir_dust_remove, _IR_REMOVAL_TIP)
         self.ir_threshold_slider = CompactSlider("IR Threshold", 0.05, 0.95, float(conf.ir_threshold))
         self.ir_threshold_slider.setToolTip(_IR_THRESH_TIP)
-        self.layout.addWidget(self.ir_threshold_slider)
+        ir_row = QHBoxLayout()
+        ir_row.addWidget(self.ir_dust_btn, stretch=1)
+        ir_row.addWidget(self.ir_threshold_slider, stretch=1)
+        self.layout.addLayout(ir_row)
 
         # Restored whenever the scan has IR (never let a stale "No IR channel" tip linger).
         self._ir_tooltips = {
             self.ir_subheader: "Detect and remove dust/scratches using the scanner's infrared channel",
-            self.ir_dust_btn: _IR_DUST_TIP,
-            self.ir_atten_btn: _IR_RESTORE_TIP,
+            self.ir_dust_btn: _IR_REMOVAL_TIP,
             self.ir_threshold_slider: _IR_THRESH_TIP,
         }
 
@@ -121,8 +116,9 @@ class RetouchSidebar(BaseSidebar):
         self.clear_btn.clicked.connect(self.controller.clear_retouch)
         self.overlay_btn.clicked.connect(self._on_overlay_clicked)
 
-        self.ir_dust_btn.toggled.connect(lambda c: self.update_config_section("retouch", persist=True, render=True, ir_dust_remove=c))
-        self.ir_atten_btn.toggled.connect(lambda c: self.update_config_section("retouch", persist=True, render=True, ir_attenuation=c))
+        self.ir_dust_btn.toggled.connect(
+            lambda c: self.update_config_section("retouch", persist=True, render=True, ir_dust_remove=c, ir_attenuation=c)
+        )
         self.ir_threshold_slider.valueChanged.connect(
             lambda v: self.update_config_section("retouch", readback_metrics=False, ir_threshold=float(v))
         )
@@ -172,11 +168,10 @@ class RetouchSidebar(BaseSidebar):
             # Show unchecked on non-IR files: the config value is inert without an IR
             # plane, and a checked-but-greyed button reads as stuck-on.
             self.ir_dust_btn.setChecked(conf.ir_dust_remove and self.state.has_ir)
-            self.ir_atten_btn.setChecked(conf.ir_attenuation and self.state.has_ir)
             self.ir_threshold_slider.setValue(float(conf.ir_threshold))
             self._set_ir_controls_enabled(self.state.has_ir)
             if self.state.has_ir and self.state.ir_degenerate:
-                self.ir_atten_btn.setToolTip("IR channel carries image content (B&W / Kodachrome) — IR correction disabled for this frame")
+                self.ir_dust_btn.setToolTip("IR channel carries image content (B&W / Kodachrome) — IR correction disabled for this frame")
 
             self._sync_overlay_label()
         finally:
@@ -191,7 +186,6 @@ class RetouchSidebar(BaseSidebar):
             self.pick_dust_btn,
             self.pick_scratch_btn,
             self.ir_dust_btn,
-            self.ir_atten_btn,
             self.ir_threshold_slider,
         ]
         for w in widgets:

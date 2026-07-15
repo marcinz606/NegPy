@@ -14,7 +14,7 @@ def _sidebar():
 
 def test_retouch_sidebar_builds_all_sections(qapp):
     _, sb = _sidebar()
-    for name in ("auto_dust_btn", "pick_dust_btn", "pick_scratch_btn", "ir_dust_btn", "ir_atten_btn", "overlay_btn"):
+    for name in ("auto_dust_btn", "pick_dust_btn", "pick_scratch_btn", "ir_dust_btn", "overlay_btn"):
         assert getattr(sb, name) is not None
 
 
@@ -24,11 +24,11 @@ def test_ir_tooltip_restores_after_ir_loads(qapp):
     controller, sb = _sidebar()
     controller.state.has_ir = False
     sb.sync_ui()
-    assert sb.ir_atten_btn.toolTip() == "No IR channel in this scan"
+    assert sb.ir_dust_btn.toolTip() == "No IR channel in this scan"
 
     controller.state.has_ir = True
     sb.sync_ui()
-    assert "recover the image" in sb.ir_atten_btn.toolTip().lower()
+    assert "recover the image" in sb.ir_dust_btn.toolTip().lower()
 
 
 def test_ir_degenerate_shows_hint(qapp):
@@ -36,7 +36,7 @@ def test_ir_degenerate_shows_hint(qapp):
     controller.state.has_ir = True
     controller.state.ir_degenerate = True
     sb.sync_ui()
-    assert "image content" in sb.ir_atten_btn.toolTip().lower()
+    assert "image content" in sb.ir_dust_btn.toolTip().lower()
 
 
 def test_ir_buttons_unchecked_without_ir(qapp):
@@ -50,12 +50,11 @@ def test_ir_buttons_unchecked_without_ir(qapp):
     controller.state.has_ir = False
     sb.sync_ui()
     assert not sb.ir_dust_btn.isChecked()
-    assert not sb.ir_atten_btn.isChecked()
     assert not sb.ir_dust_btn.isEnabled()
 
     controller.state.has_ir = True
     sb.sync_ui()
-    assert sb.ir_dust_btn.isChecked() and sb.ir_atten_btn.isChecked()
+    assert sb.ir_dust_btn.isChecked()
 
 
 def test_manual_heal_count_label(qapp):
