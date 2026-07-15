@@ -14,7 +14,7 @@ class LabConfig:
     saturation: float = 1.0
     vibrance: float = 1.0
     clahe_strength: float = 0.0
-    sharpen: float = 0.25
+    sharpen: float = 0.5
     chroma_denoise: float = 0.0
     glow_amount: float = 0.0
     halation_strength: float = 0.0

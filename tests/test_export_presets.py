@@ -440,6 +440,4 @@ def test_tiff_same_space_preserves_16bit(proc):
     assert tiff_arr.dtype == np.uint16
     assert tiff_arr.shape == expected.shape
     diff = np.abs(tiff_arr.astype(np.int32) - expected.astype(np.int32))
-    assert diff.max() == 0, (
-        f"Same-space 16-bit precision lost: max_diff={diff.max()}"
-    )
+    assert diff.max() == 0, f"Same-space 16-bit precision lost: max_diff={diff.max()}"

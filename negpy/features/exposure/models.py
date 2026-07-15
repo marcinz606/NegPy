@@ -74,9 +74,9 @@ class ExposureConfig:
     shoulder_width_trim_red: float = 0.0
     shoulder_width_trim_green: float = 0.0
     shoulder_width_trim_blue: float = 0.0
-    paper_dmin: bool = True
+    paper_dmin: bool = False
     # Black point compensation: map paper Dmax to display black.
-    true_black: bool = False
+    true_black: bool = True
     # Additive trim on the paper's variable midtone gamma (tanh S-curve).
     midtone_gamma: float = 0.0
     # Per-layer Snap trims on top of the global midtone gamma (midtone crossover).
@@ -237,11 +237,11 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Auto Grade nominal-frame contrast = auto_grade_target * auto_grade_nominal_ratio.
     # Target contrast multiplier for Auto Grade: effective_range = this · blend(nominal, measured_ratio).
     # ↑ aims for higher printed contrast across all frames; ↓ targets lower contrast.
-    "auto_grade_target": 0.5,
+    "auto_grade_target": 0.6,
     # Auto Grade adaptation strength (partial slope normalization): 0 = fixed, 1 = full.
     # How strongly Auto Grade adapts slope to scene range (0 = ignore scene, 1 = fully normalize).
     # ↑ grade changes more aggressively with scene contrast variation; ↓ closer to a fixed grade.
-    "auto_grade_strength": 0.4,
+    "auto_grade_strength": 0.3,
     # Canonical floor_ceil/textural ratio of a normal tone distribution (~2.0); default-range fallback.
     # Reference floor_ceil/textural ratio for a "normal" negative (used as Auto Grade blend anchor).
     # ↑ system treats denser negatives as normal (grades down harder frames); ↓ expects flatter negatives.

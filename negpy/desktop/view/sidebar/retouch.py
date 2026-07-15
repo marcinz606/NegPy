@@ -29,8 +29,7 @@ class RetouchSidebar(BaseSidebar):
         self.overlay_btn = QPushButton(" Overlay: Off")
         self.overlay_btn.setIcon(qta.icon("fa5s.eye", color=THEME.text_primary))
         self.overlay_btn.setToolTip(
-            "Cycle the dust-detection overlay: Off → Marked → IR. "
-            "Enable Optical / IR Removal so the overlay has detected spots to show."
+            "Cycle the dust-detection overlay: Off → Marked → IR. Enable Optical / IR Removal so the overlay has detected spots to show."
         )
         self.layout.addWidget(self.overlay_btn)
 

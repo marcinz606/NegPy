@@ -584,9 +584,7 @@ class ImageProcessor:
                 )
             else:
                 img_int = float_to_uint16(buffer)
-                img_out, icc_bytes = self._apply_color_management_u16(
-                    img_int, working_color_space, color_space, icc_output, icc_input
-                )
+                img_out, icc_bytes = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
 
             output_buf = io.BytesIO()
             tifffile.imwrite(
