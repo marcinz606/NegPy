@@ -45,6 +45,7 @@ _RIM_FEATHER_UNGATED = 0.15
 # Defects wider than ~half of it depress their own base (max-area/Scratch territory).
 _IR_BASE_WIN = 25
 _IR_COVERAGE_ABORT = 0.01  # cutoff marking >this fraction → unusable IR, return nothing
+_IR_GROW_FRAC = 0.3  # hysteresis: grow seeded defects this far across the gap to clean film
 _IR_GAIN_IDENTITY = 0.97  # gain is identity at/above this ratio
 _IR_GAIN_CLAMP = 2.0  # caps misregistration halos
 # Per-channel refraction γ, fitted per frame (patent 1.03–1.10 under-correct file IR).
@@ -53,15 +54,21 @@ _IR_GAMMA_HI = 2.2
 _IR_GAMMA_FALLBACK = 1.5
 _IR_DEGENERATE_RATIO = 0.90  # IR dipping below this over >_FRAC = image content (B&W/Kodachrome)
 _IR_DEGENERATE_FRAC = 0.05
+# Crosstalk unmixing: dye/silver absorbs some IR, so the IR plane carries a ghost of
+# the image that normalize_ir's spatial high-pass can't see (a sharp edge survives it).
+_IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
+_IR_XTALK_MIN = 0.02  # |b| sum below this is a noise-level fit → exact no-op
+_IR_XTALK_TRIM = 2.0  # fit drops this bottom-ratio percentile (the dust minority)
 
 # Strong hairs/scratches (auto/IR) route to structure-following inpaint instead of
 # the membrane clone: a long twist crosses varied background, and one clone-source
 # offset can't match it. Bar sits above the mild-elongation capsule test so ordinary
-# dust clusters stay on the membrane. Detection-scale px.
-_HAIR_MIN_EXT = 14.0
-_HAIR_MIN_ASPECT = 3.0
-# cv2.inpaint fill: dilate covers the PSF skirt; NS radius; gamma gives the 8-bit
-# encode a perceptual spread (cv2.inpaint is 8-bit only).
+# dust clusters stay on the membrane. Detection-scale px. See _is_hair.
+_HAIR_MIN_AREA = 20
+_HAIR_MIN_ELONG = 8.0  # area/thickness² ≈ length/thickness; round specks measure 1–3
+# cv2.inpaint fill: dilate covers the PSF skirt at 1:1 (apply_hair_inpaint widens it to
+# track the mask's upsample); NS radius; gamma gives the 8-bit encode a perceptual
+# spread (cv2.inpaint is 8-bit only).
 _HAIR_DILATE_PX = 1
 _HAIR_INPAINT_RADIUS = 3
 _HAIR_INPAINT_GAMMA = 2.2
@@ -451,6 +458,23 @@ def _detection_proxy_rgb(img: ImageBuffer, lo: float, spread: float) -> np.ndarr
     return np.clip((dens - lo) / spread, 0.0, 1.0).astype(np.float32)
 
 
+def _is_hair(labels_sub: np.ndarray, area: int) -> bool:
+    """Hair/scratch (thin) rather than speck: ``2*max(distanceTransform)`` is the widest
+    the defect ever gets, so ``area/thickness²`` reads as length/thickness for a ribbon.
+
+    Thin, not straight — bending moves no interior pixel further from its edge, so a
+    twist scores like a straight hair, where PCA extent/width (the obvious measure)
+    calls it compact and hands it to the membrane clone. The real hair on
+    samples/ir/18.tiff: PCA aspect 2.45 = "speck", thinness 26.3 = hair.
+    """
+    if area < _HAIR_MIN_AREA:
+        return False
+    # Pad, or a component touching the sub-image border reads as thin along that edge.
+    dist = cv2.distanceTransform(np.pad(labels_sub.astype(np.uint8), 1), cv2.DIST_L2, 5)
+    thickness = 2.0 * float(dist.max())
+    return area / max(thickness * thickness, 1e-6) >= _HAIR_MIN_ELONG
+
+
 def _mask_to_strokes(
     mask: np.ndarray,
     pad_px: float,
@@ -477,6 +501,12 @@ def _mask_to_strokes(
         bw = int(stats[i, cv2.CC_STAT_WIDTH])
         bh = int(stats[i, cv2.CC_STAT_HEIGHT])
         labels_sub = labels[y0 : y0 + bh, x0 : x0 + bw] == i
+        if _is_hair(labels_sub, area):
+            if hair_mask is None:
+                hair_mask = np.zeros(mask.shape[:2], dtype=np.uint8)
+            hair_mask[y0 : y0 + bh, x0 : x0 + bw][labels_sub] = 1
+            continue
+
         ys, xs = np.nonzero(labels_sub)
         xs = xs.astype(np.float64) + x0 + 0.5
         ys = ys.astype(np.float64) + y0 + 0.5
@@ -492,11 +522,6 @@ def _mask_to_strokes(
             perp = -(xs - mx) * ay + (ys - my) * ax
             ext = float(proj.max() - proj.min())
             half_w = max(0.5, float(np.percentile(np.abs(perp), 95)))
-            if ext >= _HAIR_MIN_ASPECT * (2.0 * half_w) and ext >= _HAIR_MIN_EXT:
-                if hair_mask is None:
-                    hair_mask = np.zeros(mask.shape[:2], dtype=np.uint8)
-                hair_mask[y0 : y0 + bh, x0 : x0 + bw][labels_sub] = 1
-                continue
             if ext >= 2.5 * (2.0 * half_w) and ext >= 8.0:
                 n_bins = int(min(8, max(2, ext / max(4.0 * half_w, 4.0))))
                 edges = np.linspace(proj.min(), proj.max(), n_bins + 1)
@@ -697,6 +722,35 @@ def detect_luma_regions(
     return _finalize_strokes(comps, offsets, hit.shape, gate), hair_mask
 
 
+def downsample_ir(plane: np.ndarray, target_long_edge: int, dims: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """Min-preserving IR downsample to ``target_long_edge`` (no-op if already smaller).
+    ``dims`` (w, h) overrides the computed target for callers that must land on an
+    existing buffer's exact shape.
+
+    A defect is a *minimum* in IR transmittance and INTER_AREA averages sub-pixel minima
+    away: a ~4 px hair downsampled 4.5x lost its dip from 0.22 to 0.31 and shattered into
+    stray pixels. Eroding by the resample footprint first carries the dip through;
+    ``normalize_ir``'s ``blur(dilate(ir))`` base tracks the eroded plane back up, so clean
+    film still sits at ~1.0. Every IR consumer routes through here or preview and export
+    detect different region sets.
+    """
+    plane = np.ascontiguousarray(plane, dtype=np.float32)
+    h, w = plane.shape[:2]
+    long_edge = max(h, w)
+    if long_edge <= target_long_edge and dims is None:
+        return plane
+    if dims is None:
+        s = target_long_edge / long_edge
+        dims = (max(1, int(round(w * s))), max(1, int(round(h * s))))
+    if dims == (w, h):
+        return plane
+    # Erode by the resample footprint — a 1.25x downsample must not fatten by a 4.5x kernel.
+    k = max(1, int(round(long_edge / target_long_edge)) | 1)
+    if k > 1:
+        plane = cv2.erode(plane, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return cv2.resize(plane, dims, interpolation=cv2.INTER_AREA).astype(np.float32)
+
+
 def normalize_ir(plane: np.ndarray) -> np.ndarray:
     """Locally-normalized IR: ``ir / blur(dilate(ir))`` — ~1.0 on clean film, dips on
     defects, illumination-independent. Separates dust from content that raw-IR
@@ -705,6 +759,19 @@ def normalize_ir(plane: np.ndarray) -> np.ndarray:
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (_IR_BASE_WIN, _IR_BASE_WIN))
     base = cv2.blur(cv2.dilate(plane, kernel), (_IR_BASE_WIN, _IR_BASE_WIN))
     return plane / np.maximum(base, 1e-4)
+
+
+def _hysteresis(ratio: np.ndarray, strong: np.ndarray, cutoff: float) -> np.ndarray:
+    """Grow each seeded defect through ``_IR_GROW_FRAC`` of the gap to clean film, keeping
+    only components holding a strong pixel (Canny's rule).
+
+    ``_ir_decontaminate`` divides by ``Π vis^b`` and a defect blocks visible light too, so
+    it lifts the defect's own ratio (a hair core 0.252 → 0.362). Cores still clear the
+    cutoff by a mile; thin sections don't, so a hair would arrive shattered into specks."""
+    grow = cutoff + (1.0 - cutoff) * _IR_GROW_FRAC
+    _n, labels = cv2.connectedComponents((ratio < grow).astype(np.uint8), connectivity=8)
+    keep = np.unique(labels[strong])
+    return np.isin(labels, keep[keep > 0]).astype(np.uint8)
 
 
 def ir_detect_cutoff(slider: float, attenuation: bool) -> float:
@@ -728,13 +795,16 @@ def detect_ir_regions(
     (``ratio`` from normalize_ir, ``cutoff`` from ir_detect_cutoff). Coverage abort
     guards a misregistered IR plane. ``guide`` (RGB proxy) scores clone sources; else the ratio."""
     ratio = np.ascontiguousarray(ratio, dtype=np.float32)
-    mask = (ratio < cutoff).astype(np.uint8)
-    cov = float(mask.mean())
+    strong = ratio < cutoff
+    # Coverage guards a misregistered IR plane, so it reads the *seed*: hysteresis only
+    # completes defects the strict cutoff already accepted, it never finds new ones.
+    cov = float(strong.mean())
     if cov <= 0.0:
         return [], None
     if cov > _IR_COVERAGE_ABORT:
         logger.warning("IR dust: cutoff %.3f marks %.1f%% of the frame — skipping (raise IR threshold)", cutoff, cov * 100.0)
         return [], None
+    mask = _hysteresis(ratio, strong, cutoff)
     if guide is None or guide.shape[:2] != ratio.shape[:2]:
         guide = ratio
     comps, hair_mask = _mask_to_strokes(mask, pad_px, max_n, min_area=min_area, max_area=max_area)
@@ -742,6 +812,27 @@ def detect_ir_regions(
         return [], hair_mask
     offsets = _pick_source_offsets(mask, comps, guide)
     return _finalize_strokes(comps, offsets, mask.shape, gate=0.0), hair_mask
+
+
+def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> np.ndarray:
+    """Divide the visible-image ghost out of the normalized IR: robust LS fit of
+    log(ir) on log(vis) over clean film, then ``ratio / Π vis_c^b_c``. Exponents clamp
+    to ≥0 (density can only block IR) and fit to ~0 on a clean scanner (→ no-op)."""
+    if ratio.size < 500:
+        return ratio
+    # Fit on clean film only. Dust dips *both* planes, so a fit that sees it explains
+    # the defect away as ghost and the division stops lifting it. Trim by ratio
+    # percentile, not a fixed cutoff (a strong ghost drags clean film below any fixed
+    # one) and not by residual (the dust fits itself perfectly — residual can't see it).
+    keep = ratio >= np.percentile(ratio, _IR_XTALK_TRIM)
+    y = np.log(np.clip(ratio[keep], 1e-4, 1.0))
+    x = vis_log[keep].reshape(-1, vis_log.shape[-1])
+    if y.size < 500:
+        return ratio
+    b = np.clip(np.linalg.lstsq(x, y, rcond=None)[0], 0.0, _IR_XTALK_MAX)
+    if float(np.abs(b).sum()) < _IR_XTALK_MIN:
+        return ratio
+    return np.clip(ratio / np.exp((vis_log * b).sum(-1)), 0.0, 1.5).astype(np.float32)
 
 
 def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
@@ -753,7 +844,16 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     img_det = np.ascontiguousarray(img_det, dtype=np.float32)
     if img_det.shape[:2] != ratio.shape[:2]:
         img_det = cv2.resize(img_det, (ratio.shape[1], ratio.shape[0]), interpolation=cv2.INTER_AREA)
+    # On the raw ratio, before decontamination: B&W/Kodachrome fits b≈1, and unmixing
+    # would flatten that IR into an informationless plane the bail could no longer see.
+    # ponytail: a ghost strong enough to dip the raw ratio frame-wide trips this before
+    # unmixing gets a chance (measured: ~0.15 exponent over hard-edged content; both IR
+    # samples sit well under it). If a real scan lands there, discriminate on the fitted
+    # b instead — partial dye ghost fits low, B&W silver fits ≈1.
     degenerate = float((ratio < _IR_DEGENERATE_RATIO).mean()) > _IR_DEGENERATE_FRAC
+
+    vis_log = np.stack([np.log(np.clip(normalize_ir(img_det[:, :, c]), 1e-4, 1.0)) for c in range(3)], axis=-1)
+    ratio = _ir_decontaminate(ratio, vis_log)
 
     band = (ratio > 0.70) & (ratio < 0.92)
     x = np.log(np.clip(ratio, 1e-4, 1.0))
@@ -763,9 +863,8 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     gammas = []
     gain = np.empty(ratio.shape + (3,), dtype=np.float32)
     for c in range(3):
-        vis = normalize_ir(img_det[:, :, c])
         if int(band.sum()) >= 500 and sxx > 1e-9:
-            g = float(np.clip(np.sum(xb * np.log(np.clip(vis[band], 1e-4, 1.0))) / sxx, _IR_GAMMA_LO, _IR_GAMMA_HI))
+            g = float(np.clip(np.sum(xb * vis_log[:, :, c][band]) / sxx, _IR_GAMMA_LO, _IR_GAMMA_HI))
         else:
             g = _IR_GAMMA_FALLBACK
         gammas.append(g)
@@ -790,7 +889,7 @@ def apply_hair_inpaint(
     img: ImageBuffer,
     hair_masks: List[np.ndarray],
     radius: int = _HAIR_INPAINT_RADIUS,
-    dilate_px: int = _HAIR_DILATE_PX,
+    dilate_px: Optional[int] = None,
 ) -> ImageBuffer:
     """Structure-following fill of long/twisted defects (``cv2.inpaint``, Navier–Stokes)
     baked into the linear source. Each detection-scale mask is upsampled to the buffer,
@@ -798,10 +897,15 @@ def apply_hair_inpaint(
     rest stay byte-identical — the 8-bit encode cv2.inpaint requires touches only the
     fabricated hairline). Returns a new array (buffers are read-only)."""
     h, w = img.shape[:2]
+    masks = [hm for hm in hair_masks if hm is not None]
+    if not masks:
+        return img
+    if dilate_px is None:
+        # A detection-scale mask knows its boundary only to within the upsample factor,
+        # so the dilate tracks it; at 1:1 that's _HAIR_DILATE_PX, the PSF skirt alone.
+        dilate_px = max(_HAIR_DILATE_PX, round(max(h / masks[0].shape[0], w / masks[0].shape[1])))
     m = np.zeros((h, w), dtype=np.uint8)
-    for hm in hair_masks:
-        if hm is None:
-            continue
+    for hm in masks:
         r = hm if hm.shape[:2] == (h, w) else cv2.resize(hm.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
         m |= (np.asarray(r) > 0.5).astype(np.uint8)
     if not m.any():

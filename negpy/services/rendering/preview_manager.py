@@ -15,6 +15,7 @@ from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_bes
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.features.retouch.logic import downsample_ir
 from negpy.features.rgbscan.logic import assemble_rgb
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
@@ -188,14 +189,12 @@ class PreviewManager:
         log("load-timing decode.resize %.0fms", (time.perf_counter() - t_resize0) * 1000)
 
         # IR channel travels with the preview; resize it to match the final preview dims.
+        # Min-preserving, not INTER_AREA: this is the only place the full-res IR exists,
+        # so a sub-pixel hair's dip has to survive *here* or dust detection never sees it.
         if ir_full is not None and ir_full.shape[:2] == (h_p, w_p):
             ph, pw = preview_raw.shape[:2]
             if (ph, pw) != ir_full.shape[:2]:
-                metadata["ir_preview"] = cv2.resize(
-                    ir_full.astype(np.float32),
-                    (pw, ph),
-                    interpolation=cv2.INTER_AREA,
-                ).astype(np.float32)
+                metadata["ir_preview"] = downsample_ir(ir_full, APP_CONFIG.preview_render_size, dims=(pw, ph))
             else:
                 # copy=False: at most one conversion copy; the buffer is read-only downstream.
                 metadata["ir_preview"] = ir_full.astype(np.float32, copy=False)

@@ -1,14 +1,17 @@
 import os
 import tempfile
 
+import cv2
 import numpy as np
 import tifffile
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
+    _mask_to_strokes,
     apply_manual_heals,
     build_heal_regions,
     detect_ir_regions,
+    downsample_ir,
     ir_bake_token,
     ir_detect_cutoff,
     ir_ratio_and_gain,
@@ -223,8 +226,156 @@ def test_ir_ratio_and_gain_properties():
 
 def test_ir_ratio_and_gain_degenerate_on_image_content():
     """An IR plane carrying image content (a broad gradient, like B&W silver) is
-    flagged degenerate so the caller skips both the bake and IR strokes."""
+    flagged degenerate so the caller skips both the bake and IR strokes. Guards that
+    the check stays on the raw ratio — decontamination would unmix the gradient away."""
     grad = np.linspace(0.2, 0.9, 200, dtype=np.float32)[None, :].repeat(200, axis=0)
     img = np.stack([grad] * 3, axis=-1)
     _, _, degenerate, _ = ir_ratio_and_gain(grad.copy(), img)
     assert degenerate
+
+
+def _ghosted_frame(ghost: float, size: int = 240):
+    """Synthetic scan: sharp-edged image content, an IR plane that partially absorbs
+    it (the ghost normalize_ir's spatial high-pass can't remove), and one dust speck
+    attenuating both planes."""
+    rng = np.random.default_rng(7)
+    img = np.full((size, size, 3), 0.55, dtype=np.float32)
+    img[:, size // 2 :] = 0.18  # hard vertical edge — survives dilate+blur
+    img[40:80, 40:200] = 0.30  # bar
+    img += rng.normal(0, 0.004, img.shape).astype(np.float32)
+    img = np.clip(img, 1e-3, 1.0)
+
+    ir = np.full((size, size), 0.9, dtype=np.float32)
+    if ghost > 0.0:
+        ir *= (img.mean(axis=-1) / 0.55) ** ghost  # dye blocks IR where density is high
+    speck = (slice(150, 158), slice(60, 68))
+    ir[speck] *= 0.35
+    img[speck] *= 0.55
+    return img.astype(np.float32), ir.astype(np.float32), speck
+
+
+def test_ir_decontaminate_removes_ghost():
+    """A visible-image ghost in the IR plane is unmixed out: the clean-film ratio
+    flattens, while the dust speck still dips and is still detected."""
+    img, ir, speck = _ghosted_frame(ghost=0.15)
+    raw = normalize_ir(ir)
+    clean, _, degenerate, _ = ir_ratio_and_gain(ir, img)
+    assert not degenerate
+
+    off = np.ones(raw.shape, dtype=bool)
+    off[speck] = False  # clean film only — the speck is signal, not spread
+    assert clean[off].std() < raw[off].std() / 2.0
+    assert abs(float(np.median(clean[off])) - 1.0) < 0.02
+
+    assert float(clean[speck].min()) < 0.75  # the defect survives unmixing
+    strokes, _ = detect_ir_regions(clean, ir_detect_cutoff(0.66, True), pad_px=3.0)
+    assert len(strokes) >= 1
+
+
+def test_ir_decontaminate_noop_on_clean_ir():
+    """No ghost → the fit lands at noise level and the ratio passes through untouched,
+    so a clean scanner renders exactly as it did before."""
+    img, ir, _ = _ghosted_frame(ghost=0.0)
+    raw = normalize_ir(ir)
+    clean, _, _, _ = ir_ratio_and_gain(ir, img)
+    assert np.allclose(clean, raw, atol=1e-6)
+
+
+def test_ir_gain_median_near_unity_with_ghost():
+    """The reported bug: without unmixing the ghost pushes the ratio below the identity
+    point frame-wide, so the bake lifts the whole buffer before the meters read it."""
+    img, ir, _ = _ghosted_frame(ghost=0.15)
+    _, gain, _, _ = ir_ratio_and_gain(ir, img)
+    assert abs(float(np.median(gain)) - 1.0) < 1e-3
+
+
+def test_hysteresis_grows_from_cores_but_admits_no_new_defects():
+    """Both halves of Canny's rule: a shallow dip touching a strong core is pulled in
+    whole, while an equally shallow dip with no core stays out."""
+    ratio = np.ones((80, 200), dtype=np.float32)
+    ratio[40, 20:60] = 0.40  # core, below the cutoff
+    ratio[40, 60:100] = 0.65  # its shallow continuation — above the cutoff
+    ratio[40, 140:180] = 0.65  # same depth, but no core anywhere near it
+
+    strokes, hair = detect_ir_regions(ratio, 0.586, pad_px=1.0, min_area=1)
+    covered = np.zeros((80, 200), dtype=bool)
+    for pts, size, _sdx, _sdy, _g in strokes:
+        for px, py in np.atleast_2d(pts):
+            covered[int(round(py * 80)), int(round(px * 200))] = True
+    if hair is not None:
+        covered |= hair.astype(bool)
+
+    assert covered[40, 20:60].all(), "the core itself"
+    assert covered[40, 60:100].any(), "its above-cutoff continuation is pulled in by the core"
+    assert not covered[40, 140:180].any(), "an identical dip with no core must stay rejected"
+
+
+def _curled_hair_mask(size: int = 120) -> np.ndarray:
+    """A hair that curls back on itself: thin everywhere, but its PCA extent/width
+    reads compact, exactly like the real one on samples/ir/18.tiff."""
+    m = np.zeros((size, size), dtype=np.uint8)
+    t = np.linspace(0, 2.2 * np.pi, 600)
+    xs = (size / 2 + (size / 3) * np.cos(t)).astype(int)
+    ys = (size / 2 + (size / 3.5) * np.sin(2 * t)).astype(int)
+    for x, y in zip(xs, ys):
+        m[max(y - 1, 0) : y + 2, max(x - 1, 0) : x + 2] = 1  # ~3 px thick
+    return m
+
+
+def test_twisted_hair_routes_to_inpaint():
+    """The reported bug: a hair that curls scores PCA aspect < 3 and used to fall through
+    to a compact membrane disc. Thinness is twist-invariant, so it routes to the inpaint."""
+    m = _curled_hair_mask()
+    comps, hair = _mask_to_strokes(m, 3.0, 512)
+    assert hair is not None, "curled hair must reach the inpaint mask"
+    assert int(hair.sum()) == int(m.sum()), "the whole hair, not part of it"
+    assert not comps, "and it must not also become membrane strokes"
+
+
+def test_round_speck_stays_a_membrane_stroke():
+    """The other side of the same rule: a compact speck of comparable area must not be
+    dragged into the inpaint by the thinness test."""
+    m = np.zeros((120, 120), dtype=np.uint8)
+    cv2.circle(m, (60, 60), 18, 1, -1)  # area ~1000, same order as the hair above
+    comps, hair = _mask_to_strokes(m, 3.0, 512)
+    assert hair is None
+    assert len(comps) == 1
+
+
+def test_downsample_ir_preserves_a_subpixel_hair():
+    """The reported bug: INTER_AREA averages a sub-pixel hair's dip away and shatters its
+    component. Min-preserving keeps the dip deep and the hair in one piece."""
+    ir = np.full((900, 1350), 0.9, dtype=np.float32)
+    ir[400:404, 200:1100] = 0.25  # a 4 px hair, sub-pixel once downsampled 4.5x
+    target = 300  # 1350 -> 300 == the 4.5x of a 7184px scan at preview size
+
+    area = cv2.resize(ir, (target, 200), interpolation=cv2.INTER_AREA)
+    mine = downsample_ir(ir, target)
+    assert mine.shape == (200, target)
+
+    cut = 0.586
+    r_area, r_mine = normalize_ir(area), normalize_ir(mine)
+    assert r_mine.min() < r_area.min(), "the dip must survive better than INTER_AREA"
+    n_mine = cv2.connectedComponentsWithStats((r_mine < cut).astype(np.uint8), 8)[0] - 1
+    assert n_mine == 1, "the hair stays one component"
+    assert float((r_mine < cut).sum()) > float((r_area < cut).sum())
+
+
+def test_downsample_ir_is_a_noop_when_not_downsampling():
+    """A scan already at or below preview size must pass through untouched — the erode
+    is a resample artefact fix, not a filter to apply unconditionally."""
+    ir = np.full((200, 300), 0.9, dtype=np.float32)
+    ir[100:104, 50:250] = 0.25
+    assert np.array_equal(downsample_ir(ir, 300), ir)
+
+
+def test_downsample_ir_matches_across_preview_and_export():
+    """WYSIWYG: the preview decode passes explicit dims, export lets the helper compute
+    them. Same full-res plane must give the same buffer, or the two paths detect
+    different region sets."""
+    rng = np.random.default_rng(3)
+    ir = np.clip(rng.normal(0.9, 0.01, (900, 1350)), 0, 1).astype(np.float32)
+    ir[400:404, 200:1100] = 0.25
+    export = downsample_ir(ir, 300)
+    preview = downsample_ir(ir, 300, dims=(export.shape[1], export.shape[0]))
+    assert np.array_equal(export, preview)

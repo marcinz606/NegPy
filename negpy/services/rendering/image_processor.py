@@ -27,6 +27,7 @@ from negpy.features.retouch.logic import (
     compute_dust_stats,
     detect_ir_regions,
     detect_luma_regions,
+    downsample_ir,
     hair_bake_token,
     ir_bake_token,
     ir_detect_cutoff,
@@ -137,7 +138,10 @@ class ImageProcessor:
 
     def _ir_ratio_gain(self, ir_buffer: np.ndarray, img: np.ndarray, source_key: str) -> tuple:
         """Cached (ratio_det, gain_det, degenerate, gammas) at detection scale."""
-        ir_det = _detection_downsample(np.ascontiguousarray(ir_buffer, dtype=np.float32))
+        # Min-preserving (not _detection_downsample) — INTER_AREA averages a sub-pixel
+        # hair's dip away. No-op on the preview path, where preview_ir already arrives
+        # min-pooled at this scale.
+        ir_det = downsample_ir(np.ascontiguousarray(ir_buffer, dtype=np.float32), APP_CONFIG.preview_render_size)
         key = (source_key, ir_det.shape)
         if key == self._ir_gain_key and self._ir_gain_value is not None:
             return self._ir_gain_value
