@@ -54,6 +54,18 @@ _IR_GAMMA_FALLBACK = 1.5
 _IR_DEGENERATE_RATIO = 0.90  # IR dipping below this over >_FRAC = image content (B&W/Kodachrome)
 _IR_DEGENERATE_FRAC = 0.05
 
+# Strong hairs/scratches (auto/IR) route to structure-following inpaint instead of
+# the membrane clone: a long twist crosses varied background, and one clone-source
+# offset can't match it. Bar sits above the mild-elongation capsule test so ordinary
+# dust clusters stay on the membrane. Detection-scale px.
+_HAIR_MIN_EXT = 14.0
+_HAIR_MIN_ASPECT = 3.0
+# cv2.inpaint fill: dilate covers the PSF skirt; NS radius; gamma gives the 8-bit
+# encode a perceptual spread (cv2.inpaint is 8-bit only).
+_HAIR_DILATE_PX = 1
+_HAIR_INPAINT_RADIUS = 3
+_HAIR_INPAINT_GAMMA = 2.2
+
 
 @njit(cache=True, fastmath=True)
 def _dist_to_chain(px: float, py: float, pts: np.ndarray) -> float:
@@ -445,14 +457,17 @@ def _mask_to_strokes(
     max_n: int,
     min_area: int = 1,
     max_area: Optional[int] = None,
-) -> List[Tuple[np.ndarray, float, float]]:
-    """Connected defect components → ``(chain_px, radius_px, area)``, largest
-    first, truncated to ``max_n``. Elongated components (hairs) become ≤8-point
-    polylines along the principal axis — a circle either misses the hair or
-    over-heals its bounding disk. ``min_area``/``max_area`` drop noise specks and
+) -> Tuple[List[Tuple[np.ndarray, float, float]], Optional[np.ndarray]]:
+    """Connected defect components → ``(compact_comps, hair_mask)``. Compact specks
+    become ``(chain_px, radius_px, area)`` tuples (largest first, truncated to
+    ``max_n``); mildly elongated ones a ≤8-point membrane capsule. Strongly
+    elongated defects (long twisted hairs/scratches) are painted into ``hair_mask``
+    instead — they route to structure-following inpaint, which a single-offset
+    membrane clone can't track. ``min_area``/``max_area`` drop noise specks and
     oversized blobs (IR path); the luma path leaves them at the defaults."""
     n_lbl, labels, stats, centroids = cv2.connectedComponentsWithStats(np.ascontiguousarray(mask, dtype=np.uint8), connectivity=8)
     comps = []
+    hair_mask: Optional[np.ndarray] = None
     for i in range(1, n_lbl):
         area = int(stats[i, cv2.CC_STAT_AREA])
         if area < min_area or (max_area is not None and area > max_area):
@@ -461,7 +476,8 @@ def _mask_to_strokes(
         y0 = int(stats[i, cv2.CC_STAT_TOP])
         bw = int(stats[i, cv2.CC_STAT_WIDTH])
         bh = int(stats[i, cv2.CC_STAT_HEIGHT])
-        ys, xs = np.nonzero(labels[y0 : y0 + bh, x0 : x0 + bw] == i)
+        labels_sub = labels[y0 : y0 + bh, x0 : x0 + bw] == i
+        ys, xs = np.nonzero(labels_sub)
         xs = xs.astype(np.float64) + x0 + 0.5
         ys = ys.astype(np.float64) + y0 + 0.5
 
@@ -476,6 +492,11 @@ def _mask_to_strokes(
             perp = -(xs - mx) * ay + (ys - my) * ax
             ext = float(proj.max() - proj.min())
             half_w = max(0.5, float(np.percentile(np.abs(perp), 95)))
+            if ext >= _HAIR_MIN_ASPECT * (2.0 * half_w) and ext >= _HAIR_MIN_EXT:
+                if hair_mask is None:
+                    hair_mask = np.zeros(mask.shape[:2], dtype=np.uint8)
+                hair_mask[y0 : y0 + bh, x0 : x0 + bw][labels_sub] = 1
+                continue
             if ext >= 2.5 * (2.0 * half_w) and ext >= 8.0:
                 n_bins = int(min(8, max(2, ext / max(4.0 * half_w, 4.0))))
                 edges = np.linspace(proj.min(), proj.max(), n_bins + 1)
@@ -493,7 +514,7 @@ def _mask_to_strokes(
         comps.append((chain, float(radius), float(area)))
 
     comps.sort(key=lambda c: -c[2])
-    return comps[:max_n]
+    return comps[:max_n], hair_mask
 
 
 _PICK_RINGS = (2.6, 3.6, 4.6, 6.2)
@@ -659,17 +680,21 @@ def detect_luma_regions(
     gate: float = 1.0,
     max_n: int = 512,
     stats: Optional[Tuple[np.ndarray, ...]] = None,
-) -> List[Tuple]:
-    """Statistical dust detection on the linear source → synthesized heal strokes."""
+) -> Tuple[List[Tuple], Optional[np.ndarray]]:
+    """Statistical dust detection on the linear source → ``(strokes, hair_mask)``:
+    compact specks become membrane strokes, strong hairs a detection-scale mask
+    for structure-following inpaint."""
     if stats is None:
         stats = compute_dust_stats(img, dust_size)
     proxy, mean, std, w_std = stats[:4]
     hit = _detect_dust_mask_jit(proxy, mean, std, w_std, float(dust_threshold))
     if not np.any(hit):
-        return []
-    comps = _mask_to_strokes(hit, _DETECT_PAD_PX, max_n)
+        return [], None
+    comps, hair_mask = _mask_to_strokes(hit, _DETECT_PAD_PX, max_n)
+    if not comps:
+        return [], hair_mask
     offsets = _pick_source_offsets(hit, comps, stats[4])
-    return _finalize_strokes(comps, offsets, hit.shape, gate)
+    return _finalize_strokes(comps, offsets, hit.shape, gate), hair_mask
 
 
 def normalize_ir(plane: np.ndarray) -> np.ndarray:
@@ -697,25 +722,26 @@ def detect_ir_regions(
     guide: Optional[np.ndarray] = None,
     min_area: int = 2,
     max_area: int = 2000,
-) -> List[Tuple]:
-    """Normalized-IR defects → synthesized ungated heal strokes (``ratio`` from
-    normalize_ir, ``cutoff`` from ir_detect_cutoff). Coverage abort guards a
-    misregistered IR plane. ``guide`` (RGB proxy) scores clone sources; else the ratio."""
+) -> Tuple[List[Tuple], Optional[np.ndarray]]:
+    """Normalized-IR defects → ``(strokes, hair_mask)``: compact cores become
+    ungated membrane strokes, strong hairs a detection-scale mask for inpaint
+    (``ratio`` from normalize_ir, ``cutoff`` from ir_detect_cutoff). Coverage abort
+    guards a misregistered IR plane. ``guide`` (RGB proxy) scores clone sources; else the ratio."""
     ratio = np.ascontiguousarray(ratio, dtype=np.float32)
     mask = (ratio < cutoff).astype(np.uint8)
     cov = float(mask.mean())
     if cov <= 0.0:
-        return []
+        return [], None
     if cov > _IR_COVERAGE_ABORT:
         logger.warning("IR dust: cutoff %.3f marks %.1f%% of the frame — skipping (raise IR threshold)", cutoff, cov * 100.0)
-        return []
+        return [], None
     if guide is None or guide.shape[:2] != ratio.shape[:2]:
         guide = ratio
-    comps = _mask_to_strokes(mask, pad_px, max_n, min_area=min_area, max_area=max_area)
+    comps, hair_mask = _mask_to_strokes(mask, pad_px, max_n, min_area=min_area, max_area=max_area)
     if not comps:
-        return []
+        return [], hair_mask
     offsets = _pick_source_offsets(mask, comps, guide)
-    return _finalize_strokes(comps, offsets, mask.shape, gate=0.0)
+    return _finalize_strokes(comps, offsets, mask.shape, gate=0.0), hair_mask
 
 
 def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
@@ -758,6 +784,46 @@ def ir_bake_token(retouch, has_ir: bool) -> str:
     """Config-identity token for the IR bake (mirrors ``flatfield_token``); folded into
     source_hash so toggling it invalidates the engine cache."""
     return "|irdiv1" if (retouch.ir_dust_remove and retouch.ir_attenuation and has_ir) else ""
+
+
+def apply_hair_inpaint(
+    img: ImageBuffer,
+    hair_masks: List[np.ndarray],
+    radius: int = _HAIR_INPAINT_RADIUS,
+    dilate_px: int = _HAIR_DILATE_PX,
+) -> ImageBuffer:
+    """Structure-following fill of long/twisted defects (``cv2.inpaint``, Navier–Stokes)
+    baked into the linear source. Each detection-scale mask is upsampled to the buffer,
+    unioned and dilated to cover the PSF skirt; only masked pixels are overwritten (the
+    rest stay byte-identical — the 8-bit encode cv2.inpaint requires touches only the
+    fabricated hairline). Returns a new array (buffers are read-only)."""
+    h, w = img.shape[:2]
+    m = np.zeros((h, w), dtype=np.uint8)
+    for hm in hair_masks:
+        if hm is None:
+            continue
+        r = hm if hm.shape[:2] == (h, w) else cv2.resize(hm.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
+        m |= (np.asarray(r) > 0.5).astype(np.uint8)
+    if not m.any():
+        return img
+    if dilate_px > 0:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilate_px + 1, 2 * dilate_px + 1))
+        m = cv2.dilate(m, k)
+    enc = np.clip(np.ascontiguousarray(img, dtype=np.float32), 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
+    enc8 = (enc * 255.0 + 0.5).astype(np.uint8)
+    filled = cv2.inpaint(enc8, m, radius, cv2.INPAINT_NS)
+    dec = (filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA
+    out = np.ascontiguousarray(img, dtype=np.float32).copy()
+    mb = m.astype(bool)
+    out[mb] = dec[mb]
+    return out
+
+
+def hair_bake_token(retouch) -> str:
+    """Detection-param identity for the hair inpaint (folded into source_hash when a
+    hair is actually detected). Distinct params → distinct inpainted source."""
+    r = retouch
+    return f"|hair{int(r.dust_remove)}_{round(float(r.dust_threshold), 3)}_{int(r.dust_size)}_{int(r.ir_dust_remove)}_{round(float(r.ir_threshold), 3)}"
 
 
 def build_heal_regions(

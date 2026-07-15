@@ -20,7 +20,7 @@ def _speck_image():
 def test_augment_retouch_returns_split_lists():
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4))
-    settings, detected = service._augment_retouch(cfg, _speck_image(), None, "s")
+    settings, detected, _ = service._augment_retouch(cfg, _speck_image(), None, "s")
 
     assert detected is not None and set(detected) == {"luma", "ir"}
     assert len(detected["luma"]) >= 1
@@ -39,7 +39,7 @@ def test_augment_retouch_ir_populates_ir_list():
 
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.5))
-    _, detected = service._augment_retouch(cfg, img, ir, "s")
+    _, detected, _ = service._augment_retouch(cfg, img, ir, "s")
 
     assert detected is not None
     assert len(detected["ir"]) >= 1
@@ -49,8 +49,8 @@ def test_augment_retouch_ir_populates_ir_list():
 def test_augment_retouch_returns_none_when_detection_off():
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=False, ir_dust_remove=False))
-    settings, detected = service._augment_retouch(cfg, _speck_image(), None, "s")
-    assert detected is None
+    settings, detected, hair = service._augment_retouch(cfg, _speck_image(), None, "s")
+    assert detected is None and hair == []
     assert settings is cfg  # untouched
 
 

@@ -147,8 +147,9 @@ class CanvasOverlay(QWidget):
         # Geometry-aligned IR layer raster, cached by (uv_grid, preview_ir)
         # identity so it rebuilds only when the render or source changes.
         self._ir_layer_cache: Optional[Tuple[tuple, QImage]] = None
-        # Same, for the IR-division-corrected-region tint (ir_corrected_mask).
-        self._ir_corr_cache: Optional[Tuple[tuple, QImage]] = None
+        # Same, for the auto-corrected-region magenta wash (ir_corrected_mask +
+        # inpainted hair masks), keyed per mask object identity.
+        self._wash_cache: Dict[int, Tuple[tuple, QImage]] = {}
 
         # Working screen points while a selected-mask vertex is dragged/added.
         self._local_edit_verts: Optional[List[QPointF]] = None
@@ -665,10 +666,12 @@ class CanvasOverlay(QWidget):
                 painter.drawImage(self._view_rect, img)
             return
 
-        # Dim wash over the IR-division-corrected regions; core capsules draw on top.
-        corr = self._ir_corrected_layer_qimage()
-        if corr is not None:
-            painter.drawImage(self._view_rect, corr)
+        # Dim wash over the auto-corrected regions (IR division + inpainted hairs);
+        # core capsules draw on top.
+        for mask in self._corrected_masks():
+            wash = self._mask_wash_qimage(mask)
+            if wash is not None:
+                painter.drawImage(self._view_rect, wash)
 
         with self.state.metrics_lock:
             luma = self.state.last_metrics.get("detected_dust_luma")
@@ -731,17 +734,30 @@ class CanvasOverlay(QWidget):
         self._ir_layer_cache = (key, img)
         return img
 
-    def _ir_corrected_layer_qimage(self) -> Optional[QImage]:
-        """Dim magenta wash over the IR-division-corrected regions (``ir_corrected_mask``),
-        remapped through the render's uv_grid; cached by object identity."""
+    def _corrected_masks(self) -> List[np.ndarray]:
+        """Auto-corrected-region masks to wash: IR division + inpainted hairs
+        (both emit no stroke capsules, so the wash is their only overlay cue)."""
         with self.state.metrics_lock:
-            mask = self.state.last_metrics.get("ir_corrected_mask")
+            masks = []
+            corr = self.state.last_metrics.get("ir_corrected_mask")
+            if corr is not None:
+                masks.append(corr)
+            hairs = self.state.last_metrics.get("hair_inpaint_masks")
+            if hairs:
+                masks.extend(hairs)
+        return masks
+
+    def _mask_wash_qimage(self, mask: np.ndarray) -> Optional[QImage]:
+        """Dim magenta wash over a detection-scale correction mask, remapped through
+        the render's uv_grid; cached per mask identity."""
+        with self.state.metrics_lock:
             uv_grid = self.state.last_metrics.get("uv_grid")
-        if mask is None or uv_grid is None:
+        if uv_grid is None:
             return None
         key = (id(uv_grid), id(mask))
-        if self._ir_corr_cache is not None and self._ir_corr_cache[0] == key:
-            return self._ir_corr_cache[1]
+        hit = self._wash_cache.get(id(mask))
+        if hit is not None and hit[0] == key:
+            return hit[1]
         h_m, w_m = mask.shape[:2]
         map_x = (uv_grid[..., 0] * (w_m - 1)).astype(np.float32)
         map_y = (uv_grid[..., 1] * (h_m - 1)).astype(np.float32)
@@ -754,7 +770,9 @@ class CanvasOverlay(QWidget):
         buf[..., 2] = (_DUST_MARK_IR.blue() * af).astype(np.uint8)
         buf[..., 3] = (af * 255.0).astype(np.uint8)
         img = QImage(buf.data, gw, gh, gw * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy()
-        self._ir_corr_cache = (key, img)
+        if len(self._wash_cache) > 8:  # drop stale ids from prior frames
+            self._wash_cache.clear()
+        self._wash_cache[id(mask)] = (key, img)
         return img
 
     def _raw_to_screen(self, rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> QPointF:

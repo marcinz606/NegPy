@@ -53,7 +53,7 @@ def test_detect_ir_regions_heals_defect_end_to_end():
     ir = np.full((h, w), 0.9, dtype=np.float32)
     ir[39:42, 39:42] = 0.05
 
-    strokes = detect_ir_regions(normalize_ir(ir), 0.5, pad_px=3.0)
+    strokes, _ = detect_ir_regions(normalize_ir(ir), 0.5, pad_px=3.0)
     assert len(strokes) == 1
     assert strokes[0][4] == 0.0  # IR regions are ungated
 
@@ -64,7 +64,8 @@ def test_detect_ir_regions_heals_defect_end_to_end():
 
 def test_detect_ir_regions_no_defect_is_empty():
     ir = np.full((40, 40), 0.9, dtype=np.float32)
-    assert detect_ir_regions(normalize_ir(ir), 0.5) == []
+    strokes, hair = detect_ir_regions(normalize_ir(ir), 0.5)
+    assert strokes == [] and hair is None
 
 
 def test_ir_detect_cutoff_mapping_and_direction():
@@ -85,14 +86,14 @@ def test_normalize_ir_flat_plane_is_unity():
 
     grad = np.linspace(0.7, 0.85, 120, dtype=np.float32)[:, None].repeat(120, axis=1)
     grad[60:63, 60:63] = grad[60:63, 60:63] * 0.4  # dust dip on the gradient
-    strokes = detect_ir_regions(normalize_ir(grad), ir_detect_cutoff(0.35, True))
+    strokes, _ = detect_ir_regions(normalize_ir(grad), ir_detect_cutoff(0.35, True))
     assert len(strokes) == 1
 
 
 def test_detect_ir_regions_coverage_abort():
     """A cutoff that marks the whole frame returns nothing (never smears the preview)."""
     ratio = np.full((80, 80), 0.5, dtype=np.float32)  # 100% below any sane cutoff
-    assert detect_ir_regions(ratio, 0.8) == []
+    assert detect_ir_regions(ratio, 0.8)[0] == []
 
 
 def test_tiff_loader_reads_ir_from_extrasamples():
