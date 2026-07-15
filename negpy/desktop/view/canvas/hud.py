@@ -10,6 +10,15 @@ _PILL_QSS = (
     "background-color: rgba(0, 0, 0, 140); border-radius: 4px; padding: 2px 8px;"
 )
 
+# Status toast ("rendering...", "galleries updated"): unlike the passive corner
+# pills, it announces app activity — bigger type, near-white on a solid dark
+# plate with an outline so it reads against any canvas brightness.
+_TOAST_QSS = (
+    f"color: {THEME.text_primary}; font-size: {THEME.font_size_lg}px; font-weight: 600; "
+    "background-color: rgba(10, 10, 10, 225); border: 1px solid rgba(255, 255, 255, 55); "
+    "border-radius: 6px; padding: 7px 18px;"
+)
+
 
 class CanvasHud(QWidget):
     """
@@ -33,9 +42,11 @@ class CanvasHud(QWidget):
         self.lbl_bottom_left = QLabel()
         self.lbl_bottom_right = QLabel()
         self.toast = QLabel()
-        for lbl in (self.lbl_top_left, self.lbl_top_right, self.lbl_bottom_left, self.lbl_bottom_right, self.toast):
+        for lbl in (self.lbl_top_left, self.lbl_top_right, self.lbl_bottom_left, self.lbl_bottom_right):
             lbl.setStyleSheet(_PILL_QSS)
             lbl.hide()
+        self.toast.setStyleSheet(_TOAST_QSS)
+        self.toast.hide()
 
         top = Qt.AlignmentFlag.AlignTop
         bottom = Qt.AlignmentFlag.AlignBottom

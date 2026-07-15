@@ -9,6 +9,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.desktop.converters import ImageConverter
+from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan
 from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_conflicts
 from negpy.desktop.workers.render import (
@@ -263,6 +264,11 @@ class AppController(QObject):
         self._is_rendering = False
         self._pending_render_task: Any = None
 
+        # Last displayed render per frame — navigate-back paints it instantly
+        # while the authoritative render refreshes quietly (no spinner/toasts).
+        self._render_memo = RenderMemo()
+        self._memo_quiet = False
+
         self._render_debounce = QTimer()
         self._render_debounce.setSingleShot(True)
         self._render_debounce.setInterval(80)
@@ -434,6 +440,7 @@ class AppController(QObject):
         self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
 
         self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
+        self.session.session_emptied.connect(self._render_memo.clear)
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self._render_debounce.start)
@@ -660,6 +667,27 @@ class AppController(QObject):
                 return f.get("hash")
         return None
 
+    def _render_memo_key(self) -> str:
+        """Identity of everything that shapes the displayed render of the current
+        config: the edit itself plus every display-path input. Any mismatch is a
+        memo miss, so navigate-back only skips straight to pixels that would be
+        reproduced exactly."""
+        import hashlib
+        import json
+
+        proofing = self.state.soft_proof_enabled
+        parts = (
+            json.dumps(self.state.config.to_dict(), sort_keys=True, default=str),
+            self.state.hq_preview,
+            self.state.workspace_color_space,
+            self.state.gpu_enabled,
+            proofing,
+            self.state.icc_input_path if proofing else None,
+            self.effective_output_icc() if proofing else None,
+            hashlib.md5(self.state.monitor_icc_bytes).hexdigest() if self.state.monitor_icc_bytes else "",
+        )
+        return hashlib.md5(repr(parts).encode()).hexdigest()
+
     def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
         Dispatches RAW decode to a background worker to keep the UI thread free.
@@ -667,16 +695,33 @@ class AppController(QObject):
         self._prefetch_gen += 1
         self._preview_load_t0 = time.perf_counter()
         self._requested_file_path = file_path
+
+        # Navigate-back fast path: the frame's last render is memoized and nothing
+        # that shaped it has changed (select_file already hydrated its config), so
+        # paint it now — no spinner, no toasts — and let the real render refresh
+        # metrics quietly underneath.
+        target_hash = self._file_hash_for_path(file_path)
+        memo = self._render_memo.get(target_hash, self._render_memo_key()) if target_hash else None
+
         if not preserve_zoom:
             self.zoom_requested.emit(1.0)
-        self.set_status(f"Loading {os.path.basename(file_path)}...")
-        self.loading_started.emit()
+        if memo is None:
+            self.set_status(f"Loading {os.path.basename(file_path)}...")
+            self.loading_started.emit()
         self._thumb_config = None
 
         self._render_cleanup_requested.emit()
         # The cleanup destroys the GPU textures last_metrics still points at; drop the
         # densitometer's probe source so hover readouts go quiet until the next render.
         self.state.last_metrics.pop("normalized_log", None)
+
+        if memo is not None:
+            with self.state.metrics_lock:
+                self.state.last_metrics["base_positive"] = memo["base_positive"]
+                self.state.last_metrics["content_rect"] = memo.get("content_rect")
+                self.state.last_metrics["splash"] = False
+            self._memo_quiet = True
+            self.image_updated.emit()
 
         self.state.preview_raw = None
         self.state.preview_ir = None
@@ -702,6 +747,9 @@ class AppController(QObject):
                 use_camera_wb=not self.state.config.process.linear_raw,
                 full_resolution=self.state.hq_preview,
                 file_hash=self._file_hash_for_path(file_path),
+                # A memoized frame is already painted — the embedded-JPEG splash
+                # would repaint stale pixels over it.
+                use_splash=memo is None,
                 detect_mode=(
                     pending_import.detect_mode
                     if pending_import is not None
@@ -1744,7 +1792,12 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
-        self.set_status("Rendering...")
+        # One-shot: the render right after a memo paint refreshes identical pixels —
+        # "Rendering..."/"READY" toasts would undercut the instant switch.
+        quiet = self._memo_quiet
+        self._memo_quiet = False
+        if not quiet:
+            self.set_status("Rendering...")
 
         preview_raw = self.state.preview_raw
         if preview_raw is None:
@@ -1760,6 +1813,13 @@ class AppController(QObject):
         icc_input = self.state.icc_input_path if proofing else None
         effective_output = self.effective_output_icc() if proofing else None
 
+        crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        # Only a plain render of the saved edit is reproducible on navigate-back;
+        # overrides (compare/flat peek), splash and tool previews are not memoized.
+        memo_key = ""
+        if config_override is None and not ephemeral and not crop_preview_full:
+            memo_key = self._render_memo_key()
+
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
@@ -1772,8 +1832,10 @@ class AppController(QObject):
             readback_metrics=readback_metrics,
             ir_buffer=self.state.preview_ir,
             monitor_icc_bytes=self.state.monitor_icc_bytes,
-            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
+            memo_key=memo_key,
+            quiet=quiet,
         )
 
         if self._is_rendering:
@@ -2396,10 +2458,22 @@ class AppController(QObject):
             self.state.last_metrics.update(metrics)
             self.state.last_metrics["splash"] = False
 
+        # Memoize the displayed pixels for instant navigate-back. ndarray only:
+        # GPU textures are destroyed on navigation (in the default soft-proof
+        # path the displayed buffer is already a CPU array). Stored by reference
+        # — display buffers are read-only downstream.
+        result = metrics.get("base_positive")
+        if metrics.get("memo_key") and isinstance(result, np.ndarray) and metrics.get("source_hash") == self.state.current_file_hash:
+            self._render_memo.store(
+                metrics["source_hash"],
+                metrics["memo_key"],
+                {"base_positive": result, "content_rect": metrics.get("content_rect")},
+            )
+
         if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
             self._gpu_fallback_notified = True
             self.set_status("GPU acceleration failed — using CPU", 5000)
-        else:
+        elif not metrics.get("quiet"):
             self.set_status("READY", 1000)
 
         self.image_updated.emit()
@@ -2449,6 +2523,10 @@ class AppController(QObject):
                     render=False,
                     record_history=False,
                 )
+                # render=False: the displayed pixels already reflect these measured
+                # bounds — move the frame's memo entry to the updated config's key
+                # so the first navigate-back after an initial render still hits.
+                self._render_memo.rekey(src or self.state.current_file_hash or "", self._render_memo_key())
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
