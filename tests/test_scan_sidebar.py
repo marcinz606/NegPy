@@ -24,7 +24,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtWidgets import QApplication, QFormLayout
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QFormLayout, QSlider
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState
@@ -710,13 +711,20 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
         repo = self.controller.session.repo
         repo.save_global_setting.reset_mock()
 
-        field = self.sidebar.preview_meter_inset_spin
+        field = self.sidebar.preview_meter_inset_slider
+        control = self.sidebar.preview_meter_inset_control
+        value_label = self.sidebar.preview_meter_inset_value_label
         form = self.sidebar.roll_quality_widget.layout()
         self.assertIsInstance(form, QFormLayout)
-        self.assertEqual(form.labelForField(field).text(), "Metering crop")
+        self.assertIsInstance(field, QSlider)
+        self.assertEqual(form.labelForField(control).text(), "Metering crop")
+        self.assertIs(form.labelForField(control).buddy(), field)
         self.assertEqual(field.accessibleName(), "Metering crop percentage per edge")
         self.assertEqual((field.minimum(), field.maximum(), field.value()), (0, 30, 10))
-        self.assertEqual(field.suffix(), "% per edge")
+        self.assertEqual((field.singleStep(), field.pageStep()), (1, 5))
+        self.assertEqual(field.focusPolicy(), Qt.FocusPolicy.StrongFocus)
+        self.assertIn("Left and Right Arrow", field.accessibleDescription())
+        self.assertEqual(value_label.text(), "10% per edge")
         self.assertIn("thumbnail brightness", field.toolTip())
         self.assertIn("recalculates all loaded previews", field.toolTip())
         self.assertIn("does not scan the film again", field.toolTip())
@@ -726,10 +734,31 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
 
         field.setValue(17)
 
+        self.assertEqual(value_label.text(), "17% per edge")
         self.assertEqual(self.sidebar.settings.preview_meter_inset_percent, 17)
         repo.save_global_setting.assert_called()
         persisted = repo.save_global_setting.call_args.args[1]
         self.assertEqual(persisted["preview_meter_inset_percent"], 17)
+
+    def test_roll_preview_metering_crop_slider_supports_keyboard_adjustment(self):
+        _select_device(self.sidebar, FULL_DEVICE)
+        repo = self.controller.session.repo
+        repo.save_global_setting.reset_mock()
+
+        field = self.sidebar.preview_meter_inset_slider
+        field.setValue(9)
+        repo.save_global_setting.reset_mock()
+
+        QTest.keyClick(field, Qt.Key.Key_Right)
+
+        self.assertEqual(field.value(), 10)
+        self.assertEqual(
+            self.sidebar.preview_meter_inset_value_label.text(),
+            "10% per edge",
+        )
+        self.assertEqual(self.sidebar.settings.preview_meter_inset_percent, 10)
+        persisted = repo.save_global_setting.call_args.args[1]
+        self.assertEqual(persisted["preview_meter_inset_percent"], 10)
 
     def test_roll_preview_non_inverted_negative_toggle_is_clear_and_persisted(self):
         _select_device(self.sidebar, FULL_DEVICE)
@@ -766,7 +795,7 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
 
         repo = self.controller.session.repo
         repo.save_global_setting.reset_mock()
-        self.sidebar.preview_meter_inset_spin.setValue(17)
+        self.sidebar.preview_meter_inset_slider.setValue(17)
         self.sidebar.preview_non_inverted_negative_check.setChecked(True)
 
         self.assertTrue(self.sidebar.settings.auto_exposure)
@@ -848,7 +877,7 @@ class TestLightweightScannerStatus(LightweightScanSidebarTestCase):
 
         before = [center_red(row) for row in range(2)]
 
-        self.sidebar.preview_meter_inset_spin.setValue(0)
+        self.sidebar.preview_meter_inset_slider.setValue(0)
         QApplication.processEvents()
 
         after = [center_red(row) for row in range(2)]
@@ -1620,7 +1649,7 @@ class TestLS5000RollWorkflow(ScanSidebarTestCase):
         )
         before = icon_before.pixmap(100, 100).toImage().pixelColor(50, 50).red()
 
-        self.sidebar.preview_meter_inset_spin.setValue(0)
+        self.sidebar.preview_meter_inset_slider.setValue(0)
 
         icon_after = self.sidebar.roll_slot_selector.model.data(
             index,

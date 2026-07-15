@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -194,19 +195,63 @@ class ScanSidebar(QWidget):
         self.roll_preview_resolution_box.setToolTip("Low-resolution roll thumbnails used only to choose and align frames")
         roll_quality_form.addRow("Roll preview", self.roll_preview_resolution_box)
 
-        self.preview_meter_inset_spin = QSpinBox()
-        self.preview_meter_inset_spin.setObjectName("roll_preview_meter_inset")
-        self.preview_meter_inset_spin.setAccessibleName("Metering crop percentage per edge")
-        self.preview_meter_inset_spin.setRange(0, MAX_PREVIEW_METER_INSET_PERCENT)
-        self.preview_meter_inset_spin.setValue(self._settings.preview_meter_inset_percent)
-        self.preview_meter_inset_spin.setSuffix("% per edge")
-        self.preview_meter_inset_spin.setToolTip(
+        meter_crop_tooltip = (
             "Crop this percentage from every edge only when calculating thumbnail brightness. "
             "Changing it recalculates all loaded previews from saved thumbnail data; it does not scan the film again. "
             "The outlined box shows the metered area. The full negative and rebate stay visible, and the saved negative is unchanged. "
-            "10% matches full-scan metering."
+            "10% matches full-scan metering. Keyboard: Left/Right changes 1%; "
+            "Page Up/Page Down changes 5%."
         )
-        roll_quality_form.addRow("Metering crop", self.preview_meter_inset_spin)
+        self.preview_meter_inset_control = QWidget()
+        self.preview_meter_inset_control.setObjectName("roll_preview_meter_inset_control")
+        meter_crop_layout = QHBoxLayout(self.preview_meter_inset_control)
+        meter_crop_layout.setContentsMargins(0, 0, 0, 0)
+        meter_crop_layout.setSpacing(10)
+
+        self.preview_meter_inset_slider = QSlider(Qt.Orientation.Horizontal)
+        self.preview_meter_inset_slider.setObjectName("roll_preview_meter_inset")
+        self.preview_meter_inset_slider.setAccessibleName(
+            "Metering crop percentage per edge"
+        )
+        self.preview_meter_inset_slider.setAccessibleDescription(
+            "Use Left and Right Arrow for one percent, or Page Up and Page Down "
+            "for five percent."
+        )
+        self.preview_meter_inset_slider.setRange(0, MAX_PREVIEW_METER_INSET_PERCENT)
+        self.preview_meter_inset_slider.setSingleStep(1)
+        self.preview_meter_inset_slider.setPageStep(5)
+        self.preview_meter_inset_slider.setValue(
+            self._settings.preview_meter_inset_percent
+        )
+        self.preview_meter_inset_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.preview_meter_inset_slider.setMinimumHeight(40)
+        self.preview_meter_inset_slider.setToolTip(meter_crop_tooltip)
+
+        self.preview_meter_inset_value_label = QLabel(
+            f"{self.preview_meter_inset_slider.value()}% per edge"
+        )
+        self.preview_meter_inset_value_label.setObjectName(
+            "roll_preview_meter_inset_value"
+        )
+        self.preview_meter_inset_value_label.setAccessibleName("Current metering crop")
+        self.preview_meter_inset_value_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.preview_meter_inset_value_label.setMinimumWidth(
+            self.preview_meter_inset_value_label.fontMetrics().horizontalAdvance(
+                f"{MAX_PREVIEW_METER_INSET_PERCENT}% per edge"
+            )
+        )
+        self.preview_meter_inset_value_label.setToolTip(meter_crop_tooltip)
+
+        meter_crop_layout.addWidget(self.preview_meter_inset_slider, 1)
+        meter_crop_layout.addWidget(self.preview_meter_inset_value_label)
+        meter_crop_form_label = QLabel("Metering crop")
+        meter_crop_form_label.setBuddy(self.preview_meter_inset_slider)
+        roll_quality_form.addRow(
+            meter_crop_form_label,
+            self.preview_meter_inset_control,
+        )
 
         self.preview_non_inverted_negative_check = QCheckBox("Show non-inverted negative")
         self.preview_non_inverted_negative_check.setObjectName("roll_preview_non_inverted_negative")
@@ -432,7 +477,9 @@ class ScanSidebar(QWidget):
         self.registered_geometry_check.toggled.connect(self._on_registered_geometry_toggled)
         self.load_registration_btn.clicked.connect(self._on_load_registration_json)
         self.sa30_compatible_check.toggled.connect(self._on_sa30_compatible_toggled)
-        self.preview_meter_inset_spin.valueChanged.connect(self._on_preview_meter_inset_changed)
+        self.preview_meter_inset_slider.valueChanged.connect(
+            self._on_preview_meter_inset_changed
+        )
         self.preview_non_inverted_negative_check.toggled.connect(self._on_preview_polarity_changed)
         self.roll_preview_btn.clicked.connect(self._on_roll_preview)
         self.roll_stop_btn.clicked.connect(self._on_roll_stop)
@@ -1105,7 +1152,7 @@ class ScanSidebar(QWidget):
 
         display = render_roll_thumbnail_rgb8(
             thumbnail,
-            meter_inset_percent=self.preview_meter_inset_spin.value(),
+            meter_inset_percent=self.preview_meter_inset_slider.value(),
             inverted=not self.preview_non_inverted_negative_check.isChecked(),
         )
         image = QImage(
@@ -1250,14 +1297,15 @@ class ScanSidebar(QWidget):
         self._set_scanner_status("Error · Preview adjustment failed", "error")
 
     @pyqtSlot(int)
-    def _on_preview_meter_inset_changed(self, _value: int) -> None:
+    def _on_preview_meter_inset_changed(self, value: int) -> None:
         """Persist and rerender the retained contact sheet without scanner I/O."""
 
+        self.preview_meter_inset_value_label.setText(f"{value}% per edge")
         self.settings = replace(
             self._settings,
-            preview_meter_inset_percent=self.preview_meter_inset_spin.value(),
+            preview_meter_inset_percent=value,
         )
-        self.roll_slot_selector.set_meter_inset_percent(self.preview_meter_inset_spin.value())
+        self.roll_slot_selector.set_meter_inset_percent(value)
         self._rerender_roll_thumbnails()
 
     @pyqtSlot(bool)
@@ -1744,7 +1792,7 @@ class ScanSidebar(QWidget):
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
             sa30_compatible_roll_feeder=(self.sa30_compatible_check.isChecked()),
-            preview_meter_inset_percent=self.preview_meter_inset_spin.value(),
+            preview_meter_inset_percent=self.preview_meter_inset_slider.value(),
             preview_show_non_inverted_negative=self.preview_non_inverted_negative_check.isChecked(),
         )
 
