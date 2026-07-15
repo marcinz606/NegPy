@@ -68,10 +68,13 @@ _HAIR_MIN_AREA = 20
 _HAIR_MIN_ELONG = 8.0  # area/thickness² ≈ length/thickness; round specks measure 1–3
 # cv2.inpaint fill: dilate covers the PSF skirt at 1:1 (apply_hair_inpaint widens it to
 # track the mask's upsample); NS radius; gamma gives the 8-bit encode a perceptual
-# spread (cv2.inpaint is 8-bit only).
+# spread (cv2.inpaint is 8-bit only). Navier-Stokes only propagates outward from the mask
+# boundary, so each defect is filled in its own bbox + _HAIR_INPAINT_PAD (>= the radius):
+# same pixels, without gamma-encoding the whole frame to serve a hairline.
 _HAIR_DILATE_PX = 1
 _HAIR_INPAINT_RADIUS = 3
 _HAIR_INPAINT_GAMMA = 2.2
+_HAIR_INPAINT_PAD = 16
 
 
 @njit(cache=True, fastmath=True)
@@ -876,7 +879,9 @@ def apply_ir_attenuation(img: ImageBuffer, gain_det: np.ndarray) -> ImageBuffer:
     """Visible buffer × upsampled per-channel IR gain map (new array — buffers are read-only)."""
     h, w = img.shape[:2]
     gain = gain_det if gain_det.shape[:2] == (h, w) else cv2.resize(gain_det, (w, h), interpolation=cv2.INTER_LINEAR)
-    return (np.ascontiguousarray(img, dtype=np.float32) * gain).astype(np.float32)
+    # cv2.multiply, not `a * b`: the product of two float32 buffers is already float32,
+    # so the astype numpy needs here would copy the whole frame a second time.
+    return ensure_image(cv2.multiply(np.ascontiguousarray(img, dtype=np.float32), gain))
 
 
 def ir_bake_token(retouch, has_ir: bool) -> str:
@@ -913,13 +918,25 @@ def apply_hair_inpaint(
     if dilate_px > 0:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilate_px + 1, 2 * dilate_px + 1))
         m = cv2.dilate(m, k)
-    enc = np.clip(np.ascontiguousarray(img, dtype=np.float32), 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
-    enc8 = (enc * 255.0 + 0.5).astype(np.uint8)
-    filled = cv2.inpaint(enc8, m, radius, cv2.INPAINT_NS)
-    dec = (filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA
-    out = np.ascontiguousarray(img, dtype=np.float32).copy()
-    mb = m.astype(bool)
-    out[mb] = dec[mb]
+    src = np.ascontiguousarray(img, dtype=np.float32)
+    out = src.copy()
+    n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+    for i in range(1, n_lbl):
+        bx = int(stats[i, cv2.CC_STAT_LEFT])
+        by = int(stats[i, cv2.CC_STAT_TOP])
+        x0, y0 = max(0, bx - _HAIR_INPAINT_PAD), max(0, by - _HAIR_INPAINT_PAD)
+        x1 = min(w, bx + int(stats[i, cv2.CC_STAT_WIDTH]) + _HAIR_INPAINT_PAD)
+        y1 = min(h, by + int(stats[i, cv2.CC_STAT_HEIGHT]) + _HAIR_INPAINT_PAD)
+        # Mask the whole crop, not just this component: a neighbour reaching into the
+        # bbox must stay unknown or it becomes clone source and its dust is filled back in.
+        sub_m = np.ascontiguousarray(m[y0:y1, x0:x1])
+        enc = np.clip(src[y0:y1, x0:x1], 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
+        filled = cv2.inpaint((enc * 255.0 + 0.5).astype(np.uint8), sub_m, radius, cv2.INPAINT_NS)
+        dec = (filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA
+        # ...but only keep this component: a neighbour clipped by the bbox fills badly here,
+        # and gets its own correctly-padded crop anyway.
+        mb = labels[y0:y1, x0:x1] == i
+        out[y0:y1, x0:x1][mb] = dec[mb]
     return out
 
 

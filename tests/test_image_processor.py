@@ -163,6 +163,33 @@ def test_augment_retouch_reuses_stats_across_threshold_changes(monkeypatch) -> N
     assert len(calls) == 2, "dust_size changes the blur windows and must recompute"
 
 
+def test_ir_ratio_gain_downsamples_once_per_source(monkeypatch) -> None:
+    """_ir_bake and _augment_retouch each call _ir_ratio_gain every render. The cache key is
+    the source shape, not the downsampled one, so the second call resolves it without
+    repaying the full-res erode+resize (~130ms on a 34MP scan)."""
+    import negpy.services.rendering.image_processor as ip
+
+    ir = np.full((200, 200), 0.9, dtype=np.float32)
+    ir[150:154, 150:154] = 0.1
+    img = np.full((200, 200, 3), 0.5, dtype=np.float32)
+    img[150:154, 150:154] = 0.08
+
+    calls: list = []
+    real = ip.downsample_ir
+    monkeypatch.setattr(ip, "downsample_ir", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+
+    service = ImageProcessor()
+    first = service._ir_ratio_gain(ir, img, "s")
+    assert len(calls) == 1
+    second = service._ir_ratio_gain(ir, img, "s")
+    assert len(calls) == 1, "a cache hit must not repay the downsample"
+    assert np.array_equal(first[0], second[0]) and np.array_equal(first[1], second[1])
+    assert first[2] == second[2] and first[3] == second[3]
+
+    service._ir_ratio_gain(ir, img, "other-source")
+    assert len(calls) == 2, "a new source must still recompute"
+
+
 def test_ir_two_tier_bake_and_detection() -> None:
     """Semi-transparent dust is fixed by division (no stroke); an opaque core still
     detects into a spatial-fill stroke."""

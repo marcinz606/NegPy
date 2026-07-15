@@ -7,7 +7,11 @@ import tifffile
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
+    _HAIR_INPAINT_GAMMA,
+    _HAIR_INPAINT_RADIUS,
     _mask_to_strokes,
+    apply_hair_inpaint,
+    apply_ir_attenuation,
     apply_manual_heals,
     build_heal_regions,
     detect_ir_regions,
@@ -379,3 +383,77 @@ def test_downsample_ir_matches_across_preview_and_export():
     export = downsample_ir(ir, 300)
     preview = downsample_ir(ir, 300, dims=(export.shape[1], export.shape[0]))
     assert np.array_equal(export, preview)
+
+
+def _noisy_frame(h: int, w: int, seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    return np.clip(rng.normal(0.5, 0.15, (h, w, 3)), 0, 1).astype(np.float32)
+
+
+def _inpaint_whole_frame(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """The pre-optimisation implementation, kept as the oracle: gamma-encode the entire
+    buffer, inpaint, decode, keep the masked pixels. apply_hair_inpaint now does this per
+    connected component's bbox, which must be bit-exact, not merely close."""
+    enc = np.clip(np.ascontiguousarray(img, dtype=np.float32), 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
+    filled = cv2.inpaint((enc * 255.0 + 0.5).astype(np.uint8), mask, _HAIR_INPAINT_RADIUS, cv2.INPAINT_NS)
+    dec = (filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA
+    out = np.ascontiguousarray(img, dtype=np.float32).copy()
+    mb = mask.astype(bool)
+    out[mb] = dec[mb]
+    return out
+
+
+def test_hair_inpaint_per_component_matches_whole_frame():
+    """cv2.inpaint only propagates outward from the mask boundary, so filling each defect
+    inside its own bbox is exactly the whole-frame result — without gamma-encoding 34MP to
+    serve a hairline (1.7s -> 0.3s on a full scan)."""
+    img = _noisy_frame(300, 400)
+    m = np.zeros((300, 400), dtype=np.uint8)
+    cv2.line(m, (60, 80), (200, 190), 1, 2)
+    mb = m.astype(bool)
+
+    out = apply_hair_inpaint(img, [m], dilate_px=0)
+    assert np.array_equal(out, _inpaint_whole_frame(img, m))
+    assert not np.array_equal(out[mb], img[mb]), "the hair must actually be filled"
+    assert np.array_equal(out[~mb], img[~mb]), "clean pixels stay byte-identical"
+
+
+def test_hair_inpaint_matches_for_scattered_hairs():
+    """Hairs in opposite corners — their union bbox is the whole frame, which is why the
+    crop is per-component and not one bbox over the union."""
+    img = _noisy_frame(300, 400, seed=1)
+    m = np.zeros((300, 400), dtype=np.uint8)
+    cv2.line(m, (20, 20), (70, 60), 1, 2)
+    cv2.line(m, (330, 240), (380, 280), 1, 2)
+    assert cv2.connectedComponentsWithStats(m, connectivity=8)[0] - 1 == 2, "fixture must be two components"
+    assert np.array_equal(apply_hair_inpaint(img, [m], dilate_px=0), _inpaint_whole_frame(img, m))
+
+
+def test_hair_inpaint_neighbour_in_bbox_is_not_cloned_as_source():
+    """Two hairs closer than the bbox pad: each one's crop contains the other. The neighbour
+    has to stay masked inside that crop — mask only the component being filled and its dust
+    becomes clone source, filling the defect straight back in."""
+    img = _noisy_frame(200, 200, seed=2)
+    m = np.zeros((200, 200), dtype=np.uint8)
+    cv2.line(m, (80, 40), (80, 160), 1, 2)
+    cv2.line(m, (86, 40), (86, 160), 1, 2)  # 6 px away — well inside _HAIR_INPAINT_PAD
+    assert cv2.connectedComponentsWithStats(m, connectivity=8)[0] - 1 == 2, "fixture must be two components"
+    assert np.array_equal(apply_hair_inpaint(img, [m], dilate_px=0), _inpaint_whole_frame(img, m))
+
+
+def test_ir_attenuation_is_the_upsampled_gain_product():
+    """apply_ir_attenuation uses cv2.multiply to skip numpy's redundant float32 copy of the
+    whole frame; it must stay exactly the gain product."""
+    img = _noisy_frame(64, 96, seed=4)
+    rng = np.random.default_rng(5)
+    gain_det = rng.uniform(1.0, 2.0, (16, 24, 3)).astype(np.float32)
+    expected = img * cv2.resize(gain_det, (96, 64), interpolation=cv2.INTER_LINEAR)
+    out = apply_ir_attenuation(img, gain_det)
+    assert out.dtype == np.float32
+    assert np.array_equal(out, expected.astype(np.float32))
+
+
+def test_ir_attenuation_passes_through_matched_gain():
+    img = _noisy_frame(32, 32, seed=6)
+    gain = np.full((32, 32, 3), 2.0, dtype=np.float32)
+    assert np.array_equal(apply_ir_attenuation(img, gain), (img * 2.0).astype(np.float32))
