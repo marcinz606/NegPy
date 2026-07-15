@@ -1300,7 +1300,7 @@ class TestRetouchPersistence(unittest.TestCase):
         for _ in range(5):
             self.controller.cycle_dust_overlay()
             seq.append(self.controller.state.dust_overlay_mode)
-        self.assertEqual(seq, ["spots", "marked", "ir", "off", "spots"])
+        self.assertEqual(seq, ["marked", "ir", "off", "marked", "ir"])
 
     def test_cycle_dust_overlay_skips_ir_without_ir(self):
         self.controller.state.has_ir = False
@@ -1309,14 +1309,14 @@ class TestRetouchPersistence(unittest.TestCase):
         for _ in range(4):
             self.controller.cycle_dust_overlay()
             seq.append(self.controller.state.dust_overlay_mode)
-        self.assertEqual(seq, ["spots", "marked", "off", "spots"])
+        self.assertEqual(seq, ["marked", "off", "marked", "off"])
 
     def test_cycle_dust_overlay_from_ir_when_ir_lost(self):
         # Mode was "ir" but the new frame has none: cycling treats it as off.
         self.controller.state.has_ir = False
         self.controller.state.dust_overlay_mode = "ir"
         self.controller.cycle_dust_overlay()
-        self.assertEqual(self.controller.state.dust_overlay_mode, "spots")
+        self.assertEqual(self.controller.state.dust_overlay_mode, "marked")
 
 
 if __name__ == "__main__":

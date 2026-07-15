@@ -21,7 +21,15 @@ from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import linear_raw_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
-from negpy.features.retouch.logic import compute_dust_stats, detect_ir_regions, detect_luma_regions
+from negpy.features.retouch.logic import (
+    apply_ir_attenuation,
+    compute_dust_stats,
+    detect_ir_regions,
+    detect_luma_regions,
+    ir_bake_token,
+    ir_detect_cutoff,
+    ir_ratio_and_gain,
+)
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
@@ -96,6 +104,10 @@ class ImageProcessor:
         # Threshold-independent stat maps — survive threshold-slider drags.
         self._dust_stats_key: Optional[tuple] = None
         self._dust_stats_value: Optional[tuple] = None
+        # IR ratio + gain map at detection scale, keyed on source only (survives
+        # threshold drags); shared by the attenuation bake and IR detection.
+        self._ir_gain_key: Optional[tuple] = None
+        self._ir_gain_value: Optional[tuple] = None
 
         if APP_CONFIG.use_gpu:
             gpu = GPUDevice.get()
@@ -116,6 +128,37 @@ class ImageProcessor:
         """Flat (digital-intermediate) renders run on the CPU engine only, so the
         master is numerically exact and never subject to the looser GPU parity."""
         return settings.exposure.render_intent == RenderIntent.FLAT
+
+    def _ir_ratio_gain(self, ir_buffer: np.ndarray, img: np.ndarray, source_key: str) -> tuple:
+        """Cached (ratio_det, gain_det, degenerate, gammas) at detection scale."""
+        ir_det = _detection_downsample(np.ascontiguousarray(ir_buffer, dtype=np.float32))
+        key = (source_key, ir_det.shape)
+        if key == self._ir_gain_key and self._ir_gain_value is not None:
+            return self._ir_gain_value
+        val = ir_ratio_and_gain(ir_det, _detection_downsample(img))
+        self._ir_gain_key = key
+        self._ir_gain_value = val
+        return val
+
+    def _ir_bake(
+        self,
+        img: np.ndarray,
+        ir_buffer: Optional[np.ndarray],
+        settings: WorkspaceConfig,
+        source_key: str,
+    ) -> Tuple[np.ndarray, Optional[np.ndarray], bool]:
+        """IR-division attenuation, baked in source transmittance space before the
+        engine (mirrors apply_flatfield; the GPU re-uploads source each frame, so the
+        bake reaches it parity-free). Returns (corrected_img, corrected_mask_or_None, degenerate)."""
+        ret = settings.retouch
+        if self._is_flat(settings) or ir_buffer is None or not ret.ir_dust_remove:
+            return img, None, False
+        ratio_det, gain_det, degenerate, _ = self._ir_ratio_gain(ir_buffer, img, source_key)
+        if degenerate:
+            return img, None, True
+        if not ret.ir_attenuation:
+            return img, None, False
+        return apply_ir_attenuation(img, gain_det), (ratio_det < 0.97), False
 
     def _augment_retouch(
         self,
@@ -143,6 +186,7 @@ class ImageProcessor:
             int(ret.dust_size),
             do_ir,
             round(float(ret.ir_threshold), 6),
+            bool(ret.ir_attenuation),
             int(ret.ir_inpaint_radius),
             settings.process.process_mode,
         )
@@ -158,12 +202,14 @@ class ImageProcessor:
                 self._dust_stats_value = stats
             synth_ir = []
             if do_ir and ir_buffer is not None:
-                synth_ir = detect_ir_regions(
-                    _detection_downsample(ir_buffer),
-                    1.0 - ret.ir_threshold,
-                    pad_px=float(ret.ir_inpaint_radius),
-                    guide=stats[0],
-                )
+                ratio_det, _gain, degenerate, _g = self._ir_ratio_gain(ir_buffer, img, source_key)
+                if not degenerate:
+                    synth_ir = detect_ir_regions(
+                        ratio_det,
+                        ir_detect_cutoff(ret.ir_threshold, ret.ir_attenuation),
+                        pad_px=float(ret.ir_inpaint_radius),
+                        guide=stats[4],
+                    )
             synth_luma = []
             if do_luma:
                 # Ungated like IR: the detector already confirmed the defect, and
@@ -179,7 +225,8 @@ class ImageProcessor:
         budget = max(0, 512 - len(ret.manual_heal_strokes) - len(ret.manual_dust_spots))
         if len(synth) > budget:
             logger.warning("Retouch: healing %d of %d detected defects (region cap)", budget, len(synth))
-            synth = synth[:budget]
+            # Keep the largest across ir+luma (IR used to head-truncate luma wholesale).
+            synth = sorted(synth, key=lambda s: -s[1])[:budget]
         return dc_replace(
             settings,
             retouch=dc_replace(
@@ -202,19 +249,34 @@ class ImageProcessor:
         ir_buffer: Optional[np.ndarray] = None,
         crop_preview_full: bool = False,
         wants_uv_grid: bool = True,
+        skip_flatfield: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
         """
         Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics.
+
+        ``skip_flatfield``: the export CPU fallbacks pass an already-flat-fielded buffer.
         """
         # Flat-field is a source pre-correction (before geometry/crop); folding its token
         # into source_hash invalidates the engine cache when it changes.
-        img = apply_flatfield(img, settings.flatfield)
+        if not skip_flatfield:
+            img = apply_flatfield(img, settings.flatfield)
         h_orig, w_cols = img.shape[:2]
         # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
         # file at full resolution with unchanged settings, so without this the engine
         # cache reports "nothing changed" and returns the stale low-res render instead
         # of re-rendering the new full-res buffer.
-        base_hash = source_hash + flatfield_token(settings.flatfield) + rgbscan_token(settings.rgbscan) + linear_raw_token(settings.process)
+        base_hash = (
+            source_hash
+            + flatfield_token(settings.flatfield)
+            + rgbscan_token(settings.rgbscan)
+            + linear_raw_token(settings.process)
+            + ir_bake_token(settings.retouch, ir_buffer is not None)
+        )
+
+        # Bake IR attenuation before detection so meters/stats see the corrected buffer.
+        want_ir = settings.retouch.ir_dust_remove and ir_buffer is not None and not self._is_flat(settings)
+        img, ir_corrected_mask, ir_degenerate = self._ir_bake(img, ir_buffer, settings, base_hash)
+
         source_hash = base_hash + f"|res{w_cols}x{h_orig}"
 
         settings, detected_dust = self._augment_retouch(settings, img, ir_buffer, base_hash)
@@ -235,6 +297,11 @@ class ImageProcessor:
         if detected_dust is not None:
             context.metrics["detected_dust_luma"] = detected_dust["luma"]
             context.metrics["detected_dust_ir"] = detected_dust["ir"]
+        # Overlay data for the division-corrected regions + the B&W/Kodachrome guard.
+        if want_ir:
+            context.metrics["ir_degenerate"] = ir_degenerate
+            if ir_corrected_mask is not None:
+                context.metrics["ir_corrected_mask"] = ir_corrected_mask
 
         if self._is_flat(settings) or crop_preview_full:
             # The crop tool's "show full uncropped frame" preview only needs a single
@@ -399,7 +466,14 @@ class ImageProcessor:
                 target_cs = source_cs
             color_space = str(target_cs)
 
-            detect_key = source_hash + flatfield_token(params.flatfield) + rgbscan_token(params.rgbscan) + linear_raw_token(params.process)
+            detect_key = (
+                source_hash
+                + flatfield_token(params.flatfield)
+                + rgbscan_token(params.rgbscan)
+                + linear_raw_token(params.process)
+                + ir_bake_token(params.retouch, ir_full is not None)
+            )
+            f32_buffer, _, _ = self._ir_bake(f32_buffer, ir_full, params, detect_key)
             params, _ = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
 
             h_raw, w_raw = f32_buffer.shape[:2]
@@ -425,6 +499,7 @@ class ImageProcessor:
                     metrics=metrics or {"log_bounds": bounds_override} if bounds_override else metrics,
                     prefer_gpu=False,
                     wants_uv_grid=False,
+                    skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
                 # Release full-res arrays pinned in the CPU stage cache.
@@ -605,7 +680,14 @@ class ImageProcessor:
             h_raw, w_raw = f32_buffer.shape[:2]
             scale_factor = max(1.0, max(h_raw, w_raw) / float(target_long_px))
 
-            detect_key = source_hash + flatfield_token(params.flatfield) + rgbscan_token(params.rgbscan) + linear_raw_token(params.process)
+            detect_key = (
+                source_hash
+                + flatfield_token(params.flatfield)
+                + rgbscan_token(params.rgbscan)
+                + linear_raw_token(params.process)
+                + ir_bake_token(params.retouch, ir_full is not None)
+            )
+            f32_buffer, _, _ = self._ir_bake(f32_buffer, ir_full, params, detect_key)
             params, _ = self._augment_retouch(params, f32_buffer, ir_full, detect_key)
 
             if self._is_flat(params):
@@ -621,6 +703,7 @@ class ImageProcessor:
                     render_size_ref=float(target_long_px),
                     prefer_gpu=False,
                     wants_uv_grid=False,
+                    skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
                 )
                 buffer = self._apply_scaling_and_border_f32(buffer, params, params.export)
                 self.engine_cpu.cache.clear()

@@ -5,7 +5,15 @@ import numpy as np
 import tifffile
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.retouch.logic import apply_manual_heals, build_heal_regions, detect_ir_regions
+from negpy.features.retouch.logic import (
+    apply_manual_heals,
+    build_heal_regions,
+    detect_ir_regions,
+    ir_bake_token,
+    ir_detect_cutoff,
+    ir_ratio_and_gain,
+    normalize_ir,
+)
 from negpy.features.retouch.models import RetouchConfig
 from negpy.infrastructure.loaders.factory import LoaderFactory
 
@@ -45,7 +53,7 @@ def test_detect_ir_regions_heals_defect_end_to_end():
     ir = np.full((h, w), 0.9, dtype=np.float32)
     ir[39:42, 39:42] = 0.05
 
-    strokes = detect_ir_regions(ir, threshold=0.5, pad_px=3.0)
+    strokes = detect_ir_regions(normalize_ir(ir), 0.5, pad_px=3.0)
     assert len(strokes) == 1
     assert strokes[0][4] == 0.0  # IR regions are ungated
 
@@ -56,16 +64,35 @@ def test_detect_ir_regions_heals_defect_end_to_end():
 
 def test_detect_ir_regions_no_defect_is_empty():
     ir = np.full((40, 40), 0.9, dtype=np.float32)
-    assert detect_ir_regions(ir, threshold=0.5) == []
+    assert detect_ir_regions(normalize_ir(ir), 0.5) == []
 
 
-def test_detect_ir_regions_threshold_inversion_convention():
-    """Callers pass 1−ir_threshold (the old processor/gpu inversion): a UI
-    threshold of t marks IR transmittance below 1−t as defective."""
-    ir = np.full((60, 60), 0.9, dtype=np.float32)
-    ir[30, 30] = 0.45
-    assert detect_ir_regions(ir, threshold=1.0 - 0.6) == []  # ir < 0.4 misses the 0.45 dip
-    assert len(detect_ir_regions(ir, threshold=1.0 - 0.5)) == 1  # ir < 0.5 catches it
+def test_ir_detect_cutoff_mapping_and_direction():
+    """The slider→ratio-cutoff map: lower slider catches more (higher cutoff) in
+    both modes; the attenuation band sits lower than detection-only."""
+    assert ir_detect_cutoff(0.1, True) > ir_detect_cutoff(0.9, True)
+    assert ir_detect_cutoff(0.1, False) > ir_detect_cutoff(0.9, False)
+    assert ir_detect_cutoff(0.35, True) < ir_detect_cutoff(0.35, False)
+    assert abs(ir_detect_cutoff(0.35, True) - 0.71) < 1e-6
+
+
+def test_normalize_ir_flat_plane_is_unity():
+    """Clean film → ratio ~1.0 everywhere; a dust dip on a mild illumination
+    gradient is still detected at the default cutoff (raw-IR thresholding missed
+    dips that sat above the global cutoff)."""
+    ir = np.full((120, 120), 0.8, dtype=np.float32)
+    assert abs(float(normalize_ir(ir).mean()) - 1.0) < 0.01
+
+    grad = np.linspace(0.7, 0.85, 120, dtype=np.float32)[:, None].repeat(120, axis=1)
+    grad[60:63, 60:63] = grad[60:63, 60:63] * 0.4  # dust dip on the gradient
+    strokes = detect_ir_regions(normalize_ir(grad), ir_detect_cutoff(0.35, True))
+    assert len(strokes) == 1
+
+
+def test_detect_ir_regions_coverage_abort():
+    """A cutoff that marks the whole frame returns nothing (never smears the preview)."""
+    ratio = np.full((80, 80), 0.5, dtype=np.float32)  # 100% below any sane cutoff
+    assert detect_ir_regions(ratio, 0.8) == []
 
 
 def test_tiff_loader_reads_ir_from_extrasamples():
@@ -137,3 +164,48 @@ def test_ir_dust_remove_field_invalidates_retouch_hash():
     a = RetouchConfig(ir_dust_remove=False)
     b = RetouchConfig(ir_dust_remove=True)
     assert calculate_config_hash(a) != calculate_config_hash(b)
+
+
+def test_ir_attenuation_field_invalidates_retouch_hash():
+    from negpy.kernel.caching.logic import calculate_config_hash
+
+    assert calculate_config_hash(RetouchConfig(ir_attenuation=True)) != calculate_config_hash(RetouchConfig(ir_attenuation=False))
+
+
+def test_ir_bake_token_active_and_empty():
+    on = RetouchConfig(ir_dust_remove=True, ir_attenuation=True)
+    assert ir_bake_token(on, has_ir=True) == "|irdiv1"
+    assert ir_bake_token(on, has_ir=False) == ""  # no IR plane → nothing to bake
+    assert ir_bake_token(RetouchConfig(ir_dust_remove=True, ir_attenuation=False), True) == ""
+    assert ir_bake_token(RetouchConfig(ir_dust_remove=False, ir_attenuation=True), True) == ""
+
+
+def test_ir_ratio_and_gain_properties():
+    """Gain never darkens a clean pixel, clamps at 2.0, and is identity on clean
+    film (ratio≈1); γ stays inside the clamp."""
+    h = w = 200
+    ir = np.full((h, w), 0.9, dtype=np.float32)
+    ir[95:105, 95:105] = 0.2  # opaque-ish core
+    ir[60:64, 60:64] = 0.78 * 0.9  # semi-transparent speck (ratio ≈ 0.78)
+    img = np.full((h, w, 3), 0.5, dtype=np.float32)
+    img[95:105, 95:105] = 0.15
+    img[60:64, 60:64] = 0.42
+
+    ratio, gain, degenerate, gammas = ir_ratio_and_gain(ir, img)
+    assert not degenerate
+    assert gain.shape == (h, w, 3)
+    assert gain.min() >= 1.0 - 1e-4
+    assert gain.max() <= 2.0 + 1e-4
+    clean = ratio > 0.99
+    assert clean.any()
+    assert abs(float(gain[np.broadcast_to(clean[..., None], gain.shape)].reshape(-1, 3).mean()) - 1.0) < 1e-3
+    assert all(1.0 <= g <= 2.2 for g in gammas)
+
+
+def test_ir_ratio_and_gain_degenerate_on_image_content():
+    """An IR plane carrying image content (a broad gradient, like B&W silver) is
+    flagged degenerate so the caller skips both the bake and IR strokes."""
+    grad = np.linspace(0.2, 0.9, 200, dtype=np.float32)[None, :].repeat(200, axis=0)
+    img = np.stack([grad] * 3, axis=-1)
+    _, _, degenerate, _ = ir_ratio_and_gain(grad.copy(), img)
+    assert degenerate

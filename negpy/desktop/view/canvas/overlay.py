@@ -34,6 +34,7 @@ _MASK_RASTER_MAX = 384  # px cap for feathered overlay rasters
 # manual heals so detected auto vs IR spots are told apart at a glance.
 _DUST_MARK_LUMA = QColor(57, 255, 20)  # neon green — auto-luma detection
 _DUST_MARK_IR = QColor(255, 0, 255)  # neon magenta — IR detection
+_IR_CORRECTED_ALPHA = 55  # dim magenta wash over IR-division-corrected regions
 
 
 def grid_interior_fractions(divisions: int) -> List[float]:
@@ -146,6 +147,8 @@ class CanvasOverlay(QWidget):
         # Geometry-aligned IR layer raster, cached by (uv_grid, preview_ir)
         # identity so it rebuilds only when the render or source changes.
         self._ir_layer_cache: Optional[Tuple[tuple, QImage]] = None
+        # Same, for the IR-division-corrected-region tint (ir_corrected_mask).
+        self._ir_corr_cache: Optional[Tuple[tuple, QImage]] = None
 
         # Working screen points while a selected-mask vertex is dragged/added.
         self._local_edit_verts: Optional[List[QPointF]] = None
@@ -653,8 +656,8 @@ class CanvasOverlay(QWidget):
 
     def _draw_dust_overlay(self, painter: QPainter) -> None:
         """Display-only visualization of the auto/IR dust-detection set. Modes:
-        'spots' (neon markers over a blanked frame), 'marked' (markers over the
-        image), 'ir' (the geometry-aligned raw IR channel, no markers)."""
+        'marked' (neon markers over the image), 'ir' (the geometry-aligned raw IR
+        channel, no markers)."""
         mode = self.state.dust_overlay_mode
         if mode == "ir":
             img = self._ir_layer_qimage()
@@ -662,8 +665,10 @@ class CanvasOverlay(QWidget):
                 painter.drawImage(self._view_rect, img)
             return
 
-        if mode == "spots":
-            painter.fillRect(self._view_rect, QColor(10, 10, 10))
+        # Dim wash over the IR-division-corrected regions; core capsules draw on top.
+        corr = self._ir_corrected_layer_qimage()
+        if corr is not None:
+            painter.drawImage(self._view_rect, corr)
 
         with self.state.metrics_lock:
             luma = self.state.last_metrics.get("detected_dust_luma")
@@ -724,6 +729,32 @@ class CanvasOverlay(QWidget):
         gh, gw = gray.shape[:2]
         img = QImage(gray.data, gw, gh, gw, QImage.Format.Format_Grayscale8).copy()
         self._ir_layer_cache = (key, img)
+        return img
+
+    def _ir_corrected_layer_qimage(self) -> Optional[QImage]:
+        """Dim magenta wash over the IR-division-corrected regions (``ir_corrected_mask``),
+        remapped through the render's uv_grid; cached by object identity."""
+        with self.state.metrics_lock:
+            mask = self.state.last_metrics.get("ir_corrected_mask")
+            uv_grid = self.state.last_metrics.get("uv_grid")
+        if mask is None or uv_grid is None:
+            return None
+        key = (id(uv_grid), id(mask))
+        if self._ir_corr_cache is not None and self._ir_corr_cache[0] == key:
+            return self._ir_corr_cache[1]
+        h_m, w_m = mask.shape[:2]
+        map_x = (uv_grid[..., 0] * (w_m - 1)).astype(np.float32)
+        map_y = (uv_grid[..., 1] * (h_m - 1)).astype(np.float32)
+        remapped = cv2.remap(np.ascontiguousarray(mask, dtype=np.float32), map_x, map_y, interpolation=cv2.INTER_NEAREST)
+        gh, gw = remapped.shape[:2]
+        af = (remapped > 0.5).astype(np.float32) * (_IR_CORRECTED_ALPHA / 255.0)
+        buf = np.empty((gh, gw, 4), dtype=np.uint8)
+        buf[..., 0] = (_DUST_MARK_IR.red() * af).astype(np.uint8)
+        buf[..., 1] = (_DUST_MARK_IR.green() * af).astype(np.uint8)
+        buf[..., 2] = (_DUST_MARK_IR.blue() * af).astype(np.uint8)
+        buf[..., 3] = (af * 255.0).astype(np.uint8)
+        img = QImage(buf.data, gw, gh, gw * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy()
+        self._ir_corr_cache = (key, img)
         return img
 
     def _raw_to_screen(self, rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> QPointF:

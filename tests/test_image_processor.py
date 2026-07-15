@@ -161,3 +161,87 @@ def test_augment_retouch_reuses_stats_across_threshold_changes(monkeypatch) -> N
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.7, dust_size=6))
     service._augment_retouch(cfg, img, None, "same-source")
     assert len(calls) == 2, "dust_size changes the blur windows and must recompute"
+
+
+def test_ir_two_tier_bake_and_detection() -> None:
+    """Semi-transparent dust is fixed by division (no stroke); an opaque core still
+    detects into a spatial-fill stroke."""
+    from dataclasses import replace
+
+    from negpy.features.retouch.models import RetouchConfig
+
+    h = w = 200
+    ir = np.full((h, w), 0.9, dtype=np.float32)
+    ir[40:44, 40:44] = 0.82 * 0.9  # semi-transparent (ratio ≈ 0.82 > cutoff 0.71)
+    ir[150:154, 150:154] = 0.1  # opaque core (ratio ≈ 0.11 < cutoff)
+    img = np.full((h, w, 3), 0.5, dtype=np.float32)
+    img[40:44, 40:44] = 0.42
+    img[150:154, 150:154] = 0.08
+
+    service = ImageProcessor()
+    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=True))
+
+    baked, corr_mask, degenerate = service._ir_bake(img, ir, cfg, "s")
+    assert not degenerate
+    assert corr_mask is not None
+    assert baked[41, 41].mean() > img[41, 41].mean(), "semi-transparent speck not lifted by division"
+
+    _, detected = service._augment_retouch(cfg, baked, ir, "s")
+    assert detected is not None
+    assert len(detected["ir"]) == 1, "only the opaque core should become a stroke"
+
+
+def test_ir_bake_noop_when_attenuation_off() -> None:
+    from dataclasses import replace
+
+    from negpy.features.retouch.models import RetouchConfig
+
+    ir = np.full((80, 80), 0.9, dtype=np.float32)
+    ir[40:44, 40:44] = 0.2
+    img = np.full((80, 80, 3), 0.5, dtype=np.float32)
+    service = ImageProcessor()
+    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=False))
+    baked, corr_mask, _ = service._ir_bake(img, ir, cfg, "s")
+    assert baked is img and corr_mask is None  # escape hatch: no correction
+
+
+def test_augment_retouch_cap_keeps_largest(monkeypatch) -> None:
+    """Over budget, the largest regions survive across ir+luma (IR used to
+    head-truncate the whole luma list)."""
+    from dataclasses import replace
+
+    import negpy.services.rendering.image_processor as ip
+    from negpy.features.retouch.models import RetouchConfig
+
+    big = ([[0.5, 0.5]], 40.0, 0.1, 0.0, 0.0)
+    small = ([[0.4, 0.4]], 5.0, 0.1, 0.0, 0.0)
+    monkeypatch.setattr(ip, "detect_ir_regions", lambda *a, **k: [small, small, small])
+    monkeypatch.setattr(ip, "detect_luma_regions", lambda *a, **k: [big, big, big])
+
+    img = np.full((160, 160, 3), 0.5, dtype=np.float32)
+    ir = np.full((160, 160), 0.9, dtype=np.float32)
+    manual = [([[0.1, 0.1]], 3.0, 0.0, 0.0)] * 510  # budget = 512 − 510 = 2
+    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, ir_dust_remove=True, manual_heal_strokes=manual))
+
+    settings, _ = ImageProcessor()._augment_retouch(cfg, img, ir, "s")
+    survivors = settings.retouch.manual_heal_strokes[:2]
+    assert all(s[1] == 40.0 for s in survivors), "cap dropped the largest instead of the IR-first smalls"
+
+
+def test_run_pipeline_skip_flatfield(monkeypatch) -> None:
+    """The export/contact-sheet CPU fallback passes an already-flat-fielded buffer;
+    skip_flatfield must prevent a second apply_flatfield (the latent double-apply)."""
+    import negpy.services.rendering.image_processor as ip
+
+    service = ImageProcessor()
+    monkeypatch.setattr(service.engine_cpu, "process", lambda img, s, sh, ctx: img)
+    calls = []
+    real = ip.apply_flatfield
+    monkeypatch.setattr(ip, "apply_flatfield", lambda img, ff: (calls.append(1), real(img, ff))[1])
+
+    img = np.full((64, 64, 3), 0.5, dtype=np.float32)
+    service.run_pipeline(img, WorkspaceConfig(), "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False)
+    assert len(calls) == 1
+    calls.clear()
+    service.run_pipeline(img, WorkspaceConfig(), "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False, skip_flatfield=True)
+    assert len(calls) == 0

@@ -901,10 +901,10 @@ class AppController(QObject):
         self.crop_guide_changed.emit()
 
     def cycle_dust_overlay(self) -> None:
-        """Advance the dust-detection overlay: Off → Spots → Marked → IR → Off
+        """Advance the dust-detection overlay: Off → Marked → IR → Off
         (IR skipped when the scan has no IR channel). Repaint only — the data is
         already in state.last_metrics / state.preview_ir, no re-render needed."""
-        seq = ["off", "spots", "marked", "ir"]
+        seq = ["off", "marked", "ir"]
         if not self.state.has_ir:
             seq.remove("ir")
         cur = self.state.dust_overlay_mode if self.state.dust_overlay_mode in seq else "off"
@@ -2513,6 +2513,8 @@ class AppController(QObject):
         """
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
+        if "ir_degenerate" in metrics:
+            self.state.ir_degenerate = bool(metrics["ir_degenerate"])
         self.metrics_available.emit(metrics)
 
         # Don't persist bounds from an ephemeral (splash) render or a render of a different

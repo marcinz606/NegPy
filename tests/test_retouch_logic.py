@@ -11,6 +11,7 @@ from negpy.features.retouch.logic import (
     build_heal_regions,
     detect_ir_regions,
     detect_luma_regions,
+    normalize_ir,
     select_source_offset,
 )
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
@@ -174,6 +175,41 @@ def test_gate_zero_heals_dark_defects():
     ungated = build_heal_regions([([[0.5, 0.5]], size, 20.0 / w, 0.0, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
     out = apply_manual_heals(img, *ungated)
     assert out[48:53, 48:53].mean() > 0.4, "gate=0 region must clone over the dark defect"
+
+
+def test_ungated_feather_is_wider():
+    """gate=0 (synthesized IR/auto) clones with a softer rim than gate=1: a speck
+    sitting near the rim is blended in more gently (the halo-softening fix). Placed
+    at d~10.4 in a radius-12 heal so both feather ramps (0.4·r vs 0.25·r) cover it."""
+    rng = np.random.default_rng(41)
+    h, w = 100, 100
+    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.005, (h, w, 3))).astype(np.float32)
+    img[52:55, 59:62] = 0.95  # speck near the heal rim (boundary at r+2 stays clean)
+
+    size = _size_at_ref(24.0, (h, w))  # radius 12 px
+    gated = build_heal_regions([([[0.5, 0.5]], size, -30.0 / w, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
+    ungated = build_heal_regions([([[0.5, 0.5]], size, -30.0 / w, 0.0, 0.0)], [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
+    out_g = apply_manual_heals(img.copy(), *gated)
+    out_u = apply_manual_heals(img.copy(), *ungated)
+
+    speck = (slice(52, 55), slice(59, 62))
+    dg = np.abs(out_g[speck] - img[speck]).mean()
+    du = np.abs(out_u[speck] - img[speck]).mean()
+    assert 0.0 < du < dg, f"ungated rim feather must be softer (gated {dg:.4f}, ungated {du:.4f})"
+
+
+def test_pick_source_offsets_rgb_prefers_colour_match():
+    """A per-channel guide rejects a source that matches in luma but not in colour —
+    the single-channel scorer was blind to a wrong-colour clone source."""
+    h = w = 120
+    mask = np.zeros((h, w), dtype=np.uint8)
+    mask[57:63, 77:83] = 1  # compact defect in the neutral-grey region (x~80)
+    guide = np.full((h, w, 3), 0.5, dtype=np.float32)
+    guide[:, :50] = (1.0, 0.35, 0.5)  # reddish patch, equal luma to grey but wrong colour
+    comps = _mask_to_strokes(mask, 2.0, 8)
+    ox, oy = _pick_source_offsets(mask, comps, guide)[0]
+    sx, sy = int(np.clip(80 + ox, 0, w - 1)), int(np.clip(60 + oy, 0, h - 1))
+    assert guide[sy, sx, 0] < 0.7, "picker cloned from the wrong-colour (red) region"
 
 
 def test_source_scoring_penalizes_dusty_patch():
@@ -372,7 +408,7 @@ def test_detect_luma_regions_clean_frame_is_empty():
 def test_detect_ir_regions_speck_ungated():
     ir = np.full((120, 120), 0.9, dtype=np.float32)
     ir[60:63, 60:63] = 0.1
-    strokes = detect_ir_regions(ir, threshold=0.5)
+    strokes = detect_ir_regions(normalize_ir(ir), 0.5)
     assert len(strokes) == 1
     pts, size, sdx, sdy, gate = strokes[0]
     assert gate == 0.0
@@ -385,7 +421,7 @@ def test_detect_ir_elongated_scratch_becomes_capsule():
     for t in range(80):
         x, y = 40 + t, 60 + t // 2
         ir[y : y + 2, x : x + 2] = 0.1
-    strokes = detect_ir_regions(ir, threshold=0.5)
+    strokes = detect_ir_regions(normalize_ir(ir), 0.5)
     assert len(strokes) == 1
     pts, size = strokes[0][0], strokes[0][1]
     assert len(pts) >= 3, "a hair must become a polyline capsule, not a circle"
