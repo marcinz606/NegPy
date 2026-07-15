@@ -1028,7 +1028,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[]),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 
@@ -1047,7 +1048,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 
@@ -1067,7 +1069,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 
@@ -1109,7 +1112,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_heal_strokes=conf.manual_heal_strokes + [stroke]),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 

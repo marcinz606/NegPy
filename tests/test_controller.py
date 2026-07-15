@@ -1202,5 +1202,97 @@ class TestContactSheetOutputDir(unittest.TestCase):
         self.assertEqual(out, "/rolls/frame")
 
 
+class TestRetouchPersistence(unittest.TestCase):
+    """Regression: heal/scratch edits must persist=True like every other discrete
+    canvas action (e.g. _handle_wb_pick) — otherwise select_file's "save before
+    switching" guard (gated on the dirty flag persist=True sets) skips them, and
+    switching files silently discards heals that were never written to disk."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.request_render = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def _stroke(self):
+        return ([[0.1, 0.1]], 5.0, 0.01, -0.01)
+
+    def test_commit_heal_stroke_via_dust_pick_persists(self):
+        self.controller.state.active_tool = ToolMode.DUST_PICK
+        self.controller.state.last_metrics["uv_grid"] = MagicMock()
+        with patch("negpy.desktop.controller.CoordinateMapping") as mock_map:
+            mock_map.map_click_to_raw.return_value = (0.5, 0.5)
+            self.controller.handle_canvas_clicked(0.5, 0.5)
+        self.mock_session_manager.update_config.assert_called_once()
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(len(saved.retouch.manual_heal_strokes), 1)
+
+    def test_handle_heal_stroke_completed_persists(self):
+        self.controller.state.last_metrics["uv_grid"] = MagicMock()
+        with patch("negpy.desktop.controller.CoordinateMapping") as mock_map:
+            mock_map.map_click_to_raw.return_value = (0.5, 0.5)
+            self.controller.handle_heal_stroke_completed([(0.4, 0.4), (0.6, 0.6)])
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+
+    def test_undo_last_retouch_persists(self):
+        retouch = replace(self.controller.state.config.retouch, manual_heal_strokes=[self._stroke()])
+        self.controller.state.config = replace(self.controller.state.config, retouch=retouch)
+
+        self.controller.undo_last_retouch()
+
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved.retouch.manual_heal_strokes, [])
+
+    def test_delete_heal_persists(self):
+        retouch = replace(self.controller.state.config.retouch, manual_heal_strokes=[self._stroke(), self._stroke()])
+        self.controller.state.config = replace(self.controller.state.config, retouch=retouch)
+
+        self.controller.delete_heal("stroke", 0)
+
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(len(saved.retouch.manual_heal_strokes), 1)
+
+    def test_clear_retouch_persists(self):
+        retouch = replace(self.controller.state.config.retouch, manual_heal_strokes=[self._stroke()])
+        self.controller.state.config = replace(self.controller.state.config, retouch=retouch)
+
+        with patch("negpy.desktop.view.confirm.confirm_clear_heals", return_value=True):
+            self.controller.clear_retouch()
+
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved.retouch.manual_heal_strokes, [])
+
+
 if __name__ == "__main__":
     unittest.main()
