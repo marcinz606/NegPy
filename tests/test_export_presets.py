@@ -25,6 +25,7 @@ from negpy.domain.models import (
 from negpy.features.exposure.models import RenderIntent
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
+from negpy.kernel.image.logic import float_to_uint16
 from negpy.services.rendering.image_processor import ImageProcessor
 
 
@@ -381,3 +382,64 @@ def test_encode_jpeg_rgb(proc):
     img = Image.open(io.BytesIO(data))
     assert img.format == "JPEG"
     assert img.size == (buf.shape[1], buf.shape[0])
+
+
+def _off_axis_buffer(h: int = 8, w: int = 12) -> np.ndarray:
+    """RGB buffer that spans off-axis colours so the 3D LUT's interpolation
+    is exercised beyond the neutral (R=G=B) diagonal."""
+    rng = np.random.default_rng(42)
+    buf = rng.uniform(0.2, 0.8, size=(h, w, 3)).astype(np.float32)
+    return np.ascontiguousarray(buf)
+
+
+@pytest.mark.parametrize(
+    "target_cs",
+    [ColorSpace.SRGB.value, ColorSpace.ADOBE_RGB.value],
+)
+def test_tiff_cross_space_is_16bit(proc, target_cs):
+    """Cross-space TIFF CMS uses lcms2 at 16-bit precision, so the output
+    must contain values that are NOT all multiples of 257 — an 8-bit PIL
+    path expanded with *257 would produce only multiples-of-257 values.
+
+    This guards against accidentally reverting to the 8-bit CMS path
+    (which was the first attempt at fixing #311 before switching to
+    imagecodecs for true 16-bit CMS).
+    """
+    buf = _off_axis_buffer()
+    preset = _make_preset(export_fmt=ExportFormat.TIFF, export_color_space=target_cs)
+    tiff_data, tiff_status = proc._encode_export(buf, preset, target_cs, WORKING_COLOR_SPACE)
+    assert tiff_data is not None, f"export returned None: {tiff_status}"
+
+    tiff_arr = tifffile.imread(io.BytesIO(tiff_data))
+    assert tiff_arr.dtype == np.uint16
+    assert tiff_arr.shape == (buf.shape[0], buf.shape[1], 3)
+
+    # At least some pixels must not be a multiple of 257 — proves the
+    # 16-bit lcms2 path was used, not the 8-bit PIL + *257 expansion.
+    not_expanded = np.any((tiff_arr.astype(np.int32) % 257) != 0)
+    assert not_expanded, (
+        "cross-space TIFF output contains only multiples of 257 — "
+        "the 8-bit PIL CMS path is being used instead of the 16-bit "
+        "imagecodecs path"
+    )
+
+
+def test_tiff_same_space_preserves_16bit(proc):
+    """Same-space TIFF exports (working == target, no custom ICC) must
+    preserve full 16-bit precision — no round-trip through 8-bit PIL."""
+    buf = _off_axis_buffer()
+    target = ColorSpace.PROPHOTO.value  # working space is ProPhoto RGB
+
+    preset = _make_preset(export_fmt=ExportFormat.TIFF, export_color_space=target)
+    tiff_data, tiff_status = proc._encode_export(buf, preset, target, WORKING_COLOR_SPACE)
+    assert tiff_data is not None, f"export returned None: {tiff_status}"
+
+    tiff_arr = tifffile.imread(io.BytesIO(tiff_data))
+    expected = float_to_uint16(buf)
+
+    assert tiff_arr.dtype == np.uint16
+    assert tiff_arr.shape == expected.shape
+    diff = np.abs(tiff_arr.astype(np.int32) - expected.astype(np.int32))
+    assert diff.max() == 0, (
+        f"Same-space 16-bit precision lost: max_diff={diff.max()}"
+    )

@@ -444,13 +444,16 @@ class ImageProcessor:
         icc_output = export_settings.icc_output_path
 
         if fmt == ExportFormat.TIFF:
-            img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16) if is_greyscale else float_to_uint16(buffer)
             if is_greyscale:
+                img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
                 img_out, icc_bytes = self._apply_color_management_u16_greyscale(
                     img_int, working_color_space, color_space, icc_output, icc_input
                 )
             else:
-                img_out, icc_bytes = self._apply_color_management_u16_rgb(img_int, working_color_space, color_space, icc_output, icc_input)
+                img_int = float_to_uint16(buffer)
+                img_out, icc_bytes = self._apply_color_management_u16(
+                    img_int, working_color_space, color_space, icc_output, icc_input
+                )
 
             output_buf = io.BytesIO()
             tifffile.imwrite(
@@ -724,6 +727,46 @@ class ImageProcessor:
         gray = np.clip(lin, 0.0, 1.0) ** (1.0 / 2.2)
         out = np.clip(gray * 65535.0 + 0.5, 0.0, 65535.0).astype(np.uint16)
         return out, self._get_target_icc_bytes(color_space, output_icc_path)
+
+    def _apply_color_management_u16(
+        self,
+        img_u16: np.ndarray,
+        working_color_space: str,
+        color_space: str,
+        output_icc_path: Optional[str],
+        input_icc_path: Optional[str] = None,
+    ) -> Tuple[np.ndarray, Optional[bytes]]:
+        """ICC RGB transform for 16-bit arrays using lcms2 via imagecodecs.
+
+        PIL has no 16-bit RGB mode so we use imagecodecs.cms_transform
+        (already a dependency for JXL) which evaluates lcms2 at full
+        16-bit precision on numpy arrays directly.
+        """
+        has_custom = self._has_custom_icc(input_icc_path, output_icc_path)
+        if not has_custom and working_color_space == color_space:
+            return img_u16, self._get_target_icc_bytes(color_space, None)
+
+        try:
+            src_bytes = self._get_target_icc_bytes(working_color_space, input_icc_path)
+            dst_bytes = self._get_target_icc_bytes(color_space, output_icc_path)
+            if src_bytes is None or dst_bytes is None:
+                logger.warning("CMS skipped: ICC profile not found")
+                return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
+
+            result = imagecodecs.cms_transform(
+                np.ascontiguousarray(img_u16),
+                src_bytes,
+                dst_bytes,
+                colorspace="RGB",
+                outcolorspace="RGB",
+                intent=1,  # RELATIVE_COLORIMETRIC
+                flags=0x2000,  # BLACKPOINTCOMPENSATION (matches PIL's value)
+            )
+            # imagecodecs outputs uint16 [0,65535] directly
+            return result, self._get_target_icc_bytes(color_space, output_icc_path)
+        except Exception as e:
+            logger.error(f"CMS transformation failed: {e}")
+            return img_u16, None
 
     def apply_color_management(
         self,
