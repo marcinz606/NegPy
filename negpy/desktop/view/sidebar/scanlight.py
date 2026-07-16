@@ -35,7 +35,7 @@ from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings
-from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds
+from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
 from negpy.services.capture.presets import PresetStore, ScanlightPreset
 
 _CHANNEL_COLORS = {"R": "#E24B4A", "G": "#639922", "B": "#378ADD", "W": "#B4B2A9"}
@@ -712,16 +712,10 @@ class ScanlightSidebar(QWidget):
         and meters noise instead of light."""
         data = self._settings_json()
         floor, ceiling = shutter_seconds(SHUTTER_CANDIDATES[0]), shutter_seconds(SHUTTER_CANDIDATES[-1])
-        by_seconds: dict[str, float] = {}
-        for o in (data.get("shutter") or {}).get("options", []):
-            label = str(o.get("label", "")).strip()
-            try:
-                seconds = shutter_seconds(label)
-            except (TypeError, ValueError, ZeroDivisionError):
-                continue
-            if floor <= seconds <= ceiling:
-                by_seconds[label] = seconds
-        return tuple(sorted(by_seconds, key=by_seconds.__getitem__))
+        labels = tuple(str(o.get("label", "")).strip() for o in (data.get("shutter") or {}).get("options", []))
+        # usable_ladder drops the unparseables (bulb-like "1/0", "Bulb", "") and returns ascending =
+        # fastest-first; the range clamp on top is this UI's own policy, not the solver's.
+        return tuple(label for label in usable_ladder(labels) if floor <= shutter_seconds(label) <= ceiling)
 
     def _on_calibrate_new_preset(self, name: str) -> None:
         if self._scanning:

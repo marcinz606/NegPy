@@ -1,19 +1,26 @@
 """Per-channel ETTR exposure auto-calibration for RGB narrowband film scanning.
 
-Rewrite — see `calibration_redesign.md`. The film base is metered inside a user ROI and each of
-R/G/B is exposed just below clipping ("expose to the right"). The key idea is a **linear model**:
+The film base is metered inside a user ROI and each of R/G/B is exposed just below clipping
+("expose to the right"). The key idea is a **linear model**:
 
     Signal_c = k_c · Level_c · t
 
 where `k_c` (the channel response) is *measured*, never assumed, so any sensor (Sony, Fuji
 X-Trans, …) is handled automatically. With one **shared** shutter `t` and three per-channel LED
 levels there are 4 knobs and 3 targets, leaving one degree of freedom (the shutter). It is fixed
-uniquely by putting the **dimmest** channel near PWM_MAX (fastest shutter + highest levels at
-once — no quality/speed trade-off). Everything is then solved in one shot instead of searched.
+uniquely by putting the **dimmest** channel near PWM_MAX_SAFE (fastest shutter + highest levels at
+once — no quality/speed trade-off; the gap to PWM_MAX is the verify trim's headroom). Everything
+is then solved in one shot instead of searched.
 
-No dark frame: rawpy already subtracts the sensor bias, so `black = 0`. Physical limits degrade
-gracefully (best result + per-channel status) rather than raising. Hardware-free: light, camera
-and a `demosaic` callable are injected.
+Two representations of a shutter coexist deliberately. Labels are rounded display names for a
+geometric ladder ("1/3" exposes 0.315 s, not 0.333 s): ordering/snapping read the label literally
+(`shutter_seconds`), anything multiplied into the physics uses the rung's true time
+(`true_seconds`). The model above only holds in the second representation.
+
+No dark frame: rawpy already subtracts the sensor bias, so `black = 0` (and the injected demosaic
+must scale by the camera's white level, never per-frame — see `linear_demosaic`). Physical limits
+degrade gracefully (best result + per-channel status) rather than raising. Hardware-free: light,
+camera and a `demosaic` callable are injected.
 """
 
 from __future__ import annotations
@@ -66,7 +73,11 @@ MAX_CLIP_FRACTION = 0.002
 # slowest shutter, or a clip-guard that pulled the LED down hard. Reported as status "under"; a
 # small clip-guard undershoot within this margin still counts as "target".
 MAX_TARGET_UNDER_FRACTION = 0.2
-_MAX_PROBE_STEPS = 8  # geometric back-off to bring a probe into the measurable range
+# Probe budget = the whole reachable range, so the loop can only end by resolving (in-range return,
+# graceful-over return, or the dark-side break) — never by exhaustion, which would mislabel a
+# blinding over-exposure as "no signal". Worst case is a deeply-over scene from the slowest start:
+# ~9 shutter halvings (2 s → 1/250) + 3 LED halvings (255 → 40) + the final in-range measurement.
+_MAX_PROBE_STEPS = 14
 _MAX_CLIP_GUARD_STEPS = 12  # LED-down steps (PWM_MAX→PWM_MIN at 0.85×) — keeps captures hard-bounded
 
 # Shutter ladder, fastest first (third-stops). Extends to 2 s (up from 1 s) so a closed-down
@@ -128,8 +139,9 @@ def shutter_seconds(label: str) -> float:
     """Parse a shutter label ('1/100', '0.4', '1') into its *nominal* seconds.
 
     This is the label read literally — the value to sort, snap and filter by, since the ladder is
-    monotonic whether or not the labels are rounded. It is NOT the exposure time: see
-    `true_seconds`, which the three places that treat the number as physics must use instead.
+    monotonic whether or not the labels are rounded. It is NOT the exposure time: anywhere the
+    number is multiplied into the physics (k, the level solve, shutter_at_least's ≥-comparison)
+    must use `true_seconds` instead.
     """
     label = label.strip()
     if "/" in label:
@@ -245,8 +257,10 @@ def normalize_start_point(
     if f_now is not None:
         t *= (f_now / REFERENCE_APERTURE) ** 2
     # Snap the raw seconds value straight onto the ladder (no label round-trip, which mislabels
-    # e.g. 0.8 s as "1/1").
-    return levels, _nearest_by_seconds(t, candidates or SHUTTER_CANDIDATES)
+    # e.g. 0.8 s as "1/1"). Like calibrate(), clean the body's ladder on the way in — this is a
+    # public entry point receiving camera-reported labels, and one bulb-like "1/0" must degrade to
+    # a dropped entry, not a ValueError (#478).
+    return levels, _nearest_by_seconds(t, usable_ladder(tuple(candidates)) or SHUTTER_CANDIDATES)
 
 
 def _nearest_by_seconds(seconds: float, candidates: tuple[str, ...]) -> str:

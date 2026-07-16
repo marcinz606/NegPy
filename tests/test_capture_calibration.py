@@ -1,4 +1,4 @@
-"""ETTR auto-calibration unit tests (rewrite — see calibration_redesign.md).
+"""ETTR auto-calibration unit tests.
 
 Fake linear sensor: Signal = k · level · true_seconds, no bias (rawpy removes it → black = 0). It
 meters the ladder's true exposure, like a real body — NOT the rounded label, which is a display
@@ -330,6 +330,24 @@ def test_calibrate_is_graceful_when_over_exposed():
     assert result.status == "over"
     assert all(ch.status == "over" for ch in result.channels.values())
     assert all(ch.level == PWM_MIN for ch in result.channels.values())  # seated at minimum LED
+
+
+def test_deep_over_exposure_from_the_default_start_never_exhausts_the_probe():
+    # The probe budget must cover the whole reachable range (ladder + LED), or a deeply-over scene
+    # exhausts it mid-descent and raises "no signal … check the Scanlight is on" — the exact
+    # opposite of what is happening. Both cases below did exactly that with the old 8-step budget.
+    #
+    # ~8 stops over (manual f/1.4 lens the body can't report, no film in the holder): within the
+    # ladder's ~9-stop reach below the start, so with enough steps it now CALIBRATES, on target.
+    light, cam = FakeLight(), FakeCamera()
+    result = _calibrate(_service(light, cam, k_scale=300.0))
+    assert result.status == "target"
+    T = target_signal()
+    assert all(abs(ch.signal - T) <= 0.06 * T for ch in result.channels.values())
+    # ~11.6 stops over: beyond even minimum exposure — must degrade to "over", never raise.
+    light, cam = FakeLight(), FakeCamera()
+    result = _calibrate(_service(light, cam, k_scale=3000.0))
+    assert result.status == "over"
 
 
 def test_calibrate_raises_only_when_a_channel_has_no_signal_at_all():
