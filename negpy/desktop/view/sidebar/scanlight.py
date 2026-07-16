@@ -1101,11 +1101,19 @@ class ScanlightSidebar(QWidget):
     @pyqtSlot(str)
     def _on_calibration_exposure(self, status: str) -> None:
         """The solver proved the exposure target unreachable ("over"/"under") and aborted — no
-        preset exists. Keep the calibration window open with the advice (the user adjusts the
-        aperture and recalibrates right there) and put the same advice in an unmissable pop-up."""
-        name = self._calibrating_preset  # read before the terminal cleanup clears it
+        preset exists. The calibration window stays a LIVE retry surface: unlike the cancel/error
+        terminal, the live view keeps streaming into it (steppers keep mirroring the body, the ROI
+        sits on a live frame) and the framing light is re-lit — the service switched the Scanlight
+        off on its way out, and a black window here read as a crash on the rig. The user adjusts
+        the aperture and recalibrates right there; the same advice lands in a pop-up."""
+        name = self._calibrating_preset  # read before clearing (the pop-up names the preset)
+        self._calibrating_preset = ""
         label, _cause, fix = _EXPOSURE_WARNINGS.get(status, _EXPOSURE_WARNINGS["over"])
-        self._finish_calibration_terminal(f"⚠ {label} — {fix}.")
+        self.calib_window.set_inputs_locked(False)  # re-enable name / ROI / ISO / aperture for the retry
+        self.calib_window.set_status(f"⚠ {label} — {fix}.")
+        self.calib_window.progress.setVisible(False)
+        self._apply_gating()  # re-enable Scan — the capture thread is free again
+        self.controller.set_scanlight_color(*REFERENCE_LEVELS, 0, self._settings.port)  # re-light for framing
         self._show_exposure_warning(name, status)
 
     def _show_exposure_warning(self, name: str, status: str) -> None:

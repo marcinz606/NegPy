@@ -773,20 +773,30 @@ def _calibrate(w, monkeypatch, name="Portra 400"):
     return saved["preset"]
 
 
-def test_calibration_exposure_abort_saves_nothing_and_keeps_the_window_open(monkeypatch):
+def test_calibration_exposure_abort_saves_nothing_and_keeps_a_live_retry_window(monkeypatch):
     # The solver proved the target unreachable and aborted — a preset that misses its target is
-    # worthless, so none may exist. The calibration window stays open with the advice (adjust the
-    # aperture, recalibrate right there), and the same advice arrives as an unmissable pop-up.
+    # worthless, so none may exist. The calibration window must stay a LIVE retry surface: on the
+    # rig, tearing down its stream and leaving the Scanlight off (the service switches it off on
+    # exit) made the open window black and dead — it read as a crash, and the ROI/steppers were
+    # useless for the retry the advice asks for.
+    from negpy.services.capture.calibration import REFERENCE_LEVELS
+
     w = _sidebar()
     saved: dict = {}
     monkeypatch.setattr(w._presets, "save", lambda _n, preset: saved.update(preset=preset))
     w.calib_window.show()
+    w._lv_target = w.calib_window.image  # as _on_preset_new leaves it while the flow runs
     w._calibrating_preset = "Phoenix II"
     w._on_calibration_exposure("over")
     assert not saved, "an aborted calibration must not write a preset"
-    assert w._calibrating_preset == ""  # terminal cleanup ran (Scan re-enabled, inputs unlocked)
+    assert w._calibrating_preset == ""  # the run is over (Scan re-enabled, inputs unlocked)
     assert w.calib_window.isVisible()  # stays open for the retry
     assert "over-exposed" in w.calib_window.status.text() and "close the aperture" in w.calib_window.status.text()
+    # The retry surface stays alive: frames keep routing into this window (no teardown, no
+    # retargeting), and the framing light is re-lit so the user sees the film, not black.
+    assert w._lv_target is w.calib_window.image
+    w.controller.stop_live_view.assert_not_called()
+    w.controller.set_scanlight_color.assert_called_with(*REFERENCE_LEVELS, 0, w._settings.port)
     assert w._exposure_popup is not None
     assert "was not saved" in w._exposure_popup.text()
     assert "Close the aperture" in w._exposure_popup.informativeText()
