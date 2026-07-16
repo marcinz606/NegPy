@@ -214,3 +214,14 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     $$m_{shadow} = \text{clip}(1 - L/50,\ 0,\ 1), \qquad m_{highlight} = \text{clip}((L - 50)/50,\ 0,\ 1)$$
     For each region (using its hue $\theta$, strength $S$, and mask $m$):
     $$a^{\ast} \mathrel{+}= \cos\theta \cdot 20 \cdot S \cdot m, \qquad b^{\ast} \mathrel{+}= \sin\theta \cdot 20 \cdot S \cdot m$$
+
+## 7. Finish
+**Code**: `negpy.features.finish`
+
+Post-crop print finishing, in scene-linear before the output transform. Stage order: edge burn → filed carrier (the layout extras below run at compositing time).
+
+*   **Edge Burn (Vignette)**: printer's card work in stops — a true exposure change, $I_{out} = I \cdot 2^{-s \cdot m}$ with $s$ the burn in stops (negative = hold back) and $m$ the cosine falloff mask. **Roundness** morphs the distance metric from radial (lens-like) to rectangular following the print edges (card-like); **Size** sets the falloff midpoint.
+
+*   **Filed Carrier**: full-frame printing with a filed-out negative carrier — the clear rebate prints max black. A frame of the given mm-of-print width is multiplied to zero, its inner edge jittered by fixed-seed roughness profiles (`carrier_profiles()`), so the same "carrier" prints every frame of the roll and the GPU samples the identical table (storage buffer).
+
+*   **Layout extras** (`services/export/print.py` + `layout.wgsl` mirror): **bottom-weighted mat** (window-mat proportions) and **match paper white** (mat colour derived by running paper white through the toning stack).

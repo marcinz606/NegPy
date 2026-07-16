@@ -32,7 +32,7 @@ class LoadingOverlay(QWidget):
         self._spinner.setIconSize(QSize(52, 52))
         layout.addWidget(self._spinner, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self._label = QLabel("processing…")
+        self._label = QLabel("Processing…")
         self._label.setStyleSheet(
             f"color: {THEME.text_primary}; font-size: {THEME.font_size_lg}px; font-weight: 600; "
             "background-color: rgba(10, 10, 10, 225); border: 1px solid rgba(255, 255, 255, 55); "

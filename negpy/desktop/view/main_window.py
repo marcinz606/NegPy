@@ -476,8 +476,9 @@ class MainWindow(QMainWindow):
                         export_conf.paper_aspect_ratio,
                         finish_conf.border_size,
                         export_conf.export_print_size,
-                        finish_conf.border_color,
+                        PrintService.effective_border_color(finish_conf, self.state.config.toning),
                         APP_CONFIG.preview_render_size,
+                        finish=finish_conf,
                     )
                     buffer = np.array(pil_img).astype(np.float32) / 255.0
                 except Exception as e:

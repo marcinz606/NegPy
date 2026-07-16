@@ -440,4 +440,43 @@ def test_tiff_same_space_preserves_16bit(proc):
     assert tiff_arr.dtype == np.uint16
     assert tiff_arr.shape == expected.shape
     diff = np.abs(tiff_arr.astype(np.int32) - expected.astype(np.int32))
-    assert diff.max() == 0, f"Same-space 16-bit precision lost: max_diff={diff.max()}"
+    assert diff.max() == 0, (
+        f"Same-space 16-bit precision lost: max_diff={diff.max()}"
+    )
+
+
+def test_dng_cross_space_uses_16bit_cms(proc):
+    """DNG export uses _apply_color_management_u16 (lcms2 16-bit), not
+    the old 3D LUT.  DNG output isn't trivially decodable to check
+    pixel values, but we verify the export succeeds and returns bytes."""
+    buf = _off_axis_buffer()
+    preset = _make_preset(export_fmt=ExportFormat.DNG, export_color_space=ColorSpace.SRGB.value)
+    data, ext = proc._encode_export(buf, preset, ColorSpace.SRGB.value, WORKING_COLOR_SPACE)
+    assert data is not None, "DNG export returned None"
+    assert ext == "dng"
+    assert isinstance(data, bytes) and len(data) > 0, "DNG export returned empty bytes"
+
+
+def test_jxl_cross_space_is_16bit(proc):
+    """JXL export uses lcms2 at 16-bit precision — decode the output
+    and verify it's not just 8-bit CMS expanded to 16-bit."""
+    import imagecodecs
+
+    buf = _off_axis_buffer()
+    preset = _make_preset(export_fmt=ExportFormat.JXL, export_color_space=ColorSpace.SRGB.value)
+    data, ext = proc._encode_export(buf, preset, ColorSpace.SRGB.value, WORKING_COLOR_SPACE)
+    assert data is not None, "JXL export returned None"
+    assert ext == "jxl"
+
+    decoded = imagecodecs.jpegxl_decode(data)
+    assert decoded.dtype == np.uint16, (
+        f"Expected uint16 JXL decode, got {decoded.dtype}"
+    )
+    assert decoded.shape == (buf.shape[0], buf.shape[1], 3)
+
+    not_expanded = np.any((decoded.astype(np.int32) % 257) != 0)
+    assert not_expanded, (
+        "JXL 16-bit output contains only multiples of 257 — "
+        "the 8-bit CMS path is being used instead of the 16-bit "
+        "imagecodecs path"
+    )

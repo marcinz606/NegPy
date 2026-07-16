@@ -108,7 +108,7 @@ SLIDER_GROUPS: tuple[SliderShortcutGroup, ...] = (
     _g("shadow_strength", "Shadow strength ↑/↓", "shadow_strength_inc", "shadow_strength_dec", 0.01, "Toning"),
     _g("highlight_hue", "Highlight hue ↑/↓", "highlight_hue_inc", "highlight_hue_dec", 0.01, "Toning"),
     _g("highlight_strength", "Highlight strength ↑/↓", "highlight_strength_inc", "highlight_strength_dec", 0.01, "Toning"),
-    _g("vignette_str", "Vignette strength ↑/↓", "vignette_str_inc", "vignette_str_dec", 0.01, "Finishing"),
+    _g("vignette_str", "Vignette burn ↑/↓", "vignette_str_inc", "vignette_str_dec", 0.01, "Finishing"),
     _g("vignette_size", "Vignette size ↑/↓", "vignette_size_inc", "vignette_size_dec", 0.01, "Finishing"),
     _g("border_size", "Border width ↑/↓", "border_size_inc", "border_size_dec", 0.01, "Finishing"),
 )

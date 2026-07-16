@@ -605,7 +605,7 @@ class ImageProcessor:
                 img_int = np.stack([img_lum, img_lum, img_lum], axis=-1) if img_lum.ndim == 2 else img_lum
             else:
                 img_int = float_to_uint16(buffer)
-            img_out, _icc = self._apply_color_management_u16_rgb(img_int, working_color_space, color_space, icc_output, icc_input)
+            img_out, _icc = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
             return self._encode_dng_bytes(img_out), "dng"
         elif fmt == ExportFormat.PNG:
             if is_greyscale:
@@ -642,7 +642,7 @@ class ImageProcessor:
                 img_out, _icc = self._apply_color_management_u16_greyscale(img_int, working_color_space, color_space, icc_output, icc_input)
             else:
                 img_int = float_to_uint16(buffer)
-                img_out, _icc = self._apply_color_management_u16_rgb(img_int, working_color_space, color_space, icc_output, icc_input)
+                img_out, _icc = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
             bits = imagecodecs.jpegxl_encode(
                 np.ascontiguousarray(img_out),
                 bitspersample=16,
@@ -771,7 +771,11 @@ class ImageProcessor:
     def _apply_scaling_and_border_f32(self, img: np.ndarray, params: WorkspaceConfig, export_settings: ExportConfig) -> np.ndarray:
         """CPU fallback for layout application."""
         result, _ = PrintService.apply_layout(
-            img, export_settings, border_size=params.finish.border_size, border_color=params.finish.border_color
+            img,
+            export_settings,
+            border_size=params.finish.border_size,
+            border_color=PrintService.effective_border_color(params.finish, params.toning),
+            finish=params.finish,
         )
         return result
 

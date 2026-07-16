@@ -10,6 +10,8 @@ import wgpu  # type: ignore
 
 from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConfig
 from negpy.features.exposure.analysis import DENSITY_HIST_BINS
+from negpy.features.finish.logic import carrier_profiles
+from negpy.features.finish.processor import carrier_width_px
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
@@ -222,7 +224,7 @@ class GPUEngine:
             "retouch_u": 16,
             "lab": 96,
             "toning": 64,
-            "finish": 32,
+            "finish": 36,
             "layout": 48,
             "density_hist": 16,
         }
@@ -296,6 +298,9 @@ class GPUEngine:
         if last.finish != settings.finish:
             return 7
         if last.export != settings.export:
+            # Carrier width is mm-of-print, so a print-size change moves the finish pass too.
+            if settings.finish.carrier_enabled and last.export.export_print_size != settings.export.export_print_size:
+                return 7
             return 8
 
         return 9  # Nothing changed
@@ -347,6 +352,9 @@ class GPUEngine:
         # 512 heal regions × 32 B, and 32K polyline/boundary points × 8 B.
         self._buffers["retouch_s"] = GPUBuffer(16384, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["retouch_p"] = GPUBuffer(262144, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        # Filed-carrier jitter profiles are a fixed table — upload once.
+        self._buffers["carrier_s"] = GPUBuffer(4 * 512 * 4, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        self._buffers["carrier_s"].upload(np.ascontiguousarray(carrier_profiles().ravel(), dtype=np.float32))
         self._buffers["metrics"] = GPUBuffer(
             METRICS_BUFFER_SIZE,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
@@ -602,7 +610,7 @@ class GPUEngine:
                 needs_textural,
             )
 
-        pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
+        pw, ph, cw, ch, ox, oy, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
 
         # Regions before uniforms: the uniform block reads the uploaded region count.
         self._update_retouch_storage(
@@ -843,6 +851,7 @@ class GPUEngine:
                     (0, tex_toning.view),
                     (1, tex_finish.view),
                     (2, self._get_uniform_binding("finish")),
+                    (3, self._buffers["carrier_s"]),
                 ],
                 crop_w,
                 crop_h,
@@ -852,7 +861,7 @@ class GPUEngine:
             tex_for_layout = tex_toning
 
         if not tiling_mode and apply_layout:
-            paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
+            paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
             tex_final = self._get_intermediate_texture(
                 paper_w,
                 paper_h,
@@ -1281,28 +1290,32 @@ class GPUEngine:
             v_full_w, v_full_h, v_off_x, v_off_y = crop_w, crop_h, 0, 0
         else:
             v_full_w, v_full_h, v_off_x, v_off_y = vignette_full_crop
-        f_data = (
-            struct.pack(
-                "ffffff",
-                float(settings.finish.vignette_strength),
-                float(settings.finish.vignette_size),
-                float(v_full_w),
-                float(v_full_h),
-                float(v_off_x),
-                float(v_off_y),
+        carrier_px = 0.0
+        if settings.finish.carrier_enabled:
+            carrier_px = carrier_width_px(
+                settings.finish.carrier_width,
+                settings.export.export_print_size,
+                float(max(v_full_w, v_full_h)),
             )
-            + b"\x00" * 8
+        f_data = struct.pack(
+            "fffffffff",
+            float(settings.finish.vignette_stops),
+            float(settings.finish.vignette_size),
+            float(settings.finish.vignette_roundness),
+            float(v_full_w),
+            float(v_full_h),
+            float(v_off_x),
+            float(v_off_y),
+            float(carrier_px),
+            float(settings.finish.carrier_rough),
         )
 
-        pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
-        color_hex = settings.finish.border_color.lstrip("#")
+        pw, ph, cw, ch, ox, oy, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
+        color_hex = PrintService.effective_border_color(settings.finish, settings.toning).lstrip("#")
         bg = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
         scale = float(cw) / max(1.0, float(crop_w))
         y_data = (
-            struct.pack("ffffii", bg[0], bg[1], bg[2], 1.0, ox, oy)
-            + struct.pack("iiii", cw, ch, crop_w, crop_h)
-            + struct.pack("f", scale)
-            + b"\x00" * 4
+            struct.pack("ffffii", bg[0], bg[1], bg[2], 1.0, ox, oy) + struct.pack("iiii", cw, ch, crop_w, crop_h) + struct.pack("f", scale)
         )
 
         # ROI offset + crop dims for the density-histogram pass (tex_norm is uncropped).
@@ -1370,8 +1383,9 @@ class GPUEngine:
 
     def _calculate_layout_dims(
         self, settings: WorkspaceConfig, cw: int, ch: int, size_ref: Optional[float]
-    ) -> Tuple[int, int, int, int, int, int]:
-        """Calculates final paper and image dimensions based on print settings."""
+    ) -> Tuple[int, int, int, int, int, int, int]:
+        """Calculates final paper and image dimensions based on print settings.
+        Returns (paper_w, paper_h, content_w, content_h, off_x, off_y, dpi)."""
         mode = settings.export.export_resolution_mode
 
         # Preview path: size_ref is the desired paper long-edge; derive virtual DPI
@@ -1388,12 +1402,15 @@ class GPUEngine:
             paper_long_px = int((settings.export.export_print_size / 2.54) * dpi)
 
         border_px = int((settings.finish.border_size / 2.54) * dpi)
+        weight = max(1.0, float(settings.finish.border_bottom_weight))
+        border_bottom_px = int(border_px * weight)
+        border_y_px = border_px + border_bottom_px
 
         if mode == ExportResolutionMode.ORIGINAL:
             content_w, content_h = cw, ch
 
             if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
-                paper_w, paper_h = content_w + 2 * border_px, content_h + 2 * border_px
+                paper_w, paper_h = content_w + 2 * border_px, content_h + border_y_px
             else:
                 try:
                     w_r, h_r = map(float, settings.export.paper_aspect_ratio.split(":"))
@@ -1402,7 +1419,7 @@ class GPUEngine:
                     paper_ratio = cw / ch
 
                 min_paper_w = content_w + 2 * border_px
-                min_paper_h = content_h + 2 * border_px
+                min_paper_h = content_h + border_y_px
 
                 if (min_paper_w / min_paper_h) > paper_ratio:
                     paper_w = min_paper_w
@@ -1411,17 +1428,17 @@ class GPUEngine:
                     paper_h = min_paper_h
                     paper_w = int(paper_h * paper_ratio)
 
-            off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
+            off_x = (paper_w - content_w) // 2
+            off_y = PrintService.weighted_offset_y(paper_h, content_h, border_px, border_bottom_px)
         else:
             if settings.export.paper_aspect_ratio == AspectRatio.ORIGINAL:
-                content_long_px = max(1, paper_long_px - 2 * border_px)
                 if cw >= ch:
-                    content_w = content_long_px
-                    content_h = max(1, int(ch * (content_long_px / cw)))
+                    content_w = max(1, paper_long_px - 2 * border_px)
+                    content_h = max(1, int(ch * (content_w / cw)))
                 else:
-                    content_h = content_long_px
-                    content_w = max(1, int(cw * (content_long_px / ch)))
-                paper_w, paper_h = content_w + 2 * border_px, content_h + 2 * border_px
+                    content_h = max(1, paper_long_px - border_y_px)
+                    content_w = max(1, int(cw * (content_h / ch)))
+                paper_w, paper_h = content_w + 2 * border_px, content_h + border_y_px
                 off_x, off_y = border_px, border_px
             else:
                 paper_w, paper_h = PrintService.paper_dims_from_long_edge(
@@ -1430,11 +1447,12 @@ class GPUEngine:
                     cw,
                     ch,
                 )
-                inner_w, inner_h = paper_w - 2 * border_px, paper_h - 2 * border_px
+                inner_w, inner_h = paper_w - 2 * border_px, paper_h - border_y_px
                 scale = min(inner_w / cw, inner_h / ch)
                 content_w, content_h = int(cw * scale), int(ch * scale)
 
-                off_x, off_y = (paper_w - content_w) // 2, (paper_h - content_h) // 2
+                off_x = (paper_w - content_w) // 2
+                off_y = PrintService.weighted_offset_y(paper_h, content_h, border_px, border_bottom_px)
 
         max_tex = APP_CONFIG.max_texture_size
         if max_tex is not None:
@@ -1447,8 +1465,9 @@ class GPUEngine:
                 content_h = max(1, int(content_h * s))
                 off_x = int(off_x * s)
                 off_y = int(off_y * s)
+                dpi = max(1, int(dpi * s))
 
-        return paper_w, paper_h, content_w, content_h, off_x, off_y
+        return paper_w, paper_h, content_w, content_h, off_x, off_y, dpi
 
     def _readback_clahe_cdf(self) -> np.ndarray:
         """Reads back the CLAHE CDF buffer from GPU."""
@@ -1748,7 +1767,7 @@ class GPUEngine:
         if settings.exposure.auto_normalize_contrast:
             global_textural_range = measure_textural_range_from_log(_prefiltered(), None, 0.0)
 
-        paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
+        paper_w, paper_h, content_w, content_h, off_x, off_y, _ = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
 
         # Heal regions sample up to the membrane ring (radius + 2px·scale) plus
