@@ -20,7 +20,7 @@ struct ToningUniforms {
 @group(0) @binding(2) var<uniform> params: ToningUniforms;
 
 fn rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
-    // Linear Adobe RGB -> CIELAB (D65). Input is scene-linear (no sRGB decode).
+    // Linear ProPhoto RGB -> CIELAB (D50). Input is scene-linear (no TRC decode).
     let r = max(rgb.r, 0.0);
     let g = max(rgb.g, 0.0);
     let b = max(rgb.b, 0.0);

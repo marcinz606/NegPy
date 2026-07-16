@@ -10,6 +10,7 @@ from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSigna
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.sidecar import load_or_promote
@@ -36,7 +37,7 @@ class AppState:
     current_file_hash: Optional[str] = None
     source_cs: str = ""
     config: WorkspaceConfig = field(default_factory=WorkspaceConfig)
-    workspace_color_space: str = "Adobe RGB"
+    workspace_color_space: str = WORKING_COLOR_SPACE
     is_processing: bool = False
     active_tool: ToolMode = ToolMode.NONE
     # Colour page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
@@ -647,17 +648,21 @@ class DesktopSessionManager(QObject):
             config = replace(config, process=replace(config.process, linear_raw=bool(sticky_linear_raw)))
 
         # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
-        # White) are workflow preferences, not per-image looks: carry them to
-        # fresh files unless explicitly changed per file.
+        # White / True Black / Cast Removal) are workflow preferences, not
+        # per-image looks: carry them to fresh files unless explicitly changed per file.
         new_exp = config.exposure
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
             ("last_paper_dmin", "paper_dmin"),
+            ("last_true_black", "true_black"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
                 new_exp = replace(new_exp, **{attr: bool(val)})
+        sticky_cast_removal = self.repo.get_global_setting("last_cast_removal_strength")
+        if sticky_cast_removal is not None:
+            new_exp = replace(new_exp, cast_removal_strength=float(sticky_cast_removal))
         config = replace(config, exposure=new_exp)
 
         # Paper stock is roll-wide; render guards cross-mode leak.
@@ -696,6 +701,8 @@ class DesktopSessionManager(QObject):
                 "last_auto_exposure": config.exposure.auto_exposure,
                 "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
                 "last_paper_dmin": config.exposure.paper_dmin,
+                "last_true_black": config.exposure.true_black,
+                "last_cast_removal_strength": config.exposure.cast_removal_strength,
                 "last_paper_profile": config.exposure.paper_profile,
                 "last_toe": config.exposure.toe,
                 "last_toe_width": config.exposure.toe_width,

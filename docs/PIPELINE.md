@@ -105,7 +105,23 @@ Both are **fixed** (no per-frame metering) so an evenly-exposed roll renders ide
 
 ---
 
-## 4. Retouching
+## 4. Local Contrast (CLAHE)
+**Code**: `negpy.features.lab.logic.apply_clahe` (CPU) / `negpy/features/lab/shaders/clahe_{hist,cdf,apply}.wgsl` (GPU)
+
+Contrast Limited Adaptive Histogram Equalization on the CIELAB $L^{\ast}$ channel (computed from linear working RGB, ProPhoto/D50). Chroma ($a^{\ast}/b^{\ast}$) is untouched, so boosted local contrast never pumps saturation. The algorithm is **identical on CPU and GPU** (mirrored bin-for-bin; the parity test pins them to ~1e-6):
+
+*   **Fixed $8\times8$ tile grid** over the full frame at every render scale (tile fraction constant → preview predicts export), 256 histogram bins over $L^{\ast} \in [0, 100]$.
+*   **Clip limit**: $\max(1, \lfloor \text{strength} \cdot 2.5 \cdot N_{tile} / 256 \rfloor)$ counts; the clipped excess is redistributed evenly across all bins (remainder to the lowest bins), conserving the tile total exactly.
+*   **Per-pixel remap**: smoothstep-weighted bilinear blend of the four neighbouring tile CDFs (tile centres at $(\text{pos}/\text{dims}) \cdot 8 - 0.5$, edge-clamped), then
+    $$L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CDF}(L) \cdot 100$$
+    with $\alpha$ = `clahe_strength`.
+*   The GPU keeps the CDF from the preview render and reuses it for tiled full-res export (`clahe_cdf_override`), so export tiles share one seam-free global mapping.
+
+The control lives in the Lab sidebar (`lab.clahe_strength`), but the stage runs **before Retouching** so dust healing operates on the final local-contrast rendition.
+
+---
+
+## 5. Retouching
 **Code**: `negpy.features.retouch`
 
 This stage removes physical artifacts like dust, hairs, and scratches from the negative. We use two complementary approaches:
@@ -135,7 +151,7 @@ This stage removes physical artifacts like dust, hairs, and scratches from the n
 
 ---
 
-## 5. Lab Scanner Mode
+## 6. Lab Scanner Mode
 **Code**: `negpy.features.lab`
 
 This mimics what lab scanners like Frontier or Noritsu do automatically. For maximum signal quality, the steps are applied in the following sequence:
@@ -145,13 +161,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 2.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
 3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel.
-4.  **CLAHE**: Adaptive histogram equalization. It boosts local contrast in the luminance channel.
-  
-    $$L_{final} = (1 - \alpha) \cdot L + \alpha \cdot \text{CLAHE}(L)$$
-    *   $L$: Luminance channel.
-    *   $\alpha$: Blending strength.
-
-5.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
+4.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
 
     $$L_{diff} = L - \text{GaussianBlur}(L, \sigma)$$
     $$L_{final} = L + L_{diff} \cdot \text{amount} \cdot 2.5 \quad \text{if } |L_{diff}| > 2.0$$
@@ -159,7 +169,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $2.5$: Hardcoded USM boosting factor.
     *   $2.0$: Noise threshold.
 
-6.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
+5.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 
     $$I_{out} = I + B_{glow} \cdot s_{glow}$$
     $$B_{glow} = \text{GaussianBlur}(I \cdot m_{hl})$$
@@ -167,7 +177,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   $m_{hl}$: **Display-domain** highlight mask (lens bloom follows perceived print brightness), quadratically ramped from code value 0.5 to 1.0.
     *   Applied equally to all three channels; the sum is clamped at the stage output.
 
-7.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
+6.  **Halation**: Simulates the red scatter caused by light reflecting back through the film base at capture. Uses a larger-radius Gaussian than Glow and a strongly red-biased highlight source. Because scattered light is *added exposure*, the composite is additive in linear light (not a screen blend), and the mask thresholds **linear reflectance** ($t = 0.65$) so the halation footprint is fixed by scene exposure instead of moving with Grade/Density.
 
     $$I_{out} = I + B_{hal} \cdot s_{hal}$$
     $$B_{hal} = \text{GaussianBlur}(I_R \cdot m_{lin} \cdot C_{hal})$$
@@ -178,7 +188,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 ---
 
-## 6. Toning
+## 7. Toning
 **Code**: `negpy.features.toning`
 
 *   **Chemical Toning** (B&W mode only): We simulate toner by blending the original pixel with a tinted version based on luminance ($Y$, Rec. 709) masks.

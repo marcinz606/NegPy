@@ -64,7 +64,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         autocrop_ratio=AspectRatio.R_3_2,
     ),
     lab=LabConfig(
-        clahe_strength=0.25,
+        clahe_strength=0.0,
         saturation=1.0,
         sharpen=0.25,
     ),
