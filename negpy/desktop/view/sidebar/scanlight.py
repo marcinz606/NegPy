@@ -13,7 +13,7 @@ from dataclasses import asdict, fields, replace
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QPixmap, QStandardItemModel
+from PyQt6.QtGui import QBrush, QColor, QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSlider,
@@ -39,6 +40,25 @@ from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDA
 from negpy.services.capture.presets import PresetStore, ScanlightPreset
 
 _CHANNEL_COLORS = {"R": "#E24B4A", "G": "#639922", "B": "#378ADD", "W": "#B4B2A9"}
+
+# Amber for advisory state — the same tone the LED-temperature readout warms to.
+_WARN_COLOR = "#C8922E"
+
+# One source for the over/under advice, worded once and shown on three surfaces (the status strip,
+# the pop-up after calibrating, and the preset hint whenever a flagged preset is selected):
+# (label, cause — a full sentence for the pop-up, fix — lowercase so the strip can inline it).
+_EXPOSURE_WARNINGS = {
+    "over": (
+        "over-exposed",
+        "Even the fastest shutter with the LEDs at their minimum still clips the film base.",
+        "close the aperture (e.g. f/11) and recalibrate",
+    ),
+    "under": (
+        "under-exposed",
+        "Even the slowest shutter with the LEDs at their maximum stays below the exposure target.",
+        "open the aperture (e.g. f/5.6) and recalibrate",
+    ),
+}
 
 # Built-in white-light preset (no calibration needed): name → process mode.
 # Selecting it switches the panel to a single white-light exposure. B&W and slide/E-6
@@ -80,6 +100,7 @@ class ScanlightSidebar(QWidget):
         self._manual_populate_pending = False  # seed the sidebar exposure steppers from the body once, then let the user drive
         self._calibrating_preset = ""  # non-empty while the "+" calibration flow is saving a new preset
         self._status_pinned = False  # a pinned status (calibration outcome) outranks the light echo
+        self._exposure_popup = None  # the over/under pop-up (kept referenced; replaced per calibration)
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
         self._settings_loaded = False  # have the live camera-setting dropdowns been populated yet?
         self._slider_readouts: dict = {}  # slider → its value label (updated on preset apply, where signals are blocked)
@@ -456,7 +477,14 @@ class ScanlightSidebar(QWidget):
         for name in _BUILTIN_WHITE_PRESETS:
             self.preset_combo.addItem(name, name)  # built-in white-light modes
         for name in self._presets.names():
-            self.preset_combo.addItem(name, name)  # user film-stock (RGB) presets
+            # User film-stock (RGB) presets. One that missed its calibration target carries the flag
+            # in its DISPLAY text (amber) — the item data stays the bare name, so selection logic
+            # and findData() never see the marker.
+            preset = self._presets.get(name)
+            flagged = preset is not None and preset.status in _EXPOSURE_WARNINGS
+            self.preset_combo.addItem(f"{name}  ⚠ {_EXPOSURE_WARNINGS[preset.status][0]}" if flagged else name, name)
+            if flagged:
+                self.preset_combo.setItemData(self.preset_combo.count() - 1, QBrush(QColor(_WARN_COLOR)), Qt.ItemDataRole.ForegroundRole)
         if select:
             idx = self.preset_combo.findData(select)
             if idx >= 0:
@@ -586,11 +614,22 @@ class ScanlightSidebar(QWidget):
         self._apply_gating()
 
     def _refresh_preset_hint(self) -> None:
-        """One-line note under the preset row for the current selection — white-light presets
-        do a single exposure. Empty/hidden for RGB film-stock presets or no selection."""
+        """One-line note under the preset row for the current selection — white-light presets do a
+        single exposure, and a preset that missed its calibration target repeats its advice here
+        (amber), so the fix is visible every time it is selected, not only in the minute after
+        calibrating. Empty/hidden otherwise."""
         name = self.preset_combo.currentData()
-        self.preset_hint.setText("Single white-light exposure — for B&W or slide film." if name in _BUILTIN_WHITE_PRESETS else "")
-        self.preset_hint.setVisible(bool(self.preset_hint.text()))
+        hint, warn = "", False
+        if name in _BUILTIN_WHITE_PRESETS:
+            hint = "Single white-light exposure — for B&W or slide film."
+        elif name:
+            preset = self._presets.get(name)
+            if preset is not None and preset.status in _EXPOSURE_WARNINGS:
+                label, _cause, fix = _EXPOSURE_WARNINGS[preset.status]
+                hint, warn = f"⚠ This preset is {label} — {fix}.", True
+        self.preset_hint.setStyleSheet(f"color: {_WARN_COLOR if warn else THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        self.preset_hint.setText(hint)
+        self.preset_hint.setVisible(bool(hint))
 
     def _on_preset_save(self) -> None:
         if not self._manual_mode:
@@ -609,11 +648,13 @@ class ScanlightSidebar(QWidget):
         self._apply_gating()
         self._set_status(f"Saved preset “{name}”.")
 
-    def _save_current_as_preset(self, name: str) -> None:
+    def _save_current_as_preset(self, name: str, status: str = "target") -> None:
         self._update_settings_from_ui()
         s = self._settings
         # Bake the active recipe from settings — set by calibration (metered) or the manual-mode
         # steppers. A later scan reproduces it; aperture is blank on a manual lens (set by hand).
+        # `status` is the calibration outcome ("over"/"under" flags the preset in the list until it
+        # is recalibrated); manual saves have no calibration and stay "target".
         self._presets.save(
             name,
             ScanlightPreset(
@@ -626,6 +667,7 @@ class ScanlightSidebar(QWidget):
                 shutter_b=s.shutter_b,
                 iso=s.iso,
                 aperture=s.aperture,
+                status=status,
             ),
         )
         self._reload_presets(select=name)
@@ -1060,11 +1102,14 @@ class ScanlightSidebar(QWidget):
         self._update_settings_from_ui()
         self._save_settings()
         # Graceful exposure warning: a channel that couldn't reach ETTR at the hardware limits is
-        # saved anyway (best effort) but the user is told which way to move the aperture.
-        warn = {
-            "over": " ⚠ over-exposed — close the aperture (e.g. f/11) and recalibrate.",
-            "under": " ⚠ under-exposed — open the aperture (e.g. f/5.6) and recalibrate.",
-        }.get(getattr(result, "status", "target"), "")
+        # saved anyway (best effort) but the user is told which way to move the aperture — on the
+        # status strip, as a pop-up, and via the preset's own flag in the dropdown.
+        status = getattr(result, "status", "target")
+        flagged = status in _EXPOSURE_WARNINGS
+        warn = ""
+        if flagged:
+            label, _cause, fix = _EXPOSURE_WARNINGS[status]
+            warn = f" ⚠ {label} — {fix}."
         # A finished run always carries its preset name: the flow refuses to start without one, and
         # the marker is cleared only on a terminal outcome (the worker emits exactly one of
         # finished/cancelled/error). The guard remains because saving under an empty name would
@@ -1073,14 +1118,34 @@ class ScanlightSidebar(QWidget):
         if self._calibrating_preset:
             name = self._calibrating_preset
             self._calibrating_preset = ""
-            self._save_current_as_preset(name)  # persist + reload + select + re-gate (bakes settings.iso/aperture)
+            self._save_current_as_preset(name, status=status)  # persist + reload + select + re-gate
             self._lv_target = self.lv_image
             self.calib_window.hide()
             # Pinned: the slider writes above armed the 60 ms light debounce, whose light_set echo
             # lands right after this line — without the pin it replaced this outcome (and its
             # aperture advice) with "Light: R… G… B…" before anyone could read it.
             self._set_status(f"Saved preset “{name}”.{warn}", pinned=True)
+            if flagged:
+                self._show_exposure_warning(name, status)
         self._stop_calibration_live_view()  # calibration ran inside live view → tear it down
+
+    def _show_exposure_warning(self, name: str, status: str) -> None:
+        """The calibration outcome as a pop-up. The status strip carries the same advice, but it is
+        one small line at the bottom of a busy panel — a preset that cannot reach its exposure
+        target deserves an unmissable surface. Non-blocking (show, not exec): the calibration
+        teardown behind it continues, and the pop-up is replaced on the next calibration."""
+        label, cause, fix = _EXPOSURE_WARNINGS[status]
+        if self._exposure_popup is not None:
+            self._exposure_popup.close()
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Calibration warning")
+        box.setText(f"Preset “{name}” is {label}.")
+        box.setInformativeText(
+            f"{cause} {fix[0].upper()}{fix[1:]}.\n\nThe preset was saved as a best effort and is marked ⚠ in the preset list."
+        )
+        box.show()
+        self._exposure_popup = box
 
     # ── browse ────────────────────────────────────────────────────────
 
@@ -1298,7 +1363,7 @@ class ScanlightSidebar(QWidget):
         RGB-only bodies (v1-v3) have no temperature sensor and report a bogus 0 °C, so hide it there
         (no white channel is our proxy for those models)."""
         if isinstance(temp, (int, float)) and self._light_has_white:
-            color = "#C8922E" if temp >= 55 else THEME.text_muted  # amber once it's getting warm
+            color = _WARN_COLOR if temp >= 55 else THEME.text_muted  # amber once it's getting warm
             self.light_temp.setStyleSheet(f"color: {color}; font-size: {THEME.font_size_small}px;")
             self.light_temp.setText(f"{temp:.0f} °C")
             self.light_temp.show()

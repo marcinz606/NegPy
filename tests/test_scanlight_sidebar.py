@@ -792,6 +792,59 @@ def test_calibration_on_target_has_no_warning(monkeypatch):
     assert "⚠" not in w.status_label.text()
 
 
+def test_calibration_over_exposure_opens_a_popup_and_bakes_the_flag(monkeypatch):
+    # The status strip alone is easy to overlook on a busy panel (rig feedback) — a preset that
+    # cannot reach its exposure target gets an unmissable pop-up, and the outcome is baked into the
+    # preset itself so the dropdown can keep flagging it.
+    w = _sidebar()
+    preset = _calibrate(w, monkeypatch, status="over")
+    assert preset.status == "over"  # persisted with the preset, not just shown once
+    assert w._exposure_popup is not None
+    assert "over-exposed" in w._exposure_popup.text()
+    assert "Close the aperture" in w._exposure_popup.informativeText()
+
+
+def test_calibration_on_target_opens_no_popup(monkeypatch):
+    w = _sidebar()
+    preset = _calibrate(w, monkeypatch, status="target")
+    assert preset.status == "target"
+    assert w._exposure_popup is None
+
+
+def _flagged_store(w, monkeypatch, name="Phoenix II", status="over"):
+    """Pretend the store holds one calibrated-but-flagged preset."""
+    from negpy.services.capture.presets import ScanlightPreset
+
+    monkeypatch.setattr(w._presets, "names", lambda: [name])
+    monkeypatch.setattr(w._presets, "get", lambda _n: ScanlightPreset(r_level=250, status=status))
+
+
+def test_flagged_preset_is_marked_amber_in_the_dropdown(monkeypatch):
+    # The flag lives in the DISPLAY text and colour only — item data stays the bare name, so
+    # selection logic and findData() are unaffected by the marker.
+    w = _sidebar()
+    _flagged_store(w, monkeypatch)
+    w._reload_presets()
+    idx = w.preset_combo.findData("Phoenix II")
+    assert idx >= 0
+    assert "⚠ over-exposed" in w.preset_combo.itemText(idx)
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush, QColor
+
+    assert w.preset_combo.itemData(idx, Qt.ItemDataRole.ForegroundRole) == QBrush(QColor("#C8922E"))
+
+
+def test_flagged_preset_repeats_its_advice_in_the_hint(monkeypatch):
+    # The pop-up fires once, right after calibrating; the hint keeps the advice attached to the
+    # preset every time it is selected later.
+    w = _sidebar()
+    _flagged_store(w, monkeypatch, status="under")
+    w._reload_presets(select="Phoenix II")
+    w._refresh_preset_hint()
+    assert "under-exposed" in w.preset_hint.text() and "open the aperture" in w.preset_hint.text()
+    assert w.preset_hint.isVisibleTo(w)
+
+
 def test_calibration_warning_survives_the_light_echo(monkeypatch):
     # The bug this pins: _on_calibration_finished sets the R/G/B sliders, each start()s the 60 ms
     # light debounce; the worker's light_set echo then wrote "Light: R… G… B…" over the warning —

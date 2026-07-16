@@ -56,3 +56,18 @@ def test_legacy_preset_without_exposure_defaults_blank():
     repo.save_global_setting("scanlight_presets", {"Old": {"r_level": 200, "shutter_r": "1/5"}})
     p = PresetStore(repo).get("Old")
     assert p is not None and p.iso == "" and p.aperture == ""
+
+
+def test_calibration_status_round_trips_and_legacy_reads_as_target():
+    # "over"/"under" flags a preset that missed ETTR at the hardware limits; the UI keeps warning
+    # until it is recalibrated, so the flag must survive persist + reload. Presets from builds
+    # before the field existed must read as "target" (no known issue), not crash or mis-flag.
+    store = PresetStore(FakeRepo())
+    store.save("Phoenix II", ScanlightPreset(r_level=250, status="over"))
+    loaded = store.get("Phoenix II")
+    assert loaded is not None and loaded.status == "over"
+
+    repo = FakeRepo()
+    repo.save_global_setting("scanlight_presets", {"Old": {"r_level": 200}})
+    p = PresetStore(repo).get("Old")
+    assert p is not None and p.status == "target"
