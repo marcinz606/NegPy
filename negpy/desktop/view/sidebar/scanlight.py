@@ -51,12 +51,12 @@ _EXPOSURE_WARNINGS = {
     "over": (
         "over-exposed",
         "Even the fastest shutter with the LEDs at their minimum still clips the film base.",
-        "close the aperture (e.g. f/11) and recalibrate",
+        "close the aperture (e.g. f/11) or lower the ISO, then recalibrate",
     ),
     "under": (
         "under-exposed",
         "Even the slowest shutter with the LEDs at their maximum stays below the exposure target.",
-        "open the aperture (e.g. f/5.6) and recalibrate",
+        "open the aperture (e.g. f/5.6) or raise the ISO, then recalibrate",
     ),
 }
 
@@ -1127,7 +1127,7 @@ class ScanlightSidebar(QWidget):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("Calibration stopped")
         box.setText(f"“{name}” was not saved — the film base is {label}.")
-        box.setInformativeText(f"{cause} {fix[0].upper()}{fix[1:]}, using the calibration window that stayed open.")
+        box.setInformativeText(f"{cause} {fix[0].upper()}{fix[1:]}.")
         box.show()
         self._exposure_popup = box
 

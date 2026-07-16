@@ -80,10 +80,10 @@ and solves one shared shutter plus a per-channel LED level so each channel lands
 under clipping, and records the ISO and aperture alongside them. That highlight matters:
 the clear base is what becomes the *black point* after inversion, so a clip guard checks
 the raw Bayer photosites and backs the exposure off if any channel saturates. Save it
-once per film stock and reuse it. If the target is unreachable at your aperture, the run
-stops right at the probe — a pop-up says which way to move the aperture (over-exposed →
-stop down, under-exposed → open up) and **no preset is saved**; adjust and calibrate again
-in the window that stayed open.
+once per film stock and reuse it. If the target is unreachable at your exposure, the run
+stops right at the probe — a pop-up says which way to adjust (over-exposed → close the
+aperture or lower the ISO; under-exposed → open up or raise the ISO) and **no preset is
+saved**; adjust and calibrate again in the window that stayed open.
 
 **Presets.** A selected preset is shown read-only — RGB levels, ISO, shutter and aperture —
 and the scan forces that exposure on the body before every frame, so a bumped dial can't
