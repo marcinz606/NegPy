@@ -47,7 +47,7 @@ from negpy.infrastructure.gpu.shader_loader import ShaderLoader
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.paths import get_resource_path
-from negpy.services.export.print import DECKLE_AMP_MM, KEYLINE_GAP_FRACTION, ROUNDED_RADIUS_MM, PrintService
+from negpy.services.export.print import PrintService
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
@@ -224,8 +224,8 @@ class GPUEngine:
             "retouch_u": 16,
             "lab": 96,
             "toning": 64,
-            "finish": 48,
-            "layout": 64,
+            "finish": 36,
+            "layout": 48,
             "density_hist": 16,
         }
         self._alignment = UNIFORM_ALIGNMENT_DEFAULT
@@ -1297,40 +1297,25 @@ class GPUEngine:
                 settings.export.export_print_size,
                 float(max(v_full_w, v_full_h)),
             )
-        f_data = (
-            struct.pack(
-                "fffffffffff",
-                float(settings.finish.vignette_stops),
-                float(settings.finish.vignette_size),
-                float(settings.finish.vignette_roundness),
-                float(v_full_w),
-                float(v_full_h),
-                float(v_off_x),
-                float(v_off_y),
-                float(carrier_px),
-                float(settings.finish.carrier_rough),
-                float(settings.finish.diffusion_amount),
-                float(scale_factor),
-            )
-            + b"\x00" * 4
+        f_data = struct.pack(
+            "fffffffff",
+            float(settings.finish.vignette_stops),
+            float(settings.finish.vignette_size),
+            float(settings.finish.vignette_roundness),
+            float(v_full_w),
+            float(v_full_h),
+            float(v_off_x),
+            float(v_off_y),
+            float(carrier_px),
+            float(settings.finish.carrier_rough),
         )
 
-        pw, ph, cw, ch, ox, oy, layout_dpi = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
+        pw, ph, cw, ch, ox, oy, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
         color_hex = PrintService.effective_border_color(settings.finish, settings.toning).lstrip("#")
         bg = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
         scale = float(cw) / max(1.0, float(crop_w))
-        border_px = int((settings.finish.border_size / 2.54) * layout_dpi)
-        keyline_px = int(round((settings.finish.keyline_width / 25.4) * layout_dpi)) if border_px > 0 else 0
-        keyline_gap_px = max(2, int(border_px * KEYLINE_GAP_FRACTION))
-        corner_style = {"rounded": 1, "deckle": 2}.get(settings.finish.border_corner_style, 0)
-        corner_param_px = float(((ROUNDED_RADIUS_MM if corner_style == 1 else DECKLE_AMP_MM) / 25.4) * layout_dpi)
-        # Mirror the CPU degenerate-size guard in _apply_corner_style.
-        if corner_style != 0 and (int(np.ceil(corner_param_px)) + 1) * 2 > min(cw, ch):
-            corner_style = 0
         y_data = (
-            struct.pack("ffffii", bg[0], bg[1], bg[2], 1.0, ox, oy)
-            + struct.pack("iiii", cw, ch, crop_w, crop_h)
-            + struct.pack("fiiif", scale, keyline_px, keyline_gap_px, corner_style, corner_param_px)
+            struct.pack("ffffii", bg[0], bg[1], bg[2], 1.0, ox, oy) + struct.pack("iiii", cw, ch, crop_w, crop_h) + struct.pack("f", scale)
         )
 
         # ROI offset + crop dims for the density-histogram pass (tex_norm is uncropped).

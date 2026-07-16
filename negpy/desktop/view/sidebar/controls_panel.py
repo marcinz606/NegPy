@@ -762,14 +762,11 @@ class ControlsPanel(QWidget):
                 fin.vignette_stops != _fin.vignette_stops,
                 fin.vignette_size != _fin.vignette_size,
                 fin.vignette_roundness != _fin.vignette_roundness,
-                fin.diffusion_amount != _fin.diffusion_amount,
                 fin.carrier_enabled != _fin.carrier_enabled,
                 fin.border_size != _fin.border_size,
                 fin.border_color != _fin.border_color,
                 fin.border_bottom_weight != _fin.border_bottom_weight,
                 fin.border_match_paper != _fin.border_match_paper,
-                fin.border_corner_style != _fin.border_corner_style,
-                fin.keyline_width != _fin.keyline_width,
             ]
         )
 

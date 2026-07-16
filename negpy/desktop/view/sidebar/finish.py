@@ -1,5 +1,5 @@
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QColorDialog, QComboBox, QHBoxLayout, QPushButton
+from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
@@ -27,13 +27,6 @@ class FinishSidebar(BaseSidebar):
         self.vignette_roundness_slider = CompactSlider("Roundness", 0.0, 1.0, conf.vignette_roundness)
         row1b.addWidget(self.vignette_roundness_slider)
         self.layout.addLayout(row1b)
-
-        self.layout.addWidget(section_subheader("ENLARGER DIFFUSION"))
-
-        row_diff = QHBoxLayout()
-        self.diffusion_slider = CompactSlider("Amount", 0.0, 1.0, conf.diffusion_amount)
-        row_diff.addWidget(self.diffusion_slider)
-        self.layout.addLayout(row_diff)
 
         self.layout.addWidget(section_subheader("FILED CARRIER"))
 
@@ -65,9 +58,7 @@ class FinishSidebar(BaseSidebar):
 
         row3 = QHBoxLayout()
         self.bottom_weight_slider = CompactSlider("Bottom weight", 1.0, 2.0, conf.border_bottom_weight)
-        self.keyline_slider = CompactSlider("Keyline", 0.0, 2.0, conf.keyline_width, unit=" mm")
         row3.addWidget(self.bottom_weight_slider)
-        row3.addWidget(self.keyline_slider)
         self.layout.addLayout(row3)
 
         row4 = QHBoxLayout()
@@ -75,14 +66,7 @@ class FinishSidebar(BaseSidebar):
         self.match_paper_btn.setCheckable(True)
         self.match_paper_btn.setChecked(conf.border_match_paper)
         self.match_paper_btn.setToolTip("Tint the mat with the toned paper white instead of the picked colour")
-        self.corner_combo = QComboBox()
-        self.corner_combo.addItem("Square corners", "square")
-        self.corner_combo.addItem("Rounded corners", "rounded")
-        self.corner_combo.addItem("Deckle edge", "deckle")
-        self.corner_combo.setCurrentIndex(max(0, self.corner_combo.findData(conf.border_corner_style)))
-        self.corner_combo.setToolTip("Print edge style: square, drugstore rounded corners, or deckled edge")
         row4.addWidget(self.match_paper_btn)
-        row4.addWidget(self.corner_combo)
         self.layout.addLayout(row4)
 
         self.layout.addStretch()
@@ -119,13 +103,6 @@ class FinishSidebar(BaseSidebar):
             lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, border_size=v)
         )
 
-        self.diffusion_slider.valueChanged.connect(
-            lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, diffusion_amount=v)
-        )
-        self.diffusion_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, diffusion_amount=v)
-        )
-
         self.carrier_btn.toggled.connect(lambda checked: self.update_config_section("finish", persist=True, carrier_enabled=bool(checked)))
         self.carrier_width_slider.valueChanged.connect(
             lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, carrier_width=v)
@@ -147,18 +124,8 @@ class FinishSidebar(BaseSidebar):
             lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, border_bottom_weight=v)
         )
 
-        self.keyline_slider.valueChanged.connect(
-            lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, keyline_width=v)
-        )
-        self.keyline_slider.valueCommitted.connect(
-            lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, keyline_width=v)
-        )
-
         self.match_paper_btn.toggled.connect(
             lambda checked: self.update_config_section("finish", persist=True, border_match_paper=bool(checked))
-        )
-        self.corner_combo.currentIndexChanged.connect(
-            lambda idx: self.update_config_section("finish", persist=True, border_corner_style=self.corner_combo.itemData(idx))
         )
 
         self.color_btn.clicked.connect(self._on_color_clicked)
@@ -177,15 +144,12 @@ class FinishSidebar(BaseSidebar):
             self.vignette_burn_slider.setValue(conf.vignette_stops)
             self.vignette_size_slider.setValue(conf.vignette_size)
             self.vignette_roundness_slider.setValue(conf.vignette_roundness)
-            self.diffusion_slider.setValue(conf.diffusion_amount)
             self.carrier_btn.setChecked(conf.carrier_enabled)
             self.carrier_width_slider.setValue(conf.carrier_width)
             self.carrier_rough_slider.setValue(conf.carrier_rough)
             self.border_slider.setValue(conf.border_size)
             self.bottom_weight_slider.setValue(conf.border_bottom_weight)
-            self.keyline_slider.setValue(conf.keyline_width)
             self.match_paper_btn.setChecked(conf.border_match_paper)
-            self.corner_combo.setCurrentIndex(max(0, self.corner_combo.findData(conf.border_corner_style)))
             self._update_color_btn(conf.border_color)
             self.color_btn.setEnabled(not conf.border_match_paper)
         finally:
@@ -196,15 +160,12 @@ class FinishSidebar(BaseSidebar):
             self.vignette_burn_slider,
             self.vignette_size_slider,
             self.vignette_roundness_slider,
-            self.diffusion_slider,
             self.carrier_btn,
             self.carrier_width_slider,
             self.carrier_rough_slider,
             self.border_slider,
             self.bottom_weight_slider,
-            self.keyline_slider,
             self.match_paper_btn,
-            self.corner_combo,
         ]
         for w in widgets:
             w.blockSignals(blocked)

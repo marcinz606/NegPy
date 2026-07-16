@@ -69,32 +69,6 @@ class TestGpuFinishParity(unittest.TestCase):
         )
         self._assert_parity(settings)
 
-    def test_diffusion(self):
-        """CPU Gaussian vs GPU Fibonacci-disk blur only approximate each other,
-        so this uses the lab-parity style looser bound rather than exact mad."""
-        from negpy.services.rendering.image_processor import ImageProcessor
-
-        processor = ImageProcessor()
-        if processor.engine_gpu is None:
-            self.skipTest("GPU engine not initialised")
-
-        settings = WorkspaceConfig()
-        settings = replace(settings, finish=replace(settings.finish, diffusion_amount=0.8))
-        img = _test_image()
-        # Soft dark blob: enough signal for the bloom, smooth enough that the
-        # per-frame metering stays identical between the CPU and GPU paths.
-        yy, xx = np.mgrid[0:64, 0:64].astype(np.float32)
-        blob = np.exp(-(((xx - 32.0) ** 2 + (yy - 32.0) ** 2) / (2.0 * 8.0**2)))
-        img = np.ascontiguousarray(np.clip(img - 0.6 * blob[..., None], 0.02, 1.0))
-        cpu = self._render(processor, settings, img, prefer_gpu=False)
-        gpu = self._render(processor, settings, img, prefer_gpu=True)
-
-        self.assertEqual(cpu.shape, gpu.shape)
-        mad = float(np.mean(np.abs(cpu - gpu)))
-        violation = float(np.mean(np.abs(cpu - gpu) > 0.1))
-        self.assertLess(mad, 0.02, f"mean abs diff {mad:.4f}")
-        self.assertLess(violation, 0.02, f"violation fraction {violation:.4%}")
-
     def test_filed_carrier(self):
         settings = WorkspaceConfig()
         settings = replace(
@@ -103,8 +77,8 @@ class TestGpuFinishParity(unittest.TestCase):
         )
         self._assert_parity(settings)
 
-    def test_layout_mat_keyline_rounded(self):
-        """GPU layout pass: bottom-weighted mat, keyline ring, rounded corners."""
+    def test_layout_mat_bottom_weight(self):
+        """GPU layout pass: bottom-weighted mat matches CPU dims."""
         from negpy.services.rendering.image_processor import ImageProcessor
 
         processor = ImageProcessor()
@@ -112,16 +86,7 @@ class TestGpuFinishParity(unittest.TestCase):
             self.skipTest("GPU engine not initialised")
 
         settings = WorkspaceConfig()
-        settings = replace(
-            settings,
-            finish=replace(
-                settings.finish,
-                border_size=1.0,
-                border_bottom_weight=2.0,
-                keyline_width=0.5,
-                border_corner_style="rounded",
-            ),
-        )
+        settings = replace(settings, finish=replace(settings.finish, border_size=1.0, border_bottom_weight=2.0))
         img = _test_image()
         gpu = self._render(processor, settings, img, prefer_gpu=True, size_ref=512.0)
 
@@ -129,17 +94,8 @@ class TestGpuFinishParity(unittest.TestCase):
         self.assertEqual(gpu.shape[:2], (ph, pw))
         # Bottom border (weight 2) is thicker than top
         self.assertGreater(ph - oy - ch, oy)
-        # Mat corner is paper white, keyline band above the image is black
+        # Mat corner is paper white
         np.testing.assert_allclose(gpu[0, 0], [1.0, 1.0, 1.0], atol=1e-3)
-        border_px = int((settings.finish.border_size / 2.54) * dpi)
-        kw = int(round((settings.finish.keyline_width / 25.4) * dpi))
-        gap = max(2, int(border_px * 0.3))
-        keyline_row = oy - gap - 1
-        np.testing.assert_allclose(gpu[keyline_row, ox + cw // 2], [0.0, 0.0, 0.0], atol=1e-3)
-        self.assertGreater(kw, 0)
-        # Rounded corner: extreme content corner shows mat, arc midpoints show image
-        np.testing.assert_allclose(gpu[oy, ox], [1.0, 1.0, 1.0], atol=1e-3)
-        self.assertLess(float(gpu[oy + ch // 2, ox].mean()), 0.99)
 
     def test_dodge_mixed_roundness(self):
         settings = WorkspaceConfig()

@@ -1,17 +1,13 @@
-import cv2
 import numpy as np
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.validation import ensure_image
-
-# Base blur radius at scale 1; the GPU mirror uses the same literal (finish.wgsl).
-DIFFUSION_RADIUS = 20.0
 
 # One filed carrier per darkroom: a fixed seed keeps the rebate edge identical
 # across every frame and across the CPU/GPU paths (the GPU samples the same array).
 _CARRIER_SEED = 1898
 CARRIER_SAMPLES = 512
-# Roughness slider at 1.0 jitters the rebate width by ±60%.
-CARRIER_JITTER = 0.6
+# Roughness slider at 1.0 jitters the rebate width by ±24%.
+CARRIER_JITTER = 0.24
 # Penumbra: the carrier sits above the negative, so its edge prints soft —
 # transition width as a fraction of the rebate width. Mirrored in finish.wgsl.
 CARRIER_SOFT = 0.35
@@ -63,21 +59,6 @@ def apply_carrier(img: ImageBuffer, width_px: float, rough: float) -> ImageBuffe
     out[:, :band] *= a_left[..., None]
     out[:, w - band :] *= a_right[:, ::-1][..., None]
     return ensure_image(out)
-
-
-def apply_diffusion(img: ImageBuffer, amount: float, scale_factor: float = 1.0) -> ImageBuffer:
-    """
-    Enlarger diffusion (stocking under the lens): dense negative areas — print
-    shadows — bloom into the highlights. Darken-only blend of a Gaussian-blurred
-    copy in scene-linear; highlights are never lifted.
-    """
-    if amount <= 0.0:
-        return img
-    base_r = max(3, int(DIFFUSION_RADIUS * scale_factor))
-    k = min((base_r * 2 + 1) | 1, 201)
-    sigma = base_r * 0.5
-    blur = cv2.GaussianBlur(img, (k, k), sigma)
-    return ensure_image(np.clip(img + amount * (np.minimum(blur, img) - img), 0.0, 1.0))
 
 
 def apply_vignette(img: ImageBuffer, stops: float, size: float, roundness: float = 0.0) -> ImageBuffer:

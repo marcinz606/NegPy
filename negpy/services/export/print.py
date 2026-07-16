@@ -7,18 +7,6 @@ from negpy.features.finish.models import FinishConfig
 from negpy.features.toning.logic import apply_chemical_toning, apply_split_toning
 from negpy.features.toning.models import ToningConfig
 
-# Keyline sits 30% of the border width away from the image edge.
-KEYLINE_GAP_FRACTION = 0.3
-# Fixed drugstore-print corner geometry; mirrored as literals in layout.wgsl.
-ROUNDED_RADIUS_MM = 4.0
-DECKLE_AMP_MM = 1.5
-_TAU = 2.0 * np.pi
-
-
-def _deckle_profile(s: np.ndarray, phase: float) -> np.ndarray:
-    """0..1 scallop along a normalized edge coordinate; mirrored in layout.wgsl."""
-    return 0.5 + 0.3 * np.sin(_TAU * 5.0 * s + 0.7 + phase) + 0.2 * np.sin(_TAU * 13.0 * s + 2.9 + phase)
-
 
 class PrintService:
     """
@@ -223,8 +211,6 @@ class PrintService:
             (r, g, b) if channels > 1 else (r,),
             dtype=img_scaled.dtype,
         )
-        bg = np.array((r, g, b) if channels > 1 else (r,), dtype=img_scaled.dtype)
-
         offset_x = (paper_w - target_w) // 2
         offset_y = PrintService.weighted_offset_y(paper_h, target_h, border_px, border_bottom_px)
 
@@ -236,72 +222,4 @@ class PrintService:
         else:
             paper[offset_y : offset_y + h_copy, offset_x : offset_x + w_copy] = img_scaled[:h_copy, :w_copy]
 
-        PrintService._apply_corner_style(paper, bg, finish.border_corner_style, dpi, offset_x, offset_y, w_copy, h_copy)
-        PrintService._draw_keyline(paper, finish.keyline_width, dpi, border_px, offset_x, offset_y, w_copy, h_copy)
-
         return paper, (offset_x, offset_y, w_copy, h_copy)
-
-    @staticmethod
-    def _draw_keyline(paper: np.ndarray, keyline_mm: float, dpi: int, border_px: int, ox: int, oy: int, cw: int, ch: int) -> None:
-        """Thin black rule around the image, offset into the mat. In-place."""
-        kw = int(round((keyline_mm / 25.4) * dpi))
-        if kw <= 0 or border_px <= 0:
-            return
-        gap = max(2, int(border_px * KEYLINE_GAP_FRACTION))
-        ph, pw = paper.shape[:2]
-        x0, x1 = max(ox - gap - kw, 0), min(ox + cw + gap + kw, pw)
-        y0, y1 = max(oy - gap - kw, 0), min(oy + ch + gap + kw, ph)
-        yt, yb = max(oy - gap, 0), min(oy + ch + gap, ph)
-        xl, xr = max(ox - gap, 0), min(ox + cw + gap, pw)
-        paper[y0:yt, x0:x1] = 0.0
-        paper[yb:y1, x0:x1] = 0.0
-        paper[yt:yb, x0:xl] = 0.0
-        paper[yt:yb, xr:x1] = 0.0
-
-    @staticmethod
-    def _apply_corner_style(paper: np.ndarray, bg: np.ndarray, style: str, dpi: int, ox: int, oy: int, cw: int, ch: int) -> None:
-        """Rounded or deckled content edge, alpha-composited against the mat. In-place."""
-        if style == "rounded":
-            r = (ROUNDED_RADIUS_MM / 25.4) * dpi
-            n = int(np.ceil(r)) + 1
-            if n * 2 > min(cw, ch):
-                return
-            yy, xx = np.meshgrid(np.arange(n, dtype=np.float32), np.arange(n, dtype=np.float32), indexing="ij")
-            for flip_y, flip_x in ((False, False), (False, True), (True, False), (True, True)):
-                lx = (cw - 1) - xx if flip_x else xx
-                ly = (ch - 1) - yy if flip_y else yy
-                ax = np.maximum(r - np.minimum(lx, cw - 1 - lx), 0.0)
-                ay = np.maximum(r - np.minimum(ly, ch - 1 - ly), 0.0)
-                alpha = np.where(
-                    (ax > 0) & (ay > 0),
-                    np.clip(r - np.sqrt(ax * ax + ay * ay) + 0.5, 0.0, 1.0),
-                    1.0,
-                ).astype(paper.dtype)
-                ys = oy + ch - n if flip_y else oy
-                xs = ox + cw - n if flip_x else ox
-                PrintService._composite_band(paper, bg, alpha, ys, xs)
-        elif style == "deckle":
-            amp = (DECKLE_AMP_MM / 25.4) * dpi
-            band = int(np.ceil(amp)) + 1
-            if band * 2 > min(cw, ch):
-                return
-            sx = (np.arange(cw, dtype=np.float32) / np.float32(cw))[None, :]
-            sy = (np.arange(ch, dtype=np.float32) / np.float32(ch))[:, None]
-            d = np.arange(band, dtype=np.float32)
-            # top / bottom / left / right, each with its own phase
-            a_t = np.clip(d[:, None] - amp * _deckle_profile(sx, 0.0) + 0.5, 0.0, 1.0).astype(paper.dtype)
-            a_b = np.clip(d[::-1][:, None] - amp * _deckle_profile(sx, 3.4) + 0.5, 0.0, 1.0).astype(paper.dtype)
-            a_l = np.clip(d[None, :] - amp * _deckle_profile(sy, 5.1) + 0.5, 0.0, 1.0).astype(paper.dtype)
-            a_r = np.clip(d[::-1][None, :] - amp * _deckle_profile(sy, 1.7) + 0.5, 0.0, 1.0).astype(paper.dtype)
-            PrintService._composite_band(paper, bg, a_t, oy, ox)
-            PrintService._composite_band(paper, bg, a_b, oy + ch - band, ox)
-            PrintService._composite_band(paper, bg, a_l, oy, ox)
-            PrintService._composite_band(paper, bg, a_r, oy, ox + cw - band)
-
-    @staticmethod
-    def _composite_band(paper: np.ndarray, bg: np.ndarray, alpha: np.ndarray, y: int, x: int) -> None:
-        h, w = alpha.shape
-        region = paper[y : y + h, x : x + w]
-        a = alpha[..., None] if region.ndim == 3 else alpha
-        region *= a
-        region += bg * (1.0 - a)

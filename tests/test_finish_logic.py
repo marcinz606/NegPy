@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from negpy.features.finish.logic import CARRIER_SAMPLES, apply_carrier, apply_diffusion, apply_vignette, carrier_profiles
+from negpy.features.finish.logic import CARRIER_SAMPLES, apply_carrier, apply_vignette, carrier_profiles
 
 
 class TestVignette(unittest.TestCase):
@@ -166,37 +166,6 @@ class TestCarrier(unittest.TestCase):
         img = np.full((4, 4, 3), 0.5, dtype=np.float32)
         res = apply_carrier(img, width_px=10.0, rough=1.0)
         self.assertEqual(res.shape, img.shape)
-
-
-class TestDiffusion(unittest.TestCase):
-    def _image_with_dark_patch(self) -> np.ndarray:
-        img = np.full((100, 100, 3), 0.8, dtype=np.float32)
-        img[40:60, 40:60] = 0.02
-        return img
-
-    def test_noop_when_amount_zero(self) -> None:
-        img = self._image_with_dark_patch()
-        res = apply_diffusion(img, amount=0.0)
-        np.testing.assert_array_equal(res, img)
-
-    def test_darken_only(self) -> None:
-        """Diffusion never lifts a pixel — blacks bloom, highlights hold."""
-        img = self._image_with_dark_patch()
-        res = apply_diffusion(img, amount=1.0)
-        self.assertTrue(np.all(res <= img + 1e-6))
-
-    def test_shadows_bleed_outward(self) -> None:
-        """Pixels just outside the dark patch get darker; far pixels don't."""
-        img = self._image_with_dark_patch()
-        res = apply_diffusion(img, amount=1.0)
-        self.assertLess(float(res[38, 50].mean()), 0.8 - 1e-3)
-        self.assertAlmostEqual(float(res[5, 5].mean()), 0.8, delta=1e-3)
-
-    def test_patch_core_unchanged(self) -> None:
-        """The darkest area cannot get darker than itself (min with blur)."""
-        img = self._image_with_dark_patch()
-        res = apply_diffusion(img, amount=1.0)
-        np.testing.assert_allclose(res[50, 50], img[50, 50], atol=1e-6)
 
 
 if __name__ == "__main__":
