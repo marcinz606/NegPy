@@ -79,6 +79,7 @@ class ScanlightSidebar(QWidget):
         self._manual_mode = False  # True while building a preset by hand (sliders + exposure editable)
         self._manual_populate_pending = False  # seed the sidebar exposure steppers from the body once, then let the user drive
         self._calibrating_preset = ""  # non-empty while the "+" calibration flow is saving a new preset
+        self._status_pinned = False  # a pinned status (calibration outcome) outranks the light echo
         self._magnifier_on = False  # camera focus magnifier state (driven by clicks on the live image)
         self._settings_loaded = False  # have the live camera-setting dropdowns been populated yet?
         self._slider_readouts: dict = {}  # slider → its value label (updated on preset apply, where signals are blocked)
@@ -437,6 +438,12 @@ class ScanlightSidebar(QWidget):
 
     @pyqtSlot(int, int, int, int)
     def _on_light_set(self, r: int, g: int, b: int, w: int) -> None:
+        # Ambient echo, not a user action: _on_calibration_finished sets the R/G/B sliders, each of
+        # which starts the light debounce, and this slot fires ~60 ms later — right after the
+        # calibration outcome ("Saved preset … ⚠ over-exposed …") was written. Declining to replace
+        # a pinned outcome is what keeps that advice on screen; the slider readouts echo the levels.
+        if self._status_pinned:
+            return
         self._set_status(f"Light: W{w}" if w else f"Light: R{r} G{g} B{b}")
 
     # ── presets ───────────────────────────────────────────────────────
@@ -1069,7 +1076,10 @@ class ScanlightSidebar(QWidget):
             self._save_current_as_preset(name)  # persist + reload + select + re-gate (bakes settings.iso/aperture)
             self._lv_target = self.lv_image
             self.calib_window.hide()
-            self._set_status(f"Saved preset “{name}”.{warn}")
+            # Pinned: the slider writes above armed the 60 ms light debounce, whose light_set echo
+            # lands right after this line — without the pin it replaced this outcome (and its
+            # aperture advice) with "Light: R… G… B…" before anyone could read it.
+            self._set_status(f"Saved preset “{name}”.{warn}", pinned=True)
         self._stop_calibration_live_view()  # calibration ran inside live view → tear it down
 
     # ── browse ────────────────────────────────────────────────────────
@@ -1230,8 +1240,13 @@ class ScanlightSidebar(QWidget):
     def _on_status(self, msg: str) -> None:
         self._set_status(msg)
 
-    def _set_status(self, text: str) -> None:
-        """Show a status line on the panel and mirror it into the live-view pop-up."""
+    def _set_status(self, text: str, *, pinned: bool = False) -> None:
+        """Show a status line on the panel and mirror it into the live-view pop-up.
+
+        `pinned` marks a message the user must not miss (the calibration outcome, possibly carrying
+        the over/under aperture advice): the ambient light echo (_on_light_set) declines to replace
+        it. Any other write — every one of them user-driven — replaces and unpins as usual."""
+        self._status_pinned = pinned and bool(text)
         self.status_label.setText(text)
         self.status_label.setVisible(bool(text))  # collapse the strip when there's no message
         self.lv_window.set_status(text)

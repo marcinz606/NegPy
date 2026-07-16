@@ -792,6 +792,23 @@ def test_calibration_on_target_has_no_warning(monkeypatch):
     assert "⚠" not in w.status_label.text()
 
 
+def test_calibration_warning_survives_the_light_echo(monkeypatch):
+    # The bug this pins: _on_calibration_finished sets the R/G/B sliders, each start()s the 60 ms
+    # light debounce; the worker's light_set echo then wrote "Light: R… G… B…" over the warning —
+    # so the one line telling the user their preset is over-exposed lived for a blink and vanished.
+    # The tests above never caught it because the echo arrives after the handler returns.
+    w = _sidebar()
+    _calibrate(w, monkeypatch, status="over")
+    assert "over-exposed" in w.status_label.text()
+    w._on_light_set(213, 92, 78, 0)  # the async echo, exactly as the worker delivers it
+    assert "over-exposed" in w.status_label.text(), "the light echo must not clobber the calibration outcome"
+    # The pin is not forever: the next user-driven status (a new flow) replaces it, and the ambient
+    # light echo works again afterwards.
+    w._set_status("Calibrating a new preset — see the pop-up.")
+    w._on_light_set(10, 20, 30, 0)
+    assert w.status_label.text() == "Light: R10 G20 B30"
+
+
 def test_calibration_bakes_the_metered_iso_and_aperture(tmp_path, monkeypatch):
     import json
 
