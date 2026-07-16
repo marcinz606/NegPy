@@ -1,6 +1,28 @@
 # Change Log
 
 
+## 0.38.0
+
+- New: **Keep / Reject triage on the contact sheet** — cull a roll where you see it: `K` marks a frame as a keeper (small check badge), `Shift+X` rejects it (cross badge + dim). Rejected frames stay on the sheet but drop out of batch exports and sidecar writes; a Sheet filter (All / Keepers only / Hide rejected) sits next to Sort, a tally counts the roll, and marks persist across sessions.
+- New: **Unreadable files get a badge** — a frame that fails to decode or thumbnail wears a red badge with the reason in its tooltip instead of sitting silently in the grid; clicking it retries, a successful load clears it.
+- Change: **Roll-wide actions are undoable** — Batch Analysis, roll-baseline loads and "Apply settings" now write each affected frame's edit history: `Ctrl+Z` on any frame steps back to before the roll action. Reset Settings and preset loads are recorded the same way instead of bypassing the log.
+- Change: **One grammar for the canvas tools** — first `Esc` clears in-progress points, second puts the tool down (fixes Esc going dead mid-draw); toolbar Undo matches `Ctrl+Z`; a stray click outside a tuned crop no longer wipes it. New keys: `Shift+S` Scratch, `Shift+B` Dodge & Burn, `Shift+R` Analysis Region, `|` flat-master peek (plus a toolbar button).
+- Change: **Naming and panel tidy-up** — visible labels standardize on "colour", and the white-balance section is renamed **Filtration** so "Colour" unambiguously means the Lab & Toning tab; Tone's four "Width" sliders become "Toe Width" / "Shoulder Width"; editing presets and contact-sheet templates can be deleted from their panels; the Roll Analysis section gets a header reset; drag-and-drop opens the first frame like Add Files.
+- Fix: **Scanner TIFFs now develop exactly like their DNGs** — 16-bit TIFFs without an embedded colour profile were wrongly treated as sRGB, so the same scan rendered and exported differently as TIFF and DNG. They now load as linear scanner data (existing ones will render slightly differently), and scanner-TIFF and JPEG thumbnails no longer appear nearly black.
+- Fix: **Colour no longer squeezed on output** — a stale Adobe RGB override stood in for the ProPhoto RGB working space on the way out (preview, exports and thumbnails), compressing the gamut and leaving everything darker and more muted than intended. Scans and RAWs also no longer claim to be Adobe RGB when they carry no colour profile at all, so **Same as Source** keeps them at full width instead of squeezing them on the way out; a file with an embedded profile still exports to that profile. Re-export older edits to pick up the correction.
+- Fix: **True Black sticks across frames** — it was the one toggle in its group that reset on every frame; it now carries to the next like the Snap, Auto Density, Auto Grade and Paper White toggles it sits beside.
+
+## 0.37.2
+
+- New: **Drag to heal** — the Heal tool now paints while you drag: a plain click still heals a single spot, but click-and-drag sweeps a heal along the cursor and commits the whole path as one stroke (one undo, one render). @linkmodo
+- Change: **Canvas UX polish** — Enter confirms and closes the crop like double-click; the heal brush, scratch pen and white-balance picker fall back to the normal arrow over empty canvas (and the floating toolbar stays on the arrow); the current-frame Export scope reads "Export Current Frame"; tooltips wait longer before popping; and the Windows scanner placeholder text no longer clips. @linkmodo
+- Fix: **Camera Scanning follow-ups** — RGB-only Scanlights (v1–v3, no white LED) now light the live view from the preset's own R/G/B instead of going dark, with the W slider and white-light preset hidden on those bodies; reopening Live View no longer flashes the previous session's last frame; and a rotating `negpy.log` plus a catch for unhandled UI errors turns a hard crash into a non-fatal notice with an attachable traceback. @light-sntchr
+
+## 0.37.1
+
+- Fix: **export no longer crashes on non-ASCII film metadata** — a film format like `4x5` (with a `×`) or other non-Latin characters NegPy writes into the EXIF no longer aborts a JPG, TIFF or PNG export; they're safely substituted. @RP2
+- Fix: **spot densitometer no longer crashes on file switch** — hovering the image to read densities while switching frames could abort the app; the readout now goes quiet during the transition instead. @linkmodo
+
 ## 0.37.0
 
 - New: **Roll-aware Auto Crop All** — Geometry can analyze every visible landscape frame together before Batch Analysis, using confident frames to calibrate weaker detections for more consistent camera-scan crops. It runs in the background with progress/cancel, preserves existing manual crops and ambiguous frames, and saves explicit per-frame crop and fine-rotation settings. The first release supports Image-only mode.

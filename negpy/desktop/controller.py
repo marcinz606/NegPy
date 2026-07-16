@@ -9,6 +9,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.desktop.converters import ImageConverter
+from negpy.desktop.render_memo import RenderMemo
 from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan
 from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_conflicts
 from negpy.desktop.workers.render import (
@@ -72,6 +73,8 @@ from negpy.services.rendering.preview_manager import PreviewManager
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
+
+_THUMB_FAILED_MSG = "thumbnail failed — file may be unreadable"
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,7 @@ class AppController(QObject):
     analysis_buffer_preview_requested = pyqtSignal(float)
     rotation_guide_requested = pyqtSignal()
     crop_guide_changed = pyqtSignal()
+    dust_overlay_changed = pyqtSignal()
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
@@ -301,6 +305,11 @@ class AppController(QObject):
         self.canvas: Any = None
         self._is_rendering = False
         self._pending_render_task: Any = None
+
+        # Last displayed render per frame — navigate-back paints it instantly
+        # while the authoritative render refreshes quietly (no spinner/toasts).
+        self._render_memo = RenderMemo()
+        self._memo_quiet = False
 
         self._render_debounce = QTimer()
         self._render_debounce.setSingleShot(True)
@@ -449,6 +458,7 @@ class AppController(QObject):
         self.preview_load_worker.splash.connect(self._on_splash_preview)
         self.preview_load_worker.finished.connect(self._on_preview_loaded)
         self.preview_load_worker.error.connect(self._on_render_error)
+        self.preview_load_worker.load_failed.connect(self._on_preview_load_failed)
 
         self.scan_devices_requested.connect(self.scan_worker.list_devices)
         self.scan_worker.devices_ready.connect(self.scan_devices_ready.emit)
@@ -480,6 +490,7 @@ class AppController(QObject):
         self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
 
         self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
+        self.session.session_emptied.connect(self._render_memo.clear)
         self.session.file_selected.connect(self.load_file)
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self._render_debounce.start)
@@ -490,6 +501,7 @@ class AppController(QObject):
         if missing:
             if self._begin_batch("thumbnails", "Generating thumbnails", abortable=False) is None:
                 return
+            self._thumb_requested = [f["name"] for f in missing]
             self.set_status("GENERATING THUMBNAILS...")
             self.thumbnail_requested.emit(missing)
 
@@ -506,6 +518,18 @@ class AppController(QObject):
             if pil_img:
                 u8_arr = np.array(pil_img.convert("RGB"))
                 self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
+
+        # Consume the request list: update_rendered() re-emits this same signal with
+        # single-file dicts after every settled render, and evaluating those against
+        # a stale batch list would falsely badge every other frame.
+        requested = getattr(self, "_thumb_requested", [])
+        self._thumb_requested = []
+        failed = {n for n in requested if not new_thumbs.get(n)}
+        for f in self.state.uploaded_files:
+            if f["name"] in failed:
+                f.setdefault("decode_failed", _THUMB_FAILED_MSG)
+            elif f["name"] in new_thumbs and f.get("decode_failed") == _THUMB_FAILED_MSG:
+                del f["decode_failed"]
         self.session.asset_model.refresh()
 
     # --- Batch progress popup -------------------------------------------------
@@ -751,6 +775,27 @@ class AppController(QObject):
                 return f.get("hash")
         return None
 
+    def _render_memo_key(self) -> str:
+        """Identity of everything that shapes the displayed render of the current
+        config: the edit itself plus every display-path input. Any mismatch is a
+        memo miss, so navigate-back only skips straight to pixels that would be
+        reproduced exactly."""
+        import hashlib
+        import json
+
+        proofing = self.state.soft_proof_enabled
+        parts = (
+            json.dumps(self.state.config.to_dict(), sort_keys=True, default=str),
+            self.state.hq_preview,
+            self.state.workspace_color_space,
+            self.state.gpu_enabled,
+            proofing,
+            self.state.icc_input_path if proofing else None,
+            self.effective_output_icc() if proofing else None,
+            hashlib.md5(self.state.monitor_icc_bytes).hexdigest() if self.state.monitor_icc_bytes else "",
+        )
+        return hashlib.md5(repr(parts).encode()).hexdigest()
+
     def load_file(self, file_path: str, preserve_zoom: bool = False, force_detect: bool = False) -> None:
         """
         Dispatches RAW decode to a background worker to keep the UI thread free.
@@ -758,13 +803,33 @@ class AppController(QObject):
         self._prefetch_gen += 1
         self._preview_load_t0 = time.perf_counter()
         self._requested_file_path = file_path
+
+        # Navigate-back fast path: the frame's last render is memoized and nothing
+        # that shaped it has changed (select_file already hydrated its config), so
+        # paint it now — no spinner, no toasts — and let the real render refresh
+        # metrics quietly underneath.
+        target_hash = self._file_hash_for_path(file_path)
+        memo = self._render_memo.get(target_hash, self._render_memo_key()) if target_hash else None
+
         if not preserve_zoom:
             self.zoom_requested.emit(1.0)
-        self.set_status(f"Loading {os.path.basename(file_path)}...")
-        self.loading_started.emit()
+        if memo is None:
+            self.set_status(f"Loading {os.path.basename(file_path)}...")
+            self.loading_started.emit()
         self._thumb_config = None
 
         self._render_cleanup_requested.emit()
+        # The cleanup destroys the GPU textures last_metrics still points at; drop the
+        # densitometer's probe source so hover readouts go quiet until the next render.
+        self.state.last_metrics.pop("normalized_log", None)
+
+        if memo is not None:
+            with self.state.metrics_lock:
+                self.state.last_metrics["base_positive"] = memo["base_positive"]
+                self.state.last_metrics["content_rect"] = memo.get("content_rect")
+                self.state.last_metrics["splash"] = False
+            self._memo_quiet = True
+            self.image_updated.emit()
 
         self.state.preview_raw = None
         self.state.preview_ir = None
@@ -790,6 +855,9 @@ class AppController(QObject):
                 use_camera_wb=not self.state.config.process.linear_raw,
                 full_resolution=self.state.hq_preview,
                 file_hash=self._file_hash_for_path(file_path),
+                # A memoized frame is already painted — the embedded-JPEG splash
+                # would repaint stale pixels over it.
+                use_splash=memo is None,
                 detect_mode=(
                     pending_import.detect_mode
                     if pending_import is not None
@@ -811,7 +879,17 @@ class AppController(QObject):
             self.state.last_metrics["splash"] = True
         self.image_updated.emit()
 
+    def _on_preview_load_failed(self, file_path: str, message: str) -> None:
+        for f in self.state.uploaded_files:
+            if f["path"] == file_path:
+                f["decode_failed"] = message
+                self.session.asset_model.refresh()
+                return
+
     def _on_preview_loaded(self, file_path: str, raw: Any, dims: Any, source_cs: str, ir_preview: Any, detected_mode: str) -> None:
+        for f in self.state.uploaded_files:
+            if f["path"] == file_path and f.pop("decode_failed", None) is not None:
+                self.session.asset_model.refresh()
         if self._requested_file_path != file_path:
             return
         logger.info(
@@ -822,6 +900,8 @@ class AppController(QObject):
         self.state.preview_raw = raw
         self.state.preview_ir = ir_preview
         self.state.has_ir = ir_preview is not None
+        if not self.state.has_ir and self.state.dust_overlay_mode == "ir":
+            self.state.dust_overlay_mode = "off"
         self.state.original_res = dims
         self.state.current_file_path = file_path
         self.state.source_cs = source_cs
@@ -926,6 +1006,17 @@ class AppController(QObject):
     def cycle_crop_guide_orientation(self) -> None:
         self.session.set_crop_guide_orientation((self.state.crop_guide_orientation + 1) % 8)
         self.crop_guide_changed.emit()
+
+    def cycle_dust_overlay(self) -> None:
+        """Advance the dust-detection overlay: Off → Marked → IR → Off
+        (IR skipped when the scan has no IR channel). Repaint only — the data is
+        already in state.last_metrics / state.preview_ir, no re-render needed."""
+        seq = ["off", "marked", "ir"]
+        if not self.state.has_ir:
+            seq.remove("ir")
+        cur = self.state.dust_overlay_mode if self.state.dust_overlay_mode in seq else "off"
+        self.state.dust_overlay_mode = seq[(seq.index(cur) + 1) % len(seq)]
+        self.dust_overlay_changed.emit()
 
     def handle_crop_rect_changed(self, nx1: float, ny1: float, nx2: float, ny2: float, persist: bool) -> None:
         """Live-updates (persist=False) or commits (persist=True) the manual crop rect
@@ -1251,7 +1342,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_dust_spots=[], manual_heal_strokes=[]),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 
@@ -1270,7 +1362,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 
@@ -1290,7 +1383,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 
@@ -1332,7 +1426,8 @@ class AppController(QObject):
             replace(
                 self.state.config,
                 retouch=replace(self.state.config.retouch, manual_heal_strokes=conf.manual_heal_strokes + [stroke]),
-            )
+            ),
+            persist=True,
         )
         self.request_render()
 
@@ -1566,9 +1661,14 @@ class AppController(QObject):
             crop_status = f"Crop status: all {total} files are cropped."
             crop_warning = "Analysis will run on each file's cropped negative area."
 
+        sheet_note = ""
+        if self.session.asset_model.sheet_filter != "all":
+            sheet_note = f"Note: the Sheet filter is on — only the {total} visible frame(s) are analyzed.\n\n"
+
         reply = QMessageBox.question(
             None,
             "Batch Analysis",
+            f"{sheet_note}"
             f"{crop_status}\n"
             f"{crop_warning}\n\n"
             "Batch Analysis measures the exposure bounds of every file and applies "
@@ -1628,6 +1728,9 @@ class AppController(QObject):
                 roll_name=None,
             )
             new_p = replace(p, process=new_process)
+            # The active file records its step via update_config(persist=True) below.
+            if f_info["hash"] != self.state.current_file_hash:
+                self.session.push_external_history(f_info["hash"], p, new_p)
             self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
         # Update current state
@@ -1676,6 +1779,8 @@ class AppController(QObject):
                     roll_name=name,
                 )
                 new_p = replace(p, process=new_process)
+                if f_info["hash"] != self.state.current_file_hash:
+                    self.session.push_external_history(f_info["hash"], p, new_p)
                 self.session.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
 
             new_process = replace(
@@ -1689,6 +1794,19 @@ class AppController(QObject):
             self.session.update_config(replace(self.state.config, process=new_process), persist=True)
             self.set_status(f"Applied Roll '{name}'", 2000)
             self.request_render()
+
+    def clear_roll_baseline(self) -> None:
+        """Roll Analysis section reset: take the current frame off the roll baseline
+        (both averaging axes + named roll) and re-meter it per-frame."""
+        new_process = replace(
+            self.state.config.process,
+            use_luma_average=False,
+            use_colour_average=False,
+            roll_name=None,
+            **invalidate_local_bounds(self.state.config.process),
+        )
+        self.session.update_config(replace(self.state.config, process=new_process), persist=True)
+        self.request_render()
 
     def reanalyze_current_file(self) -> None:
         """
@@ -1948,7 +2066,12 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
-        self.set_status("Rendering...")
+        # One-shot: the render right after a memo paint refreshes identical pixels —
+        # "Rendering..."/"READY" toasts would undercut the instant switch.
+        quiet = self._memo_quiet
+        self._memo_quiet = False
+        if not quiet:
+            self.set_status("Rendering...")
 
         preview_raw = self.state.preview_raw
         if preview_raw is None:
@@ -1964,6 +2087,13 @@ class AppController(QObject):
         icc_input = self.state.icc_input_path if proofing else None
         effective_output = self.effective_output_icc() if proofing else None
 
+        crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
+        # Only a plain render of the saved edit is reproducible on navigate-back;
+        # overrides (compare/flat peek), splash and tool previews are not memoized.
+        memo_key = ""
+        if config_override is None and not ephemeral and not crop_preview_full:
+            memo_key = self._render_memo_key()
+
         task = RenderTask(
             buffer=preview_raw,
             config=config_override if config_override is not None else self.state.config,
@@ -1976,8 +2106,10 @@ class AppController(QObject):
             readback_metrics=readback_metrics,
             ir_buffer=self.state.preview_ir,
             monitor_icc_bytes=self.state.monitor_icc_bytes,
-            crop_preview_full=self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
+            crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
+            memo_key=memo_key,
+            quiet=quiet,
         )
 
         if self._is_rendering:
@@ -2208,7 +2340,7 @@ class AppController(QObject):
     def request_export_selected(self) -> None:
         """Batch-exports the currently selected files using each file's own saved settings."""
         selected = [self.state.uploaded_files[i] for i in self.state.selected_indices if 0 <= i < len(self.state.uploaded_files)]
-        self.request_batch_export(files=selected)
+        self.request_batch_export(files=[f for f in selected if not f.get("excluded")])
 
     def request_batch_export(self, override_settings: bool = False, files: list[dict] | None = None) -> None:
         """Batch-exports the given files (all visible by default) using current settings, optionally applied to all."""
@@ -2224,7 +2356,11 @@ class AppController(QObject):
         sync_metadata = self.state.config.metadata.sync_to_batch
 
         if files is None:
-            files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+            files = [
+                self.state.uploaded_files[i]
+                for i in self.session.asset_model.visible_actual_indices_ordered()
+                if not self.state.uploaded_files[i].get("excluded")
+            ]
 
         if len(files) > 1 and not self._confirm_bulk_export(f"Export {len(files)} frames?"):
             return
@@ -2472,7 +2608,11 @@ class AppController(QObject):
 
     def export_edit_sidecars(self) -> None:
         """Explicit batch sidecar export for all visible files (ignores the on-export toggle)."""
-        visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        visible_files = [
+            self.state.uploaded_files[i]
+            for i in self.session.asset_model.visible_actual_indices_ordered()
+            if not self.state.uploaded_files[i].get("excluded")
+        ]
         if not visible_files:
             return
         written = self._write_edit_sidecars(visible_files)
@@ -2602,10 +2742,22 @@ class AppController(QObject):
             self.state.last_metrics.update(metrics)
             self.state.last_metrics["splash"] = False
 
+        # Memoize the displayed pixels for instant navigate-back. ndarray only:
+        # GPU textures are destroyed on navigation (in the default soft-proof
+        # path the displayed buffer is already a CPU array). Stored by reference
+        # — display buffers are read-only downstream.
+        result = metrics.get("base_positive")
+        if metrics.get("memo_key") and isinstance(result, np.ndarray) and metrics.get("source_hash") == self.state.current_file_hash:
+            self._render_memo.store(
+                metrics["source_hash"],
+                metrics["memo_key"],
+                {"base_positive": result, "content_rect": metrics.get("content_rect")},
+            )
+
         if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
             self._gpu_fallback_notified = True
             self.set_status("GPU acceleration failed — using CPU", 5000)
-        else:
+        elif not metrics.get("quiet"):
             self.set_status("READY", 1000)
 
         self.image_updated.emit()
@@ -2627,6 +2779,8 @@ class AppController(QObject):
         """
         with self.state.metrics_lock:
             self.state.last_metrics.update(metrics)
+        if "ir_degenerate" in metrics:
+            self.state.ir_degenerate = bool(metrics["ir_degenerate"])
         self.metrics_available.emit(metrics)
 
         # Don't persist bounds from an ephemeral (splash) render or a render of a different
@@ -2655,6 +2809,10 @@ class AppController(QObject):
                     render=False,
                     record_history=False,
                 )
+                # render=False: the displayed pixels already reflect these measured
+                # bounds — move the frame's memo entry to the updated config's key
+                # so the first navigate-back after an initial render still hits.
+                self._render_memo.rekey(src or self.state.current_file_hash or "", self._render_memo_key())
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False

@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState
 from negpy.features.process.models import ProcessMode
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 
 
 def _run(paths, **req_kw):
@@ -41,7 +42,7 @@ def _hydrate_and_load(controller, path, process_mode, *, autodetect=True):
     controller.state.current_file_is_new = True
     controller.state.autodetect_enabled = autodetect
     controller.state.hq_preview = False
-    controller.state.workspace_color_space = "Adobe RGB"
+    controller.state.workspace_color_space = WORKING_COLOR_SPACE
     controller.state.current_file_path = path
     controller._prefetch_gen = 0
     controller._file_hash_for_path.return_value = None

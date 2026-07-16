@@ -73,10 +73,12 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert sidebar.shadow_grade_slider not in sidebar._global_only
     assert sidebar.highlight_grade_slider not in sidebar._global_only
     # Long tooltips must be rich text so Qt word-wraps them; tooltips that carry
-    # their own markup (shortcut chips) must not get double-escaped.
-    assert sidebar.shadow_density_slider.toolTip().startswith("<qt>")
+    # their own markup (shortcut chips) must not get double-escaped. Shortcut-bearing
+    # sliders get their tooltips from ControlsPanel.apply_shortcut_tooltips (single
+    # source), so only locally-tooltipped widgets are asserted here.
+    assert sidebar.grade_trim_slider.toolTip().startswith("<qt>")
     assert sidebar.true_black_btn.toolTip().startswith("<qt>")
-    assert "&lt;" not in sidebar.density_slider.toolTip()
+    assert "&lt;" not in sidebar.grade_trim_slider.toolTip()
 
     # Red page: sliders retarget to the red trims; global-only controls grey out.
     sidebar.ch_r_btn.setChecked(True)
@@ -103,7 +105,8 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert sidebar.shadow_grade_slider.label.text() == "Shadows Grade R"
     assert sidebar.toe_slider.label.text() == "Toe R"
     assert sidebar.midtone_gamma_slider.label.text() == "Snap R"
-    assert sidebar.toe_w_trim_slider.label.text() == "Width R"
+    assert sidebar.toe_w_trim_slider.label.text() == "Toe Width R"
+    assert sidebar.sh_w_trim_slider.label.text() == "Shoulder Width R"
     assert sidebar.midtone_gamma_slider.isEnabled()
     assert sidebar.midtone_gamma_slider not in sidebar._global_only
     for w in sidebar._global_only:

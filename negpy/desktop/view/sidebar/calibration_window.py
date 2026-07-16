@@ -104,6 +104,10 @@ class CalibrationWindow(QDialog):
         """Reset and show the window for a fresh calibration."""
         self.name_edit.setText(default_name)
         self.image.clear_roi()
+        # Blank the previous session's frame before showing, so reopening goes straight to black +
+        # the buffering spinner instead of briefly flashing the stale image.
+        self.image.clear_frame()
+        self.image.set_loading(True)
         self.progress.setVisible(False)
         self.set_status("Click the clear film base (crosshair), name the stock, then Calibrate & Save.")
         self.show()

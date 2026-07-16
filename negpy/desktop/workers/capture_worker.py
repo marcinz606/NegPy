@@ -14,7 +14,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.infrastructure.capture.base import CaptureSettings
 from negpy.infrastructure.capture.gphoto import CameraUnavailable, GphotoCamera, list_cameras
-from negpy.infrastructure.capture.protocol import describe_hardware
+from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.kernel.system.logging import get_logger
 from negpy.services.capture.calibration import CalibrationService, Roi
@@ -268,7 +268,7 @@ class CaptureWorker(QObject):
         """Lightweight presence check for the auto-connect UI: is a body enumerated, and is
         the light up? Off the UI thread; called on a timer. Enumerating does not claim the
         camera, so this is safe to run while live view streams."""
-        status = {"usb_ok": False, "usb_model": "", "light_ok": False, "light_detail": "not connected"}
+        status = {"usb_ok": False, "usb_model": "", "light_ok": False, "light_detail": "not connected", "light_has_white": True}
         try:
             # Always ask the bus, never our own handle: unplugging the camera leaves the
             # handle behind, and it would keep reporting "connected" forever. Enumerating
@@ -286,6 +286,7 @@ class CaptureWorker(QObject):
         try:
             fw, hw = self._ensure_light(port).get_fw_version()
             status["light_ok"], status["light_detail"] = True, f"{describe_hardware(hw)} (fw{fw})"
+            status["light_has_white"] = has_white_channel(hw)
         except Exception:
             pass
         self.poll_status.emit(status)

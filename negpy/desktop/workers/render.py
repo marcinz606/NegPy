@@ -12,6 +12,7 @@ from negpy.features.exposure.analysis import output_histogram
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
 from negpy.features.geometry.processor import GeometryProcessor
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -42,6 +43,11 @@ class RenderTask:
     crop_preview_full: bool = False
     # Display-only first paint (embedded-JPEG splash): its analysis must not persist.
     ephemeral: bool = False
+    # Identity of everything that shaped these pixels; non-empty makes the result
+    # eligible for the navigate-back render memo (echoed in metrics).
+    memo_key: str = ""
+    # Quiet refresh behind a memo paint: no "Rendering..."/"READY" toasts.
+    quiet: bool = False
 
 
 @dataclass(frozen=True)
@@ -201,6 +207,8 @@ class RenderWorker(QObject):
             # Render identity, so the controller can reject stale/ephemeral bounds writeback.
             metrics["source_hash"] = task.source_hash
             metrics["ephemeral"] = task.ephemeral
+            metrics["memo_key"] = task.memo_key
+            metrics["quiet"] = task.quiet
 
             self.finished.emit(result, metrics)
             self.metrics_updated.emit(metrics)
@@ -376,6 +384,8 @@ class PreviewLoadWorker(QObject):
     finished = pyqtSignal(str, object, object, str, object, str)
     splash = pyqtSignal(str, object, object)  # (file_path, buffer, dims) — first paint
     error = pyqtSignal(str)
+    # (file_path, message) — error carries no path, so badge attribution needs this
+    load_failed = pyqtSignal(str, str)
 
     def __init__(self, preview_service) -> None:
         super().__init__()
@@ -410,7 +420,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     align=task.align,
                 )
-                source_cs = metadata.get("color_space", "")
+                source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
                 ir_preview = metadata.get("ir_preview")
                 detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
                 logger.info(
@@ -442,7 +452,7 @@ class PreviewLoadWorker(QObject):
                     file_hash=task.file_hash,
                     log_timings=True,
                 )
-            source_cs = metadata.get("color_space", "")
+            source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
             ir_preview = metadata.get("ir_preview")
             detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
             logger.info(
@@ -454,6 +464,7 @@ class PreviewLoadWorker(QObject):
         except Exception as e:
             logger.exception(f"Asset load failed: {task.file_path}")
             self.error.emit(str(e))
+            self.load_failed.emit(task.file_path, str(e))
 
     def _detect_mode(self, task: PreviewLoadTask, raw) -> str:
         """Classify film process mode; re-decode no-WB since the C41 mask is hidden by camera WB."""

@@ -31,9 +31,7 @@ class ShortcutSearchLineEdit(QLineEdit):
         known = self._known_bindings()
         portable = key_event_to_portable(event)
         allow_single_key = not self.text()
-        if portable and should_capture_binding(
-            event, known, portable=portable, allow_single_key=allow_single_key
-        ):
+        if portable and should_capture_binding(event, known, portable=portable, allow_single_key=allow_single_key):
             text = format_binding_display(portable)
             self.setText(text)
             self.textEdited.emit(text)

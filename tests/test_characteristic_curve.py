@@ -119,7 +119,7 @@ class TestCalibration(unittest.TestCase):
         .5, .75, 1."""
         x, out = _curve()
         idx = [0, 64, 128, 192, 256]
-        golden = [0.904, 0.739, 0.327, 0.114, 0.059]
+        golden = [0.905, 0.742, 0.327, 0.113, 0.058]
         for i, g in zip(idx, golden):
             self.assertAlmostEqual(out[i], g, delta=0.03, msg=f"x={x[i]:.2f}")
 

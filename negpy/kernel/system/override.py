@@ -44,6 +44,11 @@ max_texture_size = "auto"
 # preview_cache_max_bytes = 1200000000
 # preview_cache_max_entries = 8
 
+# How many full-resolution (HQ preview) buffers to keep in memory. Each is large
+# (a 60 MP scan is ~700 MB), but keeping the previous frame makes navigating back
+# instant. Raise on high-RAM machines together with preview_cache_max_bytes.
+# preview_cache_max_full_res_entries = 2
+
 [logging]
 # Verbosity: "debug", "info", "warning", "error"
 level = "info"
@@ -66,6 +71,7 @@ class OverrideConfig:
     max_texture_size: int | None = None
     preview_cache_max_bytes: int | None = None
     preview_cache_max_entries: int | None = None
+    preview_cache_max_full_res_entries: int | None = None
     log_level: str = "info"
 
     @property
@@ -136,6 +142,9 @@ def _parse(data: dict) -> OverrideConfig:
     raw_cache_n = performance.get("preview_cache_max_entries")
     cache_n: int | None = int(raw_cache_n) if isinstance(raw_cache_n, int) and raw_cache_n > 0 else None
 
+    raw_cache_fr = performance.get("preview_cache_max_full_res_entries")
+    cache_fr: int | None = int(raw_cache_fr) if isinstance(raw_cache_fr, int) and raw_cache_fr > 0 else None
+
     log_level = str(logging_section.get("level", "info")).lower()
     if log_level not in ("debug", "info", "warning", "error"):
         log_level = "info"
@@ -149,6 +158,7 @@ def _parse(data: dict) -> OverrideConfig:
         max_texture_size=max_tex,
         preview_cache_max_bytes=cache_b,
         preview_cache_max_entries=cache_n,
+        preview_cache_max_full_res_entries=cache_fr,
         log_level=log_level,
     )
 
@@ -214,3 +224,6 @@ def apply(cfg: OverrideConfig, app_config: AppConfig) -> None:
 
     if cfg.preview_cache_max_entries is not None:
         app_config.preview_cache_max_entries = cfg.preview_cache_max_entries
+
+    if cfg.preview_cache_max_full_res_entries is not None:
+        app_config.preview_cache_max_full_res_entries = cfg.preview_cache_max_full_res_entries

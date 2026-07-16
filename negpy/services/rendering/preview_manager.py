@@ -10,11 +10,13 @@ from PIL import Image
 import rawpy
 
 from negpy.domain.types import Dimensions, ImageBuffer
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_best_demosaic_algorithm, is_xtrans
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.features.retouch.logic import downsample_ir
 from negpy.features.rgbscan.logic import assemble_rgb
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
@@ -153,6 +155,7 @@ class PreviewManager:
         # Bake EXIF orientation into the buffer (postprocess runs with user_flip=0).
         orientation = metadata.get("orientation", 1)
         full_linear = apply_exif_orientation(uint16_to_float32(np.ascontiguousarray(rgb)), orientation)
+        del rgb  # release the uint16 decode buffer before the resize/copy peak
         ir_full = metadata.get("ir")
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
@@ -180,22 +183,25 @@ class PreviewManager:
                 )
             )
         else:
-            preview_raw = full_linear.copy()
+            # Full-res (or already preview-sized): hand the decoded buffer through
+            # as-is — a defensive copy here doubles peak RSS on HQ loads of large
+            # scans for no benefit (preview buffers are read-only downstream).
+            preview_raw = full_linear
         log("load-timing decode.resize %.0fms", (time.perf_counter() - t_resize0) * 1000)
 
         # IR channel travels with the preview; resize it to match the final preview dims.
-        if ir_full is not None and ir_full.shape[:2] == full_linear.shape[:2]:
+        # Min-preserving, not INTER_AREA: this is the only place the full-res IR exists,
+        # so a sub-pixel hair's dip has to survive *here* or dust detection never sees it.
+        if ir_full is not None and ir_full.shape[:2] == (h_p, w_p):
             ph, pw = preview_raw.shape[:2]
             if (ph, pw) != ir_full.shape[:2]:
-                metadata["ir_preview"] = cv2.resize(
-                    ir_full.astype(np.float32),
-                    (pw, ph),
-                    interpolation=cv2.INTER_AREA,
-                ).astype(np.float32)
+                metadata["ir_preview"] = downsample_ir(ir_full, APP_CONFIG.preview_render_size, dims=(pw, ph))
             else:
-                metadata["ir_preview"] = ir_full.astype(np.float32).copy()
+                # copy=False: at most one conversion copy; the buffer is read-only downstream.
+                metadata["ir_preview"] = ir_full.astype(np.float32, copy=False)
         else:
             metadata["ir_preview"] = None
+        del full_linear  # in the resize branch this frees the full-res buffer early
 
         out = ensure_image(preview_raw)
         log(
@@ -209,7 +215,10 @@ class PreviewManager:
                 workspace_color_space=color_space,
                 full_resolution=full_resolution,
             )
-            self._cache.put(ck, out.copy(), (h_orig, w_orig), dict(metadata))
+            # The cache entry aliases the returned buffer — the same read-only
+            # contract as a cache hit (callers must not mutate preview buffers),
+            # so no defensive copy; on HQ loads that copy was ~40% of steady RSS.
+            self._cache.put(ck, out, (h_orig, w_orig), dict(metadata))
         return out, (h_orig, w_orig), metadata
 
     # ------------------------------------------------------------------
@@ -264,7 +273,7 @@ class PreviewManager:
         ctx_mgr, metadata = loader_factory.get_loader(file_path)
 
         if color_space is None:
-            color_space = metadata.get("color_space", "Adobe RGB")
+            color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
             # Re-check now that color_space is resolved from metadata.
             if file_hash:
                 ck = PreviewCacheKey(
@@ -369,7 +378,8 @@ class PreviewManager:
         merged = assemble_rgb(red, _match(green_out), _match(blue_out), align=align)
         out = ensure_image(merged)
         if merged_key is not None:
-            self._cache.put(merged_key, out.copy(), dims, dict(meta))
+            # Freshly assembled buffer — cache and caller alias it (read-only contract).
+            self._cache.put(merged_key, out, dims, dict(meta))
         return out, dims, meta
 
     def load_splash_and_linear(
@@ -413,7 +423,7 @@ class PreviewManager:
             raise
 
         if color_space is None:
-            color_space = metadata.get("color_space", "Adobe RGB")
+            color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
             # Re-check now that color_space is resolved from metadata.
             if file_hash:
                 ck = PreviewCacheKey(

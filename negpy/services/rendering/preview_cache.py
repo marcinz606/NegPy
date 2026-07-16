@@ -57,6 +57,20 @@ class PreviewBufferCache:
     def put(self, key: PreviewCacheKey, buffer: ImageBuffer, dims: Dimensions, metadata: dict) -> None:
         t = key.as_tuple()
         b = int(buffer.nbytes)
+        if b > self._app.preview_cache_max_bytes:
+            # The byte cap would evict it immediately — don't churn the cache
+            # (and don't evict everything else on the way out).
+            logger.debug("preview cache skip: %d B entry exceeds %d B cap", b, self._app.preview_cache_max_bytes)
+            return
+        if key.full_resolution:
+            # Full-res entries get a small slot budget (default 2: the active
+            # frame plus the one navigated from, so going back is instant).
+            # Unbudgeted, HQ buffers (hundreds of MB each) would evict every
+            # small preview through the byte cap.
+            limit = max(1, self._app.preview_cache_max_full_res_entries)
+            full = [k for k in self._order if isinstance(k, tuple) and k[3] and k != t]
+            for other in full[: max(0, len(full) - (limit - 1))]:  # trim oldest beyond budget
+                self._remove_key(other)
         if t in self._data:
             self._order.remove(t)
         self._data[t] = _Entry(buffer=buffer, dims=dims, metadata=dict(metadata), byte_size=b)

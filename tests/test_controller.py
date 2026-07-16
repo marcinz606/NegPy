@@ -62,6 +62,69 @@ class TestAppController(unittest.TestCase):
         mock_slot.assert_called_once_with(1.0)
         self.assertFalse(self.controller.state.hq_preview)
 
+    def test_decode_failure_badges_file_and_success_clears_it(self):
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"}]
+
+        self.controller._on_preview_load_failed("/tmp/a.dng", "decode boom")
+        self.assertEqual(state.uploaded_files[0]["decode_failed"], "decode boom")
+
+        # A later successful load clears the badge even when the frame is no longer
+        # the requested one (the handler prefix runs before the early return).
+        self.controller._requested_file_path = "/tmp/other.dng"
+        self.controller._on_preview_loaded("/tmp/a.dng", None, (0, 0), "", None, "")
+        self.assertNotIn("decode_failed", state.uploaded_files[0])
+
+    def test_clear_roll_baseline_resets_axes(self):
+        state = self.mock_session_manager.state
+        state.config = replace(
+            state.config,
+            process=replace(state.config.process, use_luma_average=True, use_colour_average=True, roll_name="PORTRA-04"),
+        )
+
+        self.controller.clear_roll_baseline()
+
+        cfg = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertFalse(cfg.process.use_luma_average)
+        self.assertFalse(cfg.process.use_colour_average)
+        self.assertIsNone(cfg.process.roll_name)
+
+    def test_thumbnail_miss_marks_file_unreadable(self):
+        from PIL import Image
+
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {"name": "bad.dng", "path": "/tmp/bad.dng", "hash": "h1"},
+            {"name": "good.dng", "path": "/tmp/good.dng", "hash": "h2"},
+        ]
+        self.controller._thumb_requested = ["bad.dng", "good.dng"]
+
+        self.controller._on_thumbnails_finished({"good.dng": Image.new("RGB", (4, 4))})
+
+        self.assertIn("decode_failed", state.uploaded_files[0])
+        self.assertNotIn("decode_failed", state.uploaded_files[1])
+
+    def test_render_thumbnail_update_does_not_badge_other_frames(self):
+        from PIL import Image
+
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"},
+            {"name": "b.dng", "path": "/tmp/b.dng", "hash": "h2"},
+        ]
+        self.controller._thumb_requested = ["a.dng", "b.dng"]
+        img = Image.new("RGB", (4, 4))
+        self.controller._on_thumbnails_finished({"a.dng": img, "b.dng": img})
+        self.assertNotIn("decode_failed", state.uploaded_files[0])
+
+        # update_rendered() re-emits finished with a single-file dict after every
+        # settled render — it must not badge the frames absent from that dict.
+        self.controller._on_thumbnails_finished({"a.dng": img})
+        self.assertNotIn("decode_failed", state.uploaded_files[1])
+
     def test_capture_worker_cancelled_is_forwarded(self):
         cancelled = MagicMock()
         self.controller.capture_cancelled.connect(cancelled)
@@ -737,6 +800,36 @@ class TestPresetExportSelected(unittest.TestCase):
         self.assertEqual(len(tasks), 2)
         self.assertEqual({t.file_info["name"] for t in tasks}, {"IMG_0002.cr2"})
 
+    def test_batch_export_default_skips_rejected(self):
+        self.mock_session_manager.state.uploaded_files[1]["excluded"] = True
+        self.controller._ensure_valid_export_path = MagicMock(return_value="/tmp")
+        self.controller._confirm_bulk_export = MagicMock(return_value=True)
+
+        self.controller.request_batch_export()
+
+        tasks = self.controller._run_export_tasks.call_args.args[0]
+        names = [t.file_info["name"] for t in tasks]
+        self.assertEqual(names, ["IMG_0001.cr2", "scan.tif"])
+
+    def test_export_selected_skips_rejected(self):
+        self.mock_session_manager.state.uploaded_files[0]["excluded"] = True
+        self.controller._ensure_valid_export_path = MagicMock(return_value="/tmp")
+        self.controller._confirm_bulk_export = MagicMock(return_value=True)
+
+        self.controller.request_export_selected()
+
+        tasks = self.controller._run_export_tasks.call_args.args[0]
+        self.assertEqual([t.file_info["name"] for t in tasks], ["scan.tif"])
+
+    def test_batch_normalization_records_history_for_other_files(self):
+        self.mock_session_manager.repo.load_file_settings.return_value = None
+        self.controller._on_normalization_finished((0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+
+        pushed = {c.args[0] for c in self.mock_session_manager.push_external_history.call_args_list}
+        # The active file (h2) records its step via update_config(persist=True) instead.
+        self.assertEqual(pushed, {"h1", "h3"})
+        self.mock_session_manager.update_config.assert_called()
+
 
 class TestSessionRestore(unittest.TestCase):
     def setUp(self):
@@ -1107,6 +1200,123 @@ class TestContactSheetOutputDir(unittest.TestCase):
         self.controller.state.config = replace(self.controller.state.config, export=export)
         out = self.controller._contact_sheet_output_dir(self.visible_files)
         self.assertEqual(out, "/rolls/frame")
+
+
+class TestRetouchPersistence(unittest.TestCase):
+    """Regression: heal/scratch edits must persist=True like every other discrete
+    canvas action (e.g. _handle_wb_pick) — otherwise select_file's "save before
+    switching" guard (gated on the dirty flag persist=True sets) skips them, and
+    switching files silently discards heals that were never written to disk."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.request_render = MagicMock()
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def _stroke(self):
+        return ([[0.1, 0.1]], 5.0, 0.01, -0.01)
+
+    def test_commit_heal_stroke_via_dust_pick_persists(self):
+        self.controller.state.active_tool = ToolMode.DUST_PICK
+        self.controller.state.last_metrics["uv_grid"] = MagicMock()
+        with patch("negpy.desktop.controller.CoordinateMapping") as mock_map:
+            mock_map.map_click_to_raw.return_value = (0.5, 0.5)
+            self.controller.handle_canvas_clicked(0.5, 0.5)
+        self.mock_session_manager.update_config.assert_called_once()
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(len(saved.retouch.manual_heal_strokes), 1)
+
+    def test_handle_heal_stroke_completed_persists(self):
+        self.controller.state.last_metrics["uv_grid"] = MagicMock()
+        with patch("negpy.desktop.controller.CoordinateMapping") as mock_map:
+            mock_map.map_click_to_raw.return_value = (0.5, 0.5)
+            self.controller.handle_heal_stroke_completed([(0.4, 0.4), (0.6, 0.6)])
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+
+    def test_undo_last_retouch_persists(self):
+        retouch = replace(self.controller.state.config.retouch, manual_heal_strokes=[self._stroke()])
+        self.controller.state.config = replace(self.controller.state.config, retouch=retouch)
+
+        self.controller.undo_last_retouch()
+
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved.retouch.manual_heal_strokes, [])
+
+    def test_delete_heal_persists(self):
+        retouch = replace(self.controller.state.config.retouch, manual_heal_strokes=[self._stroke(), self._stroke()])
+        self.controller.state.config = replace(self.controller.state.config, retouch=retouch)
+
+        self.controller.delete_heal("stroke", 0)
+
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(len(saved.retouch.manual_heal_strokes), 1)
+
+    def test_clear_retouch_persists(self):
+        retouch = replace(self.controller.state.config.retouch, manual_heal_strokes=[self._stroke()])
+        self.controller.state.config = replace(self.controller.state.config, retouch=retouch)
+
+        with patch("negpy.desktop.view.confirm.confirm_clear_heals", return_value=True):
+            self.controller.clear_retouch()
+
+        self.assertTrue(self.mock_session_manager.update_config.call_args.kwargs.get("persist"))
+        saved = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved.retouch.manual_heal_strokes, [])
+
+    def test_cycle_dust_overlay_with_ir(self):
+        self.controller.state.has_ir = True
+        self.controller.state.dust_overlay_mode = "off"
+        seq = []
+        for _ in range(5):
+            self.controller.cycle_dust_overlay()
+            seq.append(self.controller.state.dust_overlay_mode)
+        self.assertEqual(seq, ["marked", "ir", "off", "marked", "ir"])
+
+    def test_cycle_dust_overlay_skips_ir_without_ir(self):
+        self.controller.state.has_ir = False
+        self.controller.state.dust_overlay_mode = "off"
+        seq = []
+        for _ in range(4):
+            self.controller.cycle_dust_overlay()
+            seq.append(self.controller.state.dust_overlay_mode)
+        self.assertEqual(seq, ["marked", "off", "marked", "off"])
+
+    def test_cycle_dust_overlay_from_ir_when_ir_lost(self):
+        # Mode was "ir" but the new frame has none: cycling treats it as off.
+        self.controller.state.has_ir = False
+        self.controller.state.dust_overlay_mode = "ir"
+        self.controller.cycle_dust_overlay()
+        self.assertEqual(self.controller.state.dust_overlay_mode, "marked")
 
 
 if __name__ == "__main__":

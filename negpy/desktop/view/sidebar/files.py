@@ -36,14 +36,53 @@ class _ThumbnailDelegate(QStyledItemDelegate):
     """Contact-sheet rendering: scales each cached ~120px thumbnail into its cell and
     draws a subtle 1px border hugging the image outline (no cell box). The selected
     image is shown full-brightness with a white frame while the others are dimmed; a
-    dirty active file gets an accent line along the image's bottom edge."""
+    dirty active file gets an accent line along the image's bottom edge. Triage marks
+    are small bottom-right badges: check = keeper, cross + heavy dim = rejected; the
+    top-right badge is reserved for decode failures."""
 
     _MARGIN = 3
     _RADIUS = 4  # = button border-radius (modern_dark.qss)
+    _MARK = QColor(183, 28, 28, 150)  # THEME.accent_primary at ~60% alpha
+
+    def _draw_mark_badge(self, painter: QPainter, img_rect: QRect, check: bool) -> None:
+        r = 9
+        cx, cy = img_rect.right() - r - 4, img_rect.bottom() - r - 4
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._MARK)
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        painter.setPen(QPen(QColor(255, 255, 255, 230), 2, cap=Qt.PenCapStyle.RoundCap))
+        if check:
+            painter.drawLine(cx - 4, cy, cx - 1, cy + 3)
+            painter.drawLine(cx - 1, cy + 3, cx + 4, cy - 3)
+        else:
+            painter.drawLine(cx - 3, cy - 3, cx + 3, cy + 3)
+            painter.drawLine(cx + 3, cy - 3, cx - 3, cy + 3)
+
+    def _draw_failed_badge(self, painter: QPainter, img_rect: QRect) -> None:
+        r = 9
+        cx, cy = img_rect.right() - r - 4, img_rect.top() + r + 4
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(THEME.accent_primary))
+        painter.drawEllipse(QRect(cx - r, cy - r, 2 * r, 2 * r))
+        painter.setPen(QPen(QColor("#FFFFFF"), 2))
+        painter.drawLine(cx, cy - 4, cx, cy + 1)
+        painter.drawPoint(cx, cy + 4)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        file_info = index.data(Qt.ItemDataRole.UserRole) or {}
+        failed = bool(file_info.get("decode_failed"))
+
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         if icon is None or icon.isNull():
+            if failed:
+                painter.save()
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                area = option.rect.adjusted(self._MARGIN, self._MARGIN, -self._MARGIN, -self._MARGIN)
+                painter.setPen(QPen(QColor(THEME.border_color), 1))
+                painter.setBrush(QColor(20, 20, 20))
+                painter.drawRoundedRect(area, self._RADIUS, self._RADIUS)
+                self._draw_failed_badge(painter, area)
+                painter.restore()
             return
         base = icon.pixmap(QSize(4096, 4096))  # largest available pixmap (~120px)
         if base.isNull():
@@ -66,13 +105,21 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         # Selected image full-brightness with the armed-red frame; others dimmed.
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        rejected = bool(file_info.get("excluded"))
+        keeper = bool(file_info.get("keeper"))
 
         clip = QPainterPath()
         clip.addRoundedRect(QRectF(img_rect), self._RADIUS, self._RADIUS)
         painter.setClipPath(clip)
-        painter.setOpacity(1.0 if (selected or hover) else 0.5)
+        base_opacity = 1.0 if (selected or hover) else 0.5
+        painter.setOpacity(0.25 if rejected else base_opacity)
         painter.drawPixmap(img_rect.topLeft(), scaled)
         painter.setOpacity(1.0)
+
+        if rejected:
+            self._draw_mark_badge(painter, img_rect, check=False)
+        elif keeper:
+            self._draw_mark_badge(painter, img_rect, check=True)
         painter.setClipping(False)
 
         if selected:
@@ -84,6 +131,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(img_rect.adjusted(0, 0, -1, -1), self._RADIUS, self._RADIUS)
+
+        if failed:
+            self._draw_failed_badge(painter, img_rect)
 
         painter.restore()
 
@@ -215,6 +265,24 @@ class FileBrowser(QWidget):
         self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
         self.apply_btn.clicked.connect(self._open_apply_dialog)
 
+        # Sheet filter dropdown
+        self.sheet_btn = QToolButton()
+        self.sheet_btn.setToolTip("Sheet — filter the contact sheet by triage mark")
+        self.sheet_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        sheet_menu = QMenu(self.sheet_btn)
+        self._sheet_group = QActionGroup(self)
+        self._sheet_group.setExclusive(True)
+        self.act_sheet_all = sheet_menu.addAction("All frames")
+        self.act_sheet_keepers = sheet_menu.addAction("Keepers only")
+        self.act_sheet_unrejected = sheet_menu.addAction("Hide rejected")
+        for act in (self.act_sheet_all, self.act_sheet_keepers, self.act_sheet_unrejected):
+            act.setCheckable(True)
+            self._sheet_group.addAction(act)
+        self.act_sheet_all.triggered.connect(lambda: self._apply_sheet_filter("all"))
+        self.act_sheet_keepers.triggered.connect(lambda: self._apply_sheet_filter("keepers"))
+        self.act_sheet_unrejected.triggered.connect(lambda: self._apply_sheet_filter("unrejected"))
+        self.sheet_btn.setMenu(sheet_menu)
+
         # Sort dropdown
         self.sort_btn = QToolButton()
         self.sort_btn.setIcon(qta.icon("fa5s.sort", color=THEME.text_primary))
@@ -250,6 +318,7 @@ class FileBrowser(QWidget):
             self.hot_folder_btn,
             self.rgb_scan_btn,
             self.apply_btn,
+            self.sheet_btn,
             self.sort_btn,
         ):
             btn.setIconSize(icon_size)
@@ -265,6 +334,7 @@ class FileBrowser(QWidget):
         toolbar_row.addWidget(self.apply_btn)
         toolbar_row.addStretch()
         toolbar_row.addWidget(self._create_separator())
+        toolbar_row.addWidget(self.sheet_btn)
         toolbar_row.addWidget(self.sort_btn)
         layout.addLayout(toolbar_row)
 
@@ -289,6 +359,11 @@ class FileBrowser(QWidget):
         search_row.addWidget(self.regex_btn)
         layout.addLayout(search_row)
 
+        self.tally_label = QLabel("")
+        self.tally_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: 10px;")
+        self.tally_label.setVisible(False)
+        layout.addWidget(self.tally_label)
+
         self.list_view = ThumbnailGridView()
         self.list_view.setModel(self.session.asset_model)
         self.list_view.setItemDelegate(_ThumbnailDelegate(self.list_view))
@@ -299,6 +374,10 @@ class FileBrowser(QWidget):
         self.list_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         layout.addWidget(self.list_view)
+
+        # Applied after list_view exists — the filter prunes selection against the view.
+        saved_sheet = self.session.repo.get_global_setting("sheet_filter") or "all"
+        self._apply_sheet_filter(str(saved_sheet), save=False)
 
     def _connect_signals(self) -> None:
         self.add_files_btn.clicked.connect(self._on_add_files)
@@ -311,7 +390,7 @@ class FileBrowser(QWidget):
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
         self.session.state_changed.connect(self.sync_ui)
-        self.session.files_changed.connect(self.sync_ui)
+        self.session.files_changed.connect(self._on_files_changed)
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
 
@@ -320,6 +399,13 @@ class FileBrowser(QWidget):
         del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.list_view)
         del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         del_shortcut.activated.connect(self._on_delete_key)
+
+    def _on_files_changed(self) -> None:
+        # A mark toggle can hide the active frame under a Sheet filter — pruning then
+        # auto-advances the selection to the next visible frame (reject → move on).
+        if self.session.asset_model.sheet_filter != "all":
+            self._prune_selection_to_visible()
+        self.sync_ui()
 
     def _on_unload_clicked(self) -> None:
         count = len(self.session.state.selected_indices)
@@ -341,6 +427,7 @@ class FileBrowser(QWidget):
         model = self.session.asset_model
         selection_model = self.list_view.selectionModel()
         self._update_unload_button()
+        self._update_tally()
 
         current_actual = {
             model.display_to_actual(idx.row()) for idx in selection_model.selectedIndexes() if model.display_to_actual(idx.row()) >= 0
@@ -434,6 +521,34 @@ class FileBrowser(QWidget):
         self.session.asset_model.set_sort_descending(descending)
         if save:
             self.session.repo.save_global_setting("file_sort_descending", descending)
+
+    def _apply_sheet_filter(self, mode: str, save: bool = True) -> None:
+        self.act_sheet_all.setChecked(mode == "all")
+        self.act_sheet_keepers.setChecked(mode == "keepers")
+        self.act_sheet_unrejected.setChecked(mode == "unrejected")
+        icon_color = "white" if mode != "all" else THEME.text_primary
+        self.sheet_btn.setIcon(qta.icon("fa5s.filter", color=icon_color))
+        self.session.asset_model.set_sheet_filter(mode)
+        if save:
+            self.session.repo.save_global_setting("sheet_filter", mode)
+        self._prune_selection_to_visible()
+        self.sync_ui()
+
+    def _update_tally(self) -> None:
+        files = self.session.state.uploaded_files
+        if not files:
+            self.tally_label.setVisible(False)
+            return
+        keepers = sum(1 for f in files if f.get("keeper"))
+        rejected = sum(1 for f in files if f.get("excluded"))
+        n = len(files)
+        text = f"{n} frame{'s' if n != 1 else ''}"
+        if keepers:
+            text += f" · {keepers} keeper{'s' if keepers != 1 else ''}"
+        if rejected:
+            text += f" · {rejected} rejected"
+        self.tally_label.setText(text)
+        self.tally_label.setVisible(True)
 
     def _on_hot_folder_toggled(self, checked: bool) -> None:
         self._update_hot_folder_style(checked)
@@ -558,6 +673,17 @@ class FileBrowser(QWidget):
         act_paste.triggered.connect(self.session.paste_settings)
         act_paste.setEnabled(state.clipboard is not None)
         menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
+        menu.addSeparator()
+        targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
+        n = len(targets)
+        act_keep = menu.addAction(f"Keep {n} frames" if multi else "Keep")
+        act_keep.setCheckable(True)
+        act_keep.setChecked(bool(targets) and all(state.uploaded_files[i].get("keeper") for i in targets))
+        act_keep.triggered.connect(lambda: self.session.toggle_mark("keeper"))
+        act_reject = menu.addAction(f"Reject {n} frames" if multi else "Reject")
+        act_reject.setCheckable(True)
+        act_reject.setChecked(bool(targets) and all(state.uploaded_files[i].get("excluded") for i in targets))
+        act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
         menu.addAction("Apply settings…").triggered.connect(self._open_apply_dialog)
         if not multi:

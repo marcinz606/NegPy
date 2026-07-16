@@ -37,5 +37,23 @@ class TestDisplayBufferForCanvas(unittest.TestCase):
         self.assertIs(_display_buffer_for_canvas(array), array)
 
 
+class TestDropEvent(unittest.TestCase):
+    def test_drop_auto_opens_like_add_dialogs(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from negpy.desktop.view.main_window import MainWindow
+
+        stub = SimpleNamespace(controller=MagicMock())
+        url = MagicMock()
+        url.toLocalFile.return_value = "/tmp/scan.dng"
+        event = MagicMock()
+        event.mimeData.return_value.urls.return_value = [url]
+
+        MainWindow.dropEvent(stub, event)
+
+        stub.controller.request_asset_discovery.assert_called_once_with(["/tmp/scan.dng"], auto_open=True)
+
+
 if __name__ == "__main__":
     unittest.main()

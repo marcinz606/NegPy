@@ -267,10 +267,7 @@ class ShortcutEditorDialog(QDialog):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
 
-        header_style = (
-            f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px; "
-            f"font-weight: {THEME.weight_semibold};"
-        )
+        header_style = f"color: {THEME.text_muted}; font-size: {THEME.font_size_xs}px; font-weight: {THEME.weight_semibold};"
         for col, label in enumerate(("Action", "Default", "Shortcut", "Step")):
             hdr = QLabel(label)
             hdr.setStyleSheet(header_style)
@@ -351,7 +348,7 @@ class ShortcutEditorDialog(QDialog):
     def _make_step_edit(self, group) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
         spin.setDecimals(group.step_decimals)
-        spin.setMinimum(10 ** -group.step_decimals)
+        spin.setMinimum(10**-group.step_decimals)
         spin.setMaximum(10_000.0)
         spin.setSingleStep(group.default_step)
         if group.step_suffix:

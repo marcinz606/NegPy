@@ -27,8 +27,14 @@ class PresetsSidebar(BaseSidebar):
         self.load_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
         self.load_btn.setToolTip("Apply the selected preset to the current image")
 
+        self.delete_btn = QPushButton()
+        self.delete_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
+        self.delete_btn.setToolTip("Delete the selected preset")
+        self.delete_btn.setFixedWidth(32)
+
         row_load.addWidget(self.preset_combo, stretch=1)
         row_load.addWidget(self.load_btn)
+        row_load.addWidget(self.delete_btn)
         self.layout.addLayout(row_load)
 
         # Save Row
@@ -48,6 +54,24 @@ class PresetsSidebar(BaseSidebar):
     def _connect_signals(self) -> None:
         self.load_btn.clicked.connect(self._on_load_clicked)
         self.save_btn.clicked.connect(self._on_save_clicked)
+        self.delete_btn.clicked.connect(self._on_delete_clicked)
+
+    def _on_delete_clicked(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+
+        name = self.preset_combo.currentText()
+        if not name:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Preset",
+            f"Delete preset '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            Presets.delete_preset(name)
+            self._refresh_presets()
 
     def _on_load_clicked(self) -> None:
         name = self.preset_combo.currentText()
@@ -59,7 +83,7 @@ class PresetsSidebar(BaseSidebar):
             current_dict = self.state.config.to_dict()
             current_dict.update(p_settings)
             new_config = WorkspaceConfig.from_flat_dict(current_dict)
-            self.controller.session.update_config(new_config)
+            self.controller.session.update_config(new_config, persist=True)
             self.controller.request_render()
 
     def _on_save_clicked(self) -> None:

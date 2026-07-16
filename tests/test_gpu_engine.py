@@ -296,6 +296,48 @@ class TestGPUEngine(unittest.TestCase):
         np.testing.assert_array_equal(hist_no_border, hist_black, err_msg="Black border pixels skewed the histogram")
         np.testing.assert_array_equal(hist_no_border, hist_white, err_msg="White border pixels skewed the histogram")
 
+    def test_readback_after_destroy_returns_zeros(self):
+        """A destroyed texture must answer readbacks with zeros, never touch dead wgpu objects."""
+        from negpy.infrastructure.gpu.resources import GPUTexture
+
+        tex = GPUTexture(16, 16)
+        tex.upload(np.random.rand(16, 16, 4).astype(np.float32))
+        tex.readback_region(0, 0, 1, 1)  # allocate the staging buffer pre-destroy
+        tex.destroy()
+        np.testing.assert_array_equal(tex.readback_region(0, 0, 1, 1), np.zeros((1, 1, 4), dtype=np.float32))
+        np.testing.assert_array_equal(tex.readback(), np.zeros((16, 16, 4), dtype=np.float32))
+
+    def test_concurrent_readback_and_destroy(self):
+        """UI-thread readbacks racing a worker-thread destroy must serialize, not panic.
+
+        Regression: the densitometer's hover readback overlapped the render worker's
+        engine cleanup; destroying the mapped staging buffer aborted the process
+        inside wgpu-native (uncatchable Rust panic)."""
+        import threading
+
+        from negpy.infrastructure.gpu.resources import GPUTexture
+
+        for _ in range(20):
+            tex = GPUTexture(64, 64)
+            tex.upload(np.random.rand(64, 64, 4).astype(np.float32))
+            start = threading.Barrier(2)
+
+            def probe(t=tex, s=start):
+                s.wait()
+                for _ in range(10):
+                    t.readback_region(3, 3, 1, 1)
+
+            def kill(t=tex, s=start):
+                s.wait()
+                t.destroy()
+
+            threads = [threading.Thread(target=probe), threading.Thread(target=kill)]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join(timeout=30)
+            self.assertFalse(any(th.is_alive() for th in threads), "readback/destroy deadlocked")
+
 
 if __name__ == "__main__":
     unittest.main()

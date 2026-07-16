@@ -19,5 +19,11 @@ class RetouchConfig:
     manual_heal_strokes: List[Tuple] = field(default_factory=list)
     manual_dust_size: int = 6
     ir_dust_remove: bool = False
-    ir_threshold: float = 0.5
+    # Sensitivity on the normalized IR ratio (higher = conservative). Default 0.66 →
+    # cutoff 0.59 with attenuation on: division fixes shallow dust, detection heals cores.
+    ir_threshold: float = 0.66
     ir_inpaint_radius: int = 3
+    # IR-division tier: recover the image under semi-transparent dust (no cloning).
+    # Tracks ir_dust_remove from the single "IR Removal" control; B&W/Kodachrome
+    # frames are auto-skipped by the degenerate guard, not this flag.
+    ir_attenuation: bool = True

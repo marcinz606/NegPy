@@ -303,7 +303,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="tone_section",
         ),
         TutorialStep(
-            title="Exposure — Color Balance",
+            title="Exposure — Filtration",
             body=(
                 "White balance is real CC filtration — ±1.0 on a slider is ±20cc of dichroic "
                 "density. The <b>Global / Shadows / Highlights</b> buttons on top scope the "
@@ -366,7 +366,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Lab Panel — Film Aesthetics",
             body=(
-                "<b>Color:</b> "
+                "<b>Colour:</b> "
                 "<b>Separation</b> amplifies R/G/B channel differences for richer colour. "
                 "<b>Saturation</b> boosts all tones equally; "
                 "<b>Vibrance</b> lifts muted tones while protecting already-saturated ones. "
@@ -404,8 +404,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Retouch Panel — Dust Removal",
             body=(
-                "<b>Auto Dust</b> detects and removes small particles based on a density threshold. "
-                "Lower the threshold to be more aggressive.<br><br>"
+                "<b>Optical Removal</b> detects and removes small particles on the visible scan by "
+                "local contrast. Lower the threshold to be more aggressive. <b>IR Removal</b> does the "
+                "same from the scanner's infrared channel, catching dust the eye can't separate from grain.<br><br>"
                 "<b>Heal Tool</b>: click individual dust spots in the preview — each heal "
                 "clones a matching patch from elsewhere in the frame and blends the seam, so "
                 "grain stays intact.<br><br>"

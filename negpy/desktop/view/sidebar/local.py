@@ -39,16 +39,13 @@ class LocalSidebar(BaseSidebar):
         self.layout.addWidget(self.draw_btn)
 
         self.mask_list = QListWidget()
-        self.mask_list.setToolTip(
-            "Click a mask to select it. Use the eye to show/hide its outline and the trash icon to delete it."
-        )
+        self.mask_list.setToolTip("Click a mask to select it. Use the eye to show/hide its outline and the trash icon to delete it.")
         self.mask_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.mask_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # The row is a custom widget, so drop the app-wide item padding/margin/border
         # that would otherwise squeeze and clip it.
         self.mask_list.setStyleSheet(
-            "QListView::item { border: none; margin: 0px; padding: 0px; }"
-            "QListView::item:selected { background-color: #2A2A2A; }"
+            "QListView::item { border: none; margin: 0px; padding: 0px; }QListView::item:selected { background-color: #2A2A2A; }"
         )
         self.layout.addWidget(self.mask_list)
 

@@ -84,7 +84,7 @@ def test_warm_cache_hit_returns_same_buffer_object():
     )
     mgr._cache.put(key, stored_buf, (20, 20), {"color_space": "Adobe RGB"})
 
-    # The stored buffer in the cache is a copy made by put(); get the reference directly
+    # put() stores the buffer by reference (read-only contract); get the reference directly
     cached_buf, _, _ = mgr._cache.get(key)
 
     # Now call load_linear_preview which should return from cache.

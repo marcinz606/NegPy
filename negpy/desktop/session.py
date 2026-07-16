@@ -10,6 +10,7 @@ from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSigna
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.services.assets.sidecar import load_or_promote
@@ -36,7 +37,7 @@ class AppState:
     current_file_hash: Optional[str] = None
     source_cs: str = ""
     config: WorkspaceConfig = field(default_factory=WorkspaceConfig)
-    workspace_color_space: str = "Adobe RGB"
+    workspace_color_space: str = WORKING_COLOR_SPACE
     is_processing: bool = False
     active_tool: ToolMode = ToolMode.NONE
     # Colour page region (0 Global, 1 Shadows, 2 Highlights): scopes the WB
@@ -53,6 +54,7 @@ class AppState:
     preview_raw: Optional[Any] = None
     preview_ir: Optional[Any] = None  # downsampled IR float32 [0,1] (H,W); None if source has no IR
     has_ir: bool = False
+    ir_degenerate: bool = False  # IR plane carries image content (B&W/Kodachrome) → IR restore disabled
     original_res: tuple[int, int] = (0, 0)
     clipboard: Optional[WorkspaceConfig] = None
 
@@ -86,6 +88,10 @@ class AppState:
     # Crop tool composition guide (CropGuide value); display-only, so not in GeometryConfig
     crop_guide: str = "thirds"
     crop_guide_orientation: int = 0
+
+    # Dust-detection overlay mode ("off"|"spots"|"marked"|"ir"); display-only,
+    # session-only diagnostic — never persisted.
+    dust_overlay_mode: str = "off"
 
     # Reverse scroll-wheel zoom direction on the image viewer (scroll up = zoom out).
     invert_zoom_scroll: bool = False
@@ -132,6 +138,7 @@ class AssetListModel(QAbstractListModel):
         self._filter_text: str = ""
         self._filter_regex: bool = False
         self._filter_pattern: Optional[re.Pattern] = None
+        self._sheet_filter: str = "all"  # "all" | "keepers" | "unrejected"
         self._sorted_indices: list[int] = []
         self._rebuild_indices()
 
@@ -158,7 +165,23 @@ class AssetListModel(QAbstractListModel):
                 needle = self._filter_text
                 indices = [i for i in indices if needle in files[i]["name"].lower()]
 
+        if self._sheet_filter == "keepers":
+            indices = [i for i in indices if files[i].get("keeper")]
+        elif self._sheet_filter == "unrejected":
+            indices = [i for i in indices if not files[i].get("excluded")]
+
         self._sorted_indices = indices
+
+    def set_sheet_filter(self, mode: str) -> None:
+        if mode not in ("all", "keepers", "unrejected"):
+            mode = "all"
+        self._sheet_filter = mode
+        self._rebuild_indices()
+        self.layoutChanged.emit()
+
+    @property
+    def sheet_filter(self) -> str:
+        return self._sheet_filter
 
     def set_sort_order(self, order: str) -> None:
         self._sort_order = order
@@ -231,7 +254,13 @@ class AssetListModel(QAbstractListModel):
             return self._state.thumbnails.get(file_info["name"])
 
         if role == Qt.ItemDataRole.ToolTipRole:
+            failed = file_info.get("decode_failed")
+            if failed:
+                return f"{file_info['path']}\nFailed to load: {failed}\nClick to retry."
             return file_info["path"]
+
+        if role == Qt.ItemDataRole.UserRole:
+            return file_info
 
         return None
 
@@ -245,7 +274,7 @@ _ASPECT_LABELS = {
     "crop": "Crop",
     "rotation": "Rotation",
     "exposure": "Exposure",
-    "color": "Color",
+    "color": "Lab & Toning",
     "finish": "Finish",
     "bounds_luma": "Tonal span",
     "bounds_colour": "Colour balance",
@@ -619,17 +648,21 @@ class DesktopSessionManager(QObject):
             config = replace(config, process=replace(config.process, linear_raw=bool(sticky_linear_raw)))
 
         # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
-        # White) are workflow preferences, not per-image looks: carry them to
-        # fresh files unless explicitly changed per file.
+        # White / True Black / Cast Removal) are workflow preferences, not
+        # per-image looks: carry them to fresh files unless explicitly changed per file.
         new_exp = config.exposure
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
             ("last_paper_dmin", "paper_dmin"),
+            ("last_true_black", "true_black"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
                 new_exp = replace(new_exp, **{attr: bool(val)})
+        sticky_cast_removal = self.repo.get_global_setting("last_cast_removal_strength")
+        if sticky_cast_removal is not None:
+            new_exp = replace(new_exp, cast_removal_strength=float(sticky_cast_removal))
         config = replace(config, exposure=new_exp)
 
         # Paper stock is roll-wide; render guards cross-mode leak.
@@ -668,6 +701,8 @@ class DesktopSessionManager(QObject):
                 "last_auto_exposure": config.exposure.auto_exposure,
                 "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
                 "last_paper_dmin": config.exposure.paper_dmin,
+                "last_true_black": config.exposure.true_black,
+                "last_cast_removal_strength": config.exposure.cast_removal_strength,
                 "last_paper_profile": config.exposure.paper_profile,
                 "last_toe": config.exposure.toe,
                 "last_toe_width": config.exposure.toe_width,
@@ -752,6 +787,28 @@ class DesktopSessionManager(QObject):
         self.state.selected_indices = indices
         self.state_changed.emit()
 
+    def toggle_mark(self, mark: str) -> None:
+        """Triage marks: 'keeper' or 'excluded' (reject), mutually exclusive per
+        frame. Targets the multi-selection (else the active frame); a block clears
+        only when every target already has the mark. Kept out of WorkspaceConfig so
+        Ctrl+Z never unmarks a frame."""
+        if mark not in ("keeper", "excluded"):
+            return
+        state = self.state
+        targets = [i for i in (state.selected_indices or [state.selected_file_idx]) if 0 <= i < len(state.uploaded_files)]
+        if not targets:
+            return
+        other = "excluded" if mark == "keeper" else "keeper"
+        set_all = not all(state.uploaded_files[i].get(mark) for i in targets)
+        for i in targets:
+            f = state.uploaded_files[i]
+            f[mark] = set_all
+            if set_all:
+                f[other] = False
+            self.repo.save_file_mark(f["hash"], mark if set_all else None)
+        self.asset_model.refresh()
+        self.files_changed.emit()
+
     def sync_selected_settings(self, aspects: frozenset, scope: str = "selection") -> int:
         """
         Apply the active frame's settings to other frames. Returns the count changed.
@@ -783,9 +840,9 @@ class DesktopSessionManager(QObject):
             target_hash = self.state.uploaded_files[idx]["hash"]
             target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
             target_path = self.state.uploaded_files[idx]["path"]
-            self.repo.save_file_settings(
-                target_hash, build_synced_config(source_config, target_config, aspects, src_bounds), file_path=target_path
-            )
+            synced = build_synced_config(source_config, target_config, aspects, src_bounds)
+            self.push_external_history(target_hash, target_config, synced)
+            self.repo.save_file_settings(target_hash, synced, file_path=target_path)
             count += 1
 
         if count:
@@ -842,11 +899,11 @@ class DesktopSessionManager(QObject):
             self.state_changed.emit()
 
     def persist_active_batch_config(self, config: WorkspaceConfig) -> None:
-        """Persist a batch result before exposing it as the active in-memory state.
+        """Persist Auto Crop All before exposing it as active in-memory state.
 
-        Roll operations update non-active files directly and are not undo-history
-        steps. This companion path gives the active file the same behavior while
-        ensuring a storage error cannot leave an unrendered crop live in memory.
+        Non-active Auto Crop All results are written directly. This companion path
+        preserves that behavior while ensuring a storage error cannot leave an
+        unrendered crop live in memory.
         """
         if not self.state.current_file_hash:
             raise RuntimeError("Cannot persist batch settings without an active file")
@@ -858,6 +915,20 @@ class DesktopSessionManager(QObject):
         self.state.config = config
         self._config_dirty = True
         self.settings_saved.emit()
+
+    def push_external_history(self, file_hash: str, old_config: WorkspaceConfig, new_config: WorkspaceConfig) -> None:
+        """Record a bulk apply (roll bake, apply-to-roll…) in a NON-ACTIVE file's
+        history so plain Ctrl+Z recovers it after switching to that frame. Two steps
+        are written (pre-apply, then post-apply) because undo() overwrites the top
+        step with the live config when undo_index == max — a single appended step
+        would be clobbered by the first Ctrl+Z."""
+        base = self.repo.get_max_history_index(file_hash)
+        if base == 0 and self.repo.load_history_step(file_hash, 0) is None:
+            first = 0
+        else:
+            first = base + 1
+        self.repo.save_history_step(file_hash, first, old_config)
+        self.repo.save_history_step(file_hash, first + 1, new_config)
 
     def undo(self) -> None:
         if self.state.undo_index > 0 and self.state.current_file_hash:
@@ -904,17 +975,10 @@ class DesktopSessionManager(QObject):
 
     def reset_settings(self) -> None:
         """
-        Reverts current file to default configuration and clears history.
+        Reverts current file to default configuration. Recorded as an ordinary
+        history step, so a reset is undoable like any other edit.
         """
-        if self.state.current_file_hash:
-            self.repo.clear_history(self.state.current_file_hash)
-            self.state.undo_index = 0
-            self.state.max_history_index = 0
-            self.history_changed.emit()
-
-        self._config_dirty = False
-        self.update_config(WorkspaceConfig())
-        self.state_changed.emit()
+        self.update_config(WorkspaceConfig(), persist=True)
 
     def reset_section(self, section: str) -> None:
         """Reset a single feature section to its default config."""
@@ -1023,6 +1087,14 @@ class DesktopSessionManager(QObject):
                     from negpy.kernel.system.logging import get_logger
 
                     get_logger(__name__).error(f"Failed to add {path}: {e}")
+
+        # Marks: DB is the source of truth; toggles write through, so the
+        # unconditional overlay can't lose one.
+        marks = self.repo.load_file_marks()
+        for f in self.state.uploaded_files:
+            m = marks.get(f["hash"])
+            f["keeper"] = m == "keeper"
+            f["excluded"] = m == "excluded"
 
         self.asset_model.refresh()
         self.files_changed.emit()

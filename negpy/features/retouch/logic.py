@@ -10,6 +10,9 @@ from negpy.features.geometry.logic import map_coords_to_geometry, smooth_polylin
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.kernel.image.logic import get_luminance, working_oetf_decode, working_oetf_encode
 from negpy.kernel.image.validation import ensure_image
+from negpy.kernel.system.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Golden-angle fallback used when a heal has no scored source offset
 # (legacy spots, or no preview buffer at click time).
@@ -33,9 +36,57 @@ _DETECT_PAD_PX = 2.5
 # a ring on the defect's PSF skirt biases every boundary diff bright and the whole
 # clone renders as a soft ghost. The blend footprint stays at the blend radius.
 _MEMBRANE_RIM_PX = 2.0
-# Rim feather fraction of the blend radius (1.5px floor — a fixed 1.5px edge is a
-# hard seam at export scale). Mirrored in retouch.wgsl.
+# Rim feather fraction of the blend radius (1.5px floor). Ungated auto/IR regions
+# widen it via the gate lane. Mirrored in retouch.wgsl.
 _RIM_FEATHER_FRAC = 0.25
+_RIM_FEATHER_UNGATED = 0.15
+
+# IR ratio-normalization base window (px at detection scale, pinned like HEAL_SIZE_REF).
+# Defects wider than ~half of it depress their own base (max-area/Scratch territory).
+_IR_BASE_WIN = 25
+_IR_COVERAGE_ABORT = 0.01  # cutoff marking >this fraction → unusable IR, return nothing
+_IR_GROW_FRAC = 0.3  # hysteresis: grow seeded defects this far across the gap to clean film
+_IR_GAIN_IDENTITY = 0.97  # gain is identity at/above this ratio
+_IR_GAIN_CLAMP = 2.0  # caps misregistration halos
+# Per-channel refraction γ, fitted per frame (patent 1.03–1.10 under-correct file IR).
+_IR_GAMMA_LO = 1.0
+_IR_GAMMA_HI = 2.2
+_IR_GAMMA_FALLBACK = 1.5
+_IR_DEGENERATE_RATIO = 0.90  # IR dipping below this over >_FRAC = image content (B&W/Kodachrome)
+_IR_DEGENERATE_FRAC = 0.05
+# Crosstalk unmixing: dye/silver absorbs some IR, so the IR plane carries a ghost of
+# the image that normalize_ir's spatial high-pass can't see (a sharp edge survives it).
+_IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
+_IR_XTALK_MIN = 0.02  # |b| sum below this is a noise-level fit → exact no-op
+_IR_XTALK_TRIM = 2.0  # fit drops this bottom-ratio percentile (the dust minority)
+# γ fit sample: keep this flattest fraction of the band by visible Laplacian, dropping the
+# restriction below _IR_FIT_MIN_PX rather than fitting a handful of pixels. See _fit_refraction_gammas.
+_IR_FIT_FLAT_PCT = 40
+_IR_FIT_MIN_PX = 200
+# Clean-base cap window (detection-scale px, odd). The bake may never lift a pixel above its
+# own local clean base — past that it invents signal rather than recovering it. Needed because
+# downsample_ir is min-preserving while the visible arrives area-averaged, so at detection scale
+# the ratio's dip runs deeper and ~1 px wider than the defect the visible carries (0.816 against
+# 0.892); uncapped, that skirt lifts clean film and every speck and hair renders with a dark
+# outline. Reaches ±4 px, past _DETECT_PAD_PX's skirt: wider re-admits the rim (25 px leaves 3x
+# the residual), narrower sits inside the skirt and caps real correction away.
+_IR_CAP_WIN = 9
+
+# Strong hairs/scratches (auto/IR) route to structure-following inpaint instead of
+# the membrane clone: a long twist crosses varied background, and one clone-source
+# offset can't match it. Bar sits above the mild-elongation capsule test so ordinary
+# dust clusters stay on the membrane. Detection-scale px. See _is_hair.
+_HAIR_MIN_AREA = 20
+_HAIR_MIN_ELONG = 8.0  # area/thickness² ≈ length/thickness; round specks measure 1–3
+# cv2.inpaint fill: dilate covers the PSF skirt at 1:1 (apply_hair_inpaint widens it to
+# track the mask's upsample); NS radius; gamma gives the 8-bit encode a perceptual
+# spread (cv2.inpaint is 8-bit only). Navier-Stokes only propagates outward from the mask
+# boundary, so each defect is filled in its own bbox + _HAIR_INPAINT_PAD (>= the radius):
+# same pixels, without gamma-encoding the whole frame to serve a hairline.
+_HAIR_DILATE_PX = 1
+_HAIR_INPAINT_RADIUS = 3
+_HAIR_INPAINT_GAMMA = 2.2
+_HAIR_INPAINT_PAD = 16
 
 
 @njit(cache=True, fastmath=True)
@@ -264,7 +315,7 @@ def _membrane_heal_jit(
                 sx = max(0, min(w - 1, int(px + ox)))
                 sy = max(0, min(h - 1, int(py + oy)))
 
-                fth = _RIM_FEATHER_FRAC * rad
+                fth = (_RIM_FEATHER_FRAC + _RIM_FEATHER_UNGATED * (1.0 - gate)) * rad
                 if fth < 1.5:
                     fth = 1.5
                 t = (d - (rad - fth)) / fth
@@ -399,36 +450,79 @@ def _detect_dust_mask_jit(
     return hit_mask
 
 
+def _proxy_norm(img: ImageBuffer) -> Tuple[float, float]:
+    """(lo, spread) percentile normalization shared by the luma and per-channel proxies."""
+    dens = -np.log10(np.clip(get_luminance(img), 1e-6, None))
+    lo, hi = np.percentile(dens, (0.5, 99.5))
+    return float(lo), max(float(hi - lo), _PROXY_MIN_SPREAD)
+
+
 def _detection_proxy(img: ImageBuffer) -> np.ndarray:
     """Percentile-normalized source density: grade-independent, dust is bright
     in every process mode, and a defect's step stays proportional to its
     physical density excess — a print-like tone mapping would compress it
     below the detector threshold on wide-spread scans."""
-    luma = get_luminance(img)
-    dens = -np.log10(np.clip(luma, 1e-6, None))
-    lo, hi = np.percentile(dens, (0.5, 99.5))
-    spread = max(float(hi - lo), _PROXY_MIN_SPREAD)
+    dens = -np.log10(np.clip(get_luminance(img), 1e-6, None))
+    lo, spread = _proxy_norm(img)
     return np.clip((dens - lo) / spread, 0.0, 1.0).astype(np.float32)
+
+
+def _detection_proxy_rgb(img: ImageBuffer, lo: float, spread: float) -> np.ndarray:
+    """Per-channel density on the luma proxy's scale, for wrong-colour source scoring."""
+    dens = -np.log10(np.clip(img, 1e-6, None))
+    return np.clip((dens - lo) / spread, 0.0, 1.0).astype(np.float32)
+
+
+def _is_hair(labels_sub: np.ndarray, area: int) -> bool:
+    """Hair/scratch (thin) rather than speck: ``2*max(distanceTransform)`` is the widest
+    the defect ever gets, so ``area/thickness²`` reads as length/thickness for a ribbon.
+
+    Thin, not straight — bending moves no interior pixel further from its edge, so a
+    twist scores like a straight hair, where PCA extent/width (the obvious measure)
+    calls it compact and hands it to the membrane clone. The real hair on
+    samples/ir/18.tiff: PCA aspect 2.45 = "speck", thinness 26.3 = hair.
+    """
+    if area < _HAIR_MIN_AREA:
+        return False
+    # Pad, or a component touching the sub-image border reads as thin along that edge.
+    dist = cv2.distanceTransform(np.pad(labels_sub.astype(np.uint8), 1), cv2.DIST_L2, 5)
+    thickness = 2.0 * float(dist.max())
+    return area / max(thickness * thickness, 1e-6) >= _HAIR_MIN_ELONG
 
 
 def _mask_to_strokes(
     mask: np.ndarray,
     pad_px: float,
     max_n: int,
-) -> List[Tuple[np.ndarray, float, float]]:
-    """Connected defect components → ``(chain_px, radius_px, area)``, largest
-    first, truncated to ``max_n``. Elongated components (hairs) become ≤8-point
-    polylines along the principal axis — a circle either misses the hair or
-    over-heals its bounding disk."""
+    min_area: int = 1,
+    max_area: Optional[int] = None,
+) -> Tuple[List[Tuple[np.ndarray, float, float]], Optional[np.ndarray]]:
+    """Connected defect components → ``(compact_comps, hair_mask)``. Compact specks
+    become ``(chain_px, radius_px, area)`` tuples (largest first, truncated to
+    ``max_n``); mildly elongated ones a ≤8-point membrane capsule. Strongly
+    elongated defects (long twisted hairs/scratches) are painted into ``hair_mask``
+    instead — they route to structure-following inpaint, which a single-offset
+    membrane clone can't track. ``min_area``/``max_area`` drop noise specks and
+    oversized blobs (IR path); the luma path leaves them at the defaults."""
     n_lbl, labels, stats, centroids = cv2.connectedComponentsWithStats(np.ascontiguousarray(mask, dtype=np.uint8), connectivity=8)
     comps = []
+    hair_mask: Optional[np.ndarray] = None
     for i in range(1, n_lbl):
         area = int(stats[i, cv2.CC_STAT_AREA])
+        if area < min_area or (max_area is not None and area > max_area):
+            continue
         x0 = int(stats[i, cv2.CC_STAT_LEFT])
         y0 = int(stats[i, cv2.CC_STAT_TOP])
         bw = int(stats[i, cv2.CC_STAT_WIDTH])
         bh = int(stats[i, cv2.CC_STAT_HEIGHT])
-        ys, xs = np.nonzero(labels[y0 : y0 + bh, x0 : x0 + bw] == i)
+        labels_sub = labels[y0 : y0 + bh, x0 : x0 + bw] == i
+        if _is_hair(labels_sub, area):
+            if hair_mask is None:
+                hair_mask = np.zeros(mask.shape[:2], dtype=np.uint8)
+            hair_mask[y0 : y0 + bh, x0 : x0 + bw][labels_sub] = 1
+            continue
+
+        ys, xs = np.nonzero(labels_sub)
         xs = xs.astype(np.float64) + x0 + 0.5
         ys = ys.astype(np.float64) + y0 + 0.5
 
@@ -460,7 +554,31 @@ def _mask_to_strokes(
         comps.append((chain, float(radius), float(area)))
 
     comps.sort(key=lambda c: -c[2])
-    return comps[:max_n]
+    return comps[:max_n], hair_mask
+
+
+_PICK_RINGS = (2.6, 3.6, 4.6, 6.2)
+_PICK_RINGS_FAR = (2.6, 3.6, 4.6, 6.2, 8.0, 11.0)
+
+
+def _pick_candidate_dirs(chain: np.ndarray, index: int) -> List[Tuple[float, float]]:
+    """Search directions: perp/along/perp-diagonal for a capsule, 8 golden-angle for a speck."""
+    if len(chain) >= 2:
+        d = chain[-1] - chain[0]
+        ln = math.hypot(d[0], d[1])
+        tx, ty = (d[0] / ln, d[1] / ln) if ln > 1e-6 else (1.0, 0.0)
+        nx, ny = -ty, tx
+        dirs = [(nx, ny), (-nx, -ny), (tx, ty), (-tx, -ty)]
+        for ax, ay in ((nx + tx, ny + ty), (nx - tx, ny - ty)):
+            ll = math.hypot(ax, ay)
+            if ll > 1e-6:
+                dirs.append((ax / ll, ay / ll))
+                dirs.append((-ax / ll, -ay / ll))
+        return dirs
+    return [
+        (math.cos(_GOLDEN_ANGLE * (index + 1) + k * math.pi / 4.0), math.sin(_GOLDEN_ANGLE * (index + 1) + k * math.pi / 4.0))
+        for k in range(8)
+    ]
 
 
 def _pick_source_offsets(
@@ -468,74 +586,86 @@ def _pick_source_offsets(
     comps: List[Tuple[np.ndarray, float, float]],
     guide: np.ndarray,
 ) -> List[Tuple[float, float]]:
-    """Best mask-free candidate by content match on ``guide`` (integral-image
-    box stats — the click-time SSD scorer costs ~ms/region, too slow for
-    hundreds of detected regions). Mask-freedom alone let a patch full of real
-    detail win: the membrane corrects only the boundary offset, so interior
-    structure gets cloned into the heal. Score = |Δmean vs the destination
-    background| + texture in excess of the destination's."""
+    """Best clone-source offset per component by content match on ``guide`` (box stats
+    via integral images; mask-freedom alone would clone interior detail through the
+    membrane). ``guide`` may be single- or per-channel (RGB density) — the per-channel
+    |Δmean| term rejects a wrong-colour source. Pass 2 scores with an overlap penalty
+    instead of rejecting, so a ringed-in defect still gets a content pick, not a blind one."""
     h, w = mask.shape
     m8 = np.ascontiguousarray(mask, dtype=np.uint8)
     integ = cv2.integral(m8)
-    bg = guide.astype(np.float32) * (1.0 - m8)
-    s1, s2 = cv2.integral2(bg)
+    g3 = guide.astype(np.float32)
+    if g3.ndim == 2:
+        g3 = g3[:, :, None]
+    ch = g3.shape[2]
+    keep = (1.0 - m8)[:, :, None]
+    s1, s2 = [], []
+    for c in range(ch):
+        a1, a2 = cv2.integral2(np.ascontiguousarray(g3[:, :, c] * keep[:, :, 0]))
+        s1.append(a1)
+        s2.append(a2)
 
     def box(ii, x0, y0, x1, y1):
         return float(ii[y1 + 1, x1 + 1] - ii[y0, x1 + 1] - ii[y1 + 1, x0] + ii[y0, x0])
 
     offsets = []
     for index, (chain, radius, _area) in enumerate(comps):
-        if len(chain) >= 2:
-            d = chain[-1] - chain[0]
-            ln = math.hypot(d[0], d[1])
-            tx, ty = (d[0] / ln, d[1] / ln) if ln > 1e-6 else (1.0, 0.0)
-            dirs = [(-ty, tx), (ty, -tx), (tx, ty), (-tx, -ty)]
-        else:
-            dirs = []
-            for k in range(6):
-                ang = _GOLDEN_ANGLE * (index + 1) + k * math.pi / 3.0
-                dirs.append((math.cos(ang), math.sin(ang)))
-
+        dirs = _pick_candidate_dirs(chain, index)
         b = int(math.ceil(1.2 * radius)) + 1
         area = float((2 * b + 1) ** 2)
 
-        d_n = d_s = d_ss = 0.0
+        d_n = 0.0
+        d_s = [0.0] * ch
+        d_ss = [0.0] * ch
         for px, py in chain:
             x0, x1 = max(int(px) - b, 0), min(int(px) + b, w - 1)
             y0, y1 = max(int(py) - b, 0), min(int(py) + b, h - 1)
             d_n += (x1 - x0 + 1) * (y1 - y0 + 1) - box(integ, x0, y0, x1, y1)
-            d_s += box(s1, x0, y0, x1, y1)
-            d_ss += box(s2, x0, y0, x1, y1)
-        d_mean = d_s / max(d_n, 1.0)
-        d_std = math.sqrt(max(d_ss / max(d_n, 1.0) - d_mean * d_mean, 0.0))
+            for c in range(ch):
+                d_s[c] += box(s1[c], x0, y0, x1, y1)
+                d_ss[c] += box(s2[c], x0, y0, x1, y1)
+        dn = max(d_n, 1.0)
+        d_mean = [d_s[c] / dn for c in range(ch)]
+        d_std = [math.sqrt(max(d_ss[c] / dn - d_mean[c] * d_mean[c], 0.0)) for c in range(ch)]
 
-        found, best_score = None, math.inf
-        for ring in range(3):
-            dist = (_FALLBACK_OFFSET_FACTOR + ring) * radius
-            for dx, dy in dirs:
-                ox, oy = dx * dist, dy * dist
-                n = s = ss = 0.0
-                clean = True
-                for px, py in chain:
-                    sx, sy = px + ox, py + oy
-                    x0, x1 = int(sx) - b, int(sx) + b
-                    y0, y1 = int(sy) - b, int(sy) + b
-                    if x0 < 0 or y0 < 0 or x1 >= w or y1 >= h:
-                        clean = False
-                        break
-                    if box(integ, x0, y0, x1, y1) > 0:
-                        clean = False
-                        break
-                    n += area
-                    s += box(s1, x0, y0, x1, y1)
-                    ss += box(s2, x0, y0, x1, y1)
-                if not clean:
-                    continue
-                mean = s / n
-                std = math.sqrt(max(ss / n - mean * mean, 0.0))
-                score = abs(mean - d_mean) + max(0.0, std - d_std)
-                if score < best_score:
-                    best_score, found = score, (ox, oy)
+        def evaluate(rings, allow_overlap):
+            best, best_score = None, math.inf
+            for ring in rings:
+                dist = ring * radius
+                for dx, dy in dirs:
+                    ox, oy = dx * dist, dy * dist
+                    n = 0.0
+                    overlap = 0.0
+                    s = [0.0] * ch
+                    ss = [0.0] * ch
+                    in_bounds = True
+                    for px, py in chain:
+                        x0, x1 = int(px + ox) - b, int(px + ox) + b
+                        y0, y1 = int(py + oy) - b, int(py + oy) + b
+                        if x0 < 0 or y0 < 0 or x1 >= w or y1 >= h:
+                            in_bounds = False
+                            break
+                        overlap += box(integ, x0, y0, x1, y1)
+                        n += area
+                        for c in range(ch):
+                            s[c] += box(s1[c], x0, y0, x1, y1)
+                            ss[c] += box(s2[c], x0, y0, x1, y1)
+                    if not in_bounds or (not allow_overlap and overlap > 0):
+                        continue
+                    score = 0.0
+                    for c in range(ch):
+                        mean = s[c] / n
+                        std = math.sqrt(max(ss[c] / n - mean * mean, 0.0))
+                        score += abs(mean - d_mean[c]) + max(0.0, std - d_std[c])
+                    if allow_overlap:
+                        score += 10.0 * (overlap / max(n, 1.0))
+                    if score < best_score:
+                        best_score, best = score, (ox, oy)
+            return best
+
+        found = evaluate(_PICK_RINGS, allow_overlap=False)
+        if found is None:
+            found = evaluate(_PICK_RINGS_FAR, allow_overlap=True)
         if found is None:
             fdx, fdy = fallback_source_offset(index, 2.0 * radius, (h, w))
             found = (fdx * w, fdy * h)
@@ -561,9 +691,13 @@ def _finalize_strokes(
 
 
 def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ...]:
-    """Threshold-independent detection stat maps (proxy + blur windows) — the
-    expensive ~2/3 of a detection pass, cacheable across threshold changes."""
-    proxy = _detection_proxy(img)
+    """Threshold-independent detection stat maps (proxy + blur windows + per-channel
+    proxy) — the expensive ~2/3 of a detection pass, cacheable across threshold
+    changes. The 5th element is the RGB density proxy used to score clone sources."""
+    lo, spread = _proxy_norm(img)
+    dens = -np.log10(np.clip(get_luminance(img), 1e-6, None))
+    proxy = np.clip((dens - lo) / spread, 0.0, 1.0).astype(np.float32)
+    proxy_rgb = _detection_proxy_rgb(img, lo, spread)
     base_size = max(1.0, float(dust_size))
     v_win = int(max(3, base_size * 3.0)) * 2 + 1
     w_win = int(max(7, base_size * 4.0)) * 2 + 1
@@ -575,6 +709,7 @@ def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ..
         np.ascontiguousarray(mean.astype(np.float32)),
         np.ascontiguousarray(std.astype(np.float32)),
         np.ascontiguousarray(w_std.astype(np.float32)),
+        np.ascontiguousarray(proxy_rgb),
     )
 
 
@@ -585,37 +720,261 @@ def detect_luma_regions(
     gate: float = 1.0,
     max_n: int = 512,
     stats: Optional[Tuple[np.ndarray, ...]] = None,
-) -> List[Tuple]:
-    """Statistical dust detection on the linear source → synthesized heal strokes."""
-    proxy, mean, std, w_std = stats if stats is not None else compute_dust_stats(img, dust_size)
+) -> Tuple[List[Tuple], Optional[np.ndarray]]:
+    """Statistical dust detection on the linear source → ``(strokes, hair_mask)``:
+    compact specks become membrane strokes, strong hairs a detection-scale mask
+    for structure-following inpaint."""
+    if stats is None:
+        stats = compute_dust_stats(img, dust_size)
+    proxy, mean, std, w_std = stats[:4]
     hit = _detect_dust_mask_jit(proxy, mean, std, w_std, float(dust_threshold))
     if not np.any(hit):
-        return []
-    comps = _mask_to_strokes(hit, _DETECT_PAD_PX, max_n)
-    offsets = _pick_source_offsets(hit, comps, proxy)
-    return _finalize_strokes(comps, offsets, hit.shape, gate)
+        return [], None
+    comps, hair_mask = _mask_to_strokes(hit, _DETECT_PAD_PX, max_n)
+    if not comps:
+        return [], hair_mask
+    offsets = _pick_source_offsets(hit, comps, stats[4])
+    return _finalize_strokes(comps, offsets, hit.shape, gate), hair_mask
+
+
+def downsample_ir(plane: np.ndarray, target_long_edge: int, dims: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """Min-preserving IR downsample to ``target_long_edge`` (no-op if already smaller).
+    ``dims`` (w, h) overrides the computed target for callers that must land on an
+    existing buffer's exact shape.
+
+    A defect is a *minimum* in IR transmittance and INTER_AREA averages sub-pixel minima
+    away: a ~4 px hair downsampled 4.5x lost its dip from 0.22 to 0.31 and shattered into
+    stray pixels. Eroding by the resample footprint first carries the dip through;
+    ``normalize_ir``'s ``blur(dilate(ir))`` base tracks the eroded plane back up, so clean
+    film still sits at ~1.0. Every IR consumer routes through here or preview and export
+    detect different region sets.
+    """
+    plane = np.ascontiguousarray(plane, dtype=np.float32)
+    h, w = plane.shape[:2]
+    long_edge = max(h, w)
+    if long_edge <= target_long_edge and dims is None:
+        return plane
+    if dims is None:
+        s = target_long_edge / long_edge
+        dims = (max(1, int(round(w * s))), max(1, int(round(h * s))))
+    if dims == (w, h):
+        return plane
+    # Erode by the resample footprint — a 1.25x downsample must not fatten by a 4.5x kernel.
+    k = max(1, int(round(long_edge / target_long_edge)) | 1)
+    if k > 1:
+        plane = cv2.erode(plane, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return cv2.resize(plane, dims, interpolation=cv2.INTER_AREA).astype(np.float32)
+
+
+def normalize_ir(plane: np.ndarray) -> np.ndarray:
+    """Locally-normalized IR: ``ir / blur(dilate(ir))`` — ~1.0 on clean film, dips on
+    defects, illumination-independent. Separates dust from content that raw-IR
+    thresholding conflated (dilate→max estimates the clean base, blur smooths it)."""
+    plane = np.ascontiguousarray(plane, dtype=np.float32)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (_IR_BASE_WIN, _IR_BASE_WIN))
+    base = cv2.blur(cv2.dilate(plane, kernel), (_IR_BASE_WIN, _IR_BASE_WIN))
+    return plane / np.maximum(base, 1e-4)
+
+
+def _hysteresis(ratio: np.ndarray, strong: np.ndarray, cutoff: float) -> np.ndarray:
+    """Grow each seeded defect through ``_IR_GROW_FRAC`` of the gap to clean film, keeping
+    only components holding a strong pixel (Canny's rule).
+
+    ``_ir_decontaminate`` divides by ``Π vis^b`` and a defect blocks visible light too, so
+    it lifts the defect's own ratio (a hair core 0.252 → 0.362). Cores still clear the
+    cutoff by a mile; thin sections don't, so a hair would arrive shattered into specks."""
+    grow = cutoff + (1.0 - cutoff) * _IR_GROW_FRAC
+    _n, labels = cv2.connectedComponents((ratio < grow).astype(np.uint8), connectivity=8)
+    keep = np.unique(labels[strong])
+    return np.isin(labels, keep[keep > 0]).astype(np.uint8)
+
+
+def ir_detect_cutoff(slider: float, attenuation: bool) -> float:
+    """UI IR sensitivity (higher = conservative) → ratio cutoff; lower slider catches
+    more. Attenuation-on band sits lower (division handles the rest, only cores need cloning)."""
+    s = float(np.clip(slider, 0.0, 1.0))
+    return (0.85 - 0.40 * s) if attenuation else (0.95 - 0.20 * s)
 
 
 def detect_ir_regions(
-    ir: np.ndarray,
-    threshold: float,
+    ratio: np.ndarray,
+    cutoff: float,
     pad_px: float = 3.0,
     max_n: int = 512,
     guide: Optional[np.ndarray] = None,
-) -> List[Tuple]:
-    """IR defects → synthesized heal strokes. Dye = high IR transmittance,
-    defects = low, so ``ir < threshold`` marks them (caller passes
-    1 − ir_threshold). Ungated: IR-confirmed defects clone unconditionally.
-    ``guide`` (the visible source's detection proxy, same dims) scores clone
-    sources by content; without it the IR plane itself is the guide."""
-    mask = (ir < threshold).astype(np.uint8)
-    if not np.any(mask):
-        return []
-    if guide is None or guide.shape[:2] != ir.shape[:2]:
-        guide = np.ascontiguousarray(ir, dtype=np.float32)
-    comps = _mask_to_strokes(mask, pad_px, max_n)
+    min_area: int = 2,
+    max_area: int = 2000,
+) -> Tuple[List[Tuple], Optional[np.ndarray]]:
+    """Normalized-IR defects → ``(strokes, hair_mask)``: compact cores become
+    ungated membrane strokes, strong hairs a detection-scale mask for inpaint
+    (``ratio`` from normalize_ir, ``cutoff`` from ir_detect_cutoff). Coverage abort
+    guards a misregistered IR plane. ``guide`` (RGB proxy) scores clone sources; else the ratio."""
+    ratio = np.ascontiguousarray(ratio, dtype=np.float32)
+    strong = ratio < cutoff
+    # Coverage guards a misregistered IR plane, so it reads the *seed*: hysteresis only
+    # completes defects the strict cutoff already accepted, it never finds new ones.
+    cov = float(strong.mean())
+    if cov <= 0.0:
+        return [], None
+    if cov > _IR_COVERAGE_ABORT:
+        logger.warning("IR dust: cutoff %.3f marks %.1f%% of the frame — skipping (raise IR threshold)", cutoff, cov * 100.0)
+        return [], None
+    mask = _hysteresis(ratio, strong, cutoff)
+    if guide is None or guide.shape[:2] != ratio.shape[:2]:
+        guide = ratio
+    comps, hair_mask = _mask_to_strokes(mask, pad_px, max_n, min_area=min_area, max_area=max_area)
+    if not comps:
+        return [], hair_mask
     offsets = _pick_source_offsets(mask, comps, guide)
-    return _finalize_strokes(comps, offsets, mask.shape, gate=0.0)
+    return _finalize_strokes(comps, offsets, mask.shape, gate=0.0), hair_mask
+
+
+def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> np.ndarray:
+    """Divide the visible-image ghost out of the normalized IR: robust LS fit of
+    log(ir) on log(vis) over clean film, then ``ratio / Π vis_c^b_c``. Exponents clamp
+    to ≥0 (density can only block IR) and fit to ~0 on a clean scanner (→ no-op)."""
+    if ratio.size < 500:
+        return ratio
+    # Fit on clean film only. Dust dips *both* planes, so a fit that sees it explains
+    # the defect away as ghost and the division stops lifting it. Trim by ratio
+    # percentile, not a fixed cutoff (a strong ghost drags clean film below any fixed
+    # one) and not by residual (the dust fits itself perfectly — residual can't see it).
+    keep = ratio >= np.percentile(ratio, _IR_XTALK_TRIM)
+    y = np.log(np.clip(ratio[keep], 1e-4, 1.0))
+    x = vis_log[keep].reshape(-1, vis_log.shape[-1])
+    if y.size < 500:
+        return ratio
+    b = np.clip(np.linalg.lstsq(x, y, rcond=None)[0], 0.0, _IR_XTALK_MAX)
+    if float(np.abs(b).sum()) < _IR_XTALK_MIN:
+        return ratio
+    return np.clip(ratio / np.exp((vis_log * b).sum(-1)), 0.0, 1.5).astype(np.float32)
+
+
+def _fit_refraction_gammas(ratio: np.ndarray, vis_log: np.ndarray, img_det: np.ndarray) -> Tuple[float, ...]:
+    """Per-channel refraction γ: the slope of log(vis_norm) on log(ratio) over the
+    shallow-dust band, as the median of the per-pixel slopes over locally flat film.
+
+    Median and flat restriction are both load-bearing. The band selects on the IR ratio
+    alone, so besides dust it collects ``_ir_decontaminate``'s residue at hard image edges,
+    and least squares through the origin is x²-weighted — that deep non-dust minority
+    dominated it, reading γ 1.9/2.2/2.2 for dust measuring ~1.0/1.1/1.2 and over-correcting
+    every speck into a dark cyan blob. Median alone reads 1.3/1.8/1.8, flat-only least
+    squares 1.4/2.1/2.0, and γ 1.5 already tints."""
+    band = (ratio > 0.70) & (ratio < 0.92)
+    if int(band.sum()) < 500:
+        return (_IR_GAMMA_FALLBACK,) * 3
+    # ksize=5 carries its own smoothing, so no separate blur.
+    edge = np.abs(cv2.Laplacian(img_det[:, :, 1], cv2.CV_32F, ksize=5))
+    flat = band & (edge < np.percentile(edge[band], _IR_FIT_FLAT_PCT))
+    fit = flat if int(flat.sum()) >= _IR_FIT_MIN_PX else band
+    # The band bounds ratio away from 1, so the per-pixel slope needs no guard.
+    xb = np.log(ratio[fit])
+    return tuple(float(np.clip(np.median(vis_log[:, :, c][fit] / xb), _IR_GAMMA_LO, _IR_GAMMA_HI)) for c in range(3))
+
+
+def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
+    """Detection-scale ``(ratio, gain HxWx3, degenerate, gammas)`` for IR-division
+    attenuation: semi-transparent dust recovered by ``RGB / ratio^γ``, γ per channel from
+    ``_fit_refraction_gammas``. ``degenerate`` = IR carrying image content
+    (B&W/Kodachrome) → caller skips bake and strokes."""
+    ratio = normalize_ir(ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det)
+    img_det = np.ascontiguousarray(img_det, dtype=np.float32)
+    if img_det.shape[:2] != ratio.shape[:2]:
+        img_det = cv2.resize(img_det, (ratio.shape[1], ratio.shape[0]), interpolation=cv2.INTER_AREA)
+    # On the raw ratio, before decontamination: B&W/Kodachrome fits b≈1, and unmixing
+    # would flatten that IR into an informationless plane the bail could no longer see.
+    # ponytail: a ghost strong enough to dip the raw ratio frame-wide trips this before
+    # unmixing gets a chance (measured: ~0.15 exponent over hard-edged content; both IR
+    # samples sit well under it). If a real scan lands there, discriminate on the fitted
+    # b instead — partial dye ghost fits low, B&W silver fits ≈1.
+    degenerate = float((ratio < _IR_DEGENERATE_RATIO).mean()) > _IR_DEGENERATE_FRAC
+
+    vis_log = np.stack([np.log(np.clip(normalize_ir(img_det[:, :, c]), 1e-4, 1.0)) for c in range(3)], axis=-1)
+    ratio = _ir_decontaminate(ratio, vis_log)
+
+    gammas = _fit_refraction_gammas(ratio, vis_log, img_det)
+    base = np.clip(ratio / _IR_GAIN_IDENTITY, 1e-4, 1.0)
+    gain = np.empty(ratio.shape + (3,), dtype=np.float32)
+    for c in range(3):
+        gain[:, :, c] = np.minimum(_IR_GAIN_CLAMP, base ** (-gammas[c]))
+    # Never lift a pixel past its own local clean base (see _IR_CAP_WIN); floored at 1 so the
+    # cap only ever holds the bake back, never darkens a pixel itself.
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (_IR_CAP_WIN, _IR_CAP_WIN))
+    clean = cv2.blur(cv2.dilate(img_det, kernel), (_IR_CAP_WIN, _IR_CAP_WIN))
+    np.minimum(gain, np.maximum(clean / np.maximum(img_det, 1e-5), 1.0), out=gain)
+    return ratio, gain, degenerate, gammas
+
+
+def apply_ir_attenuation(img: ImageBuffer, gain_det: np.ndarray) -> ImageBuffer:
+    """Visible buffer × upsampled per-channel IR gain map (new array — buffers are read-only)."""
+    h, w = img.shape[:2]
+    gain = gain_det if gain_det.shape[:2] == (h, w) else cv2.resize(gain_det, (w, h), interpolation=cv2.INTER_LINEAR)
+    # cv2.multiply, not `a * b`: the product of two float32 buffers is already float32,
+    # so the astype numpy needs here would copy the whole frame a second time.
+    return ensure_image(cv2.multiply(np.ascontiguousarray(img, dtype=np.float32), gain))
+
+
+def ir_bake_token(retouch, has_ir: bool) -> str:
+    """Config-identity token for the IR bake (mirrors ``flatfield_token``); folded into
+    source_hash so toggling it invalidates the engine cache."""
+    return "|irdiv1" if (retouch.ir_dust_remove and retouch.ir_attenuation and has_ir) else ""
+
+
+def apply_hair_inpaint(
+    img: ImageBuffer,
+    hair_masks: List[np.ndarray],
+    radius: int = _HAIR_INPAINT_RADIUS,
+    dilate_px: Optional[int] = None,
+) -> ImageBuffer:
+    """Structure-following fill of long/twisted defects (``cv2.inpaint``, Navier–Stokes)
+    baked into the linear source. Each detection-scale mask is upsampled to the buffer,
+    unioned and dilated to cover the PSF skirt; only masked pixels are overwritten (the
+    rest stay byte-identical — the 8-bit encode cv2.inpaint requires touches only the
+    fabricated hairline). Returns a new array (buffers are read-only)."""
+    h, w = img.shape[:2]
+    masks = [hm for hm in hair_masks if hm is not None]
+    if not masks:
+        return img
+    if dilate_px is None:
+        # A detection-scale mask knows its boundary only to within the upsample factor,
+        # so the dilate tracks it; at 1:1 that's _HAIR_DILATE_PX, the PSF skirt alone.
+        dilate_px = max(_HAIR_DILATE_PX, round(max(h / masks[0].shape[0], w / masks[0].shape[1])))
+    m = np.zeros((h, w), dtype=np.uint8)
+    for hm in masks:
+        r = hm if hm.shape[:2] == (h, w) else cv2.resize(hm.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
+        m |= (np.asarray(r) > 0.5).astype(np.uint8)
+    if not m.any():
+        return img
+    if dilate_px > 0:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilate_px + 1, 2 * dilate_px + 1))
+        m = cv2.dilate(m, k)
+    src = np.ascontiguousarray(img, dtype=np.float32)
+    out = src.copy()
+    n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+    for i in range(1, n_lbl):
+        bx = int(stats[i, cv2.CC_STAT_LEFT])
+        by = int(stats[i, cv2.CC_STAT_TOP])
+        x0, y0 = max(0, bx - _HAIR_INPAINT_PAD), max(0, by - _HAIR_INPAINT_PAD)
+        x1 = min(w, bx + int(stats[i, cv2.CC_STAT_WIDTH]) + _HAIR_INPAINT_PAD)
+        y1 = min(h, by + int(stats[i, cv2.CC_STAT_HEIGHT]) + _HAIR_INPAINT_PAD)
+        # Mask the whole crop, not just this component: a neighbour reaching into the
+        # bbox must stay unknown or it becomes clone source and its dust is filled back in.
+        sub_m = np.ascontiguousarray(m[y0:y1, x0:x1])
+        enc = np.clip(src[y0:y1, x0:x1], 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
+        filled = cv2.inpaint((enc * 255.0 + 0.5).astype(np.uint8), sub_m, radius, cv2.INPAINT_NS)
+        dec = (filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA
+        # ...but only keep this component: a neighbour clipped by the bbox fills badly here,
+        # and gets its own correctly-padded crop anyway.
+        mb = labels[y0:y1, x0:x1] == i
+        out[y0:y1, x0:x1][mb] = dec[mb]
+    return out
+
+
+def hair_bake_token(retouch) -> str:
+    """Detection-param identity for the hair inpaint (folded into source_hash when a
+    hair is actually detected). Distinct params → distinct inpainted source."""
+    r = retouch
+    return f"|hair{int(r.dust_remove)}_{round(float(r.dust_threshold), 3)}_{int(r.dust_size)}_{int(r.ir_dust_remove)}_{round(float(r.ir_threshold), 3)}"
 
 
 def build_heal_regions(

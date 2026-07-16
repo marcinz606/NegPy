@@ -49,6 +49,10 @@ class AppConfig:
     # Preview buffer LRU (decoded float preview before render pipeline)
     preview_cache_max_entries: int = 8
     preview_cache_max_bytes: int = 1_200_000_000
+    # Full-resolution (HQ) entries are hundreds of MB each, so they get their own
+    # slot budget inside the LRU: enough to make navigating back to the previous
+    # frame instant, without letting HQ buffers push every small preview out.
+    preview_cache_max_full_res_entries: int = 2
     # Canvas zoom (1.0 = 100%)
     canvas_zoom_min: float = 0.25
     canvas_zoom_max: float = 8.0

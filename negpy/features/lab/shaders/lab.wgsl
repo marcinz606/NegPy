@@ -15,14 +15,6 @@ struct LabUniforms {
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: LabUniforms;
 
-const gauss_kernel = array<f32, 25>(
-    0.003765, 0.015019, 0.023792, 0.015019, 0.003765,
-    0.015019, 0.059912, 0.094907, 0.059912, 0.015019,
-    0.023792, 0.094907, 0.150342, 0.094907, 0.023792,
-    0.015019, 0.059912, 0.094907, 0.059912, 0.015019,
-    0.003765, 0.015019, 0.023792, 0.015019, 0.003765
-);
-
 const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
 
 // 64-tap Fibonacci spiral — uniform area coverage, smooth Gaussian approximation.
@@ -111,6 +103,15 @@ fn oetf_decode(c: vec3<f32>) -> vec3<f32> {
 
 fn load_lin(coords: vec2<i32>) -> vec3<f32> {
     return oetf_decode(textureLoad(input_tex, coords, 0).rgb);
+}
+
+// cv2's default border mode (BORDER_REFLECT_101, no repeated edge pixel) —
+// matches the CPU sharpen blur (cv2.GaussianBlur) at the image border.
+fn reflect_101(c: i32, n: i32) -> i32 {
+    var v = c;
+    if (v < 0) { v = -v; }
+    if (v >= n) { v = 2 * (n - 1) - v; }
+    return clamp(v, 0, n - 1);
 }
 
 fn rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
@@ -247,27 +248,45 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // 5. Sharpening
     if (params.sharpen > 0.0) {
-        var blur_luma = 0.0;
+        // Sigma tracks scale_factor, matching the CPU blur
+        // (cv2.GaussianBlur sigma = 1.0 * scale_factor, kernel shrinking with it) —
+        // a fixed sigma=1.0 here over-blurred small preview renders relative to CPU,
+        // inflating the USM diff and drifting the result on hard edges.
+        let sharpen_sigma = max(0.0001, params.scale_factor);
+        let inv_two_sigma2 = 1.0 / (2.0 * sharpen_sigma * sharpen_sigma);
+        var blur_l = 0.0;
+        var blur_weight_sum = 0.0;
         for (var j = -2; j <= 2; j++) {
             for (var i = -2; i <= 2; i++) {
-                let sample_coords = clamp(coords + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(dims) - 1);
+                let sample_coords = vec2<i32>(
+                    reflect_101(coords.x + i, i32(dims.x)),
+                    reflect_101(coords.y + j, i32(dims.y)),
+                );
                 let sample_color = load_lin(sample_coords);
-                let weight = gauss_kernel[(j + 2) * 5 + (i + 2)];
-                blur_luma += dot(oetf_encode(sample_color), LUMA_COEFFS) * weight;
+                let weight = exp(-f32(i * i + j * j) * inv_two_sigma2);
+                blur_l += rgb_to_lab(sample_color).x * weight;
+                blur_weight_sum += weight;
             }
         }
-        // Derive the USM ratio from input_tex (matching the blur source). Using
-        // post-saturation `color` here against a pre-lab `blur_luma` would
-        // synthesise a phantom edge wherever the lab stages shifted perceptual
-        // luma — most visibly on saturated reds, where CIELAB sat preserves L*
-        // but cuts G/B and drops the perceptual luma far enough below
-        // neighbouring blur to drive the ratio negative and crush the pixel.
-        let input_color = load_lin(coords);
-        let input_luma = dot(oetf_encode(input_color), LUMA_COEFFS);
+        blur_l = blur_l / blur_weight_sum;
+        // Blur neighbours sample input_tex (pre chroma-denoise/vibrance/saturation) —
+        // those stages only ever rewrite a*/b*, never L*, so blur_l matches the L*
+        // the current `color` would blur to regardless. The centre uses `color`
+        // itself (CIELAB L*, not a gamma-luma proxy) so the noise-gate threshold
+        // below matches the CPU kernel's units exactly (_apply_unsharp_mask_jit),
+        // and its a*/b* carry forward unchanged — a real Lab merge like the CPU's,
+        // not an RGB-ratio scale (which drifts hue/sat on saturated edges).
+        let current_lab = rgb_to_lab(color);
+        let diff = current_lab.x - blur_l;
+        // Noise gate: mirrors the CPU unsharp mask's threshold=2.0 (L* units) so
+        // near-flat regions aren't amplified. Ramped over [1.5, 2.0] rather than a
+        // hard cutoff — the GPU's Gaussian blur only approximates cv2's, so a hard
+        // edge would flip sign on pixels straddling the boundary; a smoothstep ramp
+        // keeps those pixels close to the CPU result instead of snapping to it.
+        let gate = smoothstep(1.5, 2.0, abs(diff));
         let amount = params.sharpen * 2.5;
-        let sharpened_luma = clamp(input_luma + (input_luma - blur_luma) * amount, 0.0, 1.0);
-        let ratio = sharpened_luma / max(input_luma, 1e-6);
-        color = oetf_decode(oetf_encode(color) * ratio);
+        let sharpened_l = clamp(current_lab.x + diff * amount * gate, 0.0, 100.0);
+        color = lab_to_rgb(vec3<f32>(sharpened_l, current_lab.y, current_lab.z));
     }
 
     // 6. Glow and Halation

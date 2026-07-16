@@ -21,13 +21,7 @@ class ToningSidebar(BaseSidebar):
         self.layout.addWidget(self.chemical_header)
 
         self.selenium_slider = CompactSlider("Selenium", 0.0, 2.0, conf.selenium_strength)
-        self.selenium_slider.setToolTip(
-            "Simulates selenium toning — converts the densest silver first: deeper blacks, cool eggplant shadows (B&W only)"
-        )
         self.sepia_slider = CompactSlider("Sepia", 0.0, 2.0, conf.sepia_strength)
-        self.sepia_slider.setToolTip(
-            "Simulates sepia bleach-redevelop toning — warms the highlights first, shadows hold; partial strength gives the classic split-sepia look (B&W only)"
-        )
         self.gold_slider = CompactSlider("Gold", 0.0, 2.0, conf.gold_strength)
         self.gold_slider.setToolTip(
             "Simulates gold toning — cool blue-black on untoned silver, slight Dmax boost; over sepia it shifts the highlights orange-red (B&W only)"
@@ -58,18 +52,14 @@ class ToningSidebar(BaseSidebar):
 
         row_sh = QHBoxLayout()
         self.shadow_hue_slider = HueSlider("Shadow Hue", conf.shadow_tint_hue)
-        self.shadow_hue_slider.setToolTip("Hue of the shadow split-toning color")
         self.shadow_str_slider = CompactSlider("Shadow Strength", 0.0, 1.0, conf.shadow_tint_strength)
-        self.shadow_str_slider.setToolTip("Strength of the shadow split-tone color")
         row_sh.addWidget(self.shadow_hue_slider)
         row_sh.addWidget(self.shadow_str_slider)
         self.layout.addLayout(row_sh)
 
         row_hl = QHBoxLayout()
         self.highlight_hue_slider = HueSlider("Highlight Hue", conf.highlight_tint_hue)
-        self.highlight_hue_slider.setToolTip("Hue of the highlight split-toning color")
         self.highlight_str_slider = CompactSlider("Highlight Strength", 0.0, 1.0, conf.highlight_tint_strength)
-        self.highlight_str_slider.setToolTip("Strength of the highlight split-tone color")
         row_hl.addWidget(self.highlight_hue_slider)
         row_hl.addWidget(self.highlight_str_slider)
         self.layout.addLayout(row_hl)

@@ -278,3 +278,32 @@ class TestDecodeAscii:
             desc = tf.pages[0].tags.get("ImageDescription")
             # ASCII-safe -- tifffile would reject non-ASCII
             desc.value.encode("ascii")
+
+    def test_film_format_with_non_ascii_does_not_crash(self) -> None:
+        """Regression: FilmFormat uses x (U+00D7) in '4x5'/'8x10', must not crash export (#487)."""
+        image_bytes = _make_tiff_bytes()
+        config = MetadataConfig(format="4×5")
+        out = embed_metadata(image_bytes, config, None)
+        assert out != image_bytes
+        with tifffile.TiffFile(io.BytesIO(out)) as tf:
+            desc = tf.pages[0].tags.get("ImageDescription")
+            desc.value.encode("ascii")
+
+    def test_user_comment_fold_with_non_ascii_bytes(self) -> None:
+        """Regression: UserComment with non-ASCII bytes must not produce \ufffd in description (#487)."""
+        image_bytes = _make_tiff_bytes()
+        # Simulate source EXIF with a UserComment containing non-ASCII bytes
+        uc_body = b"Film: 4\xd75 - Portra 400"
+        uc_raw = b"ASCII\x00\x00\x00" + uc_body
+        source_exif = {
+            "0th": {},
+            "Exif": {piexif.ExifIFD.UserComment: uc_raw},
+            "GPS": {},
+            "Interop": {},
+            "1st": {},
+        }
+        out = embed_metadata(image_bytes, MetadataConfig(), source_exif)
+        assert out != image_bytes
+        with tifffile.TiffFile(io.BytesIO(out)) as tf:
+            desc = tf.pages[0].tags.get("ImageDescription")
+            desc.value.encode("ascii")

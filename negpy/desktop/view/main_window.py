@@ -6,7 +6,6 @@ from PIL import Image
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication,
-    QDockWidget,
     QMainWindow,
     QMessageBox,
     QStatusBar,
@@ -20,10 +19,12 @@ from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.desktop.view.canvas.toolbar import ActionToolbar
 from negpy.desktop.view.canvas.widget import ImageCanvas
 from negpy.desktop.view.keyboard_shortcuts import setup_keyboard_shortcuts
+from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.sidebar.session_panel import SessionPanel
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.loading_overlay import LoadingOverlay
+from negpy.desktop.view.widgets.pinnable_dock import PinnableDockWidget
 from negpy.desktop.view.widgets.progress_dialog import ProgressDialog
 from negpy.domain.models import AspectRatio, ColorSpace
 from negpy.infrastructure.gpu.resources import GPUTexture
@@ -235,20 +236,39 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.central_widget)
 
-        self.drawer = QDockWidget("Controls", self)
+        self.drawer = PinnableDockWidget(
+            "Controls",
+            self,
+            pin_tooltip=tooltip_with_shortcut("Dock controls panel to right", "toggle_right_panel"),
+            on_pin=self.dock_controls_panel,
+        )
         self.drawer.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
         self.right_panel = RightPanel(self.controller)
         # Back-compat alias: tutorial, keyboard shortcuts, and _sync_tool_buttons reach feature sidebars here.
         self.controls_panel = self.right_panel.controls_panel
 
+        # Object names are required for saveState/restoreState to identify the docks.
+        self.drawer.setObjectName("controls_dock")
         self.drawer.setWidget(self.right_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.drawer)
 
-        self.session_dock = QDockWidget("Session", self)
+        self.session_dock = PinnableDockWidget(
+            "Session",
+            self,
+            pin_tooltip=tooltip_with_shortcut("Dock session panel to left", "toggle_left_panel"),
+            on_pin=self.dock_session_panel,
+        )
+        self.session_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.session_dock.setObjectName("session_dock")
         self.session_panel = SessionPanel(self.controller)
         self.session_dock.setWidget(self.session_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.session_dock)
+
+        # Snapshot the pristine layout (both docked at their home edges, default
+        # widths) so the pin and Reset Panel Layout can restore the true original
+        # position and size, not merely re-add the dock where it currently sits.
+        self._default_dock_state = self.saveState()
 
         # Restore saved panel visibility
         repo = self.controller.session.repo
@@ -284,15 +304,56 @@ class MainWindow(QMainWindow):
     def _on_tutorial_finished(self, _completed: bool) -> None:
         self.controller.session.repo.save_global_setting("tutorial_seen", True)
 
+    def _restore_default_dock_state(self) -> None:
+        """Restore both docks to the snapshot taken at startup (home edge + width)."""
+        if self._default_dock_state is not None:
+            self.restoreState(self._default_dock_state)
+
+    def dock_session_panel(self) -> None:
+        # Restore the pristine layout (returns this panel to its original edge and
+        # width) but preserve the other panel's current visibility so pinning one
+        # never forces the other to reappear.
+        right_visible = self.drawer.isVisible()
+        self._restore_default_dock_state()
+        self.drawer.setVisible(right_visible)
+        self.session_dock.setVisible(True)
+        self.toolbar.btn_toggle_left.setChecked(True)
+        self.controller.session.repo.save_global_setting("panel_left_visible", True)
+
+    def dock_controls_panel(self) -> None:
+        left_visible = self.session_dock.isVisible()
+        self._restore_default_dock_state()
+        self.session_dock.setVisible(left_visible)
+        self.drawer.setVisible(True)
+        self.toolbar.btn_toggle_right.setChecked(True)
+        self.controller.session.repo.save_global_setting("panel_right_visible", True)
+
     def toggle_session_dock(self) -> None:
+        if self.session_dock.isFloating():
+            self.dock_session_panel()
+            return
         visible = not self.session_dock.isVisible()
         self.session_dock.setVisible(visible)
         self.controller.session.repo.save_global_setting("panel_left_visible", visible)
 
     def toggle_controls_dock(self) -> None:
+        if self.drawer.isFloating():
+            self.dock_controls_panel()
+            return
         visible = not self.drawer.isVisible()
         self.drawer.setVisible(visible)
         self.controller.session.repo.save_global_setting("panel_right_visible", visible)
+
+    def reset_panel_layout(self) -> None:
+        """Restore both side panels to their original edges, widths and visibility."""
+        self._restore_default_dock_state()
+        self.session_dock.setVisible(True)
+        self.drawer.setVisible(True)
+        self.toolbar.btn_toggle_left.setChecked(True)
+        self.toolbar.btn_toggle_right.setChecked(True)
+        self.controller.session.repo.save_global_setting("panel_left_visible", True)
+        self.controller.session.repo.save_global_setting("panel_right_visible", True)
+        self.canvas.hud.showMessage("panel layout reset", timeout=1500)
 
     def _connect_signals(self) -> None:
         """Wire controller and view."""
@@ -342,6 +403,7 @@ class MainWindow(QMainWindow):
         self.controller.analysis_buffer_preview_requested.connect(self.canvas.overlay.show_analysis_buffer)
         self.controller.rotation_guide_requested.connect(self.canvas.overlay.show_rotation_grid)
         self.controller.crop_guide_changed.connect(self.canvas.overlay.update)
+        self.controller.dust_overlay_changed.connect(self.canvas.overlay.update)
 
         self.controller.status_message_requested.connect(self.canvas.hud.showMessage)
         self.controller.status_progress_requested.connect(self.canvas.hud.set_progress)
@@ -502,5 +564,5 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event) -> None:
         paths = [u.toLocalFile() for u in event.mimeData().urls()]
         if paths:
-            self.controller.request_asset_discovery(paths)
+            self.controller.request_asset_discovery(paths, auto_open=True)
         event.acceptProposedAction()

@@ -234,10 +234,4 @@ def filter_targets(targets: list[ShortcutEditorTarget], query: str) -> list[Shor
     needle = query.strip().casefold()
     if not needle:
         return list(targets)
-    return [
-        target
-        for target in targets
-        if needle in target.binding_keys or (len(needle) >= 2 and needle in target.text_search)
-    ]
-
-
+    return [target for target in targets if needle in target.binding_keys or (len(needle) >= 2 and needle in target.text_search)]

@@ -35,7 +35,7 @@ def grid_to_flat(grid: List[List[float]]) -> List[float]:
 
 
 def unique_copy_name(base: str, existing) -> str:
-    """"<base> Copy", then "<base> Copy 2", 3, ... skipping names already taken."""
+    """ "<base> Copy", then "<base> Copy 2", 3, ... skipping names already taken."""
     taken = set(existing)
     candidate = f"{base} Copy"
     if candidate not in taken:
@@ -102,7 +102,9 @@ class CrosstalkEditorDialog(QDialog):
         self.setMinimumSize(520, 560)
         self._init_ui()
 
-        self._reload_list(select=current_profile if current_profile in CrosstalkProfiles.list_profiles() else CrosstalkProfiles.DEFAULT_NAME)
+        self._reload_list(
+            select=current_profile if current_profile in CrosstalkProfiles.list_profiles() else CrosstalkProfiles.DEFAULT_NAME
+        )
         self.preview_strength_slider.setValue(current_strength if current_strength > 0 else 1.0)
 
     # ------------------------------------------------------------------ UI
@@ -181,7 +183,9 @@ class CrosstalkEditorDialog(QDialog):
         rl.addWidget(self._build_matrix_grid())
 
         self.preview_strength_slider = CompactSlider("Preview strength", 0.0, 1.0, 1.0, has_neutral=False)
-        self.preview_strength_slider.setToolTip("How strongly the matrix previews here (view-only — set Separation in the sidebar to apply)")
+        self.preview_strength_slider.setToolTip(
+            "How strongly the matrix previews here (view-only — set Separation in the sidebar to apply)"
+        )
         self.preview_strength_slider.valueChanged.connect(lambda _v: self._emit_preview())
         rl.addWidget(self.preview_strength_slider)
 
@@ -254,7 +258,9 @@ class CrosstalkEditorDialog(QDialog):
                     dash.setAlignment(Qt.AlignmentFlag.AlignCenter)
                     dash.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                     dash.setStyleSheet(f"color: {THEME.text_muted};")
-                    dash.setToolTip("Diagonal is fixed — this channel keeps itself (row normalization makes it redundant). Edit the off-diagonal mixing terms.")
+                    dash.setToolTip(
+                        "Diagonal is fixed — this channel keeps itself (row normalization makes it redundant). Edit the off-diagonal mixing terms."
+                    )
                     grid.addWidget(dash, r + 2, c + 2)
                     row_cells.append(None)
                     continue

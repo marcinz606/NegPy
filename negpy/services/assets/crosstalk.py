@@ -118,9 +118,7 @@ class CrosstalkProfiles:
     def save(name: str, matrix: List[float]) -> str:
         """Write a user profile TOML (row-major 3×3) and return its path."""
         os.makedirs(APP_CONFIG.crosstalk_dir, exist_ok=True)
-        rows = "\n".join(
-            "  [{:.6g}, {:.6g}, {:.6g}],".format(*matrix[i * 3 : i * 3 + 3]) for i in range(3)
-        )
+        rows = "\n".join("  [{:.6g}, {:.6g}, {:.6g}],".format(*matrix[i * 3 : i * 3 + 3]) for i in range(3))
         content = f'name = "{_escape_toml_string(name)}"\nmatrix = [\n{rows}\n]\n'
         path = CrosstalkProfiles.path_for_name(name)
         with open(path, "w", encoding="utf-8") as f:

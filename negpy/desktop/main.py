@@ -3,7 +3,7 @@ import sys
 
 from PyQt6.QtCore import Qt, qInstallMessageHandler
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QProxyStyle, QStyle
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager
@@ -44,6 +44,45 @@ def _filter_qt_messages(mode, context, message: str) -> None:
     sys.stderr.write(message + "\n")
 
 
+class _AppStyle(QProxyStyle):
+    """Fusion with a longer tooltip hover delay — the default 700 ms pops tooltips
+    the moment the cursor crosses a toolbar, which reads as noise."""
+
+    _TOOLTIP_WAKEUP_MS = 1400
+
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
+            return self._TOOLTIP_WAKEUP_MS
+        return super().styleHint(hint, option, widget, returnData)
+
+
+def _install_exception_hook() -> None:
+    """Log every unhandled exception — especially ones raised inside a Qt slot — to the file log and
+    show a non-fatal notice, instead of letting PyQt call qFatal() and abort with a native crash
+    report that hides the Python traceback. This is what surfaces user-side bugs we can't reproduce
+    (e.g. the Big Scanlight calibration crash): the traceback lands in negpy.log for them to attach."""
+
+    def _hook(exc_type, exc_value, exc_tb) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_tb))
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+
+            QMessageBox.critical(
+                None,
+                "NegPy hit an error",
+                f"Something went wrong and was logged:\n\n{exc_type.__name__}: {exc_value}\n\n"
+                f"The app kept running. If it keeps happening, please attach the log file "
+                f"({os.path.join(BASE_USER_DIR, 'negpy.log')}) to a bug report on GitHub.",
+            )
+        except Exception:
+            logger.warning("could not show the error dialog", exc_info=True)
+
+    sys.excepthook = _hook
+
+
 def _bootstrap_environment() -> None:
     """Ensure user directories exist."""
     dirs = [
@@ -68,6 +107,7 @@ def main() -> None:
     """
     override_cfg = load_override(APP_CONFIG.override_toml_path)
     setup_logging(level=override_cfg.log_level_int)
+    _install_exception_hook()  # log unhandled slot exceptions to negpy.log instead of aborting
 
     if getattr(sys, "frozen", False):
         log_path = os.path.join(os.path.expanduser("~"), "negpy_boot.log")
@@ -101,7 +141,7 @@ def main() -> None:
         qInstallMessageHandler(_filter_qt_messages)
         app = QApplication(sys.argv)
         app.setApplicationName("NegPy")
-        app.setStyle("Fusion")
+        app.setStyle(_AppStyle("Fusion"))
 
         icon_path = get_resource_path("media/icons/icon.png")
         if os.path.exists(icon_path):

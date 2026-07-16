@@ -14,7 +14,7 @@ from negpy.desktop.view.styles.theme import THEME
 _GROUPS = (
     ("Setup", (("process", "Process"), ("crop", "Crop"), ("rotation", "Rotation"))),
     ("Exposure", (("exposure", "Exposure"),)),
-    ("Color", (("color", "Color"),)),
+    ("Lab & Toning", (("color", "Lab & Toning"),)),
     ("Finish", (("finish", "Finish"),)),
     ("Bounds", (("bounds_luma", "Tonal span"), ("bounds_colour", "Colour balance"))),
 )
