@@ -2376,9 +2376,10 @@ class AppController(QObject):
             if override_settings:
                 params = replace(params, export=current_export)
             else:
-                # Always use current session export path/mode even for per-file
-                # exports. Per-file configs from the DB bypass _apply_sticky_settings
-                # and may have stale ABSOLUTE/export_path values.
+                # Always use current session export path/mode/format even for
+                # per-file exports. Per-file configs from the DB bypass
+                # _apply_sticky_settings and may have stale ABSOLUTE/export_path
+                # or DNG export_fmt values that don't match what the UI shows.
                 params = replace(
                     params,
                     export=replace(
@@ -2386,6 +2387,8 @@ class AppController(QObject):
                         output_mode=current_export.output_mode,
                         export_path=current_export.export_path,
                         output_subfolder=current_export.output_subfolder,
+                        export_fmt=current_export.export_fmt,
+                        export_color_space=current_export.export_color_space,
                     ),
                 )
 
