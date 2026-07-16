@@ -209,6 +209,91 @@ def test_closing_running_calibration_waits_for_worker_terminal_signal():
     assert w._lv_target is w.lv_image
 
 
+def test_running_calibration_locks_the_window_inputs():
+    """A calibration meters a fixed base at a fixed ISO/aperture, so the film-stock name, the base
+    ROI and the ISO/aperture must not change under it mid-run. They lock when it starts and unlock
+    on a terminal outcome (here a cancel) so a failed run can be adjusted and retried."""
+    w = _sidebar()
+    w._camera_verified = True
+    w._light_verified = True
+    w.calib_window.image._set_crosshair(0.5, 0.5)  # place the base patch so the run can start
+
+    w._on_calibrate_new_preset("Portra 400")
+
+    assert w._calibrating_preset == "Portra 400"
+    w.controller.start_calibration.assert_called_once()
+    assert not w.calib_window.name_edit.isEnabled()
+    assert not w.calib_window.iso_stepper.isEnabled()
+    assert not w.calib_window.aperture_stepper.isEnabled()
+    assert w.calib_window.image._roi_locked  # a click no longer moves the metered patch
+
+    w._on_cancelled()  # terminal → unlock for a retry
+
+    assert w.calib_window.name_edit.isEnabled()
+    assert not w.calib_window.image._roi_locked
+
+
+def test_settings_refresh_does_not_reenable_locked_calibration_inputs(tmp_path, monkeypatch):
+    """The periodic camera-settings poll mirrors the body onto the ISO/aperture steppers. While a
+    calibration is metering at those settings they are frozen, so the poll must skip the calibration
+    pop-up's steppers — otherwise it would re-enable what the run just locked."""
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 100, "writable": True, "options": [{"raw": 100, "label": "ISO 100"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "F8"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+    w = _sidebar()
+    w._calibrating_preset = "Portra 400"
+    w.calib_window.set_inputs_locked(True)
+
+    w._refresh_camera_settings()
+
+    assert not w.calib_window.iso_stepper.isEnabled()  # stayed locked despite a writable body value
+    assert not w.calib_window.aperture_stepper.isEnabled()
+    assert w.lv_window.iso_stepper.isEnabled()  # the live-view stepper still refreshes normally
+
+
+def test_roi_image_ignores_clicks_while_locked():
+    from PyQt6.QtCore import QEvent, QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent, QPixmap
+
+    from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
+
+    img = RoiImageLabel()
+    img.resize(200, 200)
+    img.set_frame(QPixmap(100, 100))  # a frame so _display() maps clicks onto fractions
+
+    def _click(x, y):
+        pos = QPointF(x, y)
+        img.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress, pos, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier
+            )
+        )
+        img.mouseReleaseEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonRelease, pos, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier
+            )
+        )
+
+    _click(100, 100)
+    assert img.roi() is not None  # unlocked → a click drops the sampling patch
+
+    img.clear_roi()
+    img.set_roi_locked(True)
+    _click(120, 120)
+    assert img.roi() is None  # locked → the click is ignored, no patch placed
+
+
 def test_capture_error_closes_the_stale_live_view_session():
     w = _sidebar()
     w.set_scanning(True)
@@ -674,7 +759,7 @@ def test_normal_mode_keeps_the_scan_live_view_steppers():
     assert not w.lv_window.settings_widget.isHidden()
 
 
-def _calibrate(w, monkeypatch, name="Portra 400"):
+def _calibrate(w, monkeypatch, name="Portra 400", status="target"):
     """Drive _on_calibration_finished as the worker would, returning the baked preset."""
     import types
 
@@ -683,8 +768,28 @@ def _calibrate(w, monkeypatch, name="Portra 400"):
     monkeypatch.setattr(w._presets, "get", lambda _n: None)
     monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
     w._calibrating_preset = name
-    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5")))
+    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5"), status=status))
     return saved["preset"]
+
+
+def test_calibration_shows_an_aperture_warning_when_over_exposed(monkeypatch):
+    # Graceful over-exposure: the preset is still saved, but the status line tells the user to stop
+    # down (mirrors the solver's "over" status → a clear message, not a silent bad preset).
+    w = _sidebar()
+    _calibrate(w, monkeypatch, status="over")
+    assert "over-exposed" in w.status_label.text() and "close the aperture" in w.status_label.text()
+
+
+def test_calibration_shows_an_aperture_warning_when_under_exposed(monkeypatch):
+    w = _sidebar()
+    _calibrate(w, monkeypatch, status="under")
+    assert "under-exposed" in w.status_label.text() and "open the aperture" in w.status_label.text()
+
+
+def test_calibration_on_target_has_no_warning(monkeypatch):
+    w = _sidebar()
+    _calibrate(w, monkeypatch, status="target")
+    assert "⚠" not in w.status_label.text()
 
 
 def test_calibration_bakes_the_metered_iso_and_aperture(tmp_path, monkeypatch):
@@ -957,3 +1062,182 @@ def test_scan_request_carries_the_preset_exposure(tmp_path):
     w._start_capture(retake=False)
     req = w.controller.start_capture.call_args[0][0]
     assert req.iso == "100" and req.aperture == "f/8"  # the worker forces these on the body
+
+
+def test_available_shutters_drops_unparseable_labels_from_any_body(monkeypatch):
+    # The camera's shutter ladder is untrusted input: the a7 IV publishes "1/0" (a bulb-like label
+    # with a zero denominator), other bodies publish "Bulb"/"" etc. _available_shutters must skip
+    # every unparseable label without crashing and keep the usable ones, whatever the model. This
+    # guards Bug 4 generically (any body), not just the specific a7 IV "1/0" that was reported.
+    w = _sidebar()
+    monkeypatch.setattr(
+        w,
+        "_settings_json",
+        lambda: {
+            "shutter": {
+                "options": [
+                    {"label": "1/250"},
+                    {"label": "1/0"},  # a7 IV bulb-like: zero denominator (was an uncaught crash)
+                    {"label": "Bulb"},  # string bulb: non-numeric
+                    {"label": ""},  # empty label
+                    {"label": "1/60"},
+                    {"label": "2"},  # 2 s: within the calibration range (under-exposure cure) → kept
+                    {"label": "30"},  # 30 s: parses fine but outside the solver's ladder → dropped
+                ]
+            }
+        },
+    )
+    # No exception, junk dropped, usable labels kept fastest-first — INCLUDING the 2 s label (the
+    # under-exposure cure needs it; a <=1 s cap here would silently block it).
+    assert w._available_shutters() == ("1/250", "1/60", "2")
+
+
+def test_available_shutters_clamps_to_the_solver_ladder_at_both_ends(monkeypatch):
+    # This per-body ladder overrides the built-in one, so every limit the solver relies on must hold
+    # here too. The floor is the PWM-banding guard: the Scanlight dims at 40 kHz, so a 1/250 s frame
+    # integrates ~160 pulses while a body's 1/8000 s catches ~5 and meters noise. Bodies publish down
+    # to 1/8000, so without this clamp the probe could halve its way there and poison k.
+    from negpy.services.capture.calibration import SHUTTER_CANDIDATES, shutter_seconds
+
+    w = _sidebar()
+    monkeypatch.setattr(
+        w,
+        "_settings_json",
+        lambda: {
+            "shutter": {
+                "options": [
+                    {"label": "1/8000"},  # far below the solver's floor → dropped (PWM banding)
+                    {"label": "1/1000"},  # still faster than the ladder's floor → dropped
+                    {"label": "1/250"},  # exactly the floor → kept
+                    {"label": "1/60"},
+                    {"label": "2"},  # exactly the ceiling → kept
+                    {"label": "4"},  # beyond the ceiling → dropped
+                ]
+            }
+        },
+    )
+    assert w._available_shutters() == ("1/250", "1/60", "2")
+    # Bounds are derived from the solver's ladder, never restated — extending SHUTTER_CANDIDATES
+    # must widen this automatically, or the two silently disagree depending on whether live view
+    # published a ladder.
+    assert shutter_seconds(SHUTTER_CANDIDATES[0]) <= shutter_seconds("1/250")
+    assert shutter_seconds("2") <= shutter_seconds(SHUTTER_CANDIDATES[-1])
+
+
+def test_calibration_finish_zeroes_the_white_slider_and_preset(monkeypatch):
+    # A calibrated preset is RGB-only (the Scanlight can't mix white with RGB). If the W slider
+    # still carries a prior white preset's 255, it must not leak into the saved preset. Regression:
+    # the calibrated preset stored w_level=255 and the slider kept showing white on (Bug 2).
+    w = _sidebar()
+    w._set_slider(w.w_slider, 255)  # as a previously selected white-light preset would leave it
+    preset = _calibrate(w, monkeypatch)
+    assert preset.w_level == 0  # baked preset carries no white
+    assert w.w_slider.value() == 0  # and the slider reflects it
+
+
+def test_new_preset_frames_with_the_calibration_start_point_not_the_preset(monkeypatch):
+    # Opening the calibration pop-up frames with the calibration's fixed start point
+    # (REFERENCE_LEVELS) — not the leftover R/G/B of the previously selected preset (Bug 5). It
+    # pushes that light DIRECTLY and leaves the shared R/G/B/W sliders on the selected preset, so
+    # the preset's own light is restored on cancel/hand-off (the shared-slider regression).
+    from negpy.services.capture.calibration import REFERENCE_LEVELS
+
+    w = _sidebar()  # RGB mode is the default
+    for slider, value in ((w.r_slider, 40), (w.g_slider, 30), (w.b_slider, 250), (w.w_slider, 0)):
+        w._set_slider(slider, value)  # the selected preset — distinct from REFERENCE_LEVELS
+    w._on_preset_new()
+    r, g, b, wl, _port = w.controller.set_scanlight_color.call_args[0]
+    assert (r, g, b, wl) == (*REFERENCE_LEVELS, 0)  # framed at the calibration start point
+    assert (w.r_slider.value(), w.g_slider.value(), w.b_slider.value()) == (40, 30, 250)  # preset untouched
+
+
+def test_cancelling_calibration_leaves_scan_framing_on_the_preset():
+    # The scan window frames on the selected preset's RGB. Cancelling the calibration pop-up must not
+    # leave the scan framing stuck on the calibration start-point light — the shared R/G/B/W sliders
+    # are why the direct-push framing light matters (guards the regression Bug 5's first fix caused).
+    w = _sidebar()
+    for slider, value in ((w.r_slider, 40), (w.g_slider, 30), (w.b_slider, 250), (w.w_slider, 0)):
+        w._set_slider(slider, value)  # the selected preset — distinct from REFERENCE_LEVELS
+    w._on_preset_new()  # frames at the start point (pushed directly, sliders untouched)
+    w._on_calib_window_closed()  # cancel
+    w.controller.set_scanlight_color.reset_mock()
+    w._on_live_view_toggled(True)  # open the scan live view
+    r, g, b, wl, _port = w.controller.set_scanlight_color.call_args[0]
+    assert (r, g, b, wl) == (40, 30, 250, 0)  # the preset's light, not the start-point framing light
+
+
+def test_calibration_pop_up_settings_poll_re_enables_iso_and_aperture(tmp_path, monkeypatch):
+    # Bug 1: after camera idle, opening the calibration pop-up directly used to leave ISO/aperture
+    # greyed out because the ~1/s settings poll only ran while the SCAN window streamed. It now runs
+    # for the calibration window too, so a fresh writable settings JSON re-enables its ISO/aperture
+    # without first opening the scan window (Robin's workaround). Guards against re-gating the poll.
+    import json
+
+    from PyQt6.QtGui import QPixmap
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 2, "writable": True, "options": [{"raw": 0, "label": "Auto"}, {"raw": 2, "label": "100"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+
+    w = _sidebar()
+    w.calib_window.iso_stepper.setEnabled(False)  # camera-idle: greyed out
+    w.calib_window.aperture_stepper.setEnabled(False)
+    w._lv_target = w.calib_window.image  # the calibration pop-up is the streaming target
+    w._calibrating_preset = ""  # not mid-run (a run would legitimately keep them locked)
+
+    # Drive one live-view frame landing on the ~1/s poll boundary.
+    img = tmp_path / "frame.png"
+    pm = QPixmap(8, 8)
+    pm.fill()
+    assert pm.save(str(img), "PNG")  # a valid image so _refresh_live_view gets past the null check
+    w._lv_jpeg_path = str(img)
+    w._lv_last_mtime = 0.0
+    w._lv_frames_seen = 11  # +1 → 12 → the poll fires
+
+    w._refresh_live_view()
+
+    assert w.calib_window.iso_stepper.isEnabled()  # writable body value → re-enabled by the poll
+    assert w.calib_window.aperture_stepper.isEnabled()
+    assert w.calib_window.iso_stepper.count() == 2  # and populated from the body's options
+
+
+def test_calibrate_request_carries_the_iso_aperture_normalized_start_point(tmp_path, monkeypatch):
+    # Phase-1 wiring: the sidebar reads the body's live ISO/aperture and hands the solver a start
+    # point scaled to them. ISO 400 (2 stops more sensitive) → start shutter 2 stops faster (1/5 → 1/20);
+    # levels stay fixed (same Scanlight).
+    import json
+
+    import negpy.desktop.view.sidebar.scanlight as sl
+    from negpy.services.capture.calibration import REFERENCE_LEVELS
+
+    p = tmp_path / "settings.json"
+    p.write_text(
+        json.dumps(
+            {
+                "iso": {"cur": 4, "writable": True, "options": [{"raw": 4, "label": "400"}]},
+                "aperture": {"cur": 8, "writable": True, "options": [{"raw": 8, "label": "f/8"}]},
+                "shutter": {"options": [{"label": "1/250"}, {"label": "1/20"}, {"label": "1/5"}]},
+            }
+        )
+    )
+    monkeypatch.setattr(sl, "default_settings_path", lambda: str(p))
+
+    w = _sidebar()
+    roi_sentinel = object()
+    monkeypatch.setattr(w.calib_window.image, "roi", lambda: roi_sentinel)
+    w._on_calibrate_new_preset("Portra 400")
+
+    req = w.controller.start_calibration.call_args[0][0]
+    assert req.roi is roi_sentinel
+    assert req.start_shutter == "1/20"  # 1/5 scaled 2 stops faster for ISO 400
+    assert req.start_levels == REFERENCE_LEVELS  # unchanged — same light for every body
+    assert req.shutter_candidates == ("1/250", "1/20", "1/5")

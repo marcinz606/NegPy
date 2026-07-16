@@ -93,6 +93,15 @@ class CalibrationWindow(QDialog):
     def _emit_calibrate(self) -> None:
         self.calibrateRequested.emit(self.name_edit.text().strip())
 
+    def set_inputs_locked(self, locked: bool) -> None:
+        """Freeze the calibration inputs while a run is in progress: the film-stock name, the base
+        ROI (clicking the image must not move the patch being metered), and the ISO/aperture the
+        base is metered at. Re-enabled at any terminal outcome so a failed run can be retried."""
+        self.name_edit.setEnabled(not locked)
+        self.iso_stepper.setEnabled(not locked)
+        self.aperture_stepper.setEnabled(not locked)
+        self.image.set_roi_locked(locked)
+
     def set_status(self, text: str) -> None:
         self.status.setText(text)
 
@@ -102,6 +111,7 @@ class CalibrationWindow(QDialog):
 
     def start(self, default_name: str = "") -> None:
         """Reset and show the window for a fresh calibration."""
+        self.set_inputs_locked(False)  # a fresh window always starts editable
         self.name_edit.setText(default_name)
         self.image.clear_roi()
         # Blank the previous session's frame before showing, so reopening goes straight to black +

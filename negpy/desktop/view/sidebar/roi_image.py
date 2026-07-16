@@ -36,6 +36,7 @@ class RoiImageLabel(QLabel):
         # roi_mode=True drops the calibration crosshair patch on click (calib window);
         # False just emits `clicked` (scan pop-up → aim the focus magnifier).
         self.roi_mode = True
+        self._roi_locked = False  # true while a calibration runs → clicks must not move the patch
         self._pixmap: Optional[QPixmap] = None
         self._roi: Optional[tuple[float, float, float, float]] = None
         self._drag_start: Optional[QPoint] = None
@@ -70,6 +71,12 @@ class RoiImageLabel(QLabel):
     def _advance_spinner(self) -> None:
         self._spin_angle = (self._spin_angle + 30) % 360
         self.update()
+
+    def set_roi_locked(self, locked: bool) -> None:
+        """Freeze the base ROI while a calibration is metering it: a click no longer moves the
+        sampling patch. The cursor drops the crosshair so it's clear the target is fixed."""
+        self._roi_locked = locked
+        self.setCursor(Qt.CursorShape.ArrowCursor if locked else Qt.CursorShape.CrossCursor)
 
     def clear_roi(self) -> None:
         self._roi = None
@@ -129,7 +136,8 @@ class RoiImageLabel(QLabel):
         if self._drag_start is not None and draw_rect is not None:
             cx, cy = self._to_fraction(ev.pos(), draw_rect)
             if self.roi_mode:
-                self._set_crosshair(cx, cy)  # calibration: drop the small base-sampling patch (no drag-box)
+                if not self._roi_locked:  # locked while a calibration meters the patch
+                    self._set_crosshair(cx, cy)  # calibration: drop the small base-sampling patch (no drag-box)
             elif (ev.pos() - self._drag_start).manhattanLength() < _CLICK_SLOP:
                 self.clicked.emit(cx, cy)  # scan pop-up: a click toggles the focus magnifier
         self._drag_start = None

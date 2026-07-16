@@ -1,9 +1,15 @@
 """Linear sensor-RGB demosaic for calibration metering.
 
-Mirrors NegPy's canonical RAW decode (`ImageProcessor._decode_sensor_rgb`):
-sensor-native `output_color=raw`, no white balance, linear gamma, 16-bit. This
-makes the calibration meter the film base the same way the RGB-Scan merge later
-reads the channels. rawpy is imported lazily so the module stays import-safe.
+Follows NegPy's canonical RAW decode (`ImageProcessor._decode_sensor_rgb`): sensor-native
+`output_color=raw`, no white balance, linear gamma, 16-bit — so calibration meters the film base
+the same way the RGB-Scan merge later reads the channels. rawpy is imported lazily so the module
+stays import-safe.
+
+It deviates in one parameter, deliberately: `adjust_maximum_thr=0.0` (see `linear_demosaic`). The
+canonical decode still runs LibRaw's default, where each frame is scaled by its own brightest
+pixel — harmless for a single rendered image, fatal for a meter comparing frames. Whether the
+canonical path wants the same fix is a separate question (it changes rendered output, so it needs
+its own verification); it is NOT covered here.
 """
 
 from __future__ import annotations
@@ -29,6 +35,16 @@ def linear_demosaic(path: str, half_size: bool = False) -> np.ndarray:
         rgb = raw.postprocess(
             gamma=(1, 1),
             no_auto_bright=True,
+            # Scale against the camera's white level ONLY — never the frame's own brightest pixel.
+            # LibRaw's default (adjust_maximum_thr=0.75) silently switches the scaling reference to
+            # the image maximum once that exceeds 75 % of the white level, so each frame is
+            # normalised by its own content. That makes the decode non-linear in exposure: rig data
+            # showed the metered base pinned at ~34400 across LED levels 128-160 (the scaling grew
+            # exactly as fast as the light), which reads as an LED/shutter defect and is neither.
+            # 0.0 disables the substitution, making the demosaiced scale a fixed multiple of the raw
+            # counts — which is what a meter measuring absolute light requires, and what
+            # CLIP_CEILING assumes.
+            adjust_maximum_thr=0.0,
             use_camera_wb=False,
             user_wb=[1, 1, 1, 1],
             output_bps=16,

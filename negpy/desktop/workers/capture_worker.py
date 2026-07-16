@@ -17,7 +17,7 @@ from negpy.infrastructure.capture.gphoto import CameraUnavailable, GphotoCamera,
 from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.kernel.system.logging import get_logger
-from negpy.services.capture.calibration import CalibrationService, Roi
+from negpy.services.capture.calibration import REFERENCE_LEVELS, REFERENCE_SHUTTER, CalibrationService, Roi
 from negpy.services.capture.service import CaptureService, capture_single
 
 logger = get_logger(__name__)
@@ -55,6 +55,10 @@ class CalibrationRequest:
     settle_s: float = 0.4
     target_fraction: float = 0.9
     shutter_candidates: tuple[str, ...] = ()  # this body's writable shutter ladder (from the live-view JSON)
+    # Phase-1 start point, already normalized to the live ISO/aperture by the sidebar. Defaults keep
+    # the fixed reference (ISO 100 / f8) when the caller doesn't supply one.
+    start_levels: tuple[int, int, int] = REFERENCE_LEVELS
+    start_shutter: str = REFERENCE_SHUTTER
 
 
 def _shutters_or_none(shutters: tuple[str, str, str]):
@@ -387,6 +391,8 @@ class CaptureWorker(QObject):
                 result = service.calibrate(
                     req.roi,
                     scratch,
+                    start_levels=req.start_levels,
+                    start_shutter=req.start_shutter,  # normalized to the live ISO/aperture by the sidebar
                     target_fraction=req.target_fraction,
                     candidates=req.shutter_candidates,  # empty → calibrate falls back to the built-in ladder
                     progress=self.calibration_progress.emit,

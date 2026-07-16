@@ -1,31 +1,49 @@
-"""ETTR auto-calibration unit tests (fake light + camera + linear demosaic)."""
+"""ETTR auto-calibration unit tests (rewrite — see calibration_redesign.md).
+
+Fake linear sensor: Signal = k · level · true_seconds, no bias (rawpy removes it → black = 0). It
+meters the ladder's true exposure, like a real body — NOT the rounded label, which is a display
+name ("1/3" exposes 0.315 s).
+Only the lit channel gets signal (one LED on per probe, as on the real rig). `k_scale` scales all
+three uniformly, like opening the aperture; per-channel k models the deep-red weakness (R lowest).
+"""
 
 import os
+
 import numpy as np
 import pytest
 
 from negpy.services.capture.calibration import (
     MAX_CLIP_FRACTION,
+    PWM_MAX,
+    PWM_MAX_SAFE,
+    PWM_MIN,
+    REFERENCE_LEVELS,
+    REFERENCE_SHUTTER,
+    SHUTTER_CANDIDATES,
     CalibrationService,
     ChannelCalibration,
     Roi,
-    _calibration_badness,
-    _calibration_issue,
+    _channel_status,
+    _solve_shared,
+    _spread_stops,
+    aperture_fnumber,
     clip_fraction,
-    faster_shutter,
     meter_base,
-    meter_black,
+    _ladder_stops,
+    nearest_shutter,
+    normalize_start_point,
     shutter_at_least,
     shutter_seconds,
-    slower_shutter,
-    target_for_black_level,
+    target_signal,
+    true_seconds,
 )
 
-BLACK = 512.0
-# Per-channel linear response (counts per LED-level per second). Blue is the dimmest (orange
-# mask), so it needs the most exposure — but only ~1 stop below red, within the LED's ~2.7-stop
-# range, so one shared shutter fits all three (matches the real Portra/Vision3 measurements).
-K = {0: 2250.0, 1: 1700.0, 2: 1200.0}
+# Per-channel response (counts per LED-level per second). R is the weakest (665 nm, low sensor QE),
+# G≈B — the ~1.6-stop spread measured from Robin's f/8 C-41 logs.
+K = {"R": 250.0, "G": 700.0, "B": 760.0}
+
+
+# ---- pure functions -------------------------------------------------------
 
 
 def test_shutter_seconds():
@@ -34,54 +52,143 @@ def test_shutter_seconds():
     assert shutter_seconds("1") == 1.0
 
 
-def test_target_for_black_level():
-    assert target_for_black_level(512.0, 0.9) == round(0.9 * (65535 - 512))
+def test_shutter_seconds_rejects_zero_denominator():
+    # The a7 IV publishes a bulb-like "1/0"; it must raise ValueError (not ZeroDivisionError) so the
+    # shutter-ladder filter drops it instead of crashing calibration.
+    with pytest.raises(ValueError):
+        shutter_seconds("1/0")
 
 
-def test_roi_pixels_clamps_and_orders():
-    assert Roi(0.0, 0.0, 1.0, 1.0).pixels(100, 80) == (0, 0, 100, 80)
-    assert Roi(0.25, 0.5, 0.5, 0.25).pixels(100, 80) == (25, 40, 75, 60)
-    # Degenerate / out-of-range still yields a non-empty crop.
-    x0, y0, x1, y1 = Roi(0.99, 0.99, 0.5, 0.5).pixels(100, 80)
-    assert x1 > x0 and y1 > y0
+# Real third-stop ladder as published by the a7C II (slowest first).
+_THIRDS = ("1", "8/10", "6/10", "5/10", "4/10", "1/3", "1/4", "1/5", "1/6", "1/8", "1/10", "1/13", "1/15", "1/20")
+# A half-stop body: same style of labels, different rungs — "1/3" here is 2^(-3/2) s, not 2^(-5/3).
+_HALVES = ("1", "1/1.5", "1/2", "1/3", "1/4", "1/6", "1/8", "1/11", "1/15", "1/22", "1/30")
 
 
-def test_meter_base_p999_ignores_hot_pixels():
-    plane = np.full((100, 100), 1000.0)
-    plane.flat[:3] = 60000.0  # 3 hot pixels = 0.03% < 0.1%, above the p99.9 cut
-    # whole-frame ROI, black 200 → ~800 counts of base signal
-    assert abs(meter_base(plane, Roi(0, 0, 1, 1), 200.0) - 800.0) < 1.0
+def test_true_seconds_undoes_the_label_rounding():
+    # Labels are rounded display names for a geometric ladder. Metering against the fraction put a
+    # rig run ~4 % under target with the LED clamped: it probed at "0.4" (0.8 % off) and solved at
+    # "1/3" (5.8 % off), and the difference went straight into k.
+    assert true_seconds("1", _THIRDS) == pytest.approx(1.0, rel=1e-3)  # exact rungs stay exact
+    assert true_seconds("1/4", _THIRDS) == pytest.approx(0.25, rel=1e-3)
+    assert true_seconds("1/8", _THIRDS) == pytest.approx(0.125, rel=1e-3)
+    assert true_seconds("1/3", _THIRDS) == pytest.approx(2 ** (-5 / 3), rel=0.01)  # 0.315, not 0.333
+    assert true_seconds("1/6", _THIRDS) == pytest.approx(2 ** (-8 / 3), rel=0.01)  # 0.157, not 0.167
+    assert true_seconds("4/10", _THIRDS) == pytest.approx(2 ** (-4 / 3), rel=0.01)  # 0.397, not 0.4
+    # The nominal parse is untouched — ordering/snapping still use it, and the ladder is monotonic
+    # either way, so no caller that only sorts is affected.
+    assert shutter_seconds("1/3") == pytest.approx(1 / 3)
 
 
-def test_meter_black_median_robust_to_hot_pixels():
-    plane = np.full((100, 100), 512.0)
-    plane.flat[:50] = 65535.0  # 0.5% hot pixels would wreck a p99.9 black estimate
-    assert meter_black(plane, Roi(0, 0, 1, 1)) == 512.0  # the median ignores them
+def test_ladder_stops_is_measured_from_the_body_not_assumed():
+    # Which rung a rounded label denotes depends on the ladder's spacing, so it is read off the
+    # body's own labels. Assuming thirds on a half-stop body would be worse than not correcting at
+    # all (it would "fix" 1/3 to 0.315 when the body really exposes 0.354).
+    assert _ladder_stops(_THIRDS) == pytest.approx(1 / 3)
+    assert _ladder_stops(_HALVES) == pytest.approx(1 / 2)
+    assert true_seconds("1/3", _HALVES) == pytest.approx(2 ** (-3 / 2), rel=0.02)  # 0.354, not 0.315
+    # Too short to read → falls back to thirds rather than inventing a spacing.
+    assert _ladder_stops(("1/4", "1/8")) == pytest.approx(1 / 3)
 
 
-def test_clip_fraction_counts_saturated_pixels():
-    plane = np.full((100, 100), 1000.0)
-    plane.flat[:5] = 65535.0  # 5 / 10000 = 0.05% at the ceiling
-    assert abs(clip_fraction(plane, Roi(0, 0, 1, 1)) - 0.0005) < 1e-9
-    assert clip_fraction(np.full((10, 10), 1000.0), Roi(0, 0, 1, 1)) == 0.0  # nothing saturated
+def test_true_seconds_leaves_labels_that_are_not_on_the_ladder_alone():
+    # A correction may never exceed the rounding it undoes. A value that sits nowhere near a rung
+    # isn't a rounded rung — it's something else (bulb, an oddly labelled body), and then the label
+    # is the better guess.
+    assert true_seconds("0.7", _THIRDS) == pytest.approx(0.7, rel=1e-6)
+    for label in _THIRDS:  # every real rung IS corrected, and only slightly
+        assert true_seconds(label, _THIRDS) == pytest.approx(shutter_seconds(label), rel=0.08)
 
 
-def test_faster_shutter_steps_up_the_ladder():
-    assert faster_shutter("0.8") == "0.6"
-    assert faster_shutter("1/15") == "1/20"  # ladder is fastest-first
-    assert faster_shutter("1/250") is None  # already the fastest
+def test_solve_uses_the_true_exposure_not_the_rounded_label():
+    # The regression this fixes: solving levels against the label over-states the light by up to
+    # 5.8 %, the channel lands under target, and the trim runs into the PWM_MAX clamp.
+    T = target_signal()
+    shutter, levels = _solve_shared(K, T, _THIRDS)
+    secs = true_seconds(shutter, _THIRDS)
+    for c, level in levels.items():
+        if PWM_MIN < level < PWM_MAX:  # unclamped channels must land on target at the TRUE exposure
+            assert K[c] * level * secs == pytest.approx(T, rel=0.02)
 
 
-def test_slower_shutter_steps_down_the_ladder():
-    assert slower_shutter("0.8") == "1"
-    assert slower_shutter("1/250") == "1/200"
-    assert slower_shutter("1") is None  # already the slowest
+def test_aperture_fnumber_parses_labels_and_manual_lens():
+    assert aperture_fnumber("f/8") == 8.0
+    assert aperture_fnumber("F5.6") == 5.6
+    assert aperture_fnumber("11") == 11.0
+    assert aperture_fnumber("") is None  # manual lens, no electronic aperture
+    assert aperture_fnumber("—") is None
+
+
+def test_normalize_start_point_scales_shutter_by_iso_and_aperture():
+    # Reference is ISO 100 / f8 / 0.4 s. Exposure ∝ ISO·t/f², so t scales by (100/ISO)·(f/8)².
+    levels, shutter = normalize_start_point("100", "f/8")
+    assert levels == REFERENCE_LEVELS and shutter == REFERENCE_SHUTTER
+    # ISO 400 = 2 stops more sensitive → 2 stops faster (0.4 s → 1/10).
+    assert normalize_start_point("400", "f/8")[1] == "1/10"
+    # f/11 ≈ 1 stop less light → ~1 stop slower (0.4 s → 0.8 s), NOT mislabelled as "1/1".
+    assert normalize_start_point("100", "f/11")[1] == "0.8"
+    # f/16 = 2 stops less light → 2 stops slower (0.4 s → 1.6 s), still on the ladder.
+    assert normalize_start_point("100", "f/16")[1] == "1.6"
+    # Manual lens (aperture unreadable) → ISO-only correction, no crash.
+    assert normalize_start_point("200", "")[1] == "1/5"
+
+
+def test_channel_status_is_measured_based_not_level_based():
+    # Bug caught in review: a clip-guard can pull the LED well below PWM_MAX yet leave the signal
+    # materially under target — that must read "under", not "target". The status keys off the
+    # measured signal, not the level.
+    T = target_signal()
+    assert _channel_status(T, 0.0, T) == "target"
+    assert _channel_status(0.85 * T, 0.0, T) == "target"  # small undershoot within the margin
+    assert _channel_status(0.5 * T, 0.0, T) == "under"  # materially under (level irrelevant here)
+    assert _channel_status(T, 0.01, T) == "over"  # still clipping → over
+
+
+def test_spread_stops():
+    assert _spread_stops({"R": 250.0, "G": 700.0, "B": 760.0}) == pytest.approx(1.60, abs=0.02)
+    assert _spread_stops({"R": 100.0, "G": 100.0, "B": 100.0}) == 0.0
+
+
+def test_solve_shared_seats_the_dimmest_channel_near_pwm_max_safe():
+    T = target_signal()
+    shutter, levels = _solve_shared(K, T, SHUTTER_CANDIDATES)
+    # Dimmest channel (R) gets the highest level, seated just under PWM_MAX_SAFE (not 255 — the red
+    # LED saturates up there); brighter G/B lower. Never above PWM_MAX_SAFE, and at most one ladder
+    # third-stop below it after the shutter snap.
+    assert levels["R"] > levels["G"] > levels["B"]
+    assert PWM_MAX_SAFE * 0.79 <= levels["R"] <= PWM_MAX_SAFE
+    # Every channel is inside the LED window at the chosen shutter.
+    secs = shutter_seconds(shutter)
+    for c, lvl in levels.items():
+        assert 40 <= lvl <= 255
+        assert K[c] * lvl * secs == pytest.approx(T, rel=0.06)
+
+
+def test_nearest_shutter_snaps_to_the_closest_candidate():
+    assert nearest_shutter("0.16", ("1/8", "1/6", "1/5")) == "1/6"  # 0.16 s closest to 1/6 (0.167)
+    assert nearest_shutter("1/5", ("1/8", "1/6", "1/5")) == "1/5"  # already a candidate → unchanged
 
 
 def test_shutter_at_least_picks_fastest_that_fits():
-    assert shutter_at_least(0.2) == "1/5"  # 1/5 = 0.2 s, the fastest candidate ≥ 0.2 s
-    assert shutter_at_least(0.19) == "1/5"  # 1/8=0.125 too fast, 1/5=0.2 is the first ≥ 0.19
-    assert shutter_at_least(999.0) == "1"  # nothing slow enough → the slowest candidate
+    # "≥ seconds" is a claim about light, so it compares TRUE exposure. "1/5" exposes 2^(-7/3) =
+    # 0.198 s — it does NOT satisfy a 0.2 s demand, however its label reads. Trusting the label
+    # here is what let the solved level exceed PWM_MAX_SAFE and pin R at the 255 clamp on the rig.
+    assert shutter_at_least(0.198) == "1/5"
+    assert shutter_at_least(0.19) == "1/5"
+    assert shutter_at_least(0.2) == "1/4"  # 1/5 is really 0.198 s → too fast, take the next rung
+    assert shutter_at_least(999.0) == "2"  # nothing slow enough → slowest candidate (now 2 s)
+
+
+def test_solve_never_exceeds_pwm_max_safe_on_the_dimmest_channel():
+    # The guarantee shutter_at_least exists for: t_ideal is derived so the dimmest channel sits at
+    # PWM_MAX_SAFE, so any rung that truly exposes ≥ t_ideal keeps it at or below that. Comparing
+    # nominal labels broke the guarantee (the rung exposed less than promised), the level overshot,
+    # and the trim then had no headroom left.
+    T = target_signal()
+    for ladder in (_THIRDS, SHUTTER_CANDIDATES):
+        _shutter, levels = _solve_shared(K, T, ladder)
+        dimmest = min(K, key=lambda c: K[c])
+        assert levels[dimmest] <= PWM_MAX_SAFE
 
 
 # ---- full loop with injected hardware -------------------------------------
@@ -102,8 +209,8 @@ class FakeLight:
 
 
 class FakeCamera:
-    def __init__(self):
-        self.last_shutter = "1/15"
+    def __init__(self, start="1/5"):
+        self.last_shutter = start
 
     def capture(self, out_path, shutter=None, iso=None, aperture=None):
         if shutter:
@@ -114,16 +221,21 @@ class FakeCamera:
         pass
 
 
-def _make_demosaic(light, camera, sliver: int = 0):
-    """Linear fake sensor: 128×128 so a sub-0.1% clip sliver fits below the p99.9 cut.
-    `sliver` over-bright pixels (base × 1.25) clip at the ETTR solve but the clip guard's
-    LED-down resolves them (exposure-dependent, unlike a fixed hot pixel)."""
+def _make_demosaic(light, camera, *, k_scale=1.0, level_cap=None, sliver=0):
+    """Linear fake sensor (128×128 so a sub-0.1 % clip sliver fits below the p99.9 cut). No bias.
+    `k_scale` scales all channels uniformly (like aperture); `level_cap` saturates the LED above a
+    level (a channel solved to max LED lands under target → under-exposed); `sliver` over-bright
+    pixels clip at the solve but the LED-down clip guard resolves them."""
 
     def demosaic(_path):
-        sec = shutter_seconds(camera.last_shutter)
-        img = np.full((128, 128, 3), BLACK)
+        # A body exposes the ladder's TRUE time, not the label's fraction ("1/3" is 0.315 s). The
+        # fake sensor must do the same, or it silently absorbs the rounding the solver has to
+        # handle — and the rig failure it caused would be untestable here.
+        sec = true_seconds(camera.last_shutter, SHUTTER_CANDIDATES)
+        img = np.zeros((128, 128, 3))
         for i, level in enumerate(light.last):
-            val = BLACK + K[i] * level * sec
+            eff = min(level, level_cap) if level_cap is not None else level
+            val = K["RGB"[i]] * k_scale * eff * sec
             img[..., i] = val
             if sliver:
                 img.reshape(-1, 3)[:sliver, i] = min(65535.0, val * 1.25)
@@ -133,31 +245,98 @@ def _make_demosaic(light, camera, sliver: int = 0):
     return demosaic
 
 
-def _make_capped_demosaic(light, camera, level_cap: int = 200):
-    """Linear in shutter but LED response saturates above `level_cap`: raising the LED past it
-    adds nothing, so a channel solved to max LED can land under target → shutter escalation
-    (a slower shutter) is the only way to add exposure."""
-
-    def demosaic(_path):
-        sec = shutter_seconds(camera.last_shutter)
-        img = np.full((32, 32, 3), BLACK)
-        for i, level in enumerate(light.last):
-            img[..., i] = BLACK + K[i] * min(level, level_cap) * sec
-        np.clip(img, 0, 65535, out=img)
-        return img
-
-    return demosaic
-
-
-def _service(light, cam, sliver: int = 0):
+def _service(light, cam, **demo):
     # source_clip stubbed to 0 → the hardware-free path never touches rawpy.
-    return CalibrationService(light, cam, _make_demosaic(light, cam, sliver), source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
+    return CalibrationService(light, cam, _make_demosaic(light, cam, **demo), source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
+
+
+def _calibrate(service, roi=Roi(0, 0, 1, 1)):
+    return service.calibrate(roi, "/tmp/_negpy_cal.raw")
+
+
+def test_calibrate_converges_with_one_shared_shutter():
+    light, cam = FakeLight(), FakeCamera()
+    result = _calibrate(_service(light, cam))
+    T = target_signal()
+    # One shared shutter, every channel on target, R (dimmest) at the highest level.
+    assert len(set(result.shutters)) == 1
+    assert result.levels[0] > result.levels[1] and result.levels[0] > result.levels[2]
+    for ch in result.channels.values():
+        assert ch.status == "target"
+        assert ch.signal == pytest.approx(T, rel=0.06)
+    assert result.spread_stops == pytest.approx(1.60, abs=0.05)
+
+
+def test_calibrate_recovers_from_a_much_brighter_than_expected_start():
+    # Aperture way open (~6 stops brighter than the start point) → the probe clips hard. The halving
+    # back-off must recover within the step budget — a 1/3-stop walk would run out of steps here.
+    light, cam = FakeLight(), FakeCamera()
+    result = _calibrate(_service(light, cam, k_scale=64.0))
+    for ch in result.channels.values():
+        assert ch.status == "target"
+        assert ch.clip_fraction <= MAX_CLIP_FRACTION
+
+
+def test_calibrate_recovers_from_a_too_fast_start_shutter():
+    # Start shutter far too fast (1/250) but the light is fine — the analytic solve still lands on
+    # target from the probe's clean (if dim) reading, no ladder walk needed.
+    light, cam = FakeLight(), FakeCamera(start="1/250")
+    result = _service(light, cam).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", start_shutter="1/250")
+    for ch in result.channels.values():
+        assert ch.status == "target"
+
+
+def test_calibrate_is_graceful_when_a_channel_cannot_reach_target():
+    # Aperture too closed: even max LED at the slowest shutter (2 s) leaves the dim R channel short.
+    # Must not raise — return a best-effort result with R flagged "under".
+    light, cam = FakeLight(), FakeCamera()
+    result = _calibrate(_service(light, cam, k_scale=0.02))
+    assert result.channels["R"].status == "under"
+    assert result.channels["R"].level == PWM_MAX
+    assert result.status == "under"  # headline reflects the worst channel
+
+
+def test_calibrate_is_graceful_when_over_exposed():
+    # Aperture way too open: even the fastest shutter + lowest LED clips. Must not raise (symmetric
+    # to under-exposure) — return a best-effort result at minimum exposure with the channels flagged
+    # "over", so the UI can tell the user to stop down.
+    light, cam = FakeLight(), FakeCamera(start="1/250")
+    result = _service(light, cam, k_scale=3000.0).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", start_shutter="1/250")
+    assert result.status == "over"
+    assert all(ch.status == "over" for ch in result.channels.values())
+    assert all(ch.level == PWM_MIN for ch in result.channels.values())  # seated at minimum LED
+
+
+def test_calibrate_raises_only_when_a_channel_has_no_signal_at_all():
+    # A dead LED / ROI off the base gives no signal even at max exposure — the one case that still
+    # errors clearly (nothing can be calibrated), distinct from graceful over/under-exposure.
+    light, cam = FakeLight(), FakeCamera()
+    with pytest.raises(RuntimeError, match="no signal from the R channel"):
+        _calibrate(_service(light, cam, k_scale=0.0))
+
+
+def test_calibrate_clip_guard_pulls_the_led_down_below_clipping():
+    # A bright sliver clips at the solved level; the guard lowers the LED until the base is clean.
+    light, cam = FakeLight(), FakeCamera()
+    result = _calibrate(_service(light, cam, sliver=40))
+    for ch in result.channels.values():
+        assert ch.clip_fraction <= MAX_CLIP_FRACTION
+
+
+def test_calibrate_measures_spread_matching_the_channel_responses():
+    light, cam = FakeLight(), FakeCamera()
+    result = _calibrate(_service(light, cam))
+    # log2(760/250) ≈ 1.60 — the value that confirms one shutter can serve all three (< 2.7).
+    assert result.spread_stops == pytest.approx(1.60, abs=0.05)
+    assert result.spread_stops < 2.7
+
+
+# ---- source-clip guard (fail-closed) --------------------------------------
 
 
 def test_source_clip_reads_the_file_the_camera_actually_wrote():
-    """The camera names the file after its own RAW format, so the raw-Bayer clip check
-    must be handed the path it returned — not the stem we asked for. Getting this wrong
-    silently disables the clip guard: rawpy raises, the error is logged, and clip reads 0."""
+    """The raw-Bayer clip check must be handed the path the camera returned (its own RAW suffix),
+    not the stem we asked for — else the clip guard is silently disabled."""
     light, cam = FakeLight(), FakeCamera()
     seen: list[str] = []
 
@@ -165,11 +344,9 @@ def test_source_clip_reads_the_file_the_camera_actually_wrote():
         seen.append(path)
         return 0.0
 
-    service = CalibrationService(light, cam, _make_demosaic(light, cam, 0), source_clip=record, sleep=lambda _s: None)
-    service.calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_calibration.raw")
-
-    assert seen, "the clip guard never ran"
-    assert all(p.endswith(".ARW") for p in seen), seen  # the fake camera's suffix, not ".raw"
+    service = CalibrationService(light, cam, _make_demosaic(light, cam), source_clip=record, sleep=lambda _s: None)
+    _calibrate(service)
+    assert seen and all(p.endswith(".ARW") for p in seen), seen
 
 
 def test_calibrate_fails_closed_when_the_raw_clip_check_errors(monkeypatch):
@@ -180,217 +357,33 @@ def test_calibrate_fails_closed_when_the_raw_clip_check_errors(monkeypatch):
 
     monkeypatch.setattr("negpy.infrastructure.capture.raw_demosaic.raw_channel_clip_fraction", unavailable)
     service = CalibrationService(light, cam, _make_demosaic(light, cam), sleep=lambda _s: None)
-
     with pytest.raises(RuntimeError, match="raw source-clip check failed") as caught:
-        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
+        _calibrate(service)
     assert isinstance(caught.value.__cause__, OSError)
 
 
 def test_calibrate_fails_closed_on_a_nonfinite_raw_clip_measurement():
     light, cam = FakeLight(), FakeCamera()
-    service = CalibrationService(
-        light,
-        cam,
-        _make_demosaic(light, cam),
-        source_clip=lambda *_args: np.nan,
-        sleep=lambda _s: None,
-    )
-
+    service = CalibrationService(light, cam, _make_demosaic(light, cam), source_clip=lambda *_a: np.nan, sleep=lambda _s: None)
     with pytest.raises(RuntimeError, match="non-finite raw source-clip"):
-        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+        _calibrate(service)
 
 
-def test_calibrate_converges_with_one_shared_shutter():
-    light, cam = FakeLight(), FakeCamera()
-    result = _service(light, cam).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
-    for letter in ("R", "G", "B"):
-        c = result.channels[letter]
-        assert 40 <= c.level <= 255
-        assert abs(c.signal - c.target) <= 0.06 * c.target  # each channel hit ETTR target via LED
-
-    r, g, b = result.shutters
-    assert r == g == b  # ONE shutter shared across R/G/B — the whole point of the rebuild
-    assert result.channels["B"].level > result.channels["R"].level  # blue dimmest → most LED
-    assert light.last == (0, 0, 0)  # light off when done
+# ---- metering helpers -----------------------------------------------------
 
 
-def test_calibrate_rejects_a_probe_with_no_signal():
-    light, cam = FakeLight(), FakeCamera()
-
-    def dark_frame(_path):
-        return np.full((16, 16, 3), BLACK)
-
-    service = CalibrationService(light, cam, dark_frame, source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
-
-    with pytest.raises(RuntimeError, match="no signal from R"):
-        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
-    assert light.last == (0, 0, 0)
+def test_meter_base_is_p999_of_the_roi():
+    plane = np.full((100, 100), 30000.0)
+    plane.reshape(-1)[:5] = 65000.0  # 0.05 % bright — inside the top 0.1 % that p99.9 discards
+    assert meter_base(plane, Roi(0, 0, 1, 1)) == pytest.approx(30000.0, abs=1.0)
 
 
-def test_calibrate_tolerates_a_sub_threshold_base_clip():
-    clean = _service(FakeLight(), FakeCamera()).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-    tolerated = _service(FakeLight(), FakeCamera(), sliver=8).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
-    # A fraction-of-a-percent sliver (below MAX_CLIP_FRACTION) is recorded but tolerated: the LED is
-    # NOT pulled down (the blackpoint is median-derived), so the base lands on the same target as the
-    # clean run. It used to trip the old 0.01% ceiling and needlessly reduce the LED.
-    for c in tolerated.channels.values():
-        assert c.clip_fraction <= MAX_CLIP_FRACTION
-    assert tolerated.channels["B"].clip_fraction > 0.0  # the sliver was measured…
-    assert tolerated.channels["B"].signal == clean.channels["B"].signal  # …but not corrected away
+def test_clip_fraction_counts_saturated_pixels():
+    plane = np.zeros((100, 100))
+    plane.reshape(-1)[:100] = 65500.0  # 1 % at/above saturation
+    assert clip_fraction(plane, Roi(0, 0, 1, 1)) == pytest.approx(0.01, abs=1e-4)
 
 
-def test_calibrate_respects_camera_shutter_ladder():
-    ladder = ("1/100", "1/50", "1/25", "1/10", "1/4", "1")  # a sparse, camera-specific ladder
-    result = _service(FakeLight(), FakeCamera()).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW", candidates=ladder)
-    r, g, b = result.shutters
-    assert r == g == b and r in ladder  # one shared shutter, from the camera's own set
-
-
-def test_source_clip_pulls_led_down_when_demosaic_is_clean():
-    clean = _service(FakeLight(), FakeCamera()).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-    # Demosaic reads clean, but the injected raw-Bayer check reports blue's photosites clipping
-    # on the first look (resolving once the LED is pulled down) — the hidden-source-clip case.
-    calls = {"b": 0}
-
-    def src(_p, ch_i, _roi):
-        if ch_i != 2:
-            return 0.0
-        calls["b"] += 1  # blue: 1=probe, 2=solve (clip here), 3=after LED-down (resolved)
-        return 0.02 if calls["b"] == 2 else 0.0
-
-    light, cam = FakeLight(), FakeCamera()
-    guarded = CalibrationService(light, cam, _make_demosaic(light, cam), source_clip=src, sleep=lambda _s: None).calibrate(
-        Roi(0, 0, 1, 1), "/tmp/cal.ARW"
-    )
-    assert guarded.channels["B"].clip_fraction == 0.0  # resolved after the LED-down
-    assert guarded.channels["B"].signal < clean.channels["B"].signal  # LED was reduced to clear it
-
-
-def test_calibrate_escalates_shared_shutter_when_led_saturates():
-    clean = _service(FakeLight(), FakeCamera()).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-    light, cam = FakeLight(), FakeCamera()
-    capped = CalibrationService(
-        light, cam, _make_capped_demosaic(light, cam), source_clip=lambda *_a: 0.0, sleep=lambda _s: None
-    ).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
-    r, g, b = capped.shutters
-    assert r == g == b  # still one shared shutter
-    # LED saturates above 200 → blue can't reach target at the clean run's shutter, so the SHARED
-    # shutter escalates to a slower one, and every channel is re-solved onto target.
-    assert shutter_seconds(b) > shutter_seconds(clean.shutters[2])
-    assert abs(capped.channels["B"].signal - capped.channels["B"].target) < 0.1 * capped.channels["B"].target
-
-
-def test_calibrate_rejects_a_channel_below_target_at_the_hardware_limit():
-    light, cam = FakeLight(), FakeCamera()
-    service = CalibrationService(
-        light,
-        cam,
-        _make_capped_demosaic(light, cam, level_cap=1),
-        source_clip=lambda *_a: 0.0,
-        sleep=lambda _s: None,
-    )
-
-    with pytest.raises(RuntimeError, match="R channel.*below target"):
-        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
-
-def _chan(letter, signal, clip=0.0, target=58978):
-    return ChannelCalibration(channel=letter, level=100, shutter="1/5", signal=signal, target=target, clip_fraction=clip)
-
-
-def test_calibration_issue_flags_the_first_out_of_spec_channel():
-    ok = {c: _chan(c, 58000) for c in "RGB"}  # all a touch under target, clean → usable
-    assert _calibration_issue(ok) is None
-    assert "G channel is still clipping" in _calibration_issue({**ok, "G": _chan("G", 58000, clip=0.01)})
-    assert "R channel remains materially below target" in _calibration_issue({**ok, "R": _chan("R", 40000)})
-    assert "B channel remains materially above target" in _calibration_issue({**ok, "B": _chan("B", 66000)})
-
-
-def test_calibration_badness_prefers_a_clean_under_channel_over_a_clipping_one():
-    # This ordering is the whole point of the search fix: a shutter that leaves a channel a touch
-    # under (but clean, within spec) must beat a shutter that clips the base, so the search settles
-    # on the clean side instead of oscillating toward the clipping one.
-    on_target = {c: _chan(c, 58978) for c in "RGB"}
-    slightly_under = {**on_target, "R": _chan("R", 54868)}  # 7% under: within spec, clean
-    clipping = {**on_target, "G": _chan("G", 58978, clip=0.01)}  # on-signal but clips the base
-    assert _calibration_badness(on_target) < _calibration_badness(slightly_under) < _calibration_badness(clipping)
-    assert _calibration_badness({**on_target, "R": _chan("R", float("nan"))}) == float("inf")
-
-
-def test_calibrate_rejects_a_final_channel_materially_above_target():
-    light, cam = FakeLight(), FakeCamera()
-    ordinary = _make_demosaic(light, cam)
-    calls = 0
-
-    def nonlinear_response(path):
-        nonlocal calls
-        calls += 1
-        if calls <= 4:  # dark frame + the three response probes
-            return ordinary(path)
-        img = np.full((32, 32, 3), BLACK)
-        for i, level in enumerate(light.last):
-            if level:
-                img[..., i] = BLACK + 64500.0  # above ETTR, just below SATURATION_VALUE
-        return img
-
-    service = CalibrationService(light, cam, nonlinear_response, source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
-
-    with pytest.raises(RuntimeError, match="R channel.*above target"):
-        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
-
-def test_a_tiny_base_clip_is_tolerated_not_a_hard_failure():
-    # A fraction-of-a-percent clip on the clear base is harmless (the blackpoint is the base
-    # median, not its top pixels) and unavoidable with discrete LED steps — it must not fail an
-    # otherwise-usable calibration the way the old 0.01% ceiling did (green clipping 0.1% at the
-    # only shutter fast enough to keep red on target).
-    light, cam = FakeLight(), FakeCamera()
-    result = CalibrationService(
-        light,
-        cam,
-        _make_demosaic(light, cam),
-        source_clip=lambda _p, ch_i, _roi: 0.001 if ch_i == 1 else 0.0,  # green clips 0.1% persistently
-        sleep=lambda _s: None,
-    ).calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-    assert 0.0 < result.channels["G"].clip_fraction <= MAX_CLIP_FRACTION  # tolerated and recorded
-
-
-def test_calibrate_rejects_a_final_channel_that_is_still_clipping():
-    light, cam = FakeLight(), FakeCamera()
-    service = CalibrationService(
-        light,
-        cam,
-        _make_demosaic(light, cam),
-        source_clip=lambda *_a: 0.02,
-        sleep=lambda _s: None,
-    )
-
-    with pytest.raises(RuntimeError, match="R channel.*still clipping"):
-        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
-
-
-def test_calibrate_rejects_a_nonfinite_final_channel():
-    light, cam = FakeLight(), FakeCamera()
-    ordinary = _make_demosaic(light, cam)
-    calls = 0
-
-    def nonfinite_response(path):
-        nonlocal calls
-        calls += 1
-        if calls <= 4:  # dark frame + the three response probes
-            return ordinary(path)
-        img = np.full((32, 32, 3), BLACK)
-        for i, level in enumerate(light.last):
-            if level:
-                img[..., i] = np.nan
-        return img
-
-    service = CalibrationService(light, cam, nonfinite_response, source_clip=lambda *_a: 0.0, sleep=lambda _s: None)
-
-    with pytest.raises(RuntimeError, match="R channel.*non-finite"):
-        service.calibrate(Roi(0, 0, 1, 1), "/tmp/cal.ARW")
+def test_channel_calibration_defaults_to_target_status():
+    c = ChannelCalibration(channel="R", level=200, shutter="1/5", signal=59000, target=58982)
+    assert c.status == "target"
