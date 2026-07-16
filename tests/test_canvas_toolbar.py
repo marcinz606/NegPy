@@ -91,9 +91,39 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         self.assertTrue(tb.btn_compare.isVisible())
         self.assertTrue(tb.btn_undo.isVisible())
         self.assertTrue(tb.btn_zoom_fit.isVisible())
-        self.assertFalse(tb._ov_undo_action.isVisible())
 
-    def test_narrow_canvas_mirrors_hidden_groups_in_overflow(self):
+    def _all_overflow_actions(self, tb: ActionToolbar) -> list:
+        return [
+            tb._ov_hq_action,
+            *tb._ov_color_actions,
+            tb._ov_fit_action,
+            tb._ov_original_action,
+            tb._ov_compare_action,
+            tb._ov_flat_peek_action,
+            tb._ov_undo_action,
+            tb._ov_redo_action,
+            tb._ov_rot_l_action,
+            tb._ov_rot_r_action,
+            tb._ov_flip_h_action,
+            tb._ov_flip_v_action,
+        ]
+
+    def test_overflow_menu_always_shows_full_action_set(self):
+        """Regression: the overflow menu previously mirrored only whatever the row's
+        responsive collapse hid, so a control moving into the row (e.g. a side panel
+        toggle freeing up width) made it vanish from the menu too. The menu must stay
+        complete regardless of how much of the row is currently collapsed."""
+        tb = _make_toolbar()
+        tb.show()
+        QApplication.processEvents()
+
+        for canvas_w in (320, 480, 640, 800, 1200, 2000):
+            tb.set_available_width(canvas_w)
+            QApplication.processEvents()
+            for action in self._all_overflow_actions(tb):
+                self.assertTrue(action.isVisible(), f"{action.text()!r} hidden from overflow at width {canvas_w}")
+
+    def test_narrow_canvas_still_shows_row_controls_via_overflow(self):
         tb = _make_toolbar()
         tb.show()
         QApplication.processEvents()
@@ -107,10 +137,9 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
         wide_count = _visible_group_count(tb)
 
         self.assertLess(narrow_count, wide_count)
-        if not tb.btn_compare.isVisible():
-            self.assertTrue(tb._ov_compare_action.isVisible())
-        if not tb.btn_undo.isVisible():
-            self.assertTrue(tb._ov_undo_action.isVisible())
+        # Whatever the row hides at the narrow width, the overflow copy still works.
+        self.assertTrue(tb._ov_compare_action.isVisible())
+        self.assertTrue(tb._ov_undo_action.isVisible())
 
 
 if __name__ == "__main__":

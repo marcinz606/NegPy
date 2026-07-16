@@ -195,51 +195,38 @@ class ActionToolbar(QWidget):
 
         overflow_menu = QMenu(self.btn_overflow)
 
-        # Overflow: swatches + HQ group (<720px)
+        # Overflow always mirrors the full action set, independent of which of these
+        # also happen to be visible in the toolbar row at the current canvas width —
+        # "More actions" is meant to be a stable, complete menu a user can always find
+        # everything in, not a residue of whatever the row's responsive collapse left
+        # out (that previously made it lose entries whenever a side panel toggle gave
+        # the row enough width to show them directly instead).
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
-        self._ov_hq_action.setVisible(False)
         overflow_menu.addSeparator()
         self._ov_color_actions: list = []
         for i, (hex_col, _, label) in enumerate(CANVAS_COLORS):
             action = overflow_menu.addAction(f"Canvas: {label}")
-            action.setVisible(False)
             self._ov_color_actions.append(action)
 
-        # Overflow: compare / flat peek / zoom extras / undo (collapsed when the pill
-        # would exceed the canvas width — see set_available_width).
-        self._ov_sep_responsive = overflow_menu.addSeparator()
-        self._ov_sep_responsive.setVisible(False)
+        overflow_menu.addSeparator()
         self._ov_fit_action = overflow_menu.addAction(qta.icon("fa5s.expand", color=icon_color), "Fit to Window")
-        self._ov_fit_action.setVisible(False)
         self._ov_original_action = overflow_menu.addAction("Original Size (1:1)")
-        self._ov_original_action.setVisible(False)
         self._ov_compare_action = overflow_menu.addAction(qta.icon("fa5s.adjust", color=icon_color), "Before / After")
         self._ov_compare_action.setCheckable(True)
-        self._ov_compare_action.setVisible(False)
         self._ov_flat_peek_action = overflow_menu.addAction(qta.icon("fa5s.eye", color=icon_color), "Peek Flat Scan")
         self._ov_flat_peek_action.setCheckable(True)
-        self._ov_flat_peek_action.setVisible(False)
         self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
-        self._ov_undo_action.setVisible(False)
         self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), "Redo")
-        self._ov_redo_action.setVisible(False)
 
-        # Overflow: flip + rotate group (<580px)
-        self._ov_sep_main = overflow_menu.addSeparator()
-        self._ov_sep_main.setVisible(False)
+        overflow_menu.addSeparator()
         self._ov_rot_l_action = overflow_menu.addAction(qta.icon("fa5s.undo", color=icon_color), "Rotate CCW")
-        self._ov_rot_l_action.setVisible(False)
         self._ov_rot_r_action = overflow_menu.addAction(qta.icon("fa5s.redo", color=icon_color), "Rotate CW")
-        self._ov_rot_r_action.setVisible(False)
         self._ov_flip_h_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-h", color=icon_color), "Flip Horizontal")
         self._ov_flip_h_action.setCheckable(True)
-        self._ov_flip_h_action.setVisible(False)
         self._ov_flip_v_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-v", color=icon_color), "Flip Vertical")
         self._ov_flip_v_action.setCheckable(True)
-        self._ov_flip_v_action.setVisible(False)
-        self._ov_sep_rotate = overflow_menu.addSeparator()
-        self._ov_sep_rotate.setVisible(False)
+        overflow_menu.addSeparator()
 
         # Edits auto-save to the DB (and surface in History), so an explicit Save
         # lives here in the overflow rather than the main toolbar.
@@ -600,39 +587,14 @@ class ActionToolbar(QWidget):
         base = self.sizeHint()
         return QSize(self._pill_width(), base.height())
 
-    def _sync_responsive_overflow_menu(self) -> None:
-        """Mirror collapsed toolbar groups into the overflow menu."""
-        show_swatches_hq = not all(not w.isVisible() for w in self._ov_swatches_hq)
-        show_flip_rotate = not all(not w.isVisible() for w in self._ov_flip_rotate)
-        show_compare_peek = not all(not w.isVisible() for w in self._ov_compare_peek)
-        show_undo_redo = not all(not w.isVisible() for w in self._ov_undo_redo)
-        show_zoom_extra = not all(not w.isVisible() for w in self._ov_zoom_extra)
-
-        self._ov_hq_action.setVisible(not show_swatches_hq)
-        for action in self._ov_color_actions:
-            action.setVisible(not show_swatches_hq)
-
-        self._ov_sep_main.setVisible(not show_flip_rotate)
-        self._ov_rot_l_action.setVisible(not show_flip_rotate)
-        self._ov_rot_r_action.setVisible(not show_flip_rotate)
-        self._ov_flip_h_action.setVisible(not show_flip_rotate)
-        self._ov_flip_v_action.setVisible(not show_flip_rotate)
-        self._ov_sep_rotate.setVisible(not show_flip_rotate)
-
-        self._ov_fit_action.setVisible(not show_zoom_extra)
-        self._ov_original_action.setVisible(not show_zoom_extra)
-        self._ov_compare_action.setVisible(not show_compare_peek)
-        self._ov_flat_peek_action.setVisible(not show_compare_peek)
-        self._ov_undo_action.setVisible(not show_undo_redo)
-        self._ov_redo_action.setVisible(not show_undo_redo)
-        self._ov_sep_responsive.setVisible(not show_zoom_extra or not show_compare_peek or not show_undo_redo)
-
     def set_available_width(self, w: int) -> None:
         """Show as many toolbar groups as fit the canvas width.
 
         Grow from a minimal core (nav, zoom, GPU, overflow) by re-adding optional
-        groups until the measured pill width would exceed the budget, then mirror
-        anything still hidden into the overflow menu."""
+        groups until the measured pill width would exceed the budget. The overflow
+        menu is not touched here — it always carries the full action set (see
+        _init_ui), so a control moving between the row and the menu never changes
+        what the menu itself contains."""
         budget = self._toolbar_width_budget(w)
 
         for group in self._collapse_groups:
@@ -648,4 +610,3 @@ class ActionToolbar(QWidget):
 
         self._activate_layout()
         self.adjustSize()
-        self._sync_responsive_overflow_menu()
