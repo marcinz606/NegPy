@@ -1,6 +1,9 @@
 # Change Log
 
 
+## Unreleased
+
+
 ## 0.38.0
 
 - New: **Keep / Reject triage on the contact sheet** — cull a roll where you see it: `K` marks a frame as a keeper (small check badge), `Shift+X` rejects it (cross badge + dim). Rejected frames stay on the sheet but drop out of batch exports and sidecar writes; a Sheet filter (All / Keepers only / Hide rejected) sits next to Sort, a tally counts the roll, and marks persist across sessions.
@@ -8,6 +11,11 @@
 - Change: **Roll-wide actions are undoable** — Batch Analysis, roll-baseline loads and "Apply settings" now write each affected frame's edit history: `Ctrl+Z` on any frame steps back to before the roll action. Reset Settings and preset loads are recorded the same way instead of bypassing the log.
 - Change: **One grammar for the canvas tools** — first `Esc` clears in-progress points, second puts the tool down (fixes Esc going dead mid-draw); toolbar Undo matches `Ctrl+Z`; a stray click outside a tuned crop no longer wipes it. New keys: `Shift+S` Scratch, `Shift+B` Dodge & Burn, `Shift+R` Analysis Region, `|` flat-master peek (plus a toolbar button).
 - Change: **Naming and panel tidy-up** — visible labels standardize on "colour", and the white-balance section is renamed **Filtration** so "Colour" unambiguously means the Lab & Toning tab; Tone's four "Width" sliders become "Toe Width" / "Shoulder Width"; editing presets and contact-sheet templates can be deleted from their panels; the Roll Analysis section gets a header reset; drag-and-drop opens the first frame like Add Files.
+- New: **Finish panel — edge burn, filed carrier and print mats** — a new Finish panel finishes the print after crop: **Edge Burn** replaces vignette with a true exposure burn in stops (radial or, via Roundness, a rectangular card-burn), **Filed Carrier** prints the black rebate of a filed-out negative carrier with a roughened inner edge, and **Border** adds a mat with adjustable width and colour, a bottom-weighted (window-mat) proportion, and a Match Paper White option that ties the mat colour to the toned paper white instead of a picked colour.
+- Fix: **Scanner TIFFs now develop exactly like their DNGs** — 16-bit TIFFs without an embedded colour profile were wrongly treated as sRGB, so the same scan rendered and exported differently as TIFF and DNG. They now load as linear scanner data (existing ones will render slightly differently), and scanner-TIFF and JPEG thumbnails no longer appear nearly black.
+- Fix: **Colour no longer squeezed on output** — a stale Adobe RGB override stood in for the ProPhoto RGB working space on the way out (preview, exports and thumbnails), compressing the gamut and leaving everything darker and more muted than intended. **OLDER EDITS WILL SHIFT - RESETING THEM RECOMMENDED**
+- Fix: **True Black sticks across frames** — it was the one toggle in its group that reset on every frame; it now carries to the next like the Snap, Auto Density, Auto Grade and Paper White toggles it sits beside.
+- Fix: **CLAHE now renders the same everywhere** — the GPU preview and the CPU fallback used two slightly different local-contrast algorithms, so the same slider value could look noticeably different between them, worst at high strength. Both now run one identical algorithm on the CIELAB lightness channel: local contrast no longer over-saturates boosted areas, the preview predicts the export at every zoom level, and the effect at high strength is cleaner. Expect a subtle look shift on frames with CLAHE above zero.
 
 ## 0.37.2
 

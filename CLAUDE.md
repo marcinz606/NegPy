@@ -32,7 +32,7 @@ Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored
 
 ### Pipeline
 
-- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → retouch → lab → toning → crop → finish. The first four stages are cached per config-hash via `_run_stage()`; the rest run unconditionally.
+- **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → retouch → lab → toning → crop → finish. The first five stages are cached per config-hash via `_run_stage()`; the rest run unconditionally.
 - **GPU**: `GPUEngine` (`negpy/services/rendering/gpu_engine.py`) — same logical stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection.
 - **Orchestration**: `ImageProcessor` (`image_processor.py`) tries GPU first, falls back to CPU; export always runs full-res. `PipelineContext` carries `scale_factor`, `process_mode`, `active_roi`, and a `metrics` dict between stages.
 - **Working space**: scene-linear internally; the working OETF (ProPhoto ROMM TRC) is applied only as the final engine step. Lab/toning compute CIELAB directly from linear.

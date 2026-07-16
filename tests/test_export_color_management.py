@@ -273,5 +273,17 @@ class TestSoftProofToMonitor(unittest.TestCase):
         np.testing.assert_allclose(with_mon, chain, atol=1.0)
 
 
+class TestSessionBoundaryProfile(unittest.TestCase):
+    def test_session_workspace_matches_working_space(self):
+        """AppState's boundary profile must be the working space.
+
+        It is handed to export/proof/thumbnail/CPU-display as the *source* profile for
+        the engine's working-space-encoded buffer; drift silently mis-tags every export.
+        """
+        from negpy.desktop.session import AppState
+
+        self.assertEqual(AppState().workspace_color_space, WORKING_COLOR_SPACE)
+
+
 if __name__ == "__main__":
     unittest.main()

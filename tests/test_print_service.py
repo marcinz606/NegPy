@@ -1,4 +1,6 @@
 import numpy as np
+from negpy.features.finish.models import FinishConfig
+from negpy.features.toning.models import ToningConfig
 from negpy.services.export.print import PrintService
 from negpy.domain.models import ExportConfig, ExportResolutionMode
 
@@ -84,6 +86,46 @@ def test_apply_layout_target_px_fixed_ratio():
     )
     result, _ = PrintService.apply_layout(img, config)
     assert result.shape == (1000, 1000, 3)
+
+
+def _original_mode_config() -> ExportConfig:
+    return ExportConfig(
+        export_print_size=2.54,
+        export_dpi=300,
+        paper_aspect_ratio="Original",
+        export_resolution_mode=ExportResolutionMode.ORIGINAL.value,
+    )
+
+
+def test_apply_layout_bottom_weight():
+    img = np.zeros((200, 300, 3), dtype=np.float32)
+    finish = FinishConfig(border_size=0.1 * 2.54, border_bottom_weight=2.0)
+    result, (ox, oy, cw, ch) = PrintService.apply_layout(img, _original_mode_config(), border_size=finish.border_size, finish=finish)
+    # 30px top, 60px bottom, 30px sides
+    assert result.shape == (290, 360, 3)
+    assert (ox, oy) == (30, 30)
+    assert np.all(result[0:30, :, :] == 1.0)
+    assert np.all(result[230:290, :, :] == 1.0)
+    assert np.all(result[30:230, 30:330, :] == 0.0)
+
+
+def test_effective_border_color_plain():
+    finish = FinishConfig(border_color="#aabbcc")
+    assert PrintService.effective_border_color(finish, ToningConfig()) == "#aabbcc"
+
+
+def test_effective_border_color_match_paper_tints_white():
+    finish = FinishConfig(border_match_paper=True)
+    toned = PrintService.effective_border_color(finish, ToningConfig(highlight_tint_hue=60.0, highlight_tint_strength=0.5))
+    assert toned != "#ffffff"
+    r, g, b = (int(toned[i : i + 2], 16) for i in (1, 3, 5))
+    # A 60° Lab hue tint on paper white warms it: blue drops below red/green
+    assert b < r and b < g
+
+
+def test_effective_border_color_match_paper_neutral_stays_white():
+    finish = FinishConfig(border_match_paper=True)
+    assert PrintService.effective_border_color(finish, ToningConfig()) == "#ffffff"
 
 
 def test_target_px_ignores_print_size_and_dpi():

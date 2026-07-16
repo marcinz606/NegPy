@@ -625,9 +625,7 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setVisible(not show_compare_peek)
         self._ov_undo_action.setVisible(not show_undo_redo)
         self._ov_redo_action.setVisible(not show_undo_redo)
-        self._ov_sep_responsive.setVisible(
-            not show_zoom_extra or not show_compare_peek or not show_undo_redo
-        )
+        self._ov_sep_responsive.setVisible(not show_zoom_extra or not show_compare_peek or not show_undo_redo)
 
     def set_available_width(self, w: int) -> None:
         """Show as many toolbar groups as fit the canvas width.

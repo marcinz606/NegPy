@@ -20,7 +20,7 @@ class TestRawHandlers(unittest.TestCase):
         wrapper = NonStandardFileWrapper(data)
 
         with wrapper as raw:
-            processed = raw.postprocess(output_bps=16)
+            processed = raw.postprocess(gamma=(1, 1), output_bps=16)
             self.assertEqual(processed.dtype, np.uint16)
             self.assertAlmostEqual(np.mean(processed), 32767, delta=100)
 

@@ -614,17 +614,20 @@ class ControlsPanel(QWidget):
             )
         )
 
-        fin.vignette_strength_slider.setToolTip(
+        fin.vignette_burn_slider.setToolTip(
             tooltip_with_shortcut(
-                "Negative = darken corners (classic vignette); positive = lighten corners. 0 = off",
+                "Edge exposure in stops: positive = burn in the edges (darken); negative = hold back (lighten). 0 = off",
                 ["vignette_str_inc", "vignette_str_dec"],
             )
         )
         fin.vignette_size_slider.setToolTip(
             tooltip_with_shortcut(
-                "Falloff radius: smaller = tight corner effect; larger = vignette spreads well into the frame",
+                "Falloff radius: smaller = tight corner effect; larger = burn spreads well into the frame",
                 ["vignette_size_inc", "vignette_size_dec"],
             )
+        )
+        fin.vignette_roundness_slider.setToolTip(
+            "Falloff shape: 0 = radial (lens-like), 1 = rectangular card burn following the print edges"
         )
         fin.border_slider.setToolTip(
             tooltip_with_shortcut(
@@ -756,10 +759,14 @@ class ControlsPanel(QWidget):
         fin = cfg.finish
         finish_count = sum(
             [
-                fin.vignette_strength != _fin.vignette_strength,
+                fin.vignette_stops != _fin.vignette_stops,
                 fin.vignette_size != _fin.vignette_size,
+                fin.vignette_roundness != _fin.vignette_roundness,
+                fin.carrier_enabled != _fin.carrier_enabled,
                 fin.border_size != _fin.border_size,
                 fin.border_color != _fin.border_color,
+                fin.border_bottom_weight != _fin.border_bottom_weight,
+                fin.border_match_paper != _fin.border_match_paper,
             ]
         )
 

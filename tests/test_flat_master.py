@@ -110,7 +110,7 @@ class TestFlatEngineSkipsStages(unittest.TestCase):
             flat,
             lab=replace(flat.lab, sharpen=1.0, saturation=2.0, clahe_strength=1.0, glow_amount=1.0, halation_strength=1.0),
             toning=replace(flat.toning, sepia_strength=1.0, selenium_strength=1.0),
-            finish=replace(flat.finish, vignette_strength=0.9),
+            finish=replace(flat.finish, vignette_stops=0.9),
         )
         res_loud = engine.process(img, loud, source_hash="flat_b")
 

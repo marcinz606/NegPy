@@ -274,9 +274,7 @@ def test_run_pipeline_inpaints_hair_and_surfaces_mask(monkeypatch) -> None:
     img, ir = _ir_hair_and_core()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=False, ir_threshold=0.35))
 
-    out, metrics = service.run_pipeline(
-        img, cfg, "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False, ir_buffer=ir
-    )
+    out, metrics = service.run_pipeline(img, cfg, "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False, ir_buffer=ir)
     assert "hair_inpaint_masks" in metrics
     assert float(out[72, 65, 0]) < 0.7, "hair not inpainted out of the source"
 

@@ -336,6 +336,11 @@ class WorkspaceConfig:
             data["crosstalk_strength"] = min(max(float(data.pop("color_separation")) - 1.0, 0.0), 1.0)
         data.pop("color_separation", None)
         data.pop("DEFAULT_MATRIX", None)
+        # Vignette became an exposure-domain burn: old ±1 strength (neg = darken)
+        # maps to stops (pos = burn) with an approximate look-preserving factor.
+        if "vignette_strength" in data and "vignette_stops" not in data:
+            data["vignette_stops"] = -2.0 * float(data.pop("vignette_strength"))
+        data.pop("vignette_strength", None)
         # Flare (veiling-glare floor) was removed; drop the key from old edits silently.
         data.pop("flare", None)
         # Auto cast removal became always-on; drop the old toggle key.

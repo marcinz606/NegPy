@@ -227,6 +227,18 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.process.analysis_rect, (0.1, 0.2, 0.8, 0.9))
         hash(reloaded.process)  # must not raise
 
+    def test_legacy_vignette_strength_migrates_to_stops(self):
+        config = WorkspaceConfig.from_flat_dict({"vignette_strength": -0.5})
+        self.assertAlmostEqual(config.finish.vignette_stops, 1.0)
+
+    def test_legacy_vignette_strength_dropped_when_stops_present(self):
+        config = WorkspaceConfig.from_flat_dict({"vignette_strength": -0.5, "vignette_stops": 0.3})
+        self.assertAlmostEqual(config.finish.vignette_stops, 0.3)
+
+    def test_legacy_vignette_strength_does_not_warn(self):
+        with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
+            WorkspaceConfig.from_flat_dict({"vignette_strength": 0.2})
+
     def test_autocrop_mode_defaults_to_image_for_legacy_dicts(self):
         config = WorkspaceConfig.from_flat_dict({"process_mode": ProcessMode.C41})
         self.assertEqual(config.geometry.autocrop_mode, "image")
