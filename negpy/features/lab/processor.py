@@ -4,7 +4,6 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
-    apply_clahe,
     apply_glow_and_halation,
     apply_output_sharpening,
     apply_saturation,
@@ -31,9 +30,6 @@ class PhotoLabProcessor:
 
         if self.config.saturation != 1.0:
             img = apply_saturation(img, self.config.saturation)
-
-        if self.config.clahe_strength > 0:
-            img = apply_clahe(img, self.config.clahe_strength, context.scale_factor)
 
         if self.config.sharpen > 0:
             img = apply_output_sharpening(img, self.config.sharpen, context.scale_factor)

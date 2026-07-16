@@ -50,6 +50,31 @@ class TestDarkroomEngine(unittest.TestCase):
         assert engine.cache.source_hash == "file2"
         assert not np.array_equal(res1, res3)
 
+    def test_clahe_stage_cache_invalidation(self):
+        """CLAHE cache survives lab-only edits; a strength change invalidates
+        clahe and the stages behind it (retouch, lab)."""
+        from dataclasses import replace
+
+        engine = DarkroomEngine()
+        img = np.random.rand(100, 100, 3).astype(np.float32)
+        settings = WorkspaceConfig()
+        settings = replace(settings, lab=replace(settings.lab, clahe_strength=0.5))
+
+        engine.process(img, settings, source_hash="file1")
+        assert engine.cache.clahe is not None
+        clahe_id = id(engine.cache.clahe.data)
+        retouch_id = id(engine.cache.retouch.data)
+
+        settings_sat = replace(settings, lab=replace(settings.lab, saturation=1.5))
+        engine.process(img, settings_sat, source_hash="file1")
+        assert id(engine.cache.clahe.data) == clahe_id
+        assert id(engine.cache.retouch.data) == retouch_id
+
+        settings_strength = replace(settings_sat, lab=replace(settings_sat.lab, clahe_strength=0.9))
+        engine.process(img, settings_strength, source_hash="file1")
+        assert id(engine.cache.clahe.data) != clahe_id
+        assert id(engine.cache.retouch.data) != retouch_id
+
     def test_pipeline_produces_metrics(self):
         """Verify pipeline populates expected metrics."""
         from negpy.domain.interfaces import PipelineContext

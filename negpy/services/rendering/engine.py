@@ -14,6 +14,7 @@ from negpy.features.exposure.processor import (
     PhotometricProcessor,
 )
 from negpy.features.toning.processor import ToningProcessor
+from negpy.features.lab.logic import apply_clahe
 from negpy.features.lab.processor import PhotoLabProcessor
 from negpy.features.retouch.processor import RetouchProcessor
 from negpy.features.finish.processor import FinishProcessor
@@ -82,6 +83,7 @@ class DarkroomEngine:
             self.cache.process_mode = settings.process.process_mode
             self.cache.base = None
             self.cache.exposure = None
+            self.cache.clahe = None
             self.cache.retouch = None
             self.cache.lab = None
             pipeline_changed = True
@@ -166,6 +168,20 @@ class DarkroomEngine:
         flat_intent = settings.exposure.render_intent == RenderIntent.FLAT
 
         if not flat_intent:
+
+            def run_clahe(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
+                return apply_clahe(img_in, settings.lab.clahe_strength)
+
+            # Keyed on the bare float: the full settings.lab would wrongly invalidate
+            # this stage (and retouch/lab behind it) on saturation/sharpen edits.
+            current_img, pipeline_changed = self._run_stage(
+                current_img,
+                settings.lab.clahe_strength,
+                "clahe",
+                run_clahe,
+                context,
+                pipeline_changed,
+            )
 
             def run_retouch(img_in: ImageBuffer, ctx: PipelineContext) -> ImageBuffer:
                 return RetouchProcessor(settings.retouch).process(img_in, ctx)

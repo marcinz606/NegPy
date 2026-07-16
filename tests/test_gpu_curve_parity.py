@@ -109,6 +109,34 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
+    def test_cpu_gpu_match_clahe(self):
+        """CLAHE at full strength (issue #524 regression). 128x128 keeps each
+        8x8 tile at >=256 samples so a handful of upstream f32/f64 bin flips
+        can't move a tile CDF anywhere near the tolerance gate."""
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        processor = ImageProcessor()
+        if processor.engine_gpu is None:
+            self.skipTest("GPU engine not initialised")
+
+        rng = np.random.default_rng(3)
+        h, w = 128, 128
+        grad = np.linspace(0.05, 0.9, w, dtype=np.float32)
+        img = np.repeat(grad[None, :], h, axis=0)
+        img = np.stack([img, img * 0.95, img * 0.9], axis=-1)
+        img = np.ascontiguousarray(img + rng.uniform(0, 0.01, img.shape).astype(np.float32))
+
+        settings = WorkspaceConfig()
+        settings = replace(settings, lab=replace(settings.lab, clahe_strength=1.0))
+        cpu = self._render(processor, settings, img, prefer_gpu=False)
+        gpu = self._render(processor, settings, img, prefer_gpu=True)
+
+        self.assertEqual(cpu.shape, gpu.shape)
+        mad = float(np.mean(np.abs(cpu - gpu)))
+        mx = float(np.max(np.abs(cpu - gpu)))
+        self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
+        self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
+
     def test_cpu_gpu_match_bw_trims(self):
         """B&W end-to-end parity under per-channel trims + a chroma lab op.
         The tight tolerance catches any CPU-only or GPU-only B&W grading step

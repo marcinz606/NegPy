@@ -1212,7 +1212,7 @@ class GPUEngine:
             struct.pack(
                 "ffiiii",
                 cls,
-                max(1.0, cls * 2.5),
+                cls * 2.5,
                 offset[0],
                 offset[1],
                 full_dims[0],
