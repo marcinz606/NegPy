@@ -70,7 +70,12 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
     with rawpy.imread(path) as raw:
         img = raw.raw_image_visible
         colors = raw.raw_colors_visible
-        white = int(raw.white_level or 0) or int(img.max())
+        # No white level → no raw refinement (the demosaiced clip guard still runs). Never guess
+        # img.max() instead: that is an image-dependent reference (the adjust_maximum_thr failure
+        # class), and on a uniform base the guess sits inside the noise — the quieter the sensor,
+        # the more photosites land within `saturation_margin` of their own maximum, reading as
+        # heavy clipping on a frame that clips nowhere (measured: ~0.9 % at σ=8 DN, ~40 % at σ=4).
+        white = int(raw.white_level or 0)
         if white <= 0:
             return 0.0
         letter = "RGB"[channel_index]

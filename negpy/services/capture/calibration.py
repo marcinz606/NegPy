@@ -144,6 +144,26 @@ def shutter_seconds(label: str) -> float:
     return float(label)
 
 
+def usable_ladder(candidates: tuple[str, ...]) -> tuple[str, ...]:
+    """The parseable, ascending subset of a body's shutter labels; empty if none are usable.
+
+    A body's ladder is untrusted input — the a7 IV publishes a bulb-like "1/0", others publish
+    "Bulb" or "" — and one such label used to kill calibration before it started (#478). The UI
+    filters them out before handing the ladder over, but every function below indexes and parses
+    this tuple, so it is cleaned once here as well: a second caller passing a raw ladder must not
+    reopen that bug.
+    """
+    parsed: dict[str, float] = {}
+    for label in candidates:
+        try:
+            seconds = shutter_seconds(label)
+        except (TypeError, ValueError):
+            continue  # bulb-like or non-numeric — not an exposure this solver can reason about
+        if seconds > 0:
+            parsed[label] = seconds
+    return tuple(sorted(parsed, key=parsed.__getitem__))
+
+
 @lru_cache(maxsize=8)
 def _ladder_stops(candidates: tuple[str, ...]) -> float:
     """The ladder's spacing in stops, measured from the body's own labels — never assumed.
@@ -153,7 +173,7 @@ def _ladder_stops(candidates: tuple[str, ...]) -> float:
     agnostic. Labels are individually rounded by up to ~7 %, so the *median* neighbour ratio is
     taken — it ignores that jitter. Falls back to thirds when the ladder is too short to read.
     """
-    secs = sorted(s for s in (shutter_seconds(c) for c in candidates) if s > 0)
+    secs = [shutter_seconds(c) for c in usable_ladder(candidates)]  # ascending, unparseables dropped
     ratios = [b / a for a, b in zip(secs, secs[1:]) if b > a]
     if len(ratios) < 3:
         return 1.0 / 3.0
@@ -385,7 +405,10 @@ class CalibrationService:
         progress: Optional[ProgressCb] = None,
         cancel=None,
     ) -> CalibrationResult:
-        candidates = tuple(candidates) or SHUTTER_CANDIDATES
+        # Clean once, here: everything downstream parses and indexes this ladder, and an unparseable
+        # label from the body would otherwise surface as a crash mid-run (#478) rather than a dropped
+        # entry. Empty (or entirely unusable) → the built-in ladder.
+        candidates = usable_ladder(tuple(candidates)) or SHUTTER_CANDIDATES
         start_shutter = nearest_shutter(start_shutter, candidates)
         T = target_signal(target_fraction)
 

@@ -36,6 +36,7 @@ from negpy.services.capture.calibration import (
     shutter_seconds,
     target_signal,
     true_seconds,
+    usable_ladder,
 )
 
 # Per-channel response (counts per LED-level per second). R is the weakest (665 nm, low sensor QE),
@@ -98,6 +99,30 @@ def test_true_seconds_leaves_labels_that_are_not_on_the_ladder_alone():
     assert true_seconds("0.7", _THIRDS) == pytest.approx(0.7, rel=1e-6)
     for label in _THIRDS:  # every real rung IS corrected, and only slightly
         assert true_seconds(label, _THIRDS) == pytest.approx(shutter_seconds(label), rel=0.08)
+
+
+def test_calibrate_survives_a_raw_unfiltered_ladder_from_the_body():
+    # #478 was exactly this: a body publishes "1/0" (bulb-like) and calibration died while building
+    # the ladder. The UI filters those out, but the solver must not depend on that — a second caller
+    # handing over a raw ladder would reopen the bug. The ladder is cleaned on the way in instead.
+    raw = ("1/250", "1/0", "Bulb", "", "1/60", "1/4", "2", "30")
+    # Only unparseable labels go: this cleans, it does not range-filter. Which speeds are *sensible*
+    # (the PWM-banding floor, the 2 s ceiling) is the UI's call in _available_shutters — the solver
+    # solves on whatever ladder it is handed, it just must not choke on it.
+    assert usable_ladder(raw) == ("1/250", "1/60", "1/4", "2", "30")  # junk dropped, ascending
+    assert _ladder_stops(raw) > 0  # no ValueError from the unparseable entries
+    assert shutter_at_least(0.5, usable_ladder(raw)) == "2"
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", candidates=raw)
+    assert set(result.channels) == {"R", "G", "B"}
+
+
+def test_calibrate_falls_back_when_no_ladder_entry_is_usable():
+    # A body that publishes only bulb-like labels leaves nothing to solve on. Falling back to the
+    # built-in ladder beats crashing on an empty tuple (shutter_at_least indexes candidates[-1]).
+    light, cam = FakeLight(), FakeCamera()
+    result = _service(light, cam).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", candidates=("1/0", "Bulb", ""))
+    assert result.channels["R"].shutter in SHUTTER_CANDIDATES
 
 
 def test_solve_uses_the_true_exposure_not_the_rounded_label():
