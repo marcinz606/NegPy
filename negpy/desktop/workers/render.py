@@ -42,8 +42,6 @@ class RenderTask:
     # Identity of everything that shaped these pixels; non-empty makes the result
     # eligible for the navigate-back render memo (echoed in metrics).
     memo_key: str = ""
-    # Quiet refresh behind a memo paint: no "Rendering..."/"READY" toasts.
-    quiet: bool = False
 
 
 @dataclass(frozen=True)
@@ -174,7 +172,6 @@ class RenderWorker(QObject):
             metrics["source_hash"] = task.source_hash
             metrics["ephemeral"] = task.ephemeral
             metrics["memo_key"] = task.memo_key
-            metrics["quiet"] = task.quiet
 
             self.finished.emit(result, metrics)
             self.metrics_updated.emit(metrics)

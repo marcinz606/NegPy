@@ -266,9 +266,8 @@ class AppController(QObject):
         self._pending_render_task: Any = None
 
         # Last displayed render per frame — navigate-back paints it instantly
-        # while the authoritative render refreshes quietly (no spinner/toasts).
+        # while the authoritative render refreshes underneath.
         self._render_memo = RenderMemo()
-        self._memo_quiet = False
 
         self._render_debounce = QTimer()
         self._render_debounce.setSingleShot(True)
@@ -461,7 +460,6 @@ class AppController(QObject):
         self.batch_progress.emit(current, total, name)
 
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
-        self.set_status("GALLERIES UPDATED", 3000)
         self.status_progress_requested.emit(0, 0)
         self._end_batch()
         for name, pil_img in new_thumbs.items():
@@ -707,7 +705,6 @@ class AppController(QObject):
         if not preserve_zoom:
             self.zoom_requested.emit(1.0)
         if memo is None:
-            self.set_status(f"Loading {os.path.basename(file_path)}...")
             self.loading_started.emit()
         self._thumb_config = None
 
@@ -721,7 +718,6 @@ class AppController(QObject):
                 self.state.last_metrics["base_positive"] = memo["base_positive"]
                 self.state.last_metrics["content_rect"] = memo.get("content_rect")
                 self.state.last_metrics["splash"] = False
-            self._memo_quiet = True
             self.image_updated.emit()
 
         self.state.preview_raw = None
@@ -882,6 +878,12 @@ class AppController(QObject):
             self.session.update_config(replace(self.state.config, process=new_proc), render=False)
             self._crop_bounds_dirty = False
         if preview_mode_changed:
+            if leaving_crop:
+                # Same spinner/overlay treatment as an initial file load: the bounds
+                # recompute above plus this render can take a noticeable moment on a
+                # large HQ frame, and image_updated (fired when the render lands)
+                # dismisses it — guaranteed since request_render() runs right below.
+                self.loading_started.emit()
             self.request_render()
 
     def cancel_active_tool(self) -> None:
@@ -1013,6 +1015,9 @@ class AppController(QObject):
                 process=new_proc,
             )
         )
+        # Same spinner/overlay treatment as an initial file load: the bounds
+        # recompute above can take a noticeable moment on a large HQ frame.
+        self.loading_started.emit()
         self.request_render()
 
     def apply_auto_crop(self) -> None:
@@ -1033,6 +1038,7 @@ class AppController(QObject):
                 process=new_proc,
             )
         )
+        self.loading_started.emit()
         self.request_render()
 
     def detect_aspect_ratio(self) -> None:
@@ -1810,13 +1816,6 @@ class AppController(QObject):
         if self.state.preview_raw is None:
             return
 
-        # One-shot: the render right after a memo paint refreshes identical pixels —
-        # "Rendering..."/"READY" toasts would undercut the instant switch.
-        quiet = self._memo_quiet
-        self._memo_quiet = False
-        if not quiet:
-            self.set_status("Rendering...")
-
         preview_raw = self.state.preview_raw
         if preview_raw is None:
             return
@@ -1853,7 +1852,6 @@ class AppController(QObject):
             crop_preview_full=crop_preview_full,
             ephemeral=ephemeral,
             memo_key=memo_key,
-            quiet=quiet,
         )
 
         if self._is_rendering:
@@ -2491,8 +2489,6 @@ class AppController(QObject):
         if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
             self._gpu_fallback_notified = True
             self.set_status("GPU acceleration failed — using CPU", 5000)
-        elif not metrics.get("quiet"):
-            self.set_status("READY", 1000)
 
         self.image_updated.emit()
 

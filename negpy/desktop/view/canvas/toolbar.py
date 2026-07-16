@@ -2,7 +2,6 @@ import qtawesome as qta
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
-    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -18,7 +17,6 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
-from negpy.desktop.view.styles.templates import swatch_qss
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.system.config import APP_CONFIG
@@ -27,6 +25,7 @@ CANVAS_COLORS = [
     ("#050505", (0.02, 0.02, 0.02), "Black"),
     ("#1C1C1C", (0.11, 0.11, 0.11), "Dark Grey"),
     ("#404040", (0.25, 0.25, 0.25), "Mid Grey"),
+    ("#FFFFFF", (1.0, 1.0, 1.0), "White"),
 ]
 
 
@@ -173,21 +172,7 @@ class ActionToolbar(QWidget):
             self.btn_gpu.setChecked(False)
         self.btn_gpu.setToolTip("GPU Acceleration")
 
-        # 4. Canvas background swatches
-        self.canvas_color_btns: list[QToolButton] = []
-        self.canvas_color_group = QButtonGroup(self)
-        self.canvas_color_group.setExclusive(True)
-        for i, (hex_col, _, label) in enumerate(CANVAS_COLORS):
-            btn = QToolButton()
-            btn.setCheckable(True)
-            btn.setToolTip(f"Canvas: {label}")
-            btn.setFixedSize(20, 20)
-            btn.setStyleSheet(swatch_qss(hex_col))
-            self.canvas_color_group.addButton(btn, i)
-            self.canvas_color_btns.append(btn)
-        self.canvas_color_btns[self.session.state.canvas_bg_index].setChecked(True)
-
-        # 6. Overflow menu & responsive groups
+        # 4. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
         self.btn_overflow.setIcon(qta.icon("fa5s.ellipsis-h", color=icon_color))
         self.btn_overflow.setToolTip("More actions")
@@ -195,16 +180,24 @@ class ActionToolbar(QWidget):
 
         overflow_menu = QMenu(self.btn_overflow)
 
-        # Overflow: swatches + HQ group (<720px)
+        # Overflow: HQ group (<720px)
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
         self._ov_hq_action.setVisible(False)
         overflow_menu.addSeparator()
+
+        # Canvas background — overflow-only (no toolbar swatches), exclusive
+        # checkable group so the menu itself shows which color is active.
+        self._ov_color_group = QActionGroup(self)
+        self._ov_color_group.setExclusive(True)
         self._ov_color_actions: list = []
-        for i, (hex_col, _, label) in enumerate(CANVAS_COLORS):
+        for i, (_, _, label) in enumerate(CANVAS_COLORS):
             action = overflow_menu.addAction(f"Canvas: {label}")
-            action.setVisible(False)
+            action.setCheckable(True)
+            action.setChecked(i == self.session.state.canvas_bg_index)
+            self._ov_color_group.addAction(action)
             self._ov_color_actions.append(action)
+        overflow_menu.addSeparator()
 
         # Overflow: compare / flat peek / zoom extras / undo (collapsed when the pill
         # would exceed the canvas width — see set_available_width).
@@ -309,10 +302,10 @@ class ActionToolbar(QWidget):
 
         # Custom-sized buttons skip the standard sizing above but must share the
         # same hover cursor as the rest of the toolbar.
-        for btn in (self.btn_zoom_fit, self.btn_zoom_original, *self.canvas_color_btns):
+        for btn in (self.btn_zoom_fit, self.btn_zoom_original):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · swatches · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · gpu · overflow · toggle_right
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · gpu · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
@@ -323,8 +316,6 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_zoom_fit)
         row_layout.addWidget(self.btn_zoom_original)
         row_layout.addWidget(self.btn_hq)
-        for btn in self.canvas_color_btns:
-            row_layout.addWidget(btn)
         self._sep2 = self._create_separator()
         row_layout.addWidget(self._sep2)
         row_layout.addWidget(self.btn_rot_l)
@@ -345,13 +336,13 @@ class ActionToolbar(QWidget):
         self._ov_compare_peek: list = [self.btn_compare, self.btn_flat_peek]
         self._ov_undo_redo: list = [self._sep3, self.btn_undo, self.btn_redo]
         self._ov_zoom_extra: list = [self.btn_zoom_fit, self.btn_zoom_original]
-        self._ov_swatches_hq: list = [self.btn_hq] + self.canvas_color_btns + [self._sep2]
+        self._ov_hq_group: list = [self.btn_hq, self._sep2]
         self._ov_flip_rotate: list = [self.btn_rot_l, self.btn_rot_r, self.btn_flip_h, self.btn_flip_v, self._sep3]
         self._collapse_groups: list = [
             self._ov_compare_peek,
             self._ov_undo_redo,
             self._ov_zoom_extra,
-            self._ov_swatches_hq,
+            self._ov_hq_group,
             self._ov_flip_rotate,
         ]
 
@@ -379,8 +370,6 @@ class ActionToolbar(QWidget):
         # Same context routing as Ctrl+Z: heal-undo while a heal tool is in hand.
         self.btn_undo.clicked.connect(lambda: _context_undo(self.controller))
         self.btn_redo.clicked.connect(self.session.redo)
-
-        self.canvas_color_group.idToggled.connect(self._on_canvas_color_changed)
 
         self.zoom_slider.valueChanged.connect(lambda v: self.controller.zoom_requested.emit(float(v / 100.0)))
         self.btn_zoom_fit.clicked.connect(self._on_fit_clicked)
@@ -602,15 +591,13 @@ class ActionToolbar(QWidget):
 
     def _sync_responsive_overflow_menu(self) -> None:
         """Mirror collapsed toolbar groups into the overflow menu."""
-        show_swatches_hq = not all(not w.isVisible() for w in self._ov_swatches_hq)
+        show_hq = not all(not w.isVisible() for w in self._ov_hq_group)
         show_flip_rotate = not all(not w.isVisible() for w in self._ov_flip_rotate)
         show_compare_peek = not all(not w.isVisible() for w in self._ov_compare_peek)
         show_undo_redo = not all(not w.isVisible() for w in self._ov_undo_redo)
         show_zoom_extra = not all(not w.isVisible() for w in self._ov_zoom_extra)
 
-        self._ov_hq_action.setVisible(not show_swatches_hq)
-        for action in self._ov_color_actions:
-            action.setVisible(not show_swatches_hq)
+        self._ov_hq_action.setVisible(not show_hq)
 
         self._ov_sep_main.setVisible(not show_flip_rotate)
         self._ov_rot_l_action.setVisible(not show_flip_rotate)
