@@ -17,7 +17,7 @@ from negpy.infrastructure.capture.gphoto import CameraUnavailable, GphotoCamera,
 from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.kernel.system.logging import get_logger
-from negpy.services.capture.calibration import REFERENCE_LEVELS, REFERENCE_SHUTTER, CalibrationService, Roi
+from negpy.services.capture.calibration import REFERENCE_LEVELS, REFERENCE_SHUTTER, CalibrationExposureError, CalibrationService, Roi
 from negpy.services.capture.service import CaptureService, capture_single
 
 logger = get_logger(__name__)
@@ -80,6 +80,7 @@ class CaptureWorker(QObject):
     live_view_started = pyqtSignal(str)  # jpeg path being refreshed
     calibration_progress = pyqtSignal(float, str)
     calibration_finished = pyqtSignal(object)  # CalibrationResult
+    calibration_exposure = pyqtSignal(str)  # "over"/"under" — target unreachable, run aborted, no preset
     poll_status = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
     light_temp_polled = pyqtSignal(object)  # Scanlight LED temperature °C, or None (light-only, safe mid-scan)
 
@@ -399,6 +400,12 @@ class CaptureWorker(QObject):
                     cancel=self._cancel,
                 )
             self.calibration_finished.emit(result)
+        except CalibrationExposureError as e:
+            # An expected outcome (the target is unreachable at these aperture/hardware limits),
+            # not a broken session: keep the camera claim — the user adjusts the aperture and
+            # retries immediately, and a reconnect would cost ~4 s for nothing.
+            logger.info("calibration aborted: %s", e)
+            self.calibration_exposure.emit(e.status)
         except Exception as e:
             self._close_camera()  # discard a possibly-broken held session
             if self._cancel.is_set():

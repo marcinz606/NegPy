@@ -759,8 +759,9 @@ def test_normal_mode_keeps_the_scan_live_view_steppers():
     assert not w.lv_window.settings_widget.isHidden()
 
 
-def _calibrate(w, monkeypatch, name="Portra 400", status="target"):
-    """Drive _on_calibration_finished as the worker would, returning the baked preset."""
+def _calibrate(w, monkeypatch, name="Portra 400"):
+    """Drive _on_calibration_finished as the worker would (a result exists only when every channel
+    hit target — anything else arrives via _on_calibration_exposure). Returns the baked preset."""
     import types
 
     saved: dict = {}
@@ -768,93 +769,53 @@ def _calibrate(w, monkeypatch, name="Portra 400", status="target"):
     monkeypatch.setattr(w._presets, "get", lambda _n: None)
     monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
     w._calibrating_preset = name
-    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5"), status=status))
+    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5")))
     return saved["preset"]
 
 
-def test_calibration_shows_an_aperture_warning_when_over_exposed(monkeypatch):
-    # Graceful over-exposure: the preset is still saved, but the status line tells the user to stop
-    # down (mirrors the solver's "over" status → a clear message, not a silent bad preset).
+def test_calibration_exposure_abort_saves_nothing_and_keeps_the_window_open(monkeypatch):
+    # The solver proved the target unreachable and aborted — a preset that misses its target is
+    # worthless, so none may exist. The calibration window stays open with the advice (adjust the
+    # aperture, recalibrate right there), and the same advice arrives as an unmissable pop-up.
     w = _sidebar()
-    _calibrate(w, monkeypatch, status="over")
-    assert "over-exposed" in w.status_label.text() and "close the aperture" in w.status_label.text()
-
-
-def test_calibration_shows_an_aperture_warning_when_under_exposed(monkeypatch):
-    w = _sidebar()
-    _calibrate(w, monkeypatch, status="under")
-    assert "under-exposed" in w.status_label.text() and "open the aperture" in w.status_label.text()
-
-
-def test_calibration_on_target_has_no_warning(monkeypatch):
-    w = _sidebar()
-    _calibrate(w, monkeypatch, status="target")
-    assert "⚠" not in w.status_label.text()
-
-
-def test_calibration_over_exposure_opens_a_popup_and_bakes_the_flag(monkeypatch):
-    # The status strip alone is easy to overlook on a busy panel (rig feedback) — a preset that
-    # cannot reach its exposure target gets an unmissable pop-up, and the outcome is baked into the
-    # preset itself so the dropdown can keep flagging it.
-    w = _sidebar()
-    preset = _calibrate(w, monkeypatch, status="over")
-    assert preset.status == "over"  # persisted with the preset, not just shown once
+    saved: dict = {}
+    monkeypatch.setattr(w._presets, "save", lambda _n, preset: saved.update(preset=preset))
+    w.calib_window.show()
+    w._calibrating_preset = "Phoenix II"
+    w._on_calibration_exposure("over")
+    assert not saved, "an aborted calibration must not write a preset"
+    assert w._calibrating_preset == ""  # terminal cleanup ran (Scan re-enabled, inputs unlocked)
+    assert w.calib_window.isVisible()  # stays open for the retry
+    assert "over-exposed" in w.calib_window.status.text() and "close the aperture" in w.calib_window.status.text()
     assert w._exposure_popup is not None
-    assert "over-exposed" in w._exposure_popup.text()
+    assert "was not saved" in w._exposure_popup.text()
     assert "Close the aperture" in w._exposure_popup.informativeText()
+
+
+def test_calibration_exposure_abort_under_advises_opening_the_aperture(monkeypatch):
+    w = _sidebar()
+    w._calibrating_preset = "Phoenix II"
+    w._on_calibration_exposure("under")
+    assert "under-exposed" in w.calib_window.status.text() and "open the aperture" in w.calib_window.status.text()
+    assert "Open the aperture" in w._exposure_popup.informativeText()
 
 
 def test_calibration_on_target_opens_no_popup(monkeypatch):
     w = _sidebar()
-    preset = _calibrate(w, monkeypatch, status="target")
-    assert preset.status == "target"
+    _calibrate(w, monkeypatch)
     assert w._exposure_popup is None
 
 
-def _flagged_store(w, monkeypatch, name="Phoenix II", status="over"):
-    """Pretend the store holds one calibrated-but-flagged preset."""
-    from negpy.services.capture.presets import ScanlightPreset
-
-    monkeypatch.setattr(w._presets, "names", lambda: [name])
-    monkeypatch.setattr(w._presets, "get", lambda _n: ScanlightPreset(r_level=250, status=status))
-
-
-def test_flagged_preset_is_marked_amber_in_the_dropdown(monkeypatch):
-    # The flag lives in the DISPLAY text and colour only — item data stays the bare name, so
-    # selection logic and findData() are unaffected by the marker.
-    w = _sidebar()
-    _flagged_store(w, monkeypatch)
-    w._reload_presets()
-    idx = w.preset_combo.findData("Phoenix II")
-    assert idx >= 0
-    assert "⚠ over-exposed" in w.preset_combo.itemText(idx)
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QBrush, QColor
-
-    assert w.preset_combo.itemData(idx, Qt.ItemDataRole.ForegroundRole) == QBrush(QColor("#C8922E"))
-
-
-def test_flagged_preset_repeats_its_advice_in_the_hint(monkeypatch):
-    # The pop-up fires once, right after calibrating; the hint keeps the advice attached to the
-    # preset every time it is selected later.
-    w = _sidebar()
-    _flagged_store(w, monkeypatch, status="under")
-    w._reload_presets(select="Phoenix II")
-    w._refresh_preset_hint()
-    assert "under-exposed" in w.preset_hint.text() and "open the aperture" in w.preset_hint.text()
-    assert w.preset_hint.isVisibleTo(w)
-
-
-def test_calibration_warning_survives_the_light_echo(monkeypatch):
+def test_calibration_outcome_survives_the_light_echo(monkeypatch):
     # The bug this pins: _on_calibration_finished sets the R/G/B sliders, each start()s the 60 ms
-    # light debounce; the worker's light_set echo then wrote "Light: R… G… B…" over the warning —
-    # so the one line telling the user their preset is over-exposed lived for a blink and vanished.
-    # The tests above never caught it because the echo arrives after the handler returns.
+    # light debounce; the worker's light_set echo then wrote "Light: R… G… B…" over the outcome
+    # line, which lived for a blink and vanished. The immediate assertions above never caught it
+    # because the echo arrives after the handler returns.
     w = _sidebar()
-    _calibrate(w, monkeypatch, status="over")
-    assert "over-exposed" in w.status_label.text()
+    _calibrate(w, monkeypatch)
+    assert "Saved preset" in w.status_label.text()
     w._on_light_set(213, 92, 78, 0)  # the async echo, exactly as the worker delivers it
-    assert "over-exposed" in w.status_label.text(), "the light echo must not clobber the calibration outcome"
+    assert "Saved preset" in w.status_label.text(), "the light echo must not clobber the calibration outcome"
     # The pin is not forever: the next user-driven status (a new flow) replaces it, and the ambient
     # light echo works again afterwards.
     w._set_status("Calibrating a new preset — see the pop-up.")

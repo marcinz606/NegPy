@@ -22,10 +22,6 @@ class ScanlightPreset:
     shutter_b: str = ""
     iso: str = ""  # camera ISO label baked at calibration (e.g. "100"); "" = not captured
     aperture: str = ""  # aperture label (e.g. "f/8"); "" for a manual lens (no electronic aperture)
-    # Calibration outcome: "target", or "over"/"under" when the solver hit a hardware limit and the
-    # preset misses its exposure target (saved as a best effort — the UI flags it until it is
-    # recalibrated). Manual presets and presets from older builds read as "target" (no known issue).
-    status: str = "target"
 
 
 class PresetStore:

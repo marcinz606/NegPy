@@ -217,6 +217,7 @@ class AppController(QObject):
     calibration_requested = pyqtSignal(CalibrationRequest)
     capture_calibration_progress = pyqtSignal(float, str)
     capture_calibration_finished = pyqtSignal(object)
+    capture_calibration_exposure = pyqtSignal(str)  # "over"/"under": target unreachable, aborted, no preset
     poll_connection_requested = pyqtSignal(str)  # light port (auto-poll)
     connection_polled = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
     poll_light_temp_requested = pyqtSignal(str)  # light port (temp-only poll, runs even mid-live-view)
@@ -485,6 +486,7 @@ class AppController(QObject):
         self.calibration_requested.connect(self.capture_worker.run_calibration)
         self.capture_worker.calibration_progress.connect(self.capture_calibration_progress.emit)
         self.capture_worker.calibration_finished.connect(self.capture_calibration_finished.emit)
+        self.capture_worker.calibration_exposure.connect(self.capture_calibration_exposure.emit)
         self.poll_connection_requested.connect(self.capture_worker.poll_connection)
         self.capture_worker.poll_status.connect(self.connection_polled.emit)
         self.poll_light_temp_requested.connect(self.capture_worker.poll_light_temp)

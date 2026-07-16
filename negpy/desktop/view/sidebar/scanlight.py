@@ -13,7 +13,7 @@ from dataclasses import asdict, fields, replace
 
 import qtawesome as qta
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QBrush, QColor, QPixmap, QStandardItemModel
+from PyQt6.QtGui import QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -44,8 +44,8 @@ _CHANNEL_COLORS = {"R": "#E24B4A", "G": "#639922", "B": "#378ADD", "W": "#B4B2A9
 # Amber for advisory state — the same tone the LED-temperature readout warms to.
 _WARN_COLOR = "#C8922E"
 
-# One source for the over/under advice, worded once and shown on three surfaces (the status strip,
-# the pop-up after calibrating, and the preset hint whenever a flagged preset is selected):
+# One source for the over/under advice, worded once and shown on both surfaces of an aborted
+# calibration (the calibration window's status line and the pop-up):
 # (label, cause — a full sentence for the pop-up, fix — lowercase so the strip can inline it).
 _EXPOSURE_WARNINGS = {
     "over": (
@@ -403,6 +403,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_live_view_started.connect(self._on_live_view_started)
         self.controller.capture_calibration_progress.connect(self._on_calibration_progress)
         self.controller.capture_calibration_finished.connect(self._on_calibration_finished)
+        self.controller.capture_calibration_exposure.connect(self._on_calibration_exposure)
         self.controller.connection_polled.connect(self._on_poll_status)
         self.controller.light_temp_polled.connect(self._on_light_temp)
         # Pop-up toolbar mirrors the panel actions (scan a roll without tab-switching).
@@ -477,14 +478,7 @@ class ScanlightSidebar(QWidget):
         for name in _BUILTIN_WHITE_PRESETS:
             self.preset_combo.addItem(name, name)  # built-in white-light modes
         for name in self._presets.names():
-            # User film-stock (RGB) presets. One that missed its calibration target carries the flag
-            # in its DISPLAY text (amber) — the item data stays the bare name, so selection logic
-            # and findData() never see the marker.
-            preset = self._presets.get(name)
-            flagged = preset is not None and preset.status in _EXPOSURE_WARNINGS
-            self.preset_combo.addItem(f"{name}  ⚠ {_EXPOSURE_WARNINGS[preset.status][0]}" if flagged else name, name)
-            if flagged:
-                self.preset_combo.setItemData(self.preset_combo.count() - 1, QBrush(QColor(_WARN_COLOR)), Qt.ItemDataRole.ForegroundRole)
+            self.preset_combo.addItem(name, name)  # user film-stock (RGB) presets
         if select:
             idx = self.preset_combo.findData(select)
             if idx >= 0:
@@ -614,22 +608,11 @@ class ScanlightSidebar(QWidget):
         self._apply_gating()
 
     def _refresh_preset_hint(self) -> None:
-        """One-line note under the preset row for the current selection — white-light presets do a
-        single exposure, and a preset that missed its calibration target repeats its advice here
-        (amber), so the fix is visible every time it is selected, not only in the minute after
-        calibrating. Empty/hidden otherwise."""
+        """One-line note under the preset row for the current selection — white-light presets
+        do a single exposure. Empty/hidden for RGB film-stock presets or no selection."""
         name = self.preset_combo.currentData()
-        hint, warn = "", False
-        if name in _BUILTIN_WHITE_PRESETS:
-            hint = "Single white-light exposure — for B&W or slide film."
-        elif name:
-            preset = self._presets.get(name)
-            if preset is not None and preset.status in _EXPOSURE_WARNINGS:
-                label, _cause, fix = _EXPOSURE_WARNINGS[preset.status]
-                hint, warn = f"⚠ This preset is {label} — {fix}.", True
-        self.preset_hint.setStyleSheet(f"color: {_WARN_COLOR if warn else THEME.text_muted}; font-size: {THEME.font_size_small}px;")
-        self.preset_hint.setText(hint)
-        self.preset_hint.setVisible(bool(hint))
+        self.preset_hint.setText("Single white-light exposure — for B&W or slide film." if name in _BUILTIN_WHITE_PRESETS else "")
+        self.preset_hint.setVisible(bool(self.preset_hint.text()))
 
     def _on_preset_save(self) -> None:
         if not self._manual_mode:
@@ -648,13 +631,11 @@ class ScanlightSidebar(QWidget):
         self._apply_gating()
         self._set_status(f"Saved preset “{name}”.")
 
-    def _save_current_as_preset(self, name: str, status: str = "target") -> None:
+    def _save_current_as_preset(self, name: str) -> None:
         self._update_settings_from_ui()
         s = self._settings
         # Bake the active recipe from settings — set by calibration (metered) or the manual-mode
         # steppers. A later scan reproduces it; aperture is blank on a manual lens (set by hand).
-        # `status` is the calibration outcome ("over"/"under" flags the preset in the list until it
-        # is recalibrated); manual saves have no calibration and stay "target".
         self._presets.save(
             name,
             ScanlightPreset(
@@ -667,7 +648,6 @@ class ScanlightSidebar(QWidget):
                 shutter_b=s.shutter_b,
                 iso=s.iso,
                 aperture=s.aperture,
-                status=status,
             ),
         )
         self._reload_presets(select=name)
@@ -1101,49 +1081,45 @@ class ScanlightSidebar(QWidget):
         self._apply_preset_exposure(self._current_setting_label("iso"), self._current_setting_label("aperture", require_writable=True))
         self._update_settings_from_ui()
         self._save_settings()
-        # Graceful exposure warning: a channel that couldn't reach ETTR at the hardware limits is
-        # saved anyway (best effort) but the user is told which way to move the aperture — on the
-        # status strip, as a pop-up, and via the preset's own flag in the dropdown.
-        status = getattr(result, "status", "target")
-        flagged = status in _EXPOSURE_WARNINGS
-        warn = ""
-        if flagged:
-            label, _cause, fix = _EXPOSURE_WARNINGS[status]
-            warn = f" ⚠ {label} — {fix}."
-        # A finished run always carries its preset name: the flow refuses to start without one, and
-        # the marker is cleared only on a terminal outcome (the worker emits exactly one of
-        # finished/cancelled/error). The guard remains because saving under an empty name would
-        # write a nameless preset into the store — but there is deliberately no else-branch to
-        # "review and save later"; that flow no longer exists.
+        # A finished run is on target on every channel (anything else aborts via
+        # _on_calibration_exposure before a result exists) and always carries its preset name: the
+        # flow refuses to start without one, and the marker is cleared only on a terminal outcome
+        # (the worker emits exactly one of finished/exposure/cancelled/error). The guard remains
+        # because saving under an empty name would write a nameless preset into the store.
         if self._calibrating_preset:
             name = self._calibrating_preset
             self._calibrating_preset = ""
-            self._save_current_as_preset(name, status=status)  # persist + reload + select + re-gate
+            self._save_current_as_preset(name)  # persist + reload + select + re-gate (bakes settings.iso/aperture)
             self._lv_target = self.lv_image
             self.calib_window.hide()
             # Pinned: the slider writes above armed the 60 ms light debounce, whose light_set echo
-            # lands right after this line — without the pin it replaced this outcome (and its
-            # aperture advice) with "Light: R… G… B…" before anyone could read it.
-            self._set_status(f"Saved preset “{name}”.{warn}", pinned=True)
-            if flagged:
-                self._show_exposure_warning(name, status)
+            # lands right after this line — without the pin it replaced this outcome with
+            # "Light: R… G… B…" before anyone could read it.
+            self._set_status(f"Saved preset “{name}”.", pinned=True)
         self._stop_calibration_live_view()  # calibration ran inside live view → tear it down
 
+    @pyqtSlot(str)
+    def _on_calibration_exposure(self, status: str) -> None:
+        """The solver proved the exposure target unreachable ("over"/"under") and aborted — no
+        preset exists. Keep the calibration window open with the advice (the user adjusts the
+        aperture and recalibrates right there) and put the same advice in an unmissable pop-up."""
+        name = self._calibrating_preset  # read before the terminal cleanup clears it
+        label, _cause, fix = _EXPOSURE_WARNINGS.get(status, _EXPOSURE_WARNINGS["over"])
+        self._finish_calibration_terminal(f"⚠ {label} — {fix}.")
+        self._show_exposure_warning(name, status)
+
     def _show_exposure_warning(self, name: str, status: str) -> None:
-        """The calibration outcome as a pop-up. The status strip carries the same advice, but it is
-        one small line at the bottom of a busy panel — a preset that cannot reach its exposure
-        target deserves an unmissable surface. Non-blocking (show, not exec): the calibration
-        teardown behind it continues, and the pop-up is replaced on the next calibration."""
-        label, cause, fix = _EXPOSURE_WARNINGS[status]
+        """The abort reason as a pop-up. The calibration window shows the same advice, but a run
+        that ends without a preset deserves an unmissable surface. Non-blocking (show, not exec):
+        the teardown behind it continues, and the pop-up is replaced on the next calibration."""
+        label, cause, fix = _EXPOSURE_WARNINGS.get(status, _EXPOSURE_WARNINGS["over"])
         if self._exposure_popup is not None:
             self._exposure_popup.close()
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Calibration warning")
-        box.setText(f"Preset “{name}” is {label}.")
-        box.setInformativeText(
-            f"{cause} {fix[0].upper()}{fix[1:]}.\n\nThe preset was saved as a best effort and is marked ⚠ in the preset list."
-        )
+        box.setWindowTitle("Calibration stopped")
+        box.setText(f"“{name}” was not saved — the film base is {label}.")
+        box.setInformativeText(f"{cause} {fix[0].upper()}{fix[1:]}, using the calibration window that stayed open.")
         box.show()
         self._exposure_popup = box
 
