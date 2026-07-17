@@ -23,6 +23,9 @@ class ProcessConfig:
 
     process_mode: ProcessMode = ProcessMode.C41
     linear_raw: bool = True
+    # Correct narrowband RGB camera scans via the bundled RGBScan input profile
+    # (applied at preview soft-proof / export; an explicit Input ICC overrides it).
+    narrowband_scan: bool = False
     analysis_buffer: float = 0.05
     # Optional freehand analysis region, normalized in the transformed (display) image —
     # the same space as the manual crop rect. When set it defines the exact area the

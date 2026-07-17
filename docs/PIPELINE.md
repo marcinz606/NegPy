@@ -160,7 +160,7 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 
 2.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
-3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel.
+3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel. Before applying, the factor is multiplied by a grade-coupled chroma damping term $(k_{min}/k_g)^{strength}$ ("Dye Mute", default 0.5), where $k_g$ is the green print-curve slope and $k_{min}$ the softest printable slope. Per-channel H&D curves in the wide ROMM gamut inflate chroma as contrast rises; the damping counters it, mimicking paper dyes' unwanted absorptions. Strength 0 disables.
 4.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
 
     $$L_{diff} = L - \text{GaussianBlur}(L, \sigma)$$

@@ -2,6 +2,7 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
+from negpy.features.exposure.logic import grade_chroma_damping
 from negpy.features.lab.logic import (
     apply_chroma_denoise,
     apply_glow_and_halation,
@@ -28,8 +29,11 @@ class PhotoLabProcessor:
         if self.config.vibrance != 1.0:
             img = apply_vibrance(img, self.config.vibrance)
 
-        if self.config.saturation != 1.0:
-            img = apply_saturation(img, self.config.saturation)
+        slopes = context.metrics.get("print_slopes")
+        damp = 1.0 if slopes is None else grade_chroma_damping(slopes[1], self.config.chroma_damping)
+        eff_sat = self.config.saturation * damp
+        if eff_sat != 1.0:
+            img = apply_saturation(img, eff_sat)
 
         if self.config.sharpen > 0:
             img = apply_output_sharpening(img, self.config.sharpen, context.scale_factor)

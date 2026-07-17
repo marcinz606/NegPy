@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
-from negpy.domain.models import ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode, WorkspaceConfig
+from negpy.domain.models import ColorSpace, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode, WorkspaceConfig
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.services.rendering.preview_manager import PreviewManager
 
@@ -244,6 +244,35 @@ class TestAppController(unittest.TestCase):
         # An export color space resolves an effective output profile → proof active.
         self.assertTrue(self.controller.proof_active())
 
+    def test_effective_input_icc(self):
+        """Explicit Input ICC wins; Narrowband Scan supplies the bundled RGBScan
+        profile when none is set; None when both are off."""
+        state = self.controller.state
+        self.assertIsNone(self.controller.effective_input_icc())
+
+        state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
+        path = self.controller.effective_input_icc()
+        assert path is not None
+        self.assertTrue(path.endswith(os.path.join("icc", "RGBScan.icc")))
+        self.assertTrue(os.path.exists(path))
+
+        state.icc_input_path = "/custom.icc"
+        self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
+
+    def test_proof_active_with_narrowband_scan(self):
+        """Narrowband Scan forces proofing on even with the soft-proof toggle off."""
+        state = self.controller.state
+        state.soft_proof_enabled = False
+        self.assertFalse(self.controller.proof_active())
+        state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
+        self.assertTrue(self.controller.proof_active())
+
+    def test_narrowband_profile_hidden_from_dropdown(self):
+        from negpy.infrastructure.display.color_mgmt import ColorService
+
+        profiles = ColorService.get_available_profiles()
+        self.assertFalse(any(p.endswith("RGBScan.icc") for p in profiles))
+
     def test_load_file_preserve_zoom(self):
         """Test that load_file with preserve_zoom=True skips resetting zoom."""
         mock_slot = MagicMock()
@@ -324,6 +353,125 @@ class TestAppController(unittest.TestCase):
         self.assertFalse(saved_config.geometry.auto_crop_enabled)
         self.assertIsNone(saved_config.geometry.manual_crop_rect)
         self.controller.request_render.assert_called_once_with()
+
+    def test_set_crop_ratio_updates_config_when_no_manual_rect(self):
+        self.controller.request_render = MagicMock()
+
+        self.controller.set_crop_ratio("4:3")
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved_config.geometry.autocrop_ratio, "4:3")
+        self.assertIsNone(saved_config.geometry.manual_crop_rect)
+        self.controller.request_render.assert_called_once_with()
+
+    def test_set_crop_ratio_is_noop_when_unchanged(self):
+        geometry = replace(self.controller.state.config.geometry, autocrop_ratio="3:2")
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.request_render = MagicMock()
+
+        self.controller.set_crop_ratio("3:2")
+
+        self.mock_session_manager.update_config.assert_not_called()
+        self.controller.request_render.assert_not_called()
+
+    def test_set_crop_ratio_preserves_metering_bounds(self):
+        """A ratio change is a pure reframe and must not re-meter. Clearing the
+        per-file bounds makes the next render re-analyze over the new (smaller) ROI,
+        which lands on different per-channel floors/ceils — a visible colour cast
+        shift on the canvas from an operation that only changed the frame."""
+        import numpy as np
+
+        self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)
+        floors, ceils = (-2.3, -2.4, -2.8), (-1.3, -1.2, -1.6)
+        config = replace(
+            self.controller.state.config, process=replace(self.controller.state.config.process, local_floors=floors, local_ceils=ceils)
+        )
+        config = replace(config, geometry=replace(config.geometry, manual_crop_rect=(0.15, 0.15, 0.85, 0.85)))
+        self.controller.state.config = config
+        self.controller.request_render = MagicMock()
+
+        self.controller.set_crop_ratio("4:3")
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved_config.process.local_floors, floors)
+        self.assertEqual(saved_config.process.local_ceils, ceils)
+        self.assertTrue(saved_config.process.is_local_initialized)
+
+    def test_set_crop_ratio_reshape_never_grows_the_box(self):
+        """The no-re-meter rule above is only safe because the reshape shrinks within
+        the existing footprint — a box that could grow might pull film rebate into the
+        metered region, which is exactly what the bounds invalidation elsewhere guards."""
+        import numpy as np
+
+        self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)
+        rect = (0.15, 0.15, 0.85, 0.85)
+        self.controller.state.config = replace(
+            self.controller.state.config,
+            geometry=replace(self.controller.state.config.geometry, manual_crop_rect=rect),
+        )
+        self.controller.request_render = MagicMock()
+
+        for ratio in ("1:1", "4:3", "16:9", "65:24", "5:4"):
+            self.mock_session_manager.reset_mock()
+            self.controller.state.config = replace(
+                self.controller.state.config,
+                geometry=replace(self.controller.state.config.geometry, autocrop_ratio="Free", manual_crop_rect=rect),
+            )
+            self.controller.set_crop_ratio(ratio)
+            nx1, ny1, nx2, ny2 = self.mock_session_manager.update_config.call_args.args[0].geometry.manual_crop_rect
+            self.assertGreaterEqual(nx1, rect[0] - 1e-6, f"{ratio}: box grew left")
+            self.assertGreaterEqual(ny1, rect[1] - 1e-6, f"{ratio}: box grew up")
+            self.assertLessEqual(nx2, rect[2] + 1e-6, f"{ratio}: box grew right")
+            self.assertLessEqual(ny2, rect[3] + 1e-6, f"{ratio}: box grew down")
+
+    def test_set_crop_ratio_reshapes_manual_rect_centered_pixel_aware(self):
+        """Reshaping must use real pixel dimensions, not normalized fractions —
+        a non-square display image means "1:1" in normalized space isn't actually
+        square on screen, so the controller (which has the image shape) must do
+        this, not the sidebar."""
+        import numpy as np
+
+        self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)  # h=800, w=1200
+        geometry = replace(self.controller.state.config.geometry, manual_crop_rect=(0.25, 0.25, 0.75, 0.75))
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.request_render = MagicMock()
+
+        self.controller.set_crop_ratio("1:1")
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved_config.geometry.autocrop_ratio, "1:1")
+        nx1, ny1, nx2, ny2 = saved_config.geometry.manual_crop_rect
+        # Center unchanged.
+        self.assertAlmostEqual((nx1 + nx2) / 2, 0.5, places=3)
+        self.assertAlmostEqual((ny1 + ny2) / 2, 0.5, places=3)
+        # True pixel square: (nx2-nx1)*1200 == (ny2-ny1)*800.
+        px_w = (nx2 - nx1) * 1200
+        px_h = (ny2 - ny1) * 800
+        self.assertAlmostEqual(px_w, px_h, delta=1.0)
+        self.controller.request_render.assert_called_once_with()
+
+    def test_set_crop_ratio_accounts_for_90_degree_rotation(self):
+        import numpy as np
+
+        # Source is landscape (h=800, w=1200); a 90 rotation makes the display
+        # portrait (h=1200, w=800) — the reshape must use the rotated dims.
+        self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)
+        geometry = replace(
+            self.controller.state.config.geometry,
+            rotation=1,
+            manual_crop_rect=(0.25, 0.25, 0.75, 0.75),
+        )
+        self.controller.state.config = replace(self.controller.state.config, geometry=geometry)
+        self.controller.request_render = MagicMock()
+
+        self.controller.set_crop_ratio("1:1")
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        nx1, ny1, nx2, ny2 = saved_config.geometry.manual_crop_rect
+        # Display dims after a 90 rotation: h=1200, w=800.
+        px_w = (nx2 - nx1) * 800
+        px_h = (ny2 - ny1) * 1200
+        self.assertAlmostEqual(px_w, px_h, delta=1.0)
 
     def _export_task(self, path, overwrite=False):
         preset = ExportPreset(
@@ -642,29 +790,46 @@ class TestBatchExportFiltering(unittest.TestCase):
             self.assertEqual(t.params.export.export_path, "/tmp/out")
 
     def test_export_all_saved_overrides_path_with_session_values(self):
-        """all_saved scope uses session path/mode even when per-file configs are stale."""
+        """all_saved scope uses session path/mode/format even when per-file configs are stale."""
         self.visible_indices = [0, 1]
         session_export = self.controller.state.config.export
+        # Per-file config has stale SAME_AS_SOURCE (differs from session default
+        # ABSOLUTE) + stale DNG + stale AdobeRGB + stale jpeg_quality — delivery
+        # overrides (mode, fmt, color_space) must use session; sizing (quality) is
+        # preserved from per-file.
         stale_export = replace(
             session_export,
-            output_mode=ExportPresetOutputMode.ABSOLUTE,
+            output_mode=ExportPresetOutputMode.SAME_AS_SOURCE,
             export_path="/stale/default",
             output_subfolder="old_sub",
+            export_fmt=ExportFormat.DNG,
+            export_color_space=ColorSpace.ADOBE_RGB.value,
+            jpeg_quality=50,
         )
         stale_config = replace(self.controller.state.config, export=stale_export)
-        # Per-file config has stale ABSOLUTE; session has SAME_AS_SOURCE
         self.mock_session_manager.repo.load_file_settings.return_value = stale_config
         self.controller.request_batch_export(override_settings=False)
         tasks = self._captured_tasks()
         self.assertEqual(len(tasks), 2)
         for t in tasks:
-            # output_mode and output_subfolder come from session config
+            # output_mode is overridden from session (ABSOLUTE), NOT stale (SAME_AS_SOURCE)
             self.assertEqual(t.params.export.output_mode, session_export.output_mode)
+            self.assertNotEqual(t.params.export.output_mode, ExportPresetOutputMode.SAME_AS_SOURCE)
             self.assertEqual(t.params.export.output_subfolder, session_export.output_subfolder)
             # export_path is validated by _ensure_valid_export_path (mocked to /tmp/out)
             self.assertEqual(t.params.export.export_path, "/tmp/out")
-            # Format/quality from per-file config is preserved
-            self.assertEqual(t.params.export.export_fmt, stale_export.export_fmt)
+            # Format/color-space from session config overrides per-file values so
+            # the delivery format matches what the UI shows, not a stale per-file setting.
+            # Without the fix, stale_export.export_fmt=DNG would leak into the export.
+            self.assertEqual(t.params.export.export_fmt, session_export.export_fmt)
+            self.assertNotEqual(t.params.export.export_fmt, ExportFormat.DNG)
+            self.assertEqual(t.params.export.export_color_space, session_export.export_color_space)
+            self.assertNotEqual(t.params.export.export_color_space, ColorSpace.ADOBE_RGB.value)
+            # Quality/sizing from per-file config is preserved
+            self.assertEqual(t.params.export.jpeg_quality, stale_export.jpeg_quality)
+            # Verify export_settings (the delivery config the worker actually reads)
+            self.assertEqual(t.export_settings.export_fmt, session_export.export_fmt)
+            self.assertEqual(t.export_settings.export_color_space, session_export.export_color_space)
 
 
 class TestPresetBatchExport(unittest.TestCase):

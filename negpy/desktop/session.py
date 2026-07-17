@@ -646,6 +646,9 @@ class DesktopSessionManager(QObject):
         sticky_linear_raw = self.repo.get_global_setting("last_linear_raw")
         if sticky_linear_raw is not None:
             config = replace(config, process=replace(config.process, linear_raw=bool(sticky_linear_raw)))
+        sticky_narrowband = self.repo.get_global_setting("last_narrowband_scan")
+        if sticky_narrowband is not None:
+            config = replace(config, process=replace(config.process, narrowband_scan=bool(sticky_narrowband)))
 
         # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
         # White / True Black / Cast Removal) are workflow preferences, not
@@ -698,6 +701,7 @@ class DesktopSessionManager(QObject):
                 "last_wb_magenta": config.exposure.wb_magenta,
                 "last_wb_yellow": config.exposure.wb_yellow,
                 "last_linear_raw": config.process.linear_raw,
+                "last_narrowband_scan": config.process.narrowband_scan,
                 "last_auto_exposure": config.exposure.auto_exposure,
                 "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
                 "last_paper_dmin": config.exposure.paper_dmin,

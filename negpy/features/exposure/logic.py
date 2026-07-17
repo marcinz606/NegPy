@@ -512,6 +512,20 @@ def grade_to_slope(grade: float, density_range: Optional[float]) -> float:
     return float(min(max(k, c["slope_min"]), c["slope_max"]))
 
 
+def grade_chroma_damping(slope_g: float, strength: float) -> float:
+    """
+    Chroma scale countering per-channel print-curve chroma inflation in the
+    wide working gamut: damp = (slope_min / slope)^strength. 1.0 at strength 0
+    or the softest slope; monotonically decreasing in slope and strength. Uses
+    the green (reference) slope so it stays a single global scalar.
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    s = min(max(float(slope_g), c["slope_min"]), c["slope_max"])
+    return float((c["slope_min"] / s) ** max(float(strength), 0.0))
+
+
 def slope_to_grade(slope: float, density_range: Optional[float]) -> float:
     """
     Inverse of grade_to_slope: the ISO R paper grade equivalent to an effective

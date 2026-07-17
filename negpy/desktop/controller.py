@@ -41,6 +41,7 @@ from negpy.domain.models import (
     ExportPresetOutputMode,
     ExportResolutionMode,
     WorkspaceConfig,
+    canonical_crop_ratio,
     export_blocked,
     flat_export_config,
     flat_master_config,
@@ -54,11 +55,12 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.exposure.models import ExposureConfig
 from negpy.features.finish.models import FinishConfig
-from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio
+from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_aspect_ratio, enforce_roi_aspect_ratio
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.process.models import ProcessMode, invalidate_local_bounds
+from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds
+from negpy.kernel.system.paths import get_resource_path
 from negpy.features.retouch.logic import fallback_source_offset, select_source_offset
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
 from negpy.features.toning.models import ToningConfig
@@ -800,13 +802,14 @@ class AppController(QObject):
         import json
 
         proofing = self.state.soft_proof_enabled
+        narrowband = self.state.config.process.narrowband_scan
         parts = (
             json.dumps(self.state.config.to_dict(), sort_keys=True, default=str),
             self.state.hq_preview,
             self.state.workspace_color_space,
             self.state.gpu_enabled,
             proofing,
-            self.state.icc_input_path if proofing else None,
+            self.effective_input_icc() if (proofing or narrowband) else None,
             self.effective_output_icc() if proofing else None,
             hashlib.md5(self.state.monitor_icc_bytes).hexdigest() if self.state.monitor_icc_bytes else "",
         )
@@ -1100,6 +1103,45 @@ class AppController(QObject):
         if self.state.active_tool == ToolMode.CROP_MANUAL:
             self.set_active_tool(ToolMode.NONE)
 
+    def set_crop_ratio(self, ratio: str) -> None:
+        """Sets the sidebar Ratio picker's target ratio. If a manual crop box is
+        already drawn, reshapes it to the new ratio in place — same center, shrunk
+        to fit within its current footprint (enforce_roi_aspect_ratio, the same
+        centered-reshape auto-crop uses) — instead of leaving the box visually
+        stale until the user redrags it.
+
+        Deliberately does NOT invalidate the metering bounds, unlike the other crop
+        entry points. Those clear them because the crop decides whether the film
+        rebate is inside the metered region (resolve_analysis_region meters within
+        context.active_roi), and letting clear base into the meter wrecks the
+        bounds. A ratio change can't do that: both this reshape and autocrop's
+        _enforce_ratio_by_occupancy only ever shrink the box inside a footprint
+        that already excludes the rebate, so the new ROI is a subset of the old
+        one. Re-metering there can only drift the per-channel floors/ceils — i.e.
+        a visible colour shift from what is supposed to be a pure reframe."""
+        geom = self.state.config.geometry
+        if ratio == geom.autocrop_ratio:
+            return
+        new_geo = replace(geom, autocrop_ratio=ratio)
+
+        rect = geom.manual_crop_rect
+        img = self.state.preview_raw
+        if rect is not None and img is not None:
+            h, w = img.shape[:2]
+            if geom.rotation in (1, 3):
+                h, w = w, h
+            nx1, ny1, nx2, ny2 = rect
+            roi_px = (round(ny1 * h), round(ny2 * h), round(nx1 * w), round(nx2 * w))
+            y1, y2, x1, x2 = enforce_roi_aspect_ratio(roi_px, h, w, ratio)
+            new_geo = replace(new_geo, manual_crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
+
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
+        # Same spinner/overlay treatment as reset_crop/apply_auto_crop: the base
+        # stage still re-runs (geometry is part of its cache key), which can take a
+        # noticeable moment on a large HQ frame.
+        self.loading_started.emit()
+        self.request_render()
+
     def handle_analysis_rect_changed(self, nx1: float, ny1: float, nx2: float, ny2: float, persist: bool) -> None:
         """Live-update (persist=False) or commit (persist=True) the freehand analysis
         region while the tool is open. Setting a region re-meters the frame, so a commit
@@ -1327,7 +1369,11 @@ class AppController(QObject):
         if geom.fine_rotation != 0.0:
             transformed = apply_fine_rotation(transformed, geom.fine_rotation)
 
-        new_ratio = detect_closest_aspect_ratio(transformed, fallback=geom.autocrop_ratio)
+        # Detection can match a portrait-oriented frame to a portrait-only AspectRatio
+        # (e.g. "2:3") that the ratio picker doesn't display — canonicalize so the
+        # stored ratio always matches an entry the picker can show (see
+        # domain.models.CROP_RATIO_CHOICES; the crop tool auto-orients regardless).
+        new_ratio = canonical_crop_ratio(detect_closest_aspect_ratio(transformed, fallback=geom.autocrop_ratio))
         if new_ratio == geom.autocrop_ratio:
             return
 
@@ -2050,9 +2096,22 @@ class AppController(QObject):
         profile for the selected export color space. None means no proof (Same as Source)."""
         return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
 
+    def effective_input_icc(self, process: Optional[ProcessConfig] = None) -> Optional[str]:
+        """Source profile for color management: an explicit Input ICC wins; else the
+        bundled RGBScan profile when Narrowband Scan is on; else None."""
+        p = process if process is not None else self.state.config.process
+        if self.state.icc_input_path:
+            return self.state.icc_input_path
+        if p.narrowband_scan:
+            return get_resource_path("icc/RGBScan.icc")
+        return None
+
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or
-        output profile is available. Off → preview is the edit on the monitor."""
+        output profile is available, or Narrowband Scan supplies an implicit input
+        profile. Off → preview is the edit on the monitor."""
+        if self.state.config.process.narrowband_scan:
+            return True
         return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_output_icc())
 
     def set_soft_proof(self, enabled: bool) -> None:
@@ -2123,8 +2182,10 @@ class AppController(QObject):
 
         # Soft-proof gating: Output/Input ICC only touch the preview when the toggle is
         # on; otherwise the preview is the edit shown on the monitor (export unaffected).
+        # Narrowband Scan supplies an implicit input profile regardless of the toggle.
         proofing = self.state.soft_proof_enabled
-        icc_input = self.state.icc_input_path if proofing else None
+        narrowband = self.state.config.process.narrowband_scan
+        icc_input = self.effective_input_icc() if (proofing or narrowband) else None
         effective_output = self.effective_output_icc() if proofing else None
 
         crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
@@ -2270,7 +2331,7 @@ class AppController(QObject):
         tasks = []
         for preset in presets:
             task_params, export_settings = resolve_preset_export(preset, params)
-            export_settings.icc_input_path = self.state.icc_input_path
+            export_settings.icc_input_path = self.effective_input_icc(task_params.process)
             tasks.append(
                 ExportTask(
                     file_info=file_info,
@@ -2349,7 +2410,7 @@ class AppController(QObject):
         export_conf = replace(
             self.state.config.export,
             export_path=export_path,
-            icc_input_path=self.state.icc_input_path,
+            icc_input_path=self.effective_input_icc(),
             icc_output_path=self.state.icc_output_path,
         )
         params = self.state.config
@@ -2390,7 +2451,6 @@ class AppController(QObject):
             return
 
         current_export = replace(self.state.config.export, export_path=export_path)
-        icc_input = self.state.icc_input_path
         icc_output = self.state.icc_output_path
         sync_metadata = self.state.config.metadata.sync_to_batch
 
@@ -2417,9 +2477,10 @@ class AppController(QObject):
             if override_settings:
                 params = replace(params, export=current_export)
             else:
-                # Always use current session export path/mode even for per-file
-                # exports. Per-file configs from the DB bypass _apply_sticky_settings
-                # and may have stale ABSOLUTE/export_path values.
+                # Always use current session export path/mode/format even for
+                # per-file exports. Per-file configs from the DB bypass
+                # _apply_sticky_settings and may have stale ABSOLUTE/export_path
+                # or DNG export_fmt values that don't match what the UI shows.
                 params = replace(
                     params,
                     export=replace(
@@ -2427,12 +2488,14 @@ class AppController(QObject):
                         output_mode=current_export.output_mode,
                         export_path=current_export.export_path,
                         output_subfolder=current_export.output_subfolder,
+                        export_fmt=current_export.export_fmt,
+                        export_color_space=current_export.export_color_space,
                     ),
                 )
 
             final_export = replace(
                 params.export,
-                icc_input_path=icc_input,
+                icc_input_path=self.effective_input_icc(params.process),
                 icc_output_path=icc_output,
             )
 

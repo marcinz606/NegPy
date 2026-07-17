@@ -94,6 +94,7 @@ SLIDER_GROUPS: tuple[SliderShortcutGroup, ...] = (
     _g("separation", "Crosstalk ↑/↓", "separation_inc", "separation_dec", 0.01, "Process"),
     _g("chroma_denoise", "Denoise ↑/↓", "chroma_denoise_inc", "chroma_denoise_dec", 0.01, "Lab"),
     _g("saturation", "Saturation ↑/↓", "saturation_inc", "saturation_dec", 0.01, "Lab"),
+    _g("chroma_damping", "Dye Mute ↑/↓", "chroma_damping_inc", "chroma_damping_dec", 0.01, "Lab"),
     _g("vibrance", "Vibrance ↑/↓", "vibrance_inc", "vibrance_dec", 0.01, "Lab"),
     _g("clahe", "CLAHE ↑/↓", "clahe_inc", "clahe_dec", 0.01, "Lab"),
     _g("sharpen", "Sharpening ↑/↓", "sharpen_inc", "sharpen_dec", 0.01, "Lab"),

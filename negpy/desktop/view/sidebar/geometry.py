@@ -16,7 +16,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import EditedDot, default_button_height, field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
-from negpy.domain.models import AspectRatio
+from negpy.domain.models import CROP_RATIO_CHOICES, canonical_crop_ratio
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.process.models import invalidate_local_bounds
 
@@ -52,10 +52,11 @@ class GeometrySidebar(BaseSidebar):
         ratio_row = QHBoxLayout()
         ratio_row.addWidget(self._field_label("Ratio"))
         self.ratio_combo = QComboBox()
-        # Filter out 'Original' as it's not a crop ratio (usually 'Free' is used for no constraint)
-        ratios = [r.value for r in AspectRatio if r != AspectRatio.ORIGINAL]
-        self.ratio_combo.addItems(ratios)
-        self.ratio_combo.setCurrentText(conf.autocrop_ratio)
+        # One entry per shape (see CROP_RATIO_CHOICES) — the crop tool auto-orients
+        # to match the current drag, so a separate portrait entry for every ratio
+        # would just duplicate the same shape twice.
+        self.ratio_combo.addItems([r.value for r in CROP_RATIO_CHOICES])
+        self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
         self.ratio_combo.setPlaceholderText("Select Ratio...")
         ratio_row.addWidget(self.ratio_combo, 1)
 
@@ -186,13 +187,7 @@ class GeometrySidebar(BaseSidebar):
         )
 
     def _on_ratio_changed(self, ratio: str) -> None:
-        new_config = replace(
-            self.state.config,
-            geometry=replace(self.state.config.geometry, autocrop_ratio=ratio),
-            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
-        )
-        self.controller.session.update_config(new_config, persist=True)
-        self.controller.request_render()
+        self.controller.set_crop_ratio(ratio)
 
     def _on_mode_changed(self, idx: int) -> None:
         self.auto_crop_all_btn.setEnabled(self.mode_combo.itemData(idx) == AutocropMode.IMAGE)
@@ -232,7 +227,7 @@ class GeometrySidebar(BaseSidebar):
         try:
             self.guide_combo.setCurrentIndex(self.guide_combo.findData(self.state.crop_guide))
             self._sync_guide_orient_btn()
-            self.ratio_combo.setCurrentText(conf.autocrop_ratio)
+            self.ratio_combo.setCurrentText(canonical_crop_ratio(conf.autocrop_ratio))
             self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
 
             self.offset_slider.setValue(float(conf.autocrop_offset))

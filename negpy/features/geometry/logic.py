@@ -5,7 +5,7 @@ from typing import List, NamedTuple, Optional, Tuple
 import cv2
 import numpy as np
 
-from negpy.domain.models import AspectRatio
+from negpy.domain.models import AspectRatio, FILM_FORMAT_RATIOS
 from negpy.domain.types import ROI, ImageBuffer
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode, GeometryConfig
 from negpy.kernel.image.logic import get_luminance
@@ -1801,10 +1801,12 @@ def _closest_standard_ratio(roi: ROI, img_shape: Tuple[int, int], fallback: str 
     detected = cw / ch
     is_landscape = cw >= ch
 
+    # FILM_FORMAT_RATIOS, not the full AspectRatio enum: the crop-ratio picker's
+    # print/screen sizes (7:5, 16:9, 16:10, 8.5:11) aren't formats a camera/scanner
+    # produces, and sit close enough to 3:2/5:4 in log-ratio space that including
+    # them here made ordinary detection noise on a real 3:2 frame misclassify it.
     candidates: list[tuple[AspectRatio, float]] = []
-    for ratio in AspectRatio:
-        if ratio in (AspectRatio.FREE, AspectRatio.ORIGINAL):
-            continue
+    for ratio in FILM_FORMAT_RATIOS:
         try:
             w_r, h_r = map(float, ratio.value.split(":"))
         except ValueError:

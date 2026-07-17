@@ -94,6 +94,13 @@ land in a per-roll subfolder, auto-numbered, and are imported and merged automat
 so you see the inverted positive a moment after the shutter. **Retake** re-shoots the
 current frame without advancing the counter.
 
+**Narrowband Scan.** Scans lit by narrowband RGB LEDs render more saturated than
+white-light scans: each channel samples its dye near the absorption peak, so the natural
+spectral overlap of broadband light is missing. The **Narrowband** toggle in the Process
+panel (next to **Linear RAW**) corrects this by applying the bundled RGBScan input
+profile to the preview and every export. An explicit **Input ICC** chosen in Export
+settings takes precedence while set.
+
 ---
 
 ## Troubleshooting

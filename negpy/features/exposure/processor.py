@@ -227,6 +227,7 @@ class PhotometricProcessor:
             neutral_axis_norm=neutral_axis_norm,
             grade_trims=(self.config.grade_trim_red, self.config.grade_trim_green, self.config.grade_trim_blue),
         )
+        context.metrics["print_slopes"] = slopes
 
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         cmy_offsets = filtration_offsets(

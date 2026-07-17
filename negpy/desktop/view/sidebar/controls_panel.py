@@ -519,6 +519,12 @@ class ControlsPanel(QWidget):
                 ["saturation_inc", "saturation_dec"],
             )
         )
+        lab.chroma_damping_slider.setToolTip(
+            tooltip_with_shortcut(
+                "Dye Mute — counters the extra saturation harder grades create, like real paper dyes' unwanted absorptions. 0 = off",
+                ["chroma_damping_inc", "chroma_damping_dec"],
+            )
+        )
         lab.vibrance_slider.setToolTip(
             tooltip_with_shortcut(
                 "Smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones than raw Saturation",
