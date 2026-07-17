@@ -23,6 +23,11 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(config.exposure.grade, 90.0)
         self.assertEqual(config.export.export_fmt, "TIFF")
 
+    def test_narrowband_scan_round_trip(self):
+        self.assertFalse(WorkspaceConfig().to_dict()["narrowband_scan"])
+        config = WorkspaceConfig.from_flat_dict({"narrowband_scan": True})
+        self.assertTrue(config.process.narrowband_scan)
+
     def test_unknown_keys_warning(self):
         data = {
             "process_mode": ProcessMode.BW,

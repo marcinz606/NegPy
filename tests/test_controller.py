@@ -191,6 +191,35 @@ class TestAppController(unittest.TestCase):
         # An export color space resolves an effective output profile → proof active.
         self.assertTrue(self.controller.proof_active())
 
+    def test_effective_input_icc(self):
+        """Explicit Input ICC wins; Narrowband Scan supplies the bundled RGBScan
+        profile when none is set; None when both are off."""
+        state = self.controller.state
+        self.assertIsNone(self.controller.effective_input_icc())
+
+        state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
+        path = self.controller.effective_input_icc()
+        assert path is not None
+        self.assertTrue(path.endswith(os.path.join("icc", "RGBScan.icc")))
+        self.assertTrue(os.path.exists(path))
+
+        state.icc_input_path = "/custom.icc"
+        self.assertEqual(self.controller.effective_input_icc(), "/custom.icc")
+
+    def test_proof_active_with_narrowband_scan(self):
+        """Narrowband Scan forces proofing on even with the soft-proof toggle off."""
+        state = self.controller.state
+        state.soft_proof_enabled = False
+        self.assertFalse(self.controller.proof_active())
+        state.config = replace(state.config, process=replace(state.config.process, narrowband_scan=True))
+        self.assertTrue(self.controller.proof_active())
+
+    def test_narrowband_profile_hidden_from_dropdown(self):
+        from negpy.infrastructure.display.color_mgmt import ColorService
+
+        profiles = ColorService.get_available_profiles()
+        self.assertFalse(any(p.endswith("RGBScan.icc") for p in profiles))
+
     def test_load_file_preserve_zoom(self):
         """Test that load_file with preserve_zoom=True skips resetting zoom."""
         mock_slot = MagicMock()

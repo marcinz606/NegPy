@@ -59,7 +59,8 @@ from negpy.features.geometry.logic import apply_fine_rotation, detect_closest_as
 from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
-from negpy.features.process.models import ProcessMode, invalidate_local_bounds
+from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds
+from negpy.kernel.system.paths import get_resource_path
 from negpy.features.retouch.logic import fallback_source_offset, select_source_offset
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
 from negpy.features.toning.models import ToningConfig
@@ -783,13 +784,14 @@ class AppController(QObject):
         import json
 
         proofing = self.state.soft_proof_enabled
+        narrowband = self.state.config.process.narrowband_scan
         parts = (
             json.dumps(self.state.config.to_dict(), sort_keys=True, default=str),
             self.state.hq_preview,
             self.state.workspace_color_space,
             self.state.gpu_enabled,
             proofing,
-            self.state.icc_input_path if proofing else None,
+            self.effective_input_icc() if (proofing or narrowband) else None,
             self.effective_output_icc() if proofing else None,
             hashlib.md5(self.state.monitor_icc_bytes).hexdigest() if self.state.monitor_icc_bytes else "",
         )
@@ -2053,9 +2055,22 @@ class AppController(QObject):
         profile for the selected export color space. None means no proof (Same as Source)."""
         return self.state.icc_output_path or ColorSpaceRegistry.get_icc_path(self.state.config.export.export_color_space)
 
+    def effective_input_icc(self, process: Optional[ProcessConfig] = None) -> Optional[str]:
+        """Source profile for color management: an explicit Input ICC wins; else the
+        bundled RGBScan profile when Narrowband Scan is on; else None."""
+        p = process if process is not None else self.state.config.process
+        if self.state.icc_input_path:
+            return self.state.icc_input_path
+        if p.narrowband_scan:
+            return get_resource_path("icc/RGBScan.icc")
+        return None
+
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or
-        output profile is available. Off → preview is the edit on the monitor."""
+        output profile is available, or Narrowband Scan supplies an implicit input
+        profile. Off → preview is the edit on the monitor."""
+        if self.state.config.process.narrowband_scan:
+            return True
         return self.state.soft_proof_enabled and bool(self.state.icc_input_path or self.effective_output_icc())
 
     def set_soft_proof(self, enabled: bool) -> None:
@@ -2126,8 +2141,10 @@ class AppController(QObject):
 
         # Soft-proof gating: Output/Input ICC only touch the preview when the toggle is
         # on; otherwise the preview is the edit shown on the monitor (export unaffected).
+        # Narrowband Scan supplies an implicit input profile regardless of the toggle.
         proofing = self.state.soft_proof_enabled
-        icc_input = self.state.icc_input_path if proofing else None
+        narrowband = self.state.config.process.narrowband_scan
+        icc_input = self.effective_input_icc() if (proofing or narrowband) else None
         effective_output = self.effective_output_icc() if proofing else None
 
         crop_preview_full = self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
@@ -2273,7 +2290,7 @@ class AppController(QObject):
         tasks = []
         for preset in presets:
             task_params, export_settings = resolve_preset_export(preset, params)
-            export_settings.icc_input_path = self.state.icc_input_path
+            export_settings.icc_input_path = self.effective_input_icc(task_params.process)
             tasks.append(
                 ExportTask(
                     file_info=file_info,
@@ -2352,7 +2369,7 @@ class AppController(QObject):
         export_conf = replace(
             self.state.config.export,
             export_path=export_path,
-            icc_input_path=self.state.icc_input_path,
+            icc_input_path=self.effective_input_icc(),
             icc_output_path=self.state.icc_output_path,
         )
         params = self.state.config
@@ -2393,7 +2410,6 @@ class AppController(QObject):
             return
 
         current_export = replace(self.state.config.export, export_path=export_path)
-        icc_input = self.state.icc_input_path
         icc_output = self.state.icc_output_path
         sync_metadata = self.state.config.metadata.sync_to_batch
 
@@ -2438,7 +2454,7 @@ class AppController(QObject):
 
             final_export = replace(
                 params.export,
-                icc_input_path=icc_input,
+                icc_input_path=self.effective_input_icc(params.process),
                 icc_output_path=icc_output,
             )
 
