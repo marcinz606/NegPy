@@ -258,6 +258,88 @@ def test_poll_self_heals_once_the_other_app_releases_the_camera(monkeypatch):
     assert not worker._holds_camera()
 
 
+def test_poll_identifies_the_body_on_first_sight(monkeypatch):
+    # libgphoto2's database labels post-database bodies "USB PTP Class Camera" (the a7C II is
+    # not in it, #431); the real name lives on the device. The first poll after a body appears
+    # probes it once (open → read → close), so the dot shows "ILCE-7CM2" from the start instead
+    # of the database placeholder — and a foreign claim is detected before the user's first
+    # attempt, not only after it.
+    import negpy.desktop.workers.capture_worker as capture_worker_module
+
+    class IdentifiableCamera:
+        model = "ILCE-7CM2"
+
+        def __init__(self) -> None:
+            self.open_calls = 0
+            self._open = False
+
+        def is_open(self) -> bool:
+            return self._open
+
+        def open(self) -> None:
+            self.open_calls += 1
+            self._open = True
+
+        def close(self) -> None:
+            self._open = False
+
+    worker = CaptureWorker()
+    cam = IdentifiableCamera()
+    worker._camera = cam
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("no light")))
+    seen: list[dict] = []
+    worker.poll_status.connect(seen.append)
+    worker.poll_connection("")
+    assert seen[-1]["usb_model"] == "ILCE-7CM2"  # real name, not the database placeholder
+    assert not worker._holds_camera()  # the identify session was released again
+    worker.poll_connection("")
+    assert cam.open_calls == 1  # identified once, not per tick
+
+
+def test_poll_identify_is_one_shot_for_a_body_that_will_not_open(monkeypatch):
+    # A body that fails to open for a non-claim reason must not be hammered with an open
+    # attempt every 3 s tick — one try per bus appearance, then the placeholder name stands.
+    import negpy.desktop.workers.capture_worker as capture_worker_module
+
+    class BrokenCamera:
+        def __init__(self) -> None:
+            self.open_calls = 0
+
+        def is_open(self) -> bool:
+            return False
+
+        def open(self) -> None:
+            self.open_calls += 1
+            from negpy.infrastructure.capture.gphoto import GphotoError
+
+            raise GphotoError("could not open the camera: [-1] Unspecified error")
+
+        def close(self) -> None:
+            pass
+
+    worker = CaptureWorker()
+    cam = BrokenCamera()
+    worker._camera = cam
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("no light")))
+    seen: list[dict] = []
+    worker.poll_status.connect(seen.append)
+    worker.poll_connection("")
+    worker.poll_connection("")
+    assert cam.open_calls == 1  # tried once, then left alone
+    assert seen[-1]["usb_ok"] is True and seen[-1]["usb_claimed_elsewhere"] is False
+    # A re-plug re-arms the identify: the next body may be a different one. (The empty-bus
+    # poll drops the camera object, so the fake must be re-injected for the re-appearance.)
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [])
+    worker.poll_connection("")
+    assert worker._identify_attempted is False  # re-armed by the disappearance
+    worker._camera = cam
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    worker.poll_connection("")
+    assert cam.open_calls == 2
+
+
 def test_a_non_claim_open_failure_resets_the_claimed_verdict():
     # An unplugged body fails to open with a plain GphotoError. That must clear the claim
     # verdict, or the "in use — close Preview…" advice sticks to a camera that is simply gone.

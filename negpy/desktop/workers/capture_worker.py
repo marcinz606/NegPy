@@ -95,9 +95,12 @@ class CaptureWorker(QObject):
         self._camera: Optional[GphotoCamera] = None
         self._model = ""
         # True after an open failed because another program holds the USB claim; drives the
-        # "in use by another app" camera status. Cleared on a successful open or when the
-        # body leaves the bus (the situation has changed either way).
+        # "in use by another app" camera status. Cleared by the next open attempt that does
+        # not hit the claim (success, or a different failure).
         self._claimed_elsewhere = False
+        # One identify probe per bus appearance (read the body's real model name): tried once,
+        # so a body that fails to open for non-claim reasons is not hammered every poll tick.
+        self._identify_attempted = False
 
     # ----- camera session (one per body, held open) -----
 
@@ -310,14 +313,20 @@ class CaptureWorker(QObject):
             # does not claim the device, so this is safe even mid-stream.
             found = list_cameras()
             if found:
-                if self._claimed_elsewhere and not self._holds_camera():
-                    # Self-heal: only an open attempt can clear the verdict, but Scan/Calibrate
-                    # are gated while it stands — the user cannot trigger one. In exactly this
-                    # state we hold no session, so a probe can steal nothing from ourselves:
-                    # try the open here, and the dot turns green by itself once the other app
-                    # lets go. Success releases the session again immediately (sessions are
-                    # held only while a window needs them) and learns the body's real model
-                    # name; failure keeps the verdict via the claim path above.
+                identify = not self._model and not self._identify_attempted
+                if (self._claimed_elsewhere or identify) and not self._holds_camera():
+                    # One probe open (open → read → close immediately), for two jobs — safe in
+                    # both states because we hold no session ourselves:
+                    # * First sight of a body: read its real model name. libgphoto2's database
+                    #   labels post-database bodies "USB PTP Class Camera" (the a7C II is not
+                    #   in it, #431); only the device knows its name. Tried ONCE per bus
+                    #   appearance — a body that fails to open for other reasons must not be
+                    #   hammered every tick. This also detects a foreign claim proactively,
+                    #   before the user's first live-view/scan attempt.
+                    # * Claimed verdict standing: retry until the other app lets go. Only an
+                    #   open can clear the verdict, and Scan/Calibrate are gated while it
+                    #   stands — without this the dot stayed red after Preview closed.
+                    self._identify_attempted = True
                     try:
                         self._acquire_camera()
                         self._close_camera()
@@ -335,6 +344,10 @@ class CaptureWorker(QObject):
                 status["usb_ok"], status["usb_claimed_elsewhere"] = True, True
                 status["usb_model"] = self._model or "USB PTP Class Camera"
             else:
+                # A genuinely absent body (no claim verdict standing): forget its name and
+                # allow a fresh identify — the next body to appear may be a different one.
+                self._model = ""
+                self._identify_attempted = False
                 if self._camera is not None:
                     logger.info("camera disappeared from the bus — dropping the session")
                     self._close_camera()
