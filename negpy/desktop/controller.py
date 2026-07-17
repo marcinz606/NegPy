@@ -685,9 +685,18 @@ class AppController(QObject):
         """Persist the RGB-scan toggle and re-discover already-loaded assets so the
         mode regroups/ungroups triplets in place (not only on the next folder load)."""
         self.session.repo.save_global_setting("rgbscan_mode", bool(enabled))
+        if enabled:
+            # Narrowband LEDs are what RGB-scan triplets are captured with — correcting
+            # for them is the point of the toggle, so switch it on together.
+            self.session.repo.save_global_setting("last_narrowband_scan", True)
         files = self.session.state.uploaded_files
         if not files:
             return
+        if enabled and not self.state.config.process.narrowband_scan:
+            self.session.update_config(
+                replace(self.state.config, process=replace(self.state.config.process, narrowband_scan=True)), persist=True
+            )
+            self.request_render()
         paths: List[str] = []
         for f in files:
             paths.append(f["path"])

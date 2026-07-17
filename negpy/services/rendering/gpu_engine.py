@@ -299,7 +299,7 @@ class GPUEngine:
             return 7
         if last.export != settings.export:
             # Carrier width is mm-of-print, so a print-size change moves the finish pass too.
-            if settings.finish.carrier_enabled and last.export.export_print_size != settings.export.export_print_size:
+            if settings.finish.carrier_width > 0.0 and last.export.export_print_size != settings.export.export_print_size:
                 return 7
             return 8
 
@@ -1292,7 +1292,7 @@ class GPUEngine:
         else:
             v_full_w, v_full_h, v_off_x, v_off_y = vignette_full_crop
         carrier_px = 0.0
-        if settings.finish.carrier_enabled:
+        if settings.finish.carrier_width > 0.0:
             carrier_px = carrier_width_px(
                 settings.finish.carrier_width,
                 settings.export.export_print_size,

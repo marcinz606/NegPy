@@ -17,7 +17,7 @@ class FinishProcessor:
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         if self.config.vignette_stops != 0.0:
             image = apply_vignette(image, self.config.vignette_stops, self.config.vignette_size, self.config.vignette_roundness)
-        if self.config.carrier_enabled:
+        if self.config.carrier_width > 0.0:
             width = carrier_width_px(self.config.carrier_width, self.print_size_cm, float(max(image.shape[:2])))
             image = apply_carrier(image, width, self.config.carrier_rough)
         return image

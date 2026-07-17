@@ -73,7 +73,7 @@ class TestGpuFinishParity(unittest.TestCase):
         settings = WorkspaceConfig()
         settings = replace(
             settings,
-            finish=replace(settings.finish, carrier_enabled=True, carrier_width=3.0, carrier_rough=1.0),
+            finish=replace(settings.finish, carrier_width=3.0, carrier_rough=1.0),
         )
         self._assert_parity(settings)
 

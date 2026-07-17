@@ -2,7 +2,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QPushButton
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import section_subheader
+from negpy.desktop.view.styles.templates import default_button_height, section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
 
 
@@ -16,29 +16,21 @@ class FinishSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("VIGNETTE"))
 
-        row1 = QHBoxLayout()
         self.vignette_burn_slider = CompactSlider("Burn", -2.0, 2.0, conf.vignette_stops, unit=" st")
+        self.layout.addWidget(self.vignette_burn_slider)
+
+        row1 = QHBoxLayout()
         self.vignette_size_slider = CompactSlider("Size", 0.0, 1.0, conf.vignette_size)
-        row1.addWidget(self.vignette_burn_slider)
+        self.vignette_roundness_slider = CompactSlider("Roundness", 0.0, 1.0, conf.vignette_roundness)
         row1.addWidget(self.vignette_size_slider)
+        row1.addWidget(self.vignette_roundness_slider)
         self.layout.addLayout(row1)
 
-        row1b = QHBoxLayout()
-        self.vignette_roundness_slider = CompactSlider("Roundness", 0.0, 1.0, conf.vignette_roundness)
-        row1b.addWidget(self.vignette_roundness_slider)
-        self.layout.addLayout(row1b)
-
         self.layout.addWidget(section_subheader("FILED CARRIER"))
-
-        self.carrier_btn = QPushButton("Print the rebate")
-        self.carrier_btn.setCheckable(True)
-        self.carrier_btn.setChecked(conf.carrier_enabled)
-        self.carrier_btn.setToolTip("Filed-out negative carrier: a black rebate frame with a rough inner edge")
-        self.layout.addWidget(self.carrier_btn)
-
-        row_carrier = QHBoxLayout()
-        self.carrier_width_slider = CompactSlider("Width", 0.5, 5.0, conf.carrier_width, unit=" mm")
+        self.carrier_width_slider = CompactSlider("Width", 0.0, 5.0, conf.carrier_width)
+        self.carrier_width_slider.setToolTip("Filed-out negative carrier: a black rebate frame with a rough inner edge. 0 = off")
         self.carrier_rough_slider = CompactSlider("Rough", 0.0, 1.0, conf.carrier_rough)
+        row_carrier = QHBoxLayout()
         row_carrier.addWidget(self.carrier_width_slider)
         row_carrier.addWidget(self.carrier_rough_slider)
         self.layout.addLayout(row_carrier)
@@ -47,27 +39,23 @@ class FinishSidebar(BaseSidebar):
 
         row2 = QHBoxLayout()
         self.border_slider = CompactSlider("Width", 0.0, 2.5, conf.border_size)
-        self.color_btn = QPushButton()
-        self.color_btn.setFixedHeight(30)
-        self.color_btn.setFixedWidth(30)
-        self.color_btn.setToolTip("Click to pick a border colour")
-        self._update_color_btn(conf.border_color)
+        self.bottom_weight_slider = CompactSlider("Bottom weight", 1.0, 2.0, conf.border_bottom_weight)
         row2.addWidget(self.border_slider)
-        row2.addWidget(self.color_btn)
+        row2.addWidget(self.bottom_weight_slider)
         self.layout.addLayout(row2)
 
         row3 = QHBoxLayout()
-        self.bottom_weight_slider = CompactSlider("Bottom weight", 1.0, 2.0, conf.border_bottom_weight)
-        row3.addWidget(self.bottom_weight_slider)
-        self.layout.addLayout(row3)
+        self.color_btn = QPushButton()
+        self.color_btn.setFixedHeight(default_button_height())
+        self.color_btn.setToolTip("Click to pick a border colour")
+        self._update_color_btn(conf.border_color)
 
-        row4 = QHBoxLayout()
-        self.match_paper_btn = QPushButton("Match paper white")
-        self.match_paper_btn.setCheckable(True)
-        self.match_paper_btn.setChecked(conf.border_match_paper)
-        self.match_paper_btn.setToolTip("Tint the mat with the toned paper white instead of the picked colour")
-        row4.addWidget(self.match_paper_btn)
-        self.layout.addLayout(row4)
+        self.match_paper_btn = self._small_toggle(
+            "fa5s.file", "Paper white", conf.border_match_paper, "Tint the mat with the toned paper white instead of the picked colour"
+        )
+        row3.addWidget(self.color_btn, 1)
+        row3.addWidget(self.match_paper_btn, 1)
+        self.layout.addLayout(row3)
 
         self.layout.addStretch()
 
@@ -103,7 +91,6 @@ class FinishSidebar(BaseSidebar):
             lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, border_size=v)
         )
 
-        self.carrier_btn.toggled.connect(lambda checked: self.update_config_section("finish", persist=True, carrier_enabled=bool(checked)))
         self.carrier_width_slider.valueChanged.connect(
             lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, carrier_width=v)
         )
@@ -144,7 +131,6 @@ class FinishSidebar(BaseSidebar):
             self.vignette_burn_slider.setValue(conf.vignette_stops)
             self.vignette_size_slider.setValue(conf.vignette_size)
             self.vignette_roundness_slider.setValue(conf.vignette_roundness)
-            self.carrier_btn.setChecked(conf.carrier_enabled)
             self.carrier_width_slider.setValue(conf.carrier_width)
             self.carrier_rough_slider.setValue(conf.carrier_rough)
             self.border_slider.setValue(conf.border_size)
@@ -160,7 +146,6 @@ class FinishSidebar(BaseSidebar):
             self.vignette_burn_slider,
             self.vignette_size_slider,
             self.vignette_roundness_slider,
-            self.carrier_btn,
             self.carrier_width_slider,
             self.carrier_rough_slider,
             self.border_slider,

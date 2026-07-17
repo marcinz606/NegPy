@@ -1094,8 +1094,28 @@ class TestRgbScanModeReload(unittest.TestCase):
 
     def test_toggle_with_no_files_only_saves_flag(self):
         self.controller.set_rgb_scan_mode(True)
-        self.mock_session_manager.repo.save_global_setting.assert_called_once_with("rgbscan_mode", True)
+        self.mock_session_manager.repo.save_global_setting.assert_any_call("rgbscan_mode", True)
         self.controller.request_asset_discovery.assert_not_called()
+
+    def test_enabling_sets_sticky_narrowband_default(self):
+        self.controller.set_rgb_scan_mode(True)
+        self.mock_session_manager.repo.save_global_setting.assert_any_call("last_narrowband_scan", True)
+
+    def test_disabling_does_not_touch_narrowband(self):
+        self.controller.set_rgb_scan_mode(False)
+        calls = [c.args for c in self.mock_session_manager.repo.save_global_setting.call_args_list]
+        self.assertNotIn(("last_narrowband_scan", True), calls)
+
+    def test_enabling_forces_narrowband_on_active_config(self):
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "a", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_path = "/a.dng"
+        self.assertFalse(state.config.process.narrowband_scan)
+
+        self.controller.set_rgb_scan_mode(True)
+
+        updated_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertTrue(updated_config.process.narrowband_scan)
 
     def test_toggle_with_loaded_files_rediscovers_all_exposures(self):
         state = self.mock_session_manager.state
