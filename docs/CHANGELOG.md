@@ -3,6 +3,8 @@
 
 ## Unreleased
 
+- New: **Nikon Coolscan film scanning** — the Scan tab drives SANE Coolscans (and other SANE film scanners) with frame selection and a simple frame-range batch: scan a whole SA-21 strip or SA-30 roll, or any sub-range like frames 2–4, each written with its frame number. Adds autofocus, hardware auto-exposure, correct 14-bit capture (a Coolscan V is no longer two stops dark), and a film-eject button. An infrared dust channel is captured as `_IR`/`_IR_VALID` sidecars for the Retouch panel's IR repair. Infrared needs a locally patched `coolscan3` driver — run `make sane-rgbi-help`, then `make run-ir`; everything else works on stock SANE. Other SANE film scanners (Plustek, pieusb) are unaffected. [Coolscan scanning guide](COOLSCAN_SCANNING.md)
+
 
 ## 0.38.0
 

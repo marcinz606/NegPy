@@ -23,18 +23,44 @@ def _normalize_ir_to_float32(ir: np.ndarray) -> np.ndarray:
     return np.clip(ir.astype(np.float32), 0.0, 1.0)
 
 
-def _read_sidecar_ir(file_path: str) -> Optional[np.ndarray]:
-    """Looks for `<basename>_IR.tif(f)` sidecar produced by write_tiff_16bit."""
+def _read_sidecar_ir(file_path: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Read an IR sidecar and its optional validity mask fail-closed."""
     base, _ = os.path.splitext(file_path)
     for ext in ("_IR.tif", "_IR.tiff"):
         candidate = base + ext
         if os.path.exists(candidate):
             try:
                 arr = tifffile.imread(candidate)
-                return _normalize_ir_to_float32(np.asarray(arr))
+                ir = _normalize_ir_to_float32(np.asarray(arr))
             except Exception as e:
                 logger.warning(f"Failed to read IR sidecar {candidate}: {e}")
-    return None
+                continue
+            mask_candidate = next(
+                (base + mask_ext for mask_ext in ("_IR_VALID.tif", "_IR_VALID.tiff") if os.path.exists(base + mask_ext)),
+                None,
+            )
+            if mask_candidate is None:
+                return ir, None
+            try:
+                valid = np.asarray(tifffile.imread(mask_candidate))
+                if valid.shape != ir.shape:
+                    raise ValueError(f"mask shape {valid.shape} does not match IR shape {ir.shape}")
+                if valid.dtype not in (np.dtype(np.bool_), np.dtype(np.uint8)):
+                    raise ValueError(f"mask dtype {valid.dtype} is not bool or uint8")
+                if valid.dtype == np.uint8:
+                    rows_per_chunk = max(1, (1 << 20) // max(1, valid.shape[1]))
+                    for start in range(0, valid.shape[0], rows_per_chunk):
+                        chunk = valid[start : start + rows_per_chunk]
+                        if not np.all((chunk == 0) | (chunk == 1) | (chunk == 255)):
+                            raise ValueError("uint8 mask values must be 0, 1, or 255")
+                valid = valid.astype(np.bool_, copy=False)
+                ir = ir.copy()
+                ir[~valid] = 1.0
+                return ir, valid
+            except Exception as e:
+                logger.warning(f"Failed to read IR validity mask {mask_candidate}; ignoring IR sidecar {candidate}: {e}")
+                return None, None
+    return None, None
 
 
 def _read_ir_from_extra_page(file_path: str, main_h: int, main_w: int) -> Optional[np.ndarray]:
@@ -102,6 +128,7 @@ class TiffLoader(IImageLoader):
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
         img = iio.imread(file_path)
         ir: Optional[np.ndarray] = None
+        ir_valid_mask: Optional[np.ndarray] = None
 
         if img.ndim == 2:
             img = np.stack([img] * 3, axis=-1)
@@ -111,7 +138,7 @@ class TiffLoader(IImageLoader):
             img = img[:, :, :3]
 
         if ir is None:
-            ir = _read_sidecar_ir(file_path)
+            ir, ir_valid_mask = _read_sidecar_ir(file_path)
 
         if ir is None:
             ir = _read_ir_from_extra_page(file_path, img.shape[0], img.shape[1])
@@ -141,5 +168,11 @@ class TiffLoader(IImageLoader):
             color_space = ColorSpace.SRGB.value
         if color_space == ColorSpace.SRGB.value:
             f32 = srgb_to_linear(f32)
-        metadata = {"orientation": read_orientation(file_path), "color_space": color_space, "icc_profile": icc_bytes, "ir": ir}
+        metadata = {
+            "orientation": read_orientation(file_path),
+            "color_space": color_space,
+            "icc_profile": icc_bytes,
+            "ir": ir,
+            "ir_valid_mask": ir_valid_mask,
+        }
         return NonStandardFileWrapper(f32), metadata

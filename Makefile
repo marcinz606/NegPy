@@ -61,6 +61,41 @@ run:
 	@echo "Starting NegPy Desktop..."
 	@$(UV) python desktop.py
 
+# Run against a locally built sane-backends whose coolscan3 has its infrared
+# option un-gated. Stock sane-backends compiles that option out for every model
+# (sane.h keeps SANE_FRAME_RGBI inside an "#if 0", and coolscan3.c marks infrared
+# SANE_CAP_INACTIVE unless it is defined), so scanners with working IR hardware
+# (LS-50 / Coolscan V, Digital ICE) report no IR channel. Deleting that one cap
+# line is enough: the frame stays SANE_FRAME_RGB while n_colors becomes 4, the
+# 4-sample convention _reinterpret_channels already handles. Build: make sane-rgbi-help
+SANE_RGBI ?= $(HOME)/.local/share/negpy-sane-rgbi
+
+.PHONY: run-ir
+run-ir:
+	@test -d "$(SANE_RGBI)/lib/sane" || { \
+		echo "No patched sane-backends at $(SANE_RGBI)"; \
+		echo "Run 'make sane-rgbi-help' for how to build it, or set SANE_RGBI=<prefix>."; \
+		exit 1; }
+	@echo "Starting NegPy Desktop with IR-enabled coolscan3 ($(SANE_RGBI))..."
+	@LD_LIBRARY_PATH="$(SANE_RGBI)/lib" SANE_CONFIG_DIR="$(SANE_RGBI)/etc/sane.d" $(UV) python desktop.py
+
+.PHONY: sane-rgbi-help
+sane-rgbi-help:
+	@echo "Build the IR-enabled coolscan3 backend (nothing system-wide is touched):"
+	@echo ""
+	@echo "  curl -L -o backends.tar.gz https://gitlab.com/sane-project/backends/-/archive/1.4.0/backends-1.4.0.tar.gz"
+	@echo "  tar xzf backends.tar.gz && cd backends-1.4.0 && ./autogen.sh"
+	@echo "  # in backend/coolscan3.c, delete these 3 lines from CS3_OPTION_INFRARED:"
+	@echo "  #     #ifndef SANE_FRAME_RGBI"
+	@echo "  #             o.cap |= SANE_CAP_INACTIVE;"
+	@echo "  #     #endif"
+	@echo "  # (do NOT instead #define SANE_FRAME_RGBI: the backend then reports"
+	@echo "  #  frame format 0x10, which python-sane refuses as 'Invalid frame format')"
+	@echo "  ./configure --prefix=$(SANE_RGBI) BACKENDS=coolscan3 --disable-translations --disable-avahi"
+	@echo "  make -j\$$(nproc) && make install"
+	@echo ""
+	@echo "Then: make run-ir     (verify with: caps.ir_channel == True)"
+
 # Build the application
 .PHONY: build
 build:

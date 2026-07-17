@@ -8,6 +8,7 @@ Guidance for Claude Code in this repository.
 
 ```bash
 make run          # Launch the desktop app
+make run-ir       # Launch against a locally patched coolscan3 for SANE infrared (see docs/COOLSCAN_SCANNING.md)
 make all          # lint + type check + tests (run before committing)
 make test         # pytest only
 make lint         # ruff check
@@ -76,4 +77,4 @@ Every feature lives in `negpy/features/<name>/`:
 
 ## More detail
 
-`docs/PIPELINE.md` (stage-by-stage behaviour), `docs/CAMERA_SCANNING.md`, `docs/CONTACT_SHEET_TEMPLATES.md`, `docs/CROSSTALK.md`. Deep design rationale for past decisions lives in git history (`git log -p CLAUDE.md`).
+`docs/PIPELINE.md` (stage-by-stage behaviour), `docs/CAMERA_SCANNING.md`, `docs/COOLSCAN_SCANNING.md` (SANE film-scanner Scan tab), `docs/CONTACT_SHEET_TEMPLATES.md`, `docs/CROSSTALK.md`. Deep design rationale for past decisions lives in git history (`git log -p CLAUDE.md`).

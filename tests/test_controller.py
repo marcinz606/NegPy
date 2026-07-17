@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 from dataclasses import replace
+from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QApplication
 
@@ -11,6 +12,7 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.session import DesktopSessionManager, AppState, ToolMode
 from negpy.desktop.workers.export import ExportTask, resolve_export_target_path
 from negpy.domain.models import ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode, WorkspaceConfig
+from negpy.infrastructure.scanners.params import ScanParams
 from negpy.services.rendering.preview_manager import PreviewManager
 
 if not QApplication.instance():
@@ -132,6 +134,57 @@ class TestAppController(unittest.TestCase):
         self.controller.capture_worker.cancelled.emit()
 
         cancelled.assert_called_once_with()
+
+    def test_scan_worker_cancelled_is_forwarded(self):
+        cancelled = MagicMock()
+        self.controller.scan_cancelled.connect(cancelled)
+
+        self.controller.scan_worker.cancelled.emit()
+
+        cancelled.assert_called_once_with()
+
+    def test_start_scan_prepares_worker_before_emitting_signals(self):
+        from negpy.desktop.workers.scan_worker import ScanRequest
+
+        events: list[object] = []
+        request = ScanRequest(
+            device_id="coolscan3:test",
+            params=ScanParams(dpi=4_000, depth=16, capture_ir=False),
+            output_folder="/tmp",
+            filename_pattern='scan-{{ "%03d" % seq }}',
+            output_format="TIFF",
+        )
+        controller = SimpleNamespace(
+            scan_worker=SimpleNamespace(prepare_scan=lambda: events.append("prepare")),
+            scan_started=SimpleNamespace(emit=lambda: events.append("started")),
+            scan_requested=SimpleNamespace(emit=lambda value: events.append(("request", value))),
+        )
+
+        AppController.start_scan(controller, request)
+
+        self.assertEqual(events, ["prepare", "started", ("request", request)])
+
+    def test_start_preview_prepares_worker_and_emits_preview_only(self):
+        from negpy.desktop.workers.scan_worker import ScanRequest
+
+        events: list[object] = []
+        request = ScanRequest(
+            device_id="coolscan3:test",
+            params=ScanParams(dpi=500, depth=8, capture_ir=False),
+            output_folder="/tmp",
+            filename_pattern="preview",
+            output_format="TIFF",
+        )
+        controller = SimpleNamespace(
+            scan_worker=SimpleNamespace(prepare_scan=lambda: events.append("prepare")),
+            scan_started=SimpleNamespace(emit=lambda: events.append("started")),
+            scan_preview_requested=SimpleNamespace(emit=lambda value: events.append(("preview", value))),
+        )
+
+        AppController.start_preview(controller, request)
+
+        # No "started": a preview must not flip the main scan UI into scanning state.
+        self.assertEqual(events, ["prepare", ("preview", request)])
 
     def test_thumbnail_refreshes_on_config_changed_settle(self):
         """Filmstrip thumbnail is re-captured on every settled render whose config

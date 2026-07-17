@@ -39,6 +39,32 @@ class TestTiffWriter:
             ir_readback = tifffile.imread(ir_path)
             assert ir_readback.shape == (100, 150)
 
+    def test_writes_ir_valid_sidecar(self) -> None:
+        rgb = np.random.randint(0, 65535, (20, 30, 3), dtype=np.uint16)
+        ir = np.random.randint(0, 65535, (20, 30), dtype=np.uint16)
+        valid = np.ones((20, 30), dtype=bool)
+        valid[5, 6] = False
+        result = ScanResult(rgb=rgb, ir=ir, dpi=3600, device_model="T", ir_valid_mask=valid)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = write_tiff_16bit(result, os.path.join(tmpdir, "test_valid"))
+            valid_path = path.replace(".tif", "_IR_VALID.tif")
+            assert os.path.exists(valid_path)
+
+            readback = tifffile.imread(valid_path)
+            assert readback.dtype == np.uint8
+            assert readback[0, 0] == 255
+            assert readback[5, 6] == 0
+
+    def test_no_ir_valid_sidecar_when_mask_absent(self) -> None:
+        rgb = np.random.randint(0, 65535, (10, 10, 3), dtype=np.uint16)
+        ir = np.random.randint(0, 65535, (10, 10), dtype=np.uint16)
+        result = ScanResult(rgb=rgb, ir=ir, dpi=3600, device_model="T")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = write_tiff_16bit(result, os.path.join(tmpdir, "test_novalid"))
+            assert not os.path.exists(path.replace(".tif", "_IR_VALID.tif"))
+
     def test_adds_tif_extension(self) -> None:
         rgb = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
         result = ScanResult(rgb=rgb, ir=None, dpi=300, device_model="T")

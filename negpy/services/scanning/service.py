@@ -7,7 +7,7 @@ from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.infrastructure.scanners.sane_backend import SaneBackend
 from negpy.kernel.system.logging import get_logger
-from negpy.services.scanning.templating import render_scan_filename
+from negpy.services.scanning.templating import render_scan_filename, require_sequence_varying_scan_filename
 
 logger = get_logger(__name__)
 
@@ -32,6 +32,17 @@ class ScannerService:
             return backend.refresh_devices()  # type: ignore[union-attr]
         return backend.list_devices()
 
+    def eject(self, device_id: str) -> bool:
+        """Trigger the device's eject action where the backend supports it.
+
+        Returns False cleanly when the backend has no eject method or the device
+        exposes no usable eject option; raises when a present eject genuinely fails.
+        """
+        eject = getattr(self._get_backend(), "eject", None)
+        if not callable(eject):
+            return False
+        return eject(device_id)
+
     def run_scan(
         self,
         device_id: str,
@@ -48,10 +59,13 @@ class ScannerService:
         output_folder: str,
         filename_pattern: str,
         output_format: str = "TIFF",
+        seq: int | None = None,
     ) -> str:
         """Write ScanResult to disk. Returns path to the RGB file.
 
-        Filename pattern is a Jinja2 template with variables: date, seq.
+        Filename pattern is a Jinja2 template with variables: date, seq. `seq`
+        seeds the collision search: single scans pass None (start at 1); a range
+        batch passes the frame number so masters are frame-numbered.
         """
         from datetime import date as dt_date
 
@@ -62,13 +76,15 @@ class ScannerService:
         date_str = dt_date.today().strftime("%Y%m%d")
         ext = ".dng" if output_format.upper() == "DNG" else ".tif"
 
-        seq = 1
+        require_sequence_varying_scan_filename(filename_pattern, date_str)
+
+        current = 1 if seq is None else seq
         while True:
-            basename = render_scan_filename(filename_pattern, date_str, seq)
+            basename = render_scan_filename(filename_pattern, date_str, current)
             rgb_path = os.path.join(output_folder, basename)
             if not os.path.exists(rgb_path + ext):
                 break
-            seq += 1
+            current += 1
 
         if output_format.upper() == "DNG":
             rgb_path = write_dng_linear(result, rgb_path)

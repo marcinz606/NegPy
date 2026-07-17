@@ -172,3 +172,18 @@ class TestRenderScanFilename:
             assert os.path.exists(path1)
             assert os.path.exists(path2)
             assert path1 != path2
+
+    def test_write_refuses_a_pattern_that_does_not_vary_with_sequence(self) -> None:
+        import tempfile
+
+        import numpy as np
+
+        from negpy.infrastructure.scanners.result import ScanResult
+
+        result = ScanResult(rgb=np.zeros((4, 4, 3), dtype=np.uint16), ir=None, dpi=300, device_model="Test")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = ScannerService()
+            service._backend = FakeBackend()
+            with pytest.raises(ValueError, match="different basename"):
+                service.write_result(result, tmpdir, "fixed_name", "TIFF")

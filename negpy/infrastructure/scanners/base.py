@@ -13,6 +13,10 @@ class ScannerCapabilities:
     supported_depths: tuple[int, ...]
     sources: tuple[ScanMode, ...]
     max_area_mm: tuple[float, float]  # (width, height)
+    auto_exposure: bool = False
+    adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
+    adapter_frame_control: bool = False
+    can_eject: bool = False
 
 
 @dataclass(frozen=True)

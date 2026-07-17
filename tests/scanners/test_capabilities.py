@@ -1,4 +1,4 @@
-"""Tests for SANE source name normalization to ScanMode."""
+"""Tests for SANE source name normalization to ScanMode and capability detection."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -9,6 +9,7 @@ from negpy.infrastructure.scanners.params import ScanMode
 from negpy.infrastructure.scanners.sane_backend import (
     _SOURCE_MAP,
     _caps_from_options,
+    _detect_auto_exposure,
     _split_rgbi,
 )
 
@@ -19,6 +20,7 @@ class FakeOption:
 
     constraint: Any = None
     desc: str = ""
+    unit: Any = None
 
 
 def _normalize(source: str) -> ScanMode | None:
@@ -104,8 +106,8 @@ def _pieusb_opt() -> dict[str, FakeOption]:
         "mode": FakeOption(constraint=["Lineart", "Halftone", "Gray", "Color", "RGBI"]),
         "depth": FakeOption(constraint=[1, 8, 16]),
         "resolution": FakeOption(constraint=(25.0, 3600.0, 1.0)),
-        "br_x": FakeOption(constraint=(0.0, 37.676666259765625, 0.0)),
-        "br_y": FakeOption(constraint=(0.0, 24.299331665039062, 0.0)),
+        "br_x": FakeOption(constraint=(0.0, 37.676666259765625, 0.0), unit=3),
+        "br_y": FakeOption(constraint=(0.0, 24.299331665039062, 0.0), unit=3),
         "clean_image": FakeOption(desc="Detect and remove dust and scratch artifacts"),
         "correct_infrared": FakeOption(desc="Correct infrared for red crosstalk"),
         "invert": FakeOption(desc="Correct for generic negative film"),
@@ -138,10 +140,73 @@ class TestCapsFromOptions:
         assert caps.max_area_mm[0] == 37.676666259765625
         assert caps.max_area_mm[1] == 24.299331665039062
 
+    def test_coolscan_pixel_geometry_is_converted_to_millimeters(self) -> None:
+        opt = {
+            "resolution": FakeOption(constraint=[1000, 2000, 4000]),
+            "br_x": FakeOption(constraint=(0, 3945, 1), unit=1),
+            "br_y": FakeOption(constraint=(0, 5958, 1), unit=1),
+        }
+
+        caps = _caps_from_options(opt, "coolscan3:usb:libusb:001:007")
+
+        np.testing.assert_allclose(caps.max_area_mm, (25.0571, 37.83965))
+
+    def test_pixel_geometry_without_dpi_uses_35mm_fallback(self) -> None:
+        opt = {
+            "br_x": FakeOption(constraint=(0, 3945, 1), unit=1),
+            "br_y": FakeOption(constraint=(0, 5958, 1), unit=1),
+        }
+
+        caps = _caps_from_options(opt, "coolscan3:usb:libusb:001:007")
+
+        assert caps.max_area_mm == (36.0, 25.0)
+
     def test_film_inferred_without_pieusb_id(self) -> None:
         # RGBI / negative-film signals alone classify it as film (id-agnostic).
         caps = _caps_from_options(_pieusb_opt(), "othervendor:libusb:001:001")
         assert caps.sources
+
+    def test_roll_adapter_frame_range_is_reported_as_capacity(self) -> None:
+        caps = _caps_from_options(
+            {
+                "frame": FakeOption(constraint=(1, 40, 1)),
+                "infrared": FakeOption(),
+            },
+            "coolscan3:usb:libusb:001:007",
+        )
+
+        assert caps.adapter_frame_capacity == 40
+
+    def test_parked_adapter_keeps_frame_control_without_inventing_capacity(self) -> None:
+        caps = _caps_from_options(
+            {
+                "frame": FakeOption(constraint=(1, 0, 1)),
+                "infrared": FakeOption(),
+            },
+            "coolscan3:usb:libusb:001:007",
+        )
+
+        assert caps.adapter_frame_control is True
+        assert caps.adapter_frame_capacity is None
+
+    def test_usable_eject_option_is_reported_to_the_ui(self) -> None:
+        caps = _caps_from_options(
+            {
+                "frame": FakeOption(constraint=(1, 40, 1)),
+                "eject": FakeOption(),
+            },
+            "coolscan3:usb:libusb:001:007",
+        )
+
+        assert caps.can_eject is True
+
+    def test_missing_eject_option_defaults_false(self) -> None:
+        caps = _caps_from_options(
+            {"source": FakeOption(constraint=["Negative"])},
+            "plustek:libusb:001:008",
+        )
+
+        assert caps.can_eject is False
 
     # ── plain flatbed: no source, no film signals → still skipped ───────
 
@@ -155,6 +220,7 @@ class TestCapsFromOptions:
         caps = _caps_from_options(opt, "genesys:libusb:001:002")
         assert caps.sources == ()
         assert caps.ir_channel is False
+        assert caps.adapter_frame_capacity is None
 
     # ── explicit source path (Plustek) unchanged ───────────────────────
 
@@ -175,6 +241,38 @@ class TestCapsFromOptions:
         }
         caps = _caps_from_options(opt, "plustek:libusb:001:008")
         assert caps.ir_channel is True
+
+
+class TestAutoExposureCapability:
+    """Hardware auto-exposure is a presence-only UI gate, mirroring _detect_ir."""
+
+    def test_auto_exposure_true_with_ae_option(self) -> None:
+        assert _detect_auto_exposure({"ae": FakeOption()}) is True
+
+    def test_auto_exposure_false_without_ae_option(self) -> None:
+        assert _detect_auto_exposure({"infrared": FakeOption()}) is False
+
+    def test_caps_from_options_wires_auto_exposure(self) -> None:
+        caps = _caps_from_options(
+            {
+                "frame": FakeOption(constraint=(1, 40, 1)),
+                "infrared": FakeOption(),
+                "ae": FakeOption(),
+            },
+            "coolscan3:usb:libusb:001:007",
+        )
+        assert caps.auto_exposure is True
+
+    def test_caps_from_options_defaults_auto_exposure_false(self) -> None:
+        caps = _caps_from_options(
+            {
+                "source": FakeOption(constraint=["Negative", "Positive", "Transparency"]),
+                "resolution": FakeOption(constraint=[300, 600, 1200, 2400, 3600]),
+                "depth": FakeOption(constraint=[8, 16]),
+            },
+            "plustek:libusb:001:008",
+        )
+        assert caps.auto_exposure is False
 
 
 class TestSplitRgbi:
