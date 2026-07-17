@@ -1365,7 +1365,12 @@ class ScanlightSidebar(QWidget):
         enumeration behind the dot cannot see a claim, so without this state the dot showed a
         healthy green while every live-view/scan attempt failed."""
         if claimed_elsewhere:
-            self._set_conn_status(self.cam_status, False, "Camera (in use)", "Another app is using the camera — close Preview, Photos and Image Capture, then try again")
+            self._set_conn_status(
+                self.cam_status,
+                False,
+                "Camera (in use)",
+                "Another app is using the camera — close Preview, Photos and Image Capture; NegPy reconnects by itself once the camera is free",
+            )
             self._conn_hint.setVisible(False)  # "plug it in" would be wrong advice; the dot says what to do
             return
         short = "Camera (USB)" if ok else "Camera"

@@ -103,8 +103,9 @@ class CaptureWorker(QObject):
 
     def _acquire_camera(self) -> GphotoCamera:
         """Return the held session, opening it on first use. Every open attempt re-decides
-        the "claimed by another app" verdict — the poll itself must never probe (a probe IS
-        a claim, and would steal the body mid-live-view), so failed opens are its only eyes."""
+        the "claimed by another app" verdict — while we hold a session the poll must never
+        probe (a probe IS a claim, and would steal the body mid-live-view), so open attempts
+        are the verdict's only eyes."""
         if self._camera is None:
             self._camera = GphotoCamera()
         if not self._camera.is_open():
@@ -112,10 +113,14 @@ class CaptureWorker(QObject):
                 self._camera.open()
             except CameraClaimedError:
                 # Another program holds the USB claim (macOS: Preview/Photos/Image Capture).
-                # Flip the dot NOW — the next timer poll is up to 3 s away, and "Scan did
-                # nothing" with a green dot is exactly the confusion this state exists for.
+                # On the False→True transition, flip the dot NOW — the next timer poll is up
+                # to 3 s away, and "Scan did nothing" against a green dot is exactly the
+                # confusion this state exists for. Only on the transition: the poll's own
+                # re-probe lands here too, and an unconditional push would recurse.
+                first = not self._claimed_elsewhere
                 self._claimed_elsewhere = True
-                self.poll_connection(self._light_port)
+                if first:
+                    self.poll_connection(self._light_port)
                 raise
             except Exception:
                 self._claimed_elsewhere = False  # failed differently — not (or no longer) a claim problem
@@ -305,10 +310,22 @@ class CaptureWorker(QObject):
             # does not claim the device, so this is safe even mid-stream.
             found = list_cameras()
             if found:
-                status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
+                if self._claimed_elsewhere and not self._holds_camera():
+                    # Self-heal: only an open attempt can clear the verdict, but Scan/Calibrate
+                    # are gated while it stands — the user cannot trigger one. In exactly this
+                    # state we hold no session, so a probe can steal nothing from ourselves:
+                    # try the open here, and the dot turns green by itself once the other app
+                    # lets go. Success releases the session again immediately (sessions are
+                    # held only while a window needs them) and learns the body's real model
+                    # name; failure keeps the verdict via the claim path above.
+                    try:
+                        self._acquire_camera()
+                        self._close_camera()
+                    except Exception:
+                        pass  # verdict already updated by _acquire_camera's except paths
                 # A body on the bus that refused our last open (another app holds the claim)
-                # is not usable — surface that instead of a healthy "connected" dot. Only the
-                # next open attempt can change the verdict (success clears it).
+                # is not usable — surface that instead of a healthy "connected" dot.
+                status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
                 status["usb_claimed_elsewhere"] = self._claimed_elsewhere
             elif self._claimed_elsewhere:
                 # A claimed body routinely DROPS OFF gphoto's enumeration while the other app

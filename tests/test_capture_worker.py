@@ -220,6 +220,44 @@ def test_poll_reports_a_camera_claimed_by_another_app(monkeypatch):
     assert seen[-1]["usb_ok"] is False
 
 
+def test_poll_self_heals_once_the_other_app_releases_the_camera(monkeypatch):
+    # Only an open attempt can clear the verdict, but Scan/Calibrate are gated while it
+    # stands — the user cannot trigger one (rig find: dot stayed red after closing Preview).
+    # In the claimed state we hold no session, so the poll probes the open itself: the dot
+    # turns green by itself, and the probe session is released again immediately.
+    import negpy.desktop.workers.capture_worker as capture_worker_module
+
+    class ReleasedCamera:
+        model = "ILCE-7CM2"
+
+        def __init__(self) -> None:
+            self.opened = False
+            self.closed = False
+
+        def is_open(self) -> bool:
+            return self.opened and not self.closed
+
+        def open(self) -> None:
+            self.opened = True
+
+        def close(self) -> None:
+            self.closed = True
+
+    worker = CaptureWorker()
+    worker._claimed_elsewhere = True  # Preview held it during the last attempt
+    cam = ReleasedCamera()
+    worker._camera = cam
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("no light")))
+    seen: list[dict] = []
+    worker.poll_status.connect(seen.append)
+    worker.poll_connection("")
+    assert seen[-1]["usb_claimed_elsewhere"] is False  # healed without any user action
+    assert seen[-1]["usb_model"] == "ILCE-7CM2"  # the probe read the real name off the body
+    assert cam.opened and cam.closed  # probe session released again — nothing stays held
+    assert not worker._holds_camera()
+
+
 def test_a_non_claim_open_failure_resets_the_claimed_verdict():
     # An unplugged body fails to open with a plain GphotoError. That must clear the claim
     # verdict, or the "in use — close Preview…" advice sticks to a camera that is simply gone.
