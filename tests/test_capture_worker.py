@@ -193,23 +193,54 @@ def test_poll_reports_a_camera_claimed_by_another_app(monkeypatch):
 
     worker = CaptureWorker()
     worker._camera = ClaimedCamera()
-    with pytest.raises(Exception):
-        worker._acquire_camera()  # as any live-view/scan/calibration attempt would
-
     monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
     monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("no light")))
     seen: list[dict] = []
     worker.poll_status.connect(seen.append)
-    worker.poll_connection("")
-    assert seen and seen[0]["usb_ok"] is True
-    assert seen[0]["usb_claimed_elsewhere"] is True
 
-    # The body leaving the bus clears the verdict — the situation has changed.
+    with pytest.raises(Exception):
+        worker._acquire_camera()  # as any live-view/scan/calibration attempt would
+    # The failed open flips the dot IMMEDIATELY (rig find: waiting for the next 3 s timer
+    # tick reads as "I pressed Scan and nothing happened" while the dot stays green).
+    assert seen and seen[-1]["usb_ok"] is True
+    assert seen[-1]["usb_claimed_elsewhere"] is True
+
+    # A claimed body routinely flaps OFF gphoto's enumeration while the other app holds it
+    # (macOS daemons answer the bus in our stead). That is part of the claimed state, not an
+    # unplug — the verdict must survive it, or the dot snaps back to green within one tick
+    # (the exact regression seen on the rig).
     monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [])
     worker.poll_connection("")
-    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    assert seen[-1]["usb_ok"] is True
+    assert seen[-1]["usb_claimed_elsewhere"] is True
+
+    # Without the claim verdict, an empty bus means what it says: no camera.
+    worker._claimed_elsewhere = False
     worker.poll_connection("")
-    assert seen[-1]["usb_claimed_elsewhere"] is False
+    assert seen[-1]["usb_ok"] is False
+
+
+def test_a_non_claim_open_failure_resets_the_claimed_verdict():
+    # An unplugged body fails to open with a plain GphotoError. That must clear the claim
+    # verdict, or the "in use — close Preview…" advice sticks to a camera that is simply gone.
+    class OpenFailsOtherwise:
+        def is_open(self) -> bool:
+            return False
+
+        def open(self) -> None:
+            from negpy.infrastructure.capture.gphoto import GphotoError
+
+            raise GphotoError("could not open the camera: [-105] Unknown model")
+
+        def close(self) -> None:
+            pass
+
+    worker = CaptureWorker()
+    worker._claimed_elsewhere = True  # left over from the Preview episode
+    worker._camera = OpenFailsOtherwise()
+    with pytest.raises(Exception):
+        worker._acquire_camera()
+    assert worker._claimed_elsewhere is False
 
 
 def test_successful_open_clears_the_claimed_state(monkeypatch):

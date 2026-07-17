@@ -102,7 +102,9 @@ class CaptureWorker(QObject):
     # ----- camera session (one per body, held open) -----
 
     def _acquire_camera(self) -> GphotoCamera:
-        """Return the held session, opening it on first use."""
+        """Return the held session, opening it on first use. Every open attempt re-decides
+        the "claimed by another app" verdict — the poll itself must never probe (a probe IS
+        a claim, and would steal the body mid-live-view), so failed opens are its only eyes."""
         if self._camera is None:
             self._camera = GphotoCamera()
         if not self._camera.is_open():
@@ -110,9 +112,13 @@ class CaptureWorker(QObject):
                 self._camera.open()
             except CameraClaimedError:
                 # Another program holds the USB claim (macOS: Preview/Photos/Image Capture).
-                # Remember it for the connection poll: the bus listing still succeeds, so
-                # without this the camera dot would keep showing a healthy "connected".
+                # Flip the dot NOW — the next timer poll is up to 3 s away, and "Scan did
+                # nothing" with a green dot is exactly the confusion this state exists for.
                 self._claimed_elsewhere = True
+                self.poll_connection(self._light_port)
+                raise
+            except Exception:
+                self._claimed_elsewhere = False  # failed differently — not (or no longer) a claim problem
                 raise
             self._claimed_elsewhere = False
             self._model = self._camera.model
@@ -301,11 +307,17 @@ class CaptureWorker(QObject):
             if found:
                 status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
                 # A body on the bus that refused our last open (another app holds the claim)
-                # is not usable — surface that instead of a healthy "connected" dot. Cleared
-                # by the next successful open; re-plugging clears it below.
+                # is not usable — surface that instead of a healthy "connected" dot. Only the
+                # next open attempt can change the verdict (success clears it).
                 status["usb_claimed_elsewhere"] = self._claimed_elsewhere
+            elif self._claimed_elsewhere:
+                # A claimed body routinely DROPS OFF gphoto's enumeration while the other app
+                # holds it (macOS's daemons answer the bus in our stead) — that flapping is
+                # part of the claimed state, not an unplug. Clearing the verdict here made the
+                # dot snap back to green within one poll tick of the failed open (rig find).
+                status["usb_ok"], status["usb_claimed_elsewhere"] = True, True
+                status["usb_model"] = self._model or "USB PTP Class Camera"
             else:
-                self._claimed_elsewhere = False  # body gone — the stale claim verdict with it
                 if self._camera is not None:
                     logger.info("camera disappeared from the bus — dropping the session")
                     self._close_camera()
