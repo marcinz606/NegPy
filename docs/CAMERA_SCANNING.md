@@ -110,7 +110,7 @@ settings takes precedence while set.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| No camera found, or the session won't open on macOS | An ImageCapture app is holding the body. Only one program may claim a PTP camera. | **Quit Preview, Photos and Image Capture**, then retry. Preview is the usual culprit — it grabs the camera silently. |
+| Camera dot shows **"in use"** (amber hint) | An ImageCapture app is holding the body. Only one program may claim a PTP camera. | **Quit Preview, Photos and Image Capture**. Preview is the usual culprit — it grabs the camera silently. NegPy reconnects on its own once the camera is free. |
 | No camera found, and nothing else is running | The body isn't in PC Remote mode, or it's a mass-storage/MTP connection. | Set the camera's USB connection mode to **PC Remote**. |
 | `[-10] Timeout reading from or writing to the port`, and no other program is holding it | A program crashed while connected. The *camera* still thinks the session is open and refuses a new one. | Power-cycle the camera, or unplug and replug the cable. Nothing on the computer will fix it. |
 | Live view is black | The body dropped out of PC Remote, or the lens cap is on. | Power-cycle the camera. |
