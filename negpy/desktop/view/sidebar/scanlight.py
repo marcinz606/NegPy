@@ -1365,14 +1365,18 @@ class ScanlightSidebar(QWidget):
         enumeration behind the dot cannot see a claim, so without this state the dot showed a
         healthy green while every live-view/scan attempt failed."""
         if claimed_elsewhere:
-            self._set_conn_status(
-                self.cam_status,
-                False,
-                "Camera (in use)",
-                "Another app is using the camera — close Preview, Photos and Image Capture; NegPy reconnects by itself once the camera is free",
+            self._set_conn_status(self.cam_status, False, "Camera (in use)", "Another app is using the camera")
+            # The advice must be readable in the tab, not buried in a tooltip (rig feedback):
+            # the connection hint line turns amber and says what to do instead of the
+            # "plug it in" nudge, which would be wrong advice for a present body.
+            self._conn_hint.setText(
+                "⚠ Another app is using the camera — close Preview, Photos and Image Capture. NegPy reconnects by itself once it is free."
             )
-            self._conn_hint.setVisible(False)  # "plug it in" would be wrong advice; the dot says what to do
+            self._conn_hint.setStyleSheet(f"color: {_WARN_COLOR}; font-size: {THEME.font_size_small}px;")
+            self._conn_hint.setVisible(True)
             return
+        self._conn_hint.setText("Connect the camera by USB, in PC Remote mode — it's detected automatically.")
+        self._conn_hint.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
         short = "Camera (USB)" if ok else "Camera"
         if ok:
             detail = f"Camera: {model} (USB)" if model else "Camera connected (USB)"

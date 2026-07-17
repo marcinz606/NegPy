@@ -491,11 +491,17 @@ def test_poll_camera_claimed_by_another_app_says_so_and_gates(monkeypatch):
     w._on_poll_status(_poll(usb_ok=True, usb_model="USB PTP Class Camera", usb_claimed_elsewhere=True))
     assert not w._camera_verified  # present but unusable → Scan/Calibrate stay gated
     assert "in use" in w.cam_status.text()
-    assert "close Preview, Photos and Image Capture" in w.cam_status.toolTip()
-    # The claim clearing (next successful open / re-plug) restores the normal green dot.
+    # The advice is readable in the tab (amber hint line), not buried in a tooltip.
+    assert w._conn_hint.isVisibleTo(w)
+    assert "close Preview, Photos and Image Capture" in w._conn_hint.text()
+    assert "#C8922E" in w._conn_hint.styleSheet()
+    # The claim clearing (next successful open / re-plug) restores the normal green dot
+    # and puts the hint line back to its plug-in nudge (hidden while a camera is present).
     w._on_poll_status(_poll(usb_ok=True, usb_model="ILCE-7CM2"))
     assert w._camera_verified
     assert "USB" in w.cam_status.text()
+    assert not w._conn_hint.isVisibleTo(w)
+    assert "Connect the camera" in w._conn_hint.text()
 
 
 def test_disconnect_during_live_view_closes_the_preview():
