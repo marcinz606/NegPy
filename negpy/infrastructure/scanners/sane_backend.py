@@ -1,4 +1,5 @@
 import math
+import subprocess
 import sys
 import threading
 from typing import Callable
@@ -37,10 +38,18 @@ _IR_OPTION_NAMES = ("ir", "preview_ir")
 # with different semantics, so it must stay backend-scoped.
 _COOLSCAN3_IR_OPTION_NAME = "infrared"
 
-# Vendor eject/unload action option (SANE_TYPE_BUTTON on the coolscan3 backend;
-# confirmed reachable via `scanimage --eject` on the LS-5000). Presence-only,
-# like _find_ir_option — a device without it simply has no eject capability.
+# Vendor eject/unload action option (SANE_TYPE_BUTTON on the coolscan3 backend).
+# Presence-only, like _find_ir_option — a device without it has no eject.
 _EJECT_OPTION_NAMES = ("eject",)
+
+# python-sane 2.9.2 cannot activate a SANE_TYPE_BUTTON — setattr raises "Buttons
+# don't have values", set_option raises "...can't be set", set_auto_option raises
+# "Invalid argument" (all verified on an LS-50). So eject is pressed by shelling
+# out to `scanimage --eject`, which performs the C-level sane_control_option
+# SET_VALUE. scanimage then runs a spurious sane_start that exits non-zero with
+# "out of documents"; the eject has already fired, so that exit is expected.
+_EJECT_TIMEOUT_S = 30.0
+_EJECT_BENIGN_STDERR_MARKERS = ("out of documents", "no documents", "no more documents")
 
 # Standard SANE option-unit enum values. Kept local so capability detection
 # does not require importing the optional python-sane extension.
@@ -254,14 +263,34 @@ def _find_eject_option(opt) -> str | None:
     return None
 
 
-def _press_button(dev, option) -> None:
-    """Activate a SANE button option.
+def _scanimage_eject(device_id: str) -> None:
+    """Press the vendor eject button via `scanimage --eject`.
 
-    python-sane's wrapper raises "Buttons don't have values" on attribute
-    assignment, so a button is pressed at the C layer via set_option(index) —
-    the same path scanimage takes for `--eject`.
+    The only working path: python-sane cannot activate a SANE_TYPE_BUTTON (see
+    _EJECT_* notes above). The device must already be closed — SANE allows a
+    single open handle and scanimage opens its own. scanimage runs a spurious
+    scan after the press and exits non-zero with "out of documents"; the eject
+    has fired by then, so that specific failure is treated as success.
     """
-    dev.dev.set_option(option.index, 1)
+    try:
+        proc = subprocess.run(
+            ["scanimage", "-d", device_id, "--eject"],
+            capture_output=True,
+            text=True,
+            timeout=_EJECT_TIMEOUT_S,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("Cannot eject: `scanimage` (sane-utils) is not installed") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Eject timed out after {_EJECT_TIMEOUT_S:g}s for {device_id!r}") from exc
+
+    if proc.returncode == 0:
+        return
+    stderr = (proc.stderr or "").lower()
+    if any(marker in stderr for marker in _EJECT_BENIGN_STDERR_MARKERS):
+        return
+    detail = (proc.stderr or "").strip() or f"exit code {proc.returncode}"
+    raise RuntimeError(f"scanimage --eject failed for {device_id!r}: {detail}")
 
 
 def _sane_container_depth(requested_depth: int) -> int:
@@ -510,6 +539,8 @@ class SaneBackend:
         self._sane = sane
         self._sane_initialized = False
         self._devices_cache: list[ScannerDevice] | None = None
+        # Stale device id -> its post-re-enumeration id (see _open_device).
+        self._id_remap: dict[str, str] = {}
 
     def _ensure_initialized(self) -> None:
         if self._sane_initialized:
@@ -567,6 +598,51 @@ class SaneBackend:
         self._devices_cache = None
         return self.list_devices()
 
+    def _open_device(self, device_id: str):
+        """Open a device, self-healing across USB re-enumeration.
+
+        A mid-session USB re-enumeration changes the libusb address embedded in
+        the SANE id (observed on the LS-50: ...:003:006 → ...:003:007), so the
+        cached id goes stale and sane.open() raises "Invalid argument". On
+        failure, re-list, remap to the same physical scanner, retry once, and
+        remember the remap so later opens skip straight to the fresh id. Returns
+        (dev, opened_id) — callers that keep addressing the device (eject) must
+        use opened_id, not the stale one they passed in.
+        """
+        target = self._id_remap.get(device_id, device_id)
+        try:
+            return self._sane.open(target), target
+        except Exception:
+            fresh_id = self._find_reenumerated_id(device_id)
+            if fresh_id is None or fresh_id == target:
+                raise
+            dev = self._sane.open(fresh_id)
+            self._id_remap[device_id] = fresh_id
+            logger.info(f"Scanner {device_id} re-enumerated; remapped to {fresh_id}")
+            return dev, fresh_id
+
+    def _find_reenumerated_id(self, device_id: str) -> str | None:
+        """After an open failure, re-enumerate and return the scanner's new id.
+
+        Matches by vendor+model when the stale device is still cached, else by
+        the sole device sharing the backend/transport prefix (the single-scanner
+        case). Returns None when no unambiguous match exists.
+        """
+        stale = {d.id: d for d in (self._devices_cache or [])}.get(device_id)
+        try:
+            fresh = self.refresh_devices()
+        except Exception:
+            return None
+        if stale is not None:
+            same = [d for d in fresh if d.vendor == stale.vendor and d.model == stale.model]
+            if len(same) == 1:
+                return same[0].id
+        prefix = device_id.rsplit(":", 2)[0]
+        same_prefix = [d for d in fresh if d.id.rsplit(":", 2)[0] == prefix]
+        if len(same_prefix) == 1:
+            return same_prefix[0].id
+        return None
+
     def scan(
         self,
         device_id: str,
@@ -582,7 +658,7 @@ class SaneBackend:
             raise RuntimeError(f"Failed to initialize SANE before scanning: {exc}") from exc
 
         try:
-            dev = self._sane.open(device_id)
+            dev, _ = self._open_device(device_id)
         except Exception as e:
             raise RuntimeError(f"Failed to open scanner {device_id}: {e}") from e
 
@@ -780,8 +856,11 @@ class SaneBackend:
         leaving it parked (the LS-5000 feeder auto-parks a few minutes after any
         session closes; a parked feeder needs a power-cycle to recover mid-roll).
         Capability-gated: returns False as a clean no-op when the device has no
-        active, settable 'eject' option. Raises when the option is present but
-        triggering it, or the surrounding open/close, fails.
+        active, settable 'eject' option.
+
+        python-sane cannot press a SANE_TYPE_BUTTON, so once capability is
+        confirmed the handle is closed and the button is pressed via `scanimage
+        --eject` (see _scanimage_eject). Raises when the open/close or the eject fail.
         """
 
         try:
@@ -790,30 +869,33 @@ class SaneBackend:
             raise RuntimeError(f"Failed to initialize SANE before eject: {exc}") from exc
 
         try:
-            dev = self._sane.open(device_id)
+            dev, opened_id = self._open_device(device_id)
         except Exception as exc:
             raise RuntimeError(f"Failed to open scanner {device_id} to eject: {exc}") from exc
 
         try:
             option_map = dev.opt if hasattr(dev, "opt") else {}
             eject_option = _find_eject_option(option_map)
-            if eject_option is None or not _option_is_usable(option_map[eject_option]):
-                triggered = False
-            else:
-                _press_button(dev, option_map[eject_option])
-                triggered = True
+            has_eject = eject_option is not None and _option_is_usable(option_map[eject_option])
         except Exception as exc:
             try:
                 dev.close()
             except Exception:
                 pass
-            raise RuntimeError(f"Could not trigger eject on {device_id!r}: {exc}") from exc
+            raise RuntimeError(f"Could not inspect eject capability on {device_id!r}: {exc}") from exc
 
+        # Close before pressing: SANE allows a single open handle and scanimage opens its own.
         try:
             dev.close()
         except Exception as exc:
-            raise RuntimeError(f"Could not close scanner device {device_id!r} after eject: {exc}") from exc
-        return triggered
+            raise RuntimeError(f"Could not close scanner device {device_id!r} before eject: {exc}") from exc
+
+        if not has_eject:
+            return False
+
+        # opened_id, not device_id: a re-enumeration may have remapped the address.
+        _scanimage_eject(opened_id)
+        return True
 
     def _set_pieusb_flags(self, dev, capture_ir) -> None:
         """Apply hardware-specific optimizations for pieusb scanners."""

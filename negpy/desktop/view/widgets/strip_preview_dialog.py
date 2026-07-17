@@ -5,6 +5,7 @@ Read after ``exec()`` via ``selected_frames()`` / ``frame_windows()`` /
 ``frame_offset()``.
 """
 
+import numpy as np
 import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QPixmap, QTransform
@@ -29,8 +30,8 @@ from negpy.desktop.workers.scan_worker import ScanRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
 from negpy.infrastructure.scanners.params import ScanParams
 
-_PREVIEW_FALLBACK_DPI = 500
-_PREVIEW_TARGET_DPI = 300  # bump preview above the device floor for a clearer frame
+_PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
+_TILE_MIN_H = 140  # floor for tile height before scaling to the window
 
 # The LS-50 raster is portrait (feed axis vertical); rotate each preview 90° so the
 # frame reads landscape, as it sits on the strip. QTransform().rotate(90) maps a scan
@@ -38,6 +39,24 @@ _PREVIEW_TARGET_DPI = 300  # bump preview above the device floor for a clearer f
 # the rotated view round-trips back to scan geometry exactly, and the feed-axis offset
 # (scan top) lands on the display's right edge.
 _DISPLAY_ROTATION_DEG = 90
+
+
+def _preview_positive(rgb: np.ndarray) -> np.ndarray:
+    """Cheap negative→positive for the strip preview: per-channel invert + auto-level.
+
+    Not the real develop pipeline — just enough to read the scene through the
+    orange mask. Each channel is inverted and stretched between its 1st/99th
+    percentiles, which both flips the negative and neutralizes the base cast.
+    """
+    a = rgb.astype(np.float32)
+    if a.ndim == 2:
+        a = a[:, :, None]
+    out = np.empty_like(a)
+    for c in range(a.shape[2]):
+        ch = a[..., c]
+        lo, hi = np.percentile(ch, 1), np.percentile(ch, 99)
+        out[..., c] = 0.0 if hi <= lo else np.clip((hi - ch) / (hi - lo), 0.0, 1.0) * 255.0
+    return out.astype(np.uint8)
 
 
 def _clamp01(v: float) -> float:
@@ -95,16 +114,35 @@ class StripPreviewDialog(QDialog):
         self._device = device
         self._caps = device.capabilities
         self._capacity = max(1, self._caps.adapter_frame_capacity or 1)
+        # Landscape tile aspect (W/H) from the rotated raster: the feed axis (max_area_mm[1])
+        # becomes horizontal. Tiles are sized to the window height at this aspect.
+        mm = self._caps.max_area_mm
+        self._tile_aspect = (mm[1] / mm[0]) if (mm and len(mm) > 1 and mm[0]) else 1.5
         self._inflight_frame: int | None = None
         self._preview_queue: list[int] = []
         self._failed_frames: list[int] = []
+        self._scan_now = False  # set when the user chooses "Scan" over "Use"
         initial_windows = initial_windows or {}
         initial_selected = tuple(initial_selected or ())
         self.setWindowTitle("Preview strip — set a window per frame")
         self.setModal(True)
-        self.resize(1200, 480)
+        self.resize(1280, 420)
 
         layout = QVBoxLayout(self)
+
+        help_lbl = QLabel(
+            "Preview each frame (the eye button on a tile, or Preview all). Drag on a previewed "
+            "frame to crop it — a corner to resize, inside to move; each frame keeps its own window. "
+            "Offset nudges every frame along the feed axis to clear the inter-frame gap — re-preview "
+            "after changing it to see the effect. Tick the frames to scan, then Use (apply and return) "
+            "or Scan (start scanning now)."
+        )
+        help_lbl.setWordWrap(True)
+        help_lbl.setStyleSheet(
+            f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;"
+            f" background: rgba(255,255,255,0.04); border-radius: 6px; padding: 6px 8px;"
+        )
+        layout.addWidget(help_lbl)
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Offset"))
@@ -124,10 +162,10 @@ class StripPreviewDialog(QDialog):
         top.addWidget(self.preview_all_btn)
         layout.addLayout(top)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         container = QWidget()
         strip = QHBoxLayout(container)
         strip.setContentsMargins(2, 2, 2, 2)
@@ -138,10 +176,10 @@ class StripPreviewDialog(QDialog):
             tile = self._build_tile(frame, initial_windows.get(frame), checked)
             self._tiles[frame] = tile
             strip.addWidget(tile.widget)
-        scroll.setWidget(container)
-        layout.addWidget(scroll, 1)
+        self._scroll.setWidget(container)
+        layout.addWidget(self._scroll, 1)
 
-        self.status = QLabel("Preview a frame, then drag a window over it. Tick the frames to scan.")
+        self.status = QLabel("")  # live status only (previewing / errors); help moved to the top box
         self.status.setWordWrap(True)
         self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
         layout.addWidget(self.status)
@@ -159,6 +197,10 @@ class StripPreviewDialog(QDialog):
         self.ok_btn.setDefault(True)
         self.ok_btn.clicked.connect(self.accept)
         btns.addWidget(self.ok_btn)
+        self.scan_btn = QPushButton(qta.icon("fa5s.play", color=THEME.text_primary), " Scan")
+        self.scan_btn.setToolTip("Scan the ticked frames now with the current settings")
+        self.scan_btn.clicked.connect(self._on_scan_clicked)
+        btns.addWidget(self.scan_btn)
         layout.addLayout(btns)
 
         # Connect after ok_btn exists — setChecked during tile build must not fire
@@ -180,7 +222,7 @@ class StripPreviewDialog(QDialog):
         grid.setContentsMargins(0, 0, 0, 0)
 
         label = ScanWindowLabel()
-        label.setMinimumSize(440, 300)  # landscape, like a frame on the strip
+        label.setMinimumSize(160, 107)  # placeholder; _rescale_tiles fits it to the window height
         label.set_window(_scan_to_display_rect(initial_window) if initial_window else None)
         grid.addWidget(label, 0, 0)
 
@@ -207,6 +249,25 @@ class StripPreviewDialog(QDialog):
 
         return _Tile(frame, label, checkbox, preview_btn, widget)
 
+    # ── tile sizing (scale to window height) ──────────────────────────
+
+    def _tile_dims(self, available_h: int) -> tuple[int, int]:
+        h = max(_TILE_MIN_H, available_h - 8)  # small padding inside the scroll viewport
+        return int(h * self._tile_aspect), h
+
+    def _rescale_tiles(self) -> None:
+        w, h = self._tile_dims(self._scroll.viewport().height())
+        for tile in self._tiles.values():
+            tile.label.setFixedSize(w, h)
+
+    def resizeEvent(self, ev) -> None:
+        super().resizeEvent(ev)
+        self._rescale_tiles()
+
+    def showEvent(self, ev) -> None:
+        super().showEvent(ev)
+        self._rescale_tiles()
+
     # ── result getters ────────────────────────────────────────────────
 
     def selected_frames(self) -> tuple[int, ...]:
@@ -218,10 +279,20 @@ class StripPreviewDialog(QDialog):
     def frame_offset(self) -> float:
         return self.offset_slider.value() / 10.0
 
+    def scan_requested(self) -> bool:
+        """True when the dialog was accepted via Scan (start now), not Use."""
+        return self._scan_now
+
     # ── ui state ──────────────────────────────────────────────────────
 
+    def _on_scan_clicked(self) -> None:
+        self._scan_now = True
+        self.accept()
+
     def _update_ok_enabled(self, *_args) -> None:
-        self.ok_btn.setEnabled(any(t.checkbox.isChecked() for t in self._tiles.values()))
+        enabled = any(t.checkbox.isChecked() for t in self._tiles.values())
+        self.ok_btn.setEnabled(enabled)
+        self.scan_btn.setEnabled(enabled)
 
     def _on_clear_all(self) -> None:
         for tile in self._tiles.values():
@@ -241,16 +312,18 @@ class StripPreviewDialog(QDialog):
         offset = self.frame_offset()
         for tile in self._tiles.values():
             delta = offset - tile.previewed_offset
-            tile.label.set_offset_indicator(delta / extent if (extent and delta > 0) else None, edge="right")
+            # +offset shifts content toward the raster top → the rotated preview's
+            # right; new content enters from the LEFT, so the cut band grows from
+            # the left edge rightward, tracking the slider (verified on an LS-50).
+            tile.label.set_offset_indicator(delta / extent if (extent and delta > 0) else None, edge="left")
 
     # ── preview flow (single-flight chain) ────────────────────────────
 
     def _preview_dpi(self) -> int:
+        # Lowest supported DPI: previews are for framing only, and the smallest
+        # raster is fastest and least prone to transient device I/O on a flaky link.
         dpis = self._caps.supported_dpi
-        if not dpis:
-            return _PREVIEW_FALLBACK_DPI
-        above = [d for d in dpis if d >= _PREVIEW_TARGET_DPI]
-        return min(above) if above else max(dpis)
+        return min(dpis) if dpis else _PREVIEW_FALLBACK_DPI
 
     def _on_preview_one(self, frame: int) -> None:
         self._failed_frames = []
@@ -305,7 +378,8 @@ class StripPreviewDialog(QDialog):
             return
         self._inflight_frame = None
         try:
-            pixmap = QPixmap.fromImage(ImageConverter.to_qimage(rgb)).transformed(QTransform().rotate(_DISPLAY_ROTATION_DEG))
+            positive = _preview_positive(rgb)
+            pixmap = QPixmap.fromImage(ImageConverter.to_qimage(positive)).transformed(QTransform().rotate(_DISPLAY_ROTATION_DEG))
         except Exception as e:
             self._preview_queue.clear()
             self._set_previewing(False)

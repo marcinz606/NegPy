@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import QApplication
 from negpy.desktop.view.widgets.strip_preview_dialog import (
     StripPreviewDialog,
     _display_to_scan_rect,
+    _preview_positive,
     _scan_to_display_rect,
 )
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
@@ -66,6 +67,79 @@ def _rgb():
 def test_builds_one_tile_per_frame() -> None:
     dialog = StripPreviewDialog(_FakeController(), _device(6))
     assert sorted(dialog._tiles) == [1, 2, 3, 4, 5, 6]
+
+
+def test_preview_uses_lowest_supported_dpi() -> None:
+    caps = ScannerCapabilities(
+        ir_channel=False,
+        supported_dpi=(90, 400, 4000),
+        supported_depths=(8, 14),
+        sources=(ScanMode.NEGATIVE,),
+        max_area_mm=(25.0, 38.0),
+        adapter_frame_capacity=6,
+        can_eject=True,
+    )
+    device = ScannerDevice(id="coolscan3:usb:libusb:001:050", vendor="Nikon", model="LS-50", capabilities=caps)
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, device)
+
+    dialog._on_preview_one(1)
+
+    assert controller.preview_reqs[0].params.dpi == 90
+
+
+def test_offset_indicator_grows_from_the_left_matching_content_shift() -> None:
+    # +offset shifts re-scanned content toward the rotated preview's right, so the
+    # cut band must grow from the LEFT (new content) — same direction as the slider.
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=4.0)
+    dialog._refresh_offset_indicators()
+
+    label = dialog._tiles[1].label
+    assert label._offset_edge == "left"
+    assert label._offset_frac == pytest.approx(4.0 / 38.0, abs=1e-3)  # extent = max_area_mm[1]
+
+
+def test_preview_positive_inverts_and_levels() -> None:
+    neg = np.zeros((4, 4, 3), dtype=np.uint8)
+    neg[:, :2, :] = 20  # low negative value = scene shadow → should become bright
+    neg[:, 2:, :] = 200  # high negative value = scene highlight → should become dark
+    pos = _preview_positive(neg)
+    assert pos.dtype == np.uint8
+    assert pos.shape == neg.shape
+    assert pos[:, :2, :].mean() > pos[:, 2:, :].mean()  # inverted
+
+
+def test_scan_button_marks_scan_requested_and_use_does_not() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+    assert dialog.scan_requested() is False
+
+    dialog._on_scan_clicked()
+    assert dialog.scan_requested() is True
+
+    other = StripPreviewDialog(_FakeController(), _device(3))
+    other.accept()
+    assert other.scan_requested() is False
+
+
+def test_tile_dims_scale_to_height_at_landscape_aspect() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))  # max_area_mm=(25, 38) → aspect 1.52
+    assert dialog._tile_aspect == pytest.approx(38.0 / 25.0, abs=1e-3)
+
+    w, h = dialog._tile_dims(400)
+    assert h == 400 - 8  # window height minus padding
+    assert w == int(h * dialog._tile_aspect)  # width tracks height, landscape
+
+    _, small_h = dialog._tile_dims(10)
+    assert small_h == 140  # floored
+
+
+def test_scan_button_is_gated_on_a_frame_being_checked() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+    for tile in dialog._tiles.values():
+        tile.checkbox.setChecked(False)
+    assert dialog.scan_btn.isEnabled() is False
+    dialog._tiles[2].checkbox.setChecked(True)
+    assert dialog.scan_btn.isEnabled() is True
 
 
 def test_use_is_disabled_when_no_frame_is_checked() -> None:

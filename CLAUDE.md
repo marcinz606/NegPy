@@ -74,6 +74,8 @@ Every feature lives in `negpy/features/<name>/`:
 - **Coordinate spaces**: manual crop rect and analysis rect are normalized to the *transformed* (display) image; retouch strokes and dodge/burn placements are *source*-normalized and round-trip through `create_uv_grid`/`map_coords_to_geometry` — which must stay consistent with the image warp (incl. distortion k1).
 - **Metrics buffer** (`_METRICS_*` offsets, `gpu_engine.py`) is append-only; offsets are mirrored as WGSL array lengths.
 - **Camera capture** (`infrastructure/capture/gphoto.py`) has load-bearing libgphoto2 guards (a NULL-choice read SIGSEGVs the process; writes are async; the event queue must be drained after a still). Read that module before touching it.
+- **SANE eject** (`infrastructure/scanners/sane_backend.py`): python-sane 2.9.2 cannot press a `SANE_TYPE_BUTTON` (setattr/set_option/set_auto_option all raise), so `eject()` shells out to `scanimage --eject` — do not "simplify" it back to a python-sane call. Never issue `--load`/`--reset` on a seated strip: `--load` feeds/ejects the film, `--reset` briefly wedges the transport. Note the Coolscan firmware auto-ejects the strip after an idle timeout regardless.
+- **SANE re-enumeration** (`sane_backend._open_device`): the LS-50 re-enumerates under load, changing the libusb address in the device id (`...:003:006`→`...:003:007`), so a cached id goes stale and `sane.open` raises "Invalid argument". `_open_device` self-heals — re-lists, remaps to the same scanner (vendor+model, else sole same-prefix device), and caches the remap. Keep all device opens routed through it; addressing the device again afterwards (eject → scanimage) must use its returned `opened_id`, not the caller's stale id.
 
 ## More detail
 

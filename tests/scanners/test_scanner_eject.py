@@ -2,19 +2,25 @@
 
 Nikon Scan ejects film at completion instead of leaving it parked (the LS-5000
 feeder auto-parks a few minutes after any session closes, and a parked feeder
-reports frames: 0 until a power-cycle). These tests mock the SANE device/module
-boundary — no hardware, no python-sane required — and prove the eject primitive
-is capability-gated (skips cleanly when the device has no usable 'eject' option)
-and fails loud when a *present* option cannot actually be triggered.
+reports frames: 0 until a power-cycle). python-sane cannot activate a
+SANE_TYPE_BUTTON (setattr, set_option and set_auto_option all raise on the real
+library — verified on an LS-50), so eject is pressed by shelling out to
+`scanimage --eject`, the C-level path that actually works. These tests mock the
+SANE device/module boundary and the scanimage subprocess — no hardware — and
+prove the primitive is capability-gated (skips cleanly when the device has no
+usable 'eject' option), presses via scanimage once capability is confirmed,
+tolerates scanimage's spurious post-eject "out of documents" exit, and fails
+loud on a genuine scanimage error.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
+from negpy.infrastructure.scanners import sane_backend
 from negpy.infrastructure.scanners.sane_backend import SaneBackend, _find_eject_option
 from negpy.services.scanning.service import ScannerService
 
@@ -39,34 +45,26 @@ class FakeOption:
 class FakeCDev:
     """Stand-in for the C object python-sane exposes as SaneDev.dev.
 
-    A button is activated here via set_option(index, ...) — the Python wrapper
-    refuses to assign a value to a button.
+    set_option is recorded only so tests can assert eject() never routes the
+    button press through it — the real python-sane rejects button set_option.
     """
 
-    def __init__(self, *, reject: bool = False) -> None:
-        self.reject = reject
+    def __init__(self) -> None:
         self.set_option_calls: list[tuple[int, object]] = []
 
     def set_option(self, index: int, value: object) -> None:
-        if self.reject:
-            raise OSError("device rejected eject")
         self.set_option_calls.append((index, value))
 
 
 class FakeSaneDev:
-    """Mimics python-sane's SaneDev for a coolscan3-like device.
+    """Mimics python-sane's SaneDev for a coolscan3-like device (detection only)."""
 
-    A value-typed option is set by attribute assignment (recorded); a button
-    option raises "Buttons don't have values" on assignment, exactly like
-    python-sane — so eject() must press it via dev.dev.set_option(index).
-    """
-
-    def __init__(self, opt_map: dict[str, FakeOption], *, reject_trigger: bool = False) -> None:
+    def __init__(self, opt_map: dict[str, FakeOption]) -> None:
         self._opt_map = opt_map
         self.recorded: dict[str, object] = {}
         self.closed = False
         self.close_calls = 0
-        self.dev = FakeCDev(reject=reject_trigger)
+        self.dev = FakeCDev()
 
     @property
     def opt(self) -> dict[str, FakeOption]:
@@ -104,15 +102,56 @@ class FakeSaneModule:
         return self.dev
 
 
+@dataclass
+class _FakeCompleted:
+    returncode: int = 0
+    stderr: str = ""
+    stdout: str = ""
+
+
+class FakeRun:
+    """Records subprocess.run calls; replays a configured result or exception."""
+
+    def __init__(
+        self,
+        *,
+        returncode: int = 0,
+        stderr: str = "",
+        raises: Exception | None = None,
+        on_call: Callable[[], None] | None = None,
+    ) -> None:
+        self.calls: list[tuple[list[str], dict[str, Any]]] = []
+        self._returncode = returncode
+        self._stderr = stderr
+        self._raises = raises
+        self._on_call = on_call
+
+    def __call__(self, args: list[str], **kwargs: Any) -> _FakeCompleted:
+        self.calls.append((args, kwargs))
+        if self._on_call is not None:
+            self._on_call()
+        if self._raises is not None:
+            raise self._raises
+        return _FakeCompleted(self._returncode, self._stderr)
+
+
+def _patch_run(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> FakeRun:
+    fake = FakeRun(**kwargs)
+    monkeypatch.setattr(sane_backend.subprocess, "run", fake)
+    return fake
+
+
 def _make_backend(sane_module: FakeSaneModule) -> SaneBackend:
     backend = SaneBackend.__new__(SaneBackend)
     backend._sane = sane_module
     backend._sane_initialized = True
     backend._devices_cache = None
+    backend._id_remap = {}
     return backend
 
 
 _EJECT_INDEX = 7
+_DEV = "coolscan3:usb:libusb:001:007"
 COOLSCAN3_OPT_WITH_EJECT = {
     "frame": FakeOption(constraint=(1, 40, 1)),
     "eject": FakeOption(index=_EJECT_INDEX, is_button=True),
@@ -134,26 +173,52 @@ class TestFindEjectOption:
 
 
 class TestSaneBackendEject:
-    def test_triggers_the_eject_option_and_returns_true(self) -> None:
+    def test_presses_eject_via_scanimage_and_returns_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
         dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
         backend = _make_backend(FakeSaneModule(dev))
+        run = _patch_run(monkeypatch, returncode=0)
 
-        result = backend.eject("coolscan3:usb:libusb:001:007")
+        result = backend.eject(_DEV)
 
         assert result is True
-        assert dev.dev.set_option_calls == [(_EJECT_INDEX, 1)]
-        assert dev.recorded == {}  # a button is pressed, never value-assigned
-        assert dev.closed is True
+        assert run.calls[0][0] == ["scanimage", "-d", _DEV, "--eject"]
+        assert dev.dev.set_option_calls == []  # never routed through the broken button path
+        assert dev.recorded == {}
+        assert dev.closed is True  # detection handle closed before scanimage runs
 
-    def test_capability_gated_skip_when_device_has_no_eject_option(self) -> None:
+    def test_detection_handle_is_closed_before_scanimage_opens_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Single-open hardware: the python-sane handle MUST be closed before
+        # scanimage tries to open the same device, or scanimage hits "device busy".
+        dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
+        backend = _make_backend(FakeSaneModule(dev))
+        observed: dict[str, bool] = {}
+        _patch_run(monkeypatch, on_call=lambda: observed.__setitem__("closed_at_call", dev.closed))
+
+        backend.eject(_DEV)
+
+        assert observed["closed_at_call"] is True
+
+    def test_spurious_out_of_documents_exit_is_treated_as_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
+        backend = _make_backend(FakeSaneModule(dev))
+        _patch_run(
+            monkeypatch,
+            returncode=7,
+            stderr="scanimage: sane_start: Document feeder out of documents\n",
+        )
+
+        assert backend.eject(_DEV) is True
+
+    def test_capability_gated_skip_when_device_has_no_eject_option(self, monkeypatch: pytest.MonkeyPatch) -> None:
         dev = FakeSaneDev(dict(COOLSCAN3_OPT_NO_EJECT))
         backend = _make_backend(FakeSaneModule(dev))
+        run = _patch_run(monkeypatch, returncode=0)
 
-        result = backend.eject("coolscan3:usb:libusb:001:007")
+        result = backend.eject(_DEV)
 
         assert result is False
-        assert dev.dev.set_option_calls == []
-        assert dev.closed is True  # session hygiene: still opened and closed cleanly
+        assert run.calls == []  # scanimage never invoked
+        assert dev.closed is True
 
     @pytest.mark.parametrize(
         "broken_option",
@@ -164,44 +229,57 @@ class TestSaneBackendEject:
     )
     def test_capability_gated_skip_when_eject_option_is_inactive_or_unsettable(
         self,
+        monkeypatch: pytest.MonkeyPatch,
         broken_option: FakeOption,
     ) -> None:
         opt = dict(COOLSCAN3_OPT_NO_EJECT)
         opt["eject"] = broken_option
         dev = FakeSaneDev(opt)
         backend = _make_backend(FakeSaneModule(dev))
+        run = _patch_run(monkeypatch, returncode=0)
 
-        result = backend.eject("coolscan3:usb:libusb:001:007")
+        result = backend.eject(_DEV)
 
         assert result is False
-        assert dev.dev.set_option_calls == []
+        assert run.calls == []
         assert dev.closed is True
 
-    def test_raises_when_a_present_eject_option_rejects_the_trigger(self) -> None:
-        dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT), reject_trigger=True)
+    def test_raises_when_scanimage_reports_a_real_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
         backend = _make_backend(FakeSaneModule(dev))
+        _patch_run(monkeypatch, returncode=1, stderr="scanimage: open of device failed: Device busy\n")
 
-        with pytest.raises(RuntimeError, match="Could not trigger eject.*device rejected eject"):
-            backend.eject("coolscan3:usb:libusb:001:007")
+        with pytest.raises(RuntimeError, match="scanimage --eject failed.*[Dd]evice busy"):
+            backend.eject(_DEV)
 
-        # A failed trigger must not leak an open device handle.
-        assert dev.closed is True
+    def test_raises_when_scanimage_is_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
+        backend = _make_backend(FakeSaneModule(dev))
+        _patch_run(monkeypatch, raises=FileNotFoundError("scanimage"))
 
-    def test_raises_when_the_device_cannot_be_opened(self) -> None:
+        with pytest.raises(RuntimeError, match="not installed"):
+            backend.eject(_DEV)
+
+    def test_raises_when_the_device_cannot_be_opened(self, monkeypatch: pytest.MonkeyPatch) -> None:
         module = FakeSaneModule(open_error=PermissionError("scanner is busy"))
         backend = _make_backend(module)
+        run = _patch_run(monkeypatch, returncode=0)
 
         with pytest.raises(RuntimeError, match="Failed to open scanner.*scanner is busy"):
-            backend.eject("coolscan3:usb:libusb:001:007")
+            backend.eject(_DEV)
 
-    def test_only_the_requested_device_is_opened(self) -> None:
+        assert run.calls == []  # never reached the press
+
+    def test_only_the_requested_device_is_opened_and_ejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
         module = FakeSaneModule(dev)
         backend = _make_backend(module)
+        run = _patch_run(monkeypatch, returncode=0)
 
-        backend.eject("coolscan3:usb:libusb:001:007")
+        backend.eject(_DEV)
 
-        assert module.opened == ["coolscan3:usb:libusb:001:007"]
+        assert module.opened == [_DEV]
+        assert run.calls[0][0][2] == _DEV
 
 
 class TestScannerServiceEject:

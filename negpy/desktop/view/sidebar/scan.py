@@ -480,6 +480,8 @@ class ScanSidebar(QWidget):
                 frame_offset_mm=dialog.frame_offset(),
             )
             self._update_scan_window_status()
+            if dialog.scan_requested():
+                self._on_scan()
 
     def _on_clear_scan_window(self) -> None:
         from dataclasses import replace

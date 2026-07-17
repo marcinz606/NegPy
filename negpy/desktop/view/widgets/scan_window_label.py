@@ -39,7 +39,7 @@ class ScanWindowLabel(QLabel):
         self._press_frac: Optional[tuple[float, float]] = None
         self._rect_at_press: Optional[Rect] = None
         self._offset_frac: Optional[float] = None  # live offset indicator, 0..1 of frame height
-        self._offset_edge = "top"  # "top" (horizontal line) or "right" (vertical, rotated view)
+        self._offset_edge = "top"  # "top" (horizontal line) or "left" (vertical, rotated view)
 
     # ── public API ────────────────────────────────────────────────────
 
@@ -57,9 +57,10 @@ class ScanWindowLabel(QLabel):
     def set_offset_indicator(self, frac: Optional[float], edge: str = "top") -> None:
         """Show a live line where a feed-axis offset would cut (0..1).
 
-        edge="top" draws a horizontal line cutting from the top; edge="right" draws
-        a vertical line cutting from the right — used when the preview is rotated to
-        landscape and the feed axis runs horizontally.
+        edge="top" draws a horizontal line cutting from the top; edge="left" draws
+        a vertical line growing from the left — used when the preview is rotated to
+        landscape and the feed axis runs horizontally, so the band tracks the
+        slider in the same direction the re-scanned content shifts.
         """
         self._offset_frac = None if not frac else max(0.0, min(1.0, frac))
         self._offset_edge = edge
@@ -170,9 +171,9 @@ class ScanWindowLabel(QLabel):
                 painter.setBrush(QColor(0, 0, 0, 110))
                 pen = QPen(QColor("#E0A83C"), 2)
                 pen.setStyle(Qt.PenStyle.DashLine)
-                if self._offset_edge == "right":
-                    x = draw_rect.right() - int(self._offset_frac * draw_rect.width())
-                    painter.drawRect(QRect(x, draw_rect.top(), max(0, draw_rect.right() - x), draw_rect.height()))
+                if self._offset_edge == "left":
+                    x = draw_rect.left() + int(self._offset_frac * draw_rect.width())
+                    painter.drawRect(QRect(draw_rect.left(), draw_rect.top(), max(0, x - draw_rect.left()), draw_rect.height()))
                     painter.setPen(pen)
                     painter.drawLine(x, draw_rect.top(), x, draw_rect.bottom())
                 else:
@@ -182,6 +183,4 @@ class ScanWindowLabel(QLabel):
                     painter.drawLine(draw_rect.left(), y, draw_rect.right(), y)
         else:
             painter.fillRect(self.rect(), QColor("#0D0D0F"))
-            painter.setPen(QColor("#888780"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Click Preview to scan a frame, then drag a window")
         painter.end()

@@ -46,12 +46,15 @@ picks up the black inter-frame gap and a sliver of the neighbour. **Preview stri
 with the Frames control) fixes this and more: it previews the strip frame by frame and lets
 you set the picture area per frame and choose exactly which frames to scan.
 
-Each frame gets its own tile. **Preview** scans that one frame at low resolution; **Preview
-all** walks the strip and previews every frame in turn (one at a time — the scanner handles
-a single frame per pass). On a previewed frame, drag to draw its window, drag a corner to
-resize, or drag inside it to move it — each frame keeps its own window. Tick **Scan** on the
-frames you want and leave the rest unticked to skip them (e.g. preview 1–6 but scan only
-1, 2, 4, 6). **Clear all** drops every window (full frames); **Use** applies your choices.
+Each frame gets its own tile. **Preview** scans that one frame at low resolution (the
+device's lowest, for speed) and shows it as a rough positive — inverted and auto-levelled so
+you read the scene through the orange mask, not the final develop; **Preview all** walks the
+strip and previews every frame in turn (one at a time — the scanner handles a single frame
+per pass). On a previewed frame, drag to draw its window, drag a corner to resize, or drag
+inside it to move it — each frame keeps its own window. Tick **Scan** on the frames you want
+and leave the rest unticked to skip them (e.g. preview 1–6 but scan only 1, 2, 4, 6).
+**Clear all** drops every window (full frames); **Use** applies your choices and returns to
+the sidebar, while **Scan** applies them and starts the real scan straight from the dialog.
 Windows, selection and offset all persist across sessions.
 
 A single **Offset** slider (top of the dialog, 0–4 mm) is a feed-axis nudge applied to every

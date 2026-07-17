@@ -10,6 +10,7 @@ LS-50 / Coolscan V with the SA-21 6-frame strip adapter.
   always raised `AttributeError: Buttons don't have values`, so eject never fired. Now
   pressed at the C layer via `dev.dev.set_option(index, 1)` — helper `_press_button`
   (`negpy/infrastructure/scanners/sane_backend.py`). Same path `scanimage --eject` takes.
+  **(SUPERSEDED — `set_option` also raises on real hardware; see Session 2 below.)**
 - **Auto-return after a batch.** `run_batch` ejects the strip on a clean finish only
   (`negpy/desktop/workers/scan_worker.py`); capability-gated no-op on devices without eject.
   The on-demand ⏏ button (already in the device row) now works too.
@@ -34,6 +35,7 @@ LS-50 / Coolscan V with the SA-21 6-frame strip adapter.
   (frame-number checkbox + eye preview button) on each frame.
 - Horizontal scrollbar styled to match the vertical one (`modern_dark.qss`).
 - Preview DPI bumped from the device floor to the smallest supported ≥ 300.
+  **(SUPERSEDED — now the device's *lowest* DPI; see Session 2.)**
 
 ### 4. Resilience
 - `ScannerService.run_scan` retries **once** on a transient `Error during device I/O` /
@@ -52,19 +54,60 @@ All green (`make lint`, `make type`, full `pytest`). New/updated:
 `tests/scanners/test_scanner_settings.py`, `tests/test_scan_sidebar.py`,
 `tests/test_strip_preview_dialog.py`, `tests/scanners/test_service.py`.
 
-## Next steps (need the physical LS-50)
+## Hardware verification (Nikon LS-50 ED + SA-21, 2026-07-17)
 
-- [ ] **Verify eject physically returns the strip:** `scanimage -d '<dev>' --eject`.
-      If it doesn't move film, escalate: `scanimage -d '<dev>' -A` (capture the real option
-      list), then try an armed same-session eject (`frame=1` → `start(); cancel()` → press),
-      or `--reset` / `--load`. Wire whichever moves the SA-21.
-- [ ] **USB stability.** `control` should read `on` (autosuspend off):
-      `for d in /sys/bus/usb/devices/*/idVendor; do grep -qi 04b0 "$d" && p=$(dirname "$d") && echo "$p control=$(cat $p/power/control) autosuspend=$(cat $p/power/autosuspend_delay_ms)ms"; done`
-      If `auto`, the udev rule didn't take for the current enumeration — make it stick.
-      Device re-enumeration (`003:006` → `003:009` across the session) is what triggers the
-      "Error during device I/O".
-- [ ] **Confirm cosmetic orientation on a real scan:** which way *up* the landscape reads
-      (flip = one constant, `_DISPLAY_ROTATION_DEG`), and the offset-line side (left vs right).
-      The crop is correct either way.
-- [ ] **Confirm offset direction/scale** (coolscan3 `subframe`, mm) with a strip loaded —
-      never verified live (the feeder was empty during development).
+- [x] **Eject — BUG FOUND & FIXED.** `_press_button`'s `dev.dev.set_option(index, 1)`
+      raises `SANE_TYPE_BUTTON ... can't be set` on real python-sane 2.9.2; all three
+      python-sane button paths (setattr / set_option / set_auto_option) raise, so eject
+      had **never** worked. The unit test missed it — the fake `set_option` didn't
+      replicate the rejection. Fix: `eject()` now detects capability, closes the handle,
+      and presses via `scanimage --eject` (the C-level `sane_control_option` SET_VALUE);
+      scanimage's spurious post-eject "out of documents" exit is treated as success.
+      Verified live: strip physically ejects; `SaneBackend.eject()` returns `True`.
+- [x] **USB stability — PASS.** `power/control = on` (autosuspend off). No re-enumeration
+      observed; the one transient "Error during device I/O" (from `--reset`) recovered on
+      its own — confirms the `run_scan` retry-once path. Also learned: **`--reset` briefly
+      wedges the transport, `--load` feeds/ejects the film** — the app calls neither.
+- [x] **Offset direction/scale — VERIFIED, no code change.** subframe 4 mm = exactly
+      **−63 px = −4.00 mm** @ 400 dpi (1:1 mm), content moves toward the raster top →
+      display right, consistent with the indicator's `edge="right"`. Slider kept at 0–4 mm
+      (fine nudge; hardware range is 0–37.83 mm but the crop window handles gross framing).
+- [x] **Orientation — kept `_DISPLAY_ROTATION_DEG = 90`** (self-consistent with the offset
+      edge). Test frame was a portrait-shot (reads sideways regardless); flip is a trivial
+      one-constant change if a *landscape* frame later reads upside-down in real use.
+- Note: the Coolscan firmware **auto-ejects the strip after an idle timeout**, independent
+  of any command (this is what "pushed the strip out" during an AFK gap in testing).
+
+## Session 2 — live iteration on the LS-50 (2026-07-17)
+
+Changes made while testing against the physical scanner:
+
+- **Eject fixed for real.** python-sane 2.9.2 cannot press a `SANE_TYPE_BUTTON`
+  (setattr / set_option / set_auto_option all raise). `SaneBackend.eject()` now detects
+  capability, closes the handle, and presses via `scanimage --eject`; the spurious
+  post-eject "out of documents" exit is treated as success. `_press_button` removed.
+  (`sane_backend.py`, `tests/scanners/test_scanner_eject.py`.)
+- **USB re-enumeration recovery.** The LS-50 re-enumerates under load
+  (`003:006` → `003:007`), so the cached SANE id goes stale and `sane.open` raises
+  "Invalid argument". `SaneBackend._open_device` re-lists, remaps to the same scanner
+  (vendor+model, else the sole same-prefix device), retries, and caches the remap; both
+  scan and eject route through it. (`sane_backend.py`, `tests/scanners/test_sane_reopen.py`.)
+- **Preview at the device's lowest DPI** (was smallest ≥ 300) — smaller transfer, less
+  transient I/O on a flaky link. (`strip_preview_dialog._preview_dpi`.)
+- **Offset indicator direction fixed.** Content shifts toward display-right as offset
+  rises (verified 1:1 mm); the indicator band now grows from the **left** to track the
+  slider, instead of drawing from the right. (`scan_window_label.py`, `strip_preview_dialog.py`.)
+- **Preview shows a positive.** `_preview_positive` (per-channel invert + 1/99 auto-level)
+  renders a rough positive through the orange mask — a framing aid, not the develop.
+- **Scan straight from the dialog.** New **Scan** button applies the selection and starts
+  the real scan immediately (`scan_requested()` → sidebar `_on_scan`). **Use** still just
+  applies and returns.
+- **Preview sizing.** Tiles scale to the dialog height at the landscape aspect
+  (`_rescale_tiles` on resize/show); per-tile placeholder text removed; a single top help
+  box explains the workflow (preview → crop per frame → offset + re-preview → tick → Use/Scan).
+
+Not built (deferred): the **linear per-frame offset correction** (`base + step × frame`) for
+progressive frame-pitch drift down a roll.
+
+Updated `CLAUDE.md` (SANE eject + re-enumeration invariants) and `docs/COOLSCAN_SCANNING.md`.
+All green: `make all` — 2186 passed.

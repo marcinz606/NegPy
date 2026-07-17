@@ -298,6 +298,7 @@ def _make_backend(dev: FakeSaneDev) -> SaneBackend:
     backend._sane = FakeSaneModule(dev)
     backend._sane_initialized = True
     backend._devices_cache = None
+    backend._id_remap = {}
     return backend
 
 
@@ -323,6 +324,7 @@ def test_scan_initializes_sane_before_opening_a_fresh_backend() -> None:
     backend._sane = module
     backend._sane_initialized = False
     backend._devices_cache = None
+    backend._id_remap = {}
 
     result = backend.scan(
         "coolscan3:usb:test",
