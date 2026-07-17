@@ -112,6 +112,28 @@ def canonical_crop_ratio(ratio: str) -> str:
     return _PORTRAIT_TO_CANONICAL_CROP_RATIO.get(ratio, ratio)
 
 
+# Candidates for "Detect closest aspect ratio" (geometry.logic._closest_standard_ratio):
+# real film/scan formats only, both orientations. 7:5, 16:9, 16:10 and 8.5:11 are
+# print/screen *output* sizes, not scannable film formats, and sit close enough to
+# 3:2 (1.4, 1.778, 1.6) and 5:4 (0.773) in log-ratio space that ordinary contour-
+# detection noise on a real 3:2 or 5:4 frame tips the match onto one of them instead
+# — including them here regressed detection to reliably misclassify 35mm scans as
+# "7:5". Keep this set to formats a camera/scanner could actually produce.
+FILM_FORMAT_RATIOS: list[AspectRatio] = [
+    AspectRatio.R_1_1,
+    AspectRatio.R_3_2,
+    AspectRatio.R_2_3,
+    AspectRatio.R_4_3,
+    AspectRatio.R_3_4,
+    AspectRatio.R_5_4,
+    AspectRatio.R_4_5,
+    AspectRatio.R_6_7,
+    AspectRatio.R_7_6,
+    AspectRatio.R_65_24,
+    AspectRatio.R_24_65,
+]
+
+
 class ExportFormat(StrEnum):
     JPEG = "JPEG"
     TIFF = "TIFF"

@@ -187,13 +187,7 @@ class GeometrySidebar(BaseSidebar):
         )
 
     def _on_ratio_changed(self, ratio: str) -> None:
-        new_config = replace(
-            self.state.config,
-            geometry=replace(self.state.config.geometry, autocrop_ratio=ratio),
-            process=replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process)),
-        )
-        self.controller.session.update_config(new_config, persist=True)
-        self.controller.request_render()
+        self.controller.set_crop_ratio(ratio)
 
     def _on_mode_changed(self, idx: int) -> None:
         self.auto_crop_all_btn.setEnabled(self.mode_combo.itemData(idx) == AutocropMode.IMAGE)

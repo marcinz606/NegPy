@@ -1,7 +1,13 @@
 import cv2
 import numpy as np
 import pytest
-from negpy.features.geometry.logic import detect_closest_aspect_ratio, get_autocrop_coords, get_manual_crop_coords, get_manual_rect_coords
+from negpy.features.geometry.logic import (
+    _closest_standard_ratio,
+    detect_closest_aspect_ratio,
+    get_autocrop_coords,
+    get_manual_crop_coords,
+    get_manual_rect_coords,
+)
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.features.geometry.models import GeometryConfig
 from negpy.domain.interfaces import PipelineContext
@@ -559,6 +565,22 @@ def test_detect_closest_aspect_ratio_image_dims_sanity_check():
     img[90:150, 20:340] = 0.05  # 60h × 320w ≈ 5.3:1 dark band
     ratio = detect_closest_aspect_ratio(img)
     assert ratio == "3:2"
+
+
+def test_closest_standard_ratio_noisy_3_2_scan_not_misclassified():
+    # Regression: 7:5 (1.4) and 16:10 (1.6) were added to the crop-ratio *picker*
+    # (CROP_RATIO_CHOICES) but ended up in the same enum _closest_standard_ratio
+    # scanned for detection candidates too — close enough to 3:2 (1.5) in log-ratio
+    # space that ordinary contour-detection noise (sprocket holes, margin trimming)
+    # on a genuine 35mm 3:2 scan got misclassified as "7:5" or "16:10" instead of
+    # "3:2". Detection must only consider FILM_FORMAT_RATIOS (real scan formats),
+    # not print/screen output sizes — this sweeps ROIs measuring a few percent off
+    # an exact 3:2 in both directions and checks none of them flip.
+    img_shape = (1000, 1500)  # h, w — image itself is exactly 3:2
+    for cw in (1420, 1450, 1480, 1500, 1520, 1550, 1580):
+        roi = (0, 1000, 0, cw)  # y1, y2, x1, x2
+        ratio = _closest_standard_ratio(roi, img_shape)
+        assert ratio == "3:2", f"cw={cw} (ratio={cw / 1000:.3f}) misclassified as {ratio!r}"
 
 
 def _normalized_roi(roi, h, w):
