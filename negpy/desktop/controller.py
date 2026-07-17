@@ -41,6 +41,7 @@ from negpy.domain.models import (
     ExportPresetOutputMode,
     ExportResolutionMode,
     WorkspaceConfig,
+    canonical_crop_ratio,
     export_blocked,
     flat_export_config,
     flat_master_config,
@@ -1309,7 +1310,11 @@ class AppController(QObject):
         if geom.fine_rotation != 0.0:
             transformed = apply_fine_rotation(transformed, geom.fine_rotation)
 
-        new_ratio = detect_closest_aspect_ratio(transformed, fallback=geom.autocrop_ratio)
+        # Detection can match a portrait-oriented frame to a portrait-only AspectRatio
+        # (e.g. "2:3") that the ratio picker doesn't display — canonicalize so the
+        # stored ratio always matches an entry the picker can show (see
+        # domain.models.CROP_RATIO_CHOICES; the crop tool auto-orients regardless).
+        new_ratio = canonical_crop_ratio(detect_closest_aspect_ratio(transformed, fallback=geom.autocrop_ratio))
         if new_ratio == geom.autocrop_ratio:
             return
 

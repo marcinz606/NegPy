@@ -5,7 +5,7 @@ from negpy.features.geometry.logic import detect_closest_aspect_ratio, get_autoc
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.features.geometry.models import GeometryConfig
 from negpy.domain.interfaces import PipelineContext
-from negpy.domain.models import AspectRatio
+from negpy.domain.models import CROP_RATIO_CHOICES, AspectRatio, canonical_crop_ratio
 
 
 def test_get_manual_crop_coords_zero_offset():
@@ -1090,3 +1090,46 @@ def test_flip_with_negated_angle_mirrors_rendered_image():
     # Interior comparison: the rotation's border-replicate wedges differ at the edges.
     m = 40
     np.testing.assert_allclose(out_b[m:-m, m:-m], np.fliplr(out_a)[m:-m, m:-m], atol=0.01)
+
+
+def test_crop_ratio_choices_has_no_reciprocal_duplicates():
+    # The crop tool auto-orients a ratio to match the current drag (see
+    # overlay._oriented_target_ratio / geometry.logic._resolve_ratio_dims), so the
+    # picker must never offer both a shape and its reciprocal (e.g. "3:2" and "2:3")
+    # — that would just be the same crop twice.
+    seen: set[float] = set()
+    for ratio in CROP_RATIO_CHOICES:
+        if ratio in (AspectRatio.FREE,):
+            continue
+        w_r, h_r = map(float, ratio.value.split(":"))
+        shape = round(min(w_r / h_r, h_r / w_r), 6)  # orientation-independent
+        assert shape not in seen, f"{ratio.value!r} duplicates a shape already in CROP_RATIO_CHOICES"
+        seen.add(shape)
+
+
+def test_crop_ratio_choices_covers_common_print_and_screen_sizes():
+    values = {r.value for r in CROP_RATIO_CHOICES}
+    for expected in ("7:5", "16:9", "16:10", "8.5:11"):
+        assert expected in values
+
+
+def test_canonical_crop_ratio_maps_portrait_forms_to_the_picker_entry():
+    choice_values = {r.value for r in CROP_RATIO_CHOICES}
+    for hidden, canonical in (
+        ("2:3", "3:2"),
+        ("3:4", "4:3"),
+        ("4:5", "5:4"),
+        ("7:6", "6:7"),
+        ("5:7", "7:5"),
+        ("24:65", "65:24"),
+        ("9:16", "16:9"),
+        ("10:16", "16:10"),
+        ("11:8.5", "8.5:11"),
+    ):
+        assert canonical_crop_ratio(hidden) == canonical
+        assert canonical in choice_values
+
+
+def test_canonical_crop_ratio_passes_through_unrecognized_values():
+    assert canonical_crop_ratio("Free") == "Free"
+    assert canonical_crop_ratio("3:2") == "3:2"
