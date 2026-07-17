@@ -168,6 +168,8 @@ class ShortcutManager:
             "chroma_denoise_dec": lambda: controls.lab_sidebar.chroma_denoise_slider,
             "saturation_inc": lambda: controls.lab_sidebar.saturation_slider,
             "saturation_dec": lambda: controls.lab_sidebar.saturation_slider,
+            "chroma_damping_inc": lambda: controls.lab_sidebar.chroma_damping_slider,
+            "chroma_damping_dec": lambda: controls.lab_sidebar.chroma_damping_slider,
             "vibrance_inc": lambda: controls.lab_sidebar.vibrance_slider,
             "vibrance_dec": lambda: controls.lab_sidebar.vibrance_slider,
             "clahe_inc": lambda: controls.lab_sidebar.clahe_slider,
