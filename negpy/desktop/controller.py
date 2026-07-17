@@ -1088,7 +1088,17 @@ class AppController(QObject):
         already drawn, reshapes it to the new ratio in place — same center, shrunk
         to fit within its current footprint (enforce_roi_aspect_ratio, the same
         centered-reshape auto-crop uses) — instead of leaving the box visually
-        stale until the user redrags it."""
+        stale until the user redrags it.
+
+        Deliberately does NOT invalidate the metering bounds, unlike the other crop
+        entry points. Those clear them because the crop decides whether the film
+        rebate is inside the metered region (resolve_analysis_region meters within
+        context.active_roi), and letting clear base into the meter wrecks the
+        bounds. A ratio change can't do that: both this reshape and autocrop's
+        _enforce_ratio_by_occupancy only ever shrink the box inside a footprint
+        that already excludes the rebate, so the new ROI is a subset of the old
+        one. Re-metering there can only drift the per-channel floors/ceils — i.e.
+        a visible colour shift from what is supposed to be a pure reframe."""
         geom = self.state.config.geometry
         if ratio == geom.autocrop_ratio:
             return
@@ -1105,11 +1115,10 @@ class AppController(QObject):
             y1, y2, x1, x2 = enforce_roi_aspect_ratio(roi_px, h, w, ratio)
             new_geo = replace(new_geo, manual_crop_rect=(x1 / w, y1 / h, x2 / w, y2 / h))
 
-        self._crop_bounds_dirty = False
-        new_proc = replace(self.state.config.process, **invalidate_local_bounds(self.state.config.process))
-        self.session.update_config(replace(self.state.config, geometry=new_geo, process=new_proc), persist=True)
-        # Same spinner/overlay treatment as reset_crop/apply_auto_crop: the bounds
-        # recompute above can take a noticeable moment on a large HQ frame.
+        self.session.update_config(replace(self.state.config, geometry=new_geo), persist=True)
+        # Same spinner/overlay treatment as reset_crop/apply_auto_crop: the base
+        # stage still re-runs (geometry is part of its cache key), which can take a
+        # noticeable moment on a large HQ frame.
         self.loading_started.emit()
         self.request_render()
 

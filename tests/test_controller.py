@@ -292,6 +292,56 @@ class TestAppController(unittest.TestCase):
         self.mock_session_manager.update_config.assert_not_called()
         self.controller.request_render.assert_not_called()
 
+    def test_set_crop_ratio_preserves_metering_bounds(self):
+        """A ratio change is a pure reframe and must not re-meter. Clearing the
+        per-file bounds makes the next render re-analyze over the new (smaller) ROI,
+        which lands on different per-channel floors/ceils — a visible colour cast
+        shift on the canvas from an operation that only changed the frame."""
+        import numpy as np
+
+        self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)
+        floors, ceils = (-2.3, -2.4, -2.8), (-1.3, -1.2, -1.6)
+        config = replace(
+            self.controller.state.config, process=replace(self.controller.state.config.process, local_floors=floors, local_ceils=ceils)
+        )
+        config = replace(config, geometry=replace(config.geometry, manual_crop_rect=(0.15, 0.15, 0.85, 0.85)))
+        self.controller.state.config = config
+        self.controller.request_render = MagicMock()
+
+        self.controller.set_crop_ratio("4:3")
+
+        saved_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertEqual(saved_config.process.local_floors, floors)
+        self.assertEqual(saved_config.process.local_ceils, ceils)
+        self.assertTrue(saved_config.process.is_local_initialized)
+
+    def test_set_crop_ratio_reshape_never_grows_the_box(self):
+        """The no-re-meter rule above is only safe because the reshape shrinks within
+        the existing footprint — a box that could grow might pull film rebate into the
+        metered region, which is exactly what the bounds invalidation elsewhere guards."""
+        import numpy as np
+
+        self.controller.state.preview_raw = np.empty((800, 1200, 3), dtype=np.float32)
+        rect = (0.15, 0.15, 0.85, 0.85)
+        self.controller.state.config = replace(
+            self.controller.state.config,
+            geometry=replace(self.controller.state.config.geometry, manual_crop_rect=rect),
+        )
+        self.controller.request_render = MagicMock()
+
+        for ratio in ("1:1", "4:3", "16:9", "65:24", "5:4"):
+            self.mock_session_manager.reset_mock()
+            self.controller.state.config = replace(
+                self.controller.state.config,
+                geometry=replace(self.controller.state.config.geometry, autocrop_ratio="Free", manual_crop_rect=rect),
+            )
+            self.controller.set_crop_ratio(ratio)
+            nx1, ny1, nx2, ny2 = self.mock_session_manager.update_config.call_args.args[0].geometry.manual_crop_rect
+            self.assertGreaterEqual(nx1, rect[0] - 1e-6, f"{ratio}: box grew left")
+            self.assertGreaterEqual(ny1, rect[1] - 1e-6, f"{ratio}: box grew up")
+            self.assertLessEqual(nx2, rect[2] + 1e-6, f"{ratio}: box grew right")
+            self.assertLessEqual(ny2, rect[3] + 1e-6, f"{ratio}: box grew down")
+
     def test_set_crop_ratio_reshapes_manual_rect_centered_pixel_aware(self):
         """Reshaping must use real pixel dimensions, not normalized fractions —
         a non-square display image means "1:1" in normalized space isn't actually
