@@ -124,7 +124,7 @@ class GeometrySidebar(BaseSidebar):
         self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
         self.reset_crop_btn.setFixedHeight(default_button_height())
 
-        self.auto_crop_all_btn = QPushButton(" Auto Crop All")
+        self.auto_crop_all_btn = QPushButton(" Batch Autocrop")
         self.auto_crop_all_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary, color_disabled=THEME.text_muted))
         self.auto_crop_all_btn.setFixedHeight(default_button_height())
         self.auto_crop_all_btn.setToolTip(
