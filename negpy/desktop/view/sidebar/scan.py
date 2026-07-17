@@ -435,6 +435,8 @@ class ScanSidebar(QWidget):
         self.scan_window_widget.setVisible(has_frames)
         self.scan_window_status.setVisible(has_frames)
         if has_frames:
+            self.scan_window_btn.setText("Preview strip…")
+            self.scan_window_btn.setToolTip("Preview each frame, set a window per frame, and pick which frames to scan")
             self._update_scan_window_status()
 
         self.dpi_combo.blockSignals(False)
@@ -457,23 +459,24 @@ class ScanSidebar(QWidget):
     def _on_set_scan_window(self) -> None:
         from dataclasses import replace
 
-        from negpy.desktop.view.widgets.scan_preview_dialog import ScanPreviewDialog
+        from negpy.desktop.view.widgets.strip_preview_dialog import StripPreviewDialog
 
         device = self._current_device()
         if device is None:
             return
-        dialog = ScanPreviewDialog(
+        dialog = StripPreviewDialog(
             self.controller,
             device,
-            initial_rect=self._settings.scan_window,
-            default_frame=self.frame_from_spin.value(),
+            initial_windows=self._settings.frame_windows,
+            initial_selected=self._settings.selected_frames,
             initial_offset=self._settings.frame_offset_mm,
             parent=self,
         )
         if dialog.exec():
             self.settings = replace(
                 self._settings,
-                scan_window=dialog.window_rect(),
+                frame_windows=dialog.frame_windows(),
+                selected_frames=dialog.selected_frames(),
                 frame_offset_mm=dialog.frame_offset(),
             )
             self._update_scan_window_status()
@@ -481,16 +484,23 @@ class ScanSidebar(QWidget):
     def _on_clear_scan_window(self) -> None:
         from dataclasses import replace
 
-        self.settings = replace(self._settings, scan_window=None)
+        self.settings = replace(self._settings, scan_window=None, frame_windows={}, selected_frames=())
         self._update_scan_window_status()
 
     def _update_scan_window_status(self) -> None:
         from negpy.infrastructure.scanners.params import scan_window_to_area
 
-        device = self._current_device()
-        area = scan_window_to_area(self._settings.scan_window, device.capabilities.max_area_mm) if device else None
         offset = self._settings.frame_offset_mm
         offset_txt = f"  ·  offset {offset:.1f} mm" if offset else ""
+        selected = self._settings.selected_frames
+        if selected:
+            frames_txt = ", ".join(str(f) for f in sorted(selected))
+            n_windows = len(self._settings.frame_windows)
+            win_txt = f" · {n_windows} window(s)" if n_windows else ""
+            self.scan_window_status.setText(f"Frames {frames_txt}{win_txt}{offset_txt}")
+            return
+        device = self._current_device()
+        area = scan_window_to_area(self._settings.scan_window, device.capabilities.max_area_mm) if device else None
         if area is None:
             self.scan_window_status.setText(f"Full frame{offset_txt}")
         else:
@@ -523,6 +533,7 @@ class ScanSidebar(QWidget):
 
         from negpy.desktop.workers.scan_worker import BatchRequest, ScanRequest
         from negpy.infrastructure.scanners.params import ScanParams
+        from negpy.infrastructure.scanners.settings import resolve_batch_selection
 
         dpi = int(self.dpi_combo.currentData() or self.dpi_combo.currentText() or 3600)
         depth = int(self.depth_combo.currentData() or 16)
@@ -532,13 +543,16 @@ class ScanSidebar(QWidget):
         pattern = self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}'
         fmt = self.fmt_combo.currentText()
 
+        frames, frame_windows, base_window = resolve_batch_selection(
+            self._settings, self.frame_from_spin.value(), self.frame_to_spin.value()
+        )
         base_params = ScanParams(
             dpi=dpi,
             depth=depth,
             capture_ir=capture_ir,
             autofocus=autofocus,
             auto_exposure=auto_exposure,
-            window=self._settings.scan_window,
+            window=base_window,
             frame_offset_mm=self._settings.frame_offset_mm,
         )
 
@@ -546,28 +560,32 @@ class ScanSidebar(QWidget):
         self._save_settings()
         self.set_scanning(True)
 
-        if device.capabilities.adapter_frame_capacity is not None:
-            self.controller.start_batch(
-                BatchRequest(
-                    device_id=device.id,
-                    params=base_params,
-                    output_folder=output_folder,
-                    filename_pattern=pattern,
-                    output_format=fmt,
-                    frame_from=self.frame_from_spin.value(),
-                    frame_to=self.frame_to_spin.value(),
+        try:
+            if device.capabilities.adapter_frame_capacity is not None:
+                self.controller.start_batch(
+                    BatchRequest(
+                        device_id=device.id,
+                        params=base_params,
+                        output_folder=output_folder,
+                        filename_pattern=pattern,
+                        output_format=fmt,
+                        frames=frames,
+                        frame_windows=frame_windows,
+                    )
                 )
-            )
-        else:
-            self.controller.start_scan(
-                ScanRequest(
-                    device_id=device.id,
-                    params=base_params,
-                    output_folder=output_folder,
-                    filename_pattern=pattern,
-                    output_format=fmt,
+            else:
+                self.controller.start_scan(
+                    ScanRequest(
+                        device_id=device.id,
+                        params=base_params,
+                        output_folder=output_folder,
+                        filename_pattern=pattern,
+                        output_format=fmt,
+                    )
                 )
-            )
+        except RuntimeError as e:
+            self.set_scanning(False)
+            self.status_label.setText(f"Scanner busy: {e}")
 
     @pyqtSlot(float)
     def _on_scan_progress(self, progress: float) -> None:
@@ -657,6 +675,8 @@ class ScanSidebar(QWidget):
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
             scan_window=self._settings.scan_window,
             frame_offset_mm=self._settings.frame_offset_mm,
+            frame_windows=self._settings.frame_windows,
+            selected_frames=self._settings.selected_frames,
         )
 
 

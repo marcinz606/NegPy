@@ -16,6 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -187,7 +188,8 @@ def test_scan_on_capacity_device_routes_to_batch() -> None:
     assert len(controller.started) == 1
     kind, req = controller.started[0]
     assert kind == "batch"
-    assert (req.frame_from, req.frame_to) == (2, 4)
+    assert req.frames == (2, 3, 4)
+    assert req.frame_windows == {}
     assert req.device_id == FULL_DEVICE.id
 
 
@@ -201,6 +203,41 @@ def test_scan_on_plain_device_routes_to_single() -> None:
     kind, req = controller.started[0]
     assert kind == "scan"
     assert req.params.frame is None
+
+
+def test_scan_uses_dialog_selection_and_per_frame_windows() -> None:
+    sidebar, controller = _sidebar(LS50_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    rect = (0.1, 0.1, 0.5, 0.5)
+    sidebar.settings = replace(sidebar._settings, selected_frames=(1, 2, 4), frame_windows={4: rect})
+
+    sidebar._on_scan()
+
+    kind, req = controller.started[0]
+    assert kind == "batch"
+    assert req.frames == (1, 2, 4)
+    assert req.frame_windows == {4: rect}
+
+
+def test_clear_scan_window_reverts_to_spinbox_mode() -> None:
+    sidebar, _ = _sidebar(LS50_DEVICE)
+    sidebar.settings = replace(sidebar._settings, selected_frames=(1, 3), frame_windows={1: (0.0, 0.0, 1.0, 1.0)})
+
+    sidebar._on_clear_scan_window()
+
+    assert sidebar._settings.selected_frames == ()
+    assert sidebar._settings.frame_windows == {}
+
+
+def test_ui_edit_preserves_dialog_selection() -> None:
+    sidebar, _ = _sidebar(LS50_DEVICE)
+    rect = (0.1, 0.1, 0.5, 0.5)
+    sidebar.settings = replace(sidebar._settings, selected_frames=(1, 2, 4), frame_windows={4: rect})
+
+    sidebar.folder_edit.setText("/tmp/somewhere-else")  # fires _update_settings_from_ui
+
+    assert sidebar._settings.selected_frames == (1, 2, 4)
+    assert sidebar._settings.frame_windows == {4: rect}
 
 
 def test_eject_button_calls_controller() -> None:

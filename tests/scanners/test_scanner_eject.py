@@ -26,6 +26,8 @@ class FakeOption:
     constraint: Any = None
     active: bool = True
     settable: bool = True
+    index: int = 0
+    is_button: bool = False
 
     def is_active(self) -> bool:
         return self.active
@@ -34,34 +36,50 @@ class FakeOption:
         return self.settable
 
 
+class FakeCDev:
+    """Stand-in for the C object python-sane exposes as SaneDev.dev.
+
+    A button is activated here via set_option(index, ...) — the Python wrapper
+    refuses to assign a value to a button.
+    """
+
+    def __init__(self, *, reject: bool = False) -> None:
+        self.reject = reject
+        self.set_option_calls: list[tuple[int, object]] = []
+
+    def set_option(self, index: int, value: object) -> None:
+        if self.reject:
+            raise OSError("device rejected eject")
+        self.set_option_calls.append((index, value))
+
+
 class FakeSaneDev:
     """Mimics python-sane's SaneDev for a coolscan3-like device.
 
-    Setting an attribute that is not a known SANE option raises
-    AttributeError, like python-sane does — so eject() must consult
-    dev.opt before writing, exactly like the codebase's other option
-    writers (dev.frame, dev.autofocus, ...).
+    A value-typed option is set by attribute assignment (recorded); a button
+    option raises "Buttons don't have values" on assignment, exactly like
+    python-sane — so eject() must press it via dev.dev.set_option(index).
     """
 
     def __init__(self, opt_map: dict[str, FakeOption], *, reject_trigger: bool = False) -> None:
         self._opt_map = opt_map
-        self._reject_trigger = reject_trigger
         self.recorded: dict[str, object] = {}
         self.closed = False
         self.close_calls = 0
+        self.dev = FakeCDev(reject=reject_trigger)
 
     @property
     def opt(self) -> dict[str, FakeOption]:
         return self._opt_map
 
     def __setattr__(self, name: str, value: object) -> None:
-        if name in ("_opt_map", "_reject_trigger", "recorded", "closed", "close_calls"):
+        if name in ("_opt_map", "recorded", "closed", "close_calls", "dev"):
             object.__setattr__(self, name, value)
             return
         if name not in self._opt_map:
             raise AttributeError(f"No such SANE option: {name}")
-        if self._reject_trigger:
-            raise OSError("device rejected eject")
+        if self._opt_map[name].is_button:
+            raise AttributeError(f"Buttons don't have values: {name}")
         self.recorded[name] = value
 
     def close(self) -> None:
@@ -94,9 +112,10 @@ def _make_backend(sane_module: FakeSaneModule) -> SaneBackend:
     return backend
 
 
+_EJECT_INDEX = 7
 COOLSCAN3_OPT_WITH_EJECT = {
     "frame": FakeOption(constraint=(1, 40, 1)),
-    "eject": FakeOption(),
+    "eject": FakeOption(index=_EJECT_INDEX, is_button=True),
 }
 COOLSCAN3_OPT_NO_EJECT = {
     "frame": FakeOption(constraint=(1, 40, 1)),
@@ -122,7 +141,8 @@ class TestSaneBackendEject:
         result = backend.eject("coolscan3:usb:libusb:001:007")
 
         assert result is True
-        assert dev.recorded.get("eject") is True
+        assert dev.dev.set_option_calls == [(_EJECT_INDEX, 1)]
+        assert dev.recorded == {}  # a button is pressed, never value-assigned
         assert dev.closed is True
 
     def test_capability_gated_skip_when_device_has_no_eject_option(self) -> None:
@@ -132,12 +152,15 @@ class TestSaneBackendEject:
         result = backend.eject("coolscan3:usb:libusb:001:007")
 
         assert result is False
-        assert dev.recorded == {}
+        assert dev.dev.set_option_calls == []
         assert dev.closed is True  # session hygiene: still opened and closed cleanly
 
     @pytest.mark.parametrize(
         "broken_option",
-        [FakeOption(active=False), FakeOption(settable=False)],
+        [
+            FakeOption(active=False, is_button=True),
+            FakeOption(settable=False, is_button=True),
+        ],
     )
     def test_capability_gated_skip_when_eject_option_is_inactive_or_unsettable(
         self,
@@ -151,7 +174,7 @@ class TestSaneBackendEject:
         result = backend.eject("coolscan3:usb:libusb:001:007")
 
         assert result is False
-        assert dev.recorded == {}
+        assert dev.dev.set_option_calls == []
         assert dev.closed is True
 
     def test_raises_when_a_present_eject_option_rejects_the_trigger(self) -> None:

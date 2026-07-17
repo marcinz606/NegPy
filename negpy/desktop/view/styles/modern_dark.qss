@@ -285,6 +285,23 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0px;
 }
 
+QScrollBar:horizontal {
+    border: none;
+    background: #0D0D0D;
+    height: 10px;
+    margin: 0 0px 0 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background: #333333;
+    min-width: 20px;
+    border-radius: 5px;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
 /* Menus (right-click context menus + dropdowns). Fusion draws no hover state on
    this dark palette, so an item under the cursor looks identical to the rest —
    users can't tell the options are clickable. Give the hovered/selected item a

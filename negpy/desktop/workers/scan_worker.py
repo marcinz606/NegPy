@@ -1,6 +1,6 @@
 import dataclasses
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
@@ -23,15 +23,15 @@ class ScanRequest:
 
 @dataclass(frozen=True)
 class BatchRequest:
-    """A range scan over a roll/strip feeder: frames from..to, one per session."""
+    """Scan an explicit set of frames, one SANE session each, frame-numbered output."""
 
     device_id: str
-    params: ScanParams  # base; frame is overridden per iteration
+    params: ScanParams  # base; frame + window overridden per iteration
     output_folder: str
     filename_pattern: str
     output_format: str
-    frame_from: int
-    frame_to: int
+    frames: tuple[int, ...]
+    frame_windows: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)
 
 
 class ScanWorker(QObject):
@@ -158,7 +158,7 @@ class ScanWorker(QObject):
             self._scanning = True
 
         assertion = acquire_unattended_power_assertion("NegPy film scan batch")
-        frames = list(range(req.frame_from, req.frame_to + 1))
+        frames = list(req.frames)
         total = max(1, len(frames))
         paths: list[str] = []
         outcome: tuple[str, str | None] = ("finished", None)
@@ -168,7 +168,8 @@ class ScanWorker(QObject):
                 if self._cancel_event.is_set():
                     outcome = ("cancelled", None)
                     break
-                frame_params = dataclasses.replace(req.params, frame=frame)
+                window = req.frame_windows.get(frame, req.params.window)
+                frame_params = dataclasses.replace(req.params, frame=frame, window=window)
                 base = index / total
 
                 def _progress(fraction: float, _base: float = base) -> None:
@@ -214,6 +215,10 @@ class ScanWorker(QObject):
             self.cancelled.emit()
         elif kind == "error":
             self.error.emit(payload or "Unknown scan error")
+        elif kind == "finished":
+            # Return the strip so it need not wait for the feeder's auto-park.
+            # Capability-gated no-op on devices without an eject option.
+            self.eject(req.device_id)
 
     @pyqtSlot(ScanRequest)
     def run_preview(self, req: ScanRequest) -> None:

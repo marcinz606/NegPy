@@ -254,6 +254,16 @@ def _find_eject_option(opt) -> str | None:
     return None
 
 
+def _press_button(dev, option) -> None:
+    """Activate a SANE button option.
+
+    python-sane's wrapper raises "Buttons don't have values" on attribute
+    assignment, so a button is pressed at the C layer via set_option(index) —
+    the same path scanimage takes for `--eject`.
+    """
+    dev.dev.set_option(option.index, 1)
+
+
 def _sane_container_depth(requested_depth: int) -> int:
     """The container SANE ships `requested_depth` samples in — 8 or 16 bits.
 
@@ -790,7 +800,7 @@ class SaneBackend:
             if eject_option is None or not _option_is_usable(option_map[eject_option]):
                 triggered = False
             else:
-                setattr(dev, eject_option, True)
+                _press_button(dev, option_map[eject_option])
                 triggered = True
         except Exception as exc:
             try:

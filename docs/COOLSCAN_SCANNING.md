@@ -15,9 +15,10 @@ Pick your scanner from the **Device** dropdown; **Refresh** re-enumerates after 
 one in or load film. NegPy lists only devices that report a film / transparency source.
 
 **Eject** appears beside the device when the scanner exposes an eject control (Coolscan
-feeders do). Use it to release the strip at the end of a session — a Coolscan feeder
-auto-parks a few minutes after a session closes, and a parked feeder needs a power cycle
-to recover mid-roll.
+feeders do). NegPy also returns the strip automatically once a range batch finishes, so you
+seldom need it — but press it any time to release the strip on demand rather than waiting
+for the feeder to auto-park a few minutes after a session closes (a parked feeder needs a
+power cycle to recover mid-roll).
 
 ## Resolution and depth
 
@@ -38,22 +39,28 @@ already scanned stay imported.
 
 A flatbed or a scanner without a frame feeder shows no Frames control and scans once.
 
-## Scan window
+## Scan window and strip preview
 
 When the film's frames sit slightly off the scanner's fixed frame positions, every scan
-picks up the black inter-frame gap and a sliver of the neighbour. **Set scan window…**
-(shown with the Frames control) fixes this: it runs a fast low-resolution preview of one
-frame, and you drag a rectangle over the actual picture area. That one window is reused
-for every frame in the scan or range batch — the offset is constant across a strip, so a
-single window lands them all.
+picks up the black inter-frame gap and a sliver of the neighbour. **Preview strip…** (shown
+with the Frames control) fixes this and more: it previews the strip frame by frame and lets
+you set the picture area per frame and choose exactly which frames to scan.
 
-Drag to draw the window, drag a corner to resize, or drag inside it to move it. **Clear**
-reverts to the scanner's full default frame. The window persists across sessions.
+Each frame gets its own tile. **Preview** scans that one frame at low resolution; **Preview
+all** walks the strip and previews every frame in turn (one at a time — the scanner handles
+a single frame per pass). On a previewed frame, drag to draw its window, drag a corner to
+resize, or drag inside it to move it — each frame keeps its own window. Tick **Scan** on the
+frames you want and leave the rest unticked to skip them (e.g. preview 1–6 but scan only
+1, 2, 4, 6). **Clear all** drops every window (full frames); **Use** applies your choices.
+Windows, selection and offset all persist across sessions.
 
-The dialog also has a **Frame offset (mm)** — a feed-axis nudge applied to every frame.
-Raise it and Preview again to push the inter-frame gap off the top of the frame *without*
-cropping (preferred when the frames are simply shifted, not oversized). Offset and window
-compose: the offset repositions, the window trims. Both persist across sessions.
+A single **Offset** slider (top of the dialog, 0–4 mm) is a feed-axis nudge applied to every
+frame: raise it to push the inter-frame gap off the top *without* cropping (preferred when
+the frames are simply shifted, not oversized), then Preview again to see it. Offset and
+windows compose — the offset repositions, each window trims.
+
+Setting a selection here takes over from the **Frames** range; **Clear all** hands control
+back to the simple from–to range.
 
 ## Autofocus and auto-exposure
 

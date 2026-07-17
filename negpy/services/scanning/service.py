@@ -11,6 +11,18 @@ from negpy.services.scanning.templating import render_scan_filename, require_seq
 
 logger = get_logger(__name__)
 
+_SCAN_IO_RETRY_ATTEMPTS = 2
+_SCAN_IO_RETRY_DELAY_S = 0.5
+# Stable SANE status strings for transport glitches worth one retry (a Coolscan's
+# USB link occasionally hiccups mid-strip). A real error — bad option, missing
+# frame — carries a different message and must fail fast.
+_TRANSIENT_IO_MARKERS = ("error during device i/o", "device busy")
+
+
+def _is_transient_scan_io(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _TRANSIENT_IO_MARKERS)
+
 
 class ScannerService:
     """Orchestrates device enumeration, scan execution, and file writing."""
@@ -49,9 +61,28 @@ class ScannerService:
         params: ScanParams,
         progress: Callable[[float], None],
         cancel: threading.Event,
+        *,
+        retry_delay: float = _SCAN_IO_RETRY_DELAY_S,
     ) -> ScanResult:
+        """Scan, retrying once on a transient USB I/O glitch (fresh open each try)."""
         backend = self._get_backend()
-        return backend.scan(device_id, params, progress, cancel)
+        for attempt in range(1, _SCAN_IO_RETRY_ATTEMPTS + 1):
+            try:
+                return backend.scan(device_id, params, progress, cancel)
+            except Exception as e:
+                if attempt >= _SCAN_IO_RETRY_ATTEMPTS or cancel.is_set() or not _is_transient_scan_io(e):
+                    raise
+                logger.warning(
+                    "Transient scanner I/O on %s (attempt %d/%d), retrying: %s",
+                    device_id,
+                    attempt,
+                    _SCAN_IO_RETRY_ATTEMPTS,
+                    e,
+                )
+                cancel.wait(retry_delay)  # interruptible settle before the retry
+                if cancel.is_set():
+                    raise
+        raise RuntimeError("unreachable")  # pragma: no cover
 
     def write_result(
         self,

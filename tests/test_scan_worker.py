@@ -65,11 +65,18 @@ class _BatchService:
         self.cancel_before = cancel_before
         self.frames: list[int] = []
         self.written_seqs: list[int] = []
+        self.windows: list = []
+        self.eject_calls: list[str] = []
+
+    def eject(self, device_id: str) -> bool:
+        self.eject_calls.append(device_id)
+        return True
 
     def run_scan(self, device_id, params, progress, cancel):
         if self.cancel_before is not None and params.frame == self.cancel_before:
             cancel.set()
         self.frames.append(params.frame)
+        self.windows.append(params.window)
         if self.fail_on is not None and params.frame == self.fail_on:
             raise RuntimeError("frame failed")
         if progress:
@@ -91,15 +98,15 @@ def _scan_request() -> ScanRequest:
     )
 
 
-def _batch_request(frame_from: int = 2, frame_to: int = 4) -> BatchRequest:
+def _batch_request(frames=(2, 3, 4), frame_windows=None) -> BatchRequest:
     return BatchRequest(
         device_id="coolscan3:test",
         params=ScanParams(dpi=4_000, depth=16, capture_ir=False),
         output_folder="/tmp",
         filename_pattern='scan-{{ "%03d" % seq }}',
         output_format="TIFF",
-        frame_from=frame_from,
-        frame_to=frame_to,
+        frames=tuple(frames),
+        frame_windows=frame_windows or {},
     )
 
 
@@ -226,7 +233,7 @@ def test_run_batch_scans_each_frame_and_reports_paths() -> None:
     worker.frame_done.connect(lambda frame, _path: frame_done.append(frame))
     worker.batch_finished.connect(batch_finished.append)
 
-    worker.run_batch(_batch_request(2, 4))
+    worker.run_batch(_batch_request((2, 3, 4)))
 
     assert service.frames == [2, 3, 4]
     assert service.written_seqs == [2, 3, 4]  # frame-numbered, not 1,2,3
@@ -246,7 +253,7 @@ def test_run_batch_stop_between_frames_keeps_completed_frames() -> None:
     worker.batch_finished.connect(batch_finished.append)
     worker.cancelled.connect(lambda: cancelled.append(None))
 
-    worker.run_batch(_batch_request(2, 4))
+    worker.run_batch(_batch_request((2, 3, 4)))
 
     assert service.written_seqs == [2]
     assert frame_done == [2]
@@ -265,11 +272,64 @@ def test_run_batch_error_reports_error_and_keeps_prior_frames() -> None:
     worker.batch_finished.connect(batch_finished.append)
     worker.error.connect(errors.append)
 
-    worker.run_batch(_batch_request(2, 4))
+    worker.run_batch(_batch_request((2, 3, 4)))
 
     assert frame_done == [2]
     assert batch_finished == [["/tmp/frame_002.tif"]]
     assert errors == ["frame failed"]
+
+
+def test_run_batch_auto_returns_film_after_a_clean_batch() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+
+    worker.run_batch(_batch_request((2, 3, 4)))
+
+    assert service.eject_calls == ["coolscan3:test"]
+
+
+def test_run_batch_does_not_eject_when_stopped() -> None:
+    worker = ScanWorker()
+    service = _BatchService(cancel_before=3)
+    worker._service = service  # type: ignore[assignment]
+
+    worker.run_batch(_batch_request((2, 3, 4)))
+
+    assert service.eject_calls == []
+
+
+def test_run_batch_does_not_eject_on_error() -> None:
+    worker = ScanWorker()
+    service = _BatchService(fail_on=3)
+    worker._service = service  # type: ignore[assignment]
+
+    worker.run_batch(_batch_request((2, 3, 4)))
+
+    assert service.eject_calls == []
+
+
+def test_run_batch_scans_an_explicit_frame_subset() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+
+    worker.run_batch(_batch_request((1, 2, 4, 6)))
+
+    assert service.frames == [1, 2, 4, 6]
+    assert service.written_seqs == [1, 2, 4, 6]
+
+
+def test_run_batch_applies_per_frame_windows_falling_back_to_base() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    w2 = (0.1, 0.1, 0.5, 0.5)
+    w4 = (0.2, 0.2, 0.6, 0.6)
+
+    worker.run_batch(_batch_request((2, 3, 4), frame_windows={2: w2, 4: w4}))
+
+    assert service.windows == [w2, None, w4]  # frame 3 has no window → base (None)
 
 
 class _Result:
