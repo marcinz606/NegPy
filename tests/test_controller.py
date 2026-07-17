@@ -603,6 +603,8 @@ class TestAppController(unittest.TestCase):
             PolygonMask(vertices=verts, strength=-0.3, feather=0.02),
         )
         self.controller.state.config = replace(self.controller.state.config, local=LocalAdjustmentsConfig(masks=masks))
+        # Hidden-mask state is keyed by the open file's hash; give the tests one.
+        self.controller.state.current_file_hash = "hashA"
 
     def test_set_local_mask_visible_toggles_hidden_set(self):
         self._seed_two_masks()
@@ -610,6 +612,43 @@ class TestAppController(unittest.TestCase):
         self.controller.set_local_mask_visible(1, False)
         self.assertEqual(self.controller.state.local_hidden_masks, {1})
         self.controller.set_local_mask_visible(1, True)
+        self.assertEqual(self.controller.state.local_hidden_masks, set())
+
+    def test_hidden_masks_persist_per_file_hash(self):
+        self._seed_two_masks()
+        self.controller.canvas = None
+        self.controller.state.current_file_hash = "hashA"
+        self.controller.set_local_mask_visible(1, False)
+        self.assertEqual(self.controller.state.local_hidden_masks_by_hash["hashA"], {1})
+
+        # Simulate switching away: another file's set is independent.
+        self.controller.state.current_file_hash = "hashB"
+        self.controller.state.local_hidden_masks = set()
+        self.controller.set_local_mask_visible(0, False)
+        self.assertEqual(self.controller.state.local_hidden_masks_by_hash["hashB"], {0})
+        self.assertEqual(self.controller.state.local_hidden_masks_by_hash["hashA"], {1})
+
+    def test_hidden_masks_cleared_hash_is_pruned(self):
+        self._seed_two_masks()
+        self.controller.canvas = None
+        self.controller.state.current_file_hash = "hashA"
+        self.controller.set_local_mask_visible(1, False)
+        self.controller.set_local_mask_visible(1, True)
+        self.assertNotIn("hashA", self.controller.state.local_hidden_masks_by_hash)
+
+    def test_hidden_masks_clamped_when_mask_count_shrinks(self):
+        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+
+        self._seed_two_masks()  # 2 masks under hashA
+        self.controller.canvas = None
+        self.controller.set_local_mask_visible(1, False)
+        self.assertEqual(self.controller.state.local_hidden_masks, {1})
+
+        # Simulate an undo/redo/jump that swaps in a config with fewer masks: the stored
+        # index 1 now points past the end and must be dropped from the returned set.
+        verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
+        one_mask = (PolygonMask(vertices=verts, strength=0.3, feather=0.02),)
+        self.controller.state.config = replace(self.controller.state.config, local=LocalAdjustmentsConfig(masks=one_mask))
         self.assertEqual(self.controller.state.local_hidden_masks, set())
 
     def test_delete_local_mask_confirmed_remaps_view_indices(self):

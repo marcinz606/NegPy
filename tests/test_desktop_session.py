@@ -905,6 +905,29 @@ class TestRollActionRecoveryRoundTrip(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_hidden_masks_survive_restart(self):
+        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+
+        # hash1 has two masks on disk; index 1 is hidden. The property clamps against the
+        # hydrated mask list, so persistence only "counts" if that config reloads too.
+        verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
+        two_masks = (PolygonMask(vertices=verts), PolygonMask(vertices=verts, strength=-0.3))
+        cfg = replace(WorkspaceConfig(), local=LocalAdjustmentsConfig(masks=two_masks))
+        self.repo.save_file_settings("hash1", cfg, file_path=self.session.state.uploaded_files[0]["path"])
+
+        self.session.state.local_hidden_masks_by_hash = {"hash1": {1}, "hash2": set()}
+        self.session.persist_hidden_masks()
+
+        # A fresh manager on the same repo simulates an app restart.
+        restarted = DesktopSessionManager(self.repo)
+        self.assertEqual(restarted.state.local_hidden_masks_by_hash, {"hash1": {1}})
+
+        restarted.state.uploaded_files = self.session.state.uploaded_files
+        restarted.select_file(0)
+        self.assertEqual(restarted.state.local_hidden_masks, {1})
+        restarted.select_file(1)
+        self.assertEqual(restarted.state.local_hidden_masks, set())
+
     def test_sync_then_undo_restores_target(self):
         target_before = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, density=2.0))
         self.repo.save_file_settings("hash2", target_before, file_path=self.session.state.uploaded_files[1]["path"])

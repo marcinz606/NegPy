@@ -98,8 +98,11 @@ class AppState:
 
     # Local adjustments UI state (not persisted in workspace config)
     local_selected_mask: int = -1
-    # Indices of masks whose outline is hidden on the canvas; empty = all shown.
-    local_hidden_masks: set = field(default_factory=set)
+    # Per-file sets of mask indices whose outline is hidden on the canvas (keyed by
+    # content hash; empty/absent = all shown). Persisted as the "hidden_masks_by_hash"
+    # global setting (written through on every toggle) and reloaded on launch. Read the
+    # current file's set via the local_hidden_masks property below.
+    local_hidden_masks_by_hash: dict = field(default_factory=dict)
 
     # History tracking
     undo_index: int = 0
@@ -123,6 +126,27 @@ class AppState:
     flat_format: str = "TIFF"  # "TIFF" (16-bit) or "DNG" (linear)
     # Transient: preview is currently peeking the flat render (not persisted).
     flat_peek: bool = False
+
+    @property
+    def local_hidden_masks(self) -> set:
+        """The current file's hidden-mask indices (empty = all shown). Returns a fresh,
+        clamped copy: indices outside the current mask list are dropped, so a config swap
+        that shrinks the mask count (undo/redo/jump-to-step) can't leave stale entries
+        pointing past the end. Assign a set to update the current file's stored entry."""
+        stored = self.local_hidden_masks_by_hash.get(self.current_file_hash, ())
+        n = len(self.config.local.masks)
+        return {i for i in stored if 0 <= i < n}
+
+    @local_hidden_masks.setter
+    def local_hidden_masks(self, value: set) -> None:
+        h = self.current_file_hash
+        if h is None:
+            return
+        # Keep the store free of empty sets so "all shown" is a missing key, not {}.
+        if value:
+            self.local_hidden_masks_by_hash[h] = set(value)
+        else:
+            self.local_hidden_masks_by_hash.pop(h, None)
 
 
 class AssetListModel(QAbstractListModel):
@@ -457,6 +481,13 @@ class DesktopSessionManager(QObject):
         if saved_invert_zoom is not None:
             self.state.invert_zoom_scroll = bool(saved_invert_zoom)
 
+        # Per-file mask hide-state (hash -> hidden indices); JSON stores sets as lists.
+        saved_hidden = self.repo.get_global_setting("hidden_masks_by_hash")
+        if isinstance(saved_hidden, dict):
+            self.state.local_hidden_masks_by_hash = {
+                h: {int(i) for i in idxs} for h, idxs in saved_hidden.items() if isinstance(idxs, list) and idxs
+            }
+
         saved_icc_in = self.repo.get_global_setting("icc_input_path")
         if saved_icc_in and os.path.exists(saved_icc_in):
             self.state.icc_input_path = saved_icc_in
@@ -779,9 +810,6 @@ class DesktopSessionManager(QObject):
 
             self.state.config, self.state.current_file_is_new = self._hydrate_asset_config(file_info)
 
-            # Mask hide-state is keyed by index into this file's masks; the swap invalidates it.
-            self.state.local_hidden_masks = set()
-
             self.file_selected.emit(file_info["path"])
             self.state_changed.emit()
             self._persist_session()
@@ -1039,6 +1067,15 @@ class DesktopSessionManager(QObject):
 
             self.update_config(copy.deepcopy(self.state.clipboard), persist=True)
             self.settings_pasted.emit()
+
+    def persist_hidden_masks(self) -> None:
+        """Writes the per-file mask hide-state through to settings so it survives restarts.
+        Call after any change to local_hidden_masks_by_hash (the AppState setter keeps it
+        free of empty sets; the `if s` filter here is just defensive)."""
+        self.repo.save_global_setting(
+            "hidden_masks_by_hash",
+            {h: sorted(s) for h, s in self.state.local_hidden_masks_by_hash.items() if s},
+        )
 
     def _persist_session(self) -> None:
         """Saves the open-file manifest (paths + active) for restore on next launch."""
