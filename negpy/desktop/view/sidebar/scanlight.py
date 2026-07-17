@@ -1330,8 +1330,11 @@ class ScanlightSidebar(QWidget):
         self._light_has_white = status.get("light_has_white", True)  # RGB-only Scanlights (v1-v3) have no white LED
         self._set_rgb_mode(status["light_ok"])  # Scanlight present → RGB scanning; absent → normal white-light
         self._refresh_light_channels()  # show/hide the W slider + white preset for the connected model
-        self._camera_verified = bool(status["usb_ok"])
-        self._set_cam_status(self._camera_verified, status["usb_model"])
+        claimed = bool(status.get("usb_claimed_elsewhere"))
+        # A body another app holds the claim on is present but not usable: gate Scan/Calibrate
+        # as if it were absent, and let the dot say why instead of a healthy green.
+        self._camera_verified = bool(status["usb_ok"]) and not claimed
+        self._set_cam_status(bool(status["usb_ok"]), status["usb_model"], claimed_elsewhere=claimed)
         if self._camera_verified and not was_verified:
             self._set_status("")  # just connected → drop any stale failure line
         elif was_verified and not self._camera_verified and self.lv_btn.isChecked():
@@ -1355,8 +1358,16 @@ class ScanlightSidebar(QWidget):
             self.light_temp.setText("")  # no light / no telemetry yet / RGB-only (no sensor)
             self.light_temp.hide()  # hide the widget entirely so no dark placeholder box lingers
 
-    def _set_cam_status(self, ok: bool, model: str) -> None:
-        """Camera dot: '● Camera (USB)' when a body answered, '● Camera' when none did."""
+    def _set_cam_status(self, ok: bool, model: str, claimed_elsewhere: bool = False) -> None:
+        """Camera dot: '● Camera (USB)' when a body answered, '● Camera' when none did — and
+        '● Camera (in use)' when it sits on the bus but another program holds its USB claim
+        (macOS hands it to Preview/Photos/Image Capture the moment one of them opens). The
+        enumeration behind the dot cannot see a claim, so without this state the dot showed a
+        healthy green while every live-view/scan attempt failed."""
+        if claimed_elsewhere:
+            self._set_conn_status(self.cam_status, False, "Camera (in use)", "Another app is using the camera — close Preview, Photos and Image Capture, then try again")
+            self._conn_hint.setVisible(False)  # "plug it in" would be wrong advice; the dot says what to do
+            return
         short = "Camera (USB)" if ok else "Camera"
         if ok:
             detail = f"Camera: {model} (USB)" if model else "Camera connected (USB)"

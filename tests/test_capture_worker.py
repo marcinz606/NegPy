@@ -162,3 +162,71 @@ def test_calibration_uses_disposable_scratch_without_touching_roll(tmp_path, mon
     assert FakeCalibrationService.written_path is not None
     assert not FakeCalibrationService.written_path.exists()
     assert not FakeCalibrationService.written_path.parent.exists()
+
+
+class ClaimedCamera:
+    """A body on the bus whose USB claim another program holds (gphoto -53)."""
+
+    def __init__(self) -> None:
+        self.open_calls = 0
+
+    def is_open(self) -> bool:
+        return False
+
+    def open(self) -> None:
+        self.open_calls += 1
+        from negpy.infrastructure.capture.gphoto import CameraClaimedError
+
+        raise CameraClaimedError(
+            "could not open the camera: [-53] Could not claim the USB device. Close Preview, Photos and Image Capture, then retry."
+        )
+
+    def close(self) -> None:
+        pass
+
+
+def test_poll_reports_a_camera_claimed_by_another_app(monkeypatch):
+    # macOS hands the body to Preview/Photos/Image Capture the moment one of them opens.
+    # Enumeration still succeeds, so the camera dot showed a healthy "connected" while every
+    # open failed with -53 — the poll must surface the claim so the UI can say what to do.
+    import negpy.desktop.workers.capture_worker as capture_worker_module
+
+    worker = CaptureWorker()
+    worker._camera = ClaimedCamera()
+    with pytest.raises(Exception):
+        worker._acquire_camera()  # as any live-view/scan/calibration attempt would
+
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    monkeypatch.setattr(worker, "_ensure_light", lambda _port: (_ for _ in ()).throw(RuntimeError("no light")))
+    seen: list[dict] = []
+    worker.poll_status.connect(seen.append)
+    worker.poll_connection("")
+    assert seen and seen[0]["usb_ok"] is True
+    assert seen[0]["usb_claimed_elsewhere"] is True
+
+    # The body leaving the bus clears the verdict — the situation has changed.
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [])
+    worker.poll_connection("")
+    monkeypatch.setattr(capture_worker_module, "list_cameras", lambda: [{"model": "USB PTP Class Camera"}])
+    worker.poll_connection("")
+    assert seen[-1]["usb_claimed_elsewhere"] is False
+
+
+def test_successful_open_clears_the_claimed_state(monkeypatch):
+    class OpensFine:
+        model = "ILCE-7CM2"
+
+        def is_open(self) -> bool:
+            return False
+
+        def open(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    worker = CaptureWorker()
+    worker._claimed_elsewhere = True  # left over from a failed attempt
+    worker._camera = OpensFine()
+    worker._acquire_camera()
+    assert worker._claimed_elsewhere is False

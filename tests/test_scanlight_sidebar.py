@@ -24,12 +24,13 @@ def _sidebar():
     return ScanlightSidebar(ctrl)
 
 
-def _poll(usb_ok=False, usb_model="", light_ok=True, light_detail="fw"):
+def _poll(usb_ok=False, usb_model="", light_ok=True, light_detail="fw", usb_claimed_elsewhere=False):
     return {
         "usb_ok": usb_ok,
         "usb_model": usb_model,
         "light_ok": light_ok,
         "light_detail": light_detail,
+        "usb_claimed_elsewhere": usb_claimed_elsewhere,
     }
 
 
@@ -479,6 +480,22 @@ def test_poll_finds_usb_camera_marks_green():
     assert w._camera_verified and w._light_verified
     assert not w._conn_poll_inflight  # cleared so the next tick can run
     assert "USB" in w.cam_status.text()  # transport shown in the label
+
+
+def test_poll_camera_claimed_by_another_app_says_so_and_gates(monkeypatch):
+    # macOS hands the body to Preview/Photos/Image Capture the moment one opens; the bus
+    # listing still succeeds, so the dot used to show a healthy green while every open failed
+    # with -53 and the only clue was a transient error line. The dot must say what to do,
+    # and the camera must gate as unusable until the claim clears.
+    w = _sidebar()
+    w._on_poll_status(_poll(usb_ok=True, usb_model="USB PTP Class Camera", usb_claimed_elsewhere=True))
+    assert not w._camera_verified  # present but unusable → Scan/Calibrate stay gated
+    assert "in use" in w.cam_status.text()
+    assert "close Preview, Photos and Image Capture" in w.cam_status.toolTip()
+    # The claim clearing (next successful open / re-plug) restores the normal green dot.
+    w._on_poll_status(_poll(usb_ok=True, usb_model="ILCE-7CM2"))
+    assert w._camera_verified
+    assert "USB" in w.cam_status.text()
 
 
 def test_disconnect_during_live_view_closes_the_preview():

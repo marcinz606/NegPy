@@ -13,7 +13,7 @@ from typing import Optional
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.infrastructure.capture.base import CaptureSettings
-from negpy.infrastructure.capture.gphoto import CameraUnavailable, GphotoCamera, list_cameras
+from negpy.infrastructure.capture.gphoto import CameraClaimedError, CameraUnavailable, GphotoCamera, list_cameras
 from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.kernel.system.logging import get_logger
@@ -94,6 +94,10 @@ class CaptureWorker(QObject):
         # Held open across frames; closed on error and at shutdown.
         self._camera: Optional[GphotoCamera] = None
         self._model = ""
+        # True after an open failed because another program holds the USB claim; drives the
+        # "in use by another app" camera status. Cleared on a successful open or when the
+        # body leaves the bus (the situation has changed either way).
+        self._claimed_elsewhere = False
 
     # ----- camera session (one per body, held open) -----
 
@@ -102,7 +106,15 @@ class CaptureWorker(QObject):
         if self._camera is None:
             self._camera = GphotoCamera()
         if not self._camera.is_open():
-            self._camera.open()
+            try:
+                self._camera.open()
+            except CameraClaimedError:
+                # Another program holds the USB claim (macOS: Preview/Photos/Image Capture).
+                # Remember it for the connection poll: the bus listing still succeeds, so
+                # without this the camera dot would keep showing a healthy "connected".
+                self._claimed_elsewhere = True
+                raise
+            self._claimed_elsewhere = False
             self._model = self._camera.model
         return self._camera
 
@@ -273,7 +285,14 @@ class CaptureWorker(QObject):
         """Lightweight presence check for the auto-connect UI: is a body enumerated, and is
         the light up? Off the UI thread; called on a timer. Enumerating does not claim the
         camera, so this is safe to run while live view streams."""
-        status = {"usb_ok": False, "usb_model": "", "light_ok": False, "light_detail": "not connected", "light_has_white": True}
+        status = {
+            "usb_ok": False,
+            "usb_model": "",
+            "light_ok": False,
+            "light_detail": "not connected",
+            "light_has_white": True,
+            "usb_claimed_elsewhere": False,
+        }
         try:
             # Always ask the bus, never our own handle: unplugging the camera leaves the
             # handle behind, and it would keep reporting "connected" forever. Enumerating
@@ -281,9 +300,15 @@ class CaptureWorker(QObject):
             found = list_cameras()
             if found:
                 status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
-            elif self._camera is not None:
-                logger.info("camera disappeared from the bus — dropping the session")
-                self._close_camera()
+                # A body on the bus that refused our last open (another app holds the claim)
+                # is not usable — surface that instead of a healthy "connected" dot. Cleared
+                # by the next successful open; re-plugging clears it below.
+                status["usb_claimed_elsewhere"] = self._claimed_elsewhere
+            else:
+                self._claimed_elsewhere = False  # body gone — the stale claim verdict with it
+                if self._camera is not None:
+                    logger.info("camera disappeared from the bus — dropping the session")
+                    self._close_camera()
         except CameraUnavailable as e:
             status["usb_model"] = str(e)
         except Exception:
