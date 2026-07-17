@@ -99,6 +99,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_aspect_ratio": "1:1",
             "last_autocrop_offset": 7,
             "last_auto_exposure": True,
+            "last_narrowband_scan": True,
         }
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
         asset = {"name": "fresh.dng", "path": "/roll/fresh.dng", "hash": "fresh-hash"}
@@ -109,6 +110,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(config.exposure.density, defaults.exposure.density)
         self.assertEqual(config.lab.saturation, defaults.lab.saturation)
         self.assertTrue(config.exposure.auto_exposure)
+        self.assertTrue(config.process.narrowband_scan)
         self.assertEqual(config.process.process_mode, "E-6")
         self.assertEqual(config.geometry.autocrop_ratio, "1:1")
         self.assertEqual(config.geometry.autocrop_offset, 7)
@@ -165,6 +167,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertIn("last_export_config", saved)
         self.assertIn("last_dust_remove", saved)
         self.assertIn("last_true_black", saved)
+        self.assertIn("last_narrowband_scan", saved)
         self.assertIn("last_protect_original_metadata", saved)
         self.assertIn("last_cast_removal_strength", saved)
 
