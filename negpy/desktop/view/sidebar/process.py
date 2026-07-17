@@ -96,8 +96,8 @@ class ProcessSidebar(BaseSidebar):
             "mdi6.led-strip-variant",
             "Narrowband",
             conf.narrowband_scan,
-            "Correct narrowband RGB camera scans with the bundled RGBScan input profile "
-            "(preview and export). An explicit Input ICC in Export settings overrides it",
+            "Correct narrowband RGB scans oversaturation with the bundled input profile "
+            "An explicit Input ICC in Export settings overrides it",
         )
         raw_row = QHBoxLayout()
         raw_row.addWidget(self.linear_raw_btn, 1)
