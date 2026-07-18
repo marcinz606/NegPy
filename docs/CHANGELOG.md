@@ -3,6 +3,9 @@
 
 ## Unreleased
 
+- Change: **Auto Grade prints a touch punchier** — the target contrast is up slightly, and Auto Grade now adapts twice as strongly to how much range a frame actually holds, so flat negatives get more help and contrasty ones get less. Frames using Auto Grade will render a little different.
+- Fix: **The H&D chart shows where zero is** — the analysis curve's grid stopped short of the axes, so a curve flat at black looked like it hovered above the bottom of the plot instead of sitting on it. The 0 and 1 grid lines are now drawn.
+
 
 ## 0.38.0
 

@@ -237,11 +237,11 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Auto Grade nominal-frame contrast = auto_grade_target * auto_grade_nominal_ratio.
     # Target contrast multiplier for Auto Grade: effective_range = this · blend(nominal, measured_ratio).
     # ↑ aims for higher printed contrast across all frames; ↓ targets lower contrast.
-    "auto_grade_target": 0.55,
+    "auto_grade_target": 0.6,
     # Auto Grade adaptation strength (partial slope normalization): 0 = fixed, 1 = full.
     # How strongly Auto Grade adapts slope to scene range (0 = ignore scene, 1 = fully normalize).
     # ↑ grade changes more aggressively with scene contrast variation; ↓ closer to a fixed grade.
-    "auto_grade_strength": 0.3,
+    "auto_grade_strength": 0.6,
     # Canonical floor_ceil/textural ratio of a normal tone distribution (~2.0); default-range fallback.
     # Reference floor_ceil/textural ratio for a "normal" negative (used as Auto Grade blend anchor).
     # ↑ system treats denser negatives as normal (grades down harder frames); ↓ expects flatter negatives.
