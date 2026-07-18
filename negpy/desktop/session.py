@@ -770,7 +770,7 @@ class DesktopSessionManager(QObject):
 
     def _hydrate_asset_config(self, asset: dict) -> tuple[WorkspaceConfig, bool]:
         """Build an asset's effective config and report whether it had saved edits."""
-        saved_config = load_or_promote(self.repo, asset["hash"], asset["path"])
+        saved_config = load_or_promote(self.repo, asset["hash"], asset["path"], half=int(asset.get("half") or 0))
         is_new = saved_config is None
         if saved_config is not None:
             config = self._apply_sticky_settings(saved_config, only_global=True)
@@ -1113,7 +1113,12 @@ class DesktopSessionManager(QObject):
         if validated_info:
             for info in validated_info:
                 same_path_idx = next(
-                    (i for i, existing in enumerate(self.state.uploaded_files) if existing["path"] == info["path"]),
+                    (
+                        i
+                        for i, existing in enumerate(self.state.uploaded_files)
+                        # half-frame assets share a path — match per half
+                        if existing["path"] == info["path"] and existing.get("half") == info.get("half")
+                    ),
                     None,
                 )
                 if same_path_idx is not None:

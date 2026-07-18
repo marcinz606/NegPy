@@ -114,6 +114,7 @@ class AssetDiscoveryTask:
     supported_extensions: tuple[str, ...]
     rgb_scan: bool = False  # Group discovered files into R/G/B triplets (one asset per frame).
     restore_triplets: dict | None = None  # {red_path: [green, blue]} — rebuild known triplets (session restore).
+    half_frame: bool = False  # Expand each file into two half-frame assets (left/right).
 
 
 @dataclass(frozen=True)
@@ -302,6 +303,8 @@ class AssetDiscoveryWorker(QObject):
                         discovered_paths.append(path)
             except Exception as e:
                 logger.error(f"Discovery error for {path}: {e}")
+        # Half-frame re-discovery passes both halves' (identical) paths — hash once.
+        discovered_paths = list(dict.fromkeys(discovered_paths))
 
         total = len(discovered_paths)
         valid_assets = []
@@ -322,7 +325,26 @@ class AssetDiscoveryWorker(QObject):
         elif task.rgb_scan and valid_assets:
             valid_assets = self._group_rgb_triplets(valid_assets)
 
+        if task.half_frame and valid_assets:
+            valid_assets = self._expand_half_frames(valid_assets)
+
         self.finished.emit(valid_assets)
+
+    def _expand_half_frames(self, assets: list) -> list:
+        """Expand each file into two half-frame assets sharing the path, with
+        per-half hash/name identities. Triplet assets stay whole (unsupported combo)."""
+        from negpy.services.assets.half_frame import detect_split_x_for_file, half_hash, half_name
+
+        out = []
+        for i, a in enumerate(assets):
+            if a.get("green_path"):
+                out.append(a)
+                continue
+            self.progress.emit(i + 1, len(assets), f"Split {a['name']}")
+            split_x = detect_split_x_for_file(a["path"])
+            for half in (1, 2):
+                out.append({**a, "name": half_name(a["name"], half), "hash": half_hash(a["hash"], half), "half": half, "split_x": split_x})
+        return out
 
     def _attach_restored_triplets(self, assets: list, triplets: dict) -> list:
         """Re-attach saved green/blue exposures to restored red assets (no reclassification)."""
@@ -536,13 +558,15 @@ class BatchAutoCropWorker(QObject):
             self.cancelled.emit()
 
     def _decode(self, frame: BatchAutoCropInput, workspace_color_space: str) -> np.ndarray:
+        from negpy.services.assets.half_frame import base_hash, slice_for_asset
+
         file_info = frame.file_info
         config = frame.config
         rgbscan = config.rgbscan
         common = {
             "use_camera_wb": not config.process.linear_raw,
             "full_resolution": False,
-            "file_hash": file_info.get("hash"),
+            "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
         }
         if rgbscan.enabled and rgbscan.green_path and rgbscan.blue_path:
             raw, _, _ = self._preview_service.load_linear_preview_rgb(
@@ -559,7 +583,7 @@ class BatchAutoCropWorker(QObject):
                 workspace_color_space,
                 **common,
             )
-        return raw
+        return slice_for_asset(raw, file_info)
 
     @pyqtSlot(BatchAutoCropTask)
     def process(self, task: BatchAutoCropTask) -> None:
@@ -691,6 +715,7 @@ class NormalizationWorker(QObject):
         from negpy.domain.interfaces import PipelineContext
         from negpy.features.exposure.normalization import analyze_log_exposure_bounds, resolve_crosstalk_matrix
         from negpy.features.geometry.processor import GeometryProcessor
+        from negpy.services.assets.half_frame import base_hash, slice_for_asset
 
         self._cancel.clear()
         total = len(task.files)
@@ -727,8 +752,9 @@ class NormalizationWorker(QObject):
                         task.workspace_color_space,
                         not linear_raw,  # use_camera_wb
                         False,  # full_resolution
-                        f_info.get("hash"),
+                        base_hash(f_info.get("hash")),  # halves share one decode
                     )
+                    raw = slice_for_asset(raw, f_info)
 
                     ctx = PipelineContext(
                         original_size=(raw.shape[1], raw.shape[0]),

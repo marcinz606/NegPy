@@ -66,7 +66,12 @@ def resolve_export_naming(task: ExportTask) -> tuple[str, str, str]:
     both conflict detection and the actual write, so they can never disagree."""
     out_dir = resolve_export_dir(task)
     ext = _EXT.get(task.export_settings.export_fmt, "jpg")
-    filename = render_export_filename(task.file_info["path"], task.export_settings, border_size=task.params.finish.border_size)
+    filename = render_export_filename(
+        task.file_info["path"],
+        task.export_settings,
+        border_size=task.params.finish.border_size,
+        half=int(task.file_info.get("half") or 0),
+    )
     return out_dir, filename, ext
 
 
@@ -124,6 +129,8 @@ class ExportWorker(QObject):
                     prefer_gpu=task.gpu_enabled,
                     bounds_override=task.bounds_override,
                     working_color_space=task.working_color_space,
+                    half=int(task.file_info.get("half") or 0),
+                    split_x=float(task.file_info.get("split_x") or 0.5),
                 )
 
                 if not bits:
@@ -209,6 +216,8 @@ class ExportWorker(QObject):
                     working_color_space=task.working_color_space,
                     # half-size decode is visually identical at ~600px proof tiles
                     fast_decode=True,
+                    half=int(task.file_info.get("half") or 0),
+                    split_x=float(task.file_info.get("split_x") or 0.5),
                 )
                 if tile is not None:
                     tiles.append(tile)

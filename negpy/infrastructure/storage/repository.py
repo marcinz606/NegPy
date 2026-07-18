@@ -210,8 +210,10 @@ class StorageRepository(IRepository):
         if not file_path:
             return None
         with self._connect(self.edits_db_path) as conn:
+            # Half-frame rows ('<hash>#<n>') share the scan's path; rehoming one onto
+            # the whole-file identity would steal that half's edit — exclude them.
             cursor = conn.execute(
-                "SELECT file_hash, settings_json FROM file_settings WHERE file_path = ?",
+                "SELECT file_hash, settings_json FROM file_settings WHERE file_path = ? AND file_hash NOT LIKE '%#%'",
                 (file_path,),
             )
             row = cursor.fetchone()

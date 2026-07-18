@@ -48,6 +48,7 @@ from negpy.domain.models import (
     preset_from_export_config,
     resolve_preset_export,
 )
+from negpy.services.assets.half_frame import base_hash, slice_half
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
@@ -124,6 +125,7 @@ class _DiscoveryRequest:
     replace_existing: bool
     reselect_path: Optional[str]
     rgb_scan: bool
+    half_frame: bool
 
 
 def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
@@ -645,6 +647,7 @@ class AppController(QObject):
             replace_existing=replace_existing,
             reselect_path=reselect_path,
             rgb_scan=bool(self.session.repo.get_global_setting("rgbscan_mode", False)),
+            half_frame=bool(self.session.repo.get_global_setting("half_frame_mode", False)),
         )
         if self._discovery_running:
             self._pending_asset_discoveries.append(request)
@@ -676,6 +679,7 @@ class AppController(QObject):
             supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS),
             rgb_scan=request.rgb_scan,
             restore_triplets=request.restore_triplets,
+            half_frame=request.half_frame,
         )
         self.asset_discovery_requested.emit(task)
 
@@ -699,6 +703,21 @@ class AppController(QObject):
                 replace(self.state.config, process=replace(self.state.config.process, narrowband_scan=True)), persist=True
             )
             self.request_render()
+        paths: List[str] = []
+        for f in files:
+            paths.append(f["path"])
+            for k in ("green_path", "blue_path"):
+                if f.get(k):
+                    paths.append(f[k])
+        self.request_asset_discovery(paths, replace_existing=True, reselect_path=self.state.current_file_path)
+
+    def set_half_frame_mode(self, enabled: bool) -> None:
+        """Persist the half-frame toggle and re-discover already-loaded assets so the
+        mode splits/collapses frames in place (not only on the next folder load)."""
+        self.session.repo.save_global_setting("half_frame_mode", bool(enabled))
+        files = self.session.state.uploaded_files
+        if not files:
+            return
         paths: List[str] = []
         for f in files:
             paths.append(f["path"])
@@ -786,6 +805,17 @@ class AppController(QObject):
                 return f.get("hash")
         return None
 
+    def _active_half(self) -> Optional[tuple[int, float]]:
+        """(half, split_x) of the active asset, or None for whole-frame assets."""
+        h = self.state.current_file_hash
+        if not h:
+            return None
+        for f in self.state.uploaded_files:
+            if f.get("hash") == h:
+                half = int(f.get("half") or 0)
+                return (half, float(f.get("split_x") or 0.5)) if half else None
+        return None
+
     def _render_memo_key(self) -> str:
         """Identity of everything that shapes the displayed render of the current
         config: the edit itself plus every display-path input. Any mismatch is a
@@ -864,7 +894,7 @@ class AppController(QObject):
                 workspace_color_space=self.state.workspace_color_space,
                 use_camera_wb=not self.state.config.process.linear_raw,
                 full_resolution=self.state.hq_preview,
-                file_hash=self._file_hash_for_path(file_path),
+                file_hash=base_hash(self._file_hash_for_path(file_path)),  # halves share the per-file decode cache
                 # A memoized frame is already painted — the embedded-JPEG splash
                 # would repaint stale pixels over it.
                 use_splash=memo is None,
@@ -879,9 +909,27 @@ class AppController(QObject):
             )
         )
 
+    def _split_active_half(self, raw: Any, dims: Any) -> tuple[Any, Any]:
+        """Slice a full-frame decode/splash down to the active half asset (no-op otherwise).
+
+        Both halves decode identically, so slicing by the current selection is safe
+        even for a stale same-path load; cached buffers are read-only, hence the copy.
+        """
+        half_info = self._active_half()
+        if half_info is None:
+            return raw, dims
+        half, split_x = half_info
+        raw = np.ascontiguousarray(slice_half(raw, half, split_x))
+        if dims is not None:
+            h0, w0 = dims
+            xs = min(max(int(round(w0 * split_x)), 1), w0 - 1)
+            dims = (h0, xs) if half == 1 else (h0, w0 - xs)
+        return raw, dims
+
     def _on_splash_preview(self, file_path: str, raw: Any, dims: Any) -> None:
         if self._requested_file_path != file_path:
             return
+        raw, dims = self._split_active_half(raw, dims)
         self.state.original_res = dims
         # Paint the embedded sRGB thumbnail directly — no pipeline; the real render replaces it.
         with self.state.metrics_lock:
@@ -907,6 +955,9 @@ class AppController(QObject):
             (time.perf_counter() - self._preview_load_t0) * 1000,
             file_path,
         )
+        raw, dims = self._split_active_half(raw, dims)
+        if ir_preview is not None:
+            ir_preview, _ = self._split_active_half(ir_preview, None)
         self.state.preview_raw = raw
         self.state.preview_ir = ir_preview
         self.state.has_ir = ir_preview is not None
@@ -946,7 +997,7 @@ class AppController(QObject):
                         # Half-size only: a full-res HQ neighbour (~720MB) evicts the
                         # active buffer; the cache key separates resolutions.
                         full_resolution=False,
-                        file_hash=h,
+                        file_hash=base_hash(h),
                         use_splash=False,
                         for_cache_warm=True,
                     )
@@ -2674,9 +2725,10 @@ class AppController(QObject):
         repo = self.session.repo
         written = 0
         for f in files:
-            params = load_or_promote(repo, f["hash"], f["path"]) or self.state.config
+            half = int(f.get("half") or 0)
+            params = load_or_promote(repo, f["hash"], f["path"], half=half) or self.state.config
             try:
-                write_sidecar(f["path"], params)
+                write_sidecar(f["path"], params, half=half)
                 written += 1
             except Exception as exc:
                 logger.warning("Sidecar write failed for %s: %s", f.get("path"), exc)

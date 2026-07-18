@@ -40,6 +40,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _rgbscan(w: "MainWindow") -> Optional[QWidget]:
         return w.session_panel.file_browser.rgb_scan_btn
 
+    def _half_frame(w: "MainWindow") -> Optional[QWidget]:
+        return w.session_panel.file_browser.half_frame_btn
+
     def _flatfield(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.flatfield_sidebar.enable_btn
 
@@ -134,6 +137,21 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "run through the normal conversion."
             ),
             target=_rgbscan,
+        ),
+        TutorialStep(
+            title="Half Frame — Two Photos per Scan",
+            body=(
+                "Shooting a half-frame camera — a Pentax 17, an Olympus Pen? Each scan "
+                "holds <b>two photos side by side</b>.<br><br>"
+                "Toggle <b>Half Frame</b> in the Files toolbar and every scan appears as "
+                "two frames on the contact sheet, split automatically at the gutter "
+                "between them. Each half is a full citizen: its own exposure metering, "
+                "its own edits and history, its own sidecar, and exports as "
+                "<code>name_1</code> / <code>name_2</code>.<br><br>"
+                "Toggling off puts the scans back together — per-half edits are kept and "
+                "return when you switch it back on."
+            ),
+            target=_half_frame,
         ),
         TutorialStep(
             title="Keep & Reject — Culling the Roll",
