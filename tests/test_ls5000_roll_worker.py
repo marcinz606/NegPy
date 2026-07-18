@@ -1217,3 +1217,312 @@ def test_any_full_scan_exception_invalidates_the_bound_preview(
     assert invalidated == [None]
     assert "output promotion failed" in errors[0].message
     assert errors[1].message == "load roll thumbnails before scanning selected frames"
+
+
+# --- Digital ICE roll batches -------------------------------------------------
+
+
+class _IceKit:
+    """Injectable fakes for the three ICE seams, with call-order recording."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        self.tmp_path = tmp_path
+        self.order: list[str] = []
+        self.probe_backends: list[str] = []
+        self.acquire_calls: list[dict[str, Any]] = []
+        self.process_calls: list[dict[str, Any]] = []
+        self.publish_calls: list[dict[str, Any]] = []
+        self.probe_error: Exception | None = None
+        self.process_error: Exception | None = None
+        self.after_publish: Callable[[int], None] | None = None
+
+    def prober(self, backend: str) -> None:
+        self.order.append(f"probe:{backend}")
+        self.probe_backends.append(backend)
+        if self.probe_error is not None:
+            raise self.probe_error
+
+    def acquirer(self, *, device_id: str, plan: Any, bundle_root: Path, run_id: str, progress=None) -> Path:
+        self.order.append(f"acquire:{plan.frame}")
+        if progress is not None:
+            progress(0.5)
+        bundle_dir = Path(bundle_root) / run_id
+        bundle_dir.mkdir(parents=True)
+        (bundle_dir / "receipt.json").write_text("{}", encoding="utf-8")
+        self.acquire_calls.append(
+            {"device_id": device_id, "plan": plan, "bundle_dir": bundle_dir}
+        )
+        return bundle_dir
+
+    def processor(self, bundle_dir: Path, *, backend: str, progress=None) -> Any:
+        self.order.append(f"process:{Path(bundle_dir).name}")
+        if progress is not None:
+            progress(SimpleNamespace(completed=6, total=12))
+        if self.process_error is not None:
+            raise self.process_error
+        processed = SimpleNamespace(bundle_dir=Path(bundle_dir), backend=backend)
+        self.process_calls.append({"bundle_dir": Path(bundle_dir), "backend": backend})
+        return processed
+
+    def publisher(
+        self,
+        processed: Any,
+        *,
+        service: Any,
+        output_folder: str,
+        filename_pattern: str,
+        roll_slot: int,
+        boundary_offset_rows: int,
+    ) -> str:
+        self.order.append(f"publish:{roll_slot}")
+        self.publish_calls.append(
+            {
+                "processed": processed,
+                "roll_slot": roll_slot,
+                "boundary_offset_rows": boundary_offset_rows,
+            }
+        )
+        path = Path(output_folder) / f"ice_{roll_slot:02d}.tif"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"ice")
+        if self.after_publish is not None:
+            self.after_publish(roll_slot)
+        return str(path)
+
+
+def _ice_worker(
+    tmp_path: Path,
+    *,
+    session: _PreviewSession | None = None,
+) -> tuple[LS5000RollWorker, _IceKit, _PreviewSession]:
+    attempts_root = tmp_path / "attempts"
+    attempts_root.mkdir(exist_ok=True)
+    preview_session = session or _PreviewSession()
+    kit = _IceKit(tmp_path)
+    adapter = _Adapter(lambda request: _attempt_result(attempts_root, request), attempts_root)
+    worker = LS5000RollWorker(
+        adapter_factory=lambda _root: adapter,
+        scanner_service_factory=_ScannerService,
+        finalizer_factory=_Finalizer,
+        preview_builder=lambda _result: preview_session,
+        promoter=_default_promoter,
+        bw_result_validator=lambda _result: None,
+        bw_tiff_validator=lambda _path: None,
+        ice_prober=kit.prober,
+        ice_bundle_acquirer=kit.acquirer,
+        ice_bundle_processor=kit.processor,
+        ice_publisher=kit.publisher,
+    )
+    return worker, kit, preview_session
+
+
+def _ice_request(
+    tmp_path: Path,
+    *,
+    preview_token: str,
+    frames: tuple[RollFrameChoice, ...],
+    reviewed_fingerprint: ReviewedRollFingerprint | None = None,
+    ice_backend: str = "cpu-fast",
+) -> RollScanRequest:
+    return RollScanRequest(
+        device_id="coolscan3:libusb:001:002",
+        adapter_frame_capacity=40,
+        preview_token=preview_token,
+        attempts_root=str(tmp_path / "attempts"),
+        output_folder=str(tmp_path / "scans"),
+        filename_pattern='roll_{{ "%03d" % seq }}',
+        material=ScanMaterial.COLOR_NEGATIVE,
+        frames=frames,
+        reviewed_fingerprint=reviewed_fingerprint,
+        ice_capture=True,
+        ice_backend=ice_backend,
+    )
+
+
+def test_ice_request_requires_color_negative_and_a_processing_backend(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="infrared-transparent color"):
+        RollScanRequest(
+            device_id="coolscan3:libusb:001:002",
+            adapter_frame_capacity=40,
+            preview_token="token",
+            attempts_root=str(tmp_path / "attempts"),
+            output_folder=str(tmp_path / "scans"),
+            filename_pattern='roll_{{ "%03d" % seq }}',
+            material=ScanMaterial.BLACK_AND_WHITE_NEGATIVE,
+            frames=(RollFrameChoice(slot_id=1),),
+            ice_capture=True,
+        )
+    with pytest.raises(ValueError, match="processing backend"):
+        _ice_request(
+            tmp_path,
+            preview_token="token",
+            frames=(RollFrameChoice(slot_id=1),),
+            ice_backend="off",
+        )
+
+
+def test_ice_batch_probes_then_acquires_processes_and_publishes_each_slot(tmp_path: Path) -> None:
+    worker, kit, session = _ice_worker(tmp_path)
+    token = _load_preview(worker, tmp_path)
+    finished: list[Any] = []
+    frame_events: list[tuple[int, str]] = []
+    worker.finished.connect(finished.append)
+    worker.frame_finished.connect(lambda slot, path: frame_events.append((slot, path)))
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(
+                RollFrameChoice(slot_id=2),
+                RollFrameChoice(slot_id=5, boundary_offset_rows=17),
+            ),
+            reviewed_fingerprint=session.fingerprint,
+        )
+    )
+
+    assert kit.order == [
+        "probe:cpu-fast",
+        "acquire:2",
+        "process:" + kit.acquire_calls[0]["bundle_dir"].name,
+        "publish:2",
+        "acquire:5",
+        "process:" + kit.acquire_calls[1]["bundle_dir"].name,
+        "publish:5",
+    ]
+    # The reviewed offset rides into the plan through the real geometry
+    # translation: slot 5 offset 17 → native origin 4*pitch+17 → frame 5.
+    assert [call["plan"].frame for call in kit.acquire_calls] == [2, 5]
+    assert kit.acquire_calls[1]["plan"].subframe_mm is not None
+    assert [call["backend"] for call in kit.process_calls] == ["cpu-fast", "cpu-fast"]
+    assert [call["roll_slot"] for call in kit.publish_calls] == [2, 5]
+    assert [call["boundary_offset_rows"] for call in kit.publish_calls] == [0, 17]
+    # Published bundles are cleaned up.
+    assert not kit.acquire_calls[0]["bundle_dir"].exists()
+    assert not kit.acquire_calls[1]["bundle_dir"].exists()
+    assert [slot for slot, _path in frame_events] == [2, 5]
+    [completion] = finished
+    assert completion.ice_cleaned is True
+    assert completion.black_and_white is False
+    assert completion.stopped is False
+    assert len(completion.rgb_paths) == 2
+
+
+def test_ice_probe_failure_stops_before_any_hardware(tmp_path: Path) -> None:
+    worker, kit, session = _ice_worker(tmp_path)
+    token = _load_preview(worker, tmp_path)
+    errors: list[Any] = []
+    worker.error.connect(errors.append)
+    kit.probe_error = RuntimeError("portable Digital ICE compiled CPU backend is unavailable")
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(RollFrameChoice(slot_id=1),),
+            reviewed_fingerprint=session.fingerprint,
+        )
+    )
+
+    assert kit.order == ["probe:cpu-fast"]
+    assert kit.acquire_calls == []
+    [failure] = errors
+    assert "unavailable" in failure.message
+
+
+def test_ice_processing_failure_preserves_the_bundle_and_partial_queue(tmp_path: Path) -> None:
+    worker, kit, session = _ice_worker(tmp_path)
+    token = _load_preview(worker, tmp_path)
+    finished: list[Any] = []
+    errors: list[Any] = []
+    worker.finished.connect(finished.append)
+    worker.error.connect(errors.append)
+
+    fail_on_second = {"count": 0}
+
+    original_processor = kit.processor
+
+    def flaky_processor(bundle_dir: Path, *, backend: str, progress=None) -> Any:
+        fail_on_second["count"] += 1
+        if fail_on_second["count"] == 2:
+            kit.order.append(f"process:{Path(bundle_dir).name}")
+            raise RuntimeError("engine refused the frame")
+        return original_processor(bundle_dir, backend=backend, progress=progress)
+
+    worker._ice_bundle_processor = flaky_processor
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(
+                RollFrameChoice(slot_id=1),
+                RollFrameChoice(slot_id=2),
+            ),
+            reviewed_fingerprint=session.fingerprint,
+        )
+    )
+
+    # Frame 1 published; frame 2's verified bundle survives for reprocessing.
+    assert [call["roll_slot"] for call in kit.publish_calls] == [1]
+    surviving = kit.acquire_calls[1]["bundle_dir"]
+    assert surviving.exists()
+    [completion] = finished
+    assert completion.stopped is True
+    assert completion.ice_cleaned is True
+    assert len(completion.rgb_paths) == 1
+    [failure] = errors
+    assert "slot 2" in failure.message
+    assert str(surviving) in failure.message
+    assert "without a rescan" in failure.message
+
+
+def test_ice_stop_after_current_finishes_the_frame_then_halts(tmp_path: Path) -> None:
+    worker, kit, session = _ice_worker(tmp_path)
+    token = _load_preview(worker, tmp_path)
+    finished: list[Any] = []
+    worker.finished.connect(finished.append)
+    kit.after_publish = lambda _slot: worker.request_stop()
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(
+                RollFrameChoice(slot_id=1),
+                RollFrameChoice(slot_id=2),
+            ),
+            reviewed_fingerprint=session.fingerprint,
+        )
+    )
+
+    # Frame 1 completed fully (including publication); frame 2 never started.
+    assert [call["roll_slot"] for call in kit.publish_calls] == [1]
+    assert len(kit.acquire_calls) == 1
+    [completion] = finished
+    assert completion.stopped is True
+    assert completion.ice_cleaned is True
+    assert len(completion.rgb_paths) == 1
+
+
+def test_ice_batch_refuses_an_origin_that_left_its_reviewed_slot(tmp_path: Path) -> None:
+    session = _PreviewSession(
+        origins={(3, 0): 3 * LS5000_FRAME_PITCH_UNITS + 5},
+    )
+    worker, kit, session = _ice_worker(tmp_path, session=session)
+    token = _load_preview(worker, tmp_path)
+    errors: list[Any] = []
+    worker.error.connect(errors.append)
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(RollFrameChoice(slot_id=3),),
+            reviewed_fingerprint=session.fingerprint,
+        )
+    )
+
+    assert kit.acquire_calls == []
+    [failure] = errors
+    assert "not reviewed slot 3" in failure.message

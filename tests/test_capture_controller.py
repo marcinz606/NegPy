@@ -143,7 +143,7 @@ def test_empty_paths_is_a_noop():
     c.request_asset_discovery.assert_not_called()  # nothing captured → no discovery
 
 
-def _scanner_roll_import(paths, *, black_and_white):
+def _scanner_roll_import(paths, *, black_and_white, ice_cleaned=False):
     controller = MagicMock()
     controller.state = AppState()
     controller._pending_capture_imports = {}
@@ -151,6 +151,7 @@ def _scanner_roll_import(paths, *, black_and_white):
         controller,
         paths,
         black_and_white=black_and_white,
+        ice_cleaned=ice_cleaned,
     )
     return controller
 
@@ -180,5 +181,21 @@ def test_black_and_white_scanner_import_forces_bw_and_keeps_ir_repair_off():
 
     task = _hydrate_and_load(c, os.path.abspath(path), ProcessMode.C41)
     assert c.state.config.process.process_mode == ProcessMode.BW
+    assert c.state.config.retouch.ir_dust_remove is False
+    assert task.detect_mode is False
+
+
+def test_ice_cleaned_scanner_import_is_c41_with_ir_repair_left_off():
+    """ICE masters arrive already repaired with no IR sidecar to heal from."""
+
+    path = "/scan/ice_frame003.tif"
+    c = _scanner_roll_import([path], black_and_white=False, ice_cleaned=True)
+    c.state.config = replace(
+        c.state.config,
+        retouch=replace(c.state.config.retouch, ir_dust_remove=True),
+    )
+
+    task = _hydrate_and_load(c, os.path.abspath(path), ProcessMode.BW)
+    assert c.state.config.process.process_mode == ProcessMode.C41
     assert c.state.config.retouch.ir_dust_remove is False
     assert task.detect_mode is False

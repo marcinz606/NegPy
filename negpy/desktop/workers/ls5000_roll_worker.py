@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import uuid
 from collections.abc import Callable, Iterable, Mapping
@@ -35,7 +36,17 @@ from negpy.infrastructure.scanners.ls5000_single_pass.capture_process import (
     ManualFrameApproval,
     ReviewedRollFingerprint,
 )
+from negpy.infrastructure.scanners.dice_dual_source_runner import DiceDualSourcePlan
 from negpy.infrastructure.scanners.params import ScanParams
+from negpy.infrastructure.scanners.portable_digital_ice_adapter import (
+    PortableDigitalIceBackend,
+    probe_backend,
+)
+from negpy.services.scanning.ls5000_ice import (
+    acquire_ice_bundle,
+    process_ice_bundle,
+    publish_ice_frame,
+)
 from negpy.services.scanning.ls5000_roll_outputs import (
     PromotedFrame,
     promote_single_pass_frame,
@@ -46,6 +57,7 @@ from negpy.services.scanning.ls5000_roll_session import (
     reload_thumbnail,
 )
 from negpy.services.scanning.ls5000_sane_rgb import (
+    ice_geometry_for_origin,
     orient_sane_rgb_for_storage,
     sane_rgb_geometry_for_origin,
     validate_sane_rgb_result,
@@ -121,10 +133,25 @@ class RollScanRequest:
     material: ScanMaterial
     frames: tuple[RollFrameChoice, ...]
     reviewed_fingerprint: ReviewedRollFingerprint | None = None
+    #: Capture selected frames as dual-RGBI pairs for portable Digital ICE
+    #: instead of the RGB4x+IR packed path.  Color negative only: the engine's
+    #: repair method needs infrared-transparent dyes.
+    ice_capture: bool = False
+    #: Explicit engine backend for ICE processing; never "off" here — an ICE
+    #: batch that will not process has no reason to scan.
+    ice_backend: str = PortableDigitalIceBackend.CPU_FAST.value
 
     def __post_init__(self) -> None:
         if not self.device_id.strip():
             raise ValueError("device_id is required")
+        if self.ice_capture:
+            if self.material is not ScanMaterial.COLOR_NEGATIVE:
+                raise ValueError(
+                    "Digital ICE capture requires infrared-transparent color "
+                    "negative film"
+                )
+            if PortableDigitalIceBackend(self.ice_backend) is PortableDigitalIceBackend.OFF:
+                raise ValueError("a Digital ICE batch needs a processing backend")
         if (
             type(self.adapter_frame_capacity) is not int
             or self.adapter_frame_capacity != SA30_ADAPTER_FRAME_CAPACITY
@@ -183,6 +210,10 @@ class RollScanCompletion:
     black_and_white: bool
     stopped: bool
     operation: RollOperation = RollOperation.FULL_SCAN
+    #: True when the paths are ICE-cleaned masters: dust is already repaired
+    #: and there is no IR sidecar, so import must not re-arm the file-based
+    #: IR heal on them.
+    ice_cleaned: bool = False
 
 
 @dataclass(frozen=True)
@@ -229,6 +260,10 @@ class LS5000RollWorker(QObject):
         promoter: Callable[..., PromotedFrame] = promote_single_pass_frame,
         bw_result_validator: ResultValidator = validate_sane_rgb_result,
         bw_tiff_validator: TiffValidator = validate_sane_rgb_tiff,
+        ice_prober: Callable[[str], None] = probe_backend,
+        ice_bundle_acquirer: Callable[..., Path] = acquire_ice_bundle,
+        ice_bundle_processor: Callable[..., object] = process_ice_bundle,
+        ice_publisher: Callable[..., str] = publish_ice_frame,
     ) -> None:
         super().__init__()
         self._adapter_factory = adapter_factory
@@ -236,6 +271,10 @@ class LS5000RollWorker(QObject):
         self._finalizer_factory = finalizer_factory
         self._preview_builder = preview_builder
         self._promoter = promoter
+        self._ice_prober = ice_prober
+        self._ice_bundle_acquirer = ice_bundle_acquirer
+        self._ice_bundle_processor = ice_bundle_processor
+        self._ice_publisher = ice_publisher
         self._bw_result_validator = bw_result_validator
         self._bw_tiff_validator = bw_tiff_validator
         self._adapter: CaptureProcessAdapter | None = None
@@ -493,7 +532,14 @@ class LS5000RollWorker(QObject):
         total = len(request.frames)
         paths: list[str] = []
         try:
-            if request.material is ScanMaterial.COLOR_NEGATIVE:
+            if request.ice_capture:
+                stopped = self._scan_ice_batch(
+                    request,
+                    session=session,
+                    attempts_root=attempts_root,
+                    paths=paths,
+                )
+            elif request.material is ScanMaterial.COLOR_NEGATIVE:
                 stopped = self._scan_color_batch(
                     adapter,
                     attempts_root=attempts_root,
@@ -541,6 +587,7 @@ class LS5000RollWorker(QObject):
                     rgb_paths=tuple(paths),
                     black_and_white=request.material is ScanMaterial.BLACK_AND_WHITE_NEGATIVE,
                     stopped=stopped,
+                    ice_cleaned=request.ice_capture,
                 )
             )
         except CaptureStopped:
@@ -550,6 +597,7 @@ class LS5000RollWorker(QObject):
                     tuple(paths),
                     request.material is ScanMaterial.BLACK_AND_WHITE_NEGATIVE,
                     True,
+                    ice_cleaned=request.ice_capture,
                 )
             )
         except CaptureBatchProcessError as error:
@@ -563,7 +611,7 @@ class LS5000RollWorker(QObject):
                     )
                 except Exception as promotion_error:
                     receipt_error = promotion_error
-            self._emit_partial_completion(paths, request.material)
+            self._emit_partial_completion(paths, request.material, ice_cleaned=request.ice_capture)
             self._discard_preview(
                 recovery_required=error.recovery_required,
             )
@@ -580,13 +628,13 @@ class LS5000RollWorker(QObject):
                 )
             )
         except _CaptureRefusal as refusal:
-            self._emit_partial_completion(paths, request.material)
+            self._emit_partial_completion(paths, request.material, ice_cleaned=request.ice_capture)
             self._discard_preview(
                 recovery_required=refusal.failure.recovery_required,
             )
             self.error.emit(refusal.failure)
         except Exception as error:
-            self._emit_partial_completion(paths, request.material)
+            self._emit_partial_completion(paths, request.material, ice_cleaned=request.ice_capture)
             self._discard_preview()
             self.error.emit(RollWorkerFailure(f"Full-quality roll scan failed: {error}", False))
 
@@ -747,6 +795,8 @@ class LS5000RollWorker(QObject):
         self,
         paths: list[str],
         material: ScanMaterial,
+        *,
+        ice_cleaned: bool = False,
     ) -> None:
         """Publish frames finished before a later frame failed."""
 
@@ -756,6 +806,7 @@ class LS5000RollWorker(QObject):
                     rgb_paths=tuple(paths),
                     black_and_white=material is ScanMaterial.BLACK_AND_WHITE_NEGATIVE,
                     stopped=True,
+                    ice_cleaned=ice_cleaned,
                 )
             )
 
@@ -821,6 +872,119 @@ class LS5000RollWorker(QObject):
             Path(output).unlink(missing_ok=True)
             raise
         return output
+
+    def _scan_ice_batch(
+        self,
+        request: RollScanRequest,
+        *,
+        session: RollPreviewSession,
+        attempts_root: Path,
+        paths: list[str],
+    ) -> bool:
+        """Capture, process, and publish each selected frame for Digital ICE.
+
+        Each frame is one dedicated SANE session (the proven per-frame model
+        of the B&W path), one on-disk bundle, one engine run after the handle
+        is closed, and one published master.  Processing never overlaps a held
+        scanner reservation, and a processing failure keeps the bundle on disk
+        as the recovery artifact so the frame does not need a rescan.
+        """
+
+        if "coolscan3:" not in request.device_id.lower():
+            raise RuntimeError(
+                "Digital ICE roll capture requires the patched local coolscan3 "
+                "LS-5000 backend"
+            )
+        # Prove the backend can run before any hardware is touched; the
+        # compiled backends' byte-parity self-test doubles as their warmup.
+        self._ice_prober(request.ice_backend)
+        service = self._scanner_service_factory()
+        bundle_root = attempts_root / "ice-bundles"
+        total = len(request.frames)
+        for index, frame in enumerate(request.frames):
+            if self._stop_after_current.is_set():
+                return True
+            origin = session.resolve_origin(frame.slot_id, frame.boundary_offset_rows)
+            binding = ice_geometry_for_origin(origin, slot_id=frame.slot_id)
+            plan = DiceDualSourcePlan.for_transport(
+                "roll",
+                frame=binding.geometry.frame,
+                subframe_mm=binding.geometry.subframe_mm,
+            )
+
+            def emit_acquiring(value: float, *, index: int = index, slot_id: int = frame.slot_id) -> None:
+                percent = max(0, min(100, int(float(value) * 100)))
+                self.progress.emit(
+                    RollProgress(
+                        index,
+                        total,
+                        f"Scanning frame {index + 1} of {total} · "
+                        f"Slot {slot_id:02d} · dual RGBI · {percent}%",
+                        slot_id=slot_id,
+                        percent=percent,
+                    )
+                )
+
+            bundle_dir = self._ice_bundle_acquirer(
+                device_id=request.device_id,
+                plan=plan,
+                bundle_root=bundle_root,
+                run_id=f"slot{frame.slot_id:02d}-{uuid.uuid4().hex[:8]}",
+                progress=emit_acquiring,
+            )
+            # The SANE handle is closed; the scanner owes nothing to the rest
+            # of this iteration.
+            try:
+                def emit_processing(event: object, *, index: int = index, slot_id: int = frame.slot_id) -> None:
+                    completed = getattr(event, "completed", None)
+                    event_total = getattr(event, "total", None)
+                    percent: int | None = None
+                    if isinstance(completed, int) and isinstance(event_total, int) and event_total > 0:
+                        percent = max(0, min(100, int(completed * 100 / event_total)))
+                    self.progress.emit(
+                        RollProgress(
+                            index,
+                            total,
+                            f"Digital ICE frame {index + 1} of {total} · "
+                            f"Slot {slot_id:02d} · repairing",
+                            slot_id=slot_id,
+                            percent=percent,
+                        )
+                    )
+
+                processed = self._ice_bundle_processor(
+                    bundle_dir,
+                    backend=request.ice_backend,
+                    progress=emit_processing,
+                )
+                path = self._ice_publisher(
+                    processed,
+                    service=service,
+                    output_folder=str(request.output_folder),
+                    filename_pattern=request.filename_pattern,
+                    roll_slot=frame.slot_id,
+                    boundary_offset_rows=frame.boundary_offset_rows,
+                )
+            except Exception as error:
+                raise RuntimeError(
+                    f"Digital ICE processing failed for slot {frame.slot_id}; "
+                    f"the verified capture bundle is preserved at {bundle_dir} "
+                    f"and can be processed without a rescan: {error}"
+                ) from error
+            shutil.rmtree(bundle_dir, ignore_errors=True)
+            paths.append(path)
+            self.frame_finished.emit(frame.slot_id, path)
+            self.progress.emit(
+                RollProgress(
+                    index + 1,
+                    total,
+                    f"Finished frame {index + 1} of {total} · "
+                    f"Slot {frame.slot_id:02d} · ICE cleaned",
+                    slot_id=frame.slot_id,
+                    percent=100,
+                )
+            )
+        return self._stop_after_current.is_set()
 
     def request_stop(self) -> None:
         """Finish the active frame, then prevent the next attempt."""

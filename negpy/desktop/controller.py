@@ -1790,6 +1790,7 @@ class AppController(QObject):
             self.import_negative_roll_scans(
                 list(completion.rgb_paths),
                 black_and_white=completion.black_and_white,
+                ice_cleaned=completion.ice_cleaned,
             )
 
     def import_negative_roll_scans(
@@ -1797,6 +1798,7 @@ class AppController(QObject):
         paths: List[str],
         *,
         black_and_white: bool,
+        ice_cleaned: bool = False,
     ) -> None:
         """Import completed scanner masters with the film intent kept intact.
 
@@ -1806,12 +1808,16 @@ class AppController(QObject):
         avoids asking image-content detection to distinguish an orange-mask
         color negative from a silver B&W negative after the scan has already
         supplied the authoritative answer.
+
+        ICE-cleaned masters arrive with dust already repaired and no IR
+        sidecar, so they import like color negatives but must not re-arm the
+        file-based IR heal.
         """
 
         if not paths:
             return
         process_mode = ProcessMode.BW if black_and_white else ProcessMode.C41
-        enable_ir = not black_and_white
+        enable_ir = not black_and_white and not ice_cleaned
         normalized_paths = [os.path.abspath(path) for path in paths]
         for path in normalized_paths:
             self._pending_capture_imports[_capture_import_key(path)] = _PendingCaptureImport(
