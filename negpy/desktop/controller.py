@@ -1553,10 +1553,13 @@ class AppController(QObject):
         """Show/hide one mask's outline on the canvas (view-only; no re-render)."""
         if not (0 <= index < len(self.state.config.local.masks)):
             return
+        hidden = set(self.state.local_hidden_masks)
         if visible:
-            self.state.local_hidden_masks.discard(index)
+            hidden.discard(index)
         else:
-            self.state.local_hidden_masks.add(index)
+            hidden.add(index)
+        self.state.local_hidden_masks = hidden
+        self.session.persist_hidden_masks()
         if self.canvas:
             self.canvas.overlay.update()
 
@@ -1575,6 +1578,7 @@ class AppController(QObject):
         sel = self.state.local_selected_mask
         self.state.local_selected_mask = -1 if sel == index else (sel - 1 if sel > index else sel)
         self.state.local_hidden_masks = {j - 1 if j > index else j for j in self.state.local_hidden_masks if j != index}
+        self.session.persist_hidden_masks()
 
         self.config_updated.emit()
         self.request_render()

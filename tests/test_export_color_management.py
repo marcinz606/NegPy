@@ -125,12 +125,8 @@ class TestDisplayTransform(unittest.TestCase):
 
         # Premise: the working space is not sRGB, so the default choice is load-bearing.
         self.assertNotEqual(WORKING_COLOR_SPACE, ColorSpace.SRGB.value)
-        self.assertEqual(
-            inspect.signature(ImageConverter.to_qimage).parameters["color_space"].default, WORKING_COLOR_SPACE
-        )
-        self.assertEqual(
-            inspect.signature(get_rendered_thumbnail).parameters["color_space"].default, WORKING_COLOR_SPACE
-        )
+        self.assertEqual(inspect.signature(ImageConverter.to_qimage).parameters["color_space"].default, WORKING_COLOR_SPACE)
+        self.assertEqual(inspect.signature(get_rendered_thumbnail).parameters["color_space"].default, WORKING_COLOR_SPACE)
         self.assertEqual(ThumbnailUpdateTask.__dataclass_fields__["color_space"].default, WORKING_COLOR_SPACE)
 
 

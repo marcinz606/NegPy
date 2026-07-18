@@ -1,9 +1,8 @@
 # Change Log
 
 
-## Unreleased
 
-- Change: **True Black is now Paper Black** — the toggle is inverted and renamed: left off (the new default) it keeps blacks pure, exactly as before; turned on it shows the paper's own slightly-lifted maximum black instead. Existing edits keep their look.
+
 
 
 ## 0.38.0
@@ -12,10 +11,13 @@
 - New: **Tweaked infrared dust cleaning** — IR dust removal now uses ratio-normalized detection instead of raw-IR thresholding, catching dust it used to miss and losing the slider cliff that could flag the whole frame. A new **IR Restore** tier recovers the image hiding under semi-transparent dust so only the opaque cores get cloned, and a cycling **Overlay** button (Off / Spots / Marked / IR) shows exactly what auto and IR detection are catching, for tuning. B&W and Kodachrome scans are skipped.
 - New: **Keep / Reject triage on the contact sheet** — cull a roll where you see it: `K` marks a frame as a keeper (small check badge), `Shift+X` rejects it (cross badge + dim). Rejected frames stay on the sheet but drop out of batch exports and sidecar writes; a Sheet filter (All / Keepers only / Hide rejected) sits next to Sort, a tally counts the roll, and marks persist across sessions.
 - New: **Dye Mute** — a new Lab slider that mutes colour in step with print contrast, the way paper dyes lose separation at hard grades.
-- New: **Narrowband Scan** — scans lit by narrowband RGB LEDs come out extra saturated compared to white light. A new Process-panel toggle corrects the preview and every export automatically; a custom Input ICC still takes precedence. Enabling RGB Scan mode now switches Narrowband correction on for you (both the current frame and as the default for new frames). The internal profile no longer clutters the ICC dropdowns.
+- New: **Narrowband Scan** — scans lit by narrowband RGB LEDs can come out extra saturated compared to white light. A new Process-panel toggle corrects the preview and every export automatically; a custom Input ICC still takes precedence. Enabling RGB Scan mode now switches Narrowband correction on for you (both the current frame and as the default for new frames). The internal profile no longer clutters the ICC dropdowns.
 - New: **Roll-aware Batch Autocrop** — Geometry can analyze every visible landscape frame together before Batch Analysis, using confident frames to calibrate weaker detections for more consistent camera-scan crops. It runs in the background with progress/cancel, preserves existing manual crops and ambiguous frames, and saves explicit per-frame crop and fine-rotation settings. The first release supports Image-only mode. @rohanpandula
 - New: **Common crop ratios, tidier picker** — the crop Ratio dropdown drops the duplicate reversed entries (the tool already auto-orients a ratio to your drag) and gains the ones that were missing: 7:5 (5×7 print), 16:9, 16:10 and US Letter. Old saved ratios still display correctly. @linkmodo
 - New: **Unreadable files get a badge** — a frame that fails to decode or thumbnail wears a red badge with the reason in its tooltip instead of sitting silently in the grid; clicking it retries, a successful load clears it.
+- Change/Fix: **Default exposute/colour tweaks** — Fixed a bug that resulted in mixing ProphotoRGB output space with AdobeRGB. Using full prophoto primaries at output results in unnaturaly saturated colors that are pain to correct. Now pipeline output is using AdobeRGB primaries which should result in most faithful and natural looking image. Existing edits will render a little different.
+- Change: **True Black is now Paper Black** — the toggle is inverted and renamed: left off (the new default) it keeps blacks pure, exactly as before; turned on it shows the paper's own slightly-lifted maximum black instead. Existing edits keep their look.
+- Change: **Auto Grade prints a touch punchier** — the target contrast is up slightly, and Auto Grade now adapts twice as strongly to how much range a frame actually holds, so flat negatives get more help and contrasty ones get less. Frames using Auto Grade will render a little different.
 - Change: **Roll-wide actions are undoable** — Batch Analysis, roll-baseline loads and "Apply settings" now write each affected frame's edit history: `Ctrl+Z` on any frame steps back to before the roll action. Reset Settings and preset loads are recorded the same way instead of bypassing the log.
 - Change: **One grammar for the canvas tools** — first `Esc` clears in-progress points, second puts the tool down (fixes Esc going dead mid-draw); toolbar Undo matches `Ctrl+Z`; a stray click outside a tuned crop no longer wipes it. New keys: `Shift+S` Scratch, `Shift+B` Dodge & Burn, `Shift+R` Analysis Region, `|` flat-master peek (plus a toolbar button).
 - Change: **Quieter canvas** — the "Rendering… / READY / Loading…" toasts are gone (the progress bar already covers that activity); the canvas-background swatches move into the More-actions menu as a checkable group that shows the active colour, with a new pure White option; and committing a manual crop on a large file now shows a busy spinner instead of freezing silently. @linkmodo
@@ -32,6 +34,7 @@
 - Fix: **Overflow menu keeps its entries** — the More-actions menu no longer drops items when you toggle a side panel off and the canvas widens. @linkmodo
 - Fix: **Canvas toolbar stays visible on narrow windows** — it now collapses controls into the overflow menu adaptively instead of getting cut off when the viewport is small. @jboneng
 - Fix: **Pin then reset restores the original layout** — resetting the panel layout returns panels to their original docked position and size. @jboneng
+- Fix: **The H&D chart shows where zero is** — the analysis curve's grid stopped short of the axes, so a curve flat at black looked like it hovered above the bottom of the plot instead of sitting on it. The 0 and 1 grid lines are now drawn.
 - Fix: **Cast Removal strength sticks across frames** — the slider now carries to fresh files like True Black and Auto Density, since it's a workflow preference rather than a per-image look.
 
 ## 0.37.2
