@@ -58,6 +58,7 @@ from negpy.infrastructure.scanners.portable_digital_ice_adapter import (
     PortableDigitalIceAvailability,
     availability_summary,
 )
+from negpy.services.scanning.ls5000_ice import hybrid_availability
 from negpy.services.scanning.roll_preview_controls import ScanMaterial, boundary_offset_range
 
 
@@ -82,6 +83,13 @@ _LS5000_BW_REQUIRED_FREE_BYTES = 256 * 1024**2
 _LS5000_ICE_FINAL_BUDGET_BYTES_PER_FRAME = 192 * 1024**2
 _LS5000_ICE_BUNDLE_SCRATCH_BYTES = 200 * 1024**2
 _LS5000_ICE_REQUIRED_FREE_BYTES = 512 * 1024**2
+
+# Hybrid repair publishes two masters per frame (the hybrid file plus the
+# pure ICE sibling) and a synthesis mask, and its transient working set adds
+# the hybrid CLI's output directory beside the bundle.
+_LS5000_ICE_HYBRID_FINAL_BUDGET_BYTES_PER_FRAME = 384 * 1024**2
+_LS5000_ICE_HYBRID_SCRATCH_BYTES = 480 * 1024**2
+_LS5000_ICE_HYBRID_REQUIRED_FREE_BYTES = 1024 * 1024**2
 
 _ICE_BACKEND_CHOICES: tuple[tuple[str, str], ...] = (
     ("cpu-fast", "Compiled CPU · about 9 s per frame"),
@@ -506,10 +514,29 @@ class RollSlotSelector(QWidget):
                 f"({self._ice_availability.engine_detail})"
             )
 
+        hybrid_ok, hybrid_reason = hybrid_availability()
+        self._hybrid_available = hybrid_ok
+        self.ice_hybrid_check = QCheckBox("Hybrid repair")
+        self.ice_hybrid_check.setObjectName("roll_ice_hybrid")
+        self.ice_hybrid_check.setAccessibleName(
+            "Inpaint routed difficult regions after Digital ICE repair"
+        )
+        if hybrid_ok:
+            self.ice_hybrid_check.setToolTip(
+                "After the exact ICE repair, route unusually broad defects to a "
+                "bounded inpainting fallback. Infrared detection stays in "
+                "charge; every synthesized pixel is disclosed in a mask beside "
+                "the master, and the pure ICE result is kept as a second file."
+            )
+        else:
+            self.ice_hybrid_check.setEnabled(False)
+            self.ice_hybrid_check.setToolTip(hybrid_reason)
+
         ice_controls = QHBoxLayout()
         ice_controls.setContentsMargins(0, 0, 0, 0)
         ice_controls.addWidget(self.ice_check)
         ice_controls.addWidget(self.ice_backend_combo)
+        ice_controls.addWidget(self.ice_hybrid_check)
         ice_controls.addStretch()
 
         offset_tooltip = "Move left (negative) or right (positive), then reload the thumbnail. Keyboard: Alt+Left / Alt+Right"
@@ -627,6 +654,7 @@ class RollSlotSelector(QWidget):
         self.review_approval_check.toggled.connect(self._on_review_approval_toggled)
         self.scan_material_combo.currentIndexChanged.connect(self._on_scan_material_changed)
         self.ice_check.toggled.connect(self._on_ice_capture_toggled)
+        self.ice_hybrid_check.toggled.connect(self._on_ice_capture_toggled)
 
         self._select_all_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.SelectAll), self.grid)
         self._select_all_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
@@ -838,6 +866,15 @@ class RollSlotSelector(QWidget):
     def ice_backend(self) -> str:
         return str(self.ice_backend_combo.currentData())
 
+    def ice_hybrid_enabled(self) -> bool:
+        """True when the batch should route ICE frames through hybrid repair."""
+
+        return (
+            self._hybrid_available
+            and self.ice_hybrid_check.isChecked()
+            and self.ice_capture_enabled()
+        )
+
     def _sync_selection_ui(self) -> None:
         selected_ids = self.selected_slot_ids()
         selected = len(selected_ids)
@@ -906,6 +943,12 @@ class RollSlotSelector(QWidget):
     def _storage_budget(self) -> tuple[int, int, int]:
         """Return final/frame, visible scratch, and required-space floor."""
 
+        if self.ice_hybrid_enabled():
+            return (
+                _LS5000_ICE_HYBRID_FINAL_BUDGET_BYTES_PER_FRAME,
+                _LS5000_ICE_HYBRID_SCRATCH_BYTES,
+                _LS5000_ICE_HYBRID_REQUIRED_FREE_BYTES,
+            )
         if self.ice_capture_enabled():
             return (
                 _LS5000_ICE_FINAL_BUDGET_BYTES_PER_FRAME,
@@ -959,9 +1002,28 @@ class RollSlotSelector(QWidget):
         is_color = self.scan_material().captures_infrared
         self.ice_check.setVisible(is_color)
         self.ice_backend_combo.setVisible(is_color)
+        self.ice_hybrid_check.setVisible(is_color)
         if is_color and self._ice_availability.engine_installed:
             self.ice_backend_combo.setEnabled(self.ice_check.isChecked())
-        if self.ice_capture_enabled():
+            self.ice_hybrid_check.setEnabled(
+                self._hybrid_available and self.ice_check.isChecked()
+            )
+        if self.ice_hybrid_enabled():
+            self.scan_material_status_label.setText(
+                "Full quality: 4000 dpi · 16-bit · dual RGBI single-sample"
+            )
+            self.ir_repair_status_label.setText(
+                "Digital ICE + hybrid: infrared-guided repair, then bounded "
+                "inpainting on routed difficult regions · every synthesized "
+                "pixel is disclosed in a mask beside the master · the pure ICE "
+                "result is kept as a second file"
+            )
+            self.ir_repair_status_label.setProperty("irRepairState", "on")
+            self.ir_repair_status_label.setStyleSheet(
+                f"color: {THEME.status_success}; font-size: {THEME.font_size_xs}px; "
+                f"font-weight: {THEME.weight_semibold};"
+            )
+        elif self.ice_capture_enabled():
             self.scan_material_status_label.setText(
                 "Full quality: 4000 dpi · 16-bit · dual RGBI single-sample"
             )

@@ -43,9 +43,12 @@ from negpy.infrastructure.scanners.portable_digital_ice_adapter import (
     probe_backend,
 )
 from negpy.services.scanning.ls5000_ice import (
+    HybridRepairConfig,
     acquire_ice_bundle,
     process_ice_bundle,
+    publish_hybrid_frame,
     publish_ice_frame,
+    run_hybrid_repair,
 )
 from negpy.services.scanning.ls5000_roll_outputs import (
     PromotedFrame,
@@ -140,10 +143,17 @@ class RollScanRequest:
     #: Explicit engine backend for ICE processing; never "off" here — an ICE
     #: batch that will not process has no reason to scan.
     ice_backend: str = PortableDigitalIceBackend.CPU_FAST.value
+    #: Route each ICE frame through the hybrid repair CLI: infrared-guided
+    #: detection stays in charge, and bounded inpainting handles only the
+    #: routed difficult regions.  Requires ice_capture and a configured
+    #: hybrid runtime.
+    ice_hybrid: bool = False
 
     def __post_init__(self) -> None:
         if not self.device_id.strip():
             raise ValueError("device_id is required")
+        if self.ice_hybrid and not self.ice_capture:
+            raise ValueError("hybrid repair requires Digital ICE capture")
         if self.ice_capture:
             if self.material is not ScanMaterial.COLOR_NEGATIVE:
                 raise ValueError(
@@ -264,6 +274,9 @@ class LS5000RollWorker(QObject):
         ice_bundle_acquirer: Callable[..., Path] = acquire_ice_bundle,
         ice_bundle_processor: Callable[..., object] = process_ice_bundle,
         ice_publisher: Callable[..., str] = publish_ice_frame,
+        hybrid_config_loader: Callable[[], HybridRepairConfig] = HybridRepairConfig.from_env,
+        hybrid_runner: Callable[..., object] = run_hybrid_repair,
+        hybrid_publisher: Callable[..., str] = publish_hybrid_frame,
     ) -> None:
         super().__init__()
         self._adapter_factory = adapter_factory
@@ -275,6 +288,9 @@ class LS5000RollWorker(QObject):
         self._ice_bundle_acquirer = ice_bundle_acquirer
         self._ice_bundle_processor = ice_bundle_processor
         self._ice_publisher = ice_publisher
+        self._hybrid_config_loader = hybrid_config_loader
+        self._hybrid_runner = hybrid_runner
+        self._hybrid_publisher = hybrid_publisher
         self._bw_result_validator = bw_result_validator
         self._bw_tiff_validator = bw_tiff_validator
         self._adapter: CaptureProcessAdapter | None = None
@@ -895,6 +911,9 @@ class LS5000RollWorker(QObject):
                 "Digital ICE roll capture requires the patched local coolscan3 "
                 "LS-5000 backend"
             )
+        # Resolve the hybrid runtime first: an unconfigured hybrid batch must
+        # fail before the engine warms up, let alone before hardware moves.
+        hybrid_config = self._hybrid_config_loader() if request.ice_hybrid else None
         # Prove the backend can run before any hardware is touched; the
         # compiled backends' byte-parity self-test doubles as their warmup.
         self._ice_prober(request.ice_backend)
@@ -934,6 +953,7 @@ class LS5000RollWorker(QObject):
             )
             # The SANE handle is closed; the scanner owes nothing to the rest
             # of this iteration.
+            hybrid_out_dir = bundle_dir.with_name(bundle_dir.name + "-hybrid")
             try:
                 def emit_processing(event: object, *, index: int = index, slot_id: int = frame.slot_id) -> None:
                     completed = getattr(event, "completed", None)
@@ -952,26 +972,59 @@ class LS5000RollWorker(QObject):
                         )
                     )
 
-                processed = self._ice_bundle_processor(
-                    bundle_dir,
-                    backend=request.ice_backend,
-                    progress=emit_processing,
-                )
-                path = self._ice_publisher(
-                    processed,
-                    service=service,
-                    output_folder=str(request.output_folder),
-                    filename_pattern=request.filename_pattern,
-                    roll_slot=frame.slot_id,
-                    boundary_offset_rows=frame.boundary_offset_rows,
-                )
+                if hybrid_config is not None:
+                    self.progress.emit(
+                        RollProgress(
+                            index,
+                            total,
+                            f"Digital ICE frame {index + 1} of {total} · "
+                            f"Slot {frame.slot_id:02d} · repairing and "
+                            "inpainting routed regions",
+                            slot_id=frame.slot_id,
+                        )
+                    )
+                    outputs = self._hybrid_runner(
+                        bundle_dir,
+                        hybrid_out_dir,
+                        config=hybrid_config,
+                        backend=request.ice_backend,
+                    )
+                    path = self._hybrid_publisher(
+                        outputs,
+                        service=service,
+                        output_folder=str(request.output_folder),
+                        filename_pattern=request.filename_pattern,
+                        roll_slot=frame.slot_id,
+                        boundary_offset_rows=frame.boundary_offset_rows,
+                    )
+                else:
+                    processed = self._ice_bundle_processor(
+                        bundle_dir,
+                        backend=request.ice_backend,
+                        progress=emit_processing,
+                    )
+                    path = self._ice_publisher(
+                        processed,
+                        service=service,
+                        output_folder=str(request.output_folder),
+                        filename_pattern=request.filename_pattern,
+                        roll_slot=frame.slot_id,
+                        boundary_offset_rows=frame.boundary_offset_rows,
+                    )
             except Exception as error:
+                preserved = f"the verified capture bundle is preserved at {bundle_dir}"
+                if hybrid_config is not None and hybrid_out_dir.exists():
+                    preserved += (
+                        f" and the partial hybrid output at {hybrid_out_dir}"
+                    )
                 raise RuntimeError(
                     f"Digital ICE processing failed for slot {frame.slot_id}; "
-                    f"the verified capture bundle is preserved at {bundle_dir} "
-                    f"and can be processed without a rescan: {error}"
+                    f"{preserved} and can be processed without a rescan: "
+                    f"{error}"
                 ) from error
             shutil.rmtree(bundle_dir, ignore_errors=True)
+            if hybrid_config is not None:
+                shutil.rmtree(hybrid_out_dir, ignore_errors=True)
             paths.append(path)
             self.frame_finished.emit(frame.slot_id, path)
             self.progress.emit(

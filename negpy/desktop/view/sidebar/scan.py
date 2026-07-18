@@ -1134,6 +1134,7 @@ class ScanSidebar(QWidget):
             reviewed_fingerprint=reviewed_fingerprint,
             ice_capture=self.roll_slot_selector.ice_capture_enabled(),
             ice_backend=self.roll_slot_selector.ice_backend(),
+            ice_hybrid=self.roll_slot_selector.ice_hybrid_enabled(),
         )
         self._roll_batch_selected_slots = tuple(slot_ids)
         self._roll_completed_slots.clear()

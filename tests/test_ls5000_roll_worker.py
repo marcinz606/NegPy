@@ -1235,6 +1235,11 @@ class _IceKit:
         self.probe_error: Exception | None = None
         self.process_error: Exception | None = None
         self.after_publish: Callable[[int], None] | None = None
+        self.hybrid_config: Any = None
+        self.hybrid_config_error: Exception | None = None
+        self.hybrid_error: Exception | None = None
+        self.hybrid_runs: list[dict[str, Any]] = []
+        self.hybrid_publishes: list[dict[str, Any]] = []
 
     def prober(self, backend: str) -> None:
         self.order.append(f"probe:{backend}")
@@ -1289,6 +1294,43 @@ class _IceKit:
             self.after_publish(roll_slot)
         return str(path)
 
+    def hybrid_config_loader(self) -> Any:
+        self.order.append("hybrid-config")
+        if self.hybrid_config_error is not None:
+            raise self.hybrid_config_error
+        self.hybrid_config = SimpleNamespace(inpaint_device="cpu")
+        return self.hybrid_config
+
+    def hybrid_runner(self, bundle_dir: Path, out_dir: Path, *, config: Any, backend: str) -> Any:
+        self.order.append(f"hybrid-run:{Path(bundle_dir).name}")
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True)
+        (out_dir / "hybrid-receipt.json").write_text("{}", encoding="utf-8")
+        if self.hybrid_error is not None:
+            raise self.hybrid_error
+        run = {"bundle_dir": Path(bundle_dir), "out_dir": out_dir, "config": config, "backend": backend}
+        self.hybrid_runs.append(run)
+        return SimpleNamespace(out_dir=out_dir, marker="hybrid-outputs")
+
+    def hybrid_publisher(
+        self,
+        outputs: Any,
+        *,
+        service: Any,
+        output_folder: str,
+        filename_pattern: str,
+        roll_slot: int,
+        boundary_offset_rows: int,
+    ) -> str:
+        self.order.append(f"hybrid-publish:{roll_slot}")
+        self.hybrid_publishes.append(
+            {"outputs": outputs, "roll_slot": roll_slot, "boundary_offset_rows": boundary_offset_rows}
+        )
+        path = Path(output_folder) / f"hybrid_{roll_slot:02d}.tif"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"hybrid")
+        return str(path)
+
 
 def _ice_worker(
     tmp_path: Path,
@@ -1312,6 +1354,9 @@ def _ice_worker(
         ice_bundle_acquirer=kit.acquirer,
         ice_bundle_processor=kit.processor,
         ice_publisher=kit.publisher,
+        hybrid_config_loader=kit.hybrid_config_loader,
+        hybrid_runner=kit.hybrid_runner,
+        hybrid_publisher=kit.hybrid_publisher,
     )
     return worker, kit, preview_session
 
@@ -1323,6 +1368,7 @@ def _ice_request(
     frames: tuple[RollFrameChoice, ...],
     reviewed_fingerprint: ReviewedRollFingerprint | None = None,
     ice_backend: str = "cpu-fast",
+    ice_hybrid: bool = False,
 ) -> RollScanRequest:
     return RollScanRequest(
         device_id="coolscan3:libusb:001:002",
@@ -1336,6 +1382,7 @@ def _ice_request(
         reviewed_fingerprint=reviewed_fingerprint,
         ice_capture=True,
         ice_backend=ice_backend,
+        ice_hybrid=ice_hybrid,
     )
 
 
@@ -1526,3 +1573,108 @@ def test_ice_batch_refuses_an_origin_that_left_its_reviewed_slot(tmp_path: Path)
     assert kit.acquire_calls == []
     [failure] = errors
     assert "not reviewed slot 3" in failure.message
+
+
+def test_hybrid_request_requires_ice_capture(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="hybrid repair requires Digital ICE"):
+        RollScanRequest(
+            device_id="coolscan3:libusb:001:002",
+            adapter_frame_capacity=40,
+            preview_token="token",
+            attempts_root=str(tmp_path / "attempts"),
+            output_folder=str(tmp_path / "scans"),
+            filename_pattern='roll_{{ "%03d" % seq }}',
+            material=ScanMaterial.COLOR_NEGATIVE,
+            frames=(RollFrameChoice(slot_id=1),),
+            ice_capture=False,
+            ice_hybrid=True,
+        )
+
+
+def test_hybrid_batch_resolves_config_before_probe_and_cleans_both_dirs(tmp_path: Path) -> None:
+    worker, kit, session = _ice_worker(tmp_path)
+    token = _load_preview(worker, tmp_path)
+    finished: list[Any] = []
+    worker.finished.connect(finished.append)
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(RollFrameChoice(slot_id=4),),
+            reviewed_fingerprint=session.fingerprint,
+            ice_hybrid=True,
+        )
+    )
+
+    bundle = kit.acquire_calls[0]["bundle_dir"]
+    assert kit.order == [
+        "hybrid-config",
+        "probe:cpu-fast",
+        "acquire:4",
+        f"hybrid-run:{bundle.name}",
+        "hybrid-publish:4",
+    ]
+    [run] = kit.hybrid_runs
+    assert run["backend"] == "cpu-fast"
+    assert run["config"] is kit.hybrid_config
+    assert run["out_dir"] == bundle.with_name(bundle.name + "-hybrid")
+    # Both the bundle and the hybrid output directory are cleaned up.
+    assert not bundle.exists()
+    assert not run["out_dir"].exists()
+    [completion] = finished
+    assert completion.ice_cleaned is True
+    assert len(completion.rgb_paths) == 1
+    assert completion.rgb_paths[0].endswith("hybrid_04.tif")
+
+
+def test_hybrid_unconfigured_fails_before_any_probe_or_hardware(tmp_path: Path) -> None:
+    worker, kit, session = _ice_worker(tmp_path)
+    token = _load_preview(worker, tmp_path)
+    errors: list[Any] = []
+    worker.error.connect(errors.append)
+    kit.hybrid_config_error = RuntimeError(
+        "hybrid repair is not configured; launch through the NegPy ICE launcher script"
+    )
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(RollFrameChoice(slot_id=1),),
+            reviewed_fingerprint=session.fingerprint,
+            ice_hybrid=True,
+        )
+    )
+
+    assert kit.order == ["hybrid-config"]
+    assert kit.acquire_calls == []
+    [failure] = errors
+    assert "not configured" in failure.message
+
+
+def test_hybrid_failure_preserves_bundle_and_partial_output_dir(tmp_path: Path) -> None:
+    worker, kit, session = _ice_worker(tmp_path)
+    token = _load_preview(worker, tmp_path)
+    errors: list[Any] = []
+    worker.error.connect(errors.append)
+    kit.hybrid_error = RuntimeError("inpainter refused the frame")
+
+    worker.scan_selected(
+        _ice_request(
+            tmp_path,
+            preview_token=token,
+            frames=(RollFrameChoice(slot_id=2),),
+            reviewed_fingerprint=session.fingerprint,
+            ice_hybrid=True,
+        )
+    )
+
+    bundle = kit.acquire_calls[0]["bundle_dir"]
+    out_dir = bundle.with_name(bundle.name + "-hybrid")
+    assert bundle.exists()
+    assert out_dir.exists()
+    [failure] = errors
+    assert str(bundle) in failure.message
+    assert str(out_dir) in failure.message
+    assert "without a rescan" in failure.message

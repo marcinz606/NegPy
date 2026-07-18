@@ -266,3 +266,262 @@ def test_publish_removes_the_master_when_the_receipt_cannot_be_written(monkeypat
     assert service.write_calls  # the master was written first...
     assert not (scans / "ice_slot05.tif").exists()  # ...then removed
     assert not (scans / "ice_slot05_SCAN.json").exists()
+
+
+# --- hybrid repair ------------------------------------------------------------
+
+
+_HYBRID_ENV_VALUES = {
+    "NEGPY_HYBRID_CLI": "cli",
+    "NEGPY_HYBRID_IOPAINT_PYTHON": "iopaint-python",
+    "NEGPY_HYBRID_IOPAINT_EXECUTABLE": "iopaint-exe",
+    "NEGPY_HYBRID_IOPAINT_SOURCE_SHA256": "1" * 64,
+    "NEGPY_HYBRID_MODEL_DIR": "model-dir",
+    "NEGPY_HYBRID_MODEL_WEIGHTS": "model-weights",
+    "NEGPY_HYBRID_MODEL_WEIGHTS_SHA256": "2" * 64,
+}
+
+
+def _set_hybrid_env(monkeypatch, tmp_path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for variable, name in _HYBRID_ENV_VALUES.items():
+        if variable.endswith("SHA256"):
+            values[variable] = name
+        else:
+            target = tmp_path / name
+            if name == "model-dir":
+                target.mkdir()
+            else:
+                target.write_text("x", encoding="utf-8")
+            values[variable] = str(target)
+        monkeypatch.setenv(variable, values[variable])
+    return values
+
+
+def test_hybrid_config_reads_a_complete_environment(monkeypatch, tmp_path) -> None:
+    _set_hybrid_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("NEGPY_HYBRID_INPAINT_DEVICE", "mps")
+
+    config = ls5000_ice.HybridRepairConfig.from_env()
+
+    assert config.cli == tmp_path / "cli"
+    assert config.model_dir == tmp_path / "model-dir"
+    assert config.iopaint_source_sha256 == "1" * 64
+    assert config.inpaint_device == "mps"
+
+    ok, reason = ls5000_ice.hybrid_availability()
+    assert ok is True
+    assert "mps" in reason
+
+
+def test_hybrid_config_refuses_missing_variables_and_paths(monkeypatch, tmp_path) -> None:
+    for variable in _HYBRID_ENV_VALUES:
+        monkeypatch.delenv(variable, raising=False)
+
+    with pytest.raises(ls5000_ice.IceRollError, match="NEGPY_HYBRID_CLI"):
+        ls5000_ice.HybridRepairConfig.from_env()
+
+    _set_hybrid_env(monkeypatch, tmp_path)
+    (tmp_path / "model-weights").unlink()
+    with pytest.raises(ls5000_ice.IceRollError, match="NEGPY_HYBRID_MODEL_WEIGHTS"):
+        ls5000_ice.HybridRepairConfig.from_env()
+
+    ok, reason = ls5000_ice.hybrid_availability()
+    assert ok is False
+    assert "NEGPY_HYBRID_MODEL_WEIGHTS" in reason
+
+
+def test_hybrid_config_refuses_an_unknown_inpaint_device(monkeypatch, tmp_path) -> None:
+    _set_hybrid_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("NEGPY_HYBRID_INPAINT_DEVICE", "tpu")
+
+    with pytest.raises(ls5000_ice.IceRollError, match="cpu, mps, or cuda"):
+        ls5000_ice.HybridRepairConfig.from_env()
+
+
+def _hybrid_config(tmp_path) -> "ls5000_ice.HybridRepairConfig":
+    (tmp_path / "model-dir").mkdir(exist_ok=True)
+    for name in ("cli", "iopaint-python", "iopaint-exe", "model-weights"):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    return ls5000_ice.HybridRepairConfig(
+        cli=tmp_path / "cli",
+        iopaint_python=tmp_path / "iopaint-python",
+        iopaint_executable=tmp_path / "iopaint-exe",
+        iopaint_source_sha256="1" * 64,
+        model_dir=tmp_path / "model-dir",
+        model_weights=tmp_path / "model-weights",
+        model_weights_sha256="2" * 64,
+        inpaint_device="cpu",
+    )
+
+
+def _fake_bundle(monkeypatch, tmp_path) -> Path:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "receipt.json").write_text(
+        json.dumps({"manifest": "manifest.json", "manifest_sha256": "d" * 64}),
+        encoding="utf-8",
+    )
+    manifest = {
+        "same_frame_id": "roll-slot-07",
+        "plan": {"transport": "roll", "frame": 7},
+        "scanner_identity": {"vendor": "Nikon", "model": "LS-5000 ED"},
+    }
+    monkeypatch.setattr(ls5000_ice, "verify_capture_bundle", lambda root: manifest)
+    return bundle
+
+
+def test_run_hybrid_repair_builds_the_full_argv_and_parses_outputs(monkeypatch, tmp_path) -> None:
+    config = _hybrid_config(tmp_path)
+    bundle = _fake_bundle(monkeypatch, tmp_path)
+    out_dir = tmp_path / "hybrid-out"
+    seen: dict[str, Any] = {}
+
+    def fake_runner(argv, *, capture_output, text, timeout):
+        seen["argv"] = list(argv)
+        out = Path(argv[argv.index("--out") + 1])
+        out.mkdir(parents=True)
+        rows = np.arange(4, dtype=np.uint16).reshape(1, 1, 4)
+        np.save(out / "output-hybrid.rgb16.npy", rows[:, :, :3])
+        np.save(out / "output.rgb16.npy", rows[:, :, :3])
+        (out / "synth-mask.png").write_bytes(b"png")
+        (out / "hybrid-receipt.json").write_text(
+            json.dumps({"synthesis": {"pixel_count": 3}}), encoding="utf-8"
+        )
+        (out / "routing.json").write_text(json.dumps({"regions": []}), encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    outputs = ls5000_ice.run_hybrid_repair(
+        bundle,
+        out_dir,
+        config=config,
+        backend="cpu-fast",
+        runner=fake_runner,
+    )
+
+    argv = seen["argv"]
+    assert argv[0] == str(config.cli)
+    assert argv[argv.index("--prepass") + 1] == str(bundle / "prepass_rgbi.npy")
+    assert argv[argv.index("--main") + 1] == str(bundle / "main_rgbi.npy")
+    assert argv[argv.index("--same-frame-id") + 1] == "roll-slot-07"
+    assert "--assert-focus-exposure-locked" in argv
+    assert argv[argv.index("--backend") + 1] == "cpu-fast"
+    assert argv[argv.index("--inpaint-device") + 1] == "cpu"
+    assert argv[argv.index("--model-weights-sha256") + 1] == "2" * 64
+    assert outputs.bundle_manifest_sha256 == "d" * 64
+    assert outputs.device_model == "Nikon LS-5000 ED"
+    assert outputs.plan_semantic == {"transport": "roll", "frame": 7}
+    assert outputs.hybrid_receipt == {"synthesis": {"pixel_count": 3}}
+
+
+def test_run_hybrid_repair_fails_loud_on_exit_code_and_missing_outputs(monkeypatch, tmp_path) -> None:
+    config = _hybrid_config(tmp_path)
+    bundle = _fake_bundle(monkeypatch, tmp_path)
+
+    def failing_runner(argv, *, capture_output, text, timeout):
+        return SimpleNamespace(returncode=3, stdout="", stderr="engine exploded")
+
+    with pytest.raises(ls5000_ice.IceRollError, match="exit 3.*engine exploded"):
+        ls5000_ice.run_hybrid_repair(
+            bundle, tmp_path / "out-a", config=config, backend="cpu", runner=failing_runner
+        )
+
+    def incomplete_runner(argv, *, capture_output, text, timeout):
+        out = Path(argv[argv.index("--out") + 1])
+        out.mkdir(parents=True)
+        (out / "output.rgb16.npy").write_bytes(b"")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with pytest.raises(ls5000_ice.IceRollError, match="output-hybrid.rgb16.npy is missing"):
+        ls5000_ice.run_hybrid_repair(
+            bundle, tmp_path / "out-b", config=config, backend="cpu", runner=incomplete_runner
+        )
+
+    with pytest.raises(ls5000_ice.IceRollError, match="already exists"):
+        existing = tmp_path / "out-c"
+        existing.mkdir()
+        ls5000_ice.run_hybrid_repair(
+            bundle, existing, config=config, backend="cpu", runner=failing_runner
+        )
+
+
+def _hybrid_outputs(tmp_path) -> "ls5000_ice.HybridRunOutputs":
+    out_dir = tmp_path / "hybrid-run"
+    out_dir.mkdir()
+    mask = out_dir / "synth-mask.png"
+    mask.write_bytes(b"mask-bytes")
+    return ls5000_ice.HybridRunOutputs(
+        out_dir=out_dir,
+        hybrid_rgb16=_full_cleaned(),
+        pure_rgb16=_full_cleaned(),
+        synth_mask_path=mask,
+        hybrid_receipt={"synthesis": {"pixel_count": 9, "fraction": 0.0001}},
+        routing={"regions": []},
+        bundle_manifest_sha256="d" * 64,
+        plan_semantic={"transport": "roll", "frame": 7},
+        device_model="Nikon LS-5000 ED",
+    )
+
+
+def test_publish_hybrid_frame_writes_both_masters_mask_and_receipt(monkeypatch, tmp_path) -> None:
+    service = _WritingService()
+    outputs = _hybrid_outputs(tmp_path)
+    written_pure: list[str] = []
+
+    def fake_write_tiff(result, path):
+        written_pure.append(path)
+        final = path + ".tif" if not path.endswith(".tif") else path
+        Path(final).write_bytes(b"pure-master")
+        return final
+
+    monkeypatch.setattr("negpy.services.scanning.writer.write_tiff_16bit", fake_write_tiff)
+
+    rgb_path = ls5000_ice.publish_hybrid_frame(
+        outputs,
+        service=service,
+        output_folder=str(tmp_path / "scans"),
+        filename_pattern='roll_{{ "%03d" % seq }}',
+        roll_slot=7,
+        boundary_offset_rows=3,
+    )
+
+    base = rgb_path.removesuffix(".tif")
+    assert written_pure == [base + "_ICE"]
+    assert Path(base + "_ICE.tif").read_bytes() == b"pure-master"
+    assert Path(base + "_SYNTH.png").read_bytes() == b"mask-bytes"
+    receipt = json.loads(Path(base + "_SCAN.json").read_text(encoding="utf-8"))
+    assert receipt["kind"] == ls5000_ice.ICE_HYBRID_RECEIPT_KIND
+    assert receipt["roll_slot"] == 7
+    assert receipt["boundary_offset_rows"] == 3
+    assert receipt["bundle_manifest_sha256"] == "d" * 64
+    assert receipt["synthesis"] == {"pixel_count": 9, "fraction": 0.0001}
+    assert receipt["hybrid_receipt"]["synthesis"]["pixel_count"] == 9
+    assert set(receipt["outputs"]) == {"hybrid_rgb", "ice_rgb", "synth_mask"}
+    assert receipt["outputs"]["synth_mask"]["bytes"] == len(b"mask-bytes")
+
+
+def test_publish_hybrid_frame_cleans_everything_on_receipt_failure(monkeypatch, tmp_path) -> None:
+    service = _WritingService()
+    outputs = _hybrid_outputs(tmp_path)
+    object.__setattr__(outputs, "hybrid_receipt", {"synthesis": object()})
+
+    def fake_write_tiff(result, path):
+        final = path + ".tif"
+        Path(final).write_bytes(b"pure-master")
+        return final
+
+    monkeypatch.setattr("negpy.services.scanning.writer.write_tiff_16bit", fake_write_tiff)
+
+    with pytest.raises(TypeError):
+        ls5000_ice.publish_hybrid_frame(
+            outputs,
+            service=service,
+            output_folder=str(tmp_path / "scans"),
+            filename_pattern='roll_{{ "%03d" % seq }}',
+            roll_slot=7,
+            boundary_offset_rows=0,
+        )
+
+    scans = tmp_path / "scans"
+    leftovers = sorted(p.name for p in scans.iterdir()) if scans.exists() else []
+    assert leftovers == []
