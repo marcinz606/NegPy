@@ -104,6 +104,30 @@ def sane_rgb_geometry_for_origin(origin: NativeOriginLike | int) -> SaneRgbBindi
     )
 
 
+def ice_geometry_for_origin(origin: NativeOriginLike | int, *, slot_id: int) -> SaneRgbBinding:
+    """Bind a reviewed roll slot's origin to coolscan3 geometry, or refuse.
+
+    ``sane_rgb_geometry_for_origin`` derives the driver frame purely from
+    arithmetic on the native origin and never cross-checks it against the slot
+    the user reviewed.  A Film Spacing Offset can move an origin by more than
+    one full frame pitch, at which point the derived driver frame silently
+    addresses a different physical slot.  A Digital ICE capture must never scan
+    a slot the user did not approve, so the mismatch is a refusal, not a shift.
+    """
+
+    if type(slot_id) is not int or slot_id < 1:
+        raise SaneRgbGeometryError("slot_id must be a positive integer")
+    binding = sane_rgb_geometry_for_origin(origin)
+    if binding.geometry.frame != slot_id:
+        raise SaneRgbGeometryError(
+            f"resolved origin {binding.native_origin} addresses driver frame "
+            f"{binding.geometry.frame}, not reviewed slot {slot_id}; the film "
+            "spacing offset moved this frame past a slot boundary — reload the "
+            "roll preview and re-review this frame"
+        )
+    return binding
+
+
 def validate_sane_rgb_result(
     result: ScanResult,
 ) -> StoppedTransportSmearAssessment:
@@ -164,6 +188,7 @@ __all__ = [
     "SaneRgbBinding",
     "SaneRgbGeometryError",
     "SaneRgbQualityError",
+    "ice_geometry_for_origin",
     "orient_sane_rgb_for_storage",
     "sane_rgb_geometry_for_origin",
     "validate_sane_rgb_result",

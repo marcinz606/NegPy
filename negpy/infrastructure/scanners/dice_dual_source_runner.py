@@ -1339,6 +1339,58 @@ def write_capture_bundle(
     return final
 
 
+def load_capture_bundle(bundle: str | Path) -> tuple[DualSourceCapture, DiceDualSourcePlan]:
+    """Reload a persisted bundle for processing after the scanner is released.
+
+    A roll batch acquires every selected frame first and processes afterwards,
+    so the pair crosses a bundle on disk in between.  The reload re-runs the
+    full integrity gate: ``verify_capture_bundle`` re-hashes both arrays and the
+    manifest, and ``validate_dual_source_capture`` re-derives the acquisition
+    assertions from the round-tripped event log.  Anything that cannot prove it
+    is the same verified capture fails loud instead of processing.
+    """
+
+    root = Path(bundle)
+    manifest = verify_capture_bundle(root)
+    try:
+        plan_data = manifest["plan"]
+        window_data = plan_data["window"]
+        # The recorded window is authoritative: verify_capture_bundle has
+        # already proven the arrays and stated shapes consistent with it, and
+        # DiceDualSourcePlan.__post_init__ re-enforces every other invariant
+        # of the DICE source contract on reconstruction.
+        plan = DiceDualSourcePlan(
+            window=PixelWindow(
+                tl_x=window_data["tl_x"],
+                tl_y=window_data["tl_y"],
+                br_x=window_data["br_x"],
+                br_y=window_data["br_y"],
+            ),
+            frame=plan_data.get("frame"),
+            subframe_mm=plan_data.get("subframe_mm"),
+            transport=str(plan_data["transport"]),
+        )
+        prepass = np.load(root / "prepass_rgbi.npy", allow_pickle=False, mmap_mode="r")
+        main = np.load(root / "main_rgbi.npy", allow_pickle=False, mmap_mode="r")
+        capture = DualSourceCapture(
+            prepass_rgbi=prepass,
+            main_rgbi=main,
+            capture_state=ScannerCaptureState(**manifest["capture_state"]),
+            scanner_identity=ScannerIdentity(**manifest["scanner_identity"]),
+            same_frame_id=str(manifest["same_frame_id"]),
+            events=tuple(manifest["events"]),
+            assertions=dict(manifest["assertions"]),
+        )
+    except BundleVerificationError:
+        raise
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        raise BundleVerificationError(
+            f"capture bundle cannot be reloaded: {error}"
+        ) from error
+    validate_dual_source_capture(capture, plan)
+    return capture, plan
+
+
 def exact_next_command(
     *,
     output_dir: str | Path,

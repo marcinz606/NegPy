@@ -73,6 +73,102 @@ class PortableDigitalIceIntegrityError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class PortableDigitalIceAvailability:
+    """Cheap install facts for UI display; no self-test, no kernel launch."""
+
+    engine_installed: bool
+    engine_detail: str
+    cpu_fast_installed: bool
+    cpu_fast_detail: str
+    cuda_installed: bool
+    cuda_detail: str
+
+
+def availability_summary() -> PortableDigitalIceAvailability:
+    """Report which backends could plausibly run, cheaply enough for a UI.
+
+    This answers "is it installed", not "will it pass its self-test" — the
+    proof of byte parity stays in :func:`probe_backend`, which a scan worker
+    runs before touching hardware.  Keeping this summary import-only means a
+    sidebar can populate a backend selector without paying seconds of compile
+    or synthetic-job time on the GUI thread.
+    """
+
+    try:
+        engine = _load_engine()
+    except PortableDigitalIceUnavailable as error:
+        detail = str(error)
+        return PortableDigitalIceAvailability(
+            engine_installed=False,
+            engine_detail=detail,
+            cpu_fast_installed=False,
+            cpu_fast_detail=detail,
+            cuda_installed=False,
+            cuda_detail=detail,
+        )
+    engine_detail = getattr(engine, "__file__", None) or "installed"
+    try:
+        import numba  # noqa: F401 — availability probe only
+    except Exception as error:  # pragma: no cover - depends on environment
+        cpu_fast_installed = False
+        cpu_fast_detail = f"numba is not importable: {error}"
+    else:
+        cpu_fast_installed = True
+        cpu_fast_detail = f"numba {getattr(numba, '__version__', 'unknown')}"
+    try:
+        cuda_module = import_module("portable_digital_ice.cuda_backend")
+        summary = cuda_module.cuda_device_summary()
+    except Exception as error:
+        cuda_installed = False
+        cuda_detail = f"CUDA backend is not usable: {error}"
+    else:
+        cuda_installed = True
+        cuda_detail = str(summary)
+    return PortableDigitalIceAvailability(
+        engine_installed=True,
+        engine_detail=str(engine_detail),
+        cpu_fast_installed=cpu_fast_installed,
+        cpu_fast_detail=cpu_fast_detail,
+        cuda_installed=cuda_installed,
+        cuda_detail=cuda_detail,
+    )
+
+
+def probe_backend(backend: PortableDigitalIceBackend | str) -> None:
+    """Prove the requested backend can run before any scanner is touched.
+
+    ``OFF`` needs nothing and ``CPU`` needs only the engine import.  The
+    compiled backends run the engine's own byte-parity self-test, which is
+    cached per process and doubles as compile warmup, so a scanner session is
+    never spent discovering a backend that would have refused to start.
+    """
+
+    requested = _normalise_backend(backend)
+    if requested is PortableDigitalIceBackend.OFF:
+        return
+    engine = _load_engine()
+    if requested is PortableDigitalIceBackend.CPU:
+        return
+    self_test_name = {
+        PortableDigitalIceBackend.CPU_FAST: "cpu_fast_self_test",
+        PortableDigitalIceBackend.CUDA: "cuda_self_test",
+    }[requested]
+    self_test = getattr(getattr(engine, "backend", None), self_test_name, None)
+    if not callable(self_test):
+        raise PortableDigitalIceUnavailable(
+            f"portable Digital ICE engine does not provide {self_test_name}; "
+            "install portable-digital-ice 0.2.0 or newer"
+        )
+    try:
+        self_test()
+    except Exception as error:
+        label = _UNAVAILABLE_ENGINE_ERRORS[requested][1]
+        raise PortableDigitalIceUnavailable(
+            f"portable Digital ICE {label} backend is unavailable: {error}"
+        ) from error
+
+
+@dataclass(frozen=True)
 class PortableDigitalIceReceipt:
     """Stable, serializable evidence for one adapter invocation."""
 
@@ -459,10 +555,13 @@ def apply_portable_digital_ice(
 
 
 __all__ = [
+    "PortableDigitalIceAvailability",
     "PortableDigitalIceBackend",
     "PortableDigitalIceIntegrityError",
     "PortableDigitalIceReceipt",
     "PortableDigitalIceResult",
     "PortableDigitalIceUnavailable",
     "apply_portable_digital_ice",
+    "availability_summary",
+    "probe_backend",
 ]

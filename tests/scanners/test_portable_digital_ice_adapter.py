@@ -615,3 +615,91 @@ def test_real_optional_package_compiled_cpu_matches_reference_when_installed() -
     assert compiled.used_backend is adapter.PortableDigitalIceBackend.CPU_FAST
     assert compiled.receipt.output_sha256 == reference.receipt.output_sha256
     assert np.array_equal(compiled.cleaned_rgb16, reference.cleaned_rgb16)
+
+
+def test_probe_off_never_imports_and_cpu_needs_only_the_engine(monkeypatch) -> None:
+    def must_not_import():
+        raise AssertionError("off must not import the optional package")
+
+    monkeypatch.setattr(adapter, "_load_engine", must_not_import)
+    adapter.probe_backend("off")
+
+    engine = SimpleNamespace()  # no backend module at all
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+    adapter.probe_backend("cpu")
+
+
+def test_probe_runs_the_engine_self_test_for_compiled_backends(monkeypatch) -> None:
+    ran: list[str] = []
+    engine = SimpleNamespace(
+        backend=SimpleNamespace(
+            cpu_fast_self_test=lambda: ran.append("cpu-fast"),
+            cuda_self_test=lambda: ran.append("cuda"),
+        )
+    )
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+
+    adapter.probe_backend("cpu-fast")
+    adapter.probe_backend(adapter.PortableDigitalIceBackend.CUDA)
+
+    assert ran == ["cpu-fast", "cuda"]
+
+
+def test_probe_reports_a_failed_self_test_as_unavailable(monkeypatch) -> None:
+    unavailable = type("CpuFastUnavailable", (RuntimeError,), {})
+
+    def failing_self_test() -> None:
+        raise unavailable("numba is not importable")
+
+    engine = SimpleNamespace(backend=SimpleNamespace(cpu_fast_self_test=failing_self_test))
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+
+    with pytest.raises(
+        adapter.PortableDigitalIceUnavailable,
+        match="compiled CPU backend is unavailable.*numba is not importable",
+    ):
+        adapter.probe_backend("cpu-fast")
+
+
+def test_probe_refuses_an_engine_without_the_self_test(monkeypatch) -> None:
+    engine = SimpleNamespace(backend=SimpleNamespace())
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+
+    with pytest.raises(
+        adapter.PortableDigitalIceUnavailable,
+        match="0.2.0 or newer",
+    ):
+        adapter.probe_backend("cpu-fast")
+
+
+def test_availability_summary_without_the_engine_reports_everything_missing(monkeypatch) -> None:
+    def missing() -> None:
+        raise adapter.PortableDigitalIceUnavailable("portable Digital ICE is not installed")
+
+    monkeypatch.setattr(adapter, "_load_engine", missing)
+
+    summary = adapter.availability_summary()
+
+    assert summary.engine_installed is False
+    assert summary.cpu_fast_installed is False
+    assert summary.cuda_installed is False
+    assert "not installed" in summary.engine_detail
+
+
+def test_availability_summary_is_import_only_and_reports_cuda_reason(monkeypatch) -> None:
+    engine = SimpleNamespace(__file__="/fake/portable_digital_ice/__init__.py")
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+
+    def fake_import(name: str):
+        assert name == "portable_digital_ice.cuda_backend"
+        raise ModuleNotFoundError("No module named 'cupy'")
+
+    monkeypatch.setattr(adapter, "import_module", fake_import)
+
+    summary = adapter.availability_summary()
+
+    assert summary.engine_installed is True
+    # NegPy pins numba, so the compiled-CPU probe reflects the real venv.
+    assert summary.cpu_fast_installed is True
+    assert summary.cuda_installed is False
+    assert "cupy" in summary.cuda_detail

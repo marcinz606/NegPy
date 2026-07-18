@@ -12,6 +12,7 @@ from negpy.services.scanning.ls5000_sane_rgb import (
     LS5000_FULL_WINDOW_ROWS,
     SaneRgbGeometryError,
     SaneRgbQualityError,
+    ice_geometry_for_origin,
     orient_sane_rgb_for_storage,
     sane_rgb_geometry_for_origin,
     validate_sane_rgb_result,
@@ -173,3 +174,28 @@ def test_bw_tiff_contract_requires_full_archival_metadata(monkeypatch) -> None:
     )
     with pytest.raises(SaneRgbQualityError, match="committed B&W TIFF"):
         validate_sane_rgb_tiff("frame.tif")
+
+
+def test_ice_geometry_binds_reviewed_slot_to_derived_driver_frame() -> None:
+    native_origin = 2 * LS5000_FRAME_PITCH_UNITS + 17
+
+    binding = ice_geometry_for_origin(native_origin, slot_id=3)
+
+    assert binding.geometry.frame == 3
+    assert binding.native_origin == native_origin
+
+
+def test_ice_geometry_refuses_an_origin_that_crossed_a_slot_boundary() -> None:
+    # A large film-spacing offset can move a reviewed slot's origin past one
+    # full frame pitch; the derived driver frame then addresses a different
+    # physical slot and the capture must refuse rather than shift.
+    crossed_origin = 3 * LS5000_FRAME_PITCH_UNITS + 5
+
+    with pytest.raises(SaneRgbGeometryError, match="not reviewed slot 3"):
+        ice_geometry_for_origin(crossed_origin, slot_id=3)
+
+
+@pytest.mark.parametrize("slot_id", [0, -1, 1.5, "3"])
+def test_ice_geometry_refuses_invalid_slot_ids(slot_id: object) -> None:
+    with pytest.raises(SaneRgbGeometryError, match="slot_id"):
+        ice_geometry_for_origin(17, slot_id=slot_id)  # type: ignore[arg-type]

@@ -20,6 +20,7 @@ from negpy.infrastructure.scanners.dice_dual_source_runner import (
     _decode_rgbi16,
     acquire_dual_sources,
     exact_next_command,
+    load_capture_bundle,
     main,
     verify_capture_bundle,
     write_capture_bundle,
@@ -326,6 +327,88 @@ def test_capture_bundle_is_transactional_and_self_verifying(tmp_path) -> None:
     main_path.write_bytes(payload)
     with pytest.raises(BundleVerificationError, match="file SHA-256"):
         verify_capture_bundle(bundle)
+
+
+def test_bundle_round_trip_reloads_an_equivalent_verified_capture(tmp_path) -> None:
+    plan = _small_plan()
+    prepass, main_array = _arrays(plan)
+    capture = acquire_dual_sources(FakeRawDevice(prepass, main_array), plan)
+    bundle = write_capture_bundle(
+        tmp_path,
+        device_id=capture.scanner_identity.device_id,
+        plan=plan,
+        capture=capture,
+        run_id="pair-reload",
+    )
+
+    reloaded, reloaded_plan = load_capture_bundle(bundle)
+
+    assert reloaded_plan == plan
+    assert reloaded.same_frame_id == capture.same_frame_id
+    assert reloaded.capture_state == capture.capture_state
+    assert reloaded.scanner_identity == capture.scanner_identity
+    assert reloaded.assertions == capture.assertions
+    assert reloaded.assertions["all_passed"] is True
+    assert np.array_equal(reloaded.prepass_rgbi, capture.prepass_rgbi)
+    assert np.array_equal(reloaded.main_rgbi, capture.main_rgbi)
+    assert reloaded.prepass_rgbi.flags.writeable is False
+    assert reloaded.main_rgbi.flags.writeable is False
+
+
+def test_bundle_reload_refuses_tampered_pixels(tmp_path) -> None:
+    plan = _small_plan()
+    prepass, main_array = _arrays(plan)
+    capture = acquire_dual_sources(FakeRawDevice(prepass, main_array), plan)
+    bundle = write_capture_bundle(
+        tmp_path,
+        device_id=capture.scanner_identity.device_id,
+        plan=plan,
+        capture=capture,
+        run_id="pair-tampered",
+    )
+    main_path = bundle / "main_rgbi.npy"
+    payload = bytearray(main_path.read_bytes())
+    payload[-1] ^= 1
+    main_path.write_bytes(payload)
+
+    with pytest.raises(BundleVerificationError):
+        load_capture_bundle(bundle)
+
+
+def test_bundle_reload_refuses_a_tampered_event_log(tmp_path) -> None:
+    plan = _small_plan()
+    prepass, main_array = _arrays(plan)
+    capture = acquire_dual_sources(FakeRawDevice(prepass, main_array), plan)
+    bundle = write_capture_bundle(
+        tmp_path,
+        device_id=capture.scanner_identity.device_id,
+        plan=plan,
+        capture=capture,
+        run_id="pair-events",
+    )
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Drop the second resolution write: the recorded assertions no longer
+    # reproduce from the event log, even with a recomputed manifest hash.
+    manifest["events"] = [
+        event
+        for event in manifest["events"]
+        if not (event.get("event") == "set" and event.get("option") == "resolution" and event.get("value") == 4000)
+    ]
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    receipt_path = bundle / "receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["manifest_sha256"] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BundleVerificationError, match="does not reproduce"):
+        load_capture_bundle(bundle)
 
 
 def test_bundle_verifier_rejects_plan_shape_tampering(tmp_path) -> None:
