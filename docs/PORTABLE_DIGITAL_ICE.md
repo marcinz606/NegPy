@@ -139,6 +139,37 @@ single-sample input contract; that trade is stated in the panel when the
 toggle is on. Run a normal RGB4x+IR batch instead when the archival
 multi-sample master matters more than exact ICE repair.
 
+## Hybrid repair
+
+Some defects are too broad for the exact repair path: deep gouges, large
+debris, damage that crosses strong edges. The optional hybrid mode routes
+exactly those regions to a bounded inpainting fallback while the exact ICE
+result stays in place everywhere else. Infrared detection remains in charge
+of finding defects; the inpainter only ever touches regions the router
+selected, the routed area is capped at a small fraction of the frame, and
+every synthesized pixel is disclosed.
+
+Enable **Hybrid repair** next to the Digital ICE toggle. It requires the
+hybrid runtime, which the launch script configures; when the runtime is
+missing the checkbox stays disabled and its tooltip says what is not set.
+
+Each hybrid frame publishes four files with one base name:
+
+- The hybrid master: `.tif`. This is the file to edit.
+- The pure ICE master: `_ICE.tif`. Outside the synthesis mask it is
+  byte-identical to the hybrid master; inside the mask it preserves the
+  non-generative reconstruction that would otherwise be lost.
+- The synthesis mask: `_SYNTH.png`. White marks every pixel that received
+  any generative contribution.
+- The receipt: `_SCAN.json`, binding all three files by hash and embedding
+  the hybrid tool's own receipt, including the routed regions, the model
+  identity, and the synthesis budget outcome.
+
+Hybrid masters import like other ICE frames: C-41 mode with the file-based
+IR repair left off. A failed hybrid frame preserves both the capture bundle
+and the partial hybrid output next to it, named in the error, so the repair
+can be retried without a rescan.
+
 ## Current boundary
 
 The engine's exact complete-frame receipts cover two independent mounted C-41

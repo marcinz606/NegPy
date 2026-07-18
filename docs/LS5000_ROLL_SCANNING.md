@@ -63,8 +63,10 @@ The Digital ICE row is opt-in via the **Digital ICE (dual RGBI)** toggle beside
 the material choice and needs the optional portable Digital ICE engine
 installed. It publishes one cleaned RGB master and a `_SCAN.json` receipt per
 frame, with no IR sidecars, and gives up the 4x noise averaging because the
-engine requires single-sample input. See
-[PORTABLE_DIGITAL_ICE.md](PORTABLE_DIGITAL_ICE.md) for the full workflow.
+engine requires single-sample input. An additional **Hybrid repair** toggle
+routes unusually broad defects to a bounded inpainting fallback and adds a
+pure `_ICE.tif` master and a `_SYNTH.png` disclosure mask beside each frame.
+See [PORTABLE_DIGITAL_ICE.md](PORTABLE_DIGITAL_ICE.md) for both workflows.
 
 Colour scans produce four files with the same base name:
 
