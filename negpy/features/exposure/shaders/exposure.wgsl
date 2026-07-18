@@ -68,11 +68,11 @@ fn softplus(x: f32) -> f32 {
     return max(x, 0.0) + log(1.0 + exp(-abs(x)));
 }
 
-// Working-space OETF (ProPhoto ROMM: gamma 1.8 + linear toe); feeds the encoded
+// Working-space OETF (Adobe RGB: pure 563/256 gamma); feeds the encoded
 // perceptual region (clahe, retouch) before lab decodes back to linear.
 fn oetf_encode(t: f32) -> f32 {
     let x = clamp(t, 0.0, 1.0);
-    return select(pow(x, 0.55555556), x * 16.0, x < 0.001953125);
+    return pow(x, 0.45470693);
 }
 
 @compute @workgroup_size(8, 8)

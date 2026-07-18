@@ -39,8 +39,11 @@ class TestExportColorManagement(unittest.TestCase):
         cls.proc = ImageProcessor()
 
     def test_greyscale_export_matches_gamma22_tag(self):
-        """B&W luma must be re-encoded from the working TRC (ProPhoto ROMM 1.8) to the
-        gamma 2.2 expected by the GrayGamma2.2 tag, so a viewer recovers the linear luma."""
+        """B&W luma must be re-encoded from the working TRC (Adobe RGB 563/256) to the
+        gamma 2.2 expected by the GrayGamma2.2 tag, so a viewer recovers the linear luma.
+
+        The two gammas are now near-identical, so this is a round-trip check rather than
+        a check that the re-encode moves the values."""
         from negpy.kernel.image.logic import working_oetf_encode
 
         lin = np.linspace(0.05, 0.9, 6, dtype=np.float32)

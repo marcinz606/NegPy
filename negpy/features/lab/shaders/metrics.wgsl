@@ -4,10 +4,10 @@
 // Rec. 709 coefficients
 const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
 
-// Working-space OETF (ProPhoto ROMM: gamma 1.8 + linear toe) — mirrors output_encode.wgsl.
+// Working-space OETF (Adobe RGB: pure 563/256 gamma) — mirrors output_encode.wgsl.
 fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
     let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
-    return select(pow(x, vec3<f32>(0.55555556)), x * 16.0, x < vec3<f32>(0.001953125));
+    return pow(x, vec3<f32>(0.45470693));
 }
 
 @compute @workgroup_size(16, 16)

@@ -11,16 +11,16 @@ struct ClaheUniforms {
 @group(0) @binding(2) var<storage, read> cdfs: array<f32>;
 @group(0) @binding(3) var<uniform> params: ClaheUniforms;
 
-// Working-space TRC (ProPhoto ROMM) — input/output texels stay OETF-encoded
+// Working-space TRC (Adobe RGB) — input/output texels stay OETF-encoded
 // (retouch and lab downstream decode on load).
 fn oetf_encode(c: vec3<f32>) -> vec3<f32> {
     let x = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
-    return select(pow(x, vec3<f32>(0.55555556)), x * 16.0, x < vec3<f32>(0.001953125));
+    return pow(x, vec3<f32>(0.45470693));
 }
 
 fn oetf_decode(c: vec3<f32>) -> vec3<f32> {
     let e = max(c, vec3<f32>(0.0));
-    return select(pow(e, vec3<f32>(1.8)), e / 16.0, e < vec3<f32>(0.03125));
+    return pow(e, vec3<f32>(2.19921875));
 }
 
 fn rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
@@ -28,14 +28,14 @@ fn rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
     let g = max(rgb.g, 0.0);
     let b = max(rgb.b, 0.0);
 
-    // ProPhoto RGB (ROMM) -> XYZ, D50 (working-space primaries; matches CPU rgb_to_lab_working).
-    var x = r * 0.7976749 + g * 0.1351917 + b * 0.0313534;
-    var y = r * 0.2880402 + g * 0.7118741 + b * 0.0000857;
-    var z = r * 0.0000000 + g * 0.0000000 + b * 0.8252100;
+    // Adobe RGB (1998) -> XYZ, D65 (working-space primaries; matches CPU rgb_to_lab_working).
+    var x = r * 0.5767309 + g * 0.1855540 + b * 0.1881852;
+    var y = r * 0.2973769 + g * 0.6273491 + b * 0.0752741;
+    var z = r * 0.0270343 + g * 0.0706872 + b * 0.9911085;
 
-    x = x / 0.96422;
+    x = x / 0.95047;
     y = y / 1.00000;
-    z = z / 0.82521;
+    z = z / 1.08883;
 
     if (x > 0.008856) { x = pow(x, 1.0/3.0); } else { x = (7.787 * x) + (16.0 / 116.0); }
     if (y > 0.008856) { y = pow(y, 1.0/3.0); } else { y = (7.787 * y) + (16.0 / 116.0); }
@@ -57,14 +57,14 @@ fn lab_to_rgb(lab: vec3<f32>) -> vec3<f32> {
     if (pow(y, 3.0) > 0.008856) { y = pow(y, 3.0); } else { y = (y - 16.0 / 116.0) / 7.787; }
     if (pow(z, 3.0) > 0.008856) { z = pow(z, 3.0); } else { z = (z - 16.0 / 116.0) / 7.787; }
 
-    x = x * 0.96422;
+    x = x * 0.95047;
     y = y * 1.00000;
-    z = z * 0.82521;
+    z = z * 1.08883;
 
-    // XYZ -> ProPhoto RGB (ROMM), D50. Returns scene-linear (no encode).
-    let r = x * 1.3459433 + y * -0.2556075 + z * -0.0511118;
-    let g = x * -0.5445989 + y * 1.5081673 + z * 0.0205351;
-    let b = x * 0.0000000 + y * 0.0000000 + z * 1.2118128;
+    // XYZ -> Adobe RGB (1998), D65. Returns scene-linear (no encode).
+    let r = x * 2.0413690 + y * -0.5649464 + z * -0.3446944;
+    let g = x * -0.9692660 + y * 1.8760108 + z * 0.0415560;
+    let b = x * 0.0134474 + y * -0.1183897 + z * 1.0154096;
 
     return max(vec3<f32>(r, g, b), vec3<f32>(0.0));
 }

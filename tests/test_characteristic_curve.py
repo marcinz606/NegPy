@@ -115,11 +115,11 @@ class TestToeShoulderIndependence(unittest.TestCase):
 class TestCalibration(unittest.TestCase):
     def test_default_curve_shape(self):
         """Pin the default tone reproduction so edits don't drift. Golden is the
-        displayed curve in the working-space TRC (ProPhoto ROMM gamma) at x = 0, .25,
+        displayed curve in the working-space TRC (Adobe RGB gamma) at x = 0, .25,
         .5, .75, 1."""
         x, out = _curve()
         idx = [0, 64, 128, 192, 256]
-        golden = [0.905, 0.742, 0.327, 0.113, 0.058]
+        golden = [0.922, 0.783, 0.4, 0.168, 0.098]
         for i, g in zip(idx, golden):
             self.assertAlmostEqual(out[i], g, delta=0.03, msg=f"x={x[i]:.2f}")
 
