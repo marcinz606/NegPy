@@ -99,7 +99,9 @@ def get_thumbnail_worker(file_path: str, file_hash: str, asset_store: Any = None
         return None
 
 
-def get_rendered_thumbnail(buffer: Any, file_hash: str, asset_store: Any = None, color_space: str = WORKING_COLOR_SPACE) -> Optional[Image.Image]:
+def get_rendered_thumbnail(
+    buffer: Any, file_hash: str, asset_store: Any = None, color_space: str = WORKING_COLOR_SPACE
+) -> Optional[Image.Image]:
     """
     Creates a thumbnail from a rendered float32 buffer, color-managing the working
     space to sRGB so it matches the canvas (mirrors ImageConverter.to_qimage).
