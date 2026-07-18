@@ -114,6 +114,16 @@ class ScanSidebar(QWidget):
         depth_row.addWidget(self.ir_check)
         self.form.addRow("Depth", depth_row)
 
+        # Spanning rows (no label column) so the checkboxes sit at the left edge.
+        self.autofocus_check = QCheckBox("Autofocus")
+        self.autofocus_check.setChecked(True)
+        self.autofocus_check.setToolTip("Autofocus before scanning (film is rarely perfectly flat)")
+        self.form.addRow(self.autofocus_check)
+
+        self.ae_check = QCheckBox("Auto-exposure")
+        self.ae_check.setToolTip("Meter exposure in hardware before the scan")
+        self.form.addRow(self.ae_check)
+
         # Frame range (roll/strip feeders only — shown when a live capacity is known).
         self.frame_range_widget = QWidget()
         frame_row = QHBoxLayout(self.frame_range_widget)
@@ -144,22 +154,13 @@ class ScanSidebar(QWidget):
         self.scan_window_clear_btn.setToolTip("Scan the whole default frame instead")
         scan_window_row.addWidget(self.scan_window_btn, 1)
         scan_window_row.addWidget(self.scan_window_clear_btn)
-        self.scan_window_row_label = QLabel("Window")
+        self.scan_window_row_label = QLabel("Batch")
         self.form.addRow(self.scan_window_row_label, self.scan_window_widget)
         self.scan_window_status = hint_label("")
         self.form.addRow("", self.scan_window_status)
         self.scan_window_row_label.setVisible(False)
         self.scan_window_widget.setVisible(False)
         self.scan_window_status.setVisible(False)
-
-        self.autofocus_check = QCheckBox("Autofocus")
-        self.autofocus_check.setChecked(True)
-        self.autofocus_check.setToolTip("Autofocus before scanning (film is rarely perfectly flat)")
-        self.form.addRow("", self.autofocus_check)
-
-        self.ae_check = QCheckBox("Auto-exposure")
-        self.ae_check.setToolTip("Meter exposure in hardware before the scan")
-        self.form.addRow("", self.ae_check)
 
         self.fmt_combo = QComboBox()
         self.fmt_combo.addItems(["TIFF", "DNG"])
@@ -470,6 +471,7 @@ class ScanSidebar(QWidget):
             initial_windows=self._settings.frame_windows,
             initial_selected=self._settings.selected_frames,
             initial_offset=self._settings.frame_offset_mm,
+            initial_offset_modifier=self._settings.frame_offset_modifier_mm,
             parent=self,
         )
         if dialog.exec():
@@ -478,6 +480,7 @@ class ScanSidebar(QWidget):
                 frame_windows=dialog.frame_windows(),
                 selected_frames=dialog.selected_frames(),
                 frame_offset_mm=dialog.frame_offset(),
+                frame_offset_modifier_mm=dialog.frame_offset_modifier(),
             )
             self._update_scan_window_status()
             if dialog.scan_requested():
@@ -494,6 +497,8 @@ class ScanSidebar(QWidget):
 
         offset = self._settings.frame_offset_mm
         offset_txt = f"  ·  offset {offset:.1f} mm" if offset else ""
+        drift = self._settings.frame_offset_modifier_mm
+        offset_txt += f"  ·  drift {drift:+.2f} mm/frame" if drift else ""
         selected = self._settings.selected_frames
         if selected:
             frames_txt = ", ".join(str(f) for f in sorted(selected))
@@ -573,6 +578,7 @@ class ScanSidebar(QWidget):
                         output_format=fmt,
                         frames=frames,
                         frame_windows=frame_windows,
+                        frame_offset_modifier_mm=self._settings.frame_offset_modifier_mm,
                     )
                 )
             else:
@@ -662,8 +668,14 @@ class ScanSidebar(QWidget):
         except (ValueError, TypeError):
             depth = 16
 
+        from dataclasses import replace
+
         device = self._current_device()
-        self.settings = ScannerSettings(
+        # replace(), never a fresh ScannerSettings: fields with no sidebar
+        # control must survive UI edits — reconstruction silently resets any
+        # field missing from this list.
+        self.settings = replace(
+            self._settings,
             last_device_id=device.id if device else self._settings.last_device_id,
             dpi=dpi,
             depth=depth,
@@ -675,10 +687,6 @@ class ScanSidebar(QWidget):
             output_folder=self.folder_edit.text().strip(),
             output_format=self.fmt_combo.currentText(),
             filename_pattern=self.pattern_edit.text().strip() or '{{ date }}_{{ "%03d" % seq }}',
-            scan_window=self._settings.scan_window,
-            frame_offset_mm=self._settings.frame_offset_mm,
-            frame_windows=self._settings.frame_windows,
-            selected_frames=self._settings.selected_frames,
         )
 
 

@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFrame,
     QGridLayout,
@@ -31,14 +32,15 @@ from negpy.infrastructure.scanners.base import ScannerDevice
 from negpy.infrastructure.scanners.params import ScanParams
 
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
-_TILE_MIN_H = 140  # floor for tile height before scaling to the window
+_TILE_H = 140  # constant tile height; width follows the device aspect
+_TILES_PER_ROW = 6  # one SA-21 strip per row; roll adapters (up to 40 frames) wrap below
 
-# The LS-50 raster is portrait (feed axis vertical); rotate each preview 90° so the
-# frame reads landscape, as it sits on the strip. QTransform().rotate(90) maps a scan
-# point (fx, fy) → display (1 - fy, fx) — pinned against Qt — so a crop rect drawn in
-# the rotated view round-trips back to scan geometry exactly, and the feed-axis offset
-# (scan top) lands on the display's right edge.
-_DISPLAY_ROTATION_DEG = 90
+# The LS-50 raster is portrait (feed axis vertical); rotate each preview -90° so the
+# frame reads landscape. QTransform().rotate(-90) maps a scan point (fx, fy) →
+# display (fy, 1 - fx) — pinned against Qt — so crop rects round-trip exactly and the
+# feed-axis start lands on the display's LEFT edge: tiles 1..N laid left-to-right read
+# continuously, like the physical strip (+90 mirrors the feed axis within each tile).
+_DISPLAY_ROTATION_DEG = -90
 
 
 def _preview_positive(rgb: np.ndarray) -> np.ndarray:
@@ -70,22 +72,32 @@ def _order(a: float, b: float) -> tuple[float, float]:
 def _scan_to_display_rect(rect):
     """Scan-space window (fx, fy) → the rotated (landscape) display's coordinates."""
     sx1, sy1, sx2, sy2 = rect
-    dx1, dx2 = _order(1 - sy1, 1 - sy2)
-    dy1, dy2 = _order(sx1, sx2)
+    dx1, dx2 = _order(sy1, sy2)
+    dy1, dy2 = _order(1 - sx1, 1 - sx2)
     return (_clamp01(dx1), _clamp01(dy1), _clamp01(dx2), _clamp01(dy2))
 
 
 def _display_to_scan_rect(rect):
     """Rotated (landscape) display window → scan-space (what the backend crops with)."""
     dx1, dy1, dx2, dy2 = rect
-    sx1, sx2 = _order(dy1, dy2)
-    sy1, sy2 = _order(1 - dx1, 1 - dx2)
+    sx1, sx2 = _order(1 - dy1, 1 - dy2)
+    sy1, sy2 = _order(dx1, dx2)
     return (_clamp01(sx1), _clamp01(sy1), _clamp01(sx2), _clamp01(sy2))
 
 
+class _ResetSlider(QSlider):
+    """Horizontal QSlider that resets to a default on double-click (matches BaseSlider UX)."""
+
+    def __init__(self, default: int = 0) -> None:
+        super().__init__(Qt.Orientation.Horizontal)
+        self._default = default
+
+    def mouseDoubleClickEvent(self, _event) -> None:
+        self.setValue(self._default)
+
+
 class _Tile:
-    """One strip position: its preview label, include box, and the offset the
-    shown preview was scanned at (for the live cut indicator)."""
+    """One strip position: its preview label and include box."""
 
     def __init__(self, frame: int, label: ScanWindowLabel, checkbox: QCheckBox, preview_btn: QPushButton, widget: QWidget) -> None:
         self.frame = frame
@@ -93,8 +105,6 @@ class _Tile:
         self.checkbox = checkbox
         self.preview_btn = preview_btn
         self.widget = widget
-        self.previewed_offset = 0.0
-        self.previewed_offset_pending = 0.0
 
 
 class StripPreviewDialog(QDialog):
@@ -107,6 +117,7 @@ class StripPreviewDialog(QDialog):
         initial_windows=None,
         initial_selected=None,
         initial_offset: float = 0.0,
+        initial_offset_modifier: float = 0.0,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -115,7 +126,7 @@ class StripPreviewDialog(QDialog):
         self._caps = device.capabilities
         self._capacity = max(1, self._caps.adapter_frame_capacity or 1)
         # Landscape tile aspect (W/H) from the rotated raster: the feed axis (max_area_mm[1])
-        # becomes horizontal. Tiles are sized to the window height at this aspect.
+        # becomes horizontal. Tiles are constant-size at this aspect.
         mm = self._caps.max_area_mm
         self._tile_aspect = (mm[1] / mm[0]) if (mm and len(mm) > 1 and mm[0]) else 1.5
         self._inflight_frame: int | None = None
@@ -126,15 +137,19 @@ class StripPreviewDialog(QDialog):
         initial_selected = tuple(initial_selected or ())
         self.setWindowTitle("Preview strip — set a window per frame")
         self.setModal(True)
-        self.resize(1280, 420)
+        tile_w, tile_h = self._tile_size()
+        cols = min(self._capacity, _TILES_PER_ROW)
+        rows = -(-self._capacity // _TILES_PER_ROW)
+        self.resize(cols * (tile_w + 4) + 36, min(rows, 3) * (tile_h + 4) + 260)
 
         layout = QVBoxLayout(self)
 
         help_lbl = QLabel(
             "Preview each frame (the eye button on a tile, or Preview all). Drag on a previewed "
             "frame to crop it — a corner to resize, inside to move; each frame keeps its own window. "
-            "Offset nudges every frame along the feed axis to clear the inter-frame gap — re-preview "
-            "after changing it to see the effect. Tick the frames to scan, then Use (apply and return) "
+            "Offset nudges every frame along the feed axis to clear the inter-frame gap; Drift adds "
+            "progressively more (or less) offset per frame position — re-preview after changing them "
+            "to see the effect. Tick the frames to scan, then Use (apply and return) "
             "or Scan (start scanning now)."
         )
         help_lbl.setWordWrap(True)
@@ -146,16 +161,38 @@ class StripPreviewDialog(QDialog):
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Offset"))
-        self.offset_slider = QSlider(Qt.Orientation.Horizontal)
-        self.offset_slider.setRange(0, 40)  # tenths of a mm → 0..4.0 mm
+        self.offset_slider = _ResetSlider()
+        self.offset_slider.setRange(0, 100)  # tenths of a mm → 0..10.0 mm
         self.offset_slider.setSingleStep(1)
         self.offset_slider.setPageStep(5)
         self.offset_slider.setFixedWidth(160)
         self.offset_slider.setValue(int(round(max(0.0, float(initial_offset)) * 10)))
-        self.offset_slider.setToolTip("Feed-axis offset applied to every frame")
+        self.offset_slider.setToolTip("Feed-axis offset applied to every frame (the transport cannot back up)")
         top.addWidget(self.offset_slider)
         self.offset_label = QLabel()
         top.addWidget(self.offset_label)
+        top.addSpacing(16)
+        top.addWidget(QLabel("Drift"))
+        self.drift_slider = _ResetSlider()
+        self.drift_slider.setRange(-250, 250)  # hundredths of a mm → ±2.50 mm/frame
+        self.drift_slider.setSingleStep(1)
+        self.drift_slider.setPageStep(10)
+        self.drift_slider.setFixedWidth(160)
+        self.drift_slider.setValue(int(round(float(initial_offset_modifier) * 100)))
+        self.drift_slider.setToolTip(
+            "Extra offset added per frame position (mm/frame) — corrects progressive frame-gap drift along the strip"
+        )
+        top.addWidget(self.drift_slider)
+        self.drift_label = QLabel()
+        top.addWidget(self.drift_label)
+        top.addSpacing(16)
+        top.addWidget(QLabel("Preview DPI"))
+        self.preview_dpi_combo = QComboBox()
+        for dpi in sorted(self._caps.supported_dpi) or [_PREVIEW_FALLBACK_DPI]:
+            self.preview_dpi_combo.addItem(str(dpi), dpi)
+        self.preview_dpi_combo.setCurrentIndex(0)  # lowest: fastest, framing only
+        self.preview_dpi_combo.setToolTip("Resolution used for the preview scans")
+        top.addWidget(self.preview_dpi_combo)
         top.addStretch()
         self.preview_all_btn = QPushButton(qta.icon("fa5s.eye", color=THEME.text_primary), " Preview all")
         self.preview_all_btn.clicked.connect(self._on_preview_all)
@@ -164,10 +201,10 @@ class StripPreviewDialog(QDialog):
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         container = QWidget()
-        strip = QHBoxLayout(container)
+        strip = QGridLayout(container)
         strip.setContentsMargins(2, 2, 2, 2)
         strip.setSpacing(4)
         self._tiles: dict[int, _Tile] = {}
@@ -175,7 +212,10 @@ class StripPreviewDialog(QDialog):
             checked = (frame in initial_selected) if initial_selected else True
             tile = self._build_tile(frame, initial_windows.get(frame), checked)
             self._tiles[frame] = tile
-            strip.addWidget(tile.widget)
+            strip.addWidget(tile.widget, (frame - 1) // _TILES_PER_ROW, (frame - 1) % _TILES_PER_ROW)
+        # Pin the grid top-left so a partial last row doesn't spread across the viewport.
+        strip.setColumnStretch(cols, 1)
+        strip.setRowStretch(rows, 1)
         self._scroll.setWidget(container)
         layout.addWidget(self._scroll, 1)
 
@@ -208,6 +248,7 @@ class StripPreviewDialog(QDialog):
         for tile in self._tiles.values():
             tile.checkbox.toggled.connect(self._update_ok_enabled)
         self.offset_slider.valueChanged.connect(self._on_offset_changed)
+        self.drift_slider.valueChanged.connect(self._on_offset_changed)
         self._on_offset_changed(self.offset_slider.value())
         self._update_ok_enabled()
 
@@ -222,7 +263,7 @@ class StripPreviewDialog(QDialog):
         grid.setContentsMargins(0, 0, 0, 0)
 
         label = ScanWindowLabel()
-        label.setMinimumSize(160, 107)  # placeholder; _rescale_tiles fits it to the window height
+        label.setFixedSize(*self._tile_size())
         label.set_window(_scan_to_display_rect(initial_window) if initial_window else None)
         grid.addWidget(label, 0, 0)
 
@@ -249,24 +290,8 @@ class StripPreviewDialog(QDialog):
 
         return _Tile(frame, label, checkbox, preview_btn, widget)
 
-    # ── tile sizing (scale to window height) ──────────────────────────
-
-    def _tile_dims(self, available_h: int) -> tuple[int, int]:
-        h = max(_TILE_MIN_H, available_h - 8)  # small padding inside the scroll viewport
-        return int(h * self._tile_aspect), h
-
-    def _rescale_tiles(self) -> None:
-        w, h = self._tile_dims(self._scroll.viewport().height())
-        for tile in self._tiles.values():
-            tile.label.setFixedSize(w, h)
-
-    def resizeEvent(self, ev) -> None:
-        super().resizeEvent(ev)
-        self._rescale_tiles()
-
-    def showEvent(self, ev) -> None:
-        super().showEvent(ev)
-        self._rescale_tiles()
+    def _tile_size(self) -> tuple[int, int]:
+        return int(_TILE_H * self._tile_aspect), _TILE_H
 
     # ── result getters ────────────────────────────────────────────────
 
@@ -278,6 +303,14 @@ class StripPreviewDialog(QDialog):
 
     def frame_offset(self) -> float:
         return self.offset_slider.value() / 10.0
+
+    def frame_offset_modifier(self) -> float:
+        return self.drift_slider.value() / 100.0
+
+    def _offset_for_frame(self, frame: int) -> float:
+        """Effective offset for a frame position: base + (N-1)·drift, floored at 0
+        (the scan blacks out at the frame boundary — below 0 is unreachable)."""
+        return max(0.0, self.frame_offset() + (frame - 1) * self.frame_offset_modifier())
 
     def scan_requested(self) -> bool:
         """True when the dialog was accepted via Scan (start now), not Use."""
@@ -305,25 +338,29 @@ class StripPreviewDialog(QDialog):
 
     def _on_offset_changed(self, _value: int) -> None:
         self.offset_label.setText(f"{self.frame_offset():.1f} mm")
+        self.drift_label.setText(f"{self.frame_offset_modifier():+.2f} mm/frame")
         self._refresh_offset_indicators()
 
     def _refresh_offset_indicators(self) -> None:
         extent = self._caps.max_area_mm[1] if self._caps.max_area_mm and len(self._caps.max_area_mm) > 1 else 0.0
-        offset = self.frame_offset()
         for tile in self._tiles.values():
-            delta = offset - tile.previewed_offset
-            # +offset shifts content toward the raster top → the rotated preview's
-            # right; new content enters from the LEFT, so the cut band grows from
-            # the left edge rightward, tracking the slider (verified on an LS-50).
-            tile.label.set_offset_indicator(delta / extent if (extent and delta > 0) else None, edge="left")
+            # Bands are absolute effective offsets, never deltas vs the shown
+            # preview. +offset moves content toward the display's left (verified
+            # on an LS-50), so the band marks the left strip a re-scan cuts
+            # away; a frame floored at 0 by negative drift pins the line at the
+            # edge so the slider visibly acts.
+            indicators: list[tuple[float, str]] = []
+            if extent:
+                raw = self.frame_offset() + (tile.frame - 1) * self.frame_offset_modifier()
+                offset = max(0.0, raw)
+                if offset > 0 or raw < 0:
+                    indicators.append((offset / extent, "left"))
+            tile.label.set_offset_indicators(indicators)
 
     # ── preview flow (single-flight chain) ────────────────────────────
 
     def _preview_dpi(self) -> int:
-        # Lowest supported DPI: previews are for framing only, and the smallest
-        # raster is fastest and least prone to transient device I/O on a flaky link.
-        dpis = self._caps.supported_dpi
-        return min(dpis) if dpis else _PREVIEW_FALLBACK_DPI
+        return int(self.preview_dpi_combo.currentData() or _PREVIEW_FALLBACK_DPI)
 
     def _on_preview_one(self, frame: int) -> None:
         self._failed_frames = []
@@ -351,7 +388,7 @@ class StripPreviewDialog(QDialog):
                 autofocus=False,
                 auto_exposure=False,
                 window=None,
-                frame_offset_mm=self.frame_offset(),
+                frame_offset_mm=self._offset_for_frame(frame),
                 frame=frame,
             ),
             output_folder="",
@@ -367,7 +404,6 @@ class StripPreviewDialog(QDialog):
             self.status.setText(f"Scanner busy — {e}")
             return
         self._inflight_frame = frame
-        self._tiles[frame].previewed_offset_pending = self.frame_offset()
         self._set_previewing(True)
         self.status.setText(f"Previewing frame {frame}…")
 
@@ -385,9 +421,7 @@ class StripPreviewDialog(QDialog):
             self._set_previewing(False)
             self.status.setText(f"Could not display frame {frame}: {e}")
             return
-        tile = self._tiles[frame]
-        tile.label.set_frame(pixmap)
-        tile.previewed_offset = tile.previewed_offset_pending
+        self._tiles[frame].label.set_frame(pixmap)
         self._refresh_offset_indicators()
         self._pump()
 

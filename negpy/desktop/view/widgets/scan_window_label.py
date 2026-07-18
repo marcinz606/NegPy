@@ -38,8 +38,7 @@ class ScanWindowLabel(QLabel):
         self._active_corner: Optional[int] = None
         self._press_frac: Optional[tuple[float, float]] = None
         self._rect_at_press: Optional[Rect] = None
-        self._offset_frac: Optional[float] = None  # live offset indicator, 0..1 of frame height
-        self._offset_edge = "top"  # "top" (horizontal line) or "left" (vertical, rotated view)
+        self._offset_indicators: list[tuple[float, str]] = []  # (frac 0..1, "left" | "right")
 
     # ── public API ────────────────────────────────────────────────────
 
@@ -54,16 +53,10 @@ class ScanWindowLabel(QLabel):
     def window(self) -> Optional[Rect]:
         return self._rect
 
-    def set_offset_indicator(self, frac: Optional[float], edge: str = "top") -> None:
-        """Show a live line where a feed-axis offset would cut (0..1).
-
-        edge="top" draws a horizontal line cutting from the top; edge="left" draws
-        a vertical line growing from the left — used when the preview is rotated to
-        landscape and the feed axis runs horizontally, so the band tracks the
-        slider in the same direction the re-scanned content shifts.
-        """
-        self._offset_frac = None if not frac else max(0.0, min(1.0, frac))
-        self._offset_edge = edge
+    def set_offset_indicators(self, indicators: list[tuple[float, str]]) -> None:
+        """Live cut lines, each (frac 0..1, edge "left"/"right"): a shaded band
+        grows from that edge to a dashed line at frac."""
+        self._offset_indicators = [(max(0.0, min(1.0, frac)), edge) for frac, edge in indicators]
         self.update()
 
     def clear_window(self) -> None:
@@ -166,21 +159,20 @@ class ScanWindowLabel(QLabel):
                 painter.setPen(Qt.PenStyle.NoPen)
                 for corner in (wr.topLeft(), wr.topRight(), wr.bottomRight(), wr.bottomLeft()):
                     painter.drawRect(QRect(corner.x() - _HANDLE_PX, corner.y() - _HANDLE_PX, 2 * _HANDLE_PX, 2 * _HANDLE_PX))
-            if self._offset_frac:
+            for frac, edge in self._offset_indicators:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QColor(0, 0, 0, 110))
                 pen = QPen(QColor("#E0A83C"), 2)
                 pen.setStyle(Qt.PenStyle.DashLine)
-                if self._offset_edge == "left":
-                    x = draw_rect.left() + int(self._offset_frac * draw_rect.width())
+                # Line ≥1 px inside the frame — an edge-pinned indicator must stay visible.
+                if edge == "left":
+                    x = min(draw_rect.right() - 1, max(draw_rect.left() + 1, draw_rect.left() + int(frac * draw_rect.width())))
                     painter.drawRect(QRect(draw_rect.left(), draw_rect.top(), max(0, x - draw_rect.left()), draw_rect.height()))
-                    painter.setPen(pen)
-                    painter.drawLine(x, draw_rect.top(), x, draw_rect.bottom())
                 else:
-                    y = draw_rect.top() + int(self._offset_frac * draw_rect.height())
-                    painter.drawRect(QRect(draw_rect.left(), draw_rect.top(), draw_rect.width(), max(0, y - draw_rect.top())))
-                    painter.setPen(pen)
-                    painter.drawLine(draw_rect.left(), y, draw_rect.right(), y)
+                    x = min(draw_rect.right() - 1, max(draw_rect.left() + 1, draw_rect.right() - int(frac * draw_rect.width())))
+                    painter.drawRect(QRect(x, draw_rect.top(), max(0, draw_rect.right() - x), draw_rect.height()))
+                painter.setPen(pen)
+                painter.drawLine(x, draw_rect.top(), x, draw_rect.bottom())
         else:
             painter.fillRect(self.rect(), QColor("#0D0D0F"))
         painter.end()

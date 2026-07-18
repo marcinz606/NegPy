@@ -88,15 +88,110 @@ def test_preview_uses_lowest_supported_dpi() -> None:
     assert controller.preview_reqs[0].params.dpi == 90
 
 
-def test_offset_indicator_grows_from_the_left_matching_content_shift() -> None:
-    # +offset shifts re-scanned content toward the rotated preview's right, so the
-    # cut band must grow from the LEFT (new content) — same direction as the slider.
+def test_offset_indicator_grows_from_the_left_tracking_the_slider() -> None:
+    # +offset shifts re-scanned content toward the raster top — the -90 rotated
+    # preview's LEFT — so the LEFT strip of the shown preview is what a re-scan
+    # cuts away; the band grows from the left, same direction as the slider.
     dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=4.0)
     dialog._refresh_offset_indicators()
 
-    label = dialog._tiles[1].label
-    assert label._offset_edge == "left"
-    assert label._offset_frac == pytest.approx(4.0 / 38.0, abs=1e-3)  # extent = max_area_mm[1]
+    (frac, edge), = dialog._tiles[1].label._offset_indicators
+    assert edge == "left"
+    assert frac == pytest.approx(4.0 / 38.0, abs=1e-3)  # extent = max_area_mm[1]
+
+
+def test_preview_offsets_follow_drift_per_frame_position() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3), initial_offset=1.0, initial_offset_modifier=0.2)
+
+    dialog._on_preview_all()
+    controller.scan_preview_ready.emit(_rgb())
+    controller.scan_preview_ready.emit(_rgb())
+
+    assert [r.params.frame_offset_mm for r in controller.preview_reqs] == pytest.approx([1.0, 1.2, 1.4])
+
+
+def test_negative_drift_floors_the_offset_at_zero() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=0.3, initial_offset_modifier=-0.25)
+
+    assert dialog._offset_for_frame(1) == pytest.approx(0.3)
+    assert dialog._offset_for_frame(2) == pytest.approx(0.05)
+    assert dialog._offset_for_frame(3) == 0.0  # below 0 is physically impossible
+
+
+def test_drift_slider_spans_plus_minus_two_point_five() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset_modifier=2.5)
+    assert (dialog.drift_slider.minimum(), dialog.drift_slider.maximum()) == (-250, 250)
+    assert dialog.frame_offset_modifier() == pytest.approx(2.5)
+
+
+def test_negative_drift_pins_the_line_to_the_edge_on_floored_frames() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    dialog.drift_slider.setValue(-50)  # -0.50 mm/frame, base 0
+
+    assert dialog._tiles[1].label._offset_indicators == []  # raw 0: genuinely no offset
+    (f2, e2), = dialog._tiles[2].label._offset_indicators
+    assert (e2, f2) == ("left", 0.0)  # floored → line pinned at the edge
+    (f3, e3), = dialog._tiles[3].label._offset_indicators
+    assert (e3, f3) == ("left", 0.0)
+
+
+def test_drift_slider_updates_indicators_live_per_frame() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3))
+
+    dialog.drift_slider.setValue(50)  # +0.50 mm/frame
+
+    assert dialog.drift_label.text() == "+0.50 mm/frame"
+    assert dialog._tiles[1].label._offset_indicators == []  # frame 1: no drift yet
+    (f2, e2), = dialog._tiles[2].label._offset_indicators
+    assert (e2, f2) == ("left", pytest.approx(0.5 / 38.0, abs=1e-3))
+    (f3, e3), = dialog._tiles[3].label._offset_indicators
+    assert (e3, f3) == ("left", pytest.approx(1.0 / 38.0, abs=1e-3))
+
+
+def test_offset_slider_is_non_negative_up_to_ten_mm() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=-2.0)
+
+    assert (dialog.offset_slider.minimum(), dialog.offset_slider.maximum()) == (0, 100)
+    assert dialog.frame_offset() == 0.0  # a stale negative setting clamps to 0
+
+
+def test_indicator_is_absolute_per_frame_not_relative_to_the_shown_preview() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3), initial_offset=2.0)
+
+    # Preview frame 1 at the current offset — the band must still show the
+    # absolute 2.0 mm cut, not disappear because "nothing changed".
+    dialog._on_preview_one(1)
+    controller.scan_preview_ready.emit(_rgb())
+
+    (frac, edge), = dialog._tiles[1].label._offset_indicators
+    assert edge == "left"
+    assert frac == pytest.approx(2.0 / 38.0, abs=1e-3)
+
+
+def test_offset_and_drift_sliders_reset_to_zero_on_double_click() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=2.0, initial_offset_modifier=0.5)
+
+    dialog.offset_slider.mouseDoubleClickEvent(None)
+    dialog.drift_slider.mouseDoubleClickEvent(None)
+
+    assert dialog.frame_offset() == 0.0
+    assert dialog.frame_offset_modifier() == 0.0
+    assert dialog.offset_label.text() == "0.0 mm"  # valueChanged fired → labels refreshed
+    assert dialog.drift_label.text() == "+0.00 mm/frame"
+
+
+def test_preview_dpi_dropdown_defaults_to_lowest_and_flows_into_requests() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))  # supported_dpi=(1000, 4000)
+    assert dialog._preview_dpi() == 1000
+
+    dialog.preview_dpi_combo.setCurrentIndex(1)
+    dialog._on_preview_one(1)
+
+    assert controller.preview_reqs[0].params.dpi == 4000
 
 
 def test_preview_positive_inverts_and_levels() -> None:
@@ -121,16 +216,31 @@ def test_scan_button_marks_scan_requested_and_use_does_not() -> None:
     assert other.scan_requested() is False
 
 
-def test_tile_dims_scale_to_height_at_landscape_aspect() -> None:
+def test_tiles_have_constant_size_at_landscape_aspect() -> None:
     dialog = StripPreviewDialog(_FakeController(), _device(3))  # max_area_mm=(25, 38) → aspect 1.52
     assert dialog._tile_aspect == pytest.approx(38.0 / 25.0, abs=1e-3)
 
-    w, h = dialog._tile_dims(400)
-    assert h == 400 - 8  # window height minus padding
-    assert w == int(h * dialog._tile_aspect)  # width tracks height, landscape
+    w, h = dialog._tile_size()
+    assert h == 140
+    assert w == int(h * dialog._tile_aspect)
+    assert (dialog._tiles[1].label.width(), dialog._tiles[1].label.height()) == (w, h)
 
-    _, small_h = dialog._tile_dims(10)
-    assert small_h == 140  # floored
+    dialog.resize(2000, 1000)  # tiles must not track the window size
+    assert (dialog._tiles[1].label.width(), dialog._tiles[1].label.height()) == (w, h)
+
+
+def test_tiles_wrap_in_rows_of_six() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _device(40))  # full-roll adapter
+    grid = dialog._scroll.widget().layout()
+
+    def pos(frame: int) -> tuple[int, int]:
+        row, col, _rowspan, _colspan = grid.getItemPosition(grid.indexOf(dialog._tiles[frame].widget))
+        return row, col
+
+    assert pos(1) == (0, 0)
+    assert pos(6) == (0, 5)
+    assert pos(7) == (1, 0)
+    assert pos(40) == (6, 3)
 
 
 def test_scan_button_is_gated_on_a_frame_being_checked() -> None:
@@ -159,12 +269,14 @@ def test_getters_reflect_selection_windows_and_offset() -> None:
         initial_windows={2: scan_rect},
         initial_selected=(1, 3),
         initial_offset=0.5,
+        initial_offset_modifier=0.05,
     )
     assert dialog.selected_frames() == (1, 3)
     windows = dialog.frame_windows()
     assert set(windows) == {2}
     assert windows[2] == pytest.approx(scan_rect)  # round-trips through the display rotation
     assert dialog.frame_offset() == 0.5
+    assert dialog.frame_offset_modifier() == 0.05
 
 
 def test_portrait_preview_is_shown_landscape() -> None:
@@ -184,10 +296,11 @@ def test_rect_transform_round_trips() -> None:
     assert _display_to_scan_rect(_scan_to_display_rect(scan)) == pytest.approx(scan)
 
 
-def test_scan_top_maps_to_display_right() -> None:
-    # The feed-axis offset cuts the scan top (small fy); after rotation that lands on
-    # the display's right (short) edge — where the offset indicator draws.
-    assert _scan_to_display_rect((0.0, 0.0, 1.0, 0.25)) == pytest.approx((0.75, 0.0, 1.0, 1.0))
+def test_scan_top_maps_to_display_left() -> None:
+    # The scan top (small fy) is the frame's feed-axis start, adjacent to the
+    # PREVIOUS frame; after the -90 rotation it lands on the display's LEFT edge,
+    # so tiles laid out 1..N left-to-right read continuously like the strip.
+    assert _scan_to_display_rect((0.0, 0.0, 1.0, 0.25)) == pytest.approx((0.0, 0.0, 0.25, 1.0))
 
 
 def test_preview_all_chains_one_frame_at_a_time() -> None:

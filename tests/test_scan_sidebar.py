@@ -240,6 +240,31 @@ def test_ui_edit_preserves_dialog_selection() -> None:
     assert sidebar._settings.frame_windows == {4: rect}
 
 
+def test_ui_edit_preserves_offset_and_drift() -> None:
+    sidebar, _ = _sidebar(LS50_DEVICE)
+    sidebar.settings = replace(sidebar._settings, frame_offset_mm=1.5, frame_offset_modifier_mm=-0.1)
+
+    sidebar.folder_edit.setText("/tmp/somewhere-else")  # fires _update_settings_from_ui
+
+    assert sidebar._settings.frame_offset_mm == 1.5
+    assert sidebar._settings.frame_offset_modifier_mm == -0.1
+
+
+def test_scan_carries_offset_and_drift_into_the_batch_request() -> None:
+    # _on_scan() re-reads settings from the UI right before building the
+    # request — the rebuild must not wipe dialog-owned fields.
+    sidebar, controller = _sidebar(LS50_DEVICE)
+    sidebar.folder_edit.setText("/tmp/negpy-scan-out")
+    sidebar.settings = replace(sidebar._settings, frame_offset_mm=1.5, frame_offset_modifier_mm=0.2)
+
+    sidebar._on_scan()
+
+    kind, req = controller.started[0]
+    assert kind == "batch"
+    assert req.params.frame_offset_mm == 1.5
+    assert req.frame_offset_modifier_mm == 0.2
+
+
 def test_eject_button_calls_controller() -> None:
     sidebar, controller = _sidebar(FULL_DEVICE)
     sidebar._on_eject()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 
+import pytest
+
 from negpy.desktop.workers.scan_worker import BatchRequest, ScanRequest, ScanWorker
 from negpy.infrastructure.scanners.params import ScanParams
 
@@ -66,6 +68,7 @@ class _BatchService:
         self.frames: list[int] = []
         self.written_seqs: list[int] = []
         self.windows: list = []
+        self.offsets: list[float] = []
         self.eject_calls: list[str] = []
 
     def eject(self, device_id: str) -> bool:
@@ -77,6 +80,7 @@ class _BatchService:
             cancel.set()
         self.frames.append(params.frame)
         self.windows.append(params.window)
+        self.offsets.append(params.frame_offset_mm)
         if self.fail_on is not None and params.frame == self.fail_on:
             raise RuntimeError("frame failed")
         if progress:
@@ -118,6 +122,45 @@ def _terminal_outcomes(worker: ScanWorker) -> tuple[list[str], list[None], list[
     worker.cancelled.connect(lambda: cancelled.append(None))
     worker.error.connect(errors.append)
     return finished, cancelled, errors
+
+
+def test_batch_applies_progressive_offset_per_frame_position() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    req = BatchRequest(
+        device_id="coolscan3:test",
+        params=ScanParams(dpi=4_000, depth=16, capture_ir=False, frame_offset_mm=1.0),
+        output_folder="/tmp",
+        filename_pattern='scan-{{ "%03d" % seq }}',
+        output_format="TIFF",
+        frames=(2, 3, 4),
+        frame_offset_modifier_mm=0.2,
+    )
+
+    worker.run_batch(req)
+
+    # Drift follows the physical frame position (N-1), not the enumeration order.
+    assert service.offsets == pytest.approx([1.2, 1.4, 1.6])
+
+
+def test_batch_negative_drift_floors_the_offset_at_zero() -> None:
+    worker = ScanWorker()
+    service = _BatchService()
+    worker._service = service  # type: ignore[assignment]
+    req = BatchRequest(
+        device_id="coolscan3:test",
+        params=ScanParams(dpi=4_000, depth=16, capture_ir=False, frame_offset_mm=0.3),
+        output_folder="/tmp",
+        filename_pattern='scan-{{ "%03d" % seq }}',
+        output_format="TIFF",
+        frames=(1, 2, 3),
+        frame_offset_modifier_mm=-0.25,
+    )
+
+    worker.run_batch(req)
+
+    assert service.offsets == pytest.approx([0.3, 0.05, 0.0])
 
 
 def test_scan_worker_emits_eject_result() -> None:

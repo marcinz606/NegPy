@@ -26,12 +26,15 @@ class BatchRequest:
     """Scan an explicit set of frames, one SANE session each, frame-numbered output."""
 
     device_id: str
-    params: ScanParams  # base; frame + window overridden per iteration
+    params: ScanParams  # base; frame + window + offset overridden per iteration
     output_folder: str
     filename_pattern: str
     output_format: str
     frames: tuple[int, ...]
     frame_windows: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)
+    # Feed-axis drift (mm/frame): frame N scans at
+    # frame_offset_mm + (N-1) * modifier, floored at 0.
+    frame_offset_modifier_mm: float = 0.0
 
 
 class ScanWorker(QObject):
@@ -169,7 +172,8 @@ class ScanWorker(QObject):
                     outcome = ("cancelled", None)
                     break
                 window = req.frame_windows.get(frame, req.params.window)
-                frame_params = dataclasses.replace(req.params, frame=frame, window=window)
+                offset = max(0.0, req.params.frame_offset_mm + (frame - 1) * req.frame_offset_modifier_mm)
+                frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
                 base = index / total
 
                 def _progress(fraction: float, _base: float = base) -> None:

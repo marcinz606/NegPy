@@ -20,6 +20,9 @@ class ScannerSettings:
     filename_pattern: str = '{{ date }}_{{ "%03d" % seq }}'
     scan_window: Rect | None = None
     frame_offset_mm: float = 0.0
+    # Feed-axis drift (mm/frame): frame N gets frame_offset_mm + (N-1) * modifier,
+    # floored at 0. Corrects progressive frame-gap drift along a strip.
+    frame_offset_modifier_mm: float = 0.0
     # Per-frame crop windows (absent key = full frame) and the strip-dialog frame
     # selection. ponytail: dict field means ScannerSettings is unhashable; nothing
     # hashes it — switch to a sorted tuple of pairs if that ever changes.
