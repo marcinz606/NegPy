@@ -56,7 +56,15 @@ If you eject or reinsert the film, or power-cycle the scanner, load the whole ro
 | Material | Scanner capture | Infrared | Import behavior |
 | --- | --- | --- | --- |
 | Colour negative (C-41) | 4000 dpi, 16-bit, RGB 4x | One scanner IR plane | C-41 mode, IR dust repair on |
+| Colour negative + Digital ICE | 285 dpi prepass + 4000 dpi main, 16-bit, single-sample RGBI | In both scans, consumed by the engine | C-41 mode, dust already repaired, IR dust repair off |
 | Conventional silver B&W | 4000 dpi, 16-bit, RGB 4x | Off | B&W mode, IR dust repair off |
+
+The Digital ICE row is opt-in via the **Digital ICE (dual RGBI)** toggle beside
+the material choice and needs the optional portable Digital ICE engine
+installed. It publishes one cleaned RGB master and a `_SCAN.json` receipt per
+frame, with no IR sidecars, and gives up the 4x noise averaging because the
+engine requires single-sample input. See
+[PORTABLE_DIGITAL_ICE.md](PORTABLE_DIGITAL_ICE.md) for the full workflow.
 
 Colour scans produce four files with the same base name:
 

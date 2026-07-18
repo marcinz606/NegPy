@@ -104,19 +104,49 @@ The reference backend is the one that makes the closed-handle rule matter most,
 but the rule holds for all of them: processing is a separate job from
 acquisition, and no backend should run while the scanner is still reserved.
 
+## Roll workflow
+
+The roll contact sheet can capture selected frames for Digital ICE directly.
+With color negative material chosen, enable **Digital ICE (dual RGBI)** next to
+the scan material and pick a processing backend; the selector shows which
+backends are installed and defaults to `cpu-fast` when available. The Scan
+button's free-space gate switches to the ICE budget: one transient dual-RGBI
+bundle at a time plus one RGB-only master per frame.
+
+Each selected slot then becomes its own complete cycle:
+
+1. The reviewed roll fingerprint is re-verified, exactly as for the packed
+   RGB4x path, and the slot's Film Spacing Offset resolves to coolscan3
+   frame-and-subframe geometry. An offset that moved the frame past a slot
+   boundary refuses rather than scanning the wrong slot.
+2. One dedicated SANE session captures the 285 dpi prepass and the locked
+   4000 dpi main, writes the verified bundle, and closes. The requested
+   backend was already proven runnable before the scanner was touched.
+3. With the scanner released, the engine repairs the frame and NegPy
+   publishes one cleaned 16-bit scanner-linear TIFF beside a
+   `_SCAN.json` receipt recording the slot, offset, plan, bundle hash,
+   backend selection, and the engine's full receipt.
+
+Completed frames import automatically as color negatives with the file-based
+IR repair left off — their dust is already repaired and they carry no IR
+sidecar. If processing fails, the frame's verified bundle stays on disk under
+the attempts folder and the error names it, so the repair can be retried
+without a rescan. Stop after current frame works between frames, as
+everywhere else in the roll workflow.
+
+Choosing ICE trades the RGB 4x noise averaging for the engine's exact
+single-sample input contract; that trade is stated in the panel when the
+toggle is on. Run a normal RGB4x+IR batch instead when the archival
+multi-sample master matters more than exact ICE repair.
+
 ## Current boundary
 
 The engine's exact complete-frame receipts cover two independent mounted C-41
 frames from a Nikon Super Coolscan 5000 ED in the Digital ICE Normal path. The
-NegPy capture runner also supports a registered roll position, but roll geometry
-still needs its own independent full-frame parity receipt before it should carry
-the same exactness label.
+NegPy capture runner and the roll workflow above also support registered roll
+positions, but roll geometry still needs its own independent full-frame parity
+receipt before it should carry the same exactness label.
 
 This path is intended for infrared-compatible color film. Traditional
 silver-based black-and-white film, and some Kodachrome material, can block
 infrared light in the image itself and are not suitable for this repair method.
-
-This change adds the acquisition and processing boundaries. Product UI,
-transactional TIFF publication, and post-scanner job scheduling remain separate
-follow-up work, so that processing is always scheduled after the scanner
-reservation has been released rather than during it.

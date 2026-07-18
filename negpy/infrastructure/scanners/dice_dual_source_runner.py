@@ -1354,7 +1354,11 @@ def load_capture_bundle(bundle: str | Path) -> tuple[DualSourceCapture, DiceDual
     manifest = verify_capture_bundle(root)
     try:
         plan_data = manifest["plan"]
+        if not isinstance(plan_data, dict):
+            raise BundleVerificationError("capture bundle plan is not an object")
         window_data = plan_data["window"]
+        if not isinstance(window_data, dict):
+            raise BundleVerificationError("capture bundle plan has no pixel window")
         # The recorded window is authoritative: verify_capture_bundle has
         # already proven the arrays and stated shapes consistent with it, and
         # DiceDualSourcePlan.__post_init__ re-enforces every other invariant

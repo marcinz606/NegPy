@@ -74,7 +74,14 @@ class _ControllerHarness:
         )
         self.imports: list[tuple[list[str], bool]] = []
 
-    def import_negative_roll_scans(self, paths: list[str], *, black_and_white: bool) -> None:
+    def import_negative_roll_scans(
+        self,
+        paths: list[str],
+        *,
+        black_and_white: bool,
+        ice_cleaned: bool = False,
+    ) -> None:
+        del ice_cleaned
         self.imports.append((paths, black_and_white))
 
 
