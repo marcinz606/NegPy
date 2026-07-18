@@ -30,9 +30,9 @@ The acquisition runner:
 
 The processing adapter exposes four explicit choices: `off`, `cpu`, `cpu-fast`,
 and `cuda`. It never exposes the engine's automatic fallback mode, and a backend
-that cannot run fails with a clear error rather than quietly becoming a different
-one — a CUDA request does not become an hour-long reference CPU job, and a
-`cpu-fast` request does not either. Raw RGBI sources remain untouched and the
+that cannot run fails with a clear error rather than quietly becoming a
+different one. A CUDA request does not become an hour-long reference CPU job,
+and a `cpu-fast` request does not either. Raw RGBI sources remain untouched and the
 cleaned RGB image is returned as a separate result with backend, output, RNG, and
 startup receipt data.
 
@@ -128,7 +128,7 @@ Each selected slot then becomes its own complete cycle:
    backend selection, and the engine's full receipt.
 
 Completed frames import automatically as color negatives with the file-based
-IR repair left off — their dust is already repaired and they carry no IR
+IR repair left off, since their dust is already repaired and they carry no IR
 sidecar. If processing fails, the frame's verified bundle stays on disk under
 the attempts folder and the error names it, so the repair can be retried
 without a rescan. Stop after current frame works between frames, as
