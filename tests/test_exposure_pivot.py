@@ -64,9 +64,9 @@ class TestEndToEndExposure(unittest.TestCase):
     def test_reference_pixel_prints_at_target_brightness(self):
         """Full CPU path: the assumed reference tone must come out at the
         target print density regardless of grade."""
-        # true_black (BPC) pinned off: it remaps the whole tone range around
+        # paper_black on (BPC off) pinned: BPC remaps the whole tone range around
         # paper Dmax and is orthogonal to the pivot invariant under test here.
-        config = replace(WorkspaceConfig().exposure, true_black=False)
+        config = replace(WorkspaceConfig().exposure, paper_black=True)
         ctx = PipelineContext(scale_factor=1.0, original_size=(8, 8), process_mode="C41")
         ctx.metrics["norm_density_range"] = 1.3
 

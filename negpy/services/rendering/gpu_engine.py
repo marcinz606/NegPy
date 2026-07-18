@@ -1203,7 +1203,7 @@ class GPUEngine:
                 # vec4 w-lanes, widths the ex-scalar slots, Zone Density ΔD the
                 # ex-d_min slot + d_min_rgb.w, Split Grade the split_sh/split_hi
                 # rows past 256B (exposure spans two UBO slots).
-                1.0 if exp.true_black else 0.0,
+                1.0 if not exp.paper_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density)
             # Dye-row w-lanes carry the per-channel midtone gamma (Snap).

@@ -75,8 +75,10 @@ class ExposureConfig:
     shoulder_width_trim_green: float = 0.0
     shoulder_width_trim_blue: float = 0.0
     paper_dmin: bool = False
-    # Black point compensation: map paper Dmax to display black.
-    true_black: bool = True
+    # Paper Black: when on, show the paper's natural Dmax as a lifted black instead of
+    # compensating it to pure display black. Consumed inverted as bpc (= not paper_black),
+    # so off (default) keeps black point compensation on.
+    paper_black: bool = False
     # Additive trim on the paper's variable midtone gamma (tanh S-curve).
     midtone_gamma: float = 0.0
     # Per-layer Snap trims on top of the global midtone gamma (midtone crossover).

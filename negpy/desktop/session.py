@@ -651,18 +651,23 @@ class DesktopSessionManager(QObject):
             config = replace(config, process=replace(config.process, narrowband_scan=bool(sticky_narrowband)))
 
         # Processing toggles (Auto Density / Auto Grade / Shadow Neutral / Paper
-        # White / True Black / Cast Removal) are workflow preferences, not
+        # White / Paper Black / Cast Removal) are workflow preferences, not
         # per-image looks: carry them to fresh files unless explicitly changed per file.
         new_exp = config.exposure
         for key, attr in (
             ("last_auto_exposure", "auto_exposure"),
             ("last_auto_normalize_contrast", "auto_normalize_contrast"),
             ("last_paper_dmin", "paper_dmin"),
-            ("last_true_black", "true_black"),
+            ("last_paper_black", "paper_black"),
         ):
             val = self.repo.get_global_setting(key)
             if val is not None:
                 new_exp = replace(new_exp, **{attr: bool(val)})
+        # True Black renamed to Paper Black (inverted); honour a legacy sticky pref.
+        if self.repo.get_global_setting("last_paper_black") is None:
+            legacy_bpc = self.repo.get_global_setting("last_true_black")
+            if legacy_bpc is not None:
+                new_exp = replace(new_exp, paper_black=not bool(legacy_bpc))
         sticky_cast_removal = self.repo.get_global_setting("last_cast_removal_strength")
         if sticky_cast_removal is not None:
             new_exp = replace(new_exp, cast_removal_strength=float(sticky_cast_removal))
@@ -705,7 +710,7 @@ class DesktopSessionManager(QObject):
                 "last_auto_exposure": config.exposure.auto_exposure,
                 "last_auto_normalize_contrast": config.exposure.auto_normalize_contrast,
                 "last_paper_dmin": config.exposure.paper_dmin,
-                "last_true_black": config.exposure.true_black,
+                "last_paper_black": config.exposure.paper_black,
                 "last_cast_removal_strength": config.exposure.cast_removal_strength,
                 "last_paper_profile": config.exposure.paper_profile,
                 "last_toe": config.exposure.toe,

@@ -15,7 +15,7 @@ from negpy.services.rendering.engine import DarkroomEngine
 _POINTS = [(0, 0), (8, 8), (20, 30), (32, 32), (50, 50), (60, 10)]
 
 # Golden pixel values (Adobe-RGB-TRC-encoded engine output, scene-linear pipeline,
-# default config — paper_dmin off, true_black on, cast_removal_strength 0.5, sharpen 0.25,
+# default config — paper_dmin off, paper_black off, cast_removal_strength 0.5, sharpen 0.25,
 # chroma_damping 0.5).
 _GOLDEN = {
     "default": [

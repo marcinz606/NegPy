@@ -293,7 +293,7 @@ class PhotometricProcessor:
             paper=paper,
             ev_map=ev_map,
             ev_scale=local_ev_scale(final_bounds),
-            bpc=self.config.true_black,
+            bpc=not self.config.paper_black,
             toe_trims=(self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
             shoulder_trims=(self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),
             snap_trims=(

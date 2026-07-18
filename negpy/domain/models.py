@@ -402,6 +402,10 @@ class WorkspaceConfig:
             if old_key in data:
                 data[new_key] = data.pop(old_key)
 
+        # True Black (BPC on) renamed to Paper Black with inverted polarity.
+        if "true_black" in data:
+            data["paper_black"] = not bool(data.pop("true_black"))
+
         # Single roll-average toggle split into independent luma + colour axes.
         if "use_roll_average" in data:
             legacy = bool(data.pop("use_roll_average"))
@@ -552,7 +556,7 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
         grade_trim_red=0.0,
         grade_trim_green=0.0,
         grade_trim_blue=0.0,
-        true_black=False,
+        paper_black=True,
         midtone_gamma=0.0,
         midtone_gamma_trim_red=0.0,
         midtone_gamma_trim_green=0.0,

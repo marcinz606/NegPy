@@ -51,7 +51,7 @@ _TONE_FIELDS = (
     "grade_trim_red",
     "grade_trim_green",
     "grade_trim_blue",
-    "true_black",
+    "paper_black",
     "shadow_density",
     "highlight_density",
     "shadow_grade",

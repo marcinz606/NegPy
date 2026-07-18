@@ -231,7 +231,7 @@ class PhotometricCurveWidget(QWidget):
                 shoulder=shoulder_eff if sh_ch is None else sh_ch,
                 shoulder_width=params.shoulder_width if sw_ch is None else sw_ch,
                 midtone_gamma=effective_midtone_gamma(None, params.midtone_gamma) if mg_ch is None else mg_ch,
-                bpc=params.true_black,
+                bpc=not params.paper_black,
                 shadow_density=params.shadow_density,
                 highlight_density=params.highlight_density,
                 shadow_grade_delta=sg_base[0] if sg_ch is None else sg_ch,

@@ -140,8 +140,8 @@ class TestKneeTrims(unittest.TestCase):
         sh_trim = self._render(1.0, shoulder_trims=(1.0, 0.0, 0.0))
         self.assertAlmostEqual(sh_trim[0], sh_base[0], delta=0.015, msg="shoulder trim leaked into shadows")
 
-    def test_negative_toe_trim_tints_true_black(self):
-        """With True Black on, a negative per-layer toe clips only that layer to 0."""
+    def test_negative_toe_trim_tints_black(self):
+        """With black point compensation on, a negative per-layer toe clips only that layer to 0."""
         params = (0.5, 5.375)  # deep into paper black
         img = np.full((2, 2, 3), 1.0, dtype=np.float32)
         out = np.asarray(apply_characteristic_curve(img, params, params, params, bpc=True, toe_trims=(-1.0, 0.0, 0.0)))[0, 0, :]

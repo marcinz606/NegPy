@@ -173,6 +173,7 @@ class TestFlatConfigHelpers(unittest.TestCase):
         self.assertFalse(cfg.exposure.auto_normalize_contrast)
         self.assertEqual(cfg.exposure.cast_removal_strength, 0.0)
         self.assertFalse(cfg.exposure.paper_dmin)
+        self.assertTrue(cfg.exposure.paper_black)  # BPC off: keep the flat render's lifted black
         self.assertEqual(cfg.exposure.toe, 0.0)
         self.assertEqual(cfg.exposure.shoulder, 0.0)
 

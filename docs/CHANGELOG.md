@@ -3,6 +3,8 @@
 
 ## Unreleased
 
+- Change: **True Black is now Paper Black** — the toggle is inverted and renamed: left off (the new default) it keeps blacks pure, exactly as before; turned on it shows the paper's own slightly-lifted maximum black instead. Existing edits keep their look.
+
 
 ## 0.38.0
 

@@ -14,7 +14,7 @@ from negpy.infrastructure.gpu.device import GPUDevice
 
 
 def _extreme_trims_settings() -> WorkspaceConfig:
-    """Hard per-channel grade + WP/BP trims + True Black. Exercises the crossover
+    """Hard per-channel grade + WP/BP trims + Paper Black. Exercises the crossover
     trims, the print-curve uniforms, and — with Dye Mute off — the C-41 Cast
     Removal neutral-axis, all of which must track between the CPU and WGSL paths."""
     s = WorkspaceConfig()
@@ -30,7 +30,7 @@ def _extreme_trims_settings() -> WorkspaceConfig:
             toe_trim_red=0.5,
             toe_trim_blue=-0.4,
             shoulder_trim_green=0.3,
-            true_black=True,
+            paper_black=False,
             midtone_gamma=0.3,
             midtone_gamma_trim_red=0.4,
             midtone_gamma_trim_blue=-0.3,
@@ -86,8 +86,8 @@ class TestGpuCurveParity(unittest.TestCase):
         self.assertLess(mad, 0.01, f"mean abs diff {mad:.4f}")
         self.assertLess(mx, 0.04, f"max abs diff {mx:.4f}")
 
-    def test_cpu_gpu_match_trims_true_black(self):
-        """Crossover trims fold CPU-side, True Black + midtone gamma ride the
+    def test_cpu_gpu_match_trims_paper_black(self):
+        """Crossover trims fold CPU-side, Paper Black + midtone gamma ride the
         uniforms — the WGSL mirror must track all of them."""
         from negpy.services.rendering.image_processor import ImageProcessor
 

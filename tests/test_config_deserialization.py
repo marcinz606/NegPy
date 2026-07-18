@@ -49,7 +49,7 @@ class TestConfigDeserialization(unittest.TestCase):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict(data)
 
-    def test_crossover_true_black_roundtrip(self):
+    def test_crossover_paper_black_roundtrip(self):
         config = WorkspaceConfig()
         config = replace(
             config,
@@ -73,7 +73,7 @@ class TestConfigDeserialization(unittest.TestCase):
                 shoulder_trim_red=-0.5,
                 shoulder_trim_green=0.2,
                 shoulder_trim_blue=0.05,
-                true_black=True,
+                paper_black=True,
                 midtone_gamma=-0.2,
                 midtone_gamma_trim_red=0.15,
                 midtone_gamma_trim_green=-0.25,
@@ -106,7 +106,7 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.exposure.shoulder_trim_red, -0.5)
         self.assertEqual(reloaded.exposure.shoulder_trim_green, 0.2)
         self.assertEqual(reloaded.exposure.shoulder_trim_blue, 0.05)
-        self.assertTrue(reloaded.exposure.true_black)
+        self.assertTrue(reloaded.exposure.paper_black)
         self.assertEqual(reloaded.exposure.midtone_gamma, -0.2)
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_red, 0.15)
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_green, -0.25)
@@ -133,6 +133,14 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.process.black_point_trim_red, -0.03)
         self.assertEqual(reloaded.process.black_point_trim_green, 0.07)
         self.assertEqual(reloaded.process.black_point_trim_blue, 0.11)
+
+    def test_legacy_true_black_migrates_inverted(self):
+        # True Black renamed to Paper Black with inverted polarity: a saved edit's
+        # rendered look must survive the rename.
+        off = WorkspaceConfig.from_flat_dict({"true_black": False})
+        self.assertTrue(off.exposure.paper_black)
+        on = WorkspaceConfig.from_flat_dict({"true_black": True})
+        self.assertFalse(on.exposure.paper_black)
 
     def test_use_original_res_true_migrates_to_original_mode(self):
         data = {"use_original_res": True, "export_print_size": 30.0}

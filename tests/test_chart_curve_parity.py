@@ -36,8 +36,8 @@ def _reference_points(config, toe, shoulder):
 def test_chart_uses_grade_coupled_knees(qapp):
     from negpy.desktop.view.widgets.charts import PhotometricCurveWidget
 
-    # paper_dmin/true_black pinned: reference math below doesn't model d_min/bpc.
-    config = ExposureConfig(grade=50.0, paper_dmin=True, true_black=False)  # hardest grade: coupling is maximal
+    # paper_dmin/paper_black pinned: reference math below doesn't model d_min/bpc.
+    config = ExposureConfig(grade=50.0, paper_dmin=True, paper_black=True)  # hardest grade: coupling is maximal
     w = PhotometricCurveWidget()
     w.update_curve(config)
 

@@ -298,9 +298,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Shoulder</b>: compresses highlights toward paper white.<br>"
                 "<b>Width</b>: how far each knee's roll-off reaches.<br>"
                 "<b>Snap</b>: the paper's variable midtone gamma — endpoints and anchor stay put.<br><br>"
-                "<b>True Black</b> maps the paper's D-max to display black; pull Toe negative "
-                "with it on to clip deep shadows to exact black.<br><br>"
-                "Snap and True Black sit with the zone controls (next) under the "
+                "<b>Paper Black</b> shows the paper's real D-max as a lifted black; leave it off "
+                "(the default) for black point compensation that maps D-max to display black — then "
+                "pull Toe negative to clip deep shadows to exact black.<br><br>"
+                "Snap and Paper Black sit with the zone controls (next) under the "
                 "<b>Paper Response</b> header."
             ),
             target=_toe,
@@ -328,7 +329,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Shadows Density</b> and <b>Highlights Density</b> darken or brighten each "
                 "zone while rolling into the paper's black and white limits instead of "
                 "clipping — burning in a sky without blocking it up.<br><br>"
-                "They live under the <b>Paper Response</b> header with Snap and True Black — "
+                "They live under the <b>Paper Response</b> header with Snap and Paper Black — "
                 "the deeper print-curve controls."
             ),
             target=_zone_density,

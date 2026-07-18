@@ -87,13 +87,14 @@ class ToneSidebar(BaseSidebar):
         self.layout.addLayout(auto_row)
         self.layout.addWidget(self.density_slider)
 
-        self.true_black_btn = self._small_toggle(
+        self.paper_black_btn = self._small_toggle(
             "fa5s.circle",
-            "True Black",
-            conf.true_black,
-            "True Black — black point compensation: maps the paper's Dmax to display black, like an "
-            "ICC relative-colorimetric soft-proof; the adapted eye reads paper black as black. "
-            "A lifted toe and shadow colour survive; pull Toe negative to clip deep shadows to exact black.",
+            "Paper Black",
+            conf.paper_black,
+            "Paper Black — show the paper's real Dmax as a slightly lifted, milky black instead of "
+            "compensating it to pure display black. Off (default) applies black point compensation, "
+            "like an ICC relative-colorimetric soft-proof, so the adapted eye reads paper black as "
+            "black; on preserves the paper's true maximum density.",
         )
         self.paper_dmin_btn = self._small_toggle(
             "fa5s.file",
@@ -141,7 +142,7 @@ class ToneSidebar(BaseSidebar):
         self.layout.addWidget(self.paper_combo)
 
         paper_toggle_row = QHBoxLayout()
-        paper_toggle_row.addWidget(self.true_black_btn, 1)
+        paper_toggle_row.addWidget(self.paper_black_btn, 1)
         paper_toggle_row.addWidget(self.paper_dmin_btn, 1)
         self.layout.addLayout(paper_toggle_row)
 
@@ -186,7 +187,7 @@ class ToneSidebar(BaseSidebar):
             self.auto_density_btn,
             self.auto_grade_btn,
             self.paper_dmin_btn,
-            self.true_black_btn,
+            self.paper_black_btn,
             self.paper_combo,
             self.shadow_density_slider,
             self.highlight_density_slider,
@@ -283,7 +284,7 @@ class ToneSidebar(BaseSidebar):
 
         for btn, field in (
             (self.paper_dmin_btn, "paper_dmin"),
-            (self.true_black_btn, "true_black"),
+            (self.paper_black_btn, "paper_black"),
             (self.auto_density_btn, "auto_exposure"),
             (self.auto_grade_btn, "auto_normalize_contrast"),
         ):
@@ -359,7 +360,7 @@ class ToneSidebar(BaseSidebar):
             self.highlight_density_slider.setValue(conf.highlight_density)
 
             self.paper_dmin_btn.setChecked(conf.paper_dmin)
-            self.true_black_btn.setChecked(conf.true_black)
+            self.paper_black_btn.setChecked(conf.paper_black)
             self.auto_density_btn.setChecked(conf.auto_exposure)
             self.auto_grade_btn.setChecked(conf.auto_normalize_contrast)
         finally:
@@ -387,7 +388,7 @@ class ToneSidebar(BaseSidebar):
             self.shadow_grade_slider,
             self.highlight_grade_slider,
             self.paper_dmin_btn,
-            self.true_black_btn,
+            self.paper_black_btn,
             self.auto_density_btn,
             self.auto_grade_btn,
         ):
