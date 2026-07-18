@@ -287,7 +287,7 @@ def test_auto_is_not_an_exposed_backend_and_fails_before_import(monkeypatch) -> 
 
     monkeypatch.setattr(adapter, "_load_engine", must_not_import)
 
-    with pytest.raises(ValueError, match="off, cpu, cuda"):
+    with pytest.raises(ValueError, match="off, cpu, cpu-fast, cuda"):
         adapter._apply_arrays_unverified(
             prepass,
             main,
@@ -308,7 +308,7 @@ def test_missing_optional_package_fails_with_install_instruction(monkeypatch) ->
 
     with pytest.raises(
         adapter.PortableDigitalIceUnavailable,
-        match="github.com/rohanpandula/portable-digital-ice",
+        match="github.com/rohanpandula/digital-fauxice",
     ):
         adapter._apply_arrays_unverified(
             prepass,
@@ -343,6 +343,55 @@ def test_cuda_unavailable_fails_without_cpu_fallback(monkeypatch) -> None:
         )
 
     assert attempted == ["cuda"]
+
+
+def test_cpu_fast_routes_to_the_compiled_backend(monkeypatch) -> None:
+    prepass, main = _arrays()
+    calls: list[dict[str, Any]] = []
+    engine = _successful_engine(calls)
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+
+    result = adapter._apply_arrays_unverified(
+        prepass,
+        main,
+        same_frame_id="frame-20",
+        backend="cpu-fast",
+    )
+
+    [call] = calls
+    assert call["backend"] == "cpu-fast"
+    assert result.requested_backend is adapter.PortableDigitalIceBackend.CPU_FAST
+    assert result.used_backend is adapter.PortableDigitalIceBackend.CPU_FAST
+    assert result.receipt.status == "processed"
+
+
+def test_cpu_fast_unavailable_fails_without_reference_fallback(monkeypatch) -> None:
+    prepass, main = _arrays()
+    attempted: list[str] = []
+    unavailable = type("CpuFastUnavailable", (RuntimeError,), {})
+    engine = _successful_engine([])
+
+    def process(_job, *, backend, progress, cancelled):
+        attempted.append(backend)
+        raise unavailable("numba is not installed")
+
+    engine.process = process
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+
+    with pytest.raises(
+        adapter.PortableDigitalIceUnavailable,
+        match="compiled CPU backend is unavailable.*numba is not installed",
+    ):
+        adapter._apply_arrays_unverified(
+            prepass,
+            main,
+            same_frame_id="frame-20",
+            backend="cpu-fast",
+        )
+
+    # The reference backend is a different scan, not a silent substitute for a
+    # compiled one that could not start.
+    assert attempted == ["cpu-fast"]
 
 
 def test_cancellation_callback_and_engine_exception_pass_through(monkeypatch) -> None:
@@ -545,3 +594,24 @@ def test_real_optional_package_contract_when_installed() -> None:
 
     assert result.cleaned_rgb16.shape == (112, 112, 3)
     assert result.receipt.output_sha256 == _sha256(result.cleaned_rgb16)
+
+
+def test_real_optional_package_compiled_cpu_matches_reference_when_installed() -> None:
+    """The compiled backend is a speed choice, not a different result."""
+
+    pytest.importorskip("portable_digital_ice")
+    capture, plan = _verified_capture()
+
+    reference = adapter.apply_portable_digital_ice(capture, plan=plan, backend="cpu")
+    try:
+        compiled = adapter.apply_portable_digital_ice(
+            capture,
+            plan=plan,
+            backend="cpu-fast",
+        )
+    except adapter.PortableDigitalIceUnavailable as error:
+        pytest.skip(f"compiled CPU backend is not installed: {error}")
+
+    assert compiled.used_backend is adapter.PortableDigitalIceBackend.CPU_FAST
+    assert compiled.receipt.output_sha256 == reference.receipt.output_sha256
+    assert np.array_equal(compiled.cleaned_rgb16, reference.cleaned_rgb16)

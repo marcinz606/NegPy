@@ -40,11 +40,28 @@ STARTUP_STAGE_COUNT = 6
 
 
 class PortableDigitalIceBackend(StrEnum):
-    """The only Digital ICE choices NegPy exposes."""
+    """The only Digital ICE choices NegPy exposes.
+
+    ``CPU`` is the engine's reference implementation and takes roughly an hour
+    for a 4000 dpi frame.  ``CPU_FAST`` is its compiled equivalent and takes
+    about nine seconds; the engine proves the two byte-identical on a synthetic
+    job before it will run the compiled path.  ``AUTO`` is deliberately absent:
+    a backend that silently changes under a scan is not evidence.
+    """
 
     OFF = "off"
     CPU = "cpu"
+    CPU_FAST = "cpu-fast"
     CUDA = "cuda"
+
+
+#: Engine exception class names that mean "this backend cannot run here", by
+#: the backend that was explicitly asked for.  Each is reported as an
+#: unavailable backend rather than a failed scan, and never falls back.
+_UNAVAILABLE_ENGINE_ERRORS: dict[PortableDigitalIceBackend, tuple[str, str]] = {
+    PortableDigitalIceBackend.CPU_FAST: ("CpuFastUnavailable", "compiled CPU"),
+    PortableDigitalIceBackend.CUDA: ("CudaBackendUnavailable", "CUDA"),
+}
 
 
 class PortableDigitalIceUnavailable(RuntimeError):
@@ -117,7 +134,7 @@ def _load_engine() -> ModuleType:
         ):
             raise PortableDigitalIceUnavailable(
                 "portable Digital ICE is not installed; install "
-                "https://github.com/rohanpandula/portable-digital-ice"
+                "https://github.com/rohanpandula/digital-fauxice"
             ) from error
         raise
 
@@ -370,12 +387,14 @@ def _apply_arrays_unverified(
             cancelled=None if cancel is None else cancel.is_set,
         )
     except Exception as error:
-        if requested is PortableDigitalIceBackend.CUDA and (
-            error.__class__.__name__ == "CudaBackendUnavailable"
+        unavailable = _UNAVAILABLE_ENGINE_ERRORS.get(requested)
+        if unavailable is not None and (
+            error.__class__.__name__ == unavailable[0]
             or isinstance(error, ModuleNotFoundError)
         ):
             raise PortableDigitalIceUnavailable(
-                f"portable Digital ICE CUDA backend is unavailable: {error}"
+                f"portable Digital ICE {unavailable[1]} backend is unavailable: "
+                f"{error}"
             ) from error
         raise
 
