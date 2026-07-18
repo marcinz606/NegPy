@@ -166,7 +166,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertIn("last_process_mode", saved)
         self.assertIn("last_export_config", saved)
         self.assertIn("last_dust_remove", saved)
-        self.assertIn("last_true_black", saved)
+        self.assertIn("last_paper_black", saved)
         self.assertIn("last_narrowband_scan", saved)
         self.assertIn("last_protect_original_metadata", saved)
         self.assertIn("last_cast_removal_strength", saved)
@@ -225,7 +225,7 @@ class TestDesktopSessionSync(unittest.TestCase):
             "last_auto_exposure": True,
             "last_auto_normalize_contrast": True,
             "last_paper_dmin": True,
-            "last_true_black": True,
+            "last_paper_black": True,
             "last_paper_profile": "ilford_mg_rc",
             "last_cast_removal_strength": 0.8,
         }
@@ -234,7 +234,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertTrue(config.exposure.auto_exposure)
         self.assertTrue(config.exposure.auto_normalize_contrast)
         self.assertTrue(config.exposure.paper_dmin)
-        self.assertTrue(config.exposure.true_black)
+        self.assertTrue(config.exposure.paper_black)
         self.assertEqual(config.exposure.paper_profile, "ilford_mg_rc")
         self.assertEqual(config.exposure.cast_removal_strength, 0.8)
 
@@ -245,13 +245,20 @@ class TestDesktopSessionSync(unittest.TestCase):
         config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
         self.assertEqual(config.exposure.cast_removal_strength, 0.0)
 
-    def test_true_black_off_carries_to_new_files(self):
-        """Sticky must carry an explicit off, not just on — default is already False."""
+    def test_paper_black_carries_to_new_files(self):
+        """Sticky must carry an explicit value over the file's base."""
+        sticky = {"last_export_config": {}, "last_paper_black": False}
+        self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
+        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, paper_black=True))
+        config = self.session._apply_sticky_settings(base, only_global=False)
+        self.assertFalse(config.exposure.paper_black)
+
+    def test_legacy_true_black_sticky_migrates_inverted(self):
+        """A pre-rename sticky (last_true_black) maps to paper_black inverted."""
         sticky = {"last_export_config": {}, "last_true_black": False}
         self.mock_repo.get_global_setting.side_effect = lambda key, default=None: sticky.get(key, default)
-        base = WorkspaceConfig(exposure=replace(WorkspaceConfig().exposure, true_black=True))
-        config = self.session._apply_sticky_settings(base, only_global=False)
-        self.assertFalse(config.exposure.true_black)
+        config = self.session._apply_sticky_settings(WorkspaceConfig(), only_global=False)
+        self.assertTrue(config.exposure.paper_black)
 
     def test_roll_average_not_seeded_onto_fresh_files(self):
         # A roll baseline must not leak onto a fresh (sidecar-less) file.
@@ -904,6 +911,29 @@ class TestRollActionRecoveryRoundTrip(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_hidden_masks_survive_restart(self):
+        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+
+        # hash1 has two masks on disk; index 1 is hidden. The property clamps against the
+        # hydrated mask list, so persistence only "counts" if that config reloads too.
+        verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
+        two_masks = (PolygonMask(vertices=verts), PolygonMask(vertices=verts, strength=-0.3))
+        cfg = replace(WorkspaceConfig(), local=LocalAdjustmentsConfig(masks=two_masks))
+        self.repo.save_file_settings("hash1", cfg, file_path=self.session.state.uploaded_files[0]["path"])
+
+        self.session.state.local_hidden_masks_by_hash = {"hash1": {1}, "hash2": set()}
+        self.session.persist_hidden_masks()
+
+        # A fresh manager on the same repo simulates an app restart.
+        restarted = DesktopSessionManager(self.repo)
+        self.assertEqual(restarted.state.local_hidden_masks_by_hash, {"hash1": {1}})
+
+        restarted.state.uploaded_files = self.session.state.uploaded_files
+        restarted.select_file(0)
+        self.assertEqual(restarted.state.local_hidden_masks, {1})
+        restarted.select_file(1)
+        self.assertEqual(restarted.state.local_hidden_masks, set())
 
     def test_sync_then_undo_restores_target(self):
         target_before = replace(WorkspaceConfig(), exposure=replace(WorkspaceConfig().exposure, density=2.0))

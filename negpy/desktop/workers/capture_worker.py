@@ -13,11 +13,11 @@ from typing import Optional
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.infrastructure.capture.base import CaptureSettings
-from negpy.infrastructure.capture.gphoto import CameraUnavailable, GphotoCamera, list_cameras
+from negpy.infrastructure.capture.gphoto import CameraClaimedError, CameraUnavailable, GphotoCamera, list_cameras
 from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.kernel.system.logging import get_logger
-from negpy.services.capture.calibration import REFERENCE_LEVELS, REFERENCE_SHUTTER, CalibrationService, Roi
+from negpy.services.capture.calibration import REFERENCE_LEVELS, REFERENCE_SHUTTER, CalibrationExposureError, CalibrationService, Roi
 from negpy.services.capture.service import CaptureService, capture_single
 
 logger = get_logger(__name__)
@@ -80,6 +80,7 @@ class CaptureWorker(QObject):
     live_view_started = pyqtSignal(str)  # jpeg path being refreshed
     calibration_progress = pyqtSignal(float, str)
     calibration_finished = pyqtSignal(object)  # CalibrationResult
+    calibration_exposure = pyqtSignal(str)  # "over"/"under" — target unreachable, run aborted, no preset
     poll_status = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
     light_temp_polled = pyqtSignal(object)  # Scanlight LED temperature °C, or None (light-only, safe mid-scan)
 
@@ -93,15 +94,41 @@ class CaptureWorker(QObject):
         # Held open across frames; closed on error and at shutdown.
         self._camera: Optional[GphotoCamera] = None
         self._model = ""
+        # True after an open failed because another program holds the USB claim; drives the
+        # "in use by another app" camera status. Cleared by the next open attempt that does
+        # not hit the claim (success, or a different failure).
+        self._claimed_elsewhere = False
+        # One identify probe per bus appearance (read the body's real model name): tried once,
+        # so a body that fails to open for non-claim reasons is not hammered every poll tick.
+        self._identify_attempted = False
 
     # ----- camera session (one per body, held open) -----
 
     def _acquire_camera(self) -> GphotoCamera:
-        """Return the held session, opening it on first use."""
+        """Return the held session, opening it on first use. Every open attempt re-decides
+        the "claimed by another app" verdict — while we hold a session the poll must never
+        probe (a probe IS a claim, and would steal the body mid-live-view), so open attempts
+        are the verdict's only eyes."""
         if self._camera is None:
             self._camera = GphotoCamera()
         if not self._camera.is_open():
-            self._camera.open()
+            try:
+                self._camera.open()
+            except CameraClaimedError:
+                # Another program holds the USB claim (macOS: Preview/Photos/Image Capture).
+                # On the False→True transition, flip the dot NOW — the next timer poll is up
+                # to 3 s away, and "Scan did nothing" against a green dot is exactly the
+                # confusion this state exists for. Only on the transition: the poll's own
+                # re-probe lands here too, and an unconditional push would recurse.
+                first = not self._claimed_elsewhere
+                self._claimed_elsewhere = True
+                if first:
+                    self.poll_connection(self._light_port)
+                raise
+            except Exception:
+                self._claimed_elsewhere = False  # failed differently — not (or no longer) a claim problem
+                raise
+            self._claimed_elsewhere = False
             self._model = self._camera.model
         return self._camera
 
@@ -272,17 +299,58 @@ class CaptureWorker(QObject):
         """Lightweight presence check for the auto-connect UI: is a body enumerated, and is
         the light up? Off the UI thread; called on a timer. Enumerating does not claim the
         camera, so this is safe to run while live view streams."""
-        status = {"usb_ok": False, "usb_model": "", "light_ok": False, "light_detail": "not connected", "light_has_white": True}
+        status = {
+            "usb_ok": False,
+            "usb_model": "",
+            "light_ok": False,
+            "light_detail": "not connected",
+            "light_has_white": True,
+            "usb_claimed_elsewhere": False,
+        }
         try:
             # Always ask the bus, never our own handle: unplugging the camera leaves the
             # handle behind, and it would keep reporting "connected" forever. Enumerating
             # does not claim the device, so this is safe even mid-stream.
             found = list_cameras()
             if found:
+                identify = not self._model and not self._identify_attempted
+                if (self._claimed_elsewhere or identify) and not self._holds_camera():
+                    # One probe open (open → read → close immediately), for two jobs — safe in
+                    # both states because we hold no session ourselves:
+                    # * First sight of a body: read its real model name. libgphoto2's database
+                    #   labels post-database bodies "USB PTP Class Camera" (the a7C II is not
+                    #   in it, #431); only the device knows its name. Tried ONCE per bus
+                    #   appearance — a body that fails to open for other reasons must not be
+                    #   hammered every tick. This also detects a foreign claim proactively,
+                    #   before the user's first live-view/scan attempt.
+                    # * Claimed verdict standing: retry until the other app lets go. Only an
+                    #   open can clear the verdict, and Scan/Calibrate are gated while it
+                    #   stands — without this the dot stayed red after Preview closed.
+                    self._identify_attempted = True
+                    try:
+                        self._acquire_camera()
+                        self._close_camera()
+                    except Exception:
+                        pass  # verdict already updated by _acquire_camera's except paths
+                # A body on the bus that refused our last open (another app holds the claim)
+                # is not usable — surface that instead of a healthy "connected" dot.
                 status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
-            elif self._camera is not None:
-                logger.info("camera disappeared from the bus — dropping the session")
-                self._close_camera()
+                status["usb_claimed_elsewhere"] = self._claimed_elsewhere
+            elif self._claimed_elsewhere:
+                # A claimed body routinely DROPS OFF gphoto's enumeration while the other app
+                # holds it (macOS's daemons answer the bus in our stead) — that flapping is
+                # part of the claimed state, not an unplug. Clearing the verdict here made the
+                # dot snap back to green within one poll tick of the failed open (rig find).
+                status["usb_ok"], status["usb_claimed_elsewhere"] = True, True
+                status["usb_model"] = self._model or "USB PTP Class Camera"
+            else:
+                # A genuinely absent body (no claim verdict standing): forget its name and
+                # allow a fresh identify — the next body to appear may be a different one.
+                self._model = ""
+                self._identify_attempted = False
+                if self._camera is not None:
+                    logger.info("camera disappeared from the bus — dropping the session")
+                    self._close_camera()
         except CameraUnavailable as e:
             status["usb_model"] = str(e)
         except Exception:
@@ -399,6 +467,12 @@ class CaptureWorker(QObject):
                     cancel=self._cancel,
                 )
             self.calibration_finished.emit(result)
+        except CalibrationExposureError as e:
+            # An expected outcome (the target is unreachable at these aperture/hardware limits),
+            # not a broken session: keep the camera claim — the user adjusts the aperture and
+            # retries immediately, and a reconnect would cost ~4 s for nothing.
+            logger.info("calibration aborted: %s", e)
+            self.calibration_exposure.emit(e.status)
         except Exception as e:
             self._close_camera()  # discard a possibly-broken held session
             if self._cancel.is_set():

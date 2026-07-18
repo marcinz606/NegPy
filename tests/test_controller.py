@@ -656,6 +656,8 @@ class TestAppController(unittest.TestCase):
             PolygonMask(vertices=verts, strength=-0.3, feather=0.02),
         )
         self.controller.state.config = replace(self.controller.state.config, local=LocalAdjustmentsConfig(masks=masks))
+        # Hidden-mask state is keyed by the open file's hash; give the tests one.
+        self.controller.state.current_file_hash = "hashA"
 
     def test_set_local_mask_visible_toggles_hidden_set(self):
         self._seed_two_masks()
@@ -663,6 +665,43 @@ class TestAppController(unittest.TestCase):
         self.controller.set_local_mask_visible(1, False)
         self.assertEqual(self.controller.state.local_hidden_masks, {1})
         self.controller.set_local_mask_visible(1, True)
+        self.assertEqual(self.controller.state.local_hidden_masks, set())
+
+    def test_hidden_masks_persist_per_file_hash(self):
+        self._seed_two_masks()
+        self.controller.canvas = None
+        self.controller.state.current_file_hash = "hashA"
+        self.controller.set_local_mask_visible(1, False)
+        self.assertEqual(self.controller.state.local_hidden_masks_by_hash["hashA"], {1})
+
+        # Simulate switching away: another file's set is independent.
+        self.controller.state.current_file_hash = "hashB"
+        self.controller.state.local_hidden_masks = set()
+        self.controller.set_local_mask_visible(0, False)
+        self.assertEqual(self.controller.state.local_hidden_masks_by_hash["hashB"], {0})
+        self.assertEqual(self.controller.state.local_hidden_masks_by_hash["hashA"], {1})
+
+    def test_hidden_masks_cleared_hash_is_pruned(self):
+        self._seed_two_masks()
+        self.controller.canvas = None
+        self.controller.state.current_file_hash = "hashA"
+        self.controller.set_local_mask_visible(1, False)
+        self.controller.set_local_mask_visible(1, True)
+        self.assertNotIn("hashA", self.controller.state.local_hidden_masks_by_hash)
+
+    def test_hidden_masks_clamped_when_mask_count_shrinks(self):
+        from negpy.features.local.models import LocalAdjustmentsConfig, PolygonMask
+
+        self._seed_two_masks()  # 2 masks under hashA
+        self.controller.canvas = None
+        self.controller.set_local_mask_visible(1, False)
+        self.assertEqual(self.controller.state.local_hidden_masks, {1})
+
+        # Simulate an undo/redo/jump that swaps in a config with fewer masks: the stored
+        # index 1 now points past the end and must be dropped from the returned set.
+        verts = ((0.1, 0.1), (0.9, 0.1), (0.5, 0.9))
+        one_mask = (PolygonMask(vertices=verts, strength=0.3, feather=0.02),)
+        self.controller.state.config = replace(self.controller.state.config, local=LocalAdjustmentsConfig(masks=one_mask))
         self.assertEqual(self.controller.state.local_hidden_masks, set())
 
     def test_delete_local_mask_confirmed_remaps_view_indices(self):
@@ -1147,8 +1186,28 @@ class TestRgbScanModeReload(unittest.TestCase):
 
     def test_toggle_with_no_files_only_saves_flag(self):
         self.controller.set_rgb_scan_mode(True)
-        self.mock_session_manager.repo.save_global_setting.assert_called_once_with("rgbscan_mode", True)
+        self.mock_session_manager.repo.save_global_setting.assert_any_call("rgbscan_mode", True)
         self.controller.request_asset_discovery.assert_not_called()
+
+    def test_enabling_sets_sticky_narrowband_default(self):
+        self.controller.set_rgb_scan_mode(True)
+        self.mock_session_manager.repo.save_global_setting.assert_any_call("last_narrowband_scan", True)
+
+    def test_disabling_does_not_touch_narrowband(self):
+        self.controller.set_rgb_scan_mode(False)
+        calls = [c.args for c in self.mock_session_manager.repo.save_global_setting.call_args_list]
+        self.assertNotIn(("last_narrowband_scan", True), calls)
+
+    def test_enabling_forces_narrowband_on_active_config(self):
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "a", "path": "/a.dng", "hash": "h1"}]
+        state.current_file_path = "/a.dng"
+        self.assertFalse(state.config.process.narrowband_scan)
+
+        self.controller.set_rgb_scan_mode(True)
+
+        updated_config = self.mock_session_manager.update_config.call_args.args[0]
+        self.assertTrue(updated_config.process.narrowband_scan)
 
     def test_toggle_with_loaded_files_rediscovers_all_exposures(self):
         state = self.mock_session_manager.state

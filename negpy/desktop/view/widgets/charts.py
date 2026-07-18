@@ -231,7 +231,7 @@ class PhotometricCurveWidget(QWidget):
                 shoulder=shoulder_eff if sh_ch is None else sh_ch,
                 shoulder_width=params.shoulder_width if sw_ch is None else sw_ch,
                 midtone_gamma=effective_midtone_gamma(None, params.midtone_gamma) if mg_ch is None else mg_ch,
-                bpc=params.true_black,
+                bpc=not params.paper_black,
                 shadow_density=params.shadow_density,
                 highlight_density=params.highlight_density,
                 shadow_grade_delta=sg_base[0] if sg_ch is None else sg_ch,
@@ -322,9 +322,10 @@ class PhotometricCurveWidget(QWidget):
         painter.setPen(QPen(QColor("#262626"), 1))
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
 
-        # Grid at 0.25 intervals
+        # Grid at 0.25 intervals; includes 0 and 1 so the axis padding reads as
+        # margin and a curve flat at zero visibly lands on the baseline.
         painter.setPen(QPen(QColor("#1A1A1A"), 1))
-        for i in range(1, 4):
+        for i in range(0, 5):
             gx = int(self._wx(i * 0.25, w))
             gy = int(self._wy(i * 0.25, h))
             painter.drawLine(gx, 0, gx, h)

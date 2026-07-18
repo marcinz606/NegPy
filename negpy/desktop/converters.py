@@ -3,6 +3,7 @@ from typing import Optional
 import numpy as np
 from PyQt6.QtGui import QImage
 from negpy.infrastructure.display.color_mgmt import apply_display_transform
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.image.logic import float_to_uint8
 
 
@@ -12,7 +13,7 @@ class ImageConverter:
     """
 
     @staticmethod
-    def to_qimage(buffer: np.ndarray, color_space: str = "sRGB", monitor_icc_bytes: Optional[bytes] = None) -> QImage:
+    def to_qimage(buffer: np.ndarray, color_space: str = WORKING_COLOR_SPACE, monitor_icc_bytes: Optional[bytes] = None) -> QImage:
         """
         Safely converts a NumPy float32 or uint8 buffer to a QImage.
         Performs a deep copy to prevent memory corruption (harsh noise).

@@ -120,6 +120,15 @@ class GphotoError(RuntimeError):
     """A camera operation failed."""
 
 
+class CameraClaimedError(GphotoError):
+    """The body is on the bus but another program holds its USB claim (gphoto -53).
+
+    On macOS the ImageCapture daemons hand the camera to Preview, Photos or Image Capture
+    the moment one of them opens; only one program may claim it. Typed so the UI can show
+    a persistent "in use by another app" state on the camera dot — enumeration alone
+    cannot see this (the bus listing still succeeds while the claim fails)."""
+
+
 def _pin_locale() -> None:
     """Force libgphoto2's choice strings to English.
 
@@ -252,9 +261,13 @@ class GphotoCamera:
         except self._gp.GPhoto2Error as exc:
             # A camera sits on the bus but won't open: on macOS the ImageCapture daemons
             # hand it to Preview, Photos or Image Capture the moment one of them is open,
-            # and only one program may claim it. Say so — the enumeration that drives the
-            # status dot cannot see this, so the error line is the user's only clue.
-            raise GphotoError(f"could not open the camera: {exc}. Close Preview, Photos and Image Capture, then retry.") from exc
+            # and only one program may claim it. Raise the claim case typed (-53,
+            # GP_ERROR_IO_USB_CLAIM) so the connection poll can pin an "in use by another
+            # app" state on the camera dot — enumeration alone cannot see this.
+            message = f"could not open the camera: {exc}. Close Preview, Photos and Image Capture, then retry."
+            if getattr(exc, "code", None) == -53:
+                raise CameraClaimedError(message) from exc
+            raise GphotoError(message) from exc
         self._camera = camera
         self._model = _model_name(camera)
         self._alive = True

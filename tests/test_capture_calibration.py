@@ -21,7 +21,7 @@ from negpy.services.capture.calibration import (
     REFERENCE_SHUTTER,
     SHUTTER_CANDIDATES,
     CalibrationService,
-    ChannelCalibration,
+    CalibrationExposureError,
     Roi,
     _channel_status,
     _solve_shared,
@@ -222,9 +222,11 @@ def test_solve_never_exceeds_pwm_max_safe_on_the_dimmest_channel():
 class FakeLight:
     def __init__(self):
         self.last = (0, 0, 0)
+        self.history = []  # every colour ever lit — lets tests prove an abort never reached G/B
 
     def set_color(self, r=0, g=0, b=0, w=0, save=False):
         self.last = (r, g, b)
+        self.history.append((r, g, b))
 
     def off(self):
         self.last = (0, 0, 0)
@@ -287,7 +289,6 @@ def test_calibrate_converges_with_one_shared_shutter():
     assert len(set(result.shutters)) == 1
     assert result.levels[0] > result.levels[1] and result.levels[0] > result.levels[2]
     for ch in result.channels.values():
-        assert ch.status == "target"
         assert ch.signal == pytest.approx(T, rel=0.06)
     assert result.spread_stops == pytest.approx(1.60, abs=0.05)
 
@@ -298,7 +299,6 @@ def test_calibrate_recovers_from_a_much_brighter_than_expected_start():
     light, cam = FakeLight(), FakeCamera()
     result = _calibrate(_service(light, cam, k_scale=64.0))
     for ch in result.channels.values():
-        assert ch.status == "target"
         assert ch.clip_fraction <= MAX_CLIP_FRACTION
 
 
@@ -307,29 +307,28 @@ def test_calibrate_recovers_from_a_too_fast_start_shutter():
     # target from the probe's clean (if dim) reading, no ladder walk needed.
     light, cam = FakeLight(), FakeCamera(start="1/250")
     result = _service(light, cam).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", start_shutter="1/250")
-    for ch in result.channels.values():
-        assert ch.status == "target"
+    assert set(result.channels) == {"R", "G", "B"}  # returning at all means every channel on target
 
 
-def test_calibrate_is_graceful_when_a_channel_cannot_reach_target():
-    # Aperture too closed: even max LED at the slowest shutter (2 s) leaves the dim R channel short.
-    # Must not raise — return a best-effort result with R flagged "under".
+def test_calibrate_aborts_as_under_at_the_probe_when_the_target_is_unreachable():
+    # Aperture far too closed: even max LED at the slowest shutter (2 s) cannot reach the target.
+    # That is plain arithmetic once R's k is measured — the run must abort right there ("under",
+    # no preset is worth saving), before a single G/B capture is spent on a doomed solve.
     light, cam = FakeLight(), FakeCamera()
-    result = _calibrate(_service(light, cam, k_scale=0.02))
-    assert result.channels["R"].status == "under"
-    assert result.channels["R"].level == PWM_MAX
-    assert result.status == "under"  # headline reflects the worst channel
+    with pytest.raises(CalibrationExposureError) as e:
+        _calibrate(_service(light, cam, k_scale=0.02))
+    assert e.value.status == "under" and e.value.channel == "R"
+    assert not any(g or b for _r, g, b in light.history), "aborted at R's probe — G/B must never light"
 
 
-def test_calibrate_is_graceful_when_over_exposed():
-    # Aperture way too open: even the fastest shutter + lowest LED clips. Must not raise (symmetric
-    # to under-exposure) — return a best-effort result at minimum exposure with the channels flagged
-    # "over", so the UI can tell the user to stop down.
+def test_calibrate_aborts_as_over_at_the_probe_when_minimum_exposure_clips():
+    # Aperture far too open: the fastest shutter with the LED at minimum still clips. Provably
+    # unreachable → abort at the probe ("over"), symmetric to the under case.
     light, cam = FakeLight(), FakeCamera(start="1/250")
-    result = _service(light, cam, k_scale=3000.0).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", start_shutter="1/250")
-    assert result.status == "over"
-    assert all(ch.status == "over" for ch in result.channels.values())
-    assert all(ch.level == PWM_MIN for ch in result.channels.values())  # seated at minimum LED
+    with pytest.raises(CalibrationExposureError) as e:
+        _service(light, cam, k_scale=3000.0).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", start_shutter="1/250")
+    assert e.value.status == "over" and e.value.channel == "R"
+    assert not any(g or b for _r, g, b in light.history), "aborted at R's probe — G/B must never light"
 
 
 def test_deep_over_exposure_from_the_default_start_never_exhausts_the_probe():
@@ -338,16 +337,17 @@ def test_deep_over_exposure_from_the_default_start_never_exhausts_the_probe():
     # opposite of what is happening. Both cases below did exactly that with the old 8-step budget.
     #
     # ~8 stops over (manual f/1.4 lens the body can't report, no film in the holder): within the
-    # ladder's ~9-stop reach below the start, so with enough steps it now CALIBRATES, on target.
+    # ladder's ~9-stop reach below the start, so with enough steps it CALIBRATES, on target.
     light, cam = FakeLight(), FakeCamera()
     result = _calibrate(_service(light, cam, k_scale=300.0))
-    assert result.status == "target"
     T = target_signal()
     assert all(abs(ch.signal - T) <= 0.06 * T for ch in result.channels.values())
-    # ~11.6 stops over: beyond even minimum exposure — must degrade to "over", never raise.
+    # ~11.6 stops over: beyond even minimum exposure — the clean "over" abort, never the
+    # misleading no-signal RuntimeError.
     light, cam = FakeLight(), FakeCamera()
-    result = _calibrate(_service(light, cam, k_scale=3000.0))
-    assert result.status == "over"
+    with pytest.raises(CalibrationExposureError) as e:
+        _calibrate(_service(light, cam, k_scale=3000.0))
+    assert e.value.status == "over"
 
 
 def test_calibrate_raises_only_when_a_channel_has_no_signal_at_all():
@@ -425,8 +425,3 @@ def test_clip_fraction_counts_saturated_pixels():
     plane = np.zeros((100, 100))
     plane.reshape(-1)[:100] = 65500.0  # 1 % at/above saturation
     assert clip_fraction(plane, Roi(0, 0, 1, 1)) == pytest.approx(0.01, abs=1e-4)
-
-
-def test_channel_calibration_defaults_to_target_status():
-    c = ChannelCalibration(channel="R", level=200, shutter="1/5", signal=59000, target=58982)
-    assert c.status == "target"

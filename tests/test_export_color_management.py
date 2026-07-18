@@ -39,8 +39,11 @@ class TestExportColorManagement(unittest.TestCase):
         cls.proc = ImageProcessor()
 
     def test_greyscale_export_matches_gamma22_tag(self):
-        """B&W luma must be re-encoded from the working TRC (ProPhoto ROMM 1.8) to the
-        gamma 2.2 expected by the GrayGamma2.2 tag, so a viewer recovers the linear luma."""
+        """B&W luma must be re-encoded from the working TRC (Adobe RGB 563/256) to the
+        gamma 2.2 expected by the GrayGamma2.2 tag, so a viewer recovers the linear luma.
+
+        The two gammas are now near-identical, so this is a round-trip check rather than
+        a check that the re-encode moves the values."""
         from negpy.kernel.image.logic import working_oetf_encode
 
         lin = np.linspace(0.05, 0.9, 6, dtype=np.float32)
@@ -110,6 +113,21 @@ class TestDisplayTransform(unittest.TestCase):
         grey = np.random.rand(4, 4).astype(np.float32)
         out = apply_display_transform(grey, WORKING_COLOR_SPACE)
         np.testing.assert_array_equal(out, grey)
+
+    def test_colour_managed_defaults_use_working_space(self):
+        """Colour-space params must default to the working space, not a hardcoded
+        'sRGB' that silently skips colour management on the float32 path (cf. #518)."""
+        import inspect
+
+        from negpy.desktop.converters import ImageConverter
+        from negpy.desktop.workers.render import ThumbnailUpdateTask
+        from negpy.services.assets.thumbnails import get_rendered_thumbnail
+
+        # Premise: the working space is not sRGB, so the default choice is load-bearing.
+        self.assertNotEqual(WORKING_COLOR_SPACE, ColorSpace.SRGB.value)
+        self.assertEqual(inspect.signature(ImageConverter.to_qimage).parameters["color_space"].default, WORKING_COLOR_SPACE)
+        self.assertEqual(inspect.signature(get_rendered_thumbnail).parameters["color_space"].default, WORKING_COLOR_SPACE)
+        self.assertEqual(ThumbnailUpdateTask.__dataclass_fields__["color_space"].default, WORKING_COLOR_SPACE)
 
 
 def _icc_bytes(cs_name: str) -> bytes:

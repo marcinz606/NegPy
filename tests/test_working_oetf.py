@@ -1,32 +1,26 @@
 """Working-space output transfer function (OETF) — the encode applied as the final
-engine step once the pipeline is scene-linear. Uses the ProPhoto RGB (ROMM) TRC
-(gamma 1.8 with a linear toe below 1/512) so it round-trips with the working ICC profile."""
+engine step once the pipeline is scene-linear. Uses the Adobe RGB (1998) TRC
+(a pure 563/256 power, no linear segment) so it round-trips with the working ICC profile."""
 
 import numpy as np
 
 from negpy.kernel.image.logic import working_oetf_decode, working_oetf_encode
 
+_GAMMA = 563.0 / 256.0
+
 
 def test_encode_known_gamma_values():
     x = np.array([[[0.0, 0.5, 1.0]]], dtype=np.float32)
     enc = working_oetf_encode(x)
-    # ProPhoto gamma 1.8: 0->0, 1->1, 0.5 -> 0.5^(1/1.8) ≈ 0.6804.
-    np.testing.assert_allclose(enc[0, 0], [0.0, 0.5 ** (1.0 / 1.8), 1.0], atol=1e-5)
+    # Adobe RGB gamma 563/256: 0->0, 1->1, 0.5 -> 0.5^(256/563) ≈ 0.7297.
+    np.testing.assert_allclose(enc[0, 0], [0.0, 0.5 ** (1.0 / _GAMMA), 1.0], atol=1e-5)
 
 
-def test_encode_linear_toe():
-    # Below the 1/512 breakpoint the ROMM encode is linear with slope 16.
+def test_encode_is_pure_power_near_black():
+    # Adobe RGB has no linear toe — the power law holds all the way down.
     x = np.array([[[0.0005, 0.001, 0.0015]]], dtype=np.float32)
     enc = working_oetf_encode(x)
-    np.testing.assert_allclose(enc[0, 0], x[0, 0] * 16.0, atol=1e-6)
-
-
-def test_toe_continuous_at_breakpoint():
-    et = 1.0 / 512.0
-    enc = float(working_oetf_encode(np.array([[[et]]], dtype=np.float32))[0, 0, 0])
-    # The linear toe and the power segment meet at the breakpoint.
-    np.testing.assert_allclose(enc, 16.0 * et, atol=1e-5)
-    np.testing.assert_allclose(enc, et ** (1.0 / 1.8), atol=1e-4)
+    np.testing.assert_allclose(enc[0, 0], x[0, 0] ** (1.0 / _GAMMA), rtol=1e-5)
 
 
 def test_roundtrip_identity():
@@ -43,20 +37,19 @@ def test_encode_clamps_to_display_range():
     assert enc.dtype == np.float32
 
 
-def test_encode_composes_with_prophoto_icc():
-    """The working OETF must match the ProPhoto RGB ICC profile's TRC, so encoding
-    scene-linear then transforming ProPhoto->sRGB (ICC) and decoding sRGB recovers
+def test_encode_composes_with_working_icc():
+    """The working OETF must match the working ICC profile's TRC, so encoding
+    scene-linear then transforming working->sRGB (ICC) and decoding sRGB recovers
     the original linear value on the neutral axis."""
     from PIL import Image, ImageCms
 
-    from negpy.domain.models import ColorSpace
-    from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
+    from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 
-    path = ColorSpaceRegistry.get_icc_path(ColorSpace.PROPHOTO.value)
+    path = ColorSpaceRegistry.get_icc_path(WORKING_COLOR_SPACE)
     if not path:
         import pytest
 
-        pytest.skip("ProPhoto ICC profile not available")
+        pytest.skip("working ICC profile not available")
 
     lin = np.linspace(0.05, 0.95, 7, dtype=np.float32)
     gray = np.stack([lin, lin, lin], axis=-1).reshape(1, 7, 3)

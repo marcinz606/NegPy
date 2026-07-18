@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSizePolicy,
 )
 
 from negpy.desktop.session import ToolMode
@@ -97,33 +96,15 @@ class GeometrySidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("AUTO CROP"))
 
-        # Auto crop toggle + mode: crop to exposed image, or keep full film incl. rebate
-        auto_row = QHBoxLayout()
-        self.reset_crop_btn = CropToolButton(" Auto")
-        self.reset_crop_btn.setCheckable(True)
-        self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
-        self.reset_crop_btn.setFixedHeight(default_button_height())
-
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(self._field_label("Mode"))
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("Image only", AutocropMode.IMAGE.value)
         self.mode_combo.addItem("Film edge", AutocropMode.FILM.value)
         self.mode_combo.setCurrentIndex(self.mode_combo.findData(conf.autocrop_mode))
         self.mode_combo.setToolTip("Auto crop target: exposed image only, or full film including rebate/sprockets")
-        self.reset_crop_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        self.mode_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        auto_row.addWidget(self.reset_crop_btn, 1)
-        auto_row.addWidget(self.mode_combo, 1)
-        self.layout.addLayout(auto_row)
-
-        self.auto_crop_all_btn = QPushButton(" Auto Crop All")
-        self.auto_crop_all_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary, color_disabled=THEME.text_muted))
-        self.auto_crop_all_btn.setFixedHeight(default_button_height())
-        self.auto_crop_all_btn.setToolTip(
-            "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
-            "manual and ambiguous crops are preserved. Runs before Batch Analysis."
-        )
-        self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
-        self.layout.addWidget(self.auto_crop_all_btn)
+        mode_row.addWidget(self.mode_combo, 1)
+        self.layout.addLayout(mode_row)
 
         self.offset_slider = CompactSlider(
             "Crop Offset",
@@ -135,6 +116,25 @@ class GeometrySidebar(BaseSidebar):
             unit=" px",
         )
         self.layout.addWidget(self.offset_slider)
+
+        # Auto crop actions: apply to this frame, or to the whole roll.
+        auto_row = QHBoxLayout()
+        self.reset_crop_btn = CropToolButton(" Auto")
+        self.reset_crop_btn.setCheckable(True)
+        self.reset_crop_btn.setIcon(qta.icon("fa5s.magic", color=THEME.text_primary, color_on="#FFFFFF", color_disabled=THEME.text_muted))
+        self.reset_crop_btn.setFixedHeight(default_button_height())
+
+        self.auto_crop_all_btn = QPushButton(" Batch Autocrop")
+        self.auto_crop_all_btn.setIcon(qta.icon("fa5s.layer-group", color=THEME.text_primary, color_disabled=THEME.text_muted))
+        self.auto_crop_all_btn.setFixedHeight(default_button_height())
+        self.auto_crop_all_btn.setToolTip(
+            "Analyze all visible landscape frames as one roll. Confident frames calibrate weak ones; "
+            "manual and ambiguous crops are preserved. Runs before Batch Analysis."
+        )
+        self.auto_crop_all_btn.setEnabled(conf.autocrop_mode == AutocropMode.IMAGE)
+        auto_row.addWidget(self.reset_crop_btn, 1)
+        auto_row.addWidget(self.auto_crop_all_btn, 1)
+        self.layout.addLayout(auto_row)
 
         self.layout.addWidget(section_subheader("ALIGNMENT"))
 

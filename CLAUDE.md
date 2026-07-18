@@ -2,7 +2,7 @@
 
 Guidance for Claude Code in this repository.
 
-> **Keep this file current.** When a change alters something documented here — stage order, the feature pattern, commands, an invariant — update it in the same change.
+> **Keep this file current.** When a change alters something documented here — stage order, the feature pattern, commands — update it in the same change.
 
 ## Commands
 
@@ -36,7 +36,7 @@ Edits persist in SQLite (`edits.db`, keyed by content hash), optionally mirrored
 - **CPU**: `DarkroomEngine.process()` (`negpy/services/rendering/engine.py`) — base (geometry + normalization) → exposure (incl. dodge/burn) → clahe → retouch → lab → toning → crop → finish. The first five stages are cached per config-hash via `_run_stage()`; the rest run unconditionally.
 - **GPU**: `GPUEngine` (`negpy/services/rendering/gpu_engine.py`) — same logical stages as WGSL compute shaders from `negpy/features/<name>/shaders/`, with its own config-diff change detection.
 - **Orchestration**: `ImageProcessor` (`image_processor.py`) tries GPU first, falls back to CPU; export always runs full-res. `PipelineContext` carries `scale_factor`, `process_mode`, `active_roi`, and a `metrics` dict between stages.
-- **Working space**: scene-linear internally; the working OETF (ProPhoto ROMM TRC) is applied only as the final engine step. Lab/toning compute CIELAB directly from linear.
+- **Working space**: scene-linear internally; the working OETF (Adobe RGB 1998 TRC — a pure 563/256 power, no linear segment) is applied only as the final engine step. Lab/toning compute CIELAB directly from linear, D65. Adobe RGB rather than a wide gamut because ProPhoto's imaginary primaries inflate chroma in the saturation/toning stages.
 
 `docs/PIPELINE.md` describes each stage's behaviour and controls in depth.
 
@@ -68,15 +68,6 @@ Every feature lives in `negpy/features/<name>/`:
 ## Invariants & gotchas
 
 - **CPU/GPU parity**: any change to a stage's math must land in both `logic.py` and its `.wgsl` shader. Constants mirrored as WGSL literals (histogram bins, zone density, metrics offsets) have parity tests — keep them in sync.
-- **Print H&D curve** has four lock-step mirrors: the numba kernel (`exposure/logic.py`), the `CharacteristicCurve` chart, `exposure.wgsl`, and the uniform pack in `gpu_engine.py`. Change all together; growing a GPU uniform struct is a `_uniform_sizes` bump + pack/WGSL row.
-- **Numba kernels**: decorate with `parallel_njit` (`kernel/system/parallel.py`), never raw `@njit(parallel=True)`. Per-row scratch arrays go inside the `prange` loop (thread-local); never pass `cache=True` (see `test_parallel_dispatch.py` for why).
-- **Working TRC** changes touch six sites: CPU `working_oetf_*` (`kernel/image/logic.py`), WGSL `oetf_*` in the exposure / output_encode / lab / metrics shaders, and `charts.py`. Primaries/white-point changes additionally touch the CPU XYZ matrices and the inline matrices in `lab.wgsl`/`toning.wgsl`.
-- **Coordinate spaces**: manual crop rect and analysis rect are normalized to the *transformed* (display) image; retouch strokes and dodge/burn placements are *source*-normalized and round-trip through `create_uv_grid`/`map_coords_to_geometry` — which must stay consistent with the image warp (incl. distortion k1).
-- **Metrics buffer** (`_METRICS_*` offsets, `gpu_engine.py`) is append-only; offsets are mirrored as WGSL array lengths.
-- **Camera capture** (`infrastructure/capture/gphoto.py`) has load-bearing libgphoto2 guards (a NULL-choice read SIGSEGVs the process; writes are async; the event queue must be drained after a still). Read that module before touching it.
 - **SANE eject** (`infrastructure/scanners/sane_backend.py`): python-sane 2.9.2 cannot press a `SANE_TYPE_BUTTON` (setattr/set_option/set_auto_option all raise), so `eject()` shells out to `scanimage --eject` — do not "simplify" it back to a python-sane call. Never issue `--load`/`--reset` on a seated strip: `--load` feeds/ejects the film, `--reset` briefly wedges the transport. Note the Coolscan firmware auto-ejects the strip after an idle timeout regardless.
-- **SANE re-enumeration** (`sane_backend._open_device`): the LS-50 re-enumerates under load, changing the libusb address in the device id (`...:003:006`→`...:003:007`), so a cached id goes stale and `sane.open` raises "Invalid argument". `_open_device` self-heals — re-lists, remaps to the same scanner (vendor+model, else sole same-prefix device), and caches the remap. Keep all device opens routed through it; addressing the device again afterwards (eject → scanimage) must use its returned `opened_id`, not the caller's stale id.
-
-## More detail
-
-`docs/PIPELINE.md` (stage-by-stage behaviour), `docs/CAMERA_SCANNING.md`, `docs/COOLSCAN_SCANNING.md` (SANE film-scanner Scan tab), `docs/CONTACT_SHEET_TEMPLATES.md`, `docs/CROSSTALK.md`. Deep design rationale for past decisions lives in git history (`git log -p CLAUDE.md`).
+- **SANE re-enumeration** (`sane_backend._open_device`): the Coolscan re-enumerates under load, changing the libusb address in the device id (`...:003:006`→`...:003:007`), so a cached id goes stale and `sane.open` raises "Invalid argument". `_open_device` self-heals — re-lists, remaps to the same scanner (vendor+model, else sole same-prefix device), and caches the remap. Keep all device opens routed through it; addressing the device again afterwards (eject → scanimage) must use its returned `opened_id`, not the caller's stale id.
+- **SANE sessions** (`sane_backend.open_session`): a batch/roll workflow that must own the scanner for a whole strip opens one `SaneSession` (single SANE open, per-frame `session.scan()`, one release via `close()`/`eject()`). While a session is open, backend `scan()`/`eject()` refuse the device and `list_devices()` reuses the cached entry instead of probing — SANE hardware is single-open.

@@ -70,11 +70,11 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _roll(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.roll_sidebar.analyze_roll_btn
 
-    def _finish(w: "MainWindow") -> Optional[QWidget]:
-        return w.controls_panel.finish_sidebar
-
     def _cast_removal(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.colour_sidebar.cast_removal_slider
+
+    def _auto_targets(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.tone_sidebar.targets_btn
 
     def _split_grade(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.shadow_grade_slider
@@ -84,6 +84,18 @@ def build(window: "MainWindow") -> list[TutorialStep]:
 
     def _gear_manage(w: "MainWindow") -> Optional[QWidget]:
         return w.right_panel.metadata_sidebar.manage_btn
+
+    def _narrowband(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.process_sidebar.narrowband_scan_btn
+
+    def _triage(w: "MainWindow") -> Optional[QWidget]:
+        return w.session_panel.file_browser.sheet_btn
+
+    def _dust_overlay(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.retouch_sidebar.overlay_btn
+
+    def _edge_burn(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.finish_sidebar.vignette_burn_slider
 
     return [
         TutorialStep(
@@ -124,6 +136,21 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             target=_rgbscan,
         ),
         TutorialStep(
+            title="Keep & Reject — Culling the Roll",
+            body=(
+                "Cull the roll where you see it, on the contact sheet. <b>K</b> marks a frame as a "
+                "keeper (a small check badge); <b>Shift+X</b> rejects it (a cross badge, and the "
+                "thumbnail dims).<br><br>"
+                "Rejected frames stay on the sheet — nothing is deleted or moved — but they drop "
+                "out of batch exports and sidecar writes, so a reject can't sneak into a "
+                "delivery.<br><br>"
+                "The <b>Sheet</b> menu filters the grid: <b>All</b>, <b>Keepers only</b> or "
+                "<b>Hide rejected</b>. A tally beside it counts the roll, and the marks persist "
+                "across sessions."
+            ),
+            target=_triage,
+        ),
+        TutorialStep(
             title="Flat-Field Correction",
             body=(
                 "Corrects uneven illumination — vignetting or falloff from your light source "
@@ -151,7 +178,12 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "bed at the opposite extreme. None of it is picture — left in frame, it drags "
                 "the detected bounds, giving milky blacks and a wrong mask estimate.<br><br>"
                 "Crop tight to the image, or use the <b>Analysis Buffer</b> (next) when you "
-                "want to keep a border."
+                "want to keep a border.<br><br>"
+                "<b>Batch Autocrop</b> does the whole roll at once: it analyses every visible "
+                "landscape frame together, letting the confident detections calibrate the weak "
+                "ones so camera-scan crops come out consistent instead of frame-by-frame. It "
+                "runs in the background with progress and cancel, and leaves your manual crops "
+                "alone. Available in Image-only autocrop mode."
             ),
             target=_crop,
             section_attr="geometry_section",
@@ -194,6 +226,23 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "multipliers, bypassing the camera's as-shot white balance."
             ),
             target=_process,
+            section_attr="process_section",
+        ),
+        TutorialStep(
+            title="Narrowband Scan — Correcting LED Light",
+            body=(
+                "A scan lit by <b>narrowband RGB LEDs</b> — a Scanlight, or most RGB-LED "
+                "sources — hits each dye layer with a much purer band than white light does. "
+                "The layers separate further than the film intends, and the conversion comes "
+                "out over-saturated.<br><br>"
+                "The <b>Narrowband Scan</b> toggle corrects for that light source. It applies "
+                "to the preview <i>and</i> every export, so what you judge is what you "
+                "deliver.<br><br>"
+                "Turning on <b>RGB Scan</b> mode switches it on for you — on the current frame "
+                "and as the default for new ones. If you've set a custom <b>Input ICC</b> "
+                "profile, that takes precedence and this toggle steps aside."
+            ),
+            target=_narrowband,
             section_attr="process_section",
         ),
         TutorialStep(
@@ -243,6 +292,24 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="tone_section",
         ),
         TutorialStep(
+            title="Set Targets — Retune the Autos",
+            body=(
+                "Auto Density and Auto Grade aim at a fixed idea of a good print. Your scanner, "
+                "your film and your taste may disagree — <b>Set Targets</b> moves the aim.<br><br>"
+                "<b>Print Density Target</b> is how bright the metered midtone prints; "
+                "<b>Contrast Target</b> is the printed contrast every frame is aimed at. The two strength "
+                "sliders decide how far each meter is trusted: at 0 you get a fixed setting for "
+                "every frame, at 1 every frame is forced to the same key or the same contrast. "
+                "<b>Metering Band</b> caps how far Auto Density may swing between frames.<br><br>"
+                "These are a <b>calibration, not an edit</b>: they apply to every image, "
+                "including ones you've already worked on, and are remembered between sessions. "
+                "The preview follows the sliders live, <b>Cancel</b> puts them back, and "
+                "<b>Restore Defaults</b> returns to the shipped values."
+            ),
+            target=_auto_targets,
+            section_attr="tone_section",
+        ),
+        TutorialStep(
             title="Exposure — H&D Curve (Toe & Shoulder)",
             body=(
                 "The <b>Toe</b> and <b>Shoulder</b> controls shape the shadow and highlight roll-off "
@@ -252,9 +319,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Shoulder</b>: compresses highlights toward paper white.<br>"
                 "<b>Width</b>: how far each knee's roll-off reaches.<br>"
                 "<b>Snap</b>: the paper's variable midtone gamma — endpoints and anchor stay put.<br><br>"
-                "<b>True Black</b> maps the paper's D-max to display black; pull Toe negative "
-                "with it on to clip deep shadows to exact black.<br><br>"
-                "Snap and True Black sit with the zone controls (next) under the "
+                "<b>Paper Black</b> shows the paper's real D-max as a lifted black; leave it off "
+                "(the default) for black point compensation that maps D-max to display black — then "
+                "pull Toe negative to clip deep shadows to exact black.<br><br>"
+                "Snap and Paper Black sit with the zone controls (next) under the "
                 "<b>Paper Response</b> header."
             ),
             target=_toe,
@@ -282,7 +350,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Shadows Density</b> and <b>Highlights Density</b> darken or brighten each "
                 "zone while rolling into the paper's black and white limits instead of "
                 "clipping — burning in a sky without blocking it up.<br><br>"
-                "They live under the <b>Paper Response</b> header with Snap and True Black — "
+                "They live under the <b>Paper Response</b> header with Snap and Paper Black — "
                 "the deeper print-curve controls."
             ),
             target=_zone_density,
@@ -370,6 +438,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Separation</b> amplifies R/G/B channel differences for richer colour. "
                 "<b>Saturation</b> boosts all tones equally; "
                 "<b>Vibrance</b> lifts muted tones while protecting already-saturated ones. "
+                "<b>Dye Mute</b> pulls the other way: it mutes colour in step with print "
+                "contrast, so a hard grade doesn't run away into poster colour. It's on by "
+                "default — set it to 0 for the fully saturated look. "
                 "<b>Denoise</b> smooths chroma noise in Lab space without touching luminance grain.<br><br>"
                 "<b>Detail:</b> "
                 "<b>CLAHE</b> applies local contrast enhancement that lifts midtone detail without blowing highlights. "
@@ -405,8 +476,14 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Retouch Panel — Dust Removal",
             body=(
                 "<b>Optical Removal</b> detects and removes small particles on the visible scan by "
-                "local contrast. Lower the threshold to be more aggressive. <b>IR Removal</b> does the "
-                "same from the scanner's infrared channel, catching dust the eye can't separate from grain.<br><br>"
+                "local contrast. Lower the threshold to be more aggressive.<br><br>"
+                "<b>IR Removal</b> works from the scanner's infrared channel, where dust blocks "
+                "light but the colour dyes don't — catching what the eye can't separate from "
+                "grain. Detection is ratio-normalized rather than a raw-IR threshold, so the "
+                "slider responds smoothly instead of flipping the whole frame at a cliff. "
+                "Semi-transparent specks are divided back out to recover the image hiding "
+                "underneath, and only the opaque cores get cloned. B&amp;W and Kodachrome scans "
+                "are skipped.<br><br>"
                 "<b>Heal Tool</b>: click individual dust spots in the preview — each heal "
                 "clones a matching patch from elsewhere in the frame and blends the seam, so "
                 "grain stays intact.<br><br>"
@@ -418,14 +495,39 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="retouch_section",
         ),
         TutorialStep(
-            title="Finish — Vignette & Border",
+            title="Dust Overlay — See What's Detected",
             body=(
-                "Print-presentation touches, applied at the very end of the pipeline.<br><br>"
-                "<b>Vignette</b> darkens toward the corners — the darkroom printer's edge "
-                "burn that holds the eye inside the frame — with <b>Strength</b> and "
-                "<b>Size</b>. <b>Border</b> adds a paper border in a colour of your choice."
+                "Dust thresholds are hard to set blind. The <b>Overlay</b> button cycles the "
+                "detection inspector so you can tune by eye: <b>Off → Marked → IR</b> (the IR "
+                "state appears only on scans that have an infrared channel).<br><br>"
+                "<b>Marked</b> paints every spot the detector is about to fix; <b>IR</b> shows "
+                "the raw infrared read behind it. Turn Optical or IR Removal on first — the "
+                "overlay draws what those passes found, so with both off there's nothing to "
+                "show.<br><br>"
+                "Watch the overlay while you drag a threshold: too aggressive lights up grain, "
+                "too conservative leaves specks unmarked."
             ),
-            target=_finish,
+            target=_dust_overlay,
+            section_attr="retouch_section",
+        ),
+        TutorialStep(
+            title="Finish — Edge Burn, Carrier & Mats",
+            body=(
+                "Print-presentation touches, applied at the very end of the pipeline — after "
+                "the crop, on the finished print.<br><br>"
+                "<b>Edge Burn</b> is a real exposure burn measured in <b>stops</b>, not a "
+                "darkening overlay: the darkroom printer's edge burn that holds the eye inside "
+                "the frame. <b>Size</b> sets how far in it reaches, and <b>Roundness</b> morphs "
+                "it from a radial falloff to a straight-edged card burn.<br><br>"
+                "<b>Filed Carrier</b> prints the black rebate of a filed-out negative carrier — "
+                "<b>Width</b> sets the frame (0 = off), <b>Roughness</b> breaks up its inner "
+                "edge the way a filed carrier actually looks.<br><br>"
+                "<b>Border</b> lays a mat around the print: <b>Width</b>, plus <b>Bottom "
+                "weight</b> for the window-mat proportion where the bottom margin runs deeper. "
+                "Pick its colour from the swatch, or turn on <b>Paper white</b> to tie the mat "
+                "to the toned paper white so it matches the print instead of fighting it."
+            ),
+            target=_edge_burn,
             section_attr="finish_section",
         ),
         TutorialStep(
@@ -477,7 +579,8 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "wide-gamut <b>16-bit TIFF</b> (or linear <b>DNG</b>) digital-intermediate master "
                 "for Lightroom / Darktable / Photoshop.<br><br>"
                 "It skips the creative print look and maps camera RAWs to ProPhoto via the camera's "
-                "own matrix. <b>Preview Flat</b> peeks at the master on the canvas, and "
+                "own matrix. <b>Preview Flat</b> peeks at the master on the canvas — also on the "
+                "toolbar and on <b>|</b> — and "
                 "<b>Roll Baseline</b> keeps flat masters consistent across a roll. Standard "
                 "<b>Print</b> output is unaffected."
             ),
@@ -489,6 +592,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             body=(
                 "That's the core workflow. A few more things worth knowing:<br><br>"
                 "• Press <b>?</b> or use the ⋯ menu for keyboard shortcuts.<br>"
+                "• Canvas tools share one grammar: the first <b>Esc</b> clears the points "
+                "you're placing, the second puts the tool down. <b>Shift+S</b> Scratch, "
+                "<b>Shift+B</b> Dodge &amp; Burn, <b>Shift+R</b> Analysis Region, "
+                "<b>|</b> flat-master peek.<br>"
                 "• Scanning with a tethered camera? The <b>Camera Scanning</b> section on the "
                 "Scan tab drives the body and Scanlight directly (macOS/Linux) — see "
                 "<code>docs/CAMERA_SCANNING.md</code>.<br>"

@@ -428,7 +428,7 @@ def test_tiff_same_space_preserves_16bit(proc):
     """Same-space TIFF exports (working == target, no custom ICC) must
     preserve full 16-bit precision — no round-trip through 8-bit PIL."""
     buf = _off_axis_buffer()
-    target = ColorSpace.PROPHOTO.value  # working space is ProPhoto RGB
+    target = WORKING_COLOR_SPACE  # same-space short-circuit: target == working
 
     preset = _make_preset(export_fmt=ExportFormat.TIFF, export_color_space=target)
     tiff_data, tiff_status = proc._encode_export(buf, preset, target, WORKING_COLOR_SPACE)

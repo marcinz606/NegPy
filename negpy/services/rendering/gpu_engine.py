@@ -12,6 +12,7 @@ from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConf
 from negpy.features.exposure.analysis import DENSITY_HIST_BINS
 from negpy.features.finish.logic import carrier_profiles
 from negpy.features.finish.processor import carrier_width_px
+from negpy.features.exposure import models as exposure_models
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
@@ -139,6 +140,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
         e.cast_removal_strength > 0.0,
         e.auto_exposure,
         e.auto_normalize_contrast,
+        exposure_models.TARGETS_REVISION,
     )
 
 
@@ -238,6 +240,7 @@ class GPUEngine:
         # (analysis_key, per-channel clipped fractions) for the scan-exposure warning.
         self._clip_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
+        self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
         self._retouch_num_regions = 0
         # Region build+upload cache — retouch re-dispatches on every exposure
@@ -285,6 +288,10 @@ class GPUEngine:
             return 0
         if last.process != settings.process or last.exposure != settings.exposure:
             return 1
+        # Retuned Auto Density/Grade targets live in EXPOSURE_CONSTANTS, invisible to
+        # the config diff, but they reshape the print curve in the exposure pass.
+        if self._last_targets_rev != exposure_models.TARGETS_REVISION:
+            return 1
         if last.local != settings.local:
             return 1
         if last.lab.clahe_strength != settings.lab.clahe_strength:
@@ -299,7 +306,7 @@ class GPUEngine:
             return 7
         if last.export != settings.export:
             # Carrier width is mm-of-print, so a print-size change moves the finish pass too.
-            if settings.finish.carrier_enabled and last.export.export_print_size != settings.export.export_print_size:
+            if settings.finish.carrier_width > 0.0 and last.export.export_print_size != settings.export.export_print_size:
                 return 7
             return 8
 
@@ -982,6 +989,7 @@ class GPUEngine:
                 logger.error(f"GPU Engine metrics error: {e}")
 
         self._last_settings = settings
+        self._last_targets_rev = exposure_models.TARGETS_REVISION
         self._last_scale_factor = scale_factor
         return tex_final, metrics
 
@@ -1203,7 +1211,7 @@ class GPUEngine:
                 # vec4 w-lanes, widths the ex-scalar slots, Zone Density ΔD the
                 # ex-d_min slot + d_min_rgb.w, Split Grade the split_sh/split_hi
                 # rows past 256B (exposure spans two UBO slots).
-                1.0 if exp.true_black else 0.0,
+                1.0 if not exp.paper_black else 0.0,
             )
             + struct.pack("ffff", dmin_rgb[0], dmin_rgb[1], dmin_rgb[2], exp.highlight_density)
             # Dye-row w-lanes carry the per-channel midtone gamma (Snap).
@@ -1292,7 +1300,7 @@ class GPUEngine:
         else:
             v_full_w, v_full_h, v_off_x, v_off_y = vignette_full_crop
         carrier_px = 0.0
-        if settings.finish.carrier_enabled:
+        if settings.finish.carrier_width > 0.0:
             carrier_px = carrier_width_px(
                 settings.finish.carrier_width,
                 settings.export.export_print_size,

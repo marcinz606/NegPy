@@ -43,7 +43,7 @@ def test_channel_selector_retargets_and_syncs(qapp):
             midtone_gamma_trim_red=0.15,
             toe_width_trim_red=1.2,
             shoulder_width_trim_red=-0.6,
-            true_black=True,
+            paper_black=True,
             midtone_gamma=0.25,
             shadow_density=-0.45,
             highlight_density=0.2,
@@ -61,7 +61,7 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert sidebar.grade_trim_slider.isHidden()
     assert not sidebar.toe_w_slider.isHidden()
     assert sidebar.toe_w_trim_slider.isHidden()
-    assert sidebar.true_black_btn.isChecked()
+    assert sidebar.paper_black_btn.isChecked()
     assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
     assert abs(sidebar.shadow_density_slider.value() - (-0.45)) < 1e-9
     assert abs(sidebar.highlight_density_slider.value() - 0.2) < 1e-9
@@ -77,7 +77,7 @@ def test_channel_selector_retargets_and_syncs(qapp):
     # sliders get their tooltips from ControlsPanel.apply_shortcut_tooltips (single
     # source), so only locally-tooltipped widgets are asserted here.
     assert sidebar.grade_trim_slider.toolTip().startswith("<qt>")
-    assert sidebar.true_black_btn.toolTip().startswith("<qt>")
+    assert sidebar.paper_black_btn.toolTip().startswith("<qt>")
     assert "&lt;" not in sidebar.grade_trim_slider.toolTip()
 
     # Red page: sliders retarget to the red trims; global-only controls grey out.

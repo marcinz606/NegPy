@@ -1,6 +1,6 @@
-"""True Black — black point compensation: map the paper's physical Dmax to
-display black (ICC relative-colorimetric soft-proof style), so deep shadows can
-reach exactly 0 while a lifted toe and paper white survive."""
+"""Black point compensation (the Paper Black toggle, off): map the paper's
+physical Dmax to display black (ICC relative-colorimetric soft-proof style), so
+deep shadows can reach exactly 0 while a lifted toe and paper white survive."""
 
 import unittest
 
@@ -17,7 +17,7 @@ def _render(img, **kwargs) -> float:
     return float(apply_characteristic_curve(img, _PARAMS, _PARAMS, _PARAMS, **kwargs)[0, 0, 0])
 
 
-class TestTrueBlack(unittest.TestCase):
+class TestBlackPointCompensation(unittest.TestCase):
     def test_bpc_collapses_shadow_floor(self):
         """The absolute render floors at 10^-d_max (~0.005); BPC collapses that
         floor by an order of magnitude (the curve reaches d_max asymptotically)."""
@@ -28,7 +28,7 @@ class TestTrueBlack(unittest.TestCase):
 
     def test_negative_toe_reaches_exact_zero(self):
         """Negative toe raises the BPC clip point into the shadows — the deepest
-        scene shadow prints at exactly 0 (the 'true black' the toe promises)."""
+        scene shadow prints at exactly 0 (the pure black the toe promises)."""
         self.assertGreater(_render(_SHADOW, toe=-1.0), 0.0)  # without BPC: never zero
         self.assertEqual(_render(_SHADOW, toe=-1.0, bpc=True), 0.0)
 

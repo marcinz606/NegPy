@@ -18,9 +18,11 @@ geometric ladder ("1/3" exposes 0.315 s, not 0.333 s): ordering/snapping read th
 (`true_seconds`). The model above only holds in the second representation.
 
 No dark frame: rawpy already subtracts the sensor bias, so `black = 0` (and the injected demosaic
-must scale by the camera's white level, never per-frame — see `linear_demosaic`). Physical limits
-degrade gracefully (best result + per-channel status) rather than raising. Hardware-free: light,
-camera and a `demosaic` callable are injected.
+must scale by the camera's white level, never per-frame — see `linear_demosaic`). An exposure
+target that is unreachable at the hardware limits raises `CalibrationExposureError` ("over"/
+"under", carrying the aperture advice) as early as the probe can prove it — a preset that misses
+its target is worthless, so none is saved (rig decision). Hardware-free: light, camera and a
+`demosaic` callable are injected.
 """
 
 from __future__ import annotations
@@ -70,8 +72,8 @@ MIN_SIGNAL = 10.0  # counts; below this the channel read no real signal
 # The base is the whitepoint (blackpoint after inversion) and must stay just below clipping.
 MAX_CLIP_FRACTION = 0.002
 # A channel this far under target is materially under-exposed, from any cause — maxed LED at the
-# slowest shutter, or a clip-guard that pulled the LED down hard. Reported as status "under"; a
-# small clip-guard undershoot within this margin still counts as "target".
+# slowest shutter, or a clip-guard that pulled the LED down hard. Aborts the run as "under"
+# (CalibrationExposureError); a small undershoot within this margin still counts as on-target.
 MAX_TARGET_UNDER_FRACTION = 0.2
 # Probe budget = the whole reachable range, so the loop can only end by resolving (in-range return,
 # graceful-over return, or the dark-side break) — never by exhaustion, which would mislabel a
@@ -292,6 +294,20 @@ class Roi:
         return x0, y0, x1, y1
 
 
+class CalibrationExposureError(RuntimeError):
+    """The exposure target is unreachable at the hardware limits, so no preset is worth saving:
+    "over" (even the fastest shutter with the LEDs at minimum still clips) or "under" (even the
+    slowest shutter with the LEDs at maximum stays materially below target). Raised as early as the
+    probe can prove it — over during the probe itself, under from plain arithmetic the moment a
+    channel's k is known — so a doomed run costs a few captures, not a full solve. The UI turns
+    `status` into the aperture advice ("over" → stop down, "under" → open up)."""
+
+    def __init__(self, status: str, channel: str) -> None:
+        super().__init__(f"{channel} channel {status}-exposed even at the hardware limits")
+        self.status = status
+        self.channel = channel
+
+
 @dataclass(frozen=True)
 class ChannelCalibration:
     channel: str  # "R" / "G" / "B"
@@ -300,11 +316,12 @@ class ChannelCalibration:
     signal: float  # measured base p99.9 at the solved settings
     target: int  # target signal
     clip_fraction: float = 0.0  # fraction of base pixels at/above saturation (ETTR keeps this ~0)
-    status: str = "target"  # "target" | "under" | "over" — for graceful UI messaging
 
 
 @dataclass(frozen=True)
 class CalibrationResult:
+    """A successful calibration — every channel on target (anything else raises instead)."""
+
     channels: dict[str, ChannelCalibration]
     spread_stops: float = 0.0  # measured k spread in stops (confirms the shared-shutter assumption)
 
@@ -315,14 +332,6 @@ class CalibrationResult:
     @property
     def shutters(self) -> tuple[str, str, str]:
         return (self.channels["R"].shutter, self.channels["G"].shutter, self.channels["B"].shutter)
-
-    @property
-    def status(self) -> str:
-        """Worst channel status, for a single headline message."""
-        for s in ("over", "under"):
-            if any(c.status == s for c in self.channels.values()):
-                return s
-        return "target"
 
 
 def target_signal(target_fraction: float = TARGET_FRACTION) -> int:
@@ -452,6 +461,12 @@ class CalibrationService:
                 _check_cancel()
                 _report(0.1 + 0.2 * i, f"Probing {ch.letter}…")
                 k[ch.letter] = self._measure_response(i, ch, start_levels[i], start_shutter, candidates, _shoot)
+                # Reachability, settled at the probe: the most light this channel can ever get is
+                # k · PWM_MAX · slowest shutter. If even that stays materially under target, the
+                # verify would end "under" after a full solve — fail fast here instead (plain
+                # arithmetic, no extra capture), so a doomed run costs seconds, not the whole flow.
+                if k[ch.letter] * PWM_MAX * true_seconds(candidates[-1], candidates) < (1.0 - MAX_TARGET_UNDER_FRACTION) * T:
+                    raise CalibrationExposureError("under", ch.letter)
 
             spread = _spread_stops(k)
             logger.info("calibration response: kR=%.1f kG=%.1f kB=%.1f (spread %.2f stops)", k["R"], k["G"], k["B"], spread)
@@ -478,8 +493,9 @@ class CalibrationService:
     def _measure_response(self, i, ch, start_level, start_shutter, candidates, shoot) -> float:
         """Bring a probe into the measurable range (not clipped, above noise), then return
         k = signal / (level · seconds). k is exposure-normalized, so a faster/slower probe gives the
-        same k, just clean. A clipped read is used only as a lower bound when even minimum exposure
-        clips (over-exposure → graceful "over"); no signal at maximum exposure raises."""
+        same k, just clean. Still clipped at minimum exposure → the aperture is provably too open
+        and the run aborts as "over" (CalibrationExposureError); no signal at maximum exposure
+        raises RuntimeError (that is a broken setup — lens cap, dead LED, ROI off the base)."""
         level, shutter = start_level, start_shutter
         for _ in range(_MAX_PROBE_STEPS):
             signal, clip = shoot(i, ch, level, shutter)
@@ -494,11 +510,11 @@ class CalibrationService:
                 if level > PWM_MIN:
                     level = max(PWM_MIN, level // 2)
                     continue
-                # Minimum exposure (fastest shutter + lowest LED) still clips → the aperture is too
-                # open. Return the clipped (lower-bound) response so the solver seats this channel at
-                # minimum exposure and _verify_channel reports "over" (the UI tells the user to stop
-                # down). Graceful, like under-exposure — not a hard error.
-                return signal / (level * true_seconds(shutter, candidates))
+                # Minimum exposure (fastest shutter + lowest LED) still clips → the aperture is
+                # provably too open, and no solve can change that. Abort right here at the probe
+                # (rig decision: a preset that misses its target is worthless, so none is saved) —
+                # the UI turns this into the stop-down advice.
+                raise CalibrationExposureError("over", ch.letter)
             if signal < MIN_SIGNAL:  # too dark → double exposure
                 slower = _nearest_by_seconds(shutter_seconds(shutter) * 2.0, candidates)
                 if shutter_seconds(slower) > shutter_seconds(shutter):
@@ -547,6 +563,11 @@ class CalibrationService:
             clip * 100,
             status,
         )
+        if status != "target":
+            # Safety net behind the probe's early checks: the probe predicted the target reachable,
+            # but the base disagreed at the solved settings (e.g. a clip guard pulled the LED far
+            # down over a bright sliver). Same rule as at the probe — no preset off target.
+            raise CalibrationExposureError(status, ch.letter)
         return ChannelCalibration(
             channel=ch.letter,
             level=level,
@@ -554,7 +575,6 @@ class CalibrationService:
             signal=measured,
             target=T,
             clip_fraction=clip,
-            status=status,
         )
 
     def _source_clip_fraction(self, path: str, channel_index: int, roi: Roi) -> float:
@@ -580,10 +600,10 @@ class CalibrationService:
 
 
 def _channel_status(measured: float, clip: float, target: int) -> str:
-    """Graceful per-channel status from the *measured signal*, not the level. 'over' if the base
-    still clips; 'under' if it is materially below target from any cause — a maxed LED at the
-    slowest shutter, OR a clip-guard that pulled the LED well below PWM_MAX; else 'target' (a small
-    clip-guard undershoot within the margin stays 'target')."""
+    """Per-channel verdict from the *measured signal*, not the level — the verify's abort input.
+    'over' if the base still clips; 'under' if it is materially below target from any cause — a
+    maxed LED at the slowest shutter, OR a clip-guard that pulled the LED well below PWM_MAX; else
+    'target' (a small clip-guard undershoot within the margin stays 'target')."""
     if clip > MAX_CLIP_FRACTION:
         return "over"
     if measured < (1.0 - MAX_TARGET_UNDER_FRACTION) * target:

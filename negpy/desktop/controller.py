@@ -226,6 +226,7 @@ class AppController(QObject):
     calibration_requested = pyqtSignal(CalibrationRequest)
     capture_calibration_progress = pyqtSignal(float, str)
     capture_calibration_finished = pyqtSignal(object)
+    capture_calibration_exposure = pyqtSignal(str)  # "over"/"under": target unreachable, aborted, no preset
     poll_connection_requested = pyqtSignal(str)  # light port (auto-poll)
     connection_polled = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
     poll_light_temp_requested = pyqtSignal(str)  # light port (temp-only poll, runs even mid-live-view)
@@ -503,6 +504,7 @@ class AppController(QObject):
         self.calibration_requested.connect(self.capture_worker.run_calibration)
         self.capture_worker.calibration_progress.connect(self.capture_calibration_progress.emit)
         self.capture_worker.calibration_finished.connect(self.capture_calibration_finished.emit)
+        self.capture_worker.calibration_exposure.connect(self.capture_calibration_exposure.emit)
         self.poll_connection_requested.connect(self.capture_worker.poll_connection)
         self.capture_worker.poll_status.connect(self.connection_polled.emit)
         self.poll_light_temp_requested.connect(self.capture_worker.poll_light_temp)
@@ -703,9 +705,18 @@ class AppController(QObject):
         """Persist the RGB-scan toggle and re-discover already-loaded assets so the
         mode regroups/ungroups triplets in place (not only on the next folder load)."""
         self.session.repo.save_global_setting("rgbscan_mode", bool(enabled))
+        if enabled:
+            # Narrowband LEDs are what RGB-scan triplets are captured with — correcting
+            # for them is the point of the toggle, so switch it on together.
+            self.session.repo.save_global_setting("last_narrowband_scan", True)
         files = self.session.state.uploaded_files
         if not files:
             return
+        if enabled and not self.state.config.process.narrowband_scan:
+            self.session.update_config(
+                replace(self.state.config, process=replace(self.state.config.process, narrowband_scan=True)), persist=True
+            )
+            self.request_render()
         paths: List[str] = []
         for f in files:
             paths.append(f["path"])
@@ -1560,10 +1571,13 @@ class AppController(QObject):
         """Show/hide one mask's outline on the canvas (view-only; no re-render)."""
         if not (0 <= index < len(self.state.config.local.masks)):
             return
+        hidden = set(self.state.local_hidden_masks)
         if visible:
-            self.state.local_hidden_masks.discard(index)
+            hidden.discard(index)
         else:
-            self.state.local_hidden_masks.add(index)
+            hidden.add(index)
+        self.state.local_hidden_masks = hidden
+        self.session.persist_hidden_masks()
         if self.canvas:
             self.canvas.overlay.update()
 
@@ -1582,6 +1596,7 @@ class AppController(QObject):
         sel = self.state.local_selected_mask
         self.state.local_selected_mask = -1 if sel == index else (sel - 1 if sel > index else sel)
         self.state.local_hidden_masks = {j - 1 if j > index else j for j in self.state.local_hidden_masks if j != index}
+        self.session.persist_hidden_masks()
 
         self.config_updated.emit()
         self.request_render()

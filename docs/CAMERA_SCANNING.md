@@ -80,7 +80,10 @@ and solves one shared shutter plus a per-channel LED level so each channel lands
 under clipping, and records the ISO and aperture alongside them. That highlight matters:
 the clear base is what becomes the *black point* after inversion, so a clip guard checks
 the raw Bayer photosites and backs the exposure off if any channel saturates. Save it
-once per film stock and reuse it.
+once per film stock and reuse it. If the target is unreachable at your exposure, the run
+stops right at the probe — a pop-up says which way to adjust (over-exposed → close the
+aperture or lower the ISO; under-exposed → open up or raise the ISO) and **no preset is
+saved**; adjust and calibrate again in the window that stayed open.
 
 **Presets.** A selected preset is shown read-only — RGB levels, ISO, shutter and aperture —
 and the scan forces that exposure on the body before every frame, so a bumped dial can't
@@ -107,7 +110,7 @@ settings takes precedence while set.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| No camera found, or the session won't open on macOS | An ImageCapture app is holding the body. Only one program may claim a PTP camera. | **Quit Preview, Photos and Image Capture**, then retry. Preview is the usual culprit — it grabs the camera silently. |
+| Camera dot shows **"in use"** (amber hint) | An ImageCapture app is holding the body. Only one program may claim a PTP camera. | **Quit Preview, Photos and Image Capture**. Preview is the usual culprit — it grabs the camera silently. NegPy reconnects on its own once the camera is free. |
 | No camera found, and nothing else is running | The body isn't in PC Remote mode, or it's a mass-storage/MTP connection. | Set the camera's USB connection mode to **PC Remote**. |
 | `[-10] Timeout reading from or writing to the port`, and no other program is holding it | A program crashed while connected. The *camera* still thinks the session is open and refuses a new one. | Power-cycle the camera, or unplug and replug the cable. Nothing on the computer will fix it. |
 | Live view is black | The body dropped out of PC Remote, or the lens cap is on. | Power-cycle the camera. |

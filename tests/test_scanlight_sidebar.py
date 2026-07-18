@@ -24,12 +24,13 @@ def _sidebar():
     return ScanlightSidebar(ctrl)
 
 
-def _poll(usb_ok=False, usb_model="", light_ok=True, light_detail="fw"):
+def _poll(usb_ok=False, usb_model="", light_ok=True, light_detail="fw", usb_claimed_elsewhere=False):
     return {
         "usb_ok": usb_ok,
         "usb_model": usb_model,
         "light_ok": light_ok,
         "light_detail": light_detail,
+        "usb_claimed_elsewhere": usb_claimed_elsewhere,
     }
 
 
@@ -481,6 +482,28 @@ def test_poll_finds_usb_camera_marks_green():
     assert "USB" in w.cam_status.text()  # transport shown in the label
 
 
+def test_poll_camera_claimed_by_another_app_says_so_and_gates(monkeypatch):
+    # macOS hands the body to Preview/Photos/Image Capture the moment one opens; the bus
+    # listing still succeeds, so the dot used to show a healthy green while every open failed
+    # with -53 and the only clue was a transient error line. The dot must say what to do,
+    # and the camera must gate as unusable until the claim clears.
+    w = _sidebar()
+    w._on_poll_status(_poll(usb_ok=True, usb_model="USB PTP Class Camera", usb_claimed_elsewhere=True))
+    assert not w._camera_verified  # present but unusable → Scan/Calibrate stay gated
+    assert "in use" in w.cam_status.text()
+    # The advice is readable in the tab (amber hint line), not buried in a tooltip.
+    assert w._conn_hint.isVisibleTo(w)
+    assert "close Preview, Photos and Image Capture" in w._conn_hint.text()
+    assert "#C8922E" in w._conn_hint.styleSheet()
+    # The claim clearing (next successful open / re-plug) restores the normal green dot
+    # and puts the hint line back to its plug-in nudge (hidden while a camera is present).
+    w._on_poll_status(_poll(usb_ok=True, usb_model="ILCE-7CM2"))
+    assert w._camera_verified
+    assert "USB" in w.cam_status.text()
+    assert not w._conn_hint.isVisibleTo(w)
+    assert "Connect the camera" in w._conn_hint.text()
+
+
 def test_disconnect_during_live_view_closes_the_preview():
     # Enumerating the bus keeps running through live view, so an unplug is caught there
     # too — and the last frame must not be left on screen looking live.
@@ -759,8 +782,9 @@ def test_normal_mode_keeps_the_scan_live_view_steppers():
     assert not w.lv_window.settings_widget.isHidden()
 
 
-def _calibrate(w, monkeypatch, name="Portra 400", status="target"):
-    """Drive _on_calibration_finished as the worker would, returning the baked preset."""
+def _calibrate(w, monkeypatch, name="Portra 400"):
+    """Drive _on_calibration_finished as the worker would (a result exists only when every channel
+    hit target — anything else arrives via _on_calibration_exposure). Returns the baked preset."""
     import types
 
     saved: dict = {}
@@ -768,40 +792,63 @@ def _calibrate(w, monkeypatch, name="Portra 400", status="target"):
     monkeypatch.setattr(w._presets, "get", lambda _n: None)
     monkeypatch.setattr(w, "_reload_presets", lambda **_k: None)
     w._calibrating_preset = name
-    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5"), status=status))
+    w._on_calibration_finished(types.SimpleNamespace(levels=(200, 180, 90), shutters=("1/5", "1/5", "1/5")))
     return saved["preset"]
 
 
-def test_calibration_shows_an_aperture_warning_when_over_exposed(monkeypatch):
-    # Graceful over-exposure: the preset is still saved, but the status line tells the user to stop
-    # down (mirrors the solver's "over" status → a clear message, not a silent bad preset).
+def test_calibration_exposure_abort_saves_nothing_and_keeps_a_live_retry_window(monkeypatch):
+    # The solver proved the target unreachable and aborted — a preset that misses its target is
+    # worthless, so none may exist. The calibration window must stay a LIVE retry surface: on the
+    # rig, tearing down its stream and leaving the Scanlight off (the service switches it off on
+    # exit) made the open window black and dead — it read as a crash, and the ROI/steppers were
+    # useless for the retry the advice asks for.
+    from negpy.services.capture.calibration import REFERENCE_LEVELS
+
     w = _sidebar()
-    _calibrate(w, monkeypatch, status="over")
-    assert "over-exposed" in w.status_label.text() and "close the aperture" in w.status_label.text()
+    saved: dict = {}
+    monkeypatch.setattr(w._presets, "save", lambda _n, preset: saved.update(preset=preset))
+    w.calib_window.show()
+    w._lv_target = w.calib_window.image  # as _on_preset_new leaves it while the flow runs
+    w._calibrating_preset = "Phoenix II"
+    w._on_calibration_exposure("over")
+    assert not saved, "an aborted calibration must not write a preset"
+    assert w._calibrating_preset == ""  # the run is over (Scan re-enabled, inputs unlocked)
+    assert w.calib_window.isVisible()  # stays open for the retry
+    assert "over-exposed" in w.calib_window.status.text() and "close the aperture" in w.calib_window.status.text()
+    # The retry surface stays alive: frames keep routing into this window (no teardown, no
+    # retargeting), and the framing light is re-lit so the user sees the film, not black.
+    assert w._lv_target is w.calib_window.image
+    w.controller.stop_live_view.assert_not_called()
+    w.controller.set_scanlight_color.assert_called_with(*REFERENCE_LEVELS, 0, w._settings.port)
+    assert w._exposure_popup is not None
+    assert "was not saved" in w._exposure_popup.text()
+    assert "Close the aperture" in w._exposure_popup.informativeText()
 
 
-def test_calibration_shows_an_aperture_warning_when_under_exposed(monkeypatch):
+def test_calibration_exposure_abort_under_advises_opening_the_aperture(monkeypatch):
     w = _sidebar()
-    _calibrate(w, monkeypatch, status="under")
-    assert "under-exposed" in w.status_label.text() and "open the aperture" in w.status_label.text()
+    w._calibrating_preset = "Phoenix II"
+    w._on_calibration_exposure("under")
+    assert "under-exposed" in w.calib_window.status.text() and "open the aperture" in w.calib_window.status.text()
+    assert "Open the aperture" in w._exposure_popup.informativeText()
 
 
-def test_calibration_on_target_has_no_warning(monkeypatch):
+def test_calibration_on_target_opens_no_popup(monkeypatch):
     w = _sidebar()
-    _calibrate(w, monkeypatch, status="target")
-    assert "⚠" not in w.status_label.text()
+    _calibrate(w, monkeypatch)
+    assert w._exposure_popup is None
 
 
-def test_calibration_warning_survives_the_light_echo(monkeypatch):
+def test_calibration_outcome_survives_the_light_echo(monkeypatch):
     # The bug this pins: _on_calibration_finished sets the R/G/B sliders, each start()s the 60 ms
-    # light debounce; the worker's light_set echo then wrote "Light: R… G… B…" over the warning —
-    # so the one line telling the user their preset is over-exposed lived for a blink and vanished.
-    # The tests above never caught it because the echo arrives after the handler returns.
+    # light debounce; the worker's light_set echo then wrote "Light: R… G… B…" over the outcome
+    # line, which lived for a blink and vanished. The immediate assertions above never caught it
+    # because the echo arrives after the handler returns.
     w = _sidebar()
-    _calibrate(w, monkeypatch, status="over")
-    assert "over-exposed" in w.status_label.text()
+    _calibrate(w, monkeypatch)
+    assert "Saved preset" in w.status_label.text()
     w._on_light_set(213, 92, 78, 0)  # the async echo, exactly as the worker delivers it
-    assert "over-exposed" in w.status_label.text(), "the light echo must not clobber the calibration outcome"
+    assert "Saved preset" in w.status_label.text(), "the light echo must not clobber the calibration outcome"
     # The pin is not forever: the next user-driven status (a new flow) replaces it, and the ambient
     # light echo works again afterwards.
     w._set_status("Calibrating a new preset — see the pop-up.")

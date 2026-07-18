@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 
 class RenderIntent(StrEnum):
@@ -75,8 +75,10 @@ class ExposureConfig:
     shoulder_width_trim_green: float = 0.0
     shoulder_width_trim_blue: float = 0.0
     paper_dmin: bool = False
-    # Black point compensation: map paper Dmax to display black.
-    true_black: bool = True
+    # Paper Black: when on, show the paper's natural Dmax as a lifted black instead of
+    # compensating it to pure display black. Consumed inverted as bpc (= not paper_black),
+    # so off (default) keeps black point compensation on.
+    paper_black: bool = False
     # Additive trim on the paper's variable midtone gamma (tanh S-curve).
     midtone_gamma: float = 0.0
     # Per-layer Snap trims on top of the global midtone gamma (midtone crossover).
@@ -237,11 +239,11 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # Auto Grade nominal-frame contrast = auto_grade_target * auto_grade_nominal_ratio.
     # Target contrast multiplier for Auto Grade: effective_range = this · blend(nominal, measured_ratio).
     # ↑ aims for higher printed contrast across all frames; ↓ targets lower contrast.
-    "auto_grade_target": 0.55,
+    "auto_grade_target": 0.5,
     # Auto Grade adaptation strength (partial slope normalization): 0 = fixed, 1 = full.
     # How strongly Auto Grade adapts slope to scene range (0 = ignore scene, 1 = fully normalize).
     # ↑ grade changes more aggressively with scene contrast variation; ↓ closer to a fixed grade.
-    "auto_grade_strength": 0.3,
+    "auto_grade_strength": 0.5,
     # Canonical floor_ceil/textural ratio of a normal tone distribution (~2.0); default-range fallback.
     # Reference floor_ceil/textural ratio for a "normal" negative (used as Auto Grade blend anchor).
     # ↑ system treats denser negatives as normal (grades down harder frames); ↓ expects flatter negatives.
@@ -272,3 +274,25 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # ↑ wider, more gradual S; ↓ tighter, more localized midtone boost.
     "paper_gamma_width": 0.6,
 }
+
+# Auto Density / Auto Grade targets the user can retune (Set Targets dialog).
+# App-global, not per-image: one calibration per install. key -> (min, max).
+TUNABLE_TARGETS: Dict[str, Tuple[float, float]] = {
+    "anchor_target_density": (0.4, 1.1),
+    "anchor_meter_strength": (0.0, 1.0),
+    "anchor_meter_band": (0.0, 0.4),
+    "auto_grade_target": (0.3, 0.8),
+    "auto_grade_strength": (0.0, 1.0),
+}
+DEFAULT_TARGETS: Dict[str, float] = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}
+
+# Render caches key on config hashes, which don't see a global-constant edit.
+# Both engines fold this into the exposure stage's key so it re-runs.
+TARGETS_REVISION = 0
+
+
+def apply_targets(values: Dict[str, float]) -> None:
+    """Overlay user target overrides onto EXPOSURE_CONSTANTS; invalidates render caches."""
+    global TARGETS_REVISION
+    EXPOSURE_CONSTANTS.update({k: float(v) for k, v in values.items() if k in TUNABLE_TARGETS})
+    TARGETS_REVISION += 1

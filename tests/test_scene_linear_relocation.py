@@ -1,6 +1,6 @@
 """Characterization guard: pin the default + exposure-only full-engine output so the
-look doesn't drift. Goldens are the scene-linear pipeline encoded with the ProPhoto RGB
-working TRC (ROMM)."""
+look doesn't drift. Goldens are the scene-linear pipeline encoded with the Adobe RGB
+working TRC."""
 
 from dataclasses import replace
 
@@ -14,34 +14,34 @@ from negpy.services.rendering.engine import DarkroomEngine
 
 _POINTS = [(0, 0), (8, 8), (20, 30), (32, 32), (50, 50), (60, 10)]
 
-# Golden pixel values (ProPhoto-RGB-TRC-encoded engine output, scene-linear pipeline,
-# default config — paper_dmin off, true_black on, cast_removal_strength 0.5, sharpen 0.25,
+# Golden pixel values (Adobe-RGB-TRC-encoded engine output, scene-linear pipeline,
+# default config — paper_dmin off, paper_black off, cast_removal_strength 0.5, sharpen 0.25,
 # chroma_damping 0.5).
 _GOLDEN = {
     "default": [
-        (0.204851, 0.927244, 0.896463),
-        (0.203398, 0.915851, 0.909803),
-        (0.217849, 0.212541, 0.210557),
-        (0.153749, 0.156905, 0.155930),
-        (0.072774, 0.047537, 0.761169),
-        (0.914429, 0.929906, 0.120987),
+        (0.242216, 0.919975, 0.893587),
+        (0.242338, 0.908162, 0.908987),
+        (0.304671, 0.298979, 0.296846),
+        (0.237132, 0.240826, 0.239687),
+        (0.177772, 0.139916, 0.854606),
+        (0.901034, 0.915963, 0.208537),
     ],
     "expo_dark": [
-        (0.373914, 0.978381, 0.969779),
-        (0.375290, 0.977941, 0.970339),
-        (0.767470, 0.759197, 0.756000),
-        (0.635119, 0.643248, 0.640762),
-        (0.287566, 0.276198, 0.865637),
-        (0.994327, 0.992783, 0.365315),
+        (0.434328, 0.984753, 0.980786),
+        (0.435622, 0.984008, 0.981809),
+        (0.770200, 0.762814, 0.759973),
+        (0.661540, 0.668508, 0.666376),
+        (0.390268, 0.371290, 0.939987),
+        (0.994151, 0.990513, 0.424847),
     ],
     # WB CMY sliders are absolute CC density (divided by the stretch range).
     "expo_cmy": [
-        (0.201257, 0.941433, 0.834892),
-        (0.200378, 0.932615, 0.859163),
-        (0.181375, 0.244389, 0.154415),
-        (0.127646, 0.181057, 0.113393),
-        (0.063280, 0.058972, 0.703570),
-        (0.878620, 0.943941, 0.105783),
+        (0.231376, 0.935094, 0.830793),
+        (0.232192, 0.925526, 0.854866),
+        (0.263249, 0.330943, 0.232614),
+        (0.204471, 0.267065, 0.186964),
+        (0.158890, 0.148281, 0.790704),
+        (0.864746, 0.931884, 0.193281),
     ],
 }
 

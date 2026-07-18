@@ -109,17 +109,15 @@ def srgb_to_linear(img: np.ndarray) -> np.ndarray:
     return np.where(img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
 
-# Working-space output transform: ProPhoto RGB (ROMM) TRC — gamma 1.8 with a linear
-# toe (slope 16) below 1/512. Applied at the pipeline boundary; composes with the
-# ProPhoto ICC. Mirrored in WGSL oetf_encode/oetf_decode.
-_WORKING_GAMMA = 1.8
-_ROMM_LIN_BREAK = 1.0 / 512.0  # linear-domain toe break (encode)
-_ROMM_ENC_BREAK = 16.0 / 512.0  # encoded-domain toe break (decode) = 1/32
+# Working-space output transform: Adobe RGB (1998) TRC — a pure 563/256 power with no
+# linear segment. Applied at the pipeline boundary; composes with the Adobe RGB ICC.
+# Mirrored in WGSL oetf_encode/oetf_decode.
+_WORKING_GAMMA = 563.0 / 256.0  # 2.19921875
 
 
 @parallel_njit(cache=True, fastmath=True)
-def _oetf_encode_flat(flat: np.ndarray, inv_gamma: float, lin_break: float) -> np.ndarray:
-    """Row-parallel ProPhoto ROMM encode over a flattened buffer (shape-agnostic)."""
+def _oetf_encode_flat(flat: np.ndarray, inv_gamma: float) -> np.ndarray:
+    """Row-parallel working-space encode over a flattened buffer (shape-agnostic)."""
     n = flat.shape[0]
     out = np.empty(n, dtype=np.float32)
     for i in prange(n):
@@ -128,12 +126,12 @@ def _oetf_encode_flat(flat: np.ndarray, inv_gamma: float, lin_break: float) -> n
             x = 0.0
         elif x > 1.0:
             x = 1.0
-        out[i] = x * 16.0 if x < lin_break else x**inv_gamma
+        out[i] = x**inv_gamma
     return out
 
 
 @parallel_njit(cache=True, fastmath=True)
-def _oetf_decode_flat(flat: np.ndarray, gamma: float, enc_break: float) -> np.ndarray:
+def _oetf_decode_flat(flat: np.ndarray, gamma: float) -> np.ndarray:
     """Inverse of _oetf_encode_flat."""
     n = flat.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -141,48 +139,48 @@ def _oetf_decode_flat(flat: np.ndarray, gamma: float, enc_break: float) -> np.nd
         e = flat[i]
         if e < 0.0:
             e = 0.0
-        out[i] = e / 16.0 if e < enc_break else e**gamma
+        out[i] = e**gamma
     return out
 
 
 def working_oetf_encode(img: np.ndarray) -> np.ndarray:
-    """Scene-linear -> display-encoded code values [0,1] (ProPhoto ROMM TRC)."""
+    """Scene-linear -> display-encoded code values [0,1] (Adobe RGB TRC)."""
     flat = np.ascontiguousarray(img, dtype=np.float32).reshape(-1)
-    return _oetf_encode_flat(flat, np.float32(1.0 / _WORKING_GAMMA), np.float32(_ROMM_LIN_BREAK)).reshape(img.shape)
+    return _oetf_encode_flat(flat, np.float32(1.0 / _WORKING_GAMMA)).reshape(img.shape)
 
 
 def working_oetf_decode(img: np.ndarray) -> np.ndarray:
     """Inverse of working_oetf_encode."""
     flat = np.ascontiguousarray(img, dtype=np.float32).reshape(-1)
-    return _oetf_decode_flat(flat, np.float32(_WORKING_GAMMA), np.float32(_ROMM_ENC_BREAK)).reshape(img.shape)
+    return _oetf_decode_flat(flat, np.float32(_WORKING_GAMMA)).reshape(img.shape)
 
 
-# CIELAB in the working space (ProPhoto RGB / ROMM, D50): ProPhoto primaries.
+# CIELAB in the working space (Adobe RGB 1998, D65): Adobe RGB primaries.
 # Mirrors the WGSL rgb_to_lab; OpenCV's float Lab scale (L 0-100).
-_PROPHOTO_TO_XYZ = np.array(
+_WORKING_TO_XYZ = np.array(
     [
-        [0.7976749, 0.1351917, 0.0313534],
-        [0.2880402, 0.7118741, 0.0000857],
-        [0.0000000, 0.0000000, 0.8252100],
+        [0.5767309, 0.1855540, 0.1881852],
+        [0.2973769, 0.6273491, 0.0752741],
+        [0.0270343, 0.0706872, 0.9911085],
     ],
     dtype=np.float32,
 )
-_XYZ_TO_PROPHOTO = np.array(
+_XYZ_TO_WORKING = np.array(
     [
-        [1.3459433, -0.2556075, -0.0511118],
-        [-0.5445989, 1.5081673, 0.0205351],
-        [0.0000000, 0.0000000, 1.2118128],
+        [2.0413690, -0.5649464, -0.3446944],
+        [-0.9692660, 1.8760108, 0.0415560],
+        [0.0134474, -0.1183897, 1.0154096],
     ],
     dtype=np.float32,
 )
-_D50_WHITE = np.array([0.96422, 1.00000, 0.82521], dtype=np.float32)
+_WORKING_WHITE = np.array([0.95047, 1.00000, 1.08883], dtype=np.float32)
 _LAB_EPS = 0.008856
 _LAB_KAPPA = 7.787
 
 
 @parallel_njit(cache=True, fastmath=True)
 def _rgb_to_lab_kernel(px: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
-    """Row-parallel linear ProPhoto RGB -> CIELAB (D50) over an (N, 3) pixel list."""
+    """Row-parallel linear working RGB -> CIELAB (D65) over an (N, 3) pixel list."""
     n = px.shape[0]
     out = np.empty((n, 3), dtype=np.float32)
     c = np.float32(16.0 / 116.0)
@@ -210,7 +208,7 @@ def _rgb_to_lab_kernel(px: np.ndarray, m: np.ndarray, white: np.ndarray, eps: fl
 
 @parallel_njit(cache=True, fastmath=True)
 def _lab_to_rgb_kernel(lab: np.ndarray, m: np.ndarray, white: np.ndarray, eps: float, kappa: float) -> np.ndarray:
-    """Row-parallel inverse: CIELAB (D50) -> linear ProPhoto RGB over an (N, 3) pixel list."""
+    """Row-parallel inverse: CIELAB (D65) -> linear working RGB over an (N, 3) pixel list."""
     n = lab.shape[0]
     out = np.empty((n, 3), dtype=np.float32)
     c = np.float32(16.0 / 116.0)
@@ -234,18 +232,18 @@ def _lab_to_rgb_kernel(lab: np.ndarray, m: np.ndarray, white: np.ndarray, eps: f
 
 
 def rgb_to_lab_working(img: np.ndarray) -> np.ndarray:
-    """Linear ProPhoto RGB -> CIELAB (D50). No transfer decode — the buffer is linear.
+    """Linear working RGB -> CIELAB (D65). No transfer decode — the buffer is linear.
 
     Accepts any array whose last axis is the 3 RGB channels ((H, W, 3), (N, 3), ...)."""
     arr = np.ascontiguousarray(img, dtype=np.float32)
-    out = _rgb_to_lab_kernel(arr.reshape(-1, 3), _PROPHOTO_TO_XYZ, _D50_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA))
+    out = _rgb_to_lab_kernel(arr.reshape(-1, 3), _WORKING_TO_XYZ, _WORKING_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA))
     return out.reshape(arr.shape)
 
 
 def lab_to_rgb_working(lab: np.ndarray) -> np.ndarray:
-    """Inverse of rgb_to_lab_working: CIELAB (D50) -> linear ProPhoto RGB (no encode)."""
+    """Inverse of rgb_to_lab_working: CIELAB (D65) -> linear working RGB (no encode)."""
     arr = np.ascontiguousarray(lab, dtype=np.float32)
-    out = _lab_to_rgb_kernel(arr.reshape(-1, 3), _XYZ_TO_PROPHOTO, _D50_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA))
+    out = _lab_to_rgb_kernel(arr.reshape(-1, 3), _XYZ_TO_WORKING, _WORKING_WHITE, np.float32(_LAB_EPS), np.float32(_LAB_KAPPA))
     return out.reshape(arr.shape)
 
 
