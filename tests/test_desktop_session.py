@@ -77,7 +77,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         with patch("negpy.desktop.session.load_or_promote", return_value=saved) as hydrate:
             config = self.session.config_for_asset(asset)
 
-        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng")
+        hydrate.assert_called_once_with(self.mock_repo, "saved-hash", "/roll/saved.dng", half=0)
         self.assertEqual(config.exposure.density, 1.7)
         self.assertEqual(config.process.process_mode, "E-6")
         self.assertEqual(config.geometry.autocrop_ratio, "4:3")

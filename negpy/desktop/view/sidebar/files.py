@@ -260,6 +260,13 @@ class FileBrowser(QWidget):
         self.rgb_scan_btn.setChecked(bool(self.session.repo.get_global_setting("rgbscan_mode", False)))
         self._update_rgb_scan_style(self.rgb_scan_btn.isChecked())
 
+        self.half_frame_btn = QToolButton()
+        self.half_frame_btn.setCheckable(True)
+        self.half_frame_btn.setIcon(qta.icon("mdi.view-split-vertical", color=THEME.text_primary))
+        self.half_frame_btn.setToolTip("Half Frame — split each scan into two frames, edited and measured separately")
+        self.half_frame_btn.setChecked(bool(self.session.repo.get_global_setting("half_frame_mode", False)))
+        self._update_half_frame_style(self.half_frame_btn.isChecked())
+
         self.apply_btn = QToolButton()
         self.apply_btn.setIcon(qta.icon("fa5s.clone", color=THEME.text_primary))
         self.apply_btn.setToolTip("Apply settings from the current frame to selected frames or the whole roll")
@@ -317,6 +324,7 @@ class FileBrowser(QWidget):
             self.unload_btn,
             self.hot_folder_btn,
             self.rgb_scan_btn,
+            self.half_frame_btn,
             self.apply_btn,
             self.sheet_btn,
             self.sort_btn,
@@ -331,6 +339,7 @@ class FileBrowser(QWidget):
         toolbar_row.addWidget(self._create_separator())
         toolbar_row.addWidget(self.hot_folder_btn)
         toolbar_row.addWidget(self.rgb_scan_btn)
+        toolbar_row.addWidget(self.half_frame_btn)
         toolbar_row.addWidget(self.apply_btn)
         toolbar_row.addStretch()
         toolbar_row.addWidget(self._create_separator())
@@ -389,6 +398,7 @@ class FileBrowser(QWidget):
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.hot_folder_btn.toggled.connect(self._on_hot_folder_toggled)
         self.rgb_scan_btn.toggled.connect(self._on_rgb_scan_toggled)
+        self.half_frame_btn.toggled.connect(self._on_half_frame_toggled)
         self.session.state_changed.connect(self.sync_ui)
         self.session.files_changed.connect(self._on_files_changed)
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
@@ -568,6 +578,14 @@ class FileBrowser(QWidget):
     def _on_rgb_scan_toggled(self, checked: bool) -> None:
         self._update_rgb_scan_style(checked)
         self.controller.set_rgb_scan_mode(checked)
+
+    def _update_half_frame_style(self, checked: bool) -> None:
+        icon_color = "white" if checked else THEME.text_primary
+        self.half_frame_btn.setIcon(qta.icon("mdi.view-split-vertical", color=icon_color))
+
+    def _on_half_frame_toggled(self, checked: bool) -> None:
+        self._update_half_frame_style(checked)
+        self.controller.set_half_frame_mode(checked)
 
     def _scan_folder(self) -> None:
         if not self.session.state.uploaded_files:

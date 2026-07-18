@@ -10,6 +10,7 @@ def render_export_filename(
     original_path: str,
     export_settings: Union[ExportConfig, ExportPreset],
     border_size: float = 0.0,
+    half: int = 0,
 ) -> str:
     """
     Renders the export filename using Jinja2 templates.
@@ -25,6 +26,9 @@ def render_export_filename(
     - date: Current date in YYYYMMDD format
     """
     original_name = os.path.splitext(os.path.basename(original_path))[0]
+    if half:
+        # halves share the source file — suffix so outputs don't collide
+        original_name = f"{original_name}_{half}"
 
     # Null-byte placeholder protects original_name from the cleanup regex.
     # Null bytes cannot appear in filesystem paths, so collision is impossible.

@@ -8,7 +8,6 @@ Guidance for Claude Code in this repository.
 
 ```bash
 make run          # Launch the desktop app
-make run-ir       # Launch against a locally patched coolscan3 for SANE infrared (see docs/COOLSCAN_SCANNING.md)
 make all          # lint + type check + tests (run before committing)
 make test         # pytest only
 make lint         # ruff check
@@ -65,9 +64,10 @@ Every feature lives in `negpy/features/<name>/`:
 5. Add a sidebar and register it in `ControlsPanel`
 6. Add unit tests; if the feature has both CPU and GPU paths, add a parity test (pattern: `test_gpu_curve_parity.py`)
 
+## Style
+
+- **Comments minimal.** Comment only non-obvious constraints the code can't express (a cache contract, an ordering requirement, a rejected-alternative trap). No comments that narrate what the next line does, restate the diff, or justify a change to a reviewer. Prefer one dense line over a paragraph; docstrings short and factual.
+
 ## Invariants & gotchas
 
 - **CPU/GPU parity**: any change to a stage's math must land in both `logic.py` and its `.wgsl` shader. Constants mirrored as WGSL literals (histogram bins, zone density, metrics offsets) have parity tests — keep them in sync.
-- **SANE eject** (`infrastructure/scanners/sane_backend.py`): python-sane 2.9.2 cannot press a `SANE_TYPE_BUTTON` (setattr/set_option/set_auto_option all raise), so `eject()` shells out to `scanimage --eject` — do not "simplify" it back to a python-sane call. Never issue `--load`/`--reset` on a seated strip: `--load` feeds/ejects the film, `--reset` briefly wedges the transport. Note the Coolscan firmware auto-ejects the strip after an idle timeout regardless.
-- **SANE re-enumeration** (`sane_backend._open_device`): the Coolscan re-enumerates under load, changing the libusb address in the device id (`...:003:006`→`...:003:007`), so a cached id goes stale and `sane.open` raises "Invalid argument". `_open_device` self-heals — re-lists, remaps to the same scanner (vendor+model, else sole same-prefix device), and caches the remap. Keep all device opens routed through it; addressing the device again afterwards (eject → scanimage) must use its returned `opened_id`, not the caller's stale id.
-- **SANE sessions** (`sane_backend.open_session`): a batch/roll workflow that must own the scanner for a whole strip opens one `SaneSession` (single SANE open, per-frame `session.scan()`, one release via `close()`/`eject()`). While a session is open, backend `scan()`/`eject()` refuse the device and `list_devices()` reuses the cached entry instead of probing — SANE hardware is single-open.
