@@ -54,6 +54,10 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.roll_slot_model import RollPreviewSlot, RollSlotModel
+from negpy.infrastructure.scanners.portable_digital_ice_adapter import (
+    PortableDigitalIceAvailability,
+    availability_summary,
+)
 from negpy.services.scanning.roll_preview_controls import ScanMaterial, boundary_offset_range
 
 
@@ -70,6 +74,20 @@ _LS5000_C41_REQUIRED_FREE_BYTES = 1_693_200_384
 # conservative without falsely demanding color-capture scratch space.
 _LS5000_BW_FINAL_BUDGET_BYTES_PER_FRAME = 192 * 1024**2
 _LS5000_BW_REQUIRED_FREE_BYTES = 256 * 1024**2
+
+# Digital ICE keeps one transient dual-RGBI bundle at a time (a 3946x5959
+# single-sample RGBI main is ~180 MiB plus a ~1 MiB prepass) and publishes one
+# RGB-only 16-bit master (~135 MiB).  The bundle is deleted after each frame
+# publishes, so the floor reserves one bundle plus one output with margin.
+_LS5000_ICE_FINAL_BUDGET_BYTES_PER_FRAME = 192 * 1024**2
+_LS5000_ICE_BUNDLE_SCRATCH_BYTES = 200 * 1024**2
+_LS5000_ICE_REQUIRED_FREE_BYTES = 512 * 1024**2
+
+_ICE_BACKEND_CHOICES: tuple[tuple[str, str], ...] = (
+    ("cpu-fast", "Compiled CPU · about 9 s per frame"),
+    ("cpu", "Reference CPU · roughly an hour per frame"),
+    ("cuda", "CUDA · NVIDIA GPU"),
+)
 
 
 class _SignedOffsetSpinBox(QSpinBox):
@@ -441,6 +459,59 @@ class RollSlotSelector(QWidget):
         material_controls.addWidget(self.scan_material_status_label)
         material_controls.addStretch()
 
+        self._ice_availability: PortableDigitalIceAvailability = availability_summary()
+        self.ice_check = QCheckBox("Digital ICE (dual RGBI)")
+        self.ice_check.setObjectName("roll_ice_capture")
+        self.ice_check.setAccessibleName("Capture selected frames for portable Digital ICE")
+        self.ice_backend_combo = QComboBox()
+        self.ice_backend_combo.setObjectName("roll_ice_backend")
+        self.ice_backend_combo.setAccessibleName("Digital ICE processing backend")
+        installed = {
+            "cpu": self._ice_availability.engine_installed,
+            "cpu-fast": self._ice_availability.cpu_fast_installed,
+            "cuda": self._ice_availability.cuda_installed,
+        }
+        details = {
+            "cpu": self._ice_availability.engine_detail,
+            "cpu-fast": self._ice_availability.cpu_fast_detail,
+            "cuda": self._ice_availability.cuda_detail,
+        }
+        for backend, label in _ICE_BACKEND_CHOICES:
+            self.ice_backend_combo.addItem(label, backend)
+            index = self.ice_backend_combo.count() - 1
+            if not installed[backend]:
+                model_item = self.ice_backend_combo.model().item(index)
+                model_item.setEnabled(False)
+                self.ice_backend_combo.setItemData(
+                    index,
+                    details[backend],
+                    Qt.ItemDataRole.ToolTipRole,
+                )
+        default_backend = "cpu-fast" if installed["cpu-fast"] else "cpu"
+        default_index = self.ice_backend_combo.findData(default_backend)
+        if default_index >= 0:
+            self.ice_backend_combo.setCurrentIndex(default_index)
+        if self._ice_availability.engine_installed:
+            self.ice_check.setToolTip(
+                "Capture each selected frame as a dedicated single-sample dual-RGBI "
+                "pair (285 dpi prepass + locked 4000 dpi main) and repair dust with "
+                "the portable Digital ICE engine after the scanner is released. "
+                "Replaces the RGB 4x + IR capture for this batch."
+            )
+        else:
+            self.ice_check.setEnabled(False)
+            self.ice_backend_combo.setEnabled(False)
+            self.ice_check.setToolTip(
+                "portable Digital ICE is not installed; see docs/PORTABLE_DIGITAL_ICE.md "
+                f"({self._ice_availability.engine_detail})"
+            )
+
+        ice_controls = QHBoxLayout()
+        ice_controls.setContentsMargins(0, 0, 0, 0)
+        ice_controls.addWidget(self.ice_check)
+        ice_controls.addWidget(self.ice_backend_combo)
+        ice_controls.addStretch()
+
         offset_tooltip = "Move left (negative) or right (positive), then reload the thumbnail. Keyboard: Alt+Left / Alt+Right"
         self.boundary_offset_label = QLabel("Film Spacing Offset")
         self.boundary_offset_label.setAccessibleName("Film Spacing Offset")
@@ -536,6 +607,7 @@ class RollSlotSelector(QWidget):
         layout.addLayout(header)
         layout.addWidget(self.help_label)
         layout.addLayout(material_controls)
+        layout.addLayout(ice_controls)
         layout.addWidget(self.ir_repair_status_label)
         layout.addWidget(self.grid, 1)
         layout.addLayout(thumbnail_controls)
@@ -554,6 +626,7 @@ class RollSlotSelector(QWidget):
         self.reload_thumbnail_button.clicked.connect(self.request_thumbnail_reload)
         self.review_approval_check.toggled.connect(self._on_review_approval_toggled)
         self.scan_material_combo.currentIndexChanged.connect(self._on_scan_material_changed)
+        self.ice_check.toggled.connect(self._on_ice_capture_toggled)
 
         self._select_all_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.SelectAll), self.grid)
         self._select_all_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
@@ -749,6 +822,22 @@ class RollSlotSelector(QWidget):
         self._sync_selection_ui()
         self.scan_material_changed.emit(self.scan_material())
 
+    def _on_ice_capture_toggled(self, _checked: bool) -> None:
+        self._sync_scan_material_ui()
+        self._sync_selection_ui()
+
+    def ice_capture_enabled(self) -> bool:
+        """True when this batch should capture dual-RGBI pairs for Digital ICE."""
+
+        return (
+            self.ice_check.isChecked()
+            and self.ice_check.isEnabled()
+            and self.scan_material().captures_infrared
+        )
+
+    def ice_backend(self) -> str:
+        return str(self.ice_backend_combo.currentData())
+
     def _sync_selection_ui(self) -> None:
         selected_ids = self.selected_slot_ids()
         selected = len(selected_ids)
@@ -817,6 +906,12 @@ class RollSlotSelector(QWidget):
     def _storage_budget(self) -> tuple[int, int, int]:
         """Return final/frame, visible scratch, and required-space floor."""
 
+        if self.ice_capture_enabled():
+            return (
+                _LS5000_ICE_FINAL_BUDGET_BYTES_PER_FRAME,
+                _LS5000_ICE_BUNDLE_SCRATCH_BYTES,
+                _LS5000_ICE_REQUIRED_FREE_BYTES,
+            )
         if self.scan_material().captures_infrared:
             return (
                 _LS5000_C41_FINAL_BUDGET_BYTES_PER_FRAME,
@@ -861,7 +956,26 @@ class RollSlotSelector(QWidget):
         self.boundary_offset_label.setText(f"Film Spacing Offset: Slot {slot_id:02d}")
 
     def _sync_scan_material_ui(self) -> None:
-        if self.scan_material().captures_infrared:
+        is_color = self.scan_material().captures_infrared
+        self.ice_check.setVisible(is_color)
+        self.ice_backend_combo.setVisible(is_color)
+        if is_color and self._ice_availability.engine_installed:
+            self.ice_backend_combo.setEnabled(self.ice_check.isChecked())
+        if self.ice_capture_enabled():
+            self.scan_material_status_label.setText(
+                "Full quality: 4000 dpi · 16-bit · dual RGBI single-sample"
+            )
+            self.ir_repair_status_label.setText(
+                "Digital ICE: dust repaired by the portable engine after each "
+                "scan · file-based IR repair stays off · single-sample capture "
+                "trades the RGB 4× noise averaging for the engine's exact input"
+            )
+            self.ir_repair_status_label.setProperty("irRepairState", "on")
+            self.ir_repair_status_label.setStyleSheet(
+                f"color: {THEME.status_success}; font-size: {THEME.font_size_xs}px; "
+                f"font-weight: {THEME.weight_semibold};"
+            )
+        elif is_color:
             self.scan_material_status_label.setText("Full quality: 4000 dpi · 16-bit · RGB 4× + IR")
             self.ir_repair_status_label.setText(
                 "IR repair: On after import · scanner-linear master stays unchanged"

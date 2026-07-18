@@ -665,3 +665,75 @@ def test_scan_material_choice_exposes_capture_and_ir_repair_behavior(qapp: QAppl
         assert changes == [ScanMaterial.BLACK_AND_WHITE_NEGATIVE]
     finally:
         selector.close()
+
+
+def _installed_ice_summary():
+    from negpy.infrastructure.scanners.portable_digital_ice_adapter import (
+        PortableDigitalIceAvailability,
+    )
+
+    return PortableDigitalIceAvailability(
+        engine_installed=True,
+        engine_detail="/fake/portable_digital_ice/__init__.py",
+        cpu_fast_installed=True,
+        cpu_fast_detail="numba 0.65.1",
+        cuda_installed=False,
+        cuda_detail="CUDA backend is not usable: no cupy",
+    )
+
+
+def test_ice_controls_disable_with_an_install_hint_when_the_engine_is_missing(qapp) -> None:
+    # The test environment has no portable_digital_ice installed, so the
+    # real availability probe reports the engine missing.
+    selector = _shown_selector(qapp)
+
+    assert selector.ice_check.isEnabled() is False
+    assert "PORTABLE_DIGITAL_ICE" in selector.ice_check.toolTip()
+    selector.ice_check.setChecked(True)
+    assert selector.ice_capture_enabled() is False
+
+
+def test_ice_toggle_switches_recipe_text_and_storage_budget(qapp, monkeypatch) -> None:
+    import negpy.desktop.view.widgets.roll_slot_selector as module
+
+    monkeypatch.setattr(module, "availability_summary", _installed_ice_summary)
+    selector = _shown_selector(qapp)
+    _click_slot(selector, 1)
+
+    assert selector.ice_check.isEnabled() is True
+    assert selector.ice_backend() == "cpu-fast"
+    cuda_index = selector.ice_backend_combo.findData("cuda")
+    assert selector.ice_backend_combo.model().item(cuda_index).isEnabled() is False
+    baseline_estimate = selector.storage_estimate_label.text()
+    assert "RGB 4× + IR" in selector.scan_material_status_label.text()
+
+    selector.ice_check.setChecked(True)
+
+    assert selector.ice_capture_enabled() is True
+    assert "dual RGBI single-sample" in selector.scan_material_status_label.text()
+    assert "Digital ICE" in selector.ir_repair_status_label.text()
+    assert "file-based IR repair stays off" in selector.ir_repair_status_label.text()
+    assert selector.storage_estimate_label.text() != baseline_estimate
+
+    selector.ice_check.setChecked(False)
+    assert "RGB 4× + IR" in selector.scan_material_status_label.text()
+    assert selector.storage_estimate_label.text() == baseline_estimate
+
+
+def test_ice_controls_hide_for_black_and_white_material(qapp, monkeypatch) -> None:
+    import negpy.desktop.view.widgets.roll_slot_selector as module
+
+    monkeypatch.setattr(module, "availability_summary", _installed_ice_summary)
+    selector = _shown_selector(qapp)
+    selector.ice_check.setChecked(True)
+    assert selector.ice_capture_enabled() is True
+
+    selector.set_scan_material(ScanMaterial.BLACK_AND_WHITE_NEGATIVE)
+
+    assert selector.ice_check.isVisible() is False
+    assert selector.ice_capture_enabled() is False
+    assert "RGB only" in selector.scan_material_status_label.text()
+
+    selector.set_scan_material(ScanMaterial.COLOR_NEGATIVE)
+    assert selector.ice_check.isVisible() is True
+    assert selector.ice_capture_enabled() is True
