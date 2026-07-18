@@ -682,9 +682,24 @@ def _installed_ice_summary():
     )
 
 
-def test_ice_controls_disable_with_an_install_hint_when_the_engine_is_missing(qapp) -> None:
-    # The test environment has no portable_digital_ice installed, so the
-    # real availability probe reports the engine missing.
+def test_ice_controls_disable_with_an_install_hint_when_the_engine_is_missing(qapp, monkeypatch) -> None:
+    import negpy.desktop.view.widgets.roll_slot_selector as module
+    from negpy.infrastructure.scanners.portable_digital_ice_adapter import (
+        PortableDigitalIceAvailability,
+    )
+
+    def missing_engine():
+        detail = "portable Digital ICE is not installed"
+        return PortableDigitalIceAvailability(
+            engine_installed=False,
+            engine_detail=detail,
+            cpu_fast_installed=False,
+            cpu_fast_detail=detail,
+            cuda_installed=False,
+            cuda_detail=detail,
+        )
+
+    monkeypatch.setattr(module, "availability_summary", missing_engine)
     selector = _shown_selector(qapp)
 
     assert selector.ice_check.isEnabled() is False
