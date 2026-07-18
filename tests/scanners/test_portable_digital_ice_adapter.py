@@ -287,7 +287,7 @@ def test_auto_is_not_an_exposed_backend_and_fails_before_import(monkeypatch) -> 
 
     monkeypatch.setattr(adapter, "_load_engine", must_not_import)
 
-    with pytest.raises(ValueError, match="off, cpu, cpu-fast, cuda"):
+    with pytest.raises(ValueError, match="off, cpu, cpu-fast, metal, cuda"):
         adapter._apply_arrays_unverified(
             prepass,
             main,
@@ -667,7 +667,7 @@ def test_probe_refuses_an_engine_without_the_self_test(monkeypatch) -> None:
 
     with pytest.raises(
         adapter.PortableDigitalIceUnavailable,
-        match="0.2.0 or newer",
+        match="release that provides it",
     ):
         adapter.probe_backend("cpu-fast")
 
@@ -703,3 +703,42 @@ def test_availability_summary_is_import_only_and_reports_cuda_reason(monkeypatch
     assert summary.cpu_fast_installed is True
     assert summary.cuda_installed is False
     assert "cupy" in summary.cuda_detail
+
+
+def test_probe_routes_metal_to_the_engine_metal_self_test(monkeypatch) -> None:
+    ran: list[str] = []
+    engine = SimpleNamespace(
+        backend=SimpleNamespace(metal_self_test=lambda: ran.append("metal"))
+    )
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+
+    adapter.probe_backend("metal")
+
+    assert ran == ["metal"]
+
+
+def test_metal_unavailable_fails_without_fallback(monkeypatch) -> None:
+    unavailable = type("MetalBackendUnavailable", (RuntimeError,), {})
+    attempted: list[str] = []
+    engine = _successful_engine([])
+
+    def process(_job, *, backend, progress, cancelled):
+        attempted.append(backend)
+        raise unavailable("no Metal device is visible")
+
+    engine.process = process
+    monkeypatch.setattr(adapter, "_load_engine", lambda: engine)
+    prepass, main = _arrays()
+
+    with pytest.raises(
+        adapter.PortableDigitalIceUnavailable,
+        match="Metal backend is unavailable.*no Metal device",
+    ):
+        adapter._apply_arrays_unverified(
+            prepass,
+            main,
+            same_frame_id="frame-20",
+            backend="metal",
+        )
+
+    assert attempted == ["metal"]

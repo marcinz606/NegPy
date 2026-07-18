@@ -45,13 +45,14 @@ class PortableDigitalIceBackend(StrEnum):
     ``CPU`` is the engine's reference implementation and takes roughly an hour
     for a 4000 dpi frame.  ``CPU_FAST`` is its compiled equivalent and takes
     about nine seconds; the engine proves the two byte-identical on a synthetic
-    job before it will run the compiled path.  ``AUTO`` is deliberately absent:
+    job before it will run the compiled path.  ``METAL`` runs the same proof on the Apple GPU.  ``AUTO`` is deliberately absent:
     a backend that silently changes under a scan is not evidence.
     """
 
     OFF = "off"
     CPU = "cpu"
     CPU_FAST = "cpu-fast"
+    METAL = "metal"
     CUDA = "cuda"
 
 
@@ -60,6 +61,7 @@ class PortableDigitalIceBackend(StrEnum):
 #: unavailable backend rather than a failed scan, and never falls back.
 _UNAVAILABLE_ENGINE_ERRORS: dict[PortableDigitalIceBackend, tuple[str, str]] = {
     PortableDigitalIceBackend.CPU_FAST: ("CpuFastUnavailable", "compiled CPU"),
+    PortableDigitalIceBackend.METAL: ("MetalBackendUnavailable", "Metal"),
     PortableDigitalIceBackend.CUDA: ("CudaBackendUnavailable", "CUDA"),
 }
 
@@ -82,6 +84,8 @@ class PortableDigitalIceAvailability:
     cpu_fast_detail: str
     cuda_installed: bool
     cuda_detail: str
+    metal_installed: bool = False
+    metal_detail: str = "not probed"
 
 
 def availability_summary() -> PortableDigitalIceAvailability:
@@ -105,6 +109,8 @@ def availability_summary() -> PortableDigitalIceAvailability:
             cpu_fast_detail=detail,
             cuda_installed=False,
             cuda_detail=detail,
+            metal_installed=False,
+            metal_detail=detail,
         )
     engine_detail = getattr(engine, "__file__", None) or "installed"
     try:
@@ -115,6 +121,14 @@ def availability_summary() -> PortableDigitalIceAvailability:
     else:
         cpu_fast_installed = True
         cpu_fast_detail = f"numba {getattr(numba, '__version__', 'unknown')}"
+    try:
+        import Metal  # noqa: F401 — availability probe only
+
+        metal_installed = True
+        metal_detail = "Metal binding installed"
+    except Exception as error:  # pragma: no cover - depends on environment
+        metal_installed = False
+        metal_detail = f"Metal binding is not importable: {error}"
     try:
         cuda_module = import_module("portable_digital_ice.cuda_backend")
         summary = cuda_module.cuda_device_summary()
@@ -129,6 +143,8 @@ def availability_summary() -> PortableDigitalIceAvailability:
         engine_detail=str(engine_detail),
         cpu_fast_installed=cpu_fast_installed,
         cpu_fast_detail=cpu_fast_detail,
+        metal_installed=metal_installed,
+        metal_detail=metal_detail,
         cuda_installed=cuda_installed,
         cuda_detail=cuda_detail,
     )
@@ -151,13 +167,14 @@ def probe_backend(backend: PortableDigitalIceBackend | str) -> None:
         return
     self_test_name = {
         PortableDigitalIceBackend.CPU_FAST: "cpu_fast_self_test",
+        PortableDigitalIceBackend.METAL: "metal_self_test",
         PortableDigitalIceBackend.CUDA: "cuda_self_test",
     }[requested]
     self_test = getattr(getattr(engine, "backend", None), self_test_name, None)
     if not callable(self_test):
         raise PortableDigitalIceUnavailable(
             f"portable Digital ICE engine does not provide {self_test_name}; "
-            "install portable-digital-ice 0.2.0 or newer"
+            "install a portable-digital-ice release that provides it"
         )
     try:
         self_test()

@@ -28,8 +28,8 @@ The acquisition runner:
 - publishes the pair only after its manifest, hashes, shapes, ordering, and
   payloads verify.
 
-The processing adapter exposes four explicit choices: `off`, `cpu`, `cpu-fast`,
-and `cuda`. It never exposes the engine's automatic fallback mode, and a backend
+The processing adapter exposes five explicit choices: `off`, `cpu`, `cpu-fast`,
+`metal`, and `cuda`. It never exposes the engine's automatic fallback mode, and a backend
 that cannot run fails with a clear error rather than quietly becoming a
 different one. A CUDA request does not become an hour-long reference CPU job,
 and a `cpu-fast` request does not either. Raw RGBI sources remain untouched and the
@@ -37,8 +37,9 @@ cleaned RGB image is returned as a separate result with backend, output, RNG, an
 startup receipt data.
 
 `cpu` is the engine's reference implementation. `cpu-fast` is its compiled
-equivalent: the engine proves the two byte-identical on a synthetic job at
-startup and refuses the compiled path if that proof fails, so the choice is a
+equivalent and `metal` runs the same computation on an Apple GPU: in both
+cases the engine proves byte identity with the reference on a synthetic job
+at startup and refuses the backend if that proof fails, so the choice is a
 speed decision rather than an accuracy one.
 
 ## Install the optional engine
@@ -48,7 +49,7 @@ wheel only when you want this path:
 
 ```sh
 python -m pip install \
-  https://github.com/rohanpandula/digital-fauxice/releases/download/v0.2.0/portable_digital_ice-0.2.0-py3-none-any.whl
+  https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl
 ```
 
 That base install provides `cpu`. The compiled `cpu-fast` backend needs the
@@ -56,18 +57,20 @@ That base install provides `cpu`. The compiled `cpu-fast` backend needs the
 
 ```sh
 python -m pip install \
-  "portable-digital-ice[fast] @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.2.0/portable_digital_ice-0.2.0-py3-none-any.whl"
+  "portable-digital-ice[fast] @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl"
 ```
 
 The extra accepts numba 0.65 or 0.66, so it resolves against the numba NegPy
-already pins and does not move it.
+already pins and does not move it. On Apple Silicon, install the `metal`
+extra instead to use the GPU backend; it carries the same numba requirement
+for the host writer chain.
 
 For the NVIDIA backend, install the CUDA extra and ensure a compatible driver is
 available:
 
 ```sh
 python -m pip install \
-  "portable-digital-ice[cuda] @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.2.0/portable_digital_ice-0.2.0-py3-none-any.whl"
+  "portable-digital-ice[cuda] @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl"
 ```
 
 ## Inspect or run the capture boundary
@@ -98,6 +101,7 @@ published measurements:
 | --- | --- | --- |
 | `cpu` (reference) | roughly an hour | Apple M4 |
 | `cpu-fast` | 9.2 to 9.5 s | Apple M4, default thread count |
+| `metal` | about 8 s | Apple M4 GPU |
 | `cuda` | 5.3 to 5.8 s | NVIDIA RTX A4000 |
 
 The reference backend is the one that makes the closed-handle rule matter most,
@@ -109,7 +113,8 @@ acquisition, and no backend should run while the scanner is still reserved.
 The roll contact sheet can capture selected frames for Digital ICE directly.
 With color negative material chosen, enable **Digital ICE (dual RGBI)** next to
 the scan material and pick a processing backend; the selector shows which
-backends are installed and defaults to `cpu-fast` when available. The Scan
+backends are installed and defaults to `metal` on Apple Silicon, then
+`cpu-fast`, then the reference CPU. The Scan
 button's free-space gate switches to the ICE budget: one transient dual-RGBI
 bundle at a time plus one RGB-only master per frame.
 

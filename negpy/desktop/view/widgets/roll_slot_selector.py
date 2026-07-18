@@ -92,6 +92,7 @@ _LS5000_ICE_HYBRID_SCRATCH_BYTES = 480 * 1024**2
 _LS5000_ICE_HYBRID_REQUIRED_FREE_BYTES = 1024 * 1024**2
 
 _ICE_BACKEND_CHOICES: tuple[tuple[str, str], ...] = (
+    ("metal", "Metal · Apple GPU · about 8 s per frame"),
     ("cpu-fast", "Compiled CPU · about 9 s per frame"),
     ("cpu", "Reference CPU · roughly an hour per frame"),
     ("cuda", "CUDA · NVIDIA GPU"),
@@ -477,11 +478,13 @@ class RollSlotSelector(QWidget):
         installed = {
             "cpu": self._ice_availability.engine_installed,
             "cpu-fast": self._ice_availability.cpu_fast_installed,
+            "metal": self._ice_availability.metal_installed,
             "cuda": self._ice_availability.cuda_installed,
         }
         details = {
             "cpu": self._ice_availability.engine_detail,
             "cpu-fast": self._ice_availability.cpu_fast_detail,
+            "metal": self._ice_availability.metal_detail,
             "cuda": self._ice_availability.cuda_detail,
         }
         for backend, label in _ICE_BACKEND_CHOICES:
@@ -495,7 +498,12 @@ class RollSlotSelector(QWidget):
                     details[backend],
                     Qt.ItemDataRole.ToolTipRole,
                 )
-        default_backend = "cpu-fast" if installed["cpu-fast"] else "cpu"
+        if installed["metal"]:
+            default_backend = "metal"
+        elif installed["cpu-fast"]:
+            default_backend = "cpu-fast"
+        else:
+            default_backend = "cpu"
         default_index = self.ice_backend_combo.findData(default_backend)
         if default_index >= 0:
             self.ice_backend_combo.setCurrentIndex(default_index)
