@@ -6,6 +6,7 @@ from negpy.kernel.system.config import APP_CONFIG
 import numpy as np
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, prepare_thumbnail
 from negpy.infrastructure.loaders.factory import loader_factory
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -98,7 +99,7 @@ def get_thumbnail_worker(file_path: str, file_hash: str, asset_store: Any = None
         return None
 
 
-def get_rendered_thumbnail(buffer: Any, file_hash: str, asset_store: Any = None, color_space: str = "sRGB") -> Optional[Image.Image]:
+def get_rendered_thumbnail(buffer: Any, file_hash: str, asset_store: Any = None, color_space: str = WORKING_COLOR_SPACE) -> Optional[Image.Image]:
     """
     Creates a thumbnail from a rendered float32 buffer, color-managing the working
     space to sRGB so it matches the canvas (mirrors ImageConverter.to_qimage).

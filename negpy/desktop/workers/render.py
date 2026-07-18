@@ -55,7 +55,7 @@ class ThumbnailUpdateTask:
     filename: str
     file_hash: str
     buffer: np.ndarray
-    color_space: str = "sRGB"
+    color_space: str = WORKING_COLOR_SPACE
     persist: bool = True  # False = in-memory filmstrip only, skip the disk JPEG encode.
 
 

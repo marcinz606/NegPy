@@ -116,6 +116,10 @@ class NormalizationProcessor:
 
         bounds, base_bounds = resolve_bounds_detailed(self.config, analyze_base)
         context.metrics["log_bounds_base"] = base_bounds
+        # Cast Removal analyses the film's inherent cast, a source property — the
+        # neutral-axis (below) uses the pre-trim bounds so creative WP/BP trims don't
+        # perturb it; mirrors the GPU (gpu_engine.py:586, measured pre adj_floors).
+        pre_trim_bounds = bounds
 
         context.metrics["norm_density_range"] = luminance_density_range(bounds)
 
@@ -157,7 +161,7 @@ class NormalizationProcessor:
 
         # Neutral axis for the two-point Cast Removal gray balance (C-41 only).
         if context.process_mode == ProcessMode.C41:
-            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, bounds, None, 0.0)
+            context.metrics["neutral_axis_refs"] = measure_neutral_axis_from_log(prefiltered, pre_trim_bounds, None, 0.0)
 
         # Per-frame exposure anchor, measured against the same final bounds the
         # image is normalized with. Stored unconditionally (cheap, block-grid);
