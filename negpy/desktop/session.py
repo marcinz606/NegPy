@@ -9,6 +9,7 @@ from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSigna
 
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
+from negpy.features.exposure.models import apply_targets
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -476,6 +477,11 @@ class DesktopSessionManager(QObject):
         saved_guide_orient = self.repo.get_global_setting("crop_guide_orientation")
         if saved_guide_orient is not None:
             self.state.crop_guide_orientation = int(saved_guide_orient) % 8
+
+        # User-tuned Auto Density / Auto Grade targets (app-global, Set Targets dialog).
+        saved_targets = self.repo.get_global_setting("exposure_targets")
+        if isinstance(saved_targets, dict):
+            apply_targets(saved_targets)
 
         saved_invert_zoom = self.repo.get_global_setting("invert_zoom_scroll")
         if saved_invert_zoom is not None:

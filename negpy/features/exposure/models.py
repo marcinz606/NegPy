@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 
 class RenderIntent(StrEnum):
@@ -274,3 +274,25 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     # ↑ wider, more gradual S; ↓ tighter, more localized midtone boost.
     "paper_gamma_width": 0.6,
 }
+
+# Auto Density / Auto Grade targets the user can retune (Set Targets dialog).
+# App-global, not per-image: one calibration per install. key -> (min, max).
+TUNABLE_TARGETS: Dict[str, Tuple[float, float]] = {
+    "anchor_target_density": (0.4, 1.1),
+    "anchor_meter_strength": (0.0, 1.0),
+    "anchor_meter_band": (0.0, 0.4),
+    "auto_grade_target": (0.3, 0.8),
+    "auto_grade_strength": (0.0, 1.0),
+}
+DEFAULT_TARGETS: Dict[str, float] = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}
+
+# Render caches key on config hashes, which don't see a global-constant edit.
+# Both engines fold this into the exposure stage's key so it re-runs.
+TARGETS_REVISION = 0
+
+
+def apply_targets(values: Dict[str, float]) -> None:
+    """Overlay user target overrides onto EXPOSURE_CONSTANTS; invalidates render caches."""
+    global TARGETS_REVISION
+    EXPOSURE_CONSTANTS.update({k: float(v) for k, v in values.items() if k in TUNABLE_TARGETS})
+    TARGETS_REVISION += 1

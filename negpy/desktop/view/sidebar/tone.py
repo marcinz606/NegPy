@@ -1,9 +1,10 @@
 import qtawesome as qta
-from PyQt6.QtWidgets import QButtonGroup, QComboBox, QHBoxLayout
+from PyQt6.QtWidgets import QButtonGroup, QComboBox, QDialog, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, TUNABLE_TARGETS, apply_targets
 
 _CH_SUFFIX = ("red", "green", "blue")
 _CH_LABEL = ("", " R", " G", " B")
@@ -81,9 +82,16 @@ class ToneSidebar(BaseSidebar):
             "Auto Grade: normalize contrast across the roll — render every negative through the same "
             "curve so dense negatives stop printing over-contrasty and flat ones stop printing muddy",
         )
+        self.targets_btn = self._icon_action(
+            "fa5s.sliders-h",
+            "Set Targets — tune the brightness and contrast Auto Density and Auto Grade aim for. "
+            "Applies to every frame and is remembered between sessions.",
+        )
+        self.targets_btn.clicked.connect(self._open_targets_dialog)
         auto_row = QHBoxLayout()
         auto_row.addWidget(self.auto_density_btn, 1)
         auto_row.addWidget(self.auto_grade_btn, 1)
+        auto_row.addWidget(self.targets_btn)
         self.layout.addLayout(auto_row)
         self.layout.addWidget(self.density_slider)
 
@@ -186,12 +194,36 @@ class ToneSidebar(BaseSidebar):
             self.density_slider,
             self.auto_density_btn,
             self.auto_grade_btn,
+            self.targets_btn,
             self.paper_dmin_btn,
             self.paper_black_btn,
             self.paper_combo,
             self.shadow_density_slider,
             self.highlight_density_slider,
         )
+
+    def _open_targets_dialog(self) -> None:
+        from negpy.desktop.view.widgets.exposure_targets_dialog import ExposureTargetsDialog
+
+        self._targets_snapshot = {k: float(EXPOSURE_CONSTANTS[k]) for k in TUNABLE_TARGETS}
+        dlg = ExposureTargetsDialog(self._targets_snapshot, parent=self)
+        dlg.targets_previewed.connect(self._on_targets_preview)
+        dlg.finished.connect(lambda result: self._on_targets_finished(dlg, result))
+        self._targets_dialog = dlg  # keep a reference so the modeless dialog isn't GC'd
+        dlg.show()
+
+    def _on_targets_preview(self, values: dict) -> None:
+        apply_targets(values)
+        self.controller.request_render(readback_metrics=True)
+
+    def _on_targets_finished(self, dlg, result: int) -> None:
+        if result == QDialog.DialogCode.Accepted:
+            values = dlg.values()
+            apply_targets(values)
+            self.controller.session.repo.save_global_setting("exposure_targets", values)
+        else:
+            apply_targets(self._targets_snapshot)
+        self.controller.request_render(readback_metrics=True)
 
     def _channel_index(self) -> int:
         return max(self.ch_btn_group.checkedId(), 0)

@@ -12,6 +12,7 @@ from negpy.domain.models import AspectRatio, ExportResolutionMode, WorkspaceConf
 from negpy.features.exposure.analysis import DENSITY_HIST_BINS
 from negpy.features.finish.logic import carrier_profiles
 from negpy.features.finish.processor import carrier_width_px
+from negpy.features.exposure import models as exposure_models
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
     analyze_log_exposure_bounds_from_log,
@@ -139,6 +140,7 @@ def _analysis_cache_key(settings: WorkspaceConfig, analysis_source_hash: str) ->
         e.cast_removal_strength > 0.0,
         e.auto_exposure,
         e.auto_normalize_contrast,
+        exposure_models.TARGETS_REVISION,
     )
 
 
@@ -238,6 +240,7 @@ class GPUEngine:
         # (analysis_key, per-channel clipped fractions) for the scan-exposure warning.
         self._clip_cache: Optional[tuple] = None
         self._last_settings: Optional[WorkspaceConfig] = None
+        self._last_targets_rev: int = -1
         self._last_scale_factor: float = 1.0
         self._retouch_num_regions = 0
         # Region build+upload cache — retouch re-dispatches on every exposure
@@ -284,6 +287,10 @@ class GPUEngine:
         if last.flatfield.apply != settings.flatfield.apply or last.flatfield.k1 != settings.flatfield.k1:
             return 0
         if last.process != settings.process or last.exposure != settings.exposure:
+            return 1
+        # Retuned Auto Density/Grade targets live in EXPOSURE_CONSTANTS, invisible to
+        # the config diff, but they reshape the print curve in the exposure pass.
+        if self._last_targets_rev != exposure_models.TARGETS_REVISION:
             return 1
         if last.local != settings.local:
             return 1
@@ -982,6 +989,7 @@ class GPUEngine:
                 logger.error(f"GPU Engine metrics error: {e}")
 
         self._last_settings = settings
+        self._last_targets_rev = exposure_models.TARGETS_REVISION
         self._last_scale_factor = scale_factor
         return tex_final, metrics
 

@@ -1,6 +1,8 @@
 # Change Log
 
+## 0.39.0
 
+- New: **Set your own Auto Density and Auto Grade targets** — the autos used to aim at fixed numbers baked into the code, which suited one scanner and one taste. A **Set Targets** button next to the two toggles opens sliders for what they aim at: how bright the metered midtone prints, how punchy the roll comes out, and how far each meter is trusted (at zero you get a fixed setting for every frame, at full every frame is forced to the same key or contrast). The preview follows the sliders live, Cancel puts them back, and Restore Defaults returns to the shipped values. It's a calibration rather than an edit — it applies to every image, including ones you've already worked on, and is remembered between sessions.
 
 
 

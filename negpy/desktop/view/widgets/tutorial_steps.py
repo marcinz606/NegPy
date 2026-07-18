@@ -73,6 +73,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _cast_removal(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.colour_sidebar.cast_removal_slider
 
+    def _auto_targets(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.tone_sidebar.targets_btn
+
     def _split_grade(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.shadow_grade_slider
 
@@ -286,6 +289,24 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "conversion follow the negative honestly."
             ),
             target=_density,
+            section_attr="tone_section",
+        ),
+        TutorialStep(
+            title="Set Targets — Retune the Autos",
+            body=(
+                "Auto Density and Auto Grade aim at a fixed idea of a good print. Your scanner, "
+                "your film and your taste may disagree — <b>Set Targets</b> moves the aim.<br><br>"
+                "<b>Print Density Target</b> is how bright the metered midtone prints; "
+                "<b>Contrast Target</b> is how punchy the roll comes out. The two strength "
+                "sliders decide how far each meter is trusted: at 0 you get a fixed setting for "
+                "every frame, at 1 every frame is forced to the same key or the same contrast. "
+                "<b>Metering Band</b> caps how far Auto Density may swing between frames.<br><br>"
+                "These are a <b>calibration, not an edit</b>: they apply to every image, "
+                "including ones you've already worked on, and are remembered between sessions. "
+                "The preview follows the sliders live, <b>Cancel</b> puts them back, and "
+                "<b>Restore Defaults</b> returns to the shipped values."
+            ),
+            target=_auto_targets,
             section_attr="tone_section",
         ),
         TutorialStep(
