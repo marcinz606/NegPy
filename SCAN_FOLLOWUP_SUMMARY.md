@@ -1,113 +1,137 @@
-# Coolscan Scan follow-ups — film return + whole-strip preview
+# Coolscan Scan follow-ups
 
-Branch `feat/coolscan`. Work on the SANE Coolscan **Scan** tab, targeting the Nikon
-LS-50 / Coolscan V with the SA-21 6-frame strip adapter.
+Branch `feat/coolscan`. SANE Coolscan **Scan** tab, targeting the Nikon LS-50 /
+Coolscan V with the SA-21 6-frame strip adapter; roll adapters go up to 40 frames.
 
-## Done
+## Done — sessions 1–2 (2026-07-17, committed)
 
-### 1. Film return (eject)
-- **Root-cause fix.** `eject` is a `SANE_TYPE_BUTTON`; the old `setattr(dev, "eject", True)`
-  always raised `AttributeError: Buttons don't have values`, so eject never fired. Now
-  pressed at the C layer via `dev.dev.set_option(index, 1)` — helper `_press_button`
-  (`negpy/infrastructure/scanners/sane_backend.py`). Same path `scanimage --eject` takes.
-  **(SUPERSEDED — `set_option` also raises on real hardware; see Session 2 below.)**
-- **Auto-return after a batch.** `run_batch` ejects the strip on a clean finish only
-  (`negpy/desktop/workers/scan_worker.py`); capability-gated no-op on devices without eject.
-  The on-demand ⏏ button (already in the device row) now works too.
+- **Eject.** python-sane 2.9.2 cannot press a `SANE_TYPE_BUTTON` (setattr /
+  set_option / set_auto_option all raise), so `SaneBackend.eject()` detects
+  capability, closes the handle, and presses via `scanimage --eject`; the
+  spurious post-eject "out of documents" exit is success. Auto-return after a
+  clean batch + on-demand ⏏ button. **Verified live: strip physically ejects.**
+- **USB re-enumeration recovery.** The LS-50 re-enumerates under load (stale id →
+  `sane.open` "Invalid argument"); `_open_device` re-lists, remaps to the same
+  scanner, retries once, caches the remap. All opens route through it.
+- **Whole-strip preview** (`StripPreviewDialog`): per-frame tiles, lazy preview +
+  Preview all (single-flight, continues past a failed frame), per-frame crop
+  windows (scan↔rotated-display transform, round-trip tested), per-frame Scan
+  checkboxes, Scan-straight-from-dialog, rough positive rendering
+  (`_preview_positive`), previews at the device's lowest DPI.
+- **Data model.** `ScannerSettings.frame_windows` + `selected_frames`;
+  `BatchRequest(frames, frame_windows)`; `resolve_batch_selection()`;
+  `run_scan` retries once on transient device I/O.
+- **Hardware facts (LS-50 + SA-21).** `subframe` offset is 1:1 mm, content moves
+  toward display-right; raster is portrait, shown rotated 90°; firmware
+  auto-ejects the strip after an idle timeout; never issue `--load`/`--reset`
+  on a seated strip; USB autosuspend must be off (udev rule).
 
-### 2. Whole-strip preview
-- **New `StripPreviewDialog`** (`negpy/desktop/view/widgets/strip_preview_dialog.py`):
-  a horizontal strip of landscape frame tiles; lazy per-frame **Preview** + **Preview all**
-  (single-flight, chained); a **crop window per frame**; a **Scan** checkbox per frame to
-  scan a subset (skip the rest); one global feed-axis **Offset** slider.
-- **Frames shown landscape.** The raster is portrait; each preview is rotated 90° to read
-  like a frame on the strip. The crop rect transforms scan↔display (pinned to Qt's
-  `rotate(90)`, round-trip unit-tested) so a window drawn on the rotated view still crops
-  the right region. Backend unchanged.
-- **Data model.** `ScannerSettings.frame_windows: dict[int, Rect]` + `selected_frames: tuple`
-  (+ JSON coercion); pure `resolve_batch_selection()`; `BatchRequest` now carries
-  `frames` + `frame_windows`; `run_batch` applies the per-frame window. Sidebar opens the
-  dialog via **"Preview strip…"** for frame devices; the from/to spinbox range stays as the
-  fallback; `_update_settings_from_ui` carries the new fields (else typing wiped the selection).
+## Session 3 (2026-07-18, uncommitted)
 
-### 3. UI polish
-- Landscape tiles, bigger previews, tight spacing, a subtle translucent overlay box
-  (frame-number checkbox + eye preview button) on each frame.
-- Horizontal scrollbar styled to match the vertical one (`modern_dark.qss`).
-- Preview DPI bumped from the device floor to the smallest supported ≥ 300.
-  **(SUPERSEDED — now the device's *lowest* DPI; see Session 2.)**
+### Scanner session seam (roll handover — PR #497)
+- **`SaneSession`** (`sane_backend.py`): exclusive device hold for batch/roll
+  workflows — `backend.open_session(device_id)` opens once (via the self-healing
+  `_open_device`), `session.scan(params, …)` per frame on the held handle
+  (sane_cancel between frames, never closes), one release via `session.close()`
+  or `session.eject()` (closes first — scanimage needs the single open slot).
+  Context-manager support; `ScannerService.open_session()` passthrough.
+- **Get-out-of-the-way guards:** while a session holds a device, backend
+  `scan()`/`eject()` refuse it (stale *and* remapped id) and
+  `list_devices()`/`refresh_devices()` reuse the cached entry instead of probing.
+- NegPy's own range-batch stays one-session-per-frame on purpose (the
+  transient-I/O retry depends on fresh opens).
+- **Known gap:** on a held handle, `ae`/`infrared`/`autofocus`/window geometry
+  are only written when *enabled*, never reset — they latch across session
+  scans. Needs an always-write sweep before a roll workflow scans on a session.
 
-### 4. Resilience
-- `ScannerService.run_scan` retries **once** on a transient `Error during device I/O` /
-  `device busy` (fresh open, 0.5 s settle, cancel-aware, bounded — no loop). Covers
-  preview, single, and batch.
-- "Preview all" **continues past a failed frame** (records which failed in the status)
-  instead of aborting the whole strip.
+### Strip preview layout
+- Tiles are **constant size** (140 px tall, width from device aspect) — no more
+  scale-to-window. **Rows of 6** (one SA-21 strip per row), vertical scroll;
+  a 40-frame roll wraps to 7 rows. Dialog sizes itself to cols × visible rows.
+- **Reading direction fixed:** rotation is now **−90°** (was +90°, which
+  mirrored the feed axis inside each tile — neighbour slivers showed on the
+  wrong side, content upside-down). Frame start now lands on each tile's left
+  edge, so tiles 1..N read continuously like the physical strip; the offset
+  indicator moved to the right edge accordingly.
 
-### Cleanup / docs
-- Removed the now-orphaned single-frame `scan_preview_dialog.py`.
-- Updated `docs/COOLSCAN_SCANNING.md` and `docs/CHANGELOG.md`.
+### Offset & drift
+- **Drift slider** (`frame_offset_modifier_mm`, ±1.00 mm/frame): frame N scans
+  at `max(0, base + (N−1)·drift)` — position-based, so scanning frames 3–6
+  still drifts by physical position. Applied identically in preview requests
+  and `run_batch`. Persisted, shown in the sidebar status.
+- **Offset slider** widened to 0–10.0 mm. **Preview DPI** is a dropdown
+  (defaults to lowest).
+- **Bug fixed — drift never reached hardware:** `_update_settings_from_ui`
+  rebuilt `ScannerSettings` from scratch and silently wiped
+  `frame_offset_modifier_mm` right before the batch was built. Now uses
+  `dataclasses.replace` so *every* non-UI field survives UI edits (kills the
+  whole omission class). Regression-tested at the `_on_scan → BatchRequest` level.
+- **`subframe` always written** (including 0.0) — options latch on an open
+  handle; a session scan must reset a previous frame's offset.
+- **Negative offset: built, hardware-tested, REMOVED.** The previous-frame
+  borrow (frame N at −x = frame N−1 at pitch−x) produced compounding
+  mis-framing on the real scanner and was ripped out. Everything clamps ≥ 0;
+  the strip-registration recovery is eject + reseat, not negative offsets.
+  Do not re-propose.
+- **Indicator is ABSOLUTE:** the cut band is the frame's effective offset from
+  the left edge — never a delta against the previewed offset (that version
+  confused on hardware; per-tile `previewed_offset` tracking deleted). Frames
+  floored at 0 by negative drift pin the dashed line to the left edge so the
+  slider visibly acts.
 
-### Tests
-All green (`make lint`, `make type`, full `pytest`). New/updated:
-`tests/scanners/test_scanner_eject.py`, `tests/test_scan_worker.py`,
-`tests/scanners/test_scanner_settings.py`, `tests/test_scan_sidebar.py`,
-`tests/test_strip_preview_dialog.py`, `tests/scanners/test_service.py`.
+### Sidebar
+- Autofocus + Auto-exposure moved directly below Depth, left-aligned
+  (label-spanning rows).
+- Gating status: AE is capability-gated (disabled + tooltip when unsupported);
+  autofocus is **ungated** — always shown, silently skipped by the backend when
+  the device lacks the option.
 
-## Hardware verification (Nikon LS-50 ED + SA-21, 2026-07-17)
+### Housekeeping
+- `origin/main` merged (CLAUDE.md trim conflict resolved — kept main's slimming
+  plus the branch-only SANE bullets and a new SANE-sessions invariant).
+- Model names in docs say "Coolscan", not LS-50/LS-5000.
 
-- [x] **Eject — BUG FOUND & FIXED.** `_press_button`'s `dev.dev.set_option(index, 1)`
-      raises `SANE_TYPE_BUTTON ... can't be set` on real python-sane 2.9.2; all three
-      python-sane button paths (setattr / set_option / set_auto_option) raise, so eject
-      had **never** worked. The unit test missed it — the fake `set_option` didn't
-      replicate the rejection. Fix: `eject()` now detects capability, closes the handle,
-      and presses via `scanimage --eject` (the C-level `sane_control_option` SET_VALUE);
-      scanimage's spurious post-eject "out of documents" exit is treated as success.
-      Verified live: strip physically ejects; `SaneBackend.eject()` returns `True`.
-- [x] **USB stability — PASS.** `power/control = on` (autosuspend off). No re-enumeration
-      observed; the one transient "Error during device I/O" (from `--reset`) recovered on
-      its own — confirms the `run_scan` retry-once path. Also learned: **`--reset` briefly
-      wedges the transport, `--load` feeds/ejects the film** — the app calls neither.
-- [x] **Offset direction/scale — VERIFIED, no code change.** subframe 4 mm = exactly
-      **−63 px = −4.00 mm** @ 400 dpi (1:1 mm), content moves toward the raster top →
-      display right, consistent with the indicator's `edge="right"`. Slider kept at 0–4 mm
-      (fine nudge; hardware range is 0–37.83 mm but the crop window handles gross framing).
-- [x] **Orientation — kept `_DISPLAY_ROTATION_DEG = 90`** (self-consistent with the offset
-      edge). Test frame was a portrait-shot (reads sideways regardless); flip is a trivial
-      one-constant change if a *landscape* frame later reads upside-down in real use.
-- Note: the Coolscan firmware **auto-ejects the strip after an idle timeout**, independent
-  of any command (this is what "pushed the strip out" during an AFK gap in testing).
+Tests all green: full pytest (2239 passed), `make lint`, `make type`. New suites:
+`tests/scanners/test_sane_session.py`, plus updates across
+`test_strip_preview_dialog.py`, `test_scan_worker.py`, `test_scan_sidebar.py`,
+`test_sane_window.py`, `test_coolscan_ir.py`.
 
-## Session 2 — live iteration on the LS-50 (2026-07-17)
+## Session 4 (2026-07-18 evening) — agent-driven hardware debugging
 
-Changes made while testing against the physical scanner:
+Live LS-50 battery (8 scans @ 400 dpi through the real `SaneBackend`, offline
+cross-correlation analysis). Findings, all empirical:
 
-- **Eject fixed for real.** python-sane 2.9.2 cannot press a `SANE_TYPE_BUTTON`
-  (setattr / set_option / set_auto_option all raise). `SaneBackend.eject()` now detects
-  capability, closes the handle, and presses via `scanimage --eject`; the spurious
-  post-eject "out of documents" exit is treated as success. `_press_button` removed.
-  (`sane_backend.py`, `tests/scanners/test_scanner_eject.py`.)
-- **USB re-enumeration recovery.** The LS-50 re-enumerates under load
-  (`003:006` → `003:007`), so the cached SANE id goes stale and `sane.open` raises
-  "Invalid argument". `SaneBackend._open_device` re-lists, remaps to the same scanner
-  (vendor+model, else the sole same-prefix device), retries, and caches the remap; both
-  scan and eject route through it. (`sane_backend.py`, `tests/scanners/test_sane_reopen.py`.)
-- **Preview at the device's lowest DPI** (was smallest ≥ 300) — smaller transfer, less
-  transient I/O on a flaky link. (`strip_preview_dialog._preview_dpi`.)
-- **Offset indicator direction fixed.** Content shifts toward display-right as offset
-  rises (verified 1:1 mm); the indicator band now grows from the **left** to track the
-  slider, instead of drawing from the right. (`scan_window_label.py`, `strip_preview_dialog.py`.)
-- **Preview shows a positive.** `_preview_positive` (per-channel invert + 1/99 auto-level)
-  renders a rough positive through the orange mask — a framing aid, not the develop.
-- **Scan straight from the dialog.** New **Scan** button applies the selection and starts
-  the real scan immediately (`scan_requested()` → sidebar `_on_scan`). **Use** still just
-  applies and returns.
-- **Preview sizing.** Tiles scale to the dialog height at the landscape aspect
-  (`_rescale_tiles` on resize/show); per-tile placeholder text removed; a single top help
-  box explains the workflow (preview → crop per frame → offset + re-preview → tick → Use/Scan).
+- **Offset scale/direction verified 1:1 mm** through NegPy's full code path
+  (requested 1/2/4 mm → measured 1.02/1.97/4.00 mm, content toward raster top).
+- **The scan blacks out ~38.0 mm past the frame start on EVERY frame** —
+  measured `offset + delivered ≈ 37.96–38.00 mm` for offsets 1–8 mm, mid-strip
+  included. The earlier in-app "smudge" was this black overrun stretched by
+  preview normalization; the earlier "last frame only" theory was wrong.
+  → `_frame_extent_cap` now shortens **every** offset scan by
+  `1 − offset/subframe_max`; re-verified live: capped scan = 509 lines,
+  **0 black rows**.
+- **Negative offsets are physically impossible.** The previous-frame borrow
+  (frame N−1 @ pitch−x) delivered a 1.33 mm sliver + black — the device cannot
+  scan across a frame boundary. Borrow removed for good; effective offsets
+  floor at 0 (dialog, worker, backend); the preview pins the cut line at the
+  tile edge for floored frames. Closed permanently — this is hardware truth,
+  not a design choice.
+- **Drift batch verified end-to-end** through the real `ScanWorker`
+  (frames 2–3, base 1.0 + drift 0.5): frame 3 landed at **+2.03 mm** (expected
+  +2.0), capped to 564 lines (expected 563), 0 black rows.
+- Testing gotcha for future live runs: **suppress `worker.eject` when driving
+  `run_batch` on real hardware** — a clean finish auto-ejects the strip.
 
-Not built (deferred): the **linear per-frame offset correction** (`base + step × frame`) for
-progressive frame-pitch drift down a roll.
+## Next steps
 
-Updated `CLAUDE.md` (SANE eject + re-enumeration invariants) and `docs/COOLSCAN_SCANNING.md`.
-All green: `make all` — 2186 passed.
+1. **Commit sessions 3–4** in logical chunks (session seam / preview layout /
+   offset+drift+cap / sidebar), then push.
+2. **Session option hygiene:** always-write/reset `ae`, `infrared`, `autofocus`,
+   and window geometry in `_scan_on_device` so held-handle scans can't inherit a
+   previous frame's state (prerequisite for the roll workflow).
+4. **Reply on PR #497** with the seam shape: `service.open_session(device_id)` →
+   `session.scan()` per frame → `session.eject()`/`close()`.
+5. Optional: gate the autofocus checkbox like AE (probe a usable `autofocus`
+   option into `ScannerCapabilities`).
+6. Docs: refresh `docs/COOLSCAN_SCANNING.md` + `docs/CHANGELOG.md` for drift,
+   preview-DPI dropdown, grid layout, and the session seam.
