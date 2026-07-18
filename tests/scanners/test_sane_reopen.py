@@ -9,6 +9,8 @@ remap so later opens skip straight to the fresh id.
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from negpy.infrastructure.scanners.base import ScanMode, ScannerCapabilities, ScannerDevice
@@ -54,6 +56,8 @@ def _backend(module: FakeSaneModule, cache: list[ScannerDevice]) -> SaneBackend:
     backend._sane_initialized = True
     backend._devices_cache = cache
     backend._id_remap = {}
+    backend._active_sessions = {}
+    backend._session_lock = threading.Lock()
     return backend
 
 

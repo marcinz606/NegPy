@@ -234,15 +234,48 @@ def _window_to_option_values(opt, window: tuple[float, float, float, float]) -> 
     return values
 
 
+def _feed_pitch_mm(opt) -> float:
+    """One frame pitch along the feed axis: the `subframe` option's range max.
+
+    coolscan3 positions the scan at frame_pitch x (N-1) + subframe, and caps
+    subframe at exactly one pitch (37.83 mm on an LS-50) — past that you would
+    simply index the next frame. 0.0 when the device has no usable range.
+    """
+    if "subframe" not in opt:
+        return 0.0
+    constraint = opt["subframe"].constraint
+    if isinstance(constraint, tuple) and len(constraint) >= 2 and constraint[1]:
+        return float(constraint[1])
+    return 0.0
+
+
+def _frame_extent_cap(opt, offset_mm: float) -> float | None:
+    """Feed-axis fraction scannable under a positive offset (None = no cap).
+
+    The scanner delivers film only up to one pitch past the frame start — any
+    frame, mid-strip included (measured offset + delivered ≈ 38.0 mm on an
+    LS-50) — and pads the overrun with black, so the window must shrink by the
+    offset. The subframe range max is the pitch, just under the measured limit.
+    """
+    if offset_mm <= 0:
+        return None
+    pitch = _feed_pitch_mm(opt)
+    if pitch <= 0:
+        return None
+    return max(0.0, 1.0 - offset_mm / pitch)
+
+
 def _apply_frame_offset(dev, offset_mm: float) -> None:
-    """Set coolscan3 `subframe` (feed-axis offset, mm) if present. Absent → skip; set fails → raise."""
-    if not offset_mm:
-        return
+    """Set coolscan3 `subframe` (feed-axis offset, mm) if present. Absent → skip; set fails → raise.
+
+    Always written, including 0.0 — options latch on an open handle, so a scan
+    on a held session must reset a previous frame's offset, not skip it.
+    """
     opt = dev.opt if hasattr(dev, "opt") else {}
     if "subframe" not in opt:
         return
     try:
-        dev.subframe = offset_mm
+        dev.subframe = float(offset_mm)
     except Exception as e:
         raise RuntimeError(f"Could not set frame offset (subframe)={offset_mm}: {e}") from e
 
@@ -526,6 +559,71 @@ def _snap_progress_callback(progress: Callable[[float], None] | None) -> Callabl
     return _cb
 
 
+class SaneSession:
+    """Exclusive hold on one scanner: opened once, N scans, released once.
+
+    The handover seam for batch/roll workflows that must own the device for a
+    whole strip — SANE hardware is single-open, and the Coolscan feeder
+    auto-parks after any session closes mid-roll. While a session is open the
+    backend refuses scan()/eject() on the device and list_devices() reuses the
+    cached entry instead of probing (a probe would open the held device).
+    eject() ends the session: the handle must close before scanimage's own open.
+    """
+
+    def __init__(self, backend: "SaneBackend", device_id: str, dev, opened_id: str, device: ScannerDevice | None) -> None:
+        self._backend = backend
+        self._dev = dev
+        self.device_id = device_id
+        self.opened_id = opened_id
+        self.device = device
+        self.closed = False
+
+    def __enter__(self) -> "SaneSession":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def scan(
+        self,
+        params: ScanParams,
+        progress: Callable[[float], None],
+        cancel: threading.Event,
+    ) -> ScanResult:
+        """Scan one frame on the held handle. Blocks until complete or cancelled."""
+        if self.closed:
+            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+        return self._backend._scan_on_device(self._dev, self.device_id, params, progress, cancel)
+
+    def eject(self) -> bool:
+        """Press the vendor eject action, if any. Always ends the session.
+
+        Capability-gated like SaneBackend.eject(): returns False as a clean
+        no-op when the device has no usable 'eject' option. The handle is
+        closed either way — scanimage needs the single open slot.
+        """
+        if self.closed:
+            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+        option_map = self._dev.opt if hasattr(self._dev, "opt") else {}
+        eject_option = _find_eject_option(option_map)
+        has_eject = eject_option is not None and _option_is_usable(option_map[eject_option])
+        self.close()
+        if not has_eject:
+            return False
+        _scanimage_eject(self.opened_id)
+        return True
+
+    def close(self) -> None:
+        """Release the device. Idempotent."""
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self._dev.close()
+        finally:
+            self._backend._release_session(self)
+
+
 class SaneBackend:
     """python-sane implementation of ScannerBackend. Only module that imports `sane`."""
 
@@ -541,6 +639,9 @@ class SaneBackend:
         self._devices_cache: list[ScannerDevice] | None = None
         # Stale device id -> its post-re-enumeration id (see _open_device).
         self._id_remap: dict[str, str] = {}
+        # device_id -> exclusive session holding the device (see open_session).
+        self._active_sessions: dict[str, SaneSession] = {}
+        self._session_lock = threading.Lock()
 
     def _ensure_initialized(self) -> None:
         if self._sane_initialized:
@@ -562,6 +663,14 @@ class SaneBackend:
         logger.info(f"SANE found {len(raw_devices)} raw device(s): {[r[0] for r in raw_devices]}")
         devices: list[ScannerDevice] = []
         for raw in raw_devices:
+            held = self._session_holding(raw[0])
+            if held is not None:
+                # Single-open hardware — probing would open the held device.
+                if held.device is not None:
+                    devices.append(held.device)
+                else:
+                    logger.warning(f"Device {raw[0]} is held by an active session — skipping probe")
+                continue
             try:
                 dev = self._sane.open(raw[0])
                 caps = self._detect_caps(dev, raw[0])
@@ -621,6 +730,42 @@ class SaneBackend:
             logger.info(f"Scanner {device_id} re-enumerated; remapped to {fresh_id}")
             return dev, fresh_id
 
+    def open_session(self, device_id: str) -> SaneSession:
+        """Open an exclusive scanning session — the batch/roll handover seam.
+
+        The device is opened once (self-healing via _open_device) and stays
+        open until SaneSession.close()/eject(). One session per device.
+        """
+        try:
+            self._ensure_initialized()
+        except Exception as exc:
+            raise RuntimeError(f"Failed to initialize SANE before opening a session: {exc}") from exc
+
+        with self._session_lock:
+            if self._session_holding(device_id) is not None:
+                raise RuntimeError(f"Scanner {device_id} is already held by an active session")
+            dev, opened_id = self._open_device(device_id)
+            device = next((d for d in (self._devices_cache or []) if d.id == device_id), None)
+            session = SaneSession(self, device_id, dev, opened_id, device)
+            self._active_sessions[device_id] = session
+        return session
+
+    def _session_holding(self, device_id: str) -> SaneSession | None:
+        """The active session holding `device_id`, matching stale or remapped ids.
+
+        Lock-free read: the only check-then-act race worth serializing is
+        open_session's duplicate check, which holds _session_lock itself.
+        """
+        for session in self._active_sessions.values():
+            if device_id in (session.device_id, session.opened_id):
+                return session
+        return None
+
+    def _release_session(self, session: SaneSession) -> None:
+        with self._session_lock:
+            if self._active_sessions.get(session.device_id) is session:
+                del self._active_sessions[session.device_id]
+
     def _find_reenumerated_id(self, device_id: str) -> str | None:
         """After an open failure, re-enumerate and return the scanner's new id.
 
@@ -650,18 +795,39 @@ class SaneBackend:
         progress: Callable[[float], None],
         cancel: threading.Event,
     ) -> ScanResult:
-        """Execute a scan via SANE. Blocks until complete or cancelled."""
+        """Execute a one-shot scan via SANE (open, scan, close). Blocks until complete or cancelled."""
 
         try:
             self._ensure_initialized()
         except Exception as exc:
             raise RuntimeError(f"Failed to initialize SANE before scanning: {exc}") from exc
 
+        if self._session_holding(device_id) is not None:
+            raise RuntimeError(f"Scanner {device_id} is held by an active session — scan through that session")
+
         try:
             dev, _ = self._open_device(device_id)
         except Exception as e:
             raise RuntimeError(f"Failed to open scanner {device_id}: {e}") from e
 
+        try:
+            return self._scan_on_device(dev, device_id, params, progress, cancel)
+        finally:
+            try:
+                dev.close()
+            except Exception:
+                pass
+
+    def _scan_on_device(
+        self,
+        dev,
+        device_id: str,
+        params: ScanParams,
+        progress: Callable[[float], None],
+        cancel: threading.Event,
+    ) -> ScanResult:
+        """Scan one frame on an already-open handle. sane_cancel()s the frame when
+        done (required between frames on a held session) but never closes."""
         try:
             # IR capture strategy decides the scan mode (RGBI yields a 4th channel inline).
             ir_strategy = self._ir_strategy(dev, device_id) if params.capture_ir else None
@@ -692,13 +858,15 @@ class SaneBackend:
                 _require_writable_option(option_map, option_name, absent_message)
 
             # Position the film before autofocus, auto-exposure, or scan start.
+            # The scan blacks out at the frame boundary — below 0 is unreachable.
+            offset_mm = max(0.0, params.frame_offset_mm)
             if params.frame is not None:
                 try:
                     dev.frame = params.frame
                 except Exception as e:
                     raise RuntimeError(f"Could not set frame={params.frame}: {e}") from e
 
-            _apply_frame_offset(dev, params.frame_offset_mm)
+            _apply_frame_offset(dev, offset_mm)
 
             # Autofocus where the device supports it (the LS-5000 powers up at
             # an uncalibrated focus position — unfocused otherwise).
@@ -729,9 +897,15 @@ class SaneBackend:
             if device_id.startswith(_PIEUSB_PREFIX):
                 self._set_pieusb_flags(dev, params.capture_ir)
 
-            if params.window is not None:
-                option_map = dev.opt if hasattr(dev, "opt") else {}
-                for name, value in _window_to_option_values(option_map, params.window).items():
+            # offset + extent must stay within one pitch — the overrun comes back black.
+            window = params.window
+            extent_cap = _frame_extent_cap(option_map, offset_mm)
+            if extent_cap is not None:
+                x1, y1, x2, y2 = window if window is not None else (0.0, 0.0, 1.0, 1.0)
+                y2 = min(y2, extent_cap)
+                window = (x1, min(y1, y2), x2, y2)
+            if window is not None:
+                for name, value in _window_to_option_values(option_map, window).items():
                     if hasattr(dev, name):
                         setattr(dev, name, value)
 
@@ -844,10 +1018,6 @@ class SaneBackend:
                 dev.cancel()
             except Exception:
                 pass
-            try:
-                dev.close()
-            except Exception:
-                pass
 
     def eject(self, device_id: str) -> bool:
         """Trigger the device's vendor eject action, if it exposes one.
@@ -867,6 +1037,9 @@ class SaneBackend:
             self._ensure_initialized()
         except Exception as exc:
             raise RuntimeError(f"Failed to initialize SANE before eject: {exc}") from exc
+
+        if self._session_holding(device_id) is not None:
+            raise RuntimeError(f"Scanner {device_id} is held by an active session — eject through that session")
 
         try:
             dev, opened_id = self._open_device(device_id)

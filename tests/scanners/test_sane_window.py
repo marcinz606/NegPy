@@ -1,6 +1,10 @@
 import pytest
 
-from negpy.infrastructure.scanners.sane_backend import _apply_frame_offset, _window_to_option_values
+from negpy.infrastructure.scanners.sane_backend import (
+    _apply_frame_offset,
+    _frame_extent_cap,
+    _window_to_option_values,
+)
 
 
 class _Opt:
@@ -53,16 +57,34 @@ def test_frame_offset_sets_subframe_when_present():
     assert dev.subframe == 3.5
 
 
-def test_frame_offset_zero_is_noop():
+def test_frame_offset_zero_is_written():
+    # 0.0 must be applied, not skipped: on a held session handle a previous
+    # frame's subframe would otherwise latch into the next scan.
     dev = _OffsetDev(has_subframe=True)
     _apply_frame_offset(dev, 0.0)
-    assert dev.subframe is None
+    assert dev.subframe == 0.0
 
 
 def test_frame_offset_absent_option_skips():
     dev = _OffsetDev(has_subframe=False)
     _apply_frame_offset(dev, 3.5)
     assert dev.subframe is None
+
+
+_SUBFRAME_OPTS = {"subframe": _Opt((0.0, 37.83, 0.0))}
+
+
+def test_extent_cap_shortens_any_offset_scan():
+    # offset + delivered ≈ one pitch on every frame; the overrun comes back black.
+    assert _frame_extent_cap(_SUBFRAME_OPTS, 5.5) == pytest.approx(1.0 - 5.5 / 37.83)
+
+
+def test_extent_cap_ignores_zero_offset():
+    assert _frame_extent_cap(_SUBFRAME_OPTS, 0.0) is None
+
+
+def test_extent_cap_needs_a_pitch_option():
+    assert _frame_extent_cap({}, 5.5) is None
 
 
 def test_frame_offset_set_failure_raises():

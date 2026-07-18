@@ -241,8 +241,10 @@ class FakeSaneDev:
         self.events.append(("set", name, value))
 
     def __getattr__(self, name: str) -> Any:
-        if name in self.opt_map and name in self.recorded:
-            return self.recorded[name]
+        # python-sane exposes every known option as a readable attribute; the
+        # scan path hasattr-guards geometry writes, so reads must not raise.
+        if name in self.opt_map:
+            return self.recorded.get(name)
         raise AttributeError(f"No readable SANE option: {name}")
 
     def start(self) -> None:
@@ -299,6 +301,8 @@ def _make_backend(dev: FakeSaneDev) -> SaneBackend:
     backend._sane_initialized = True
     backend._devices_cache = None
     backend._id_remap = {}
+    backend._active_sessions = {}
+    backend._session_lock = threading.Lock()
     return backend
 
 
@@ -325,6 +329,8 @@ def test_scan_initializes_sane_before_opening_a_fresh_backend() -> None:
     backend._sane_initialized = False
     backend._devices_cache = None
     backend._id_remap = {}
+    backend._active_sessions = {}
+    backend._session_lock = threading.Lock()
 
     result = backend.scan(
         "coolscan3:usb:test",
@@ -685,6 +691,29 @@ class TestFrameSelection:
         dev = FakeSaneDev(rng.integers(0, 65535, size=(6, 5, 4), dtype=np.uint16))
         self._scan(ScanParams(dpi=1000, depth=16, capture_ir=True, frame=None), dev)
         assert "frame" not in dev.recorded
+
+    def test_any_offset_scan_shortens_the_feed_extent(self) -> None:
+        # The scan blacks out one pitch past the frame start (any frame) —
+        # the offset must shorten the extent, not deliver a black tail.
+        rng = np.random.default_rng(26)
+        dev = FakeSaneDev(rng.integers(0, 65535, size=(6, 5, 4), dtype=np.uint16))
+        self._scan(ScanParams(dpi=1000, depth=16, capture_ir=True, frame=12, frame_offset_mm=5.5), dev)
+        assert dev.recorded.get("subframe") == 5.5
+        assert dev.recorded.get("br_y") == int(round((1.0 - 5.5 / 37.8333) * 5958))
+
+    def test_zero_offset_keeps_the_full_extent(self) -> None:
+        rng = np.random.default_rng(27)
+        dev = FakeSaneDev(rng.integers(0, 65535, size=(6, 5, 4), dtype=np.uint16))
+        self._scan(ScanParams(dpi=1000, depth=16, capture_ir=True, frame=12, frame_offset_mm=0.0), dev)
+        assert "br_y" not in dev.recorded  # no window, no cap → geometry untouched
+
+    def test_negative_offset_is_clamped_to_zero(self) -> None:
+        # Below 0 is unreachable — the scan blacks out at the frame boundary.
+        rng = np.random.default_rng(25)
+        dev = FakeSaneDev(rng.integers(0, 65535, size=(6, 5, 4), dtype=np.uint16))
+        self._scan(ScanParams(dpi=1000, depth=16, capture_ir=True, frame=12, frame_offset_mm=-1.0), dev)
+        assert dev.recorded.get("frame") == 12
+        assert dev.recorded.get("subframe") == 0.0
 
     def test_frame_without_option_raises(self) -> None:
         import pytest

@@ -15,6 +15,7 @@ loud on a genuine scanimage error.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -147,6 +148,8 @@ def _make_backend(sane_module: FakeSaneModule) -> SaneBackend:
     backend._sane_initialized = True
     backend._devices_cache = None
     backend._id_remap = {}
+    backend._active_sessions = {}
+    backend._session_lock = threading.Lock()
     return backend
 
 

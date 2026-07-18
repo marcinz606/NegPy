@@ -10,7 +10,7 @@ import pytest
 from negpy.infrastructure.scanners.base import ScanMode, ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
-from negpy.services.scanning.service import ScannerService
+from negpy.services.scanning.service import _SCAN_IO_RETRY_ATTEMPTS, ScannerService
 
 
 class FakeBackend:
@@ -159,7 +159,7 @@ class TestScannerServiceWithFakeBackend:
         params = ScanParams(dpi=1200, depth=16, capture_ir=False)
         with pytest.raises(RuntimeError, match="device I/O"):
             service.run_scan(fake_device.id, params, lambda _: None, threading.Event(), retry_delay=0)
-        assert backend.scan_calls == 2  # bounded — one retry, not an infinite loop
+        assert backend.scan_calls == _SCAN_IO_RETRY_ATTEMPTS  # bounded — not an infinite loop
 
     def test_run_scan_does_not_retry_a_non_transient_error(self, fake_device: ScannerDevice) -> None:
         service = ScannerService()

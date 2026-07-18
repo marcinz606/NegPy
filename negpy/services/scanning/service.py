@@ -5,13 +5,13 @@ from typing import Callable
 from negpy.infrastructure.scanners.base import ScannerBackend, ScannerDevice
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
-from negpy.infrastructure.scanners.sane_backend import SaneBackend
+from negpy.infrastructure.scanners.sane_backend import SaneBackend, SaneSession
 from negpy.kernel.system.logging import get_logger
 from negpy.services.scanning.templating import render_scan_filename, require_sequence_varying_scan_filename
 
 logger = get_logger(__name__)
 
-_SCAN_IO_RETRY_ATTEMPTS = 2
+_SCAN_IO_RETRY_ATTEMPTS = 3
 _SCAN_IO_RETRY_DELAY_S = 0.5
 # Stable SANE status strings for transport glitches worth one retry (a Coolscan's
 # USB link occasionally hiccups mid-strip). A real error — bad option, missing
@@ -43,6 +43,18 @@ class ScannerService:
         if hasattr(backend, "refresh_devices"):
             return backend.refresh_devices()  # type: ignore[union-attr]
         return backend.list_devices()
+
+    def open_session(self, device_id: str) -> SaneSession:
+        """Open an exclusive device session for batch/roll workflows.
+
+        The session owns the scanner until closed: one continuous SANE open,
+        per-frame scan() calls, one release (close/eject) at the end. Raises
+        when the backend has no session support.
+        """
+        open_session = getattr(self._get_backend(), "open_session", None)
+        if not callable(open_session):
+            raise RuntimeError("Scanner backend does not support exclusive device sessions")
+        return open_session(device_id)
 
     def eject(self, device_id: str) -> bool:
         """Trigger the device's eject action where the backend supports it.
