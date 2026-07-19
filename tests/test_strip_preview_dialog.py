@@ -95,7 +95,7 @@ def test_offset_indicator_grows_from_the_left_tracking_the_slider() -> None:
     dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=4.0)
     dialog._refresh_offset_indicators()
 
-    (frac, edge), = dialog._tiles[1].label._offset_indicators
+    ((frac, edge),) = dialog._tiles[1].label._offset_indicators
     assert edge == "left"
     assert frac == pytest.approx(4.0 / 38.0, abs=1e-3)  # extent = max_area_mm[1]
 
@@ -131,9 +131,9 @@ def test_negative_drift_pins_the_line_to_the_edge_on_floored_frames() -> None:
     dialog.drift_slider.setValue(-50)  # -0.50 mm/frame, base 0
 
     assert dialog._tiles[1].label._offset_indicators == []  # raw 0: genuinely no offset
-    (f2, e2), = dialog._tiles[2].label._offset_indicators
+    ((f2, e2),) = dialog._tiles[2].label._offset_indicators
     assert (e2, f2) == ("left", 0.0)  # floored → line pinned at the edge
-    (f3, e3), = dialog._tiles[3].label._offset_indicators
+    ((f3, e3),) = dialog._tiles[3].label._offset_indicators
     assert (e3, f3) == ("left", 0.0)
 
 
@@ -144,9 +144,9 @@ def test_drift_slider_updates_indicators_live_per_frame() -> None:
 
     assert dialog.drift_label.text() == "+0.50 mm/frame"
     assert dialog._tiles[1].label._offset_indicators == []  # frame 1: no drift yet
-    (f2, e2), = dialog._tiles[2].label._offset_indicators
+    ((f2, e2),) = dialog._tiles[2].label._offset_indicators
     assert (e2, f2) == ("left", pytest.approx(0.5 / 38.0, abs=1e-3))
-    (f3, e3), = dialog._tiles[3].label._offset_indicators
+    ((f3, e3),) = dialog._tiles[3].label._offset_indicators
     assert (e3, f3) == ("left", pytest.approx(1.0 / 38.0, abs=1e-3))
 
 
@@ -166,7 +166,7 @@ def test_indicator_is_absolute_per_frame_not_relative_to_the_shown_preview() -> 
     dialog._on_preview_one(1)
     controller.scan_preview_ready.emit(_rgb())
 
-    (frac, edge), = dialog._tiles[1].label._offset_indicators
+    ((frac, edge),) = dialog._tiles[1].label._offset_indicators
     assert edge == "left"
     assert frac == pytest.approx(2.0 / 38.0, abs=1e-3)
 
