@@ -61,14 +61,13 @@ run:
 	@echo "Starting NegPy Desktop..."
 	@$(UV) python desktop.py
 
-# Run against a locally built sane-backends whose coolscan3 has its infrared
-# option un-gated. Stock sane-backends compiles that option out for every model
-# (sane.h keeps SANE_FRAME_RGBI inside an "#if 0", and coolscan3.c marks infrared
-# SANE_CAP_INACTIVE unless it is defined), so scanners with working IR hardware
-# (LS-50 / Coolscan V, Digital ICE) report no IR channel. Deleting that one cap
-# line is enough: the frame stays SANE_FRAME_RGB while n_colors becomes 4, the
-# 4-sample convention _reinterpret_channels already handles. Build: make sane-rgbi-help
-SANE_RGBI ?= $(HOME)/.local/share/negpy-sane-rgbi
+# Run against a locally built sane-backends from rohanpandula's fork: coolscan3
+# with infrared un-gated (stock compiles it out; LS-50 reports no IR channel),
+# the frame advance corrected from the LS-30-era 1.5 in guess (38.106 mm) to the
+# true 135 pitch of 38.0 mm (8 x 4.75 mm perforations — halves per-frame drift,
+# A/B-measured -0.277 -> -0.143 mm/frame on an LS-50), plus load/eject parameter
+# zeroing. Build: make sane-rgbi-help
+SANE_RGBI ?= $(HOME)/.local/share/negpy-sane-38mm
 
 .PHONY: run-ir
 run-ir:
@@ -81,16 +80,16 @@ run-ir:
 
 .PHONY: sane-rgbi-help
 sane-rgbi-help:
-	@echo "Build the IR-enabled coolscan3 backend (nothing system-wide is touched):"
+	@echo "Build the IR-enabled, 38 mm-pitch coolscan3 backend (nothing system-wide is touched):"
 	@echo ""
-	@echo "  curl -L -o backends.tar.gz https://gitlab.com/sane-project/backends/-/archive/1.4.0/backends-1.4.0.tar.gz"
-	@echo "  tar xzf backends.tar.gz && cd backends-1.4.0 && ./autogen.sh"
-	@echo "  # in backend/coolscan3.c, delete these 3 lines from CS3_OPTION_INFRARED:"
-	@echo "  #     #ifndef SANE_FRAME_RGBI"
-	@echo "  #             o.cap |= SANE_CAP_INACTIVE;"
-	@echo "  #     #endif"
-	@echo "  # (do NOT instead #define SANE_FRAME_RGBI: the backend then reports"
-	@echo "  #  frame format 0x10, which python-sane refuses as 'Invalid frame format')"
+	@echo "  git clone --depth 30 --branch coolscan3-ls5000-38mm-frame-pitch \\"
+	@echo "      https://gitlab.com/rohanpandula/backends.git && cd backends"
+	@echo "  # the pitch fix is gated CS3_TYPE_LS5000 only — on an LS-50 widen the"
+	@echo "  # gate in backend/coolscan3.c (frame_offset assignment):"
+	@echo "  #     if (s->type == CS3_TYPE_LS5000 || s->type == CS3_TYPE_LS50)"
+	@echo "  # if ./configure errors on AX_* macros, install autoconf-archive (or drop"
+	@echo "  # ax_create_stdint_h.m4 + ax_cxx_compile_stdcxx*.m4 into m4/), rerun autogen.sh"
+	@echo "  ./autogen.sh"
 	@echo "  ./configure --prefix=$(SANE_RGBI) BACKENDS=coolscan3 --disable-translations --disable-avahi"
 	@echo "  make -j\$$(nproc) && make install"
 	@echo ""
