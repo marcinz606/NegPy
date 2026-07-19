@@ -1,6 +1,6 @@
 """Large pop-out window for the Scanlight live view.
 
-Hosts a `RoiImageLabel` plus an inline toolbar (Scan / Retake) and a status line,
+Hosts a `RoiImageLabel` plus an inline toolbar (Scan / Retake), a capture progress bar and a status line,
 so a whole roll can be framed, focused, and scanned without switching back to the
 side panel. The live image carries a magnifier cursor: a click aims the camera
 focus magnifier at that spot, a double-click returns to full frame. The buttons
@@ -12,7 +12,7 @@ import time
 import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.theme import THEME
@@ -138,6 +138,15 @@ class LiveViewWindow(QDialog):
         bar.addWidget(self.retake_btn, 1)
         layout.addLayout(bar)
 
+        # Capture progress lives here too (not only on the side panel): while scanning a roll
+        # the operator watches this window, and the bar reaching 100% is the "film may be
+        # advanced / next Scan may be pressed" signal.
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setFormat("Capturing… %p%")
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
         self.image = RoiImageLabel()
         self.image.roi_mode = False  # clicks aim the magnifier here, not a calibration ROI
         # Magnifier cursor over the live image → signals "click to magnify here".
@@ -189,6 +198,13 @@ class LiveViewWindow(QDialog):
             QShortcut(QKeySequence(key), self, btn.click)
         self.scan_btn.setToolTip("Scan / Stop  (shortcut: S)")
         self.retake_btn.setToolTip("Re-capture the current frame without advancing the counter  (shortcut: R)")
+
+    def set_progress(self, frac: float) -> None:
+        self.progress.setVisible(True)
+        self.progress.setValue(int(frac * 100))
+
+    def clear_progress(self) -> None:
+        self.progress.setVisible(False)
 
     def set_scanning(self, active: bool) -> None:
         """Mirror the panel's Scan/Stop toggle on the pop-up button."""
