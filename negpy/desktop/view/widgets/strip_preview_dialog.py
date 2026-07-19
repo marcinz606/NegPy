@@ -33,6 +33,10 @@ from negpy.infrastructure.scanners.params import clamp_frame_offset_mm
 from negpy.infrastructure.scanners.roll import effective_pitch_mm
 
 _CLAMP_NOTICE = "Offset held at the frame pitch"
+_CUT_NOTICE = "Offset cuts into the frame"
+# 135 full frame. Delivery ends one pitch past the frame start, so offset beyond
+# (pitch - frame) discards that much picture off the frame tail.
+_FRAME_LEN_MM = 36.0
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
 _TILE_H = 140  # constant tile height; width follows the device aspect
 _TILES_PER_ROW = 6  # one SA-21 strip per row; roll adapters (up to 40 frames) wrap below
@@ -149,9 +153,10 @@ class StripPreviewDialog(QDialog):
         help_lbl = QLabel(
             "Preview each frame (the eye button on a tile, or Preview all). Drag on a previewed "
             "frame to crop it — a corner to resize, inside to move; each frame keeps its own window. "
-            "Offset nudges every frame along the feed axis to clear the inter-frame gap; Drift adds "
-            "progressively more (or less) offset per frame position — the shaded band is the film the "
-            "offset skips; re-preview after changing them to see the effect. "
+            "Offset slides every frame along the film to clear the inter-frame gap — frames shift "
+            "left as it grows, live; the shaded band on the right is film past the frame boundary "
+            "the transport cannot deliver (offset past the gap costs frame tail). Drift adds "
+            "progressively more (or less) offset per frame position; re-preview to refresh the pixels. "
             "Tick the frames to scan, then Use (apply and return) "
             "or Scan (start scanning now)."
         )
@@ -353,29 +358,51 @@ class StripPreviewDialog(QDialog):
         self.drift_label.setText(f"{self.frame_offset_modifier():+.2f} mm/frame")
         self._refresh_offset_indicators()
 
+    def _tile_coverage(self, tile: _Tile) -> tuple[float, float]:
+        """Span a raster previewed at x occupies when the slider reads y: (x − y, 1 − y).
+        Tile coords are the next scan's raster, so content slides left as the offset
+        grows and every raster ends at the blackout boundary (a fixed film position)."""
+        pitch = self._frame_pitch()
+        y = (self._offset_for_frame(tile.frame) / pitch) if pitch else 0.0
+        x = tile.previewed_offset or 0.0
+        return (x - y, 1.0 - y)
+
     def _refresh_offset_indicators(self) -> None:
         pitch = self._frame_pitch()
         clamped: list[int] = []
+        cut: list[tuple[int, float]] = []
         for tile in self._tiles.values():
-            # Bands are absolute effective offsets, never deltas vs the shown
-            # preview. +offset moves content toward the display's left (verified
-            # on an LS-50), so the band marks the left strip a re-scan cuts
-            # away; a frame floored at 0 by negative drift pins the line at the
-            # edge so the slider visibly acts. A tile previewed at this offset
-            # already starts at the line — the band covers only its empty gap.
+            # The band is the absolute effective offset, from the RIGHT: film past
+            # the frame boundary the transport cannot deliver at this offset (the
+            # scan blacks out one pitch past every frame start — LS-50 measured).
+            # A frame floored at 0 by negative drift pins the line at the edge so
+            # the slider visibly acts. Stale rasters re-place per _tile_coverage,
+            # so content slides live while the band stays at the raster end.
             indicators: list[tuple[float, str]] = []
             if pitch:
                 raw = self._raw_offset_for_frame(tile.frame)
                 offset = self._offset_for_frame(tile.frame)
                 if offset != raw:
                     clamped.append(tile.frame)
+                loss = offset - (pitch - _FRAME_LEN_MM)
+                if loss > 0.05:
+                    cut.append((tile.frame, loss))
                 if offset > 0 or raw < 0:
-                    indicators.append((offset / pitch, "left"))
+                    indicators.append((offset / pitch, "right"))
             tile.label.set_offset_indicators(indicators)
+            if tile.label.has_frame():
+                tile.label.set_coverage(self._tile_coverage(tile))
         if clamped:
             frames = ", ".join(str(f) for f in clamped)
             self.status.setText(f"{_CLAMP_NOTICE} on frame(s) {frames} — reduce Offset or Drift.")
-        elif self.status.text().startswith(_CLAMP_NOTICE):
+        elif cut:
+            frames = ", ".join(str(f) for f, _ in cut)
+            worst = max(loss for _, loss in cut)
+            self.status.setText(
+                f"{_CUT_NOTICE} on frame(s) {frames} — up to {worst:.1f} mm of picture lost off the "
+                f"frame tail; reduce Offset, or re-feed the strip for a better registration."
+            )
+        elif self.status.text().startswith((_CLAMP_NOTICE, _CUT_NOTICE)):
             self.status.clear()
 
     # ── preview flow (single-flight chain) ────────────────────────────
@@ -431,10 +458,10 @@ class StripPreviewDialog(QDialog):
             self.status.setText(f"Could not display frame {preview.slot}: {e}")
             return
         tile.previewed_offset = preview.offset
-        # The scan starts at the offset and runs to the frame boundary, so the raster
-        # covers only the tail of the frame — place it there instead of stretching it
-        # back over the whole tile, or tile fractions stop meaning frame fractions.
-        tile.label.set_frame(pixmap, (preview.offset, 1.0))
+        # Anchor the tile to the next scan: a current raster sits flush left and ends
+        # at the blackout boundary, so tile fractions are exactly the window fractions
+        # the batch applies to an offset scan.
+        tile.label.set_frame(pixmap, self._tile_coverage(tile))
         self._refresh_offset_indicators()
 
     @pyqtSlot()

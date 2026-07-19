@@ -102,15 +102,15 @@ def test_preview_uses_lowest_supported_dpi() -> None:
     assert controller.preview_reqs[0].dpi == 90
 
 
-def test_offset_indicator_grows_from_the_left_tracking_the_slider() -> None:
-    # +offset shifts re-scanned content toward the raster top — the -90 rotated
-    # preview's LEFT — so the LEFT strip of the shown preview is what a re-scan
-    # cuts away; the band grows from the left, same direction as the slider.
+def test_offset_indicator_grows_from_the_right_tracking_the_slider() -> None:
+    # The tile is anchored to the next scan, so +offset slides content toward the
+    # display's LEFT and the band grows from the RIGHT: film past the frame
+    # boundary the transport cannot deliver at this offset.
     dialog = StripPreviewDialog(_FakeController(), _device(3), initial_offset=4.0)
     dialog._refresh_offset_indicators()
 
     ((frac, edge),) = dialog._tiles[1].label._offset_indicators
-    assert edge == "left"
+    assert edge == "right"
     assert frac == pytest.approx(4.0 / 38.0, abs=1e-3)  # extent = max_area_mm[1]
 
 
@@ -146,9 +146,9 @@ def test_negative_drift_pins_the_line_to_the_edge_on_floored_frames() -> None:
 
     assert dialog._tiles[1].label._offset_indicators == []  # raw 0: genuinely no offset
     ((f2, e2),) = dialog._tiles[2].label._offset_indicators
-    assert (e2, f2) == ("left", 0.0)  # floored → line pinned at the edge
+    assert (e2, f2) == ("right", 0.0)  # floored → line pinned at the edge
     ((f3, e3),) = dialog._tiles[3].label._offset_indicators
-    assert (e3, f3) == ("left", 0.0)
+    assert (e3, f3) == ("right", 0.0)
 
 
 def test_drift_slider_updates_indicators_live_per_frame() -> None:
@@ -159,9 +159,9 @@ def test_drift_slider_updates_indicators_live_per_frame() -> None:
     assert dialog.drift_label.text() == "+0.50 mm/frame"
     assert dialog._tiles[1].label._offset_indicators == []  # frame 1: no drift yet
     ((f2, e2),) = dialog._tiles[2].label._offset_indicators
-    assert (e2, f2) == ("left", pytest.approx(0.5 / 38.0, abs=1e-3))
+    assert (e2, f2) == ("right", pytest.approx(0.5 / 38.0, abs=1e-3))
     ((f3, e3),) = dialog._tiles[3].label._offset_indicators
-    assert (e3, f3) == ("left", pytest.approx(1.0 / 38.0, abs=1e-3))
+    assert (e3, f3) == ("right", pytest.approx(1.0 / 38.0, abs=1e-3))
 
 
 def test_offset_slider_is_non_negative_up_to_ten_mm() -> None:
@@ -181,7 +181,7 @@ def test_indicator_is_absolute_per_frame_not_relative_to_the_shown_preview() -> 
     controller.deliver(1, offset=2.0 / 38.0)
 
     ((frac, edge),) = dialog._tiles[1].label._offset_indicators
-    assert edge == "left"
+    assert edge == "right"
     assert frac == pytest.approx(2.0 / 38.0, abs=1e-3)
 
 
@@ -405,10 +405,9 @@ def _pitch_device(capacity: int, pitch: float = 37.83) -> ScannerDevice:
     )
 
 
-def test_preview_is_placed_at_its_offset_not_stretched_over_the_frame() -> None:
-    # The scan starts at the offset and runs to the frame boundary, so its raster
-    # covers only the tail of the frame. Stretching it back over the whole tile
-    # doubled the apparent advance and made tile fractions lie about the scan.
+def test_current_preview_sits_flush_left_and_ends_at_the_boundary() -> None:
+    # The tile is anchored to the next scan: a raster previewed at the current
+    # offset starts at the tile's left edge and ends where delivery blacks out.
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _pitch_device(3), initial_offset=4.8)
 
@@ -416,9 +415,29 @@ def test_preview_is_placed_at_its_offset_not_stretched_over_the_frame() -> None:
     controller.deliver(1, offset=4.8 / 37.83)
 
     start, end = dialog._tiles[1].label._coverage
-    assert start == pytest.approx(4.8 / 37.83, abs=1e-4)
-    assert end == 1.0
+    assert start == pytest.approx(0.0, abs=1e-4)
+    assert end == pytest.approx(1.0 - 4.8 / 37.83, abs=1e-4)
     assert dialog._tiles[1].previewed_offset == pytest.approx(4.8 / 37.83)
+
+
+def test_moving_the_slider_slides_stale_previews_live() -> None:
+    # No re-scan needed to see the effect: a raster previewed at x re-places at
+    # (x - y, 1 - y) when the slider reads y, so content slides under the cursor.
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _pitch_device(3), initial_offset=2.0)
+
+    dialog._on_preview_one(1)
+    controller.deliver(1, offset=2.0 / 37.83)
+    dialog.offset_slider.setValue(48)  # 4.8 mm
+
+    start, end = dialog._tiles[1].label._coverage
+    assert start == pytest.approx((2.0 - 4.8) / 37.83, abs=1e-4)
+    assert end == pytest.approx(1.0 - 4.8 / 37.83, abs=1e-4)
+
+    dialog.offset_slider.setValue(0)  # back down: the un-previewed head is a gap
+    start, end = dialog._tiles[1].label._coverage
+    assert start == pytest.approx(2.0 / 37.83, abs=1e-4)
+    assert end == pytest.approx(1.0, abs=1e-4)
 
 
 def test_preview_at_zero_offset_covers_the_whole_frame() -> None:
@@ -442,7 +461,7 @@ def test_offset_indicator_lands_on_the_edge_of_its_own_preview() -> None:
     controller.deliver(1, offset=4.8 / 37.83)
 
     ((frac, _edge),) = label._offset_indicators
-    assert frac == pytest.approx(label._coverage[0], abs=1e-4)
+    assert 1.0 - frac == pytest.approx(label._coverage[1], abs=1e-4)  # band starts at the raster end
 
 
 def test_indicator_uses_the_reported_pitch_over_the_scan_extent() -> None:
@@ -451,6 +470,27 @@ def test_indicator_uses_the_reported_pitch_over_the_scan_extent() -> None:
 
     ((frac, _edge),) = dialog._tiles[1].label._offset_indicators
     assert frac == pytest.approx(4.0 / 37.83, abs=1e-4)  # not / 38.0 (max_area_mm)
+
+
+def test_offset_past_the_frame_budget_warns_about_picture_loss() -> None:
+    # The 20260719 scan-2 incident: 5.5 mm offset silently cost ~3.7 mm of every
+    # frame's tail (delivery ends one pitch past the frame start, frame is 36 mm).
+    dialog = StripPreviewDialog(_FakeController(), _pitch_device(3), initial_offset=5.5)
+    dialog._refresh_offset_indicators()
+
+    text = dialog.status.text()
+    assert "cuts into the frame" in text
+    assert "3.7 mm" in text  # 5.5 - (37.83 - 36.0)
+    assert "1, 2, 3" in text
+
+
+def test_offset_within_the_frame_budget_does_not_warn() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _pitch_device(3), initial_offset=5.5)
+    dialog._refresh_offset_indicators()
+
+    dialog.offset_slider.setValue(14)  # 1.4 mm — inside pitch - 36 mm budget
+
+    assert dialog.status.text() == ""  # warning cleared once the offset is safe
 
 
 def test_drift_past_the_pitch_is_clamped_and_flagged() -> None:

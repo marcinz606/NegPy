@@ -44,11 +44,17 @@ class ScanWindowLabel(QLabel):
     # ── public API ────────────────────────────────────────────────────
 
     def set_frame(self, pixmap: QPixmap, coverage: Optional[tuple[float, float]] = None) -> None:
-        """Show a preview. `coverage` is the (start, end) fraction of the *full frame*
-        this pixmap spans along x — an offset scan starts past 0 and its raster must not
-        be stretched back over the whole frame, or every fraction read off this widget
-        (crop rects, offset lines) means something different from what the scan will do."""
+        """Show a preview. `coverage` is the (start, end) span this pixmap occupies along
+        x, in fractions of the frame the widget represents — the *next scan's* raster, so
+        fractions read off this widget (crop rects, offset lines) are exactly the window
+        fractions the backend applies. `start` may be negative: a raster previewed at a
+        lower offset than the slider now reads slides left and clips off the edge."""
         self._pixmap = pixmap
+        self._coverage = coverage
+        self.update()
+
+    def set_coverage(self, coverage: Optional[tuple[float, float]]) -> None:
+        """Re-place the kept pixmap (offset slider moved); no new scan needed."""
         self._coverage = coverage
         self.update()
 
@@ -92,14 +98,13 @@ class ScanWindowLabel(QLabel):
         if self._coverage is None:
             return 1.0
         start, end = self._coverage
-        return max(1e-3, min(1.0, end) - max(0.0, start))
+        return max(1e-3, end - start)
 
     def _content_rect(self, draw_rect: QRect) -> QRect:
-        """Sub-rect of the frame the pixmap actually occupies."""
+        """Sub-rect the pixmap occupies; may overflow draw_rect (painting clips)."""
         if self._coverage is None:
             return draw_rect
-        start = max(0.0, min(1.0, self._coverage[0]))
-        x = draw_rect.left() + int(start * draw_rect.width())
+        x = draw_rect.left() + int(self._coverage[0] * draw_rect.width())
         return QRect(x, draw_rect.top(), max(1, int(self._coverage_span() * draw_rect.width())), draw_rect.height())
 
     @staticmethod
@@ -174,7 +179,10 @@ class ScanWindowLabel(QLabel):
             content = self._content_rect(draw_rect)
             if content != draw_rect:
                 painter.fillRect(draw_rect, QColor("#0D0D0F"))
+            painter.save()
+            painter.setClipRect(draw_rect)
             painter.drawPixmap(content, self._pixmap)
+            painter.restore()
             if self._rect is not None:
                 wr = self._rect_in_widget(self._rect, draw_rect)
                 painter.setPen(QPen(QColor("#1D9E75"), 2))
