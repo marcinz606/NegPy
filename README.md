@@ -28,7 +28,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 **Capture & Input**
 *   **Camera Scanning**: Capture negatives with a tethered camera straight into NegPy — a single RAW, or automated red/green/blue narrowband triplets driven by an RGB [Scanlight](https://github.com/jackw01/scanlight) that feed the RGB Scan merge. macOS/Linux, optional dependency. [Camera Scanning guide](docs/CAMERA_SCANNING.md)
-*   **Scanner Support**: Direct control of SANE-compatible film scanners — Nikon Coolscans and others: frame selection with a simple frame-range batch (SA-21 strip / SA-30 roll or any sub-range), autofocus, hardware auto-exposure, 14-bit capture, film eject, and an infrared dust channel. [Coolscan scanning guide](docs/COOLSCAN_SCANNING.md) · [supported devices](http://www.sane-project.org/sane-supported-devices.html)
+*   **Scanner Support**: Direct control of SANE-compatible film scanners — Nikon Coolscans and others: frame selection with a simple frame-range batch (SA-21 strip / SA-30 roll or any sub-range), autofocus, hardware auto-exposure, film eject, and an infrared dust channel.
 *   **RGB Scan (Trichromatic Capture)**: Merge three narrowband red/green/blue exposures of one negative into a single low-noise colour scan, with automatic sub-pixel alignment to kill fringing.
 *   **Flat-Field Correction**: Correct illumination falloff / vignetting from your light source or scanner via a reference scan of the bare light. Named profiles, toggle per image.
 *   **File Support**: Standard RAWs/TIFFs plus specialized formats like Kodak Pakon scanner raw files.
