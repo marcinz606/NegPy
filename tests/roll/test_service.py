@@ -161,3 +161,319 @@ class TestWriteFrame:
         output = service.write_frame(frame, str(nested), '{{ "%03d" % seq }}')
 
         assert os.path.exists(output.rgb_path)
+
+
+def _tier_frame(fake_coolscanpy, *, slot=11, ir=True, seed=0):
+    """A frame with real per-pixel variance (not a flat fill) so a rendered
+    Tier-3 positive has something non-degenerate to measure -- red-biased
+    like a plausible C41 negative, matching tests/roll/test_positive.py's
+    own synthetic data."""
+    rng = np.random.default_rng(seed)
+    shape = (24, 32)
+    rgb = np.zeros((*shape, 3), dtype=np.uint16)
+    rgb[..., 0] = rng.integers(40000, 60000, size=shape)
+    rgb[..., 1] = rng.integers(25000, 45000, size=shape)
+    rgb[..., 2] = rng.integers(15000, 35000, size=shape)
+    ir_plane = rng.integers(0, 65535, size=shape, dtype=np.uint16) if ir else None
+    receipt = fake_coolscanpy.Receipt(version=1, slot=slot, dpi=4000, depth=16, device_id="usb:1:2", transport_smear_verdict="clean")
+    return fake_coolscanpy.Frame(slot=slot, rgb=rgb, ir=ir_plane, ir_validity=None, receipt=receipt)
+
+
+class TestThreeTierWriting:
+    """`write_frame`'s three independently-selectable output tiers: unrepaired
+    (Tier 1), repaired (Tier 2, needs a registered repair engine), and
+    positive (Tier 3, always derived from Tier 2's in-memory result). Naming,
+    receipt provenance, and every degrade path get covered here; the plain
+    default-settings behavior (Tier 1 only) is already covered above by
+    TestWriteFrame, unchanged."""
+
+    def _receipt(self, path: str) -> dict:
+        with open(path) as fh:
+            return json.load(fh)
+
+    # -- selecting nothing --------------------------------------------------
+
+    def test_no_tier_selected_writes_only_the_receipt(self, fake_coolscanpy, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(
+            frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=False, write_repaired=False, write_positive=False
+        )
+
+        assert (output.rgb_path, output.ir_path, output.repaired_rgb_path, output.repaired_ir_path, output.positive_path) == (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        assert os.path.exists(output.receipt_path)
+        payload = self._receipt(output.receipt_path)
+        assert payload["outputs"]["unrepaired"] == {"written": False, "status": "not selected"}
+        assert payload["outputs"]["repaired"] == {"written": False, "status": "not selected"}
+        assert payload["outputs"]["positive"] == {"written": False, "status": "not selected"}
+
+    # -- Tier 2 without a registered engine ----------------------------------
+
+    def test_repaired_without_an_engine_degrades_but_unrepaired_still_writes(self, fake_coolscanpy, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True)
+
+        assert output.rgb_path is not None and os.path.exists(output.rgb_path)
+        assert output.repaired_rgb_path is None
+        assert output.repaired_ir_path is None
+        payload = self._receipt(output.receipt_path)
+        assert payload["outputs"]["unrepaired"]["written"] is True
+        assert payload["outputs"]["repaired"] == {"written": False, "status": "unavailable: no dust-repair engine registered"}
+
+    def test_positive_without_an_engine_degrades_too_since_it_needs_tier_2(self, fake_coolscanpy, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_positive=True)
+
+        assert output.rgb_path is not None and os.path.exists(output.rgb_path)
+        assert output.positive_path is None
+        payload = self._receipt(output.receipt_path)
+        assert payload["outputs"]["unrepaired"]["written"] is True
+        assert payload["outputs"]["positive"]["written"] is False
+        assert "Tier 2" in payload["outputs"]["positive"]["status"]
+        assert "no dust-repair engine registered" in payload["outputs"]["positive"]["status"]
+
+    # -- Tier 2 with a registered engine -------------------------------------
+
+    def test_repaired_writes_rgb_and_retains_original_ir(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        fake_repair_engine.transform = lambda rgb: np.clip(rgb.astype(np.int32) + 1000, 0, 65535).astype(np.uint16)
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True)
+
+        assert output.repaired_rgb_path is not None
+        assert output.repaired_rgb_path.endswith("_repaired.tif")
+        readback = tifffile.imread(output.repaired_rgb_path)
+        np.testing.assert_array_equal(readback, fake_repair_engine.transform(frame.rgb))
+        assert not np.array_equal(readback, frame.rgb)  # actually repaired, not a copy
+
+        assert output.repaired_ir_path is not None
+        assert output.repaired_ir_path.endswith("_repaired_IR.tif")
+        ir_readback = tifffile.imread(output.repaired_ir_path)
+        np.testing.assert_array_equal(ir_readback, frame.ir)  # Tier 1's own IR, unchanged
+
+    def test_repaired_naming_does_not_collide_with_unrepaired(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True)
+
+        paths = {output.rgb_path, output.ir_path, output.repaired_rgb_path, output.repaired_ir_path}
+        assert len(paths) == 4  # four distinct files
+        assert all(os.path.exists(p) for p in paths)
+
+    def test_repaired_receipt_records_engine_provenance(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(
+            frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=False, write_repaired=True, repair_mode="hybrid"
+        )
+
+        payload = self._receipt(output.receipt_path)
+        entry = payload["outputs"]["repaired"]
+        assert entry["written"] is True
+        assert entry["engine"] == "test-repair-engine"
+        assert entry["engine_version"] == "0.0.1-test"
+        assert entry["mode"] == "hybrid"
+        assert entry["rgb_path"] == output.repaired_rgb_path
+
+    def test_repair_engine_failure_degrades_without_losing_unrepaired(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        fake_repair_engine.raise_error = RuntimeError("inpainting model unavailable")
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(
+            frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True, write_positive=True
+        )
+
+        assert output.rgb_path is not None and os.path.exists(output.rgb_path)
+        assert output.repaired_rgb_path is None
+        assert output.positive_path is None
+        payload = self._receipt(output.receipt_path)
+        assert payload["outputs"]["unrepaired"]["written"] is True
+        assert "repair failed" in payload["outputs"]["repaired"]["status"]
+        assert "inpainting model unavailable" in payload["outputs"]["repaired"]["status"]
+        assert "Tier 2" in payload["outputs"]["positive"]["status"]
+
+    def test_frame_without_infrared_degrades_repaired_and_positive(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy, ir=False)
+        service = RollScanningService()
+
+        output = service.write_frame(
+            frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True, write_positive=True
+        )
+
+        assert fake_repair_engine.calls == []  # never even attempted
+        assert output.repaired_rgb_path is None
+        assert output.positive_path is None
+        payload = self._receipt(output.receipt_path)
+        assert "no infrared plane" in payload["outputs"]["repaired"]["status"]
+
+    def test_invalid_repair_mode_string_falls_back_to_exact(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_repaired=True, repair_mode="bogus-mode")
+
+        assert len(fake_repair_engine.calls) == 1
+        assert fake_repair_engine.calls[0][2] == roll_service.RepairMode.EXACT
+
+    def test_positive_requested_without_write_repaired_still_repairs_in_memory(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=False, write_positive=True)
+
+        assert len(fake_repair_engine.calls) == 1  # repair ran to feed Tier 3...
+        assert output.repaired_rgb_path is None  # ...but Tier 2 itself was never written
+        assert output.positive_path is not None
+        payload = self._receipt(output.receipt_path)
+        entry = payload["outputs"]["repaired"]
+        assert entry["written"] is False
+        assert entry["status"] == "not selected (computed in memory for the positive)"
+        assert entry["engine"] == "test-repair-engine"  # still recorded even though unwritten
+
+    # -- Tier 3 -----------------------------------------------------------------
+
+    def test_positive_is_written_and_derived_from_repaired_not_raw_rgb(
+        self, fake_coolscanpy, fake_repair_engine, tmp_path, monkeypatch
+    ) -> None:
+        fake_repair_engine.transform = lambda rgb: np.clip(rgb.astype(np.int32) + 5000, 0, 65535).astype(np.uint16)
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        from negpy.services.roll import positive as roll_positive_module
+
+        captured = {}
+        real_render = roll_positive_module.render_positive
+
+        def _spy(rgb_u16, *, processor):
+            captured["rgb_u16"] = rgb_u16
+            return real_render(rgb_u16, processor=processor)
+
+        monkeypatch.setattr(roll_positive_module, "render_positive", _spy)
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=False, write_positive=True)
+
+        np.testing.assert_array_equal(captured["rgb_u16"], fake_repair_engine.transform(frame.rgb))
+        assert not np.array_equal(captured["rgb_u16"], frame.rgb)
+        assert output.positive_path is not None
+        readback = tifffile.imread(output.positive_path)
+        assert readback.shape == frame.rgb.shape
+        assert readback.dtype == np.uint16
+
+    def test_positive_receipt_records_inversion_and_repair_provenance(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=False, write_positive=True)
+
+        payload = self._receipt(output.receipt_path)
+        entry = payload["outputs"]["positive"]
+        assert entry["written"] is True
+        assert entry["rgb_path"] == output.positive_path
+        assert entry["inversion_path"] == "negpy.services.rendering.image_processor.ImageProcessor.run_pipeline"
+        assert entry["render_intent"] == "print"
+        assert entry["process_mode"] == "C41"
+        assert entry["auto_exposure"] is True
+        assert entry["negpy_version"]
+        assert entry["repair_engine"] == "test-repair-engine"
+        assert entry["repair_engine_version"] == "0.0.1-test"
+        assert entry["repair_mode"] == "exact"
+
+    def test_positive_filename_has_no_infrared_companion(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=False, write_positive=True)
+
+        assert output.positive_path is not None
+        assert output.positive_path.endswith("_positive.tif")
+        assert os.path.exists(output.positive_path)
+        assert not any(name.endswith("_positive_IR.tif") for name in os.listdir(str(tmp_path)))
+
+    def test_inversion_unavailable_degrades_positive_but_keeps_unrepaired_and_repaired(
+        self, fake_coolscanpy, fake_repair_engine, tmp_path, monkeypatch
+    ) -> None:
+        from negpy.services.roll import positive as roll_positive_module
+
+        monkeypatch.setattr(roll_positive_module, "available", lambda: False)
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(
+            frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True, write_positive=True
+        )
+
+        assert output.rgb_path is not None and os.path.exists(output.rgb_path)
+        assert output.repaired_rgb_path is not None and os.path.exists(output.repaired_rgb_path)
+        assert output.positive_path is None
+        payload = self._receipt(output.receipt_path)
+        assert payload["outputs"]["unrepaired"]["written"] is True
+        assert payload["outputs"]["repaired"]["written"] is True
+        assert payload["outputs"]["positive"] == {"written": False, "status": "unavailable: inversion path not available"}
+
+    def test_inversion_failure_degrades_positive_only(self, fake_coolscanpy, fake_repair_engine, tmp_path, monkeypatch) -> None:
+        from negpy.services.roll import positive as roll_positive_module
+
+        def _boom(rgb_u16, *, processor):
+            raise RuntimeError("no CPU render backend available")
+
+        monkeypatch.setattr(roll_positive_module, "render_positive", _boom)
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(
+            frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True, write_positive=True
+        )
+
+        assert output.rgb_path is not None and os.path.exists(output.rgb_path)
+        assert output.repaired_rgb_path is not None and os.path.exists(output.repaired_rgb_path)
+        assert output.positive_path is None
+        payload = self._receipt(output.receipt_path)
+        assert payload["outputs"]["repaired"]["written"] is True
+        assert "inversion failed" in payload["outputs"]["positive"]["status"]
+        assert "no CPU render backend available" in payload["outputs"]["positive"]["status"]
+
+    # -- all three together, and receipt backward-compatibility -----------------
+
+    def test_all_three_tiers_together(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        frame = _tier_frame(fake_coolscanpy)
+        service = RollScanningService()
+
+        output = service.write_frame(
+            frame, str(tmp_path), '{{ "%03d" % seq }}', write_unrepaired=True, write_repaired=True, write_positive=True
+        )
+
+        for path in (output.rgb_path, output.ir_path, output.repaired_rgb_path, output.repaired_ir_path, output.positive_path):
+            assert path is not None and os.path.exists(path)
+        assert len({output.rgb_path, output.ir_path, output.repaired_rgb_path, output.repaired_ir_path, output.positive_path}) == 5
+        payload = self._receipt(output.receipt_path)
+        assert all(payload["outputs"][tier]["written"] for tier in ("unrepaired", "repaired", "positive"))
+
+    def test_receipt_keeps_the_original_scan_receipt_fields_alongside_outputs(self, fake_coolscanpy, tmp_path) -> None:
+        """`outputs` must be additive -- write_frame's pre-tiering callers (and
+        TestWriteFrame's tests above) read coolscanpy's own receipt fields
+        (slot, dpi, transport_smear_verdict, ...) at the JSON root."""
+        frame = _tier_frame(fake_coolscanpy, slot=42)
+        service = RollScanningService()
+
+        output = service.write_frame(frame, str(tmp_path), '{{ "%03d" % seq }}')
+
+        payload = self._receipt(output.receipt_path)
+        assert payload["slot"] == 42
+        assert payload["dpi"] == 4000
+        assert payload["transport_smear_verdict"] == "clean"
+        assert "outputs" in payload
