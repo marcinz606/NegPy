@@ -162,11 +162,13 @@ class RollWorker(QObject):
         Not a `@pyqtSlot`, called directly cross-thread like `CaptureWorker
         .cancel()`: `RollScanningService.safe_stop()` only sets a
         `threading.Event`, which is thread-safe on its own and needs no Qt
-        queueing. The transport has no equivalent of the camera route's
-        instant `threading.Event`-gated cancel -- a fine-scan already in
-        flight cannot be aborted mid-pull, so unlike `CaptureWorker` there
-        is no separate local cancel flag here; safe_stop() is the only stop,
-        and it always lets that one frame finish first.
+        queueing. Unlike `CaptureWorker`, there is no separate local cancel
+        flag here -- gphoto2 has no stop primitive of its own, so
+        `CaptureWorker` keeps its own `threading.Event` and checks it
+        between channels; coolscanpy already exposes `Roll.safe_stop()` for
+        exactly this, so adding a second flag here would only duplicate it.
+        Either way the frame already in flight finishes; only the next one
+        is refused.
         """
         self._service.safe_stop()
 
