@@ -101,8 +101,12 @@ class RightPanel(QWidget):
 
         self.scanlight_sidebar = ScanlightSidebar(self.controller)
 
-        # One "Scan" tab hosting both the SANE scanner and the RGB-Scan capture as
-        # collapsible sections (mirrors the "Colour — Lab, Toning" tab).
+        from negpy.desktop.view.sidebar.coolscan_roll import CoolscanRollSidebar
+
+        self.coolscan_roll_sidebar = CoolscanRollSidebar(self.controller)
+
+        # One "Scan" tab hosting the SANE scanner, the RGB-Scan capture and Coolscan roll
+        # scanning as collapsible sections (mirrors the "Colour — Lab, Toning" tab).
         self.scan_page = self._build_scan_page()
 
         # Tab descriptors: workflow control-group pages first, then Export / Metadata / Scan.
@@ -213,8 +217,10 @@ class RightPanel(QWidget):
         self.splitter.setSizes([top, max(0, total - top)])
 
     def _build_scan_page(self) -> QWidget:
-        """The 'Scan' tab hosts two collapsible sections (like Color's Lab / Toning): the
-        SANE flatbed/film scanner on top, the RGB-Scan trichromatic capture below."""
+        """The 'Scan' tab hosts three collapsible sections (like Color's Lab / Toning): the
+        SANE flatbed/film scanner, the RGB-Scan trichromatic capture, and Coolscan roll
+        scanning -- each its own acquisition route, each gated on its own optional
+        dependency (SANE, gphoto2, coolscanpy respectively)."""
         repo = self.controller.session.repo
 
         def make(title: str, key: str, icon_name: str, content: QWidget, default_expanded: bool) -> CollapsibleSection:
@@ -227,6 +233,7 @@ class RightPanel(QWidget):
 
         self.scan_sane_section = make("Scanner (SANE)", "scan_sane", "fa5s.camera-retro", self.scan_sidebar, False)
         self.scan_rgb_section = make("Camera Scanning", "scan_rgb", "fa5s.camera", self.scanlight_sidebar, True)
+        self.scan_roll_section = make("Roll Scanning", "scan_roll", "fa5s.images", self.coolscan_roll_sidebar, False)
 
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -235,6 +242,7 @@ class RightPanel(QWidget):
         page_layout.setSpacing(8)
         page_layout.addWidget(self.scan_sane_section)
         page_layout.addWidget(self.scan_rgb_section)
+        page_layout.addWidget(self.scan_roll_section)
         return page
 
     def apply_shortcut_tooltips(self) -> None:
@@ -291,12 +299,15 @@ class RightPanel(QWidget):
             self._suspended_retouch_tool = None
 
         # Trigger device detection + gating refresh when the Scan tab is selected — it now
-        # hosts both the SANE scanner and the RGB-Scan capture as collapsible sections.
+        # hosts the SANE scanner, the RGB-Scan capture and Coolscan roll scanning as
+        # collapsible sections.
         if index == self._scan_index:
             if hasattr(self.scan_sidebar, "on_activated"):
                 self.scan_sidebar.on_activated()
             if hasattr(self.scanlight_sidebar, "on_activated"):
                 self.scanlight_sidebar.on_activated()
+            if hasattr(self.coolscan_roll_sidebar, "on_activated"):
+                self.coolscan_roll_sidebar.on_activated()
 
     def reveal_section(self, section_attr: str) -> None:
         """Switch to the tab containing the given ControlsPanel section."""

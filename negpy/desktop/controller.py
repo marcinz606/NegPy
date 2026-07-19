@@ -35,6 +35,11 @@ from negpy.desktop.workers.capture_worker import (
     CaptureWorker,
     LiveViewRequest,
 )
+from negpy.desktop.workers.roll_worker import (
+    RollBatchScanRequest,
+    RollPreviewRequest,
+    RollWorker,
+)
 from negpy.domain.models import (
     ExportFormat,
     ExportPreset,
@@ -224,6 +229,22 @@ class AppController(QObject):
     connection_polled = pyqtSignal(dict)  # {usb_ok, usb_model, light_ok, light_detail}
     poll_light_temp_requested = pyqtSignal(str)  # light port (temp-only poll, runs even mid-live-view)
     light_temp_polled = pyqtSignal(object)  # Scanlight LED temperature °C, or None
+    roll_devices_requested = pyqtSignal()
+    roll_devices_ready = pyqtSignal(list)  # list[coolscanpy.DeviceInfo]
+    roll_opened = pyqtSignal(str)  # device_id now open
+    roll_preview_requested = pyqtSignal(RollPreviewRequest)
+    roll_preview_ready = pyqtSignal(list)  # list[coolscanpy.Thumbnail]
+    roll_spacing_offset_requested = pyqtSignal(int, int)
+    roll_spacing_offset_set = pyqtSignal(int, int)
+    roll_approve_requested = pyqtSignal(int)
+    roll_approved = pyqtSignal(int)
+    roll_scan_requested = pyqtSignal(RollBatchScanRequest)
+    roll_progress = pyqtSignal(float, str)
+    roll_frame_written = pyqtSignal(object)  # RollFrameOutput
+    roll_finished = pyqtSignal(list)  # list[RollFrameOutput]
+    roll_cancelled = pyqtSignal()
+    roll_error = pyqtSignal(str)
+    roll_status = pyqtSignal(str)
 
     def __init__(self, session_manager: DesktopSessionManager):
         super().__init__()
@@ -306,6 +327,12 @@ class AppController(QObject):
         # upstream tests needn't know about it), and the app starts it the moment the Camera
         # Scanning tab polls or the user acts.
         self._capture_thread_started = False
+
+        self.roll_thread = QThread()
+        self.roll_worker = RollWorker()
+        self.roll_worker.moveToThread(self.roll_thread)
+        # Same lazy-start reasoning as _capture_thread_started (_ensure_roll_thread).
+        self._roll_thread_started = False
 
         self.canvas: Any = None
         self._is_rendering = False
@@ -493,6 +520,22 @@ class AppController(QObject):
         self.capture_worker.poll_status.connect(self.connection_polled.emit)
         self.poll_light_temp_requested.connect(self.capture_worker.poll_light_temp)
         self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
+        self.roll_devices_requested.connect(self.roll_worker.list_devices)
+        self.roll_worker.devices_ready.connect(self.roll_devices_ready.emit)
+        self.roll_worker.opened.connect(self.roll_opened.emit)
+        self.roll_preview_requested.connect(self.roll_worker.run_preview)
+        self.roll_worker.preview_ready.connect(self.roll_preview_ready.emit)
+        self.roll_spacing_offset_requested.connect(self.roll_worker.set_spacing_offset)
+        self.roll_worker.spacing_offset_set.connect(self.roll_spacing_offset_set.emit)
+        self.roll_approve_requested.connect(self.roll_worker.approve)
+        self.roll_worker.approved.connect(self.roll_approved.emit)
+        self.roll_scan_requested.connect(self.roll_worker.run_batch_scan)
+        self.roll_worker.progress.connect(self.roll_progress.emit)
+        self.roll_worker.frame_written.connect(self.roll_frame_written.emit)
+        self.roll_worker.finished.connect(self._on_roll_scan_finished)
+        self.roll_worker.cancelled.connect(self.roll_cancelled.emit)
+        self.roll_worker.error.connect(self.roll_error.emit)
+        self.roll_worker.status.connect(self.roll_status.emit)
 
         self.session.active_file_changing.connect(lambda: self._update_thumbnail_from_state(force_readback=True))
         self.session.session_emptied.connect(self._render_memo.clear)
@@ -2116,6 +2159,49 @@ class AppController(QObject):
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(list(paths))
 
+    # ── Roll scanning integration ─────────────────────────────────────
+
+    def _ensure_roll_thread(self) -> None:
+        """Start the roll worker's thread on first use (lazy), mirroring
+        `_ensure_capture_thread`."""
+        if not self._roll_thread_started:
+            self.roll_thread.start()
+            self._roll_thread_started = True
+
+    def request_roll_devices(self) -> None:
+        self._ensure_roll_thread()
+        self.roll_devices_requested.emit()
+
+    def start_roll_preview(self, req: RollPreviewRequest) -> None:
+        self._ensure_roll_thread()
+        self.roll_preview_requested.emit(req)
+
+    def set_roll_spacing_offset(self, slot: int, offset_rows: int) -> None:
+        self._ensure_roll_thread()
+        self.roll_spacing_offset_requested.emit(slot, offset_rows)
+
+    def approve_roll_slot(self, slot: int) -> None:
+        self._ensure_roll_thread()
+        self.roll_approve_requested.emit(slot)
+
+    def start_roll_scan(self, req: RollBatchScanRequest) -> None:
+        self._ensure_roll_thread()
+        self.roll_scan_requested.emit(req)
+
+    def roll_safe_stop(self) -> None:
+        self.roll_worker.safe_stop()
+
+    def _on_roll_scan_finished(self, outputs: list) -> None:
+        """Feed newly-written roll frames into NegPy's file list, like the plain Scan and
+        Camera Scanning routes already do. Each output is already one complete per-slot RGB
+        TIFF (coolscanpy's roll engine writes one frame per slot, not an R/G/B triplet to
+        merge), so unlike `_on_capture_finished` this needs no rgbscan_mode/process_mode
+        bookkeeping -- just discovery."""
+        self.roll_finished.emit(outputs)
+        rgb_paths = [o.rgb_path for o in outputs]
+        if rgb_paths:
+            self.request_asset_discovery(rgb_paths)
+
     def effective_output_icc(self) -> Optional[str]:
         """Output profile the preview proofs through: a custom override, else the
         profile for the selected export color space. None means no proof (Same as Source)."""
@@ -3030,6 +3116,10 @@ class AppController(QObject):
         if self.capture_thread.isRunning():
             self.capture_thread.quit()
             self.capture_thread.wait()
+        self.roll_worker.shutdown()
+        if self.roll_thread.isRunning():
+            self.roll_thread.quit()
+            self.roll_thread.wait()
         self.render_worker.destroy_all()
 
         # All GPU-touching threads are now joined; release the wgpu device.
