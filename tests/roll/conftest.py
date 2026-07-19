@@ -73,6 +73,18 @@ class FakeFrame:
     receipt: Any
 
 
+@dataclasses.dataclass(frozen=True)
+class FakeProgress:
+    """Stand-in for coolscanpy.types.Progress, same field names."""
+
+    stage: str
+    slot: Any
+    index: int
+    total: int
+    fraction: float
+    message: str
+
+
 class FakeRoll:
     """Scripted in-memory stand-in for `coolscanpy.Roll`."""
 
@@ -88,8 +100,13 @@ class FakeRoll:
     def preview(self, slots=None, *, on_progress=None):
         if "preview" in self._raise_on:
             raise self._raise_on["preview"]
+        if on_progress is not None:
+            on_progress(FakeProgress(stage="preview", slot=None, index=0, total=1, fraction=0.0, message="reading whole-roll transport index"))
         wanted = None if slots is None else set(slots)
-        return [t for t in self._thumbnails if wanted is None or t.slot in wanted]
+        result = [t for t in self._thumbnails if wanted is None or t.slot in wanted]
+        if on_progress is not None:
+            on_progress(FakeProgress(stage="preview", slot=None, index=1, total=1, fraction=1.0, message="preview complete"))
+        return result
 
     def set_spacing_offset(self, slot, offset_rows) -> None:
         self.spacing_offsets[slot] = offset_rows
@@ -103,10 +120,13 @@ class FakeRoll:
         return slot in self._raise_on.get("needs_approval_slots", ())
 
     def scan_many(self, slots, *, on_progress=None):
-        for slot in slots:
+        ordered = list(slots)
+        for i, slot in enumerate(ordered):
             error = self._raise_on.get("scan_many_slots", {}).get(slot)
             if error is not None:
                 raise error
+            if on_progress is not None:
+                on_progress(FakeProgress(stage="fine-scan", slot=slot, index=i, total=len(ordered), fraction=1.0, message=f"slot {slot} complete"))
             yield self._frames[slot]
 
     def safe_stop(self) -> None:
