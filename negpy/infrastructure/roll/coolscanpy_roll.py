@@ -9,9 +9,10 @@ imported lazily, entirely absent by default. See `available()`.
 
 This module owns every place coolscanpy itself gets imported or driven for
 the roll workflow: opening a device, opening its roll extension, and
-translating coolscanpy's exceptions. `negpy.services.scanning.roll_service`
-builds the file-writing workflow on top of it but never imports coolscanpy
-directly.
+translating coolscanpy's exceptions. `negpy.services.roll.service` builds
+the file-writing workflow on top of it but never imports coolscanpy
+directly, matching how `negpy.services.capture.service` never imports
+`gphoto2` directly either.
 
 --------------------------------------------------------------------------
 INTEGRATION POINT for a future re-point
@@ -25,9 +26,9 @@ just hardcodes `SaneBackend()`). When that seam lands, re-pointing this
 adapter at it should only mean changing how `open_roll()` resolves a
 device -- everything built on top of the returned `RollHandle` (this
 module's exception translation, and all of
-`negpy/services/scanning/roll_service.py`) is unaffected, since it never
-talks to coolscanpy except through this one function and the `RollHandle`
-it returns.
+`negpy/services/roll/service.py`) is unaffected, since it never talks to
+coolscanpy except through this one function and the `RollHandle` it
+returns.
 --------------------------------------------------------------------------
 """
 
@@ -70,7 +71,9 @@ class RollHandle:
         self._device = device
         self._roll = roll
 
-    def preview(self, slots: Iterable[int] | None = None, *, on_progress=None) -> list:
+    def preview(
+        self, slots: Iterable[int] | None = None, *, on_progress: "coolscanpy.ProgressCallback | None" = None
+    ) -> "list[coolscanpy.Thumbnail]":
         """One whole-roll transport read. See `coolscanpy.Roll.preview`."""
         try:
             return self._roll.preview(slots, on_progress=on_progress)
@@ -95,15 +98,15 @@ class RollHandle:
         except Exception as error:
             raise _translate(error) from error
 
-    def scan_many(self, slots: Iterable[int], *, on_progress=None) -> Iterator["coolscanpy.Frame"]:
+    def scan_many(
+        self, slots: Iterable[int], *, on_progress: "coolscanpy.ProgressCallback | None" = None
+    ) -> Iterator["coolscanpy.Frame"]:
         """Batch fine-scan `slots` in one transport reservation.
 
-        Note for a future caller that wires this to a cancel affordance
-        (mirroring how `ScanWorker.run_scan` swallows a cancelled plain scan
-        rather than reporting it as an error): a `RuntimeError` raised here
-        whose `__cause__` is a `coolscanpy.SafeStopRequested` means
-        `safe_stop()` was already called deliberately and should be treated
-        the same way, not surfaced as a failure.
+        A `RuntimeError` raised here whose `__cause__` is a
+        `coolscanpy.SafeStopRequested` means `safe_stop()` was already
+        called deliberately and should be treated as a clean stop, not
+        surfaced as a failure -- see `is_safe_stop()`.
         """
         try:
             yield from self._roll.scan_many(slots, on_progress=on_progress)
@@ -170,6 +173,23 @@ def _translate(error: BaseException) -> RuntimeError:
     `FingerprintRefused`, `ManualReviewRequired`, `SafeStopRequested`, ...)
     and the handful of plain `ValueError`/`RuntimeError` coolscanpy itself
     raises (e.g. "no roll adapter is attached"), so nothing coolscanpy-shaped
-    ever crosses out of this module.
+    ever crosses out of this module. `raise _translate(error) from error`
+    always preserves the original as `__cause__` -- see `is_safe_stop()`.
     """
     return RuntimeError(str(error))
+
+
+def is_safe_stop(error: BaseException) -> bool:
+    """True if `error` is this module's translation of a deliberate
+    `RollHandle.safe_stop()` outcome, not a genuine failure.
+
+    `error` is normally the `RuntimeError` a caller of `scan_many()` just
+    caught; every translation in this module chains `from error`, so the
+    original `coolscanpy.SafeStopRequested` (when that is what happened)
+    is always sitting in `__cause__`. Imports coolscanpy lazily like the
+    rest of this module -- safe here because an error this module raised
+    already means coolscanpy was reachable.
+    """
+    import coolscanpy
+
+    return isinstance(getattr(error, "__cause__", None), coolscanpy.SafeStopRequested)

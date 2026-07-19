@@ -13,7 +13,7 @@ import sys
 import numpy as np
 import pytest
 
-from negpy.infrastructure.scanners import coolscanpy_roll
+from negpy.infrastructure.roll import coolscanpy_roll
 
 
 class TestAvailable:

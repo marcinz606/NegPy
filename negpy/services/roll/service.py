@@ -1,11 +1,13 @@
 """Roll-scanning service backed by the optional `coolscanpy` package.
 
-Mirrors `negpy.services.scanning.service.ScannerService`: one class that
-orchestrates device discovery, the hardware workflow, and writing results to
-disk in NegPy's conventional layout. Where `ScannerService` wraps a single
+Sibling of `negpy.services.capture.service.CaptureService`: one class that
+orchestrates the hardware workflow and writes results to disk in NegPy's
+conventional layout, on top of an infrastructure-layer adapter for an
+optional dependency (`negpy.infrastructure.roll.coolscanpy_roll`, mirroring
+`negpy.infrastructure.capture.gphoto`). It also mirrors the older, simpler
+`negpy.services.scanning.service.ScannerService`: where that wraps a single
 ad-hoc `Device.scan()`, this wraps coolscanpy's whole-roll workflow
-(preview -> approve -> batch fine-scan) exposed by
-`negpy.infrastructure.scanners.coolscanpy_roll`.
+(preview -> approve -> batch fine-scan).
 
 Entirely inert if `coolscanpy` is not installed: `available()` is a cheap
 presence check re-exported from that module, and every other method only
@@ -25,7 +27,7 @@ from typing import TYPE_CHECKING, Iterable, Iterator
 import numpy as np
 import tifffile
 
-from negpy.infrastructure.scanners import coolscanpy_roll
+from negpy.infrastructure.roll import coolscanpy_roll
 from negpy.kernel.system.logging import get_logger
 from negpy.services.scanning.templating import render_scan_filename
 
@@ -34,10 +36,16 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Re-exported so callers only need this module: `from negpy.services.scanning
-# .roll_service import available`, matching how the plain Scan sidebar checks
+# Re-exported so callers only need this module: `from negpy.services.roll
+# .service import available`, matching how the plain Scan sidebar checks
 # `_sane_available()` before showing its device combo.
 available = coolscanpy_roll.available
+
+
+class RollScanningError(RuntimeError):
+    """Raised for a roll-scanning failure that originates in this service's
+    own orchestration (lifecycle misuse), as opposed to one translated from
+    coolscanpy itself. Mirrors `negpy.services.capture.service.CaptureError`."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -69,7 +77,7 @@ class RollScanningService:
     def open_roll(self, device_id: str | None = None, *, material: "coolscanpy.Material | None" = None) -> None:
         """Open a device and its roll extension. Call `close()` when done."""
         if self._roll is not None:
-            raise RuntimeError("a roll is already open on this service; call close() first")
+            raise RollScanningError("a roll is already open on this service; call close() first")
         self._roll = coolscanpy_roll.open_roll(device_id, material=material)
 
     def close(self) -> None:
@@ -86,7 +94,9 @@ class RollScanningService:
 
     # -- preview / approval ------------------------------------------------
 
-    def preview(self, slots: Iterable[int] | None = None, *, on_progress=None) -> list:
+    def preview(
+        self, slots: Iterable[int] | None = None, *, on_progress: "coolscanpy.ProgressCallback | None" = None
+    ) -> "list[coolscanpy.Thumbnail]":
         return self._require_roll().preview(slots, on_progress=on_progress)
 
     def set_spacing_offset(self, slot: int, offset_rows: int) -> None:
@@ -100,7 +110,9 @@ class RollScanningService:
 
     # -- scanning ----------------------------------------------------------
 
-    def scan_many(self, slots: Iterable[int], *, on_progress=None) -> Iterator["coolscanpy.Frame"]:
+    def scan_many(
+        self, slots: Iterable[int], *, on_progress: "coolscanpy.ProgressCallback | None" = None
+    ) -> Iterator["coolscanpy.Frame"]:
         yield from self._require_roll().scan_many(slots, on_progress=on_progress)
 
     def safe_stop(self) -> None:
@@ -146,7 +158,7 @@ class RollScanningService:
 
     def _require_roll(self) -> coolscanpy_roll.RollHandle:
         if self._roll is None:
-            raise RuntimeError("no roll is open; call open_roll() first")
+            raise RollScanningError("no roll is open; call open_roll() first")
         return self._roll
 
 
