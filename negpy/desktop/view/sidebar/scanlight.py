@@ -72,9 +72,10 @@ _MANUAL_PRESET = "\x00create-manual"
 
 
 # LED settle before each exposure. Narrowband PWM LEDs reach full brightness in <10 ms
-# and the serial set_color round-trip is ~5-20 ms, so 150 ms is a safe margin (the old
-# 400 ms was conservative). A fixed tuning constant, not a user/persisted setting.
-_LED_SETTLE_S = 0.15
+# and set_color is a fire-and-forget serial write (~1 ms on the wire at 115200 baud plus
+# CDC scheduling), so 50 ms still carries an order-of-magnitude margin (150/400 ms before
+# were conservatism). A fixed tuning constant, not a user/persisted setting.
+_LED_SETTLE_S = 0.05
 
 
 class _NoWheel(QObject):

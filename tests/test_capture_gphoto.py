@@ -261,6 +261,7 @@ def test_capture_writes_the_raw_and_drains_events(cam, fake, tmp_path):
     out = tmp_path / "Roll1_Frame001_R.ARW"
     assert cam.capture(str(out)) == str(out)
     assert out.read_bytes() == b"RAWDATA" * 3
+    cam._post_shot.join()  # a successful shot drains on a worker; wait before asserting
     assert not fake.undrained  # a leftover event makes the *next* capture fail
 
 
