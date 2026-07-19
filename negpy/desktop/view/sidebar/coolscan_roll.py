@@ -13,6 +13,7 @@ that fits the surrounding code.
 from __future__ import annotations
 
 import dataclasses
+from typing import TYPE_CHECKING
 
 import numpy as np
 import qtawesome as qta
@@ -39,13 +40,17 @@ from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.roll import coolscanpy_roll
 from negpy.infrastructure.roll.settings import RollScanSettings
+from negpy.services.roll.service import RollFrameOutput
+
+if TYPE_CHECKING:
+    import coolscanpy
 
 _SLOT_ROLE = Qt.ItemDataRole.UserRole
 _WARN_COLOR = "#C8922E"  # matches ScanlightSidebar's advisory tone
 _THUMBNAIL_SIZE = QSize(96, 96)
 
 
-def _thumbnail_pixmap(image) -> QPixmap:
+def _thumbnail_pixmap(image: "np.ndarray") -> QPixmap:
     """A `coolscanpy.Thumbnail.image` array as a displayable QPixmap.
 
     Deliberately dumb: this is a raw scanner preview frame for framing and
@@ -76,7 +81,7 @@ class CoolscanRollSidebar(QWidget):
         self._settings: RollScanSettings = self._load_settings()
         self._devices: list = []
         self._devices_loaded = False
-        self._thumbnails: dict[int, object] = {}
+        self._thumbnails: dict[int, "coolscanpy.Thumbnail"] = {}
         self._scanning = False
         self._stopping = False  # safe-stop acknowledged, waiting for the in-flight frame
 
@@ -271,7 +276,7 @@ class CoolscanRollSidebar(QWidget):
         self._request_devices()
 
     @pyqtSlot(list)
-    def _on_devices_ready(self, devices: list) -> None:
+    def _on_devices_ready(self, devices: "list[coolscanpy.DeviceInfo]") -> None:
         self._devices = devices
         self._devices_loaded = True
         self.device_combo.clear()
@@ -326,7 +331,7 @@ class CoolscanRollSidebar(QWidget):
         self.controller.start_roll_preview(RollPreviewRequest(device_id=device_id))
 
     @pyqtSlot(list)
-    def _on_preview_ready(self, thumbnails: list) -> None:
+    def _on_preview_ready(self, thumbnails: "list[coolscanpy.Thumbnail]") -> None:
         self.progress_bar.setVisible(False)
         self._thumbnails = {t.slot: t for t in thumbnails}
         self.contact_sheet.clear()
@@ -335,7 +340,7 @@ class CoolscanRollSidebar(QWidget):
         self._show_slot_detail(None)
         self._apply_gating()
 
-    def _add_slot_item(self, thumb) -> None:
+    def _add_slot_item(self, thumb: "coolscanpy.Thumbnail") -> None:
         pixmap = _thumbnail_pixmap(thumb.image).scaled(
             _THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
@@ -351,7 +356,7 @@ class CoolscanRollSidebar(QWidget):
         self._show_slot_detail(self._thumbnails.get(slot) if slot is not None else None)
         self._apply_gating()
 
-    def _show_slot_detail(self, thumb) -> None:
+    def _show_slot_detail(self, thumb: "coolscanpy.Thumbnail | None") -> None:
         if thumb is None:
             self.slot_label.setText("—")
             self.offset_spin.setEnabled(False)
@@ -398,11 +403,12 @@ class CoolscanRollSidebar(QWidget):
             self._thumbnails[slot] = dataclasses.replace(thumb, needs_approval=False)
         for i in range(self.contact_sheet.count()):
             item = self.contact_sheet.item(i)
-            if item.data(_SLOT_ROLE) == slot:
+            if item is not None and item.data(_SLOT_ROLE) == slot:
                 item.setText(f"Slot {slot}")
                 item.setData(Qt.ItemDataRole.ForegroundRole, None)  # back to the theme's default text color
                 break
-        if self.contact_sheet.currentItem() is not None and self.contact_sheet.currentItem().data(_SLOT_ROLE) == slot:
+        current = self.contact_sheet.currentItem()
+        if current is not None and current.data(_SLOT_ROLE) == slot:
             self.approve_btn.setVisible(False)
         self._set_status(f"Slot {slot} approved.")
         self._apply_gating()
@@ -442,12 +448,12 @@ class CoolscanRollSidebar(QWidget):
             self._set_status(message)
 
     @pyqtSlot(object)
-    def _on_frame_written(self, output) -> None:
+    def _on_frame_written(self, output: RollFrameOutput) -> None:
         if not self._stopping:
             self._set_status(f"Wrote slot {output.slot}.")
 
     @pyqtSlot(list)
-    def _on_finished(self, outputs: list) -> None:
+    def _on_finished(self, outputs: list[RollFrameOutput]) -> None:
         self.set_scanning(False)
         self._set_status(f"Scanned {len(outputs)} frame(s).")
 
