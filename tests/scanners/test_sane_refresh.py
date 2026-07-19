@@ -9,6 +9,7 @@ the device list that open handles still point into, and sane_get_devices()
 refuses to run at all while any handle is open.
 """
 
+import threading
 from unittest.mock import MagicMock
 
 from negpy.infrastructure.scanners.sane_backend import SaneBackend
@@ -17,8 +18,13 @@ from negpy.infrastructure.scanners.sane_backend import SaneBackend
 def _backend() -> tuple[SaneBackend, MagicMock]:
     fake = MagicMock()
     fake.get_devices.return_value = []
-    backend = SaneBackend()
+    backend = SaneBackend.__new__(SaneBackend)
     backend._sane = fake
+    backend._sane_initialized = False
+    backend._devices_cache = None
+    backend._id_remap = {}
+    backend._active_sessions = {}
+    backend._session_lock = threading.Lock()
     return backend, fake
 
 
