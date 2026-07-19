@@ -17,6 +17,8 @@ from typing import Any
 
 import pytest
 
+from negpy.infrastructure.roll import repair as roll_repair
+
 
 class FakePyCoolscanError(Exception):
     """Stand-in for coolscanpy.PyCoolscanError."""
@@ -193,3 +195,42 @@ def fake_coolscanpy(monkeypatch):
         Frame=FakeFrame,
         Receipt=FakeReceipt,
     )
+
+
+class FakeRepairEngine:
+    """Scripted stand-in for `negpy.infrastructure.roll.repair.RepairEngine`.
+
+    By default `repair()` is the identity transform (returns `rgb` unchanged,
+    tagged with this engine's name/version/mode) -- set `.transform` to a
+    function to script a detectable change, or `.raise_error` to an exception
+    instance to script a failure. `.calls` records every `(rgb, ir, mode)`
+    the service passed in, so a test can assert *what* was repaired (e.g.
+    the Tier-1 array, not something already touched) without needing the
+    repair to actually alter pixels.
+    """
+
+    def __init__(self, *, engine: str = "test-repair-engine", engine_version: str = "0.0.1-test") -> None:
+        self.engine = engine
+        self.engine_version = engine_version
+        self.transform = lambda rgb: rgb
+        self.raise_error: Exception | None = None
+        self.calls: list[tuple[Any, Any, roll_repair.RepairMode]] = []
+
+    def repair(self, rgb: Any, ir: Any, mode: roll_repair.RepairMode) -> roll_repair.RepairResult:
+        self.calls.append((rgb, ir, mode))
+        if self.raise_error is not None:
+            raise self.raise_error
+        return roll_repair.RepairResult(rgb=self.transform(rgb), engine=self.engine, engine_version=self.engine_version, mode=mode)
+
+
+@pytest.fixture
+def fake_repair_engine():
+    """Registers a `FakeRepairEngine` as the Tier-2 repair engine for one test,
+    unregistering it afterward so `repair.available()` reverts to False for the
+    next test regardless of how this one exits."""
+    engine = FakeRepairEngine()
+    roll_repair.register_engine(engine)
+    try:
+        yield engine
+    finally:
+        roll_repair.unregister_engine()
