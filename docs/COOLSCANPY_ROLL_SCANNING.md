@@ -85,7 +85,14 @@ the plain-SANE scanner packages:
   `ScanlightSettings`.
 - `negpy/services/roll/service.py` defines `RollScanningService`, which
   orchestrates the coolscanpy device and roll lifecycle and writes results
-  to disk. It never imports coolscanpy itself, only the adapter above.
+  to disk across the three output tiers described below. It never imports
+  coolscanpy itself, only the adapter above.
+- `negpy/infrastructure/roll/repair.py` is the Tier-2 repair engine seam:
+  an `available()` check and a `register_engine()` entry point, with no
+  engine registered by default. See "Output tiers" below.
+- `negpy/services/roll/positive.py` renders Tier 3. It calls
+  `ImageProcessor.run_pipeline`, the same in-memory entry point NegPy's own
+  export pipeline uses after decoding a file, directly on a Tier-2 buffer.
 - `negpy/desktop/workers/roll_worker.py` defines `RollWorker`, a `QObject`
   moved to its own thread, mirroring `CaptureWorker`. It opens a device's
   roll extension lazily the first time a preview or batch scan names it,
@@ -96,31 +103,102 @@ the plain-SANE scanner packages:
 
 ## What this integration writes
 
-A batch scan produces, per slot, three files in the configured output
-folder:
-
-- a 16-bit TIFF holding the scanner-linear RGB image
-- a 16-bit TIFF holding the infrared plane, named with an `_IR` suffix
-  next to the RGB file, matching the suffix NegPy's plain scan writer
-  already uses for infrared
-- a JSON file with a `_receipt` suffix, holding the full scan receipt
-  coolscanpy returns for that frame: exposure, clipping and focus
-  telemetry, transport-smear assessment, and the fingerprints the frame was
-  checked against
+A batch scan can produce up to three tiers of output per slot, plus one
+receipt. Each tier is a separate on/off setting in the sidebar, and any
+combination is valid. See "Output tiers" below for what each tier is, why
+the defaults are set the way they are, and what happens when a tier cannot
+be produced.
 
 The filename pattern is the same Jinja2 template the plain Scan panel
 uses, with `date` and `seq` variables. For roll scanning, `seq` is the
 frame's physical slot number rather than an incrementing counter. Slot
 numbers are already a stable identity for a given roll, so re-scanning one
 bad slot overwrites that slot's old files instead of accumulating a second
-copy beside them.
+copy beside them. This holds for every tier.
 
-Only the RGB TIFF is handed to NegPy's asset discovery once a batch scan
-finishes. The IR sidecar and the receipt are written but never opened as
-an asset. The infrared confidence mask coolscanpy also returns per frame
-is not written to disk at all. Nothing downstream currently reads it, and
-adding a file format for it before there is a consumer would be guessing
-at a convention rather than following one.
+Only a written Tier 1 (unrepaired) RGB TIFF is handed to NegPy's asset
+discovery once a batch scan finishes. Tier 2 and Tier 3 are written to
+disk when selected, but neither is opened as a NegPy asset automatically.
+The receipt is not opened as an asset either. The infrared confidence mask
+coolscanpy also returns per frame is not written to disk at all. Nothing
+downstream currently reads it, and adding a file format for it before
+there is a consumer would be guessing at a convention rather than
+following one.
+
+## Output tiers
+
+Tier 1 is the unrepaired capture: the scanner-linear RGB and its aligned
+infrared plane, exactly as coolscanpy returned them. This is the archival
+master, and the only tier the scanner itself can reproduce. It is written
+as `<basename>.tif` plus `<basename>_IR.tif`, the same infrared suffix the
+plain Scan panel already uses. It defaults on.
+
+Tier 2 is the repaired capture: Tier 1 with infrared-guided dust and
+scratch repair applied, still scanner-linear and still a negative. It is
+written as `<basename>_repaired.tif` plus `<basename>_repaired_IR.tif`.
+That infrared sidecar is Tier 1's own infrared plane, unchanged, not a
+repaired version of it. Repair consumes infrared to find defects; it does
+not produce a new infrared image. Keeping the original lets a later repair
+pass, run under a different mode, start from the same evidence.
+
+Repair runs in one of two modes. Exact mode heals only the pixels the
+infrared channel confidently flags as a defect. Hybrid mode additionally
+routes severe zero-signal regions, places where the infrared channel gives
+no usable reading at all, to an inpainting model. Both modes are
+deterministic: the same frame and the same mode always repair to the same
+result. That is what makes Tier 2 worth caching. Once a frame has been
+repaired under a given mode, repairing it again produces an identical
+file, so there is no need to redo the work. Exact mode is expected to take
+about 10 seconds per frame. Hybrid mode is expected to take 70 to 210
+seconds per frame, since inpainting is far slower than the exact-match
+heal.
+
+Tier 3 is the positive: Tier 2 inverted through NegPy's own
+negative-to-positive rendering pipeline, the same pipeline a freshly
+imported negative reaches the first time it is opened in NegPy. It is
+written as `<basename>_positive.tif`. Tier 3 always derives from Tier 2's
+result in memory, never from a Tier 1 or Tier 2 file already on disk, and
+never from Tier 1 directly. Selecting Tier 3 without Tier 2 still runs
+repair; the repaired result is just not written to disk on its own. Tier 3
+defaults off.
+
+Repair, when it can run, always runs before inversion: capture, then
+repair, then invert. That way Tier 3 benefits from whatever Tier 2 was
+able to fix, rather than inverting an uncorrected frame.
+
+The defaults follow from an asymmetry between the tiers. Tier 1 is the
+only tier the scanner can produce, so losing it is permanent. Tier 2 is
+expensive to compute but, once computed under a given mode, never needs
+recomputing. Tier 3 is cheap to compute, and NegPy's color rendering is
+still being tuned, so a Tier 3 file written today is expected to look
+different from what the same negative renders to later. Treat a Tier 3
+file as a current preview, not as a finished edit. Tier 1 defaults on
+because turning it off risks losing data that only the scanner can
+reproduce. Tier 2 and Tier 3 default off because both can be regenerated
+from Tier 1 at any time, once a repair engine is registered.
+
+No repair engine ships with this integration today. `write_frame` checks
+whether one is registered before attempting Tier 2, and records a plain
+status in the receipt instead of raising when none is available. Since
+Tier 3 always depends on Tier 2's result, Tier 3 degrades the same way
+whenever repair is unavailable, even if Tier 2 itself was not selected for
+writing. Tier 1 still writes when selected, regardless of what happens to
+Tier 2 or Tier 3. If NegPy's own rendering pipeline fails for any reason,
+Tier 3 degrades on its own, and Tier 1 and Tier 2 are unaffected.
+
+The receipt records, for every tier, whether it was written, and a status
+explaining why not when it was not. A successful Tier 2 write also records
+the repair engine's name and version, along with which mode ran. A
+successful Tier 3 write also records which rendering path produced it. It
+records the process mode and render intent that were used, and whether
+auto exposure was on, so a later regeneration or audit has something
+concrete to compare against. A Tier 3 receipt entry also carries the Tier
+2 provenance that fed it, so it stays self-contained even when Tier 2 was
+not itself written to disk.
+
+Writing every tier is not free of storage cost. At 4000 dpi, one frame's
+three tiers together take up roughly half a gigabyte on disk. A long roll
+scanned at every tier adds up quickly, so plan storage accordingly.
 
 ## Error handling
 
@@ -182,7 +260,16 @@ missing gphoto2.
 The panel covers device selection, a whole-roll preview rendered as a
 thumbnail contact sheet, a spacing-offset spinner and an approve button
 for whichever slot is selected, and a batch scan of every selected slot
-with a progress bar and a Safe Stop button. Safe Stop calls
+with a progress bar and a Safe Stop button.
+
+The Output section has three checkboxes, one per tier, plus a repair-mode
+dropdown that governs Tier 2. Any combination of the three checkboxes is
+valid, and at least one must be checked before Scan Selected enables.
+Unchecking Unrepaired shows a warning below the checkboxes: Tier 1 is the
+only tier the scanner itself can reproduce, so turning it off is a real
+tradeoff, not just another setting.
+
+Safe Stop calls
 `Roll.safe_stop()` through the worker, which is coolscanpy's own name for
 this action and its own contract: the frame already in flight always
 finishes, and only the next one is refused. A Scan/Stop toggle button, the
