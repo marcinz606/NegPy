@@ -294,3 +294,79 @@ class TestSafeStopAndShutdown:
 
     def test_shutdown_without_any_roll_open_does_not_raise(self) -> None:
         RollWorker().shutdown()
+
+
+class TestBatchScanOutputTiers:
+    """RollBatchScanRequest's tier fields, forwarded to RollScanningService
+    .write_frame -- see tests/roll/test_service.py for the full tier-behavior
+    matrix (naming, receipt provenance, every degrade path); these tests only
+    pin the plumbing between the request and the service call."""
+
+    def test_request_defaults_write_only_tier_1(self) -> None:
+        """A request built without naming the tier fields (every pre-existing
+        test in this file builds one this way) matches RollScanSettings
+        .defaults() -- unchanged from before Tier 2/3 existed."""
+        req = RollBatchScanRequest(device_id="d", slots=(1,), output_folder="/tmp/x", filename_pattern="p")
+
+        assert req.write_unrepaired is True
+        assert req.write_repaired is False
+        assert req.write_positive is False
+        assert req.repair_mode == "exact"
+
+    def test_tier_flags_are_forwarded_to_write_frame(self, fake_coolscanpy, tmp_path, monkeypatch) -> None:
+        _open(fake_coolscanpy, fake_coolscanpy.Roll(frames=[_frame(fake_coolscanpy, slot=1)]))
+        worker = RollWorker()
+        captured = {}
+        real_write_frame = worker._service.write_frame
+
+        def _spy(frame, output_folder, filename_pattern, **kwargs):
+            captured.update(kwargs)
+            return real_write_frame(frame, output_folder, filename_pattern, **kwargs)
+
+        monkeypatch.setattr(worker._service, "write_frame", _spy)
+
+        worker.run_batch_scan(
+            RollBatchScanRequest(
+                device_id="ls5000-usb-001",
+                slots=(1,),
+                output_folder=str(tmp_path),
+                filename_pattern='{{ "%03d" % seq }}',
+                write_unrepaired=False,
+                write_repaired=True,
+                write_positive=True,
+                repair_mode="hybrid",
+            )
+        )
+
+        # write_repaired/write_positive=True with no repair engine registered degrades
+        # gracefully (see test_service.py) rather than raising, so this exercises the
+        # real write_frame end to end without needing a fake engine here.
+        assert captured == {
+            "write_unrepaired": False,
+            "write_repaired": True,
+            "write_positive": True,
+            "repair_mode": "hybrid",
+        }
+
+    def test_repaired_tier_writes_through_the_worker_with_a_registered_engine(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:
+        ir = np.zeros((4, 6), dtype=np.uint16)
+        _open(fake_coolscanpy, fake_coolscanpy.Roll(frames=[_frame(fake_coolscanpy, slot=1, ir=ir)]))
+        worker = RollWorker()
+        written = []
+        worker.frame_written.connect(written.append)
+
+        worker.run_batch_scan(
+            RollBatchScanRequest(
+                device_id="ls5000-usb-001",
+                slots=(1,),
+                output_folder=str(tmp_path),
+                filename_pattern='{{ "%03d" % seq }}',
+                write_unrepaired=True,
+                write_repaired=True,
+            )
+        )
+
+        assert len(written) == 1
+        assert written[0].repaired_rgb_path is not None
+        assert os.path.exists(written[0].repaired_rgb_path)
+        assert fake_repair_engine.calls  # the worker's request actually reached the engine

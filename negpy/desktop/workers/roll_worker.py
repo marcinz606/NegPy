@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.infrastructure.roll import coolscanpy_roll
+from negpy.infrastructure.roll.repair import RepairMode
+from negpy.infrastructure.roll.settings import RollScanSettings
 from negpy.kernel.system.logging import get_logger
 from negpy.services.roll.service import RollFrameOutput, RollScanningService
 
@@ -32,6 +34,14 @@ class RollBatchScanRequest:
     slots: tuple[int, ...]
     output_folder: str
     filename_pattern: str
+    # Which of the three output tiers to write -- see
+    # `RollScanningService.write_frame`. Defaults mirror `RollScanSettings`,
+    # so a request built without naming them writes Tier 1 only, matching
+    # this integration's behavior before Tier 2/3 existed.
+    write_unrepaired: bool = RollScanSettings.defaults().write_unrepaired
+    write_repaired: bool = RollScanSettings.defaults().write_repaired
+    write_positive: bool = RollScanSettings.defaults().write_positive
+    repair_mode: str = RepairMode.EXACT.value
 
 
 class RollWorker(QObject):
@@ -142,7 +152,15 @@ class RollWorker(QObject):
                 req.slots,
                 on_progress=lambda p: self.progress.emit(p.fraction, p.message),
             ):
-                output = self._service.write_frame(frame, req.output_folder, req.filename_pattern)
+                output = self._service.write_frame(
+                    frame,
+                    req.output_folder,
+                    req.filename_pattern,
+                    write_unrepaired=req.write_unrepaired,
+                    write_repaired=req.write_repaired,
+                    write_positive=req.write_positive,
+                    repair_mode=req.repair_mode,
+                )
                 written.append(output)
                 self.frame_written.emit(output)
             self.finished.emit(written)
