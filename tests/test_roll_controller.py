@@ -45,3 +45,29 @@ def test_ir_and_receipt_paths_are_not_sent_to_discovery():
 
     (discovered,), _kwargs = controller.request_asset_discovery.call_args
     assert discovered == ["frame.tif"]
+
+
+def test_outputs_with_no_rgb_path_are_skipped_for_discovery():
+    """The roll sidebar's output-tier setting can leave Tier 1 (rgb_path)
+    unwritten -- e.g. a positive-only scan -- in which case rgb_path is None.
+    Those frames have nothing NegPy can open and must not reach discovery,
+    but a frame that did write Tier 1 in the same batch still should."""
+    controller = MagicMock()
+    outputs = [
+        SimpleNamespace(slot=1, rgb_path=None, ir_path=None, receipt_path="a_receipt.json"),
+        SimpleNamespace(slot=2, rgb_path="b.tif", ir_path=None, receipt_path="b_receipt.json"),
+    ]
+
+    AppController._on_roll_scan_finished(controller, outputs)
+
+    controller.roll_finished.emit.assert_called_once_with(outputs)
+    controller.request_asset_discovery.assert_called_once_with(["b.tif"])
+
+
+def test_batch_with_no_rgb_paths_at_all_does_not_request_discovery():
+    controller = MagicMock()
+    outputs = [SimpleNamespace(slot=1, rgb_path=None, ir_path=None, receipt_path="a_receipt.json")]
+
+    AppController._on_roll_scan_finished(controller, outputs)
+
+    controller.request_asset_discovery.assert_not_called()

@@ -2196,9 +2196,13 @@ class AppController(QObject):
         Camera Scanning routes already do. Each output is already one complete per-slot RGB
         TIFF (coolscanpy's roll engine writes one frame per slot, not an R/G/B triplet to
         merge), so unlike `_on_capture_finished` this needs no rgbscan_mode/process_mode
-        bookkeeping -- just discovery."""
+        bookkeeping -- just discovery.
+
+        Only Tier 1 (`rgb_path`) is discovered here, and only when it was actually written --
+        the roll sidebar's output-tier setting can leave it `None`. Tier 2 and Tier 3 are not
+        opened as NegPy assets by this seam; see docs/COOLSCANPY_ROLL_SCANNING.md."""
         self.roll_finished.emit(outputs)
-        rgb_paths = [o.rgb_path for o in outputs]
+        rgb_paths = [o.rgb_path for o in outputs if o.rgb_path]
         if rgb_paths:
             self.request_asset_discovery(rgb_paths)
 
