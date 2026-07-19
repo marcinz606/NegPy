@@ -205,6 +205,7 @@ class AppController(QObject):
     capture_requested = pyqtSignal(CaptureRequest)
     capture_light_set = pyqtSignal(int, int, int, int)
     capture_progress = pyqtSignal(float)
+    capture_channel = pyqtSignal(str)  # "R"/"G"/"B" as each triplet channel starts
     capture_finished = pyqtSignal(list)
     capture_cancelled = pyqtSignal()
     capture_error = pyqtSignal(str)
@@ -474,6 +475,7 @@ class AppController(QObject):
         self.capture_requested.connect(self.capture_worker.run_capture)
         self.capture_worker.light_set.connect(self.capture_light_set.emit)
         self.capture_worker.progress.connect(self.capture_progress.emit)
+        self.capture_worker.channel.connect(self.capture_channel.emit)
         self.capture_worker.finished.connect(self._on_capture_finished)
         self.capture_worker.cancelled.connect(self.capture_cancelled.emit)
         self.capture_worker.error.connect(self.capture_error.emit)

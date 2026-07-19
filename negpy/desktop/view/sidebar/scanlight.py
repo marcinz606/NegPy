@@ -397,6 +397,7 @@ class ScanlightSidebar(QWidget):
 
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
+        self.controller.capture_channel.connect(self._on_channel)
         self.controller.capture_finished.connect(self._on_finished)
         self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
@@ -1258,12 +1259,16 @@ class ScanlightSidebar(QWidget):
         self.progress_bar.setValue(int(progress * 100))
         self.lv_window.set_progress(progress)
 
+    @pyqtSlot(str)
+    def _on_channel(self, letter: str) -> None:
+        self.lv_window.set_channel(letter)
+
     @pyqtSlot(list)
     def _on_finished(self, paths: list) -> None:
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
-        self.lv_window.clear_progress()
         frame = paths[0].split("_Frame")[-1][:3] if paths else ""
+        self.lv_window.flash_captured(frame)
         self._set_status(f"Captured frame {frame} — inverting in NegPy…")
         self._after_capture_live_view()  # re-light the still-running preview
 
