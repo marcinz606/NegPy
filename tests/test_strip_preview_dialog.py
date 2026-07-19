@@ -2,7 +2,7 @@
 
 Constructs the real StripPreviewDialog against a light fake controller under an
 offscreen Qt platform. Proves the per-frame tiles, the Use gating, the getters
-the sidebar reads on accept, and the single-flight "Preview all" chain.
+the sidebar reads on accept, and the roll-preview request/result flow.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from negpy.desktop.view.widgets.strip_preview_dialog import (
 )
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
 from negpy.infrastructure.scanners.params import ScanMode
+from negpy.infrastructure.scanners.roll import RollPreview
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -46,7 +47,8 @@ def _device(capacity: int) -> ScannerDevice:
 
 
 class _FakeController(QObject):
-    scan_preview_ready = pyqtSignal(object)
+    scan_roll_preview_ready = pyqtSignal(object)
+    scan_roll_preview_finished = pyqtSignal()
     scan_error = pyqtSignal(str)
     scan_cancelled = pyqtSignal()
 
@@ -55,10 +57,21 @@ class _FakeController(QObject):
         self.preview_reqs: list = []
         self._raise = raise_on_preview
 
-    def start_preview(self, req) -> None:
+    def start_roll_preview(self, req) -> None:
         if self._raise:
             raise RuntimeError("A scanner request is already active")
         self.preview_reqs.append(req)
+
+    def deliver(self, slot: int, *, rgb=None, offset: float = 0.0, error: str | None = None) -> None:
+        """Hand back one slot the way the worker does."""
+        self.scan_roll_preview_ready.emit(
+            RollPreview(slot=slot, rgb=_rgb() if rgb is None and error is None else rgb, offset=offset, error=error)
+        )
+
+    def deliver_all(self, slots, *, offset: float = 0.0) -> None:
+        for slot in slots:
+            self.deliver(slot, offset=offset)
+        self.scan_roll_preview_finished.emit()
 
 
 def _rgb():
@@ -86,7 +99,7 @@ def test_preview_uses_lowest_supported_dpi() -> None:
 
     dialog._on_preview_one(1)
 
-    assert controller.preview_reqs[0].params.dpi == 90
+    assert controller.preview_reqs[0].dpi == 90
 
 
 def test_offset_indicator_grows_from_the_left_tracking_the_slider() -> None:
@@ -106,10 +119,10 @@ def test_preview_offsets_follow_drift_per_frame_position() -> None:
     dialog = StripPreviewDialog(controller, _device(3), initial_offset=1.0, initial_offset_modifier=0.2)
 
     dialog._on_preview_all()
-    controller.scan_preview_ready.emit(_rgb())
-    controller.scan_preview_ready.emit(_rgb())
 
-    assert [r.params.frame_offset_mm for r in controller.preview_reqs] == pytest.approx([1.0, 1.2, 1.4])
+    # Offsets go out as fractions of one pitch; the session converts and clamps.
+    offsets = controller.preview_reqs[0].offsets
+    assert [offsets[f] * 38.0 for f in (1, 2, 3)] == pytest.approx([1.0, 1.2, 1.4])
 
 
 def test_negative_drift_floors_the_offset_at_zero() -> None:
@@ -165,7 +178,7 @@ def test_indicator_is_absolute_per_frame_not_relative_to_the_shown_preview() -> 
     # Preview frame 1 at the current offset — the band must still show the
     # absolute 2.0 mm cut, not disappear because "nothing changed".
     dialog._on_preview_one(1)
-    controller.scan_preview_ready.emit(_rgb())
+    controller.deliver(1, offset=2.0 / 38.0)
 
     ((frac, edge),) = dialog._tiles[1].label._offset_indicators
     assert edge == "left"
@@ -192,7 +205,7 @@ def test_preview_dpi_dropdown_defaults_to_lowest_and_flows_into_requests() -> No
     dialog.preview_dpi_combo.setCurrentIndex(1)
     dialog._on_preview_one(1)
 
-    assert controller.preview_reqs[0].params.dpi == 4000
+    assert controller.preview_reqs[0].dpi == 4000
 
 
 def test_preview_positive_inverts_and_levels() -> None:
@@ -286,7 +299,7 @@ def test_portrait_preview_is_shown_landscape() -> None:
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _device(3))
     dialog._on_preview_one(1)
-    controller.scan_preview_ready.emit(np.zeros((60, 20, 3), dtype=np.uint8))  # tall (H > W)
+    controller.deliver(1, rgb=np.zeros((60, 20, 3), dtype=np.uint8))  # tall (H > W)
     pixmap = dialog._tiles[1].label._pixmap
     assert pixmap is not None
     assert pixmap.width() > pixmap.height()
@@ -304,50 +317,72 @@ def test_scan_top_maps_to_display_left() -> None:
     assert _scan_to_display_rect((0.0, 0.0, 1.0, 0.25)) == pytest.approx((0.0, 0.0, 0.25, 1.0))
 
 
-def test_preview_all_chains_one_frame_at_a_time() -> None:
+def test_preview_all_asks_for_the_whole_strip_in_one_request() -> None:
+    # The session owns the traversal: one request for every slot, results streamed
+    # back per slot. A transport that reads the strip in one pass can honour this.
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _device(3))
 
     dialog._on_preview_all()
-    assert [r.params.frame for r in controller.preview_reqs] == [1]  # only one in flight
 
-    controller.scan_preview_ready.emit(_rgb())
-    assert [r.params.frame for r in controller.preview_reqs] == [1, 2]
+    assert [r.slots for r in controller.preview_reqs] == [(1, 2, 3)]
+    assert dialog.preview_all_btn.isEnabled() is False  # locked until finished
 
-    controller.scan_preview_ready.emit(_rgb())
-    assert [r.params.frame for r in controller.preview_reqs] == [1, 2, 3]
+    controller.deliver_all((1, 2, 3))
 
-    controller.scan_preview_ready.emit(_rgb())  # last frame done → chain stops
-    assert [r.params.frame for r in controller.preview_reqs] == [1, 2, 3]
+    assert all(dialog._tiles[f].label.has_frame() for f in (1, 2, 3))
     assert dialog.preview_all_btn.isEnabled() is True
 
 
-def test_preview_ready_routes_to_the_in_flight_tile() -> None:
+def test_previews_route_by_their_own_slot_number() -> None:
+    """Results carry their slot, so out-of-order delivery still lands correctly."""
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _device(3))
 
-    dialog._on_preview_one(2)
-    controller.scan_preview_ready.emit(_rgb())
+    dialog._on_preview_all()
+    controller.deliver(3)
+    controller.deliver(1)
 
-    assert dialog._tiles[2].label.has_frame() is True
+    assert dialog._tiles[1].label.has_frame() is True
+    assert dialog._tiles[2].label.has_frame() is False
+    assert dialog._tiles[3].label.has_frame() is True
+
+
+def test_a_failed_slot_does_not_abort_the_strip() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))
+
+    dialog._on_preview_all()
+    controller.deliver(1, error="film jam")
+    controller.deliver(2)
+    controller.deliver(3)
+    controller.scan_roll_preview_finished.emit()
+
     assert dialog._tiles[1].label.has_frame() is False
-    assert dialog._tiles[3].label.has_frame() is False
+    assert all(dialog._tiles[f].label.has_frame() for f in (2, 3))
+    assert "1" in dialog.status.text()  # the failed slot is named
+    assert dialog.preview_all_btn.isEnabled() is True
 
 
-def test_preview_error_continues_the_chain() -> None:
+def test_a_terminal_error_unlocks_the_dialog() -> None:
     controller = _FakeController()
     dialog = StripPreviewDialog(controller, _device(3))
 
-    dialog._on_preview_all()  # frame 1 in flight
-    controller.scan_error.emit("film jam")  # frame 1 glitches → move on, don't abort
+    dialog._on_preview_all()
+    controller.scan_error.emit("scanner went away")
 
-    assert [r.params.frame for r in controller.preview_reqs] == [1, 2]
-
-    controller.scan_error.emit("film jam")  # frame 2 → frame 3
-    controller.scan_error.emit("film jam")  # frame 3 → chain ends
-
-    assert [r.params.frame for r in controller.preview_reqs] == [1, 2, 3]
     assert dialog.preview_all_btn.isEnabled() is True
+    assert "scanner went away" in dialog.status.text()
+
+
+def test_a_second_preview_is_refused_while_one_is_running() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _device(3))
+
+    dialog._on_preview_all()
+    dialog._on_preview_one(2)
+
+    assert len(controller.preview_reqs) == 1
 
 
 def test_start_preview_busy_is_handled_gracefully() -> None:
@@ -378,12 +413,12 @@ def test_preview_is_placed_at_its_offset_not_stretched_over_the_frame() -> None:
     dialog = StripPreviewDialog(controller, _pitch_device(3), initial_offset=4.8)
 
     dialog._on_preview_one(1)
-    controller.scan_preview_ready.emit(_rgb())
+    controller.deliver(1, offset=4.8 / 37.83)
 
     start, end = dialog._tiles[1].label._coverage
     assert start == pytest.approx(4.8 / 37.83, abs=1e-4)
     assert end == 1.0
-    assert dialog._tiles[1].previewed_offset == pytest.approx(4.8)
+    assert dialog._tiles[1].previewed_offset == pytest.approx(4.8 / 37.83)
 
 
 def test_preview_at_zero_offset_covers_the_whole_frame() -> None:
@@ -391,7 +426,7 @@ def test_preview_at_zero_offset_covers_the_whole_frame() -> None:
     dialog = StripPreviewDialog(controller, _pitch_device(3))
 
     dialog._on_preview_one(1)
-    controller.scan_preview_ready.emit(_rgb())
+    controller.deliver(1, offset=0.0)
 
     assert dialog._tiles[1].label._coverage == (0.0, 1.0)
 
@@ -404,7 +439,7 @@ def test_offset_indicator_lands_on_the_edge_of_its_own_preview() -> None:
     label = dialog._tiles[1].label
 
     dialog._on_preview_one(1)
-    controller.scan_preview_ready.emit(_rgb())
+    controller.deliver(1, offset=4.8 / 37.83)
 
     ((frac, _edge),) = label._offset_indicators
     assert frac == pytest.approx(label._coverage[0], abs=1e-4)

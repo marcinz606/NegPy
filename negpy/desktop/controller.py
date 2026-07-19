@@ -28,7 +28,7 @@ from negpy.desktop.workers.render import (
     ThumbnailUpdateTask,
     ThumbnailWorker,
 )
-from negpy.desktop.workers.scan_worker import BatchRequest, ScanRequest, ScanWorker
+from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
     CaptureRequest,
@@ -208,8 +208,9 @@ class AppController(QObject):
     scan_batch_finished = pyqtSignal(list)  # batch: all completed rgb paths
     scan_batch_requested = pyqtSignal(BatchRequest)
     scan_eject_requested = pyqtSignal(str)
-    scan_preview_requested = pyqtSignal(ScanRequest)
-    scan_preview_ready = pyqtSignal(object)  # preview: raw rgb ndarray
+    scan_roll_preview_requested = pyqtSignal(RollPreviewRequest)
+    scan_roll_preview_ready = pyqtSignal(object)  # one RollPreview per strip slot
+    scan_roll_preview_finished = pyqtSignal()
     capture_light_requested = pyqtSignal(int, int, int, int, str)
     capture_requested = pyqtSignal(CaptureRequest)
     capture_light_set = pyqtSignal(int, int, int, int)
@@ -486,8 +487,9 @@ class AppController(QObject):
         self.scan_worker.batch_finished.connect(self._on_scan_batch_finished)
         self.scan_worker.ejected.connect(self.scan_ejected.emit)
         self.scan_worker.eject_error.connect(self.scan_eject_error.emit)
-        self.scan_preview_requested.connect(self.scan_worker.run_preview)
-        self.scan_worker.preview_ready.connect(self.scan_preview_ready.emit)
+        self.scan_roll_preview_requested.connect(self.scan_worker.run_roll_preview)
+        self.scan_worker.roll_preview_ready.connect(self.scan_roll_preview_ready.emit)
+        self.scan_worker.roll_preview_finished.connect(self.scan_roll_preview_finished.emit)
         self.capture_light_requested.connect(self.capture_worker.set_light)
         self.capture_requested.connect(self.capture_worker.run_capture)
         self.capture_worker.light_set.connect(self.capture_light_set.emit)
@@ -2035,10 +2037,11 @@ class AppController(QObject):
         self.scan_started.emit()
         self.scan_batch_requested.emit(req)
 
-    def start_preview(self, req: ScanRequest) -> None:
-        """Preview scan (result via scan_preview_ready). No scan_started — preview is dialog-local."""
+    def start_roll_preview(self, req: RollPreviewRequest) -> None:
+        """Preview strip slots (results via scan_roll_preview_ready, then
+        scan_roll_preview_finished). No scan_started — preview is dialog-local."""
         self.scan_worker.prepare_scan()
-        self.scan_preview_requested.emit(req)
+        self.scan_roll_preview_requested.emit(req)
 
     def eject_scanner(self, device_id: str) -> None:
         """Trigger the scanner's eject action on the worker thread."""

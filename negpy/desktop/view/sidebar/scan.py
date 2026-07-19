@@ -253,36 +253,11 @@ class ScanSidebar(QWidget):
 
     def _request_devices(self) -> None:
         """Request device list from the scan worker thread."""
-        if not self._sane_available():
-            self._show_sane_missing()
-            return
         self.device_combo.clear()
         self.device_combo.addItem("Detecting scanners…", None)
         self.device_combo.setEnabled(False)
         self.status_label.setText("Detecting scanners…")
         self.controller.request_scan_devices()
-
-    @staticmethod
-    def _sane_available() -> bool:
-        try:
-            import sane  # noqa: F401
-
-            return True
-        except Exception:
-            return False
-
-    def _show_sane_missing(self) -> None:
-        import sys
-
-        if sys.platform == "darwin":
-            hint = "brew install sane-backends"
-        else:
-            hint = "sudo apt install libsane  # Debian/Ubuntu\nsudo pacman -S sane  # Arch\nor your distro's sane equivalent"
-        self.device_combo.clear()
-        self.device_combo.addItem("SANE not available", None)
-        self.device_combo.setEnabled(False)
-        self.scan_btn.setEnabled(False)
-        self.status_label.setText(f"Scanner support requires SANE (libsane).\n\nTo enable:\n{hint}")
 
     def _on_refresh(self) -> None:
         self._request_devices()

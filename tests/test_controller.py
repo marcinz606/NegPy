@@ -164,24 +164,18 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(events, ["prepare", "started", ("request", request)])
 
-    def test_start_preview_prepares_worker_and_emits_preview_only(self):
-        from negpy.desktop.workers.scan_worker import ScanRequest
+    def test_start_roll_preview_prepares_worker_and_emits_preview_only(self):
+        from negpy.desktop.workers.scan_worker import RollPreviewRequest
 
         events: list[object] = []
-        request = ScanRequest(
-            device_id="coolscan3:test",
-            params=ScanParams(dpi=500, depth=8, capture_ir=False),
-            output_folder="/tmp",
-            filename_pattern="preview",
-            output_format="TIFF",
-        )
+        request = RollPreviewRequest(device=SimpleNamespace(id="coolscan3:test"), slots=(1, 2), dpi=500)
         controller = SimpleNamespace(
             scan_worker=SimpleNamespace(prepare_scan=lambda: events.append("prepare")),
             scan_started=SimpleNamespace(emit=lambda: events.append("started")),
-            scan_preview_requested=SimpleNamespace(emit=lambda value: events.append(("preview", value))),
+            scan_roll_preview_requested=SimpleNamespace(emit=lambda value: events.append(("preview", value))),
         )
 
-        AppController.start_preview(controller, request)
+        AppController.start_roll_preview(controller, request)
 
         # No "started": a preview must not flip the main scan UI into scanning state.
         self.assertEqual(events, ["prepare", ("preview", request)])

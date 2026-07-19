@@ -6,7 +6,13 @@ from typing import Callable
 
 import numpy as np
 
-from negpy.infrastructure.scanners.base import ScanMode, ScannerCapabilities, ScannerDevice
+from negpy.infrastructure.scanners.base import (
+    ScanMode,
+    ScannerCapabilities,
+    ScannerDevice,
+    ScannerUnavailable,
+    TransientScanError,
+)
 from negpy.infrastructure.scanners.params import ScanParams, clamp_frame_offset_mm
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.system.logging import get_logger
@@ -58,6 +64,18 @@ _SANE_UNIT_MM = 3
 
 _PIEUSB_PREFIX = "pieusb:"
 _COOLSCAN3_PREFIX = "coolscan3:"
+
+# Stable SANE status strings for transport glitches worth one retry (a Coolscan's
+# USB link occasionally hiccups mid-strip). A real error — bad option, missing
+# frame — carries a different message and must fail fast.
+_TRANSIENT_IO_MARKERS = ("error during device i/o", "device busy")
+
+
+def _as_scan_error(exc: Exception, message: str) -> Exception:
+    """Re-type a SANE failure so the service can retry without reading messages."""
+    msg = str(exc).lower()
+    cls = TransientScanError if any(marker in msg for marker in _TRANSIENT_IO_MARKERS) else RuntimeError
+    return cls(message)
 
 
 def _strip_net_prefix(device_id: str) -> str:
@@ -634,7 +652,7 @@ class SaneBackend:
         try:
             import sane  # noqa: F811
         except ImportError:
-            raise ImportError(f"python-sane not importable. {_resolve_install_hint()}") from None
+            raise ScannerUnavailable(f"python-sane not importable. {_resolve_install_hint()}") from None
         self._sane = sane
         self._sane_initialized = False
         self._devices_cache: list[ScannerDevice] | None = None
@@ -809,7 +827,7 @@ class SaneBackend:
         try:
             dev, _ = self._open_device(device_id)
         except Exception as e:
-            raise RuntimeError(f"Failed to open scanner {device_id}: {e}") from e
+            raise _as_scan_error(e, f"Failed to open scanner {device_id}: {e}") from e
 
         try:
             return self._scan_on_device(dev, device_id, params, progress, cancel)
@@ -953,7 +971,7 @@ class SaneBackend:
                 rgb_array = dev.arr_snap(progress=_snap_progress_callback(progress))
             except Exception as e:
                 dev.cancel()
-                raise RuntimeError(f"RGB scan failed: {e}") from e
+                raise _as_scan_error(e, f"RGB scan failed: {e}") from e
 
             # Inline-IR frames carry infrared as the 4th channel — recover the
             # true shape (python-sane misreads 4-sample frames) and split it off.

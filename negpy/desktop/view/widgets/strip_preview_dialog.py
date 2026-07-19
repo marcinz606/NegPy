@@ -27,9 +27,10 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
-from negpy.desktop.workers.scan_worker import ScanRequest
+from negpy.desktop.workers.scan_worker import RollPreviewRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
-from negpy.infrastructure.scanners.params import ScanParams, clamp_frame_offset_mm
+from negpy.infrastructure.scanners.params import clamp_frame_offset_mm
+from negpy.infrastructure.scanners.roll import effective_pitch_mm
 
 _CLAMP_NOTICE = "Offset held at the frame pitch"
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
@@ -131,9 +132,7 @@ class StripPreviewDialog(QDialog):
         # becomes horizontal. Tiles are constant-size at this aspect.
         mm = self._caps.max_area_mm
         self._tile_aspect = (mm[1] / mm[0]) if (mm and len(mm) > 1 and mm[0]) else 1.5
-        self._inflight_frame: int | None = None
-        self._inflight_offset: float = 0.0
-        self._preview_queue: list[int] = []
+        self._previewing = False
         self._failed_frames: list[int] = []
         self._scan_now = False  # set when the user chooses "Scan" over "Use"
         initial_windows = initial_windows or {}
@@ -256,7 +255,8 @@ class StripPreviewDialog(QDialog):
         self._on_offset_changed(self.offset_slider.value())
         self._update_ok_enabled()
 
-        controller.scan_preview_ready.connect(self._on_preview_ready)
+        controller.scan_roll_preview_ready.connect(self._on_preview_ready)
+        controller.scan_roll_preview_finished.connect(self._on_preview_finished)
         controller.scan_error.connect(self._on_error)
         controller.scan_cancelled.connect(self._on_cancelled)
 
@@ -313,8 +313,7 @@ class StripPreviewDialog(QDialog):
 
     def _frame_pitch(self) -> float:
         """Feed-axis frame pitch (mm) — the length a tile represents. 0.0 when unknown."""
-        mm = self._caps.max_area_mm
-        return self._caps.frame_pitch_mm or (mm[1] if mm and len(mm) > 1 else 0.0)
+        return effective_pitch_mm(self._caps)
 
     def _raw_offset_for_frame(self, frame: int) -> float:
         return self.frame_offset() + (frame - 1) * self.frame_offset_modifier()
@@ -385,108 +384,89 @@ class StripPreviewDialog(QDialog):
         return int(self.preview_dpi_combo.currentData() or _PREVIEW_FALLBACK_DPI)
 
     def _on_preview_one(self, frame: int) -> None:
-        self._failed_frames = []
-        self._preview_queue = [frame]
-        self._pump()
+        self._start_preview((frame,))
 
     def _on_preview_all(self) -> None:
-        self._failed_frames = []
-        self._preview_queue = list(range(1, self._capacity + 1))
-        self._pump()
+        self._start_preview(tuple(range(1, self._capacity + 1)))
 
-    def _pump(self) -> None:
-        if self._inflight_frame is not None:
+    def _start_preview(self, slots: tuple[int, ...]) -> None:
+        if self._previewing:
             return
-        if not self._preview_queue:
-            self._set_previewing(False)
-            return
-        frame = self._preview_queue.pop(0)
-        self._inflight_offset = self._offset_for_frame(frame)
-        req = ScanRequest(
-            device_id=self._device.id,
-            params=ScanParams(
-                dpi=self._preview_dpi(),
-                depth=8,
-                capture_ir=False,
-                autofocus=False,
-                auto_exposure=False,
-                window=None,
-                frame_offset_mm=self._offset_for_frame(frame),
-                frame=frame,
-            ),
-            output_folder="",
-            filename_pattern="",
-            output_format="TIFF",
+        self._failed_frames = []
+        pitch = self._frame_pitch()
+        req = RollPreviewRequest(
+            device=self._device,
+            slots=slots,
+            dpi=self._preview_dpi(),
+            # Raw, not clamped: the session holds the transport's own limits and
+            # reports back the offset it actually reached.
+            offsets={f: (self._raw_offset_for_frame(f) / pitch if pitch else 0.0) for f in slots},
         )
         try:
-            self._controller.start_preview(req)
+            self._controller.start_roll_preview(req)
         except Exception as e:
-            self._inflight_frame = None
-            self._preview_queue.clear()
-            self._set_previewing(False)
             self.status.setText(f"Scanner busy — {e}")
             return
-        self._inflight_frame = frame
+        self._previewing = True
         self._set_previewing(True)
-        self.status.setText(f"Previewing frame {frame}…")
+        self.status.setText(f"Previewing {'frame ' + str(slots[0]) if len(slots) == 1 else f'{len(slots)} frames'}…")
 
     @pyqtSlot(object)
-    def _on_preview_ready(self, rgb) -> None:
-        frame = self._inflight_frame
-        if frame is None:
+    def _on_preview_ready(self, preview) -> None:
+        """One slot landed. Slot number and effective offset ride on the preview,
+        so results need no in-flight bookkeeping and may arrive in any order."""
+        tile = self._tiles.get(preview.slot)
+        if tile is None:
             return
-        self._inflight_frame = None
+        if preview.error is not None:
+            # One frame glitched (the backend already retried it); the rest of the
+            # strip is still coming.
+            self._failed_frames.append(preview.slot)
+            self.status.setText(f"Frame {preview.slot} failed — continuing…")
+            return
         try:
-            positive = _preview_positive(rgb)
+            positive = _preview_positive(preview.rgb)
             pixmap = QPixmap.fromImage(ImageConverter.to_qimage(positive)).transformed(QTransform().rotate(_DISPLAY_ROTATION_DEG))
         except Exception as e:
-            self._preview_queue.clear()
-            self._set_previewing(False)
-            self.status.setText(f"Could not display frame {frame}: {e}")
+            self.status.setText(f"Could not display frame {preview.slot}: {e}")
             return
-        tile = self._tiles[frame]
-        tile.previewed_offset = self._inflight_offset
+        tile.previewed_offset = preview.offset
         # The scan starts at the offset and runs to the frame boundary, so the raster
         # covers only the tail of the frame — place it there instead of stretching it
         # back over the whole tile, or tile fractions stop meaning frame fractions.
-        pitch = self._frame_pitch()
-        tile.label.set_frame(pixmap, (self._inflight_offset / pitch, 1.0) if pitch else None)
+        tile.label.set_frame(pixmap, (preview.offset, 1.0))
         self._refresh_offset_indicators()
-        self._pump()
 
-    @pyqtSlot(str)
-    def _on_error(self, msg) -> None:
-        if self._inflight_frame is None and not self._preview_queue:
-            return
-        frame = self._inflight_frame
-        self._inflight_frame = None
-        if frame is not None:
-            self._failed_frames.append(frame)
-        if self._preview_queue:
-            # One frame glitched (the backend already retried it); don't abort the
-            # whole strip — carry on with the rest.
-            self.status.setText(f"Frame {frame} failed — continuing…")
-            self._pump()
-            return
+    @pyqtSlot()
+    def _on_preview_finished(self) -> None:
+        self._previewing = False
         self._set_previewing(False)
         if self._failed_frames:
             failed = ", ".join(str(f) for f in self._failed_frames)
-            self.status.setText(f"Preview done. Failed frame(s): {failed} ({msg})")
+            self.status.setText(f"Preview done. Failed frame(s): {failed}")
         else:
-            self.status.setText(f"Preview failed: {msg}")
+            self.status.clear()
+
+    @pyqtSlot(str)
+    def _on_error(self, msg) -> None:
+        if not self._previewing:
+            return
+        self._previewing = False
+        self._set_previewing(False)
+        self.status.setText(f"Preview failed: {msg}")
 
     @pyqtSlot()
     def _on_cancelled(self) -> None:
-        if self._inflight_frame is None and not self._preview_queue:
+        if not self._previewing:
             return
-        self._inflight_frame = None
-        self._preview_queue.clear()
+        self._previewing = False
         self._set_previewing(False)
         self.status.setText("Preview cancelled.")
 
     def closeEvent(self, ev) -> None:
         for signal, slot in (
-            (self._controller.scan_preview_ready, self._on_preview_ready),
+            (self._controller.scan_roll_preview_ready, self._on_preview_ready),
+            (self._controller.scan_roll_preview_finished, self._on_preview_finished),
             (self._controller.scan_error, self._on_error),
             (self._controller.scan_cancelled, self._on_cancelled),
         ):

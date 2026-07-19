@@ -298,13 +298,3 @@ class TestServiceOpenSession:
 
         assert service.open_session(_DEV_ID) is sentinel
         assert backend.calls == [_DEV_ID]
-
-    def test_raises_when_the_backend_has_no_session_support(self) -> None:
-        class BackendWithoutSessions:
-            pass
-
-        service = ScannerService()
-        service._backend = BackendWithoutSessions()
-
-        with pytest.raises(RuntimeError, match="does not support"):
-            service.open_session(_DEV_ID)

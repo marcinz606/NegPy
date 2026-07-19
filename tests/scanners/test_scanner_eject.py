@@ -302,15 +302,6 @@ class TestScannerServiceEject:
         assert service.eject("coolscan3:usb:test") is True
         assert backend.calls == ["coolscan3:usb:test"]
 
-    def test_returns_false_cleanly_when_the_backend_has_no_eject_method(self) -> None:
-        class BackendWithoutEject:
-            pass
-
-        service = ScannerService()
-        service._backend = BackendWithoutEject()
-
-        assert service.eject("coolscan3:usb:test") is False
-
     def test_propagates_a_genuine_eject_failure_from_the_backend(self) -> None:
         class FailingBackend:
             def eject(self, device_id: str) -> bool:

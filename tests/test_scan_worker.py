@@ -4,8 +4,10 @@ import threading
 
 import pytest
 
-from negpy.desktop.workers.scan_worker import BatchRequest, ScanRequest, ScanWorker
-from negpy.infrastructure.scanners.params import ScanParams
+from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
+from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice, ScannerUnavailable
+from negpy.infrastructure.scanners.params import ScanMode, ScanParams
+from negpy.infrastructure.scanners.roll import RollPreview
 
 
 class _EjectService:
@@ -161,6 +163,25 @@ def test_batch_negative_drift_floors_the_offset_at_zero() -> None:
     worker.run_batch(req)
 
     assert service.offsets == pytest.approx([0.3, 0.05, 0.0])
+
+
+def test_list_devices_failure_emits_the_empty_list_before_the_error() -> None:
+    """Order matters: the sidebar's devices_ready handler rewrites the status label,
+    so an error emitted first would lose the backend's install hint."""
+
+    class _FailingService:
+        def refresh_devices(self):
+            raise ScannerUnavailable("python-sane not importable. pip install python-sane")
+
+    worker = ScanWorker()
+    worker._service = _FailingService()  # type: ignore[assignment]
+    order: list[str] = []
+    worker.devices_ready.connect(lambda devices: order.append(f"devices:{len(devices)}"))
+    worker.error.connect(lambda msg: order.append(f"error:{msg}"))
+
+    worker.list_devices()
+
+    assert order == ["devices:0", "error:python-sane not importable. pip install python-sane"]
 
 
 def test_scan_worker_emits_eject_result() -> None:
@@ -375,74 +396,124 @@ def test_run_batch_applies_per_frame_windows_falling_back_to_base() -> None:
     assert service.windows == [w2, None, w4]  # frame 3 has no window → base (None)
 
 
-class _Result:
-    def __init__(self, rgb) -> None:
-        self.rgb = rgb
+class _FakeRollSession:
+    def __init__(self, *, slots_seen: list, open_error: Exception | None = None, cancel_at: int | None = None) -> None:
+        self.slots_seen = slots_seen
+        self.offsets: dict[int, float] = {}
+        self.closed = False
+        self._cancel_at = cancel_at
+        self._open_error = open_error
+
+    def set_offset(self, slot: int, offset: float) -> None:
+        self.offsets[slot] = offset
+
+    def preview(self, slots, *, cancel):
+        for slot in slots:
+            if self._cancel_at == slot:
+                cancel.set()
+                return
+            self.slots_seen.append(slot)
+            yield RollPreview(slot=slot, rgb=object(), offset=self.offsets.get(slot, 0.0))
+
+    def close(self) -> None:
+        self.closed = True
 
 
-class _PreviewService:
-    def __init__(self, *, rgb=None, acquisition_error: Exception | None = None, cancel_during_acquisition: bool = False) -> None:
-        self._rgb = rgb if rgb is not None else object()
-        self.acquisition_error = acquisition_error
-        self.cancel_during_acquisition = cancel_during_acquisition
-        self.run_calls = 0
-        self.write_calls = 0
+class _RollService:
+    def __init__(self, *, session: _FakeRollSession | None = None, open_error: Exception | None = None) -> None:
+        self.session = session or _FakeRollSession(slots_seen=[])
+        self._open_error = open_error
 
-    def run_scan(self, *, device_id, params, progress, cancel):
-        self.run_calls += 1
-        if self.cancel_during_acquisition:
-            cancel.set()
-        if self.acquisition_error is not None:
-            raise self.acquisition_error
-        return _Result(self._rgb)
-
-    def write_result(self, **_kwargs) -> str:
-        self.write_calls += 1
-        return "/tmp/x.tif"
+    def open_roll(self, device, *, dpi):
+        if self._open_error is not None:
+            raise self._open_error
+        self.dpi = dpi
+        return self.session
 
 
-def test_run_preview_emits_rgb_and_skips_write() -> None:
+def _roll_request(slots=(1, 2, 3), offsets=None) -> RollPreviewRequest:
+    caps = ScannerCapabilities(
+        ir_channel=False,
+        supported_dpi=(1000,),
+        supported_depths=(8,),
+        sources=(ScanMode.NEGATIVE,),
+        max_area_mm=(25.0, 38.0),
+        adapter_frame_capacity=len(slots),
+    )
+    device = ScannerDevice(id="coolscan3:test", vendor="Nikon", model="LS-50", capabilities=caps)
+    return RollPreviewRequest(device=device, slots=tuple(slots), dpi=1000, offsets=offsets or {})
+
+
+def test_run_roll_preview_emits_one_result_per_slot_then_finishes() -> None:
     worker = ScanWorker()
-    rgb = object()
-    service = _PreviewService(rgb=rgb)
+    service = _RollService()
     worker._service = service  # type: ignore[assignment]
-    previews: list[object] = []
-    finished, cancelled, errors = _terminal_outcomes(worker)
-    worker.preview_ready.connect(previews.append)
+    previews: list = []
+    done: list = []
+    _finished, cancelled, errors = _terminal_outcomes(worker)
+    worker.roll_preview_ready.connect(previews.append)
+    worker.roll_preview_finished.connect(lambda: done.append(True))
 
-    worker.run_preview(_scan_request())
+    worker.run_roll_preview(_roll_request())
 
-    assert previews == [rgb]
-    assert service.write_calls == 0
-    assert finished == [] and cancelled == [] and errors == []
+    assert [p.slot for p in previews] == [1, 2, 3]
+    assert done == [True]
+    assert cancelled == [] and errors == []
+    assert service.session.closed is True
     assert worker._scanning is False
 
 
-def test_run_preview_cancelled_emits_cancelled_not_preview() -> None:
+def test_run_roll_preview_applies_offsets_before_previewing() -> None:
     worker = ScanWorker()
-    service = _PreviewService(cancel_during_acquisition=True)
+    service = _RollService()
     worker._service = service  # type: ignore[assignment]
-    previews: list[object] = []
-    finished, cancelled, errors = _terminal_outcomes(worker)
-    worker.preview_ready.connect(previews.append)
 
-    worker.run_preview(_scan_request())
+    worker.run_roll_preview(_roll_request(offsets={2: 0.25}))
 
-    assert previews == []
+    assert service.session.offsets == {2: 0.25}
+
+
+def test_run_roll_preview_cancel_stops_the_strip() -> None:
+    worker = ScanWorker()
+    session = _FakeRollSession(slots_seen=[], cancel_at=3)
+    service = _RollService(session=session)
+    worker._service = service  # type: ignore[assignment]
+    done: list = []
+    _finished, cancelled, errors = _terminal_outcomes(worker)
+    worker.roll_preview_finished.connect(lambda: done.append(True))
+
+    worker.run_roll_preview(_roll_request())
+
+    assert session.slots_seen == [1, 2]
     assert cancelled == [None]
-    assert errors == []
+    assert done == [] and errors == []
 
 
-def test_run_preview_error_emits_error() -> None:
+def test_run_roll_preview_reports_a_failure_to_open_the_strip() -> None:
     worker = ScanWorker()
-    service = _PreviewService(acquisition_error=RuntimeError("io error"))
-    worker._service = service  # type: ignore[assignment]
-    previews: list[object] = []
-    finished, cancelled, errors = _terminal_outcomes(worker)
-    worker.preview_ready.connect(previews.append)
+    worker._service = _RollService(open_error=RuntimeError("no film"))  # type: ignore[assignment]
+    done: list = []
+    _finished, cancelled, errors = _terminal_outcomes(worker)
+    worker.roll_preview_finished.connect(lambda: done.append(True))
 
-    worker.run_preview(_scan_request())
+    worker.run_roll_preview(_roll_request())
 
-    assert previews == []
-    assert errors == ["io error"]
-    assert cancelled == []
+    assert errors == ["no film"]
+    assert done == [] and cancelled == []
+
+
+def test_run_roll_preview_closes_the_session_when_a_slot_raises() -> None:
+    class _Exploding(_FakeRollSession):
+        def preview(self, slots, *, cancel):
+            yield RollPreview(slot=1, rgb=object())
+            raise RuntimeError("transport died")
+
+    session = _Exploding(slots_seen=[])
+    worker = ScanWorker()
+    worker._service = _RollService(session=session)  # type: ignore[assignment]
+    _finished, _cancelled, errors = _terminal_outcomes(worker)
+
+    worker.run_roll_preview(_roll_request())
+
+    assert errors == ["transport died"]
+    assert session.closed is True

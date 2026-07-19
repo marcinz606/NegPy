@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.desktop.power_assertion import acquire_unattended_power_assertion
+from negpy.infrastructure.scanners.base import ScannerDevice
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.services.scanning.service import ScannerService
 from negpy.kernel.system.logging import get_logger
@@ -19,6 +20,17 @@ class ScanRequest:
     output_folder: str
     filename_pattern: str
     output_format: str  # "TIFF" or "DNG"
+
+
+@dataclass(frozen=True)
+class RollPreviewRequest:
+    """Preview a set of strip slots. Offsets are fractions of one frame pitch, raw —
+    the session clamps them and reports back what it reached."""
+
+    device: ScannerDevice
+    slots: tuple[int, ...]
+    dpi: int
+    offsets: dict[int, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -49,7 +61,8 @@ class ScanWorker(QObject):
     error = pyqtSignal(str)
     ejected = pyqtSignal(bool)
     eject_error = pyqtSignal(str)
-    preview_ready = pyqtSignal(object)  # preview: raw rgb ndarray
+    roll_preview_ready = pyqtSignal(object)  # roll preview: one RollPreview per slot
+    roll_preview_finished = pyqtSignal()  # the whole strip is done (also after a failed slot)
 
     def __init__(self) -> None:
         super().__init__()
@@ -73,8 +86,11 @@ class ScanWorker(QObject):
             self.devices_ready.emit(devices)
         except Exception as e:
             logger.exception("Device listing failed")
-            self.error.emit(str(e))
+            # Empty list first: the sidebar's devices_ready handler overwrites the
+            # status label, so emitting it last would clobber the failure message
+            # (which carries the backend's install hint).
             self.devices_ready.emit([])
+            self.error.emit(str(e))
 
     @pyqtSlot(ScanRequest)
     def run_scan(self, req: ScanRequest) -> None:
@@ -224,9 +240,13 @@ class ScanWorker(QObject):
             # Capability-gated no-op on devices without an eject option.
             self.eject(req.device_id)
 
-    @pyqtSlot(ScanRequest)
-    def run_preview(self, req: ScanRequest) -> None:
-        """Preview scan: acquire one frame, emit rgb via preview_ready, write no file."""
+    @pyqtSlot(RollPreviewRequest)
+    def run_roll_preview(self, req: RollPreviewRequest) -> None:
+        """Preview strip slots, emitting one RollPreview per slot as it lands.
+
+        A slot that fails arrives as a RollPreview carrying `error` and the strip
+        continues; only a failure to open the strip at all is a terminal `error`.
+        """
 
         with self._state_lock:
             if not self._request_prepared:
@@ -234,49 +254,36 @@ class ScanWorker(QObject):
             self._request_prepared = False
             self._scanning = True
 
-        outcome: tuple[str, str | None] | None = None
-        rgb = None
+        outcome: tuple[str, str | None] = ("finished", None)
         try:
             if self._cancel_event.is_set():
                 outcome = ("cancelled", None)
             else:
                 service = self._ensure_service()
+                session = service.open_roll(req.device, dpi=req.dpi)
                 try:
-                    # No-op progress: preview must not drive the sidebar's shared progress bar.
-                    result = service.run_scan(
-                        device_id=req.device_id,
-                        params=req.params,
-                        progress=lambda _fraction: None,
-                        cancel=self._cancel_event,
-                    )
-                except Exception as error:
-                    if self._cancel_event.is_set():
-                        outcome = ("cancelled", None)
-                    else:
-                        logger.exception("Preview scan failed")
-                        outcome = ("error", str(error))
-                else:
-                    if self._cancel_event.is_set():
-                        outcome = ("cancelled", None)
-                    else:
-                        rgb = result.rgb
-                        outcome = ("preview", None)
+                    for slot, offset in req.offsets.items():
+                        session.set_offset(slot, offset)
+                    for preview in session.preview(req.slots, cancel=self._cancel_event):
+                        self.roll_preview_ready.emit(preview)
+                finally:
+                    session.close()
+                if self._cancel_event.is_set():
+                    outcome = ("cancelled", None)
         except Exception as error:
-            logger.exception("Could not initialize scanner service")
-            outcome = ("error", str(error))
+            logger.exception("Could not preview the strip")
+            outcome = ("cancelled", None) if self._cancel_event.is_set() else ("error", str(error))
         finally:
             with self._state_lock:
                 self._scanning = False
 
-        if outcome is None:
-            return
         kind, payload = outcome
-        if kind == "preview":
-            self.preview_ready.emit(rgb)
-        elif kind == "cancelled":
+        if kind == "cancelled":
             self.cancelled.emit()
         elif kind == "error":
             self.error.emit(payload or "Unknown scan error")
+        else:
+            self.roll_preview_finished.emit()
 
     def prepare_scan(self) -> None:
         """Arm one queued scan without losing a Stop pressed before it starts."""

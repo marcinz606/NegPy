@@ -2,10 +2,16 @@ import os
 import threading
 from typing import Callable
 
-from negpy.infrastructure.scanners.base import ScannerBackend, ScannerDevice
+from negpy.infrastructure.scanners.base import (
+    ScannerBackend,
+    ScannerDevice,
+    ScannerSession,
+    TransientScanError,
+)
 from negpy.infrastructure.scanners.params import ScanParams
+from negpy.infrastructure.scanners.per_frame_roll import PerFrameRollSession
 from negpy.infrastructure.scanners.result import ScanResult
-from negpy.infrastructure.scanners.sane_backend import SaneBackend, SaneSession
+from negpy.infrastructure.scanners.roll import RollSession
 from negpy.kernel.system.logging import get_logger
 from negpy.services.scanning.templating import render_scan_filename, require_sequence_varying_scan_filename
 
@@ -13,25 +19,23 @@ logger = get_logger(__name__)
 
 _SCAN_IO_RETRY_ATTEMPTS = 3
 _SCAN_IO_RETRY_DELAY_S = 0.5
-# Stable SANE status strings for transport glitches worth one retry (a Coolscan's
-# USB link occasionally hiccups mid-strip). A real error — bad option, missing
-# frame — carries a different message and must fail fast.
-_TRANSIENT_IO_MARKERS = ("error during device i/o", "device busy")
-
-
-def _is_transient_scan_io(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return any(marker in msg for marker in _TRANSIENT_IO_MARKERS)
 
 
 class ScannerService:
-    """Orchestrates device enumeration, scan execution, and file writing."""
+    """Orchestrates device enumeration, scan execution, and file writing.
 
-    def __init__(self) -> None:
-        self._backend: ScannerBackend | None = None
+    Knows nothing about any particular transport: the backend classifies its own
+    failures (TransientScanError vs anything else) and reports its own
+    capabilities. See ScannerBackend for what an implementation owes this class.
+    """
+
+    def __init__(self, backend: ScannerBackend | None = None) -> None:
+        self._backend = backend
 
     def _get_backend(self) -> ScannerBackend:
         if self._backend is None:
+            from negpy.infrastructure.scanners.sane_backend import SaneBackend
+
             self._backend = SaneBackend()
         return self._backend
 
@@ -39,33 +43,32 @@ class ScannerService:
         return self._get_backend().list_devices()
 
     def refresh_devices(self) -> list[ScannerDevice]:
-        backend = self._get_backend()
-        if hasattr(backend, "refresh_devices"):
-            return backend.refresh_devices()  # type: ignore[union-attr]
-        return backend.list_devices()
+        return self._get_backend().refresh_devices()
 
-    def open_session(self, device_id: str) -> SaneSession:
+    def open_session(self, device_id: str) -> ScannerSession:
         """Open an exclusive device session for batch/roll workflows.
 
-        The session owns the scanner until closed: one continuous SANE open,
-        per-frame scan() calls, one release (close/eject) at the end. Raises
-        when the backend has no session support.
+        The session owns the scanner until closed: one continuous open, per-frame
+        scan() calls, one release (close/eject) at the end.
         """
-        open_session = getattr(self._get_backend(), "open_session", None)
-        if not callable(open_session):
-            raise RuntimeError("Scanner backend does not support exclusive device sessions")
-        return open_session(device_id)
+        return self._get_backend().open_session(device_id)
 
     def eject(self, device_id: str) -> bool:
-        """Trigger the device's eject action where the backend supports it.
+        """Trigger the device's eject action.
 
-        Returns False cleanly when the backend has no eject method or the device
-        exposes no usable eject option; raises when a present eject genuinely fails.
+        Returns False cleanly when the device exposes no usable eject action;
+        raises when a present eject genuinely fails.
         """
-        eject = getattr(self._get_backend(), "eject", None)
-        if not callable(eject):
-            return False
-        return eject(device_id)
+        return self._get_backend().eject(device_id)
+
+    def open_roll(self, device: ScannerDevice, *, dpi: int) -> RollSession:
+        """Open a strip for whole-roll preview.
+
+        Every backend reaches a strip one frame at a time today, so this always
+        wraps. A backend with a native whole-roll traversal supplies its own
+        RollSession instead, and this grows a branch then — not before.
+        """
+        return PerFrameRollSession(self._get_backend(), device, dpi=dpi)
 
     def run_scan(
         self,
@@ -81,8 +84,8 @@ class ScannerService:
         for attempt in range(1, _SCAN_IO_RETRY_ATTEMPTS + 1):
             try:
                 return backend.scan(device_id, params, progress, cancel)
-            except Exception as e:
-                if attempt >= _SCAN_IO_RETRY_ATTEMPTS or cancel.is_set() or not _is_transient_scan_io(e):
+            except TransientScanError as e:
+                if attempt >= _SCAN_IO_RETRY_ATTEMPTS or cancel.is_set():
                     raise
                 logger.warning(
                     "Transient scanner I/O on %s (attempt %d/%d), retrying: %s",

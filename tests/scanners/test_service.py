@@ -7,7 +7,12 @@ import time
 import numpy as np
 import pytest
 
-from negpy.infrastructure.scanners.base import ScanMode, ScannerCapabilities, ScannerDevice
+from negpy.infrastructure.scanners.base import (
+    ScanMode,
+    ScannerCapabilities,
+    ScannerDevice,
+    TransientScanError,
+)
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.services.scanning.service import _SCAN_IO_RETRY_ATTEMPTS, ScannerService
@@ -28,6 +33,12 @@ class FakeBackend:
             raise self._should_raise
         return self._devices
 
+    def refresh_devices(self) -> list[ScannerDevice]:
+        return self.list_devices()
+
+    def eject(self, device_id: str) -> bool:
+        return False
+
     def scan(
         self,
         device_id: str,
@@ -38,7 +49,7 @@ class FakeBackend:
         self.scan_calls += 1
         if self.transient_failures > 0:
             self.transient_failures -= 1
-            raise RuntimeError("RGB scan failed: Error during device I/O")
+            raise TransientScanError("RGB scan failed: Error during device I/O")
         if self._should_raise:
             raise self._should_raise
 
