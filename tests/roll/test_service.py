@@ -1,6 +1,6 @@
 """Tests for RollScanningService: lifecycle orchestration and output writing.
 
-Lifecycle tests use `fake_coolscanpy` (see tests/scanners/conftest.py) the
+Lifecycle tests use `fake_coolscanpy` (see tests/roll/conftest.py) the
 same way test_coolscanpy_roll.py does. write_frame() tests construct a fake
 Frame/Receipt directly -- writing to disk never touches coolscanpy itself,
 so no module injection is needed for those.
@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 import tifffile
 
-from negpy.services.scanning import roll_service
-from negpy.services.scanning.roll_service import RollScanningService
+from negpy.services.roll import service as roll_service
+from negpy.services.roll.service import RollScanningError, RollScanningService
 
 
 class TestAvailable:
@@ -41,12 +41,12 @@ class TestRollLifecycle:
 
     def test_double_open_raises(self, fake_coolscanpy) -> None:
         service, _roll, _device = self._open_service(fake_coolscanpy)
-        with pytest.raises(RuntimeError, match="already open"):
+        with pytest.raises(RollScanningError, match="already open"):
             service.open_roll()
 
     def test_methods_before_open_raise(self) -> None:
         service = RollScanningService()
-        with pytest.raises(RuntimeError, match="no roll is open"):
+        with pytest.raises(RollScanningError, match="no roll is open"):
             service.preview()
 
     def test_close_without_open_is_a_no_op(self) -> None:

@@ -1,10 +1,10 @@
-"""Shared fixtures for tests/scanners/: a fake `coolscanpy` module.
+"""Shared fixtures for tests/roll/: a fake `coolscanpy` module.
 
-`coolscanpy_roll.py` / `roll_service.py` treat coolscanpy as optional and
-import it lazily, so these tests never need the real package installed --
-`fake_coolscanpy` injects a minimal stand-in module into `sys.modules`
-instead, exercising the same `import coolscanpy` path the production code
-takes.
+`negpy.infrastructure.roll.coolscanpy_roll` and `negpy.services.roll.service`
+treat coolscanpy as optional and import it lazily, so these tests never need
+the real package installed -- `fake_coolscanpy` injects a minimal stand-in
+module into `sys.modules` instead, exercising the same `import coolscanpy`
+path the production code takes.
 """
 
 from __future__ import annotations
