@@ -301,6 +301,113 @@ class TestSettingsPersistence:
         assert w.device_combo.currentData() == "dev-9"
 
 
+class TestOutputTiers:
+    """The three independent output-tier checkboxes and the repair-mode
+    combo. See tests/roll/test_service.py and test_worker.py for what each
+    tier actually does; these tests only cover the sidebar's own wiring."""
+
+    def test_sidebar_builds_with_tier_controls(self) -> None:
+        w = _sidebar()
+        for attr in ("write_unrepaired_check", "write_repaired_check", "write_positive_check", "repair_mode_combo", "tier_hint"):
+            assert hasattr(w, attr), attr
+
+    def test_defaults_match_settings_defaults(self) -> None:
+        w = _sidebar()
+        assert w.write_unrepaired_check.isChecked() is True
+        assert w.write_repaired_check.isChecked() is False
+        assert w.write_positive_check.isChecked() is False
+        assert w.repair_mode_combo.currentData() == "exact"
+        assert w.tier_hint.isHidden() is True  # Tier 1 is on by default -- nothing to warn about
+
+    def test_tier_hint_shown_when_unrepaired_is_turned_off(self) -> None:
+        w = _sidebar()
+
+        w.write_unrepaired_check.setChecked(False)
+
+        assert not w.tier_hint.isHidden()
+        assert "Unrepaired" in w.tier_hint.text()
+
+    def test_tier_hint_hidden_again_once_unrepaired_is_back_on(self) -> None:
+        w = _sidebar()
+        w.write_unrepaired_check.setChecked(False)
+        assert not w.tier_hint.isHidden()
+
+        w.write_unrepaired_check.setChecked(True)
+
+        assert w.tier_hint.isHidden() is True
+
+    def test_scan_blocked_when_no_tier_is_selected(self, fake_coolscanpy, tmp_path) -> None:
+        w = _sidebar()
+        _pick_device(w)
+        w.folder_edit.setText(str(tmp_path))
+        w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
+        w.contact_sheet.item(0).setSelected(True)
+        w.write_unrepaired_check.setChecked(False)  # the only tier on by default
+
+        assert "select at least one output tier" in w._missing_for_scan()
+        assert w.scan_btn.isEnabled() is False
+
+    def test_scan_click_forwards_tier_flags_and_repair_mode(self, fake_coolscanpy, tmp_path) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="dev-1")
+        w.folder_edit.setText(str(tmp_path))
+        w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
+        w.contact_sheet.item(0).setSelected(True)
+        w.write_unrepaired_check.setChecked(False)
+        w.write_repaired_check.setChecked(True)
+        w.write_positive_check.setChecked(True)
+        w.repair_mode_combo.setCurrentIndex(w.repair_mode_combo.findData("hybrid"))
+
+        w._on_scan_clicked()
+
+        req = w.controller.start_roll_scan.call_args[0][0]
+        assert req.write_unrepaired is False
+        assert req.write_repaired is True
+        assert req.write_positive is True
+        assert req.repair_mode == "hybrid"
+
+    def test_scan_click_without_any_tier_selected_is_a_noop(self, fake_coolscanpy, tmp_path) -> None:
+        w = _sidebar()
+        _pick_device(w)
+        w.folder_edit.setText(str(tmp_path))
+        w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
+        w.contact_sheet.item(0).setSelected(True)
+        w.write_unrepaired_check.setChecked(False)
+
+        w._on_scan_clicked()
+
+        w.controller.start_roll_scan.assert_not_called()
+
+    def test_tier_settings_round_trip_through_the_repo(self) -> None:
+        w = _sidebar()
+        w.write_unrepaired_check.setChecked(False)
+        w.write_repaired_check.setChecked(True)
+        w.repair_mode_combo.setCurrentIndex(w.repair_mode_combo.findData("hybrid"))
+
+        w._update_settings_from_ui()
+
+        saved = w.controller.session.repo.save_global_setting.call_args[0]
+        assert saved[0] == "roll_scan_settings"
+        assert saved[1]["write_unrepaired"] is False
+        assert saved[1]["write_repaired"] is True
+        assert saved[1]["repair_mode"] == "hybrid"
+
+    def test_load_settings_restores_tier_choices(self) -> None:
+        ctrl = MagicMock()
+        ctrl.session.repo.get_global_setting.return_value = {
+            "write_unrepaired": False,
+            "write_repaired": True,
+            "write_positive": True,
+            "repair_mode": "hybrid",
+        }
+        w = CoolscanRollSidebar(ctrl)
+
+        assert w.write_unrepaired_check.isChecked() is False
+        assert w.write_repaired_check.isChecked() is True
+        assert w.write_positive_check.isChecked() is True
+        assert w.repair_mode_combo.currentData() == "hybrid"
+
+
 class TestActivation:
     def test_on_activated_requests_devices_once_devices_have_arrived(self, fake_coolscanpy) -> None:
         w = _sidebar()

@@ -21,6 +21,7 @@ from PyQt6.QtCore import QSize, Qt, pyqtSlot
 from PyQt6.QtGui import QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -39,6 +40,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.view.styles.templates import section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.roll import coolscanpy_roll
+from negpy.infrastructure.roll.repair import RepairMode
 from negpy.infrastructure.roll.settings import RollScanSettings
 from negpy.services.roll.service import RollFrameOutput
 
@@ -109,6 +111,10 @@ class CoolscanRollSidebar(QWidget):
             last_device_id=self._current_device_id() or self._settings.last_device_id,
             output_folder=self.folder_edit.text().strip(),
             filename_pattern=self.pattern_edit.text().strip() or RollScanSettings.defaults().filename_pattern,
+            write_unrepaired=self.write_unrepaired_check.isChecked(),
+            write_repaired=self.write_repaired_check.isChecked(),
+            write_positive=self.write_positive_check.isChecked(),
+            repair_mode=self.repair_mode_combo.currentData() or RepairMode.EXACT.value,
         )
         if updated == self._settings:
             return
@@ -170,7 +176,56 @@ class CoolscanRollSidebar(QWidget):
         self.pattern_edit = QLineEdit(self._settings.filename_pattern)
         self.pattern_edit.setToolTip('Jinja2 template. Variables: {{ date }}, {{ seq }} (the slot number).\nExample: {{ date }}_{{ "%03d" % seq }}')
         out_form.addRow("Filename", self.pattern_edit)
+
+        # Three independent tiers, not a single three-way choice -- any combination is
+        # valid. Unrepaired defaults on (see RollScanSettings): it is the archival
+        # master and the only tier the scanner itself can reproduce.
+        tiers_row = QHBoxLayout()
+        self.write_unrepaired_check = QCheckBox("Unrepaired")
+        self.write_unrepaired_check.setChecked(self._settings.write_unrepaired)
+        self.write_unrepaired_check.setToolTip(
+            "Tier 1, the archival master: the frame exactly as captured, with no repair applied. "
+            "This is the only tier the scanner can reproduce -- turning it off loses data that "
+            "cannot be recreated from the other two tiers."
+        )
+        self.write_repaired_check = QCheckBox("Repaired")
+        self.write_repaired_check.setChecked(self._settings.write_repaired)
+        self.write_repaired_check.setToolTip(
+            "Tier 2: the unrepaired capture with infrared-guided dust/scratch repair applied, "
+            "still scanner-linear. Needs a repair engine to be registered; degrades with a "
+            "status in the receipt when none is available."
+        )
+        self.write_positive_check = QCheckBox("Positive")
+        self.write_positive_check.setChecked(self._settings.write_positive)
+        self.write_positive_check.setToolTip(
+            "Tier 3: the repaired capture inverted through NegPy's own rendering pipeline. "
+            "A regenerable preview, not an edit -- it will be superseded as the pipeline "
+            "improves, and needs Tier 2 to be producible first."
+        )
+        tiers_row.addWidget(self.write_unrepaired_check)
+        tiers_row.addWidget(self.write_repaired_check)
+        tiers_row.addWidget(self.write_positive_check)
+        out_form.addRow("Write", tiers_row)
+
+        self.repair_mode_combo = QComboBox()
+        self.repair_mode_combo.addItem("Exact", RepairMode.EXACT.value)
+        self.repair_mode_combo.addItem("Hybrid (inpaint severe defects)", RepairMode.HYBRID.value)
+        self.repair_mode_combo.setToolTip(
+            "Governs Tier 2, and Tier 3 through it, whenever a repair engine is registered. Hybrid "
+            "additionally routes severe zero-signal regions to an inpainting model and costs "
+            "substantially more time per frame than Exact."
+        )
+        idx = self.repair_mode_combo.findData(self._settings.repair_mode)
+        if idx >= 0:
+            self.repair_mode_combo.setCurrentIndex(idx)
+        out_form.addRow("Repair mode", self.repair_mode_combo)
+
         layout.addLayout(out_form)
+
+        self.tier_hint = QLabel("")
+        self.tier_hint.setStyleSheet(f"color: {_WARN_COLOR}; font-size: {THEME.font_size_small}px;")
+        self.tier_hint.setWordWrap(True)
+        layout.addWidget(self.tier_hint)
 
         # ── PROGRESS / STATUS ────────────────────────────────
         self.progress_bar = QProgressBar()
@@ -233,6 +288,9 @@ class CoolscanRollSidebar(QWidget):
         self.folder_browse.clicked.connect(self._on_browse_folder)
         for w in (self.folder_edit, self.pattern_edit):
             w.editingFinished.connect(self._update_settings_from_ui)
+        for cb in (self.write_unrepaired_check, self.write_repaired_check, self.write_positive_check):
+            cb.toggled.connect(self._update_settings_from_ui)
+        self.repair_mode_combo.currentIndexChanged.connect(self._update_settings_from_ui)
         self.preview_btn.clicked.connect(self._on_preview_clicked)
         self.contact_sheet.itemSelectionChanged.connect(self._on_selection_changed)
         self.offset_apply_btn.clicked.connect(self._on_apply_offset)
@@ -419,7 +477,7 @@ class CoolscanRollSidebar(QWidget):
         device_id = self._current_device_id()
         slots = self._selected_slots()
         output_folder = self.folder_edit.text().strip()
-        if not device_id or not slots or not output_folder:
+        if not device_id or not slots or not output_folder or not self._any_tier_selected():
             return
         from negpy.desktop.workers.roll_worker import RollBatchScanRequest
 
@@ -430,6 +488,10 @@ class CoolscanRollSidebar(QWidget):
             slots=tuple(slots),
             output_folder=output_folder,
             filename_pattern=self.pattern_edit.text().strip() or RollScanSettings.defaults().filename_pattern,
+            write_unrepaired=self.write_unrepaired_check.isChecked(),
+            write_repaired=self.write_repaired_check.isChecked(),
+            write_positive=self.write_positive_check.isChecked(),
+            repair_mode=self.repair_mode_combo.currentData() or RepairMode.EXACT.value,
         )
         self.set_scanning(True)
         self.controller.start_roll_scan(req)
@@ -495,13 +557,32 @@ class CoolscanRollSidebar(QWidget):
             m.append("select a device")
         return m
 
+    def _any_tier_selected(self) -> bool:
+        return self.write_unrepaired_check.isChecked() or self.write_repaired_check.isChecked() or self.write_positive_check.isChecked()
+
     def _missing_for_scan(self) -> list[str]:
         m = list(self._missing_for_preview())
         if not self._selected_slots():
             m.append("select at least one slot")
         if not self.folder_edit.text().strip():
             m.append("choose an output folder")
+        if not self._any_tier_selected():
+            m.append("select at least one output tier")
         return m
+
+    def _update_tier_hint(self) -> None:
+        """Makes the archival tradeoff legible instead of a silent default: Tier 1 is the
+        only tier the scanner itself can reproduce, so turning it off is a real choice
+        with a real cost, not just another checkbox."""
+        if not self.write_unrepaired_check.isChecked():
+            self.tier_hint.setText(
+                "Unrepaired (Tier 1) is off. If this frame ever needs to be re-scanned, only "
+                "the scanner can reproduce it -- Repaired and Positive are both derived from it."
+            )
+            self.tier_hint.setVisible(True)
+        else:
+            self.tier_hint.setText("")
+            self.tier_hint.setVisible(False)
 
     def _apply_gating(self) -> None:
         missing_preview = self._missing_for_preview()
@@ -509,6 +590,7 @@ class CoolscanRollSidebar(QWidget):
         self.preview_btn.setEnabled(not missing_preview and not self._scanning)
         self.scan_btn.setEnabled(not missing_scan and not self._scanning)
         self.safe_stop_btn.setEnabled(self._scanning)
+        self._update_tier_hint()
         if missing_scan:
             self.gate_hint.setText("To scan: " + ", ".join(missing_scan) + ".")
             self.gate_hint.setVisible(True)
