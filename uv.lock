@@ -66,6 +66,23 @@ wheels = [
 ]
 
 [[package]]
+name = "coolscanpy"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "imagecodecs" },
+    { name = "jinja2" },
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "pyusb" },
+    { name = "tifffile" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/d0/2ab023bcd243daa927f20e3cdaac0db36a8a4b5df02d3424640c7863e7bd/coolscanpy-0.1.2.tar.gz", hash = "sha256:1ff98ea9689b19ad765bb7109ac18ab9d71509d266e87cbdf8434fa14577808e", size = 289030, upload-time = "2026-07-19T02:58:42.101Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/66/18473737fcba32a57fbef3d2668b6f15d94c869810d1a7dbeb4fff57a7bd/coolscanpy-0.1.2-py3-none-any.whl", hash = "sha256:a780eb3613b30e1299913c3c5f33f6b3255382ac4c3309e46691a071ec477a24", size = 296086, upload-time = "2026-07-19T02:58:40.819Z" },
+]
+
+[[package]]
 name = "coverage"
 version = "7.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -315,6 +332,9 @@ dependencies = [
 camera = [
     { name = "gphoto2", marker = "sys_platform != 'win32'" },
 ]
+coolscan-roll = [
+    { name = "coolscanpy" },
+]
 dev = [
     { name = "pyinstaller" },
     { name = "pytest" },
@@ -347,6 +367,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 camera = [{ name = "gphoto2", marker = "sys_platform != 'win32'", specifier = ">=2.5" }]
+coolscan-roll = [{ name = "coolscanpy", specifier = ">=0.1.2" }]
 dev = [
     { name = "pyinstaller", specifier = ">=6.18.0" },
     { name = "pytest", specifier = "==9.0.2" },
@@ -724,6 +745,15 @@ name = "python-sane"
 version = "2.9.2"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/45/e9/e8baff69fc2347606c547201204d4b4843c7ad8ecb9164eceee42016eff6/python_sane-2.9.2.tar.gz", hash = "sha256:50ab8e0b033cececad26c7231a7254f80ad8fe9ec6b5c25add2493d7e2a07bbe", size = 22513, upload-time = "2025-07-21T21:20:21.735Z" }
+
+[[package]]
+name = "pyusb"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/6b/ce3727395e52b7b76dfcf0c665e37d223b680b9becc60710d4bc08b7b7cb/pyusb-1.3.1.tar.gz", hash = "sha256:3af070b607467c1c164f49d5b0caabe8ac78dbed9298d703a8dbf9df4052d17e", size = 77281, upload-time = "2025-01-08T23:45:01.866Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/b8/27e6312e86408a44fe16bd28ee12dd98608b39f7e7e57884a24e8f29b573/pyusb-1.3.1-py3-none-any.whl", hash = "sha256:bf9b754557af4717fe80c2b07cc2b923a9151f5c08d17bdb5345dac09d6a0430", size = 58465, upload-time = "2025-01-08T23:45:00.029Z" },
+]
 
 [[package]]
 name = "pywin32-ctypes"
