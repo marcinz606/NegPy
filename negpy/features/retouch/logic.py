@@ -52,13 +52,15 @@ _IR_GAIN_CLAMP = 2.0  # caps misregistration halos
 _IR_GAMMA_LO = 1.0
 _IR_GAMMA_HI = 2.2
 _IR_GAMMA_FALLBACK = 1.5
-_IR_DEGENERATE_RATIO = 0.90  # IR dipping below this over >_FRAC = image content (B&W/Kodachrome)
-_IR_DEGENERATE_FRAC = 0.05
+# Below this the beam is blocked outright — holder, not film. Coolscan rolls: margin 98% under
+# it, in-frame dust bottoms at 0.17. ponytail: absolute; a low-IR-gain scanner would want a percentile.
+_IR_DEAD_FLOOR = 0.05
 # Crosstalk unmixing: dye/silver absorbs some IR, so the IR plane carries a ghost of
 # the image that normalize_ir's spatial high-pass can't see (a sharp edge survives it).
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
 _IR_XTALK_MIN = 0.02  # |b| sum below this is a noise-level fit → exact no-op
-_IR_XTALK_TRIM = 2.0  # fit drops this bottom-ratio percentile (the dust minority)
+_IR_DEGENERATE_GHOST = 0.5  # fitted exponent sum above this: IR mirrors the image (B&W/Kodachrome)
+_IR_XTALK_TRIM = 5.0  # fit drops this bottom-ratio percentile (the dust minority); 5x the coverage abort
 # γ fit sample: keep this flattest fraction of the band by visible Laplacian, dropping the
 # restriction below _IR_FIT_MIN_PX rather than fitting a handful of pixels. See _fit_refraction_gammas.
 _IR_FIT_FLAT_PCT = 40
@@ -829,12 +831,13 @@ def detect_ir_regions(
     return _finalize_strokes(comps, offsets, mask.shape, gate=0.0), hair_mask
 
 
-def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> np.ndarray:
+def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> Tuple[np.ndarray, float]:
     """Divide the visible-image ghost out of the normalized IR: robust LS fit of
     log(ir) on log(vis) over clean film, then ``ratio / Π vis_c^b_c``. Exponents clamp
-    to ≥0 (density can only block IR) and fit to ~0 on a clean scanner (→ no-op)."""
+    to ≥0 (density can only block IR) and fit to ~0 on a clean scanner (→ no-op). Also
+    returns the exponent sum — ghost strength, which is how ``ir_ratio_and_gain`` bails."""
     if ratio.size < 500:
-        return ratio
+        return ratio, 0.0
     # Fit on clean film only. Dust dips *both* planes, so a fit that sees it explains
     # the defect away as ghost and the division stops lifting it. Trim by ratio
     # percentile, not a fixed cutoff (a strong ghost drags clean film below any fixed
@@ -843,11 +846,16 @@ def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> np.ndarray:
     y = np.log(np.clip(ratio[keep], 1e-4, 1.0))
     x = vis_log[keep].reshape(-1, vis_log.shape[-1])
     if y.size < 500:
-        return ratio
-    b = np.clip(np.linalg.lstsq(x, y, rcond=None)[0], 0.0, _IR_XTALK_MAX)
-    if float(np.abs(b).sum()) < _IR_XTALK_MIN:
-        return ratio
-    return np.clip(ratio / np.exp((vis_log * b).sum(-1)), 0.0, 1.5).astype(np.float32)
+        return ratio, 0.0
+    # Intercept column, dropped from the result: both logs sit below their own dilate+blur
+    # envelope, so origin-forced least squares reads that shared negative offset as slope
+    # and fits b≈0.6 on two *independent* noisy planes.
+    x = np.concatenate([x, np.ones((x.shape[0], 1), dtype=x.dtype)], axis=1)
+    b = np.clip(np.linalg.lstsq(x, y, rcond=None)[0][:3], 0.0, _IR_XTALK_MAX)
+    ghost = float(np.abs(b).sum())
+    if ghost < _IR_XTALK_MIN:
+        return ratio, ghost
+    return np.clip(ratio / np.exp((vis_log * b).sum(-1)), 0.0, 1.5).astype(np.float32), ghost
 
 
 def _fit_refraction_gammas(ratio: np.ndarray, vis_log: np.ndarray, img_det: np.ndarray) -> Tuple[float, ...]:
@@ -877,20 +885,20 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     attenuation: semi-transparent dust recovered by ``RGB / ratio^γ``, γ per channel from
     ``_fit_refraction_gammas``. ``degenerate`` = IR carrying image content
     (B&W/Kodachrome) → caller skips bake and strokes."""
-    ratio = normalize_ir(ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det)
+    plane = ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det
+    ratio = normalize_ir(plane)
+    # No film under the head is not a defect; left as a dip the holder margin alone trips
+    # the coverage abort at every threshold.
+    ratio[plane < _IR_DEAD_FLOOR] = 1.0
     img_det = np.ascontiguousarray(img_det, dtype=np.float32)
     if img_det.shape[:2] != ratio.shape[:2]:
         img_det = cv2.resize(img_det, (ratio.shape[1], ratio.shape[0]), interpolation=cv2.INTER_AREA)
-    # On the raw ratio, before decontamination: B&W/Kodachrome fits b≈1, and unmixing
-    # would flatten that IR into an informationless plane the bail could no longer see.
-    # ponytail: a ghost strong enough to dip the raw ratio frame-wide trips this before
-    # unmixing gets a chance (measured: ~0.15 exponent over hard-edged content; both IR
-    # samples sit well under it). If a real scan lands there, discriminate on the fitted
-    # b instead — partial dye ghost fits low, B&W silver fits ≈1.
-    degenerate = float((ratio < _IR_DEGENERATE_RATIO).mean()) > _IR_DEGENERATE_FRAC
 
     vis_log = np.stack([np.log(np.clip(normalize_ir(img_det[:, :, c]), 1e-4, 1.0)) for c in range(3)], axis=-1)
-    ratio = _ir_decontaminate(ratio, vis_log)
+    ratio, ghost = _ir_decontaminate(ratio, vis_log)
+    # On the fitted exponent, not on how far the ratio dips: a few percent of IR noise
+    # (deepened by the min-preserving downsample) read as silver on clean C41 rolls.
+    degenerate = ghost > _IR_DEGENERATE_GHOST
 
     gammas = _fit_refraction_gammas(ratio, vis_log, img_det)
     base = np.clip(ratio / _IR_GAIN_IDENTITY, 1e-4, 1.0)

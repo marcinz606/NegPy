@@ -244,6 +244,40 @@ def test_ir_ratio_and_gain_degenerate_on_image_content():
     assert degenerate
 
 
+def test_ir_dead_margins_do_not_mask_the_frame():
+    """Scan overrun past the film gate reads at the sensor floor. No-signal, not dust:
+    left as a dip it swamps the coverage abort and no speck is found."""
+    h, w = 400, 300
+    rng = np.random.default_rng(3)
+    ir = np.clip(0.85 + rng.normal(0, 0.025, (h, w)), 0.0, 1.0).astype(np.float32)
+    img = np.full((h, w, 3), 0.5, dtype=np.float32)
+    ir[:, :20] = 0.004  # holder mask, left
+    ir[:, -20:] = 0.004  # ...and right
+    img[:, :20] = 0.002
+    img[:, -20:] = 0.002
+    speck = (slice(200, 208), slice(150, 158))
+    ir[speck] *= 0.35
+    img[speck] *= 0.55
+
+    ratio, gain, degenerate, _ = ir_ratio_and_gain(ir, img)
+    assert not degenerate
+    assert float(ratio[:, :20].min()) > 0.99  # dead margin reads as clean film
+    assert float(gain[:, :20].max()) < 1.01  # ...and is never "corrected"
+    strokes, _ = detect_ir_regions(ratio, ir_detect_cutoff(0.66, True), pad_px=3.0)
+    assert len(strokes) >= 1
+
+
+def test_ir_noisy_clean_film_is_not_degenerate():
+    """A real IR plane carries a few percent of noise, deepened by the min-preserving
+    downsample. Clean C41 must not read as B&W silver just for being noisy."""
+    rng = np.random.default_rng(11)
+    ir = np.clip(0.8 + rng.normal(0, 0.03, (400, 300)), 0.0, 1.0).astype(np.float32)
+    img = np.clip(0.5 + rng.normal(0, 0.03, (400, 300, 3)), 1e-3, 1.0).astype(np.float32)
+
+    _, _, degenerate, _ = ir_ratio_and_gain(ir, img)
+    assert not degenerate
+
+
 def _ghosted_frame(ghost: float, size: int = 240):
     """Synthetic scan: sharp-edged image content, an IR plane that partially absorbs
     it (the ghost normalize_ir's spatial high-pass can't remove), and one dust speck
