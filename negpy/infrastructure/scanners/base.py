@@ -17,6 +17,7 @@ class ScannerCapabilities:
     adapter_frame_capacity: int | None = None  # transport capacity bound, not an exposure count
     adapter_frame_control: bool = False
     can_eject: bool = False
+    frame_pitch_mm: float = 0.0  # feed-axis distance between frame positions; 0.0 = unknown
 
 
 @dataclass(frozen=True)

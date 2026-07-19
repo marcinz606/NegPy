@@ -7,7 +7,7 @@ from typing import Callable
 import numpy as np
 
 from negpy.infrastructure.scanners.base import ScanMode, ScannerCapabilities, ScannerDevice
-from negpy.infrastructure.scanners.params import ScanParams
+from negpy.infrastructure.scanners.params import ScanParams, clamp_frame_offset_mm
 from negpy.infrastructure.scanners.result import ScanResult
 from negpy.kernel.system.logging import get_logger
 
@@ -459,6 +459,7 @@ def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
         adapter_frame_capacity=_detect_adapter_frame_capacity(opt),
         adapter_frame_control=_detect_adapter_frame_control(opt),
         can_eject=_detect_eject(opt),
+        frame_pitch_mm=_feed_pitch_mm(opt),
     )
 
 
@@ -859,7 +860,7 @@ class SaneBackend:
 
             # Position the film before autofocus, auto-exposure, or scan start.
             # The scan blacks out at the frame boundary — below 0 is unreachable.
-            offset_mm = max(0.0, params.frame_offset_mm)
+            offset_mm = clamp_frame_offset_mm(params.frame_offset_mm, _feed_pitch_mm(option_map))
             if params.frame is not None:
                 try:
                     dev.frame = params.frame

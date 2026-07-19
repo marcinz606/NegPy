@@ -1,7 +1,9 @@
 import pytest
 
+from negpy.infrastructure.scanners.params import clamp_frame_offset_mm
 from negpy.infrastructure.scanners.sane_backend import (
     _apply_frame_offset,
+    _caps_from_options,
     _frame_extent_cap,
     _window_to_option_values,
 )
@@ -101,3 +103,24 @@ def test_frame_offset_set_failure_raises():
 
     with pytest.raises(RuntimeError):
         _apply_frame_offset(_FailDev(), 3.5)
+
+
+def test_capabilities_report_the_feed_pitch():
+    caps = _caps_from_options({"subframe": _Opt((0.0, 37.83, 0.0))})
+    assert caps.frame_pitch_mm == pytest.approx(37.83)
+
+
+def test_capabilities_report_no_pitch_without_subframe():
+    assert _caps_from_options({}).frame_pitch_mm == 0.0
+
+
+def test_offset_is_held_short_of_one_pitch():
+    # At offset >= pitch the extent cap collapses the window to zero height and the
+    # scan comes back empty; the clamp keeps a scannable sliver instead.
+    assert clamp_frame_offset_mm(50.0, 37.83) == pytest.approx(36.83)
+    assert _frame_extent_cap(_SUBFRAME_OPTS, clamp_frame_offset_mm(50.0, 37.83)) > 0
+
+
+def test_offset_clamp_floors_at_zero_and_passes_unknown_pitch_through():
+    assert clamp_frame_offset_mm(-2.0, 37.83) == 0.0
+    assert clamp_frame_offset_mm(50.0, 0.0) == pytest.approx(50.0)

@@ -27,6 +27,22 @@ class ScanParams:
     auto_exposure: bool = False
 
 
+MIN_FRAME_EXTENT_MM = 1.0  # below this a capped scan is a useless sliver
+
+
+def clamp_frame_offset_mm(offset_mm: float, pitch_mm: float) -> float:
+    """Effective feed-axis offset, floored at 0 and held short of one frame pitch.
+
+    The transport cannot back up, and the scan blacks out one pitch past the frame
+    start — at `offset >= pitch` the window collapses to zero height and the scan
+    comes back empty. Pitch 0 means unknown: floor only.
+    """
+    offset = max(0.0, offset_mm)
+    if pitch_mm <= 0:
+        return offset
+    return min(offset, max(0.0, pitch_mm - MIN_FRAME_EXTENT_MM))
+
+
 def scan_window_to_area(
     rect: tuple[float, float, float, float] | None,
     max_area_mm: tuple[float, float],
