@@ -29,8 +29,9 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.scan_window_label import ScanWindowLabel
 from negpy.desktop.workers.scan_worker import ScanRequest
 from negpy.infrastructure.scanners.base import ScannerDevice
-from negpy.infrastructure.scanners.params import ScanParams
+from negpy.infrastructure.scanners.params import ScanParams, clamp_frame_offset_mm
 
+_CLAMP_NOTICE = "Offset held at the frame pitch"
 _PREVIEW_FALLBACK_DPI = 500  # only when the device reports no DPI list at all
 _TILE_H = 140  # constant tile height; width follows the device aspect
 _TILES_PER_ROW = 6  # one SA-21 strip per row; roll adapters (up to 40 frames) wrap below
@@ -101,6 +102,7 @@ class _Tile:
 
     def __init__(self, frame: int, label: ScanWindowLabel, checkbox: QCheckBox, preview_btn: QPushButton, widget: QWidget) -> None:
         self.frame = frame
+        self.previewed_offset: float | None = None  # offset the shown preview was scanned at
         self.label = label
         self.checkbox = checkbox
         self.preview_btn = preview_btn
@@ -130,6 +132,7 @@ class StripPreviewDialog(QDialog):
         mm = self._caps.max_area_mm
         self._tile_aspect = (mm[1] / mm[0]) if (mm and len(mm) > 1 and mm[0]) else 1.5
         self._inflight_frame: int | None = None
+        self._inflight_offset: float = 0.0
         self._preview_queue: list[int] = []
         self._failed_frames: list[int] = []
         self._scan_now = False  # set when the user chooses "Scan" over "Use"
@@ -148,8 +151,9 @@ class StripPreviewDialog(QDialog):
             "Preview each frame (the eye button on a tile, or Preview all). Drag on a previewed "
             "frame to crop it — a corner to resize, inside to move; each frame keeps its own window. "
             "Offset nudges every frame along the feed axis to clear the inter-frame gap; Drift adds "
-            "progressively more (or less) offset per frame position — re-preview after changing them "
-            "to see the effect. Tick the frames to scan, then Use (apply and return) "
+            "progressively more (or less) offset per frame position — the shaded band is the film the "
+            "offset skips; re-preview after changing them to see the effect. "
+            "Tick the frames to scan, then Use (apply and return) "
             "or Scan (start scanning now)."
         )
         help_lbl.setWordWrap(True)
@@ -307,10 +311,19 @@ class StripPreviewDialog(QDialog):
     def frame_offset_modifier(self) -> float:
         return self.drift_slider.value() / 100.0
 
+    def _frame_pitch(self) -> float:
+        """Feed-axis frame pitch (mm) — the length a tile represents. 0.0 when unknown."""
+        mm = self._caps.max_area_mm
+        return self._caps.frame_pitch_mm or (mm[1] if mm and len(mm) > 1 else 0.0)
+
+    def _raw_offset_for_frame(self, frame: int) -> float:
+        return self.frame_offset() + (frame - 1) * self.frame_offset_modifier()
+
     def _offset_for_frame(self, frame: int) -> float:
-        """Effective offset for a frame position: base + (N-1)·drift, floored at 0
-        (the scan blacks out at the frame boundary — below 0 is unreachable)."""
-        return max(0.0, self.frame_offset() + (frame - 1) * self.frame_offset_modifier())
+        """Effective offset for a frame position: base + (N-1)·drift, floored at 0 and
+        held short of one pitch (the scan blacks out at the frame boundary — below 0 is
+        unreachable, past one pitch there is nothing left to scan)."""
+        return clamp_frame_offset_mm(self._raw_offset_for_frame(frame), self._frame_pitch())
 
     def scan_requested(self) -> bool:
         """True when the dialog was accepted via Scan (start now), not Use."""
@@ -342,20 +355,29 @@ class StripPreviewDialog(QDialog):
         self._refresh_offset_indicators()
 
     def _refresh_offset_indicators(self) -> None:
-        extent = self._caps.max_area_mm[1] if self._caps.max_area_mm and len(self._caps.max_area_mm) > 1 else 0.0
+        pitch = self._frame_pitch()
+        clamped: list[int] = []
         for tile in self._tiles.values():
             # Bands are absolute effective offsets, never deltas vs the shown
             # preview. +offset moves content toward the display's left (verified
             # on an LS-50), so the band marks the left strip a re-scan cuts
             # away; a frame floored at 0 by negative drift pins the line at the
-            # edge so the slider visibly acts.
+            # edge so the slider visibly acts. A tile previewed at this offset
+            # already starts at the line — the band covers only its empty gap.
             indicators: list[tuple[float, str]] = []
-            if extent:
-                raw = self.frame_offset() + (tile.frame - 1) * self.frame_offset_modifier()
-                offset = max(0.0, raw)
+            if pitch:
+                raw = self._raw_offset_for_frame(tile.frame)
+                offset = self._offset_for_frame(tile.frame)
+                if offset != raw:
+                    clamped.append(tile.frame)
                 if offset > 0 or raw < 0:
-                    indicators.append((offset / extent, "left"))
+                    indicators.append((offset / pitch, "left"))
             tile.label.set_offset_indicators(indicators)
+        if clamped:
+            frames = ", ".join(str(f) for f in clamped)
+            self.status.setText(f"{_CLAMP_NOTICE} on frame(s) {frames} — reduce Offset or Drift.")
+        elif self.status.text().startswith(_CLAMP_NOTICE):
+            self.status.clear()
 
     # ── preview flow (single-flight chain) ────────────────────────────
 
@@ -379,6 +401,7 @@ class StripPreviewDialog(QDialog):
             self._set_previewing(False)
             return
         frame = self._preview_queue.pop(0)
+        self._inflight_offset = self._offset_for_frame(frame)
         req = ScanRequest(
             device_id=self._device.id,
             params=ScanParams(
@@ -421,7 +444,13 @@ class StripPreviewDialog(QDialog):
             self._set_previewing(False)
             self.status.setText(f"Could not display frame {frame}: {e}")
             return
-        self._tiles[frame].label.set_frame(pixmap)
+        tile = self._tiles[frame]
+        tile.previewed_offset = self._inflight_offset
+        # The scan starts at the offset and runs to the frame boundary, so the raster
+        # covers only the tail of the frame — place it there instead of stretching it
+        # back over the whole tile, or tile fractions stop meaning frame fractions.
+        pitch = self._frame_pitch()
+        tile.label.set_frame(pixmap, (self._inflight_offset / pitch, 1.0) if pitch else None)
         self._refresh_offset_indicators()
         self._pump()
 

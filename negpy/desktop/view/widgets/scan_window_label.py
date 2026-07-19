@@ -33,6 +33,7 @@ class ScanWindowLabel(QLabel):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self._pixmap: Optional[QPixmap] = None
+        self._coverage: Optional[tuple[float, float]] = None
         self._rect: Optional[Rect] = None
         self._mode: Optional[str] = None  # "draw" | "move" | "resize"
         self._active_corner: Optional[int] = None
@@ -42,8 +43,13 @@ class ScanWindowLabel(QLabel):
 
     # ── public API ────────────────────────────────────────────────────
 
-    def set_frame(self, pixmap: QPixmap) -> None:
+    def set_frame(self, pixmap: QPixmap, coverage: Optional[tuple[float, float]] = None) -> None:
+        """Show a preview. `coverage` is the (start, end) fraction of the *full frame*
+        this pixmap spans along x — an offset scan starts past 0 and its raster must not
+        be stretched back over the whole frame, or every fraction read off this widget
+        (crop rects, offset lines) means something different from what the scan will do."""
         self._pixmap = pixmap
+        self._coverage = coverage
         self.update()
 
     def set_window(self, rect: Optional[Rect]) -> None:
@@ -76,9 +82,25 @@ class ScanWindowLabel(QLabel):
         pw, ph = self._pixmap.width(), self._pixmap.height()
         if pw <= 0 or ph <= 0:
             return None
+        span = self._coverage_span()
+        pw = pw / span  # the frame is wider than the raster when the scan started past 0
         scale = min(self.width() / pw, self.height() / ph)
         dw, dh = int(pw * scale), int(ph * scale)
         return QRect((self.width() - dw) // 2, (self.height() - dh) // 2, dw, dh)
+
+    def _coverage_span(self) -> float:
+        if self._coverage is None:
+            return 1.0
+        start, end = self._coverage
+        return max(1e-3, min(1.0, end) - max(0.0, start))
+
+    def _content_rect(self, draw_rect: QRect) -> QRect:
+        """Sub-rect of the frame the pixmap actually occupies."""
+        if self._coverage is None:
+            return draw_rect
+        start = max(0.0, min(1.0, self._coverage[0]))
+        x = draw_rect.left() + int(start * draw_rect.width())
+        return QRect(x, draw_rect.top(), max(1, int(self._coverage_span() * draw_rect.width())), draw_rect.height())
 
     @staticmethod
     def _to_fraction(p: QPoint, draw_rect: QRect) -> tuple[float, float]:
@@ -149,7 +171,10 @@ class ScanWindowLabel(QLabel):
         painter = QPainter(self)
         draw_rect = self._display()
         if draw_rect is not None and self._pixmap is not None:
-            painter.drawPixmap(draw_rect, self._pixmap)
+            content = self._content_rect(draw_rect)
+            if content != draw_rect:
+                painter.fillRect(draw_rect, QColor("#0D0D0F"))
+            painter.drawPixmap(content, self._pixmap)
             if self._rect is not None:
                 wr = self._rect_in_widget(self._rect, draw_rect)
                 painter.setPen(QPen(QColor("#1D9E75"), 2))

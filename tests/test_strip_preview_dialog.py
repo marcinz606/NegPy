@@ -7,6 +7,7 @@ the sidebar reads on accept, and the single-flight "Preview all" chain.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -357,3 +358,69 @@ def test_start_preview_busy_is_handled_gracefully() -> None:
 
     assert controller.preview_reqs == []
     assert dialog.preview_all_btn.isEnabled() is True
+
+
+def _pitch_device(capacity: int, pitch: float = 37.83) -> ScannerDevice:
+    device = _device(capacity)
+    return ScannerDevice(
+        id=device.id,
+        vendor=device.vendor,
+        model=device.model,
+        capabilities=dataclasses.replace(device.capabilities, frame_pitch_mm=pitch),
+    )
+
+
+def test_preview_is_placed_at_its_offset_not_stretched_over_the_frame() -> None:
+    # The scan starts at the offset and runs to the frame boundary, so its raster
+    # covers only the tail of the frame. Stretching it back over the whole tile
+    # doubled the apparent advance and made tile fractions lie about the scan.
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _pitch_device(3), initial_offset=4.8)
+
+    dialog._on_preview_one(1)
+    controller.scan_preview_ready.emit(_rgb())
+
+    start, end = dialog._tiles[1].label._coverage
+    assert start == pytest.approx(4.8 / 37.83, abs=1e-4)
+    assert end == 1.0
+    assert dialog._tiles[1].previewed_offset == pytest.approx(4.8)
+
+
+def test_preview_at_zero_offset_covers_the_whole_frame() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _pitch_device(3))
+
+    dialog._on_preview_one(1)
+    controller.scan_preview_ready.emit(_rgb())
+
+    assert dialog._tiles[1].label._coverage == (0.0, 1.0)
+
+
+def test_offset_indicator_lands_on_the_edge_of_its_own_preview() -> None:
+    # The cut line and the previewed content must agree once the preview is current
+    # — the whole "did the offset apply?" confusion was these two disagreeing.
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _pitch_device(3), initial_offset=4.8)
+    label = dialog._tiles[1].label
+
+    dialog._on_preview_one(1)
+    controller.scan_preview_ready.emit(_rgb())
+
+    ((frac, _edge),) = label._offset_indicators
+    assert frac == pytest.approx(label._coverage[0], abs=1e-4)
+
+
+def test_indicator_uses_the_reported_pitch_over_the_scan_extent() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _pitch_device(3), initial_offset=4.0)
+    dialog._refresh_offset_indicators()
+
+    ((frac, _edge),) = dialog._tiles[1].label._offset_indicators
+    assert frac == pytest.approx(4.0 / 37.83, abs=1e-4)  # not / 38.0 (max_area_mm)
+
+
+def test_drift_past_the_pitch_is_clamped_and_flagged() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _pitch_device(14), initial_offset=8.0, initial_offset_modifier=2.5)
+
+    assert dialog._offset_for_frame(1) == pytest.approx(8.0)
+    assert dialog._offset_for_frame(14) == pytest.approx(36.83)  # pitch - 1 mm, not 40.5
+    assert "14" in dialog.status.text()
