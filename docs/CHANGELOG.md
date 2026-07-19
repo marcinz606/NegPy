@@ -8,10 +8,6 @@
 - Change: **Update notice is now a link** — the "Update Available" banner under the logo is clickable and takes you straight to the GitHub releases page, with a download icon.
 
 
-
-- New: **Nikon Coolscan film scanning** — the Scan tab drives SANE Coolscans (and other SANE film scanners). Scan a whole SA-21 strip or SA-30 roll or any sub-range like frames 2–4, each written with its frame number, or open **Preview strip** to preview the strip frame by frame, set a crop window per frame, and tick exactly which frames to scan (skip the rest). Adds autofocus, hardware auto-exposure, correct 14-bit capture (a Coolscan V is no longer two stops dark), and film handling that returns the strip automatically when a batch finishes, plus an eject button on demand. An infrared dust channel is captured as `_IR`/`_IR_VALID` sidecars for the Retouch panel's IR repair. Infrared needs a locally patched `coolscan3` driver — run `make sane-rgbi-help`, then `make run-ir`; everything else works on stock SANE. Other SANE film scanners (Plustek, pieusb) are unaffected. [Coolscan scanning guide](COOLSCAN_SCANNING.md)
-
-
 ## 0.38.0
 
 - New: **Finish panel — edge burn, filed carrier and print mats** — a new Finish panel finishes the print after crop: **Edge Burn** replaces vignette with a true exposure burn in stops (radial or, via Roundness, a rectangular card-burn), **Filed Carrier** prints the black rebate of a filed-out negative carrier with a roughened inner edge, and **Border** adds a mat with adjustable width and colour, a bottom-weighted (window-mat) proportion, and a Match Paper White option that ties the mat colour to the toned paper white instead of a picked colour.
