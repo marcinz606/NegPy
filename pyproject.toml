@@ -56,6 +56,8 @@ camera = [
     "gphoto2>=2.5 ; sys_platform != 'win32'",
 ]
 coolscan-roll = [
+    # Direct-USB roll scanning on a Nikon Coolscan LS-5000 with an SA-21/SA-30 feeder.
+    # No SANE dependency for this workflow; see docs/COOLSCANPY_ROLL_SCANNING.md.
     "coolscanpy>=0.1.2",
 ]
 
