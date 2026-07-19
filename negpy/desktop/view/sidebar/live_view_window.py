@@ -138,15 +138,6 @@ class LiveViewWindow(QDialog):
         bar.addWidget(self.retake_btn, 1)
         layout.addLayout(bar)
 
-        # Capture progress lives here too (not only on the side panel): while scanning a roll
-        # the operator watches this window, and the bar reaching 100% is the "film may be
-        # advanced / next Scan may be pressed" signal.
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setFormat("Capturing… %p%")
-        self.progress.setVisible(False)
-        layout.addWidget(self.progress)
-
         self.image = RoiImageLabel()
         self.image.roi_mode = False  # clicks aim the magnifier here, not a calibration ROI
         # Magnifier cursor over the live image → signals "click to magnify here".
@@ -183,6 +174,16 @@ class LiveViewWindow(QDialog):
             col.addWidget(stepper)
             settings_row.addLayout(col, 1)
         layout.addWidget(self.settings_widget)
+
+        # Capture progress lives here too (not only on the side panel): while scanning a roll
+        # the operator watches this window, and the bar reaching 100% is the "film may be
+        # advanced / next Scan may be pressed" signal. Below the view, mirroring the
+        # calibration window's bar placement.
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setFormat("Capturing… %p%")
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
 
         self.status = QLabel("")
         self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
