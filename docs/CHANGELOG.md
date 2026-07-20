@@ -9,6 +9,7 @@
 - Change: **Rotate buttons are easier to tell apart** — Rotate CCW/CW reused the same circular-arrow glyphs as the Undo/Redo buttons beside them; they now use distinct page-with-rotation-arrow icons, a touch larger. @linkmodo
 - Change: **Analysis Region shows when it's active** — the Freedraw Analysis Region button carries a small dot whenever a custom region is overriding the Analysis Buffer slider, so it stays obvious after the draw tool closes. @linkmodo
 - Fix: **Preview and export sharpen the same** — the GPU preview used a fixed kernel that sharpened the wrong detail band at export scale, so a full-size export could look softer or harsher than the preview. Both paths now sharpen identically at every zoom and output size.
+- Docs: **Expanded user guide** — [USER_GUIDE.md](USER_GUIDE.md) rewritten for the current tabbed layout, covering every panel and control (including the ones the old guide never mentioned) in the order the pipeline applies them.
 
 
 ## 0.39.0
