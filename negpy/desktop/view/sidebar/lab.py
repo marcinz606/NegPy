@@ -28,10 +28,10 @@ class LabSidebar(BaseSidebar):
         self.vibrance_slider = CompactSlider("Vibrance", 0.0, 2.0, conf.vibrance, has_neutral=True)
         self.layout.addWidget(self.vibrance_slider)
 
-        self.layout.addWidget(section_subheader("DETAIL"))
+        self.layout.addWidget(section_subheader("SHARPEN"))
 
         method_row = QHBoxLayout()
-        method_row.addWidget(QLabel("Sharpen"))
+        method_row.addWidget(QLabel("Method"))
         self.sharpen_method_combo = QComboBox()
         self.sharpen_method_combo.addItem("Unsharp Mask", SharpenMethod.USM.value)
         self.sharpen_method_combo.addItem("Deconvolution", SharpenMethod.RL.value)
@@ -48,6 +48,8 @@ class LabSidebar(BaseSidebar):
         row_sharpen.addWidget(self.sharpen_radius_slider)
         row_sharpen.addWidget(self.sharpen_masking_slider)
         self.layout.addLayout(row_sharpen)
+
+        self.layout.addWidget(section_subheader("DETAIL"))
 
         row2 = QHBoxLayout()
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
