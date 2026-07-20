@@ -382,6 +382,18 @@ class TestLabParity:
         s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.5))
         self._run_and_compare_sharpen(s, scale=4.0)
 
+    def test_sharpen_rl(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.2))
+        self._run_and_compare_sharpen(s, scale=1.0)
+
+    def test_sharpen_rl_masking(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.2, sharpen_masking=0.7))
+        self._run_and_compare_sharpen(s, scale=1.0)
+
+    def test_sharpen_rl_export_scale(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.0))
+        self._run_and_compare_sharpen(s, scale=4.0)
+
     def test_glow(self):
         s = replace(_make_base_settings(), lab=LabConfig(glow_amount=0.3))
         self._run_and_compare(s)

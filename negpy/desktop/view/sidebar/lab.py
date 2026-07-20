@@ -1,7 +1,8 @@
-from PyQt6.QtWidgets import QHBoxLayout
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import section_subheader
+from negpy.features.lab.models import SharpenMethod
 from negpy.features.process.models import ProcessMode
 
 
@@ -28,6 +29,15 @@ class LabSidebar(BaseSidebar):
         self.layout.addWidget(self.vibrance_slider)
 
         self.layout.addWidget(section_subheader("DETAIL"))
+
+        method_row = QHBoxLayout()
+        method_row.addWidget(QLabel("Sharpen"))
+        self.sharpen_method_combo = QComboBox()
+        self.sharpen_method_combo.addItem("Unsharp Mask", SharpenMethod.USM.value)
+        self.sharpen_method_combo.addItem("Deconvolution", SharpenMethod.RL.value)
+        self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(conf.sharpen_method))
+        method_row.addWidget(self.sharpen_method_combo, 1)
+        self.layout.addLayout(method_row)
 
         self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
         self.layout.addWidget(self.sharpen_slider)
@@ -58,6 +68,10 @@ class LabSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
+        self.sharpen_method_combo.currentIndexChanged.connect(
+            lambda idx: self.update_config_section("lab", persist=True, sharpen_method=self.sharpen_method_combo.itemData(idx))
+        )
+
         self.clahe_slider.valueChanged.connect(
             lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, clahe_strength=v)
         )
@@ -135,6 +149,7 @@ class LabSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.clahe_slider.setValue(conf.clahe_strength)
+            self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(conf.sharpen_method))
             self.sharpen_slider.setValue(conf.sharpen)
             self.sharpen_radius_slider.setValue(conf.sharpen_radius)
             self.sharpen_masking_slider.setValue(conf.sharpen_masking)
@@ -156,6 +171,7 @@ class LabSidebar(BaseSidebar):
 
     def block_signals(self, blocked: bool) -> None:
         widgets = [
+            self.sharpen_method_combo,
             self.clahe_slider,
             self.sharpen_slider,
             self.sharpen_radius_slider,

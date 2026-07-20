@@ -13,9 +13,9 @@ struct LabUniforms {
     scale_factor: f32,
     sharpen_radius_px: f32,
     sharpen_masking: f32,
+    sharpen_method: f32,
     _pad1: f32,
     _pad2: f32,
-    _pad3: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;

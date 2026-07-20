@@ -543,8 +543,11 @@ class ControlsPanel(QWidget):
                 ["sharpen_inc", "sharpen_dec"],
             )
         )
+        lab.sharpen_method_combo.setToolTip(
+            "Unsharp Mask boosts edge contrast; Deconvolution (Richardson–Lucy) reverses the scanner's optical blur — set Radius to the blur width of the scan"
+        )
         lab.sharpen_radius_slider.setToolTip(
-            "Unsharp-mask blur radius in pixels — small for fine grain and detail, larger for smoother films and soft scans"
+            "Blur radius in pixels — small for fine grain and detail, larger for smoother films and soft scans"
         )
         lab.sharpen_masking_slider.setToolTip(
             "Restricts sharpening to edges — higher values protect flat areas (sky, skin, grain) from being crisped"

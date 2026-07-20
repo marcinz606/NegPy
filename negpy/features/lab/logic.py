@@ -97,9 +97,39 @@ def gaussian_kernel_1d(sigma: float) -> np.ndarray:
     return k / np.float32(k.sum())
 
 
+# Richardson-Lucy noise floor (linear luminance) — mirrors RL_EPS in the WGSL shaders.
+RL_EPS = 1e-6
+# Adobe RGB (1998) -> XYZ D65 luminance row (Yn = 1). Mirrors lab_sharpen_h.wgsl / rl_init.wgsl.
+LUM_R, LUM_G, LUM_B = 0.2973769, 0.6273491, 0.0752741
+
+
 def _smoothstep(e0: float, e1: float, x: np.ndarray) -> np.ndarray:
     t = np.clip((x - np.float32(e0)) / np.float32(e1 - e0), 0.0, 1.0)
     return t * t * (np.float32(3.0) - np.float32(2.0) * t)
+
+
+def _lab_l_from_y(y: np.ndarray) -> np.ndarray:
+    """CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors lab_l_from_y in the shaders."""
+    y = np.maximum(y, 0.0)
+    f = np.where(y > 0.008856, np.cbrt(y), np.float32(7.787) * y + np.float32(16.0 / 116.0))
+    return (np.float32(116.0) * f - np.float32(16.0)).astype(np.float32)
+
+
+def _edge_mask(l_chan: np.ndarray, masking: float, scale_factor: float) -> np.ndarray:
+    """Boxed |∇L*| edge mask (smoothstep over 0.5t..t, t=10·masking); shared by
+    both sharpen methods. Mirrors the WGSL boxed-gradient loop."""
+    lp = np.pad(l_chan, 1, mode="edge")
+    gx = (lp[1:-1, 2:] - lp[1:-1, :-2]) * np.float32(0.5)
+    gy = (lp[2:, 1:-1] - lp[:-2, 1:-1]) * np.float32(0.5)
+    grad = cv2.blur(np.hypot(gx, gy).astype(np.float32), (3, 3), borderType=cv2.BORDER_REPLICATE)
+    t = SHARPEN_MASK_T_HI * masking
+    return _smoothstep(0.5 * t, t, grad * np.float32(scale_factor))
+
+
+def rl_iterations(radius: float) -> int:
+    """Deterministic RL iteration count from the user radius (not the scaled σ),
+    so preview and export run identical counts. Shared by CPU and GPU."""
+    return int(np.clip(int(round(10.0 * radius)), 5, 20))
 
 
 def apply_output_sharpening(
@@ -127,12 +157,7 @@ def apply_output_sharpening(
     gain = np.float32(amount * 2.5) * _smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, np.abs(diff))
 
     if masking > 0.0:
-        lp = np.pad(l_chan, 1, mode="edge")
-        gx = (lp[1:-1, 2:] - lp[1:-1, :-2]) * np.float32(0.5)
-        gy = (lp[2:, 1:-1] - lp[:-2, 1:-1]) * np.float32(0.5)
-        grad = cv2.blur(np.hypot(gx, gy).astype(np.float32), (3, 3), borderType=cv2.BORDER_REPLICATE)
-        t = SHARPEN_MASK_T_HI * masking
-        gain = gain * _smoothstep(0.5 * t, t, grad * np.float32(scale_factor))
+        gain = gain * _edge_mask(l_chan, masking, scale_factor)
 
     kern3 = np.ones((3, 3), np.uint8)
     l_min = cv2.erode(l_chan, kern3, borderType=cv2.BORDER_REPLICATE)
@@ -146,6 +171,46 @@ def apply_output_sharpening(
     res_rgb = lab_to_rgb_working(res_lab)
 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))
+
+
+def apply_rl_sharpening(
+    img: ImageBuffer,
+    amount: float,
+    scale_factor: float = 1.0,
+    radius: float = 1.0,
+    masking: float = 0.0,
+) -> ImageBuffer:
+    """
+    Richardson-Lucy deconvolution on linear luminance Y (Gaussian PSF), applied
+    as an RGB ratio so chroma is preserved. Mirrors rl_*.wgsl. Iterations are
+    fixed by radius (rl_iterations); no per-pixel early stop or damping — the
+    edge mask governs grain, matching RawTherapee's shipped configuration.
+    """
+    if amount <= 0:
+        return img
+
+    rgb = img.astype(np.float32)
+    obs = (
+        np.maximum(rgb[..., 0], 0.0) * np.float32(LUM_R)
+        + np.maximum(rgb[..., 1], 0.0) * np.float32(LUM_G)
+        + np.maximum(rgb[..., 2], 0.0) * np.float32(LUM_B)
+    ).astype(np.float32)
+
+    k = gaussian_kernel_1d(radius * scale_factor)
+    est = obs.copy()
+    for _ in range(rl_iterations(radius)):
+        blurred = cv2.sepFilter2D(est, -1, k, k, borderType=cv2.BORDER_REFLECT_101)
+        corr = cv2.sepFilter2D(obs / np.maximum(blurred, np.float32(RL_EPS)), -1, k, k, borderType=cv2.BORDER_REFLECT_101)
+        est = est * corr
+
+    ratio = est / np.maximum(obs, np.float32(RL_EPS))
+    gain = np.float32(amount)
+    if masking > 0.0:
+        gain = gain * _edge_mask(_lab_l_from_y(obs), masking, scale_factor)
+
+    factor = np.maximum(np.float32(1.0) + (ratio - np.float32(1.0)) * gain, 0.0)
+    out = rgb * factor[..., np.newaxis]
+    return ensure_image(np.clip(out, 0.0, 1.0))
 
 
 def apply_saturation(img: ImageBuffer, saturation: float) -> ImageBuffer:

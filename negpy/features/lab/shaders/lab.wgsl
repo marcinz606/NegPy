@@ -10,15 +10,16 @@ struct LabUniforms {
     scale_factor: f32,
     sharpen_radius_px: f32,
     sharpen_masking: f32,
+    sharpen_method: f32,
     _pad1: f32,
     _pad2: f32,
-    _pad3: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: LabUniforms;
-// (blurred L*, original L*) from lab_sharpen_h/v.wgsl; 1x1 dummy when sharpen=0.
+// USM: (blurred L*, original L*) from lab_sharpen_h/v.wgsl.
+// RL:  (deconvolved Y, observed Y) from the rl_*.wgsl chain. 1x1 dummy when sharpen=0.
 @group(0) @binding(3) var sharpen_tex: texture_2d<f32>;
 
 // Sharpen constants — mirrored from features/lab/logic.py.
@@ -27,8 +28,16 @@ const SHARPEN_GATE_HI = 2.0;
 const SHARPEN_OVERSHOOT_LIGHT = 1.0;
 const SHARPEN_OVERSHOOT_DARK = 2.0;
 const SHARPEN_MASK_T_HI = 10.0;
+const RL_EPS = 1e-6;
 
 const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
+
+// CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors _lab_l_from_y in logic.py.
+fn lab_l_from_y(y_in: f32) -> f32 {
+    var y = max(y_in, 0.0);
+    if (y > 0.008856) { y = pow(y, 1.0 / 3.0); } else { y = (7.787 * y) + (16.0 / 116.0); }
+    return (116.0 * y) - 16.0;
+}
 
 // 64-tap Fibonacci spiral — uniform area coverage, smooth Gaussian approximation.
 // Points lie in the unit disk; scale by the desired pixel radius when sampling.
@@ -250,11 +259,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = lab_to_rgb(lab);
     }
 
-    // 5. Sharpening — mirrors apply_output_sharpening in logic.py exactly.
-    // The blur was computed by lab_sharpen_h/v.wgsl from input_tex, which the
-    // earlier chroma/vibrance/saturation stages never touch in L* (they only
-    // rewrite a*/b*), so sharpen_tex L* matches what `color` would blur to.
-    if (params.sharpen > 0.0) {
+    // 5. Sharpening — sharpen_tex holds precomputed state from the h/v (USM) or
+    // rl_*.wgsl (deconvolution) passes over input_tex, which the earlier
+    // chroma/vibrance/saturation stages never touch in L*/Y (they only rewrite
+    // a*/b*), so the state matches what `color` would produce.
+    if (params.sharpen > 0.0 && params.sharpen_method < 0.5) {
+        // Unsharp mask — mirrors apply_output_sharpening in logic.py.
         let blur_l = textureLoad(sharpen_tex, coords, 0).x;
         let current_lab = rgb_to_lab(color);
         let diff = current_lab.x - blur_l;
@@ -297,6 +307,31 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         l_new = clamp(l_new, l_min - SHARPEN_OVERSHOOT_DARK, l_max + SHARPEN_OVERSHOOT_LIGHT);
         l_new = clamp(l_new, 0.0, 100.0);
         color = lab_to_rgb(vec3<f32>(l_new, current_lab.y, current_lab.z));
+    } else if (params.sharpen > 0.0) {
+        // Richardson-Lucy — mirrors apply_rl_sharpening in logic.py. sharpen_tex
+        // is (deconvolved Y, observed Y); apply the luminance ratio to RGB
+        // (chroma-preserving), gated by the shared edge mask over L*(obs).
+        let d = textureLoad(sharpen_tex, coords, 0);
+        var gain = params.sharpen;
+        if (params.sharpen_masking > 0.0) {
+            var grad_box = 0.0;
+            for (var j = -1; j <= 1; j++) {
+                for (var i = -1; i <= 1; i++) {
+                    let p = clamp(coords + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let px = clamp(p + vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let mx = clamp(p - vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let py = clamp(p + vec2<i32>(0, 1), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let my = clamp(p - vec2<i32>(0, 1), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let gx = (lab_l_from_y(textureLoad(sharpen_tex, px, 0).y) - lab_l_from_y(textureLoad(sharpen_tex, mx, 0).y)) * 0.5;
+                    let gy = (lab_l_from_y(textureLoad(sharpen_tex, py, 0).y) - lab_l_from_y(textureLoad(sharpen_tex, my, 0).y)) * 0.5;
+                    grad_box += sqrt(gx * gx + gy * gy);
+                }
+            }
+            let t = SHARPEN_MASK_T_HI * params.sharpen_masking;
+            gain = gain * smoothstep(0.5 * t, t, (grad_box / 9.0) * params.scale_factor);
+        }
+        let ratio = d.x / max(d.y, RL_EPS);
+        color = color * max(1.0 + (ratio - 1.0) * gain, 0.0);
     }
 
     // 6. Glow and Halation

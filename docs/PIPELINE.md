@@ -166,7 +166,9 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 2.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
 3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel. Before applying, the factor is multiplied by a grade-coupled chroma damping term $(k_{min}/k_g)^{strength}$ ("Dye Mute", default 0.5), where $k_g$ is the green print-curve slope and $k_{min}$ the softest printable slope. Per-channel H&D curves inflate chroma as contrast rises; the damping counters it, mimicking paper dyes' unwanted absorptions. Strength 0 disables. (The default was tuned against the old ProPhoto working gamut — it may run strong now that the working space is Adobe RGB.)
-4.  **Sharpening**: Unsharp mask on the Lightness channel ($L$) in LAB space, with halo suppression. CPU (`cv2.sepFilter2D`) and GPU (separable `lab_sharpen_h/v.wgsl` passes) convolve the *same* taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer), so the two paths match bit-for-bit.
+4.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius}\cdot\text{scale\_factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
+
+    **Unsharp Mask** — on the Lightness channel ($L$) in LAB space, with halo suppression (`lab_sharpen_h/v.wgsl`):
 
     $$L_{diff} = L - \text{blur}(L, \sigma), \qquad \sigma = \text{radius} \cdot \text{scale\_factor}$$
     $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(1.5, 2.0, |L_{diff}|) \cdot m$$
@@ -174,6 +176,12 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
     *   **Radius** (px): blur $\sigma$, scaled to the render size so preview and export match.
     *   **Masking** ($m$): edge mask from the boxed $|\nabla L|$, $\text{smoothstep}(0.5t, t, |\nabla L|)$ with $t = 10\cdot\text{masking}$ — protects flat areas (sky, skin, grain); off at 0.
     *   Smoothstep noise gate over $[1.5, 2.0]$ replaces a hard threshold. Overshoot clamp to the local $3\times3$ range ($L_{min}, L_{max}$) kills halos, tighter above (+1) than below (−2) because $L^{\ast}$-domain USM exaggerates light halos.
+
+    **Deconvolution** — Richardson-Lucy on linear luminance $Y$ (Gaussian PSF), reversing the scanner's optical blur (`rl_*.wgsl`). Runs on $Y$, not $L^{\ast}$: optical blur is physical, so the model must live in linear light.
+
+    $$\hat{o}_{n+1} = \hat{o}_n \cdot \Big(K \otimes \tfrac{o}{\max(K \otimes \hat{o}_n,\, \epsilon)}\Big), \qquad \hat{o}_0 = o = Y$$
+    Iterations are fixed by radius, $\text{clamp}(\text{round}(10\cdot\text{radius}), 5, 20)$ — a function of the *user* radius, never the scaled $\sigma$, so preview and export run identical counts (no per-pixel early stop, no damping; the edge mask alone governs grain, matching RawTherapee). The result is applied as an RGB ratio (chroma-preserving), gated by the same $L^{\ast}$ edge mask $m$:
+    $$\text{RGB}_{out} = \text{clamp}\Big(\text{RGB} \cdot \max\big(1 + (\tfrac{\hat{o}_N}{\max(o,\epsilon)} - 1)\cdot\text{amount}\cdot m,\; 0\big),\; 0,\; 1\Big)$$
 
 5.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 

@@ -1,6 +1,6 @@
-// Vertical half of the separable sharpen blur — blurs the .x channel of the
-// lab_sharpen_h.wgsl output with the same shared taps (sharpen_k buffer) and
-// passes the original L* (.y) through for lab.wgsl's clamp/mask neighbourhood.
+// Richardson-Lucy divide step: finishes the separable blur of the working
+// channel (vertical half) to get blurred = K⊗est, then writes the ratio
+// obs / max(blurred, eps) into .x. obs (.y) and est (.z) pass through.
 struct LabUniforms {
     sharpen: f32,
     chroma_denoise: f32,
@@ -21,7 +21,8 @@ struct LabUniforms {
 @group(0) @binding(2) var<uniform> params: LabUniforms;
 @group(0) @binding(3) var<storage, read> kernel_w: array<f32>;
 
-// cv2's default border mode (BORDER_REFLECT_101) — mirrors the CPU blur.
+const RL_EPS = 1e-6;
+
 fn reflect_101(c: i32, n: i32) -> i32 {
     var v = c;
     if (v < 0) { v = -v; }
@@ -36,12 +37,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
 
     let r = i32(params.sharpen_radius_px);
-    var acc = 0.0;
+    var blurred = 0.0;
     for (var j = -r; j <= r; j++) {
         let sy = reflect_101(coords.y + j, i32(dims.y));
-        acc += textureLoad(input_tex, vec2<i32>(coords.x, sy), 0).x * kernel_w[u32(j + r)];
+        blurred += textureLoad(input_tex, vec2<i32>(coords.x, sy), 0).x * kernel_w[u32(j + r)];
     }
 
-    let l_orig = textureLoad(input_tex, coords, 0).y;
-    textureStore(output_tex, coords, vec4<f32>(acc, l_orig, 0.0, 0.0));
+    let c = textureLoad(input_tex, coords, 0);
+    textureStore(output_tex, coords, vec4<f32>(c.y / max(blurred, RL_EPS), c.y, c.z, 0.0));
 }
