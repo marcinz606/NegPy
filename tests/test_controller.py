@@ -1592,3 +1592,90 @@ class TestRetouchPersistence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDisplayTransformParams(unittest.TestCase):
+    """The canvas and the filmstrip thumbnail must derive their display transform
+    from the same place. When a soft proof is active the render worker has already
+    baked source->output->monitor into the buffer, so the transform has to be a
+    no-op; treating that buffer as working-space re-applies ProPhoto->sRGB and the
+    thumbnail comes out visibly oversaturated next to the canvas."""
+
+    def setUp(self):
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+        self.controller.state.monitor_icc_bytes = b"fake-monitor-profile"
+
+    def tearDown(self):
+        import gc
+
+        # Same teardown as TestAppController: the controller owns live QThreads and
+        # letting it be collected while they run crashes the interpreter.
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_proof_active_yields_a_no_op_transform(self):
+        self.controller.proof_active = lambda: True
+        cs, monitor = self.controller.display_transform_params()
+        # sRGB source + no monitor profile is the documented identity case in
+        # get_display_lut, i.e. the already-baked buffer is passed through untouched.
+        self.assertEqual(cs, ColorSpace.SRGB.value)
+        self.assertIsNone(monitor)
+
+    def test_proof_inactive_converts_from_the_working_space(self):
+        self.controller.proof_active = lambda: False
+        cs, monitor = self.controller.display_transform_params()
+        self.assertEqual(cs, self.controller.state.workspace_color_space)
+        self.assertEqual(monitor, b"fake-monitor-profile")
+
+    def test_splash_buffer_is_treated_as_srgb(self):
+        self.controller.proof_active = lambda: False
+        cs, monitor = self.controller.display_transform_params(splash=True)
+        self.assertEqual(cs, ColorSpace.SRGB.value)
+        self.assertEqual(monitor, b"fake-monitor-profile")
+
+    def test_thumbnail_task_carries_the_same_params_as_the_canvas(self):
+        """The actual regression: the thumbnail used to hardcode the working space."""
+        import numpy as np
+
+        self.controller.proof_active = lambda: True
+        state = self.controller.state
+        state.current_file_path = "/tmp/frame.cr2"
+        state.current_file_hash = "hash-1"
+        state.last_metrics = {"base_positive": np.zeros((4, 4, 3), dtype=np.float32)}
+
+        emitted = []
+        # Drop the real worker connection first: emitting would otherwise hand the
+        # buffer to the thumbnail QThread, which then races this test's teardown.
+        try:
+            self.controller.thumbnail_update_requested.disconnect()
+        except TypeError:
+            pass
+        self.controller.thumbnail_update_requested.connect(emitted.append)
+        self.controller._update_thumbnail_from_state()
+
+        self.assertEqual(len(emitted), 1)
+        task = emitted[0]
+        self.assertEqual((task.color_space, task.monitor_icc_bytes), self.controller.display_transform_params())
+        self.assertNotEqual(task.color_space, state.workspace_color_space)

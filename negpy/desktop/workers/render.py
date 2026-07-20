@@ -55,7 +55,10 @@ class ThumbnailUpdateTask:
     filename: str
     file_hash: str
     buffer: np.ndarray
+    # Display-transform inputs, from AppController.display_transform_params — must be
+    # the same pair the canvas used for this buffer or the thumbnail's colour drifts.
     color_space: str = WORKING_COLOR_SPACE
+    monitor_icc_bytes: Optional[bytes] = None
     persist: bool = True  # False = in-memory filmstrip only, skip the disk JPEG encode.
 
 
@@ -266,7 +269,13 @@ class ThumbnailWorker(QObject):
         try:
             buf = task.buffer.copy()
             store = self._store if task.persist else None
-            thumb = get_rendered_thumbnail(buf, task.file_hash, store, color_space=task.color_space)
+            thumb = get_rendered_thumbnail(
+                buf,
+                task.file_hash,
+                store,
+                color_space=task.color_space,
+                monitor_icc_bytes=task.monitor_icc_bytes,
+            )
             if thumb:
                 self.finished.emit({task.filename: thumb})
         except Exception as e:

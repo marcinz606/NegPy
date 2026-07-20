@@ -123,11 +123,22 @@ def get_thumbnail_worker(
 
 
 def get_rendered_thumbnail(
-    buffer: Any, file_hash: str, asset_store: Any = None, color_space: str = WORKING_COLOR_SPACE
+    buffer: Any,
+    file_hash: str,
+    asset_store: Any = None,
+    color_space: str = WORKING_COLOR_SPACE,
+    monitor_icc_bytes: Optional[bytes] = None,
 ) -> Optional[Image.Image]:
     """
-    Creates a thumbnail from a rendered float32 buffer, color-managing the working
-    space to sRGB so it matches the canvas (mirrors ImageConverter.to_qimage).
+    Creates a thumbnail from a rendered float32 buffer, applying the same display
+    transform the canvas applied to that buffer (mirrors ImageConverter.to_qimage).
+
+    ``color_space``/``monitor_icc_bytes`` must come from
+    ``AppController.display_transform_params`` — they encode whether the buffer is
+    still in the working space or has already been baked into display space by a
+    soft proof. Assuming working space unconditionally re-applies the working->sRGB
+    conversion to an already-converted buffer, which clips channels and leaves the
+    filmstrip visibly more saturated than the canvas.
     """
     try:
         from negpy.infrastructure.display.color_mgmt import apply_display_transform
@@ -137,7 +148,7 @@ def get_rendered_thumbnail(
         if isinstance(buffer, np.ndarray) and buffer.ndim == 3 and buffer.shape[2] == 4:
             buffer = buffer[:, :, :3]
         if isinstance(buffer, np.ndarray) and buffer.dtype == np.float32:
-            buffer = apply_display_transform(buffer, color_space)
+            buffer = apply_display_transform(buffer, color_space, monitor_icc_bytes)
         u8_arr = float_to_uint8(buffer)
         img = Image.fromarray(u8_arr)
 

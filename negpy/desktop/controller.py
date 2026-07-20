@@ -36,6 +36,7 @@ from negpy.desktop.workers.capture_worker import (
     LiveViewRequest,
 )
 from negpy.domain.models import (
+    ColorSpace,
     ExportFormat,
     ExportPreset,
     ExportPresetOutputMode,
@@ -2177,6 +2178,24 @@ class AppController(QObject):
             return get_resource_path("icc/RGBScan.icc")
         return None
 
+    def display_transform_params(self, splash: bool = False) -> tuple[str, Optional[bytes]]:
+        """Source space + monitor profile to hand the display transform for the
+        current render, as ``(color_space, monitor_icc_bytes)``.
+
+        Single source of truth for every consumer of a rendered buffer — the canvas
+        and the filmstrip thumbnail must agree, or the same frame shows two different
+        colours. With a proof active the render worker already baked
+        source→output→monitor into the buffer, so the transform has to be a no-op
+        (sRGB→sRGB, no monitor profile); treating that buffer as working-space instead
+        re-applies the working→sRGB conversion and blows the saturation out. ``splash``
+        marks the embedded camera thumbnail, which is already sRGB.
+        """
+        if splash:
+            return ColorSpace.SRGB.value, self.state.monitor_icc_bytes
+        if self.proof_active():
+            return ColorSpace.SRGB.value, None
+        return self.state.workspace_color_space, self.state.monitor_icc_bytes
+
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or
         output profile is available, or Narrowband Scan supplies an implicit input
@@ -3029,12 +3048,16 @@ class AppController(QObject):
         if buffer is None or not isinstance(buffer, np.ndarray):
             return
 
+        # Same transform the canvas used for this buffer, so the filmstrip and the
+        # canvas can't disagree about the frame's colour.
+        display_cs, monitor_bytes = self.display_transform_params(splash=bool(metrics.get("splash")))
         self.thumbnail_update_requested.emit(
             ThumbnailUpdateTask(
                 filename=os.path.basename(self.state.current_file_path),
                 file_hash=self.state.current_file_hash,
                 buffer=buffer,
-                color_space=self.state.workspace_color_space,
+                color_space=display_cs,
+                monitor_icc_bytes=monitor_bytes,
                 persist=persist,
             )
         )
