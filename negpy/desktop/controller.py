@@ -217,6 +217,7 @@ class AppController(QObject):
     capture_light_set = pyqtSignal(int, int, int, int)
     capture_progress = pyqtSignal(float)
     capture_channel = pyqtSignal(str)  # "R"/"G"/"B" as each triplet channel starts
+    capture_camera_setting_applied = pyqtSignal(str)  # a set_camera_setting call ran to completion
     capture_finished = pyqtSignal(list)
     capture_cancelled = pyqtSignal()
     capture_error = pyqtSignal(str)
@@ -497,6 +498,7 @@ class AppController(QObject):
         self.capture_worker.light_set.connect(self.capture_light_set.emit)
         self.capture_worker.progress.connect(self.capture_progress.emit)
         self.capture_worker.channel.connect(self.capture_channel.emit)
+        self.capture_worker.camera_setting_applied.connect(self.capture_camera_setting_applied.emit)
         self.capture_worker.finished.connect(self._on_capture_finished)
         self.capture_worker.cancelled.connect(self.capture_cancelled.emit)
         self.capture_worker.error.connect(self.capture_error.emit)
@@ -2121,6 +2123,9 @@ class AppController(QObject):
         self.live_view_focus_magnifier_pos_requested.emit(x, y)
 
     def set_camera_setting(self, which: str, raw: int) -> None:
+        # Ensure the worker thread runs: the sidebar counts these writes and gates Scan until
+        # each one reports back, so a write queued to a never-started thread would gate forever.
+        self._ensure_capture_thread()
         self.live_view_camera_setting_requested.emit(which, raw)
 
     def start_calibration(self, req: CalibrationRequest) -> None:
