@@ -29,11 +29,29 @@ CANONICAL_DPI_STOPS = (75, 150, 300, 600, 1200, 2400, 3600, 4800, 6400, 7200, 96
 
 # SANE option py_names (underscored) that expose a dedicated infrared channel/scan.
 _IR_OPTION_NAMES = ("ir", "preview_ir")
+_COOLSCAN3_IR_OPTION_NAMES = ("infrared",)
 
 _PIEUSB_PREFIX = "pieusb:"
+_COOLSCAN3_PREFIX = "coolscan3:"
 
 # Backends for dedicated film scanners that expose no `source` option.
-_FILM_BACKEND_PREFIXES = (_PIEUSB_PREFIX,)
+_FILM_BACKEND_PREFIXES = (_PIEUSB_PREFIX, _COOLSCAN3_PREFIX)
+
+
+def _strip_net_prefix(device_id: str) -> str:
+    """Drop a leading `net:<host>:` so backend-prefix checks work over saned.
+
+    Handles both `net:scanner.example:coolscan3:...` and bracketed IPv6 hosts
+    (`net:[2001:db8::1]:coolscan3:...`).
+    """
+    if not device_id.startswith("net:"):
+        return device_id
+    rest = device_id[len("net:") :]
+    if rest.startswith("["):  # bracketed IPv6 host
+        close = rest.find("]:")
+        return rest[close + 2 :] if close > 0 else device_id
+    host, sep, backend_part = rest.partition(":")
+    return backend_part if sep and host else device_id
 
 
 def _mode_has_rgbi(opt) -> bool:
@@ -59,7 +77,7 @@ def _infer_film_scanner(opt, device_id: str) -> bool:
         desc = str(getattr(invert, "desc", "") or "").lower()
         if "negative" in desc and "film" in desc:
             return True
-    return device_id.startswith(_FILM_BACKEND_PREFIXES)
+    return _strip_net_prefix(device_id).startswith(_FILM_BACKEND_PREFIXES)
 
 
 def _resolve_install_hint() -> str:
@@ -147,10 +165,71 @@ def _detect_max_area(opt) -> tuple[float, float]:
     return (36.0, 25.0)  # default 35mm frame
 
 
-def _detect_ir(opt) -> bool:
+def _find_ir_option(opt) -> str | None:
+    """Return a legacy IR option name without changing its old semantics."""
+    for key in opt:
+        if str(key).lower().replace("-", "_").strip("_") in _IR_OPTION_NAMES:
+            return str(key)
+    return None
+
+
+def _find_coolscan3_ir_option(opt) -> str | None:
+    """Return coolscan3's inline-IR boolean option, if present."""
+    for key in opt:
+        if str(key).lower().replace("-", "_").strip("_") in _COOLSCAN3_IR_OPTION_NAMES:
+            return str(key)
+    return None
+
+
+def _option_is_usable(opt, option_name: str) -> bool:
+    """Return whether an option can be selected without failing device probe."""
+    if option_name not in opt:
+        return False
+    option = opt[option_name]
+    for method_name in ("is_active", "is_settable"):
+        method = getattr(option, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            if not bool(method()):
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def _require_active_option(opt, option_name: str, absent_message: str) -> None:
+    """Fail before scanner configuration when a requested option is unusable."""
+    if option_name not in opt:
+        raise RuntimeError(absent_message)
+    option = opt[option_name]
+    is_active = getattr(option, "is_active", None)
+    if callable(is_active):
+        try:
+            active = bool(is_active())
+        except Exception as e:
+            raise RuntimeError(f"Could not determine whether SANE option {option_name!r} is active: {e}") from e
+        if not active:
+            raise RuntimeError(f"Requested SANE option {option_name!r} is inactive")
+    is_settable = getattr(option, "is_settable", None)
+    if callable(is_settable):
+        try:
+            settable = bool(is_settable())
+        except Exception as e:
+            raise RuntimeError(f"Could not determine whether SANE option {option_name!r} is settable: {e}") from e
+        if not settable:
+            raise RuntimeError(f"Requested SANE option {option_name!r} is not settable")
+
+
+def _detect_ir(opt, device_id: str = "") -> bool:
     if _mode_has_rgbi(opt):
         return True
-    return any(str(key).lower().replace("-", "_").strip("_") in _IR_OPTION_NAMES for key in opt)
+    if _find_ir_option(opt) is not None:
+        return True
+    if _strip_net_prefix(device_id).startswith(_COOLSCAN3_PREFIX):
+        option_name = _find_coolscan3_ir_option(opt)
+        return option_name is not None and _option_is_usable(opt, option_name)
+    return False
 
 
 def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
@@ -161,7 +240,7 @@ def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
         # detection/UI gate — never applied to the device — so populate it to unblock scanning.
         sources = (ScanMode.NEGATIVE, ScanMode.POSITIVE, ScanMode.TRANSPARENCY)
     return ScannerCapabilities(
-        ir_channel=_detect_ir(opt),
+        ir_channel=_detect_ir(opt, device_id),
         supported_dpi=_detect_dpi(opt),
         supported_depths=_detect_depths(opt),
         sources=sources,
@@ -172,6 +251,62 @@ def _caps_from_options(opt, device_id: str = "") -> ScannerCapabilities:
 def _split_rgbi(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Split an RGBI scan `(H, W, 4)` into RGB `(H, W, 3)` and IR `(H, W)`."""
     return arr[:, :, :3], arr[:, :, 3]
+
+
+def _reinterpret_channels(arr: np.ndarray, width: int, lines: int) -> np.ndarray:
+    """Recover the true channel count of a frame python-sane misread.
+
+    python-sane's C reader hardcodes 3 samples/pixel for every non-gray frame
+    and reads the stream in `3 * width`-sample chunks, so a 4-sample
+    inline-RGBI stream (pieusb/coolscan3 convention: SANE_FRAME_RGB with
+    bytes_per_line = 4 x pixels_per_line x sample size) arrives misshaped.
+    Worse, a partial final chunk is *discarded* at EOF: when `4 * lines` is
+    not a multiple of 3, the stream's trailing `(4 * lines mod 3) * width`
+    samples are lost (both 1489- and 5959-line LS-5000 frames hit this).
+    The loss is confined to the last row, so return the complete prefix as a
+    view and drop that incomplete edge row rather than copy the full frame.
+    """
+    if width <= 0 or lines <= 0:
+        return arr
+    total = int(arr.size)
+    expected = 4 * width * lines
+    missing = expected - total
+    if missing in (width, 2 * width):
+        flat = arr.reshape(-1)
+        complete = (lines - 1) * width * 4
+        return flat[:complete].reshape(lines - 1, width, 4)
+    if total % (width * lines):
+        return arr
+    nch = total // (width * lines)
+    if nch not in (1, 3, 4):
+        return arr
+    if arr.ndim == 3 and arr.shape == (lines, width, nch):
+        return arr
+    return arr.reshape(lines, width, nch)
+
+
+def _validate_coolscan3_rgbi_parameters(
+    frame_format,
+    last_frame,
+    width: int,
+    lines: int,
+    depth: int,
+    bytes_per_line: int,
+    requested_depth: int,
+) -> None:
+    """Validate the four-sample coolscan3 contract before reshaping data."""
+    if not bool(last_frame):
+        raise RuntimeError("Inline RGBI scan did not report a last frame")
+    if str(frame_format).strip().lower() != "color":
+        raise RuntimeError(f"Inline RGBI scan reported unexpected frame format {frame_format!r}")
+    if width <= 0 or lines <= 0:
+        raise RuntimeError(f"Inline RGBI scan reported invalid geometry {width}x{lines}")
+    if int(depth) != requested_depth:
+        raise RuntimeError(f"Inline RGBI scan reported depth {depth}, expected {requested_depth}")
+    sample_bytes = (int(depth) + 7) // 8
+    expected_bpl = width * 4 * sample_bytes
+    if int(bytes_per_line) != expected_bpl:
+        raise RuntimeError(f"Inline RGBI scan reported {bytes_per_line} bytes per line, expected {expected_bpl}")
 
 
 class SaneBackend:
@@ -249,11 +384,36 @@ class SaneBackend:
         try:
             # IR capture strategy decides the scan mode (RGBI yields a 4th channel inline).
             ir_strategy = self._ir_strategy(dev, device_id) if params.capture_ir else None
+            backend_id = _strip_net_prefix(device_id)
 
-            # Configure SANE parameters
-            dev.mode = "RGBI" if ir_strategy == "rgbi" else "Color"
+            # Coolscan3 IR is an explicit, fail-loud contract. Other backends
+            # keep their existing fallback behavior when no strategy is found.
+            option_map = dev.opt if hasattr(dev, "opt") else {}
+            if params.capture_ir and ir_strategy is None and backend_id.startswith(_COOLSCAN3_PREFIX):
+                raise RuntimeError("IR capture requested but the device exposes no usable infrared mechanism")
+            ir_opt = _find_coolscan3_ir_option(option_map) if ir_strategy == "option" else None
+            if ir_strategy == "option":
+                if ir_opt is None:
+                    raise RuntimeError("IR capture requested but the device exposes no usable infrared option")
+                _require_active_option(option_map, ir_opt, "IR capture requested but the infrared option is unavailable")
+
+            # Configure SANE parameters. Not every backend has a `mode` option
+            # (coolscan3 exposes none) — only touch options the device has.
+            if hasattr(dev, "opt") and "mode" in dev.opt:
+                dev.mode = "RGBI" if ir_strategy == "rgbi" else "Color"
             dev.depth = params.depth
             dev.resolution = params.dpi
+
+            # Inline IR via a boolean option (coolscan3 `infrared`): the 4th
+            # sample rides in the same frame, no mode/source change involved.
+            # IR was explicitly requested — fail loud rather than silently
+            # returning a scan without the channel.
+            if ir_strategy == "option":
+                assert ir_opt is not None  # established by the preflight above
+                try:
+                    setattr(dev, ir_opt, True)
+                except Exception as e:
+                    raise RuntimeError(f"IR capture requested but enabling option {ir_opt!r} failed: {e}") from e
 
             # Apply hardware-specific optimizations
             if device_id.startswith(_PIEUSB_PREFIX):
@@ -287,6 +447,30 @@ class SaneBackend:
             rgb_array = None
             ir_array = None
 
+            # Frame geometry truth, for channel reinterpretation below
+            # (python-sane assumes 3 samples/pixel; see _reinterpret_channels).
+            try:
+                frame_format, last_frame, (px_per_line, n_lines), frame_depth, bytes_per_line = dev.get_parameters()
+            except Exception as e:
+                if ir_strategy == "option":
+                    dev.cancel()
+                    raise RuntimeError(f"Could not read inline RGBI frame parameters: {e}") from e
+                px_per_line = n_lines = -1
+            if ir_strategy == "option":
+                try:
+                    _validate_coolscan3_rgbi_parameters(
+                        frame_format,
+                        last_frame,
+                        px_per_line,
+                        n_lines,
+                        frame_depth,
+                        bytes_per_line,
+                        params.depth,
+                    )
+                except RuntimeError:
+                    dev.cancel()
+                    raise
+
             # Read RGB frame. Use arr_snap() (numpy path) — snap() goes via PIL
             # which is 8-bit only and silently truncates 16-bit RGB buffers.
             try:
@@ -295,8 +479,19 @@ class SaneBackend:
                 dev.cancel()
                 raise RuntimeError(f"RGB scan failed: {e}") from e
 
-            # RGBI mode returns infrared as the 4th channel inline — split it off.
-            if ir_strategy == "rgbi" and rgb_array.ndim == 3 and rgb_array.shape[2] == 4:
+            # coolscan3 inline IR carries a 4th sample in an RGB frame, which
+            # python-sane misgroups. Keep other RGBI-mode backends on their
+            # pre-existing path; their row and frame contracts may differ.
+            if ir_strategy == "option":
+                rgb_array = _reinterpret_channels(rgb_array, px_per_line, n_lines)
+                if rgb_array.ndim == 3 and rgb_array.shape[2] == 4:
+                    rgb_array, ir_array = _split_rgbi(rgb_array)
+                else:
+                    # IR was explicitly requested; a long archival scan must
+                    # not quietly complete without its defect channel.
+                    dev.cancel()
+                    raise RuntimeError(f"IR strategy '{ir_strategy}' yielded no 4th channel (shape={rgb_array.shape})")
+            elif ir_strategy == "rgbi" and rgb_array.ndim == 3 and rgb_array.shape[2] == 4:
                 rgb_array, ir_array = _split_rgbi(rgb_array)
 
             expected_dtype = np.uint16 if params.depth == 16 else np.uint8
@@ -377,13 +572,20 @@ class SaneBackend:
 
     @staticmethod
     def _ir_strategy(dev, device_id) -> str | None:
-        """How to capture IR for this device: 'rgbi' (4th channel), 'source' (Plustek
+        """How to capture IR for this device: 'rgbi' (RGBI scan mode), 'option'
+        (boolean IR option, 4th channel inline — coolscan3), 'source' (Plustek
         second scan), 'internal' (applied by the Backend/Scanner itself) or None."""
         opt = dev.opt if hasattr(dev, "opt") else {}
+        backend_id = _strip_net_prefix(device_id)
         if device_id.startswith(_PIEUSB_PREFIX):
             return "internal"
         if _mode_has_rgbi(opt):
             return "rgbi"
+        # Inline-boolean IR is a coolscan3 contract (4th sample in the same
+        # frame). coolscan2 exposes the same option name but delivers IR as a
+        # separate later frame — do not claim it here.
+        if backend_id.startswith(_COOLSCAN3_PREFIX) and _find_coolscan3_ir_option(opt) is not None:
+            return "option"
         if SaneBackend._get_ir_source(dev):
             return "source"
         return None
