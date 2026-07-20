@@ -70,3 +70,25 @@ def test_lock_bounds_disables_wp_bp_and_selector(qapp):
     sidebar.sync_ui()
     for w in (sidebar.white_point_slider, sidebar.black_point_slider, sidebar.ch_global_btn, sidebar.ch_r_btn):
         assert not w.isEnabled()
+
+
+def test_analysis_region_dot_reflects_committed_region_not_just_tool_state(qapp):
+    """Confirming a freehand region closes the draw tool (button unchecks), so the
+    dot is the only remaining cue that a region is active and overriding the
+    Analysis Buffer slider — it must track analysis_rect, not active_tool."""
+    controller, sidebar = _sidebar()
+
+    sidebar.sync_ui()
+    assert not sidebar.analysis_region_btn.edited_dot.isVisibleTo(sidebar.analysis_region_btn)
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, process=replace(cfg.process, analysis_rect=(0.1, 0.1, 0.9, 0.9)))
+    sidebar.sync_ui()
+
+    assert sidebar.analysis_region_btn.edited_dot.isVisibleTo(sidebar.analysis_region_btn)
+    assert not sidebar.analysis_region_btn.isChecked()  # tool itself is closed
+    assert not sidebar.analysis_buffer_slider.isEnabled()
+
+    controller.state.config = replace(cfg, process=replace(cfg.process, analysis_rect=None))
+    sidebar.sync_ui()
+    assert not sidebar.analysis_region_btn.edited_dot.isVisibleTo(sidebar.analysis_region_btn)

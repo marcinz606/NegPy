@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.sidebar.tone import _CH_COLORS, _CH_LABEL, _CH_SUFFIX
-from negpy.desktop.view.styles.templates import field_label, section_subheader
+from negpy.desktop.view.styles.templates import EditedDot, field_label, section_subheader
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
@@ -114,6 +114,9 @@ class ProcessSidebar(BaseSidebar):
             "(overrides the Analysis Buffer). Double-click inside it to confirm.",
         )
         self.analysis_region_btn.setFixedWidth(32)
+        # Confirming a region closes the tool (unchecking the toggle), so the dot is
+        # the only cue left that it's still overriding the Analysis Buffer slider.
+        self.analysis_region_btn.edited_dot = EditedDot(self.analysis_region_btn)
         self.clear_analysis_region_btn = self._icon_action(
             "fa5s.times", "Clear the freehand analysis region (fall back to the Analysis Buffer)", width=32
         )
@@ -456,6 +459,7 @@ class ProcessSidebar(BaseSidebar):
 
             has_region = conf.analysis_rect is not None
             self.analysis_region_btn.setChecked(self.state.active_tool == ToolMode.ANALYSIS_DRAW)
+            self.analysis_region_btn.edited_dot.set_active(has_region)
             self.clear_analysis_region_btn.setEnabled(has_region)
 
             locked = conf.lock_bounds
