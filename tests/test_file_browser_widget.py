@@ -4,7 +4,7 @@ import pytest
 from PyQt6.QtWidgets import QDialog
 
 from negpy.desktop.session import DesktopSessionManager
-from negpy.desktop.view.sidebar.files import FileBrowser
+from negpy.desktop.view.sidebar.files import THUMB_CELL_MAX, THUMB_CELL_MIN, FileBrowser
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sync_settings_dialog import SyncSettingsDialog
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -282,3 +282,79 @@ def test_clearing_filter_clears_error_stylesheet(browser):
     browser.search_input.setText("")
     browser._apply_filter()
     assert browser.search_input.styleSheet() == ""
+
+
+def test_thumbnail_grid_defaults_to_one_filling_column_at_min_sidebar_width(browser):
+    """The session sidebar can't be dragged below ~240px, so that viewport width is
+    the smallest the filmstrip ever lays out at. At the default thumbnail size it
+    must show a single column that *fills* it — the previous 180px cell cap left
+    25% of the panel empty at that width."""
+    view = browser.list_view
+    for viewport_w in (214, 240):  # measured: sidebar at minimum, then default width
+        assert view.columns_for_width(viewport_w) == 1
+        assert view.cell_for_width(viewport_w) / viewport_w > 0.95
+
+
+def test_thumbnail_grid_stays_single_column_on_a_slightly_wider_sidebar(browser):
+    """Regression: with the old 120px target the grid flipped to two columns as soon
+    as the panel was nudged past ~260px, which is where users actually sit — the
+    reported "two columns by default"."""
+    view = browser.list_view
+    for viewport_w in (260, 272, 300, 340):
+        assert view.columns_for_width(viewport_w) == 1, f"split into columns at {viewport_w}px"
+
+
+def test_thumbnail_slider_low_end_fits_two_columns(browser):
+    """The point of the slider's low end: trade size for a second column at the
+    same panel width."""
+    view = browser.list_view
+    browser.thumb_size_slider.setValue(THUMB_CELL_MIN)
+    assert view.columns_for_width(240) == 2
+
+
+def test_slider_maximum_never_pins_a_widened_sidebar_to_one_oversized_column(browser):
+    """Regression: the slider's top end used to hold a widened sidebar at a single
+    column, so the cell grew to the full panel width (~500px). Cells are square, so a
+    3:2 frame in one left ~165px of empty space above and below it. Even at the
+    largest setting a wide panel has to split into columns."""
+    view = browser.list_view
+    browser.thumb_size_slider.setValue(browser.thumb_size_slider.maximum())
+    for viewport_w in (450, 500, 600, 700):
+        assert view.columns_for_width(viewport_w) > 1, f"still one column at {viewport_w}px"
+        assert view.cell_for_width(viewport_w) <= 300, f"oversized cell at {viewport_w}px"
+
+
+def test_thumbnail_slider_drives_the_grid_live(browser):
+    view = browser.list_view
+    browser.thumb_size_slider.setValue(THUMB_CELL_MIN)
+    assert view.target_cell == THUMB_CELL_MIN
+    browser.thumb_size_slider.setValue(THUMB_CELL_MAX)
+    assert view.target_cell == THUMB_CELL_MAX
+
+
+def test_thumbnail_size_persists_only_on_release(browser, session):
+    """Dragging crosses dozens of values; each one must not hit the settings DB."""
+    session.repo.save_global_setting.reset_mock()
+    browser.thumb_size_slider.setValue(180)
+    assert not any(c.args and c.args[0] == "thumbnail_cell_size" for c in session.repo.save_global_setting.call_args_list)
+
+    browser.thumb_size_slider.sliderReleased.emit()
+    session.repo.save_global_setting.assert_called_with("thumbnail_cell_size", 180)
+
+
+def test_thumbnail_size_restored_from_settings(session):
+    session.repo.get_global_setting.side_effect = lambda key, default=None: (150 if key == "thumbnail_cell_size" else None)
+    controller = MagicMock()
+    controller.session = session
+    restored = FileBrowser(controller)
+    assert restored.thumb_size_slider.value() == 150
+    assert restored.list_view.target_cell == 150
+
+
+def test_thumbnail_size_out_of_range_setting_is_clamped(session):
+    """A hand-edited or stale setting must not produce an unusable grid."""
+    session.repo.get_global_setting.side_effect = lambda key, default=None: (9999 if key == "thumbnail_cell_size" else None)
+    controller = MagicMock()
+    controller.session = session
+    restored = FileBrowser(controller)
+    assert restored.list_view.target_cell == THUMB_CELL_MAX
