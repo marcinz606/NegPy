@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.40.0
+
+- New: **Sharpening rebuilt — Radius, Masking and a new Deconvolution mode** — the Sharpen controls, now in their own section, gain a **Radius** slider (how fine or broad the sharpened detail is), a **Masking** slider (holds sharpening off flat areas like skies and skin so grain and noise stay quiet), and a **Method** dropdown: **Unsharp Mask** (the classic, now with halo suppression on high-contrast edges) or **Deconvolution** (Richardson-Lucy, which models the lens/scan blur in linear light to pull back genuinely soft detail). Existing edits keep their look on Unsharp Mask.
+- New: **Nikon Coolscan support improvements** — Improved support for nikon Coolscan scanners via SANE. Capture the infrared dust channel, autofocus and use the scanner's own auto-exposure, then eject the holder when you're done. A whole-strip preview scans the holder at low resolution so you can drag one crop window (reused for every frame), nudge a feed-direction offset with a live indicator, and choose which frames to scan before running the batch. **NOTE: Mainline sane coolscan3 is buggy and has missing features, proper SA-21 spacing and & IR capture require you to build patched sane until proper fixes are applied upstream**.
+- Change/Fix: **Camera scanning is faster and clearer** — the R/G/B triplet cadence tightens (shorter, channel-purity-verified LED settle, with the next channel settling while the last shot's events drain), and a live roll now gives feedback: the capture progress bar sits below the view and tints per channel, a green flash confirms each capture, and scan pop-ups stay above the batch progress dialog. @light-sntchr
+- Change: **More crosstalk adjustment range** — the Process panel's spectral-crosstalk matrix allows a wider range of manual adjustment.
+- Change: **Rotate buttons are easier to tell apart** — Rotate CCW/CW reused the same circular-arrow glyphs as the Undo/Redo buttons beside them; they now use distinct page-with-rotation-arrow icons, a touch larger. @linkmodo
+- Change: **Analysis Region shows when it's active** — the Freedraw Analysis Region button carries a small dot whenever a custom region is overriding the Analysis Buffer slider, so it stays obvious after the draw tool closes. @linkmodo
+- Fix: **Preview and export sharpen the same** — the GPU preview used a fixed kernel that sharpened the wrong detail band at export scale, so a full-size export could look softer or harsher than the preview. Both paths now sharpen identically at every zoom and output size.
+
+
 ## 0.39.0
 
 - New: **Half Frame mode** — a toggle in the Session panel for half-frame cameras (Pentax 17, Olympus Pen…) whose scans hold two photos side by side. Each scan appears as two frames in the contact sheet, split automatically at the gutter between them; every half gets its own edits, its own exposure measurement, its own sidecar, and exports as `name_1` / `name_2`. Toggling off puts the scans back together without losing the per-half edits.

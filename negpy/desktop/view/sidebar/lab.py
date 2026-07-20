@@ -35,7 +35,7 @@ class LabSidebar(BaseSidebar):
         self.sharpen_method_combo = QComboBox()
         self.sharpen_method_combo.addItem("Unsharp Mask", SharpenMethod.USM.value)
         self.sharpen_method_combo.addItem("Deconvolution", SharpenMethod.RL.value)
-        self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(conf.sharpen_method))
+        self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(str(conf.sharpen_method)))
         method_row.addWidget(self.sharpen_method_combo, 1)
         self.layout.addLayout(method_row)
 
@@ -151,7 +151,7 @@ class LabSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             self.clahe_slider.setValue(conf.clahe_strength)
-            self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(conf.sharpen_method))
+            self.sharpen_method_combo.setCurrentIndex(self.sharpen_method_combo.findData(str(conf.sharpen_method)))
             self.sharpen_slider.setValue(conf.sharpen)
             self.sharpen_radius_slider.setValue(conf.sharpen_radius)
             self.sharpen_masking_slider.setValue(conf.sharpen_masking)
