@@ -166,13 +166,14 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 2.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
 3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel. Before applying, the factor is multiplied by a grade-coupled chroma damping term $(k_{min}/k_g)^{strength}$ ("Dye Mute", default 0.5), where $k_g$ is the green print-curve slope and $k_{min}$ the softest printable slope. Per-channel H&D curves inflate chroma as contrast rises; the damping counters it, mimicking paper dyes' unwanted absorptions. Strength 0 disables. (The default was tuned against the old ProPhoto working gamut — it may run strong now that the working space is Adobe RGB.)
-4.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
+4.  **Sharpening**: Unsharp mask on the Lightness channel ($L$) in LAB space, with halo suppression. CPU (`cv2.sepFilter2D`) and GPU (separable `lab_sharpen_h/v.wgsl` passes) convolve the *same* taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer), so the two paths match bit-for-bit.
 
-    $$L_{diff} = L - \text{GaussianBlur}(L, \sigma)$$
-    $$L_{final} = L + L_{diff} \cdot \text{amount} \cdot 2.5 \quad \text{if } |L_{diff}| > 2.0$$
-    *   $\sigma$: Blur radius (scale factor).
-    *   $2.5$: Hardcoded USM boosting factor.
-    *   $2.0$: Noise threshold.
+    $$L_{diff} = L - \text{blur}(L, \sigma), \qquad \sigma = \text{radius} \cdot \text{scale\_factor}$$
+    $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(1.5, 2.0, |L_{diff}|) \cdot m$$
+    $$L_{final} = \text{clamp}\big(L + L_{diff}\cdot\text{gain},\; L_{min}-2,\; L_{max}+1\big)$$
+    *   **Radius** (px): blur $\sigma$, scaled to the render size so preview and export match.
+    *   **Masking** ($m$): edge mask from the boxed $|\nabla L|$, $\text{smoothstep}(0.5t, t, |\nabla L|)$ with $t = 10\cdot\text{masking}$ — protects flat areas (sky, skin, grain); off at 0.
+    *   Smoothstep noise gate over $[1.5, 2.0]$ replaces a hard threshold. Overshoot clamp to the local $3\times3$ range ($L_{min}, L_{max}$) kills halos, tighter above (+1) than below (−2) because $L^{\ast}$-domain USM exaggerates light halos.
 
 5.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 

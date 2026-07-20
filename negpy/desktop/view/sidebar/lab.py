@@ -32,6 +32,13 @@ class LabSidebar(BaseSidebar):
         self.sharpen_slider = CompactSlider("Sharpening", 0.0, 1.0, conf.sharpen)
         self.layout.addWidget(self.sharpen_slider)
 
+        row_sharpen = QHBoxLayout()
+        self.sharpen_radius_slider = CompactSlider("Radius (px)", 0.5, 3.0, conf.sharpen_radius)
+        self.sharpen_masking_slider = CompactSlider("Masking", 0.0, 1.0, conf.sharpen_masking)
+        row_sharpen.addWidget(self.sharpen_radius_slider)
+        row_sharpen.addWidget(self.sharpen_masking_slider)
+        self.layout.addLayout(row_sharpen)
+
         row2 = QHBoxLayout()
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
         self.chroma_denoise_slider = CompactSlider("Denoise", 0.0, 5.0, conf.chroma_denoise)
@@ -63,6 +70,20 @@ class LabSidebar(BaseSidebar):
         )
         self.sharpen_slider.valueCommitted.connect(
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen=v)
+        )
+
+        self.sharpen_radius_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, sharpen_radius=v)
+        )
+        self.sharpen_radius_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen_radius=v)
+        )
+
+        self.sharpen_masking_slider.valueChanged.connect(
+            lambda v: self.update_config_section("lab", persist=False, readback_metrics=False, sharpen_masking=v)
+        )
+        self.sharpen_masking_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, sharpen_masking=v)
         )
 
         self.saturation_slider.valueChanged.connect(
@@ -115,6 +136,8 @@ class LabSidebar(BaseSidebar):
         try:
             self.clahe_slider.setValue(conf.clahe_strength)
             self.sharpen_slider.setValue(conf.sharpen)
+            self.sharpen_radius_slider.setValue(conf.sharpen_radius)
+            self.sharpen_masking_slider.setValue(conf.sharpen_masking)
             self.saturation_slider.setValue(conf.saturation)
             self.vibrance_slider.setValue(conf.vibrance)
             self.chroma_damping_slider.setValue(conf.chroma_damping)
@@ -135,6 +158,8 @@ class LabSidebar(BaseSidebar):
         widgets = [
             self.clahe_slider,
             self.sharpen_slider,
+            self.sharpen_radius_slider,
+            self.sharpen_masking_slider,
             self.saturation_slider,
             self.vibrance_slider,
             self.chroma_damping_slider,

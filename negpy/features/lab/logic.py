@@ -1,6 +1,7 @@
+import math
+
 import cv2
 import numpy as np
-from numba import njit  # type: ignore
 
 from negpy.domain.types import ImageBuffer
 from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working, working_oetf_encode
@@ -74,35 +75,44 @@ def apply_clahe(img: ImageBuffer, strength: float) -> ImageBuffer:
     return ensure_image(np.clip(lab_to_rgb_working(lab), 0.0, 1.0))
 
 
-@njit(cache=True, fastmath=True)
-def _apply_unsharp_mask_jit(l_chan: np.ndarray, l_blur: np.ndarray, amount: float, threshold: float) -> np.ndarray:
-    """
-    USM Kernel (Orig + (Orig - Blur) * Amount).
-    """
-    h, w = l_chan.shape
-    res = np.empty((h, w), dtype=np.float32)
-    amount_f = amount * 2.5
-
-    for y in range(h):
-        for x in range(w):
-            orig = l_chan[y, x]
-            blur = l_blur[y, x]
-            diff = orig - blur
-            if abs(diff) > threshold:
-                val = orig + diff * amount_f
-                if val < 0.0:
-                    val = 0.0
-                elif val > 100.0:
-                    val = 100.0
-                res[y, x] = val
-            else:
-                res[y, x] = orig
-    return res
+# Sharpen constants — mirrored as WGSL consts in shaders/lab.wgsl.
+SHARPEN_GATE_LO = 1.5
+SHARPEN_GATE_HI = 2.0
+# L*-domain USM exaggerates light halos, so overshoot above the local max is
+# clamped tighter than undershoot below the local min.
+SHARPEN_OVERSHOOT_LIGHT = 1.0
+SHARPEN_OVERSHOOT_DARK = 2.0
+SHARPEN_MASK_T_HI = 10.0
 
 
-def apply_output_sharpening(img: ImageBuffer, amount: float, scale_factor: float = 1.0) -> ImageBuffer:
+def gaussian_kernel_1d(sigma: float) -> np.ndarray:
     """
-    LAB Lightness sharpening.
+    Single source of truth for the sharpen blur taps: the CPU path convolves
+    with this array and the GPU path uploads it verbatim (sharpen_k buffer),
+    so kernel support and weights match bit-for-bit on both sides.
+    """
+    r = max(1, min(255, int(math.ceil(2.5 * sigma))))
+    x = np.arange(-r, r + 1, dtype=np.float32)
+    k = np.exp(-(x * x) / np.float32(2.0 * sigma * sigma)).astype(np.float32)
+    return k / np.float32(k.sum())
+
+
+def _smoothstep(e0: float, e1: float, x: np.ndarray) -> np.ndarray:
+    t = np.clip((x - np.float32(e0)) / np.float32(e1 - e0), 0.0, 1.0)
+    return t * t * (np.float32(3.0) - np.float32(2.0) * t)
+
+
+def apply_output_sharpening(
+    img: ImageBuffer,
+    amount: float,
+    scale_factor: float = 1.0,
+    radius: float = 1.0,
+    masking: float = 0.0,
+) -> ImageBuffer:
+    """
+    L-channel unsharp mask; mirrors lab_sharpen_h/v.wgsl + the lab.wgsl sharpen
+    block. Soft-gated USM with an overshoot clamp to the local 3x3 range (halo
+    suppression) and an optional edge mask (boxed |∇L|) protecting flat areas.
     """
     if amount <= 0:
         return img
@@ -110,18 +120,29 @@ def apply_output_sharpening(img: ImageBuffer, amount: float, scale_factor: float
     lab = rgb_to_lab_working(img.astype(np.float32))
     l_chan, a, b = cv2.split(lab)
 
-    k_size = max(3, int(5 * scale_factor) | 1)
-    sigma = 1.0 * scale_factor
-    l_blur = cv2.GaussianBlur(l_chan, (k_size, k_size), sigma)
+    k = gaussian_kernel_1d(radius * scale_factor)
+    l_blur = cv2.sepFilter2D(l_chan, -1, k, k, borderType=cv2.BORDER_REFLECT_101)
 
-    l_sharpened = _apply_unsharp_mask_jit(
-        np.ascontiguousarray(l_chan),
-        np.ascontiguousarray(l_blur),
-        float(amount),
-        2.0,
-    )
+    diff = l_chan - l_blur
+    gain = np.float32(amount * 2.5) * _smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, np.abs(diff))
 
-    res_lab = cv2.merge([l_sharpened, a, b])
+    if masking > 0.0:
+        lp = np.pad(l_chan, 1, mode="edge")
+        gx = (lp[1:-1, 2:] - lp[1:-1, :-2]) * np.float32(0.5)
+        gy = (lp[2:, 1:-1] - lp[:-2, 1:-1]) * np.float32(0.5)
+        grad = cv2.blur(np.hypot(gx, gy).astype(np.float32), (3, 3), borderType=cv2.BORDER_REPLICATE)
+        t = SHARPEN_MASK_T_HI * masking
+        gain = gain * _smoothstep(0.5 * t, t, grad * np.float32(scale_factor))
+
+    kern3 = np.ones((3, 3), np.uint8)
+    l_min = cv2.erode(l_chan, kern3, borderType=cv2.BORDER_REPLICATE)
+    l_max = cv2.dilate(l_chan, kern3, borderType=cv2.BORDER_REPLICATE)
+
+    l_new = l_chan + diff * gain
+    l_new = np.clip(l_new, l_min - np.float32(SHARPEN_OVERSHOOT_DARK), l_max + np.float32(SHARPEN_OVERSHOOT_LIGHT))
+    l_new = np.clip(l_new, 0.0, 100.0)
+
+    res_lab = cv2.merge([l_new.astype(np.float32), a, b])
     res_rgb = lab_to_rgb_working(res_lab)
 
     return ensure_image(np.clip(res_rgb, 0.0, 1.0))

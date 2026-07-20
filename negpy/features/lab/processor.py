@@ -36,7 +36,13 @@ class PhotoLabProcessor:
             img = apply_saturation(img, eff_sat)
 
         if self.config.sharpen > 0:
-            img = apply_output_sharpening(img, self.config.sharpen, context.scale_factor)
+            img = apply_output_sharpening(
+                img,
+                self.config.sharpen,
+                context.scale_factor,
+                radius=self.config.sharpen_radius,
+                masking=self.config.sharpen_masking,
+            )
 
         if self.config.glow_amount > 0 or self.config.halation_strength > 0:
             img = apply_glow_and_halation(img, self.config.glow_amount, self.config.halation_strength, context.scale_factor)
