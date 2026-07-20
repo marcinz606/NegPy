@@ -856,7 +856,7 @@ class SaneBackend:
             # Not every backend has a `mode` option (coolscan3 exposes none) —
             # only touch options the device has.
             if hasattr(dev, "opt") and "mode" in dev.opt:
-                dev.mode = "RGBI" if ir_strategy == "rgbi" else "Color"
+                dev.mode = "RGBI" if (ir_strategy == "rgbi" or ir_strategy == "rgbi-hw3") else "Color"
             dev.depth = params.depth
             dev.resolution = params.dpi
 
@@ -975,7 +975,7 @@ class SaneBackend:
 
             # Inline-IR frames carry infrared as the 4th channel — recover the
             # true shape (python-sane misreads 4-sample frames) and split it off.
-            if ir_strategy == "option":
+            if ir_strategy == "option" or ir_strategy == "rgbi-hw3":
                 rgb_array = _reinterpret_channels(rgb_array, px_per_line, n_lines)
                 if rgb_array.ndim == 3 and rgb_array.shape[2] == 4:
                     rgb_array, ir_array = _split_rgbi(rgb_array)
@@ -1099,7 +1099,7 @@ class SaneBackend:
             "correct_shading": True,
         }
         if capture_ir:
-            opts["clean_image"] = True
+            opts["clean_image"] = False
             opts["correct_infrared"] = True
 
         for name, val in opts.items():
@@ -1117,11 +1117,11 @@ class SaneBackend:
     def _ir_strategy(dev, device_id) -> str | None:
         """How to capture IR for this device: 'rgbi' (RGBI scan mode), 'option'
         (boolean IR option, 4th channel inline — coolscan3), 'source' (Plustek
-        second scan), 'internal' (applied by the backend itself) or None."""
+        second scan), 'rgbi-hw3' (just 4th channel inline) or None."""
         opt = dev.opt if hasattr(dev, "opt") else {}
         backend_id = _strip_net_prefix(device_id)
         if device_id.startswith(_PIEUSB_PREFIX):
-            return "internal"
+            return "rgbi-hw3"
         if _mode_has_rgbi(opt):
             return "rgbi"
         # Inline-boolean IR is a coolscan3 contract (4th sample in the same
