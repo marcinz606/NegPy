@@ -89,7 +89,7 @@ class ActionToolbar(QWidget):
         self.btn_next.setToolTip("Next")
 
         # Undo / Redo live in the main toolbar (mdi arrows, distinct from the
-        # circular rotate icons which reuse fa5s.undo/redo).
+        # rotate icons' file-with-arrow glyphs below).
         self.btn_undo = QToolButton()
         self.btn_undo.setIcon(qta.icon("mdi.undo", color=icon_color))
         self.btn_undo.setToolTip(tooltip_with_shortcut("Undo", "undo"))
@@ -105,10 +105,10 @@ class ActionToolbar(QWidget):
 
         # 2. Geometry
         self.btn_rot_l = QToolButton()
-        self.btn_rot_l.setIcon(qta.icon("fa5s.undo", color=icon_color))
+        self.btn_rot_l.setIcon(qta.icon("mdi6.file-rotate-left", color=icon_color))
         self.btn_rot_l.setToolTip(tooltip_with_shortcut("Rotate CCW", "rotate_ccw"))
         self.btn_rot_r = QToolButton()
-        self.btn_rot_r.setIcon(qta.icon("fa5s.redo", color=icon_color))
+        self.btn_rot_r.setIcon(qta.icon("mdi6.file-rotate-right", color=icon_color))
         self.btn_rot_r.setToolTip(tooltip_with_shortcut("Rotate CW", "rotate_cw"))
         self.btn_flip_h = QToolButton()
         self.btn_flip_h.setCheckable(True)
@@ -214,8 +214,8 @@ class ActionToolbar(QWidget):
         self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), "Redo")
 
         overflow_menu.addSeparator()
-        self._ov_rot_l_action = overflow_menu.addAction(qta.icon("fa5s.undo", color=icon_color), "Rotate CCW")
-        self._ov_rot_r_action = overflow_menu.addAction(qta.icon("fa5s.redo", color=icon_color), "Rotate CW")
+        self._ov_rot_l_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-left", color=icon_color), "Rotate CCW")
+        self._ov_rot_r_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-right", color=icon_color), "Rotate CW")
         self._ov_flip_h_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-h", color=icon_color), "Flip Horizontal")
         self._ov_flip_h_action.setCheckable(True)
         self._ov_flip_v_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-v", color=icon_color), "Flip Vertical")
@@ -271,8 +271,6 @@ class ActionToolbar(QWidget):
             self.btn_toggle_right,
             self.btn_prev,
             self.btn_next,
-            self.btn_rot_l,
-            self.btn_rot_r,
             self.btn_flip_h,
             self.btn_flip_v,
             self.btn_undo,
@@ -285,6 +283,15 @@ class ActionToolbar(QWidget):
         ]
         for btn in standard_buttons:
             btn.setIconSize(icon_size)
+            btn.setFixedHeight(btn_height)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # The file-rotate glyphs (page + arrow) read as a blob at the standard 16px
+        # icon size; a touch larger keeps the page and arrow individually legible
+        # without changing the button's own footprint (btn_height still applies).
+        rotate_icon_size = QSize(20, 20)
+        for btn in (self.btn_rot_l, self.btn_rot_r):
+            btn.setIconSize(rotate_icon_size)
             btn.setFixedHeight(btn_height)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
