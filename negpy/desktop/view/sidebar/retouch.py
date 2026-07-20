@@ -8,7 +8,8 @@ from negpy.desktop.view.styles.theme import THEME
 
 _IR_REMOVAL_TIP = (
     "Use the scanner's infrared channel to remove dust and scratches (invisible to the colour dyes): faint "
-    "semi-transparent specks are divided back out to recover the image underneath, and only opaque cores are cloned."
+    "semi-transparent specks are divided back out to recover the image underneath, opaque cores and hairs are "
+    "rebuilt from clean neighbouring film, and only defects too wide to see across are inpainted."
 )
 _IR_THRESH_TIP = "Lower catches more dust, higher is conservative. Smooth response, no cliff."
 _OPTICAL_TIP = (

@@ -7,22 +7,23 @@ import tifffile
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
-    _HAIR_INPAINT_GAMMA,
-    _HAIR_INPAINT_RADIUS,
     _IR_GAMMA_FALLBACK,
     _IR_GAMMA_HI,
+    _IR_SCORE_FLOOR,
+    _IR_WRITE_HI,
+    _IR_WRITE_LO,
     _fit_refraction_gammas,
     _mask_to_strokes,
     apply_hair_inpaint,
     apply_ir_attenuation,
-    apply_manual_heals,
-    build_heal_regions,
-    detect_ir_regions,
+    apply_ir_reconstruction,
     downsample_ir,
     ir_bake_token,
+    ir_defect_score,
     ir_detect_cutoff,
     ir_ratio_and_gain,
     normalize_ir,
+    route_ir_defects,
 )
 from negpy.features.retouch.models import RetouchConfig
 from negpy.infrastructure.loaders.factory import LoaderFactory
@@ -32,7 +33,6 @@ def test_retouch_config_defaults_include_ir_fields():
     cfg = RetouchConfig()
     assert cfg.ir_dust_remove is False
     assert 0.05 < cfg.ir_threshold < 0.95
-    assert cfg.ir_inpaint_radius >= 1
 
 
 def test_workspace_config_backcompat_for_ir_fields():
@@ -43,7 +43,7 @@ def test_workspace_config_backcompat_for_ir_fields():
 
 def test_workspace_config_roundtrip_ir_fields():
     cfg = WorkspaceConfig(
-        retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.4, ir_inpaint_radius=5),
+        retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.4),
     )
     flat = cfg.to_dict()
     assert flat["ir_dust_remove"] is True
@@ -53,29 +53,34 @@ def test_workspace_config_roundtrip_ir_fields():
     assert restored.retouch.ir_dust_remove is True
     assert restored.retouch.ir_threshold == 0.4
 
+    # Old sidecars carrying the retired stroke-pad key must still load.
+    old = dict(flat, ir_inpaint_radius=5)
+    assert WorkspaceConfig.from_flat_dict(old).retouch.ir_threshold == 0.4
 
-def test_detect_ir_regions_heals_defect_end_to_end():
-    """IR speck → synthesized ungated stroke → membrane clone removes it."""
+
+def test_ir_reconstruction_heals_defect_end_to_end():
+    """IR speck → continuous score → score-weighted fill rebuilds it from clean
+    neighbours, and never darkens anything (the original-floor rule)."""
     h, w = 80, 80
     rng = np.random.default_rng(17)
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
-    img[39:42, 39:42] = 0.95
+    img = np.clip(np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3)), 0, 1).astype(np.float32)
+    img[39:42, 39:42] = 0.05  # dust is dark in negative transmittance
     ir = np.full((h, w), 0.9, dtype=np.float32)
     ir[39:42, 39:42] = 0.05
 
-    strokes, _ = detect_ir_regions(normalize_ir(ir), 0.5, pad_px=3.0)
-    assert len(strokes) == 1
-    assert strokes[0][4] == 0.0  # IR regions are ungated
-
-    regions = build_heal_regions(strokes, [], (h, w), 0, 0.0, False, False, 0.0, (w, h))
-    out = apply_manual_heals(img, *regions)
-    assert out[40, 40, 0] < 0.7
+    score = ir_defect_score(normalize_ir(ir), 0.5)
+    assert abs(float(score[40, 40]) - _IR_SCORE_FLOOR) < 1e-6
+    out = np.asarray(apply_ir_reconstruction(img, score))
+    assert float(out[40, 40].min()) > 0.4, "the speck is rebuilt to the surround level"
+    assert (out >= np.asarray(img) - 1e-6).all(), "a repair may only lighten"
 
 
-def test_detect_ir_regions_no_defect_is_empty():
+def test_ir_reconstruction_is_identity_on_clean_film():
     ir = np.full((40, 40), 0.9, dtype=np.float32)
-    strokes, hair = detect_ir_regions(normalize_ir(ir), 0.5)
-    assert strokes == [] and hair is None
+    img = np.clip(np.random.default_rng(2).normal(0.5, 0.1, (40, 40, 3)), 0, 1).astype(np.float32)
+    score = ir_defect_score(normalize_ir(ir), 0.5)
+    assert np.array_equal(np.asarray(apply_ir_reconstruction(img, score)), img)
+    assert route_ir_defects(score) is None
 
 
 def test_ir_detect_cutoff_mapping_and_direction():
@@ -96,14 +101,30 @@ def test_normalize_ir_flat_plane_is_unity():
 
     grad = np.linspace(0.7, 0.85, 120, dtype=np.float32)[:, None].repeat(120, axis=1)
     grad[60:63, 60:63] = grad[60:63, 60:63] * 0.4  # dust dip on the gradient
-    strokes, _ = detect_ir_regions(normalize_ir(grad), ir_detect_cutoff(0.35, True))
-    assert len(strokes) == 1
+    score = ir_defect_score(normalize_ir(grad), ir_detect_cutoff(0.35, True))
+    assert abs(float(score[61, 61]) - _IR_SCORE_FLOOR) < 1e-6
+    off = np.ones(score.shape, dtype=bool)
+    off[55:68, 55:68] = False
+    assert float(score[off].min()) > _IR_WRITE_HI, "clean film keeps its grain untouched"
 
 
-def test_detect_ir_regions_coverage_abort():
-    """A cutoff that marks the whole frame returns nothing (never smears the preview)."""
-    ratio = np.full((80, 80), 0.5, dtype=np.float32)  # 100% below any sane cutoff
-    assert detect_ir_regions(ratio, 0.8)[0] == []
+def test_ir_reconstruction_survives_dusty_frames():
+    """The #563 regression: ~5% dust coverage used to trip a hard abort and silently
+    disable the whole IR path at every threshold. The fill is unconditional now."""
+    h = w = 200
+    rng = np.random.default_rng(9)
+    img = np.clip(0.5 + rng.normal(0, 0.01, (h, w, 3)), 0, 1).astype(np.float32)
+    ir = np.full((h, w), 0.9, dtype=np.float32)
+    centers = [(y, x) for y in range(10, 190, 18) for x in range(10, 190, 18)]  # ~4.9% coverage
+    for y, x in centers:
+        ir[y : y + 4, x : x + 4] = 0.1
+        img[y : y + 4, x : x + 4] = 0.06
+
+    score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
+    assert float((score <= _IR_SCORE_FLOOR + 1e-6).mean()) > 0.04, "fixture really is a dusty frame"
+    out = np.asarray(apply_ir_reconstruction(img, score))
+    for y, x in centers:
+        assert float(out[y + 1, x + 1].min()) > 0.35, f"speck at {(y, x)} left unhealed"
 
 
 def test_tiff_loader_reads_ir_from_extrasamples():
@@ -203,10 +224,15 @@ def test_ir_attenuation_field_invalidates_retouch_hash():
 
 def test_ir_bake_token_active_and_empty():
     on = RetouchConfig(ir_dust_remove=True, ir_attenuation=True)
-    assert ir_bake_token(on, has_ir=True) == "|irdiv1"
+    assert ir_bake_token(on, has_ir=True) != ""
     assert ir_bake_token(on, has_ir=False) == ""  # no IR plane → nothing to bake
-    assert ir_bake_token(RetouchConfig(ir_dust_remove=True, ir_attenuation=False), True) == ""
     assert ir_bake_token(RetouchConfig(ir_dust_remove=False, ir_attenuation=True), True) == ""
+    # The fill bakes even without attenuation, and it is threshold-dependent — every
+    # distinct (attenuation, threshold) pair must produce a distinct engine-cache token.
+    att_off = ir_bake_token(RetouchConfig(ir_dust_remove=True, ir_attenuation=False), True)
+    assert att_off != "" and att_off != ir_bake_token(on, True)
+    moved = ir_bake_token(RetouchConfig(ir_dust_remove=True, ir_threshold=0.31), True)
+    assert moved != ir_bake_token(on, True)
 
 
 def test_ir_ratio_and_gain_properties():
@@ -263,8 +289,10 @@ def test_ir_dead_margins_do_not_mask_the_frame():
     assert not degenerate
     assert float(ratio[:, :20].min()) > 0.99  # dead margin reads as clean film
     assert float(gain[:, :20].max()) < 1.01  # ...and is never "corrected"
-    strokes, _ = detect_ir_regions(ratio, ir_detect_cutoff(0.66, True), pad_px=3.0)
-    assert len(strokes) >= 1
+    score = ir_defect_score(ratio, ir_detect_cutoff(0.66, True))
+    # :19, not :20 — the erode legitimately bleeds the in-frame gate transition 1 px in.
+    assert float(score[:, :19].min()) > _IR_WRITE_HI, "the margin is never rebuilt"
+    assert float(score[speck].min()) < _IR_WRITE_LO, "the real speck still is"
 
 
 def test_ir_noisy_clean_film_is_not_degenerate():
@@ -312,8 +340,8 @@ def test_ir_decontaminate_removes_ghost():
     assert abs(float(np.median(clean[off])) - 1.0) < 0.02
 
     assert float(clean[speck].min()) < 0.75  # the defect survives unmixing
-    strokes, _ = detect_ir_regions(clean, ir_detect_cutoff(0.66, True), pad_px=3.0)
-    assert len(strokes) >= 1
+    score = ir_defect_score(clean, ir_detect_cutoff(0.66, True))
+    assert float(score[speck].min()) < _IR_WRITE_LO  # ...deep enough to take the full fill
 
 
 def test_ir_decontaminate_noop_on_clean_ir():
@@ -410,6 +438,113 @@ def test_ir_gain_never_lifts_a_pixel_past_its_local_clean_base():
     # asserted in test_ir_ratio_and_gain_properties.
 
 
+def test_ir_cap_does_not_halo_grainy_film():
+    """Issue #563: the cap's old blur(dilate) clean-base estimate is a local max, sitting
+    ~2σ of grain above the true level — on grainy film it licensed the bake to lift the
+    ratio-dip skirt around every speck ~16% mean, a dark ring after inversion. The
+    noise-free test above can't see it (dilate bias is zero without grain)."""
+    h = w = 300
+    rng = np.random.default_rng(5)
+    ir = np.clip(0.9 + rng.normal(0, 0.005, (h, w)), 0.0, 1.0).astype(np.float32)
+    img = np.clip(0.30 + rng.normal(0, 0.02, (h, w, 3)), 1e-3, 1.0).astype(np.float32)
+    ir_dip = np.zeros((h, w), dtype=bool)
+    vis_dip = np.zeros((h, w), dtype=bool)
+    for _ in range(40):
+        y, x = int(rng.integers(12, h - 14)), int(rng.integers(12, w - 14))
+        ir[y - 3 : y + 6, x - 3 : x + 6] *= 0.5  # strongly IR-opaque: not unmixable as ghost
+        img[y : y + 3, x : x + 3] *= 0.82
+        ir_dip[y - 3 : y + 6, x - 3 : x + 6] = True
+        vis_dip[y : y + 3, x : x + 3] = True
+
+    _, gain, degenerate, _ = ir_ratio_and_gain(ir, img)
+    assert not degenerate
+
+    out = np.asarray(apply_ir_attenuation(img, gain))
+    skirt = ir_dip & ~vis_dip
+    lift = out[skirt] / img[skirt] - 1.0  # what the bake lifted each skirt pixel by
+    assert float(lift.mean()) < 0.02, f"mean skirt lift {lift.mean():.3f} — dark ring after inversion"
+    assert float(np.percentile(lift, 95)) < 0.08
+    # The speck itself must still be corrected — the cap may not swallow the recovery.
+    assert float(gain[vis_dip].mean()) > 1.05
+
+
+def test_ir_fill_leaves_clean_pixels_byte_identical():
+    """The other half of the #563 halo fix: everything scoring clean (≥ _IR_WRITE_HI)
+    is not merely 'close' — it is untouched, grain and all."""
+    h = w = 120
+    rng = np.random.default_rng(21)
+    img = np.clip(0.4 + rng.normal(0, 0.03, (h, w, 3)), 0, 1).astype(np.float32)
+    img[58:62, 58:62] = 0.05
+    ir = np.clip(0.9 + rng.normal(0, 0.004, (h, w)), 0, 1).astype(np.float32)
+    ir[58:62, 58:62] = 0.1
+
+    score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
+    out = np.asarray(apply_ir_reconstruction(img, score))
+    untouched = score >= _IR_WRITE_HI
+    assert untouched.sum() > 0.9 * untouched.size
+    assert np.array_equal(out[untouched], np.asarray(img)[untouched])
+    assert (out >= np.asarray(img) - 1e-6).all()
+    assert float(out[60, 60].min()) > 0.3, "the core is still rebuilt"
+
+
+def test_ir_fill_follows_an_edge_through_the_defect():
+    """Multiscale: a speck straddling a two-tone edge fills each side toward its own
+    tone — the finest support with clean data wins, so edges continue through defects."""
+    h = w = 80
+    img = np.full((h, w, 3), 0.2, dtype=np.float32)
+    img[:, 40:] = 0.7
+    ir = np.full((h, w), 0.9, dtype=np.float32)
+    img[38:42, 36:44] = 0.05
+    ir[38:42, 36:44] = 0.1
+
+    score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
+    out = np.asarray(apply_ir_reconstruction(img, score))
+    assert float(out[40, 37].max()) < 0.45, "left of the edge rebuilds toward the dark tone"
+    assert float(out[40, 43].min()) > 0.45, "right of the edge toward the light tone"
+
+
+def test_ir_reconstruction_wysiwyg_across_scales():
+    """Export runs the same detection-scale score against the full-res buffer with
+    rescaled supports; the healed result must agree with the preview once downsampled."""
+    hd = wd = 100
+    rng = np.random.default_rng(13)
+    img_det = np.clip(0.5 + rng.normal(0, 0.01, (hd, wd, 3)), 0, 1).astype(np.float32)
+    ir = np.full((hd, wd), 0.9, dtype=np.float32)
+    img_det[48:52, 48:52] = 0.05
+    ir[48:52, 48:52] = 0.1
+    score = ir_defect_score(normalize_ir(ir), ir_detect_cutoff(0.66, True))
+
+    out_det = np.asarray(apply_ir_reconstruction(img_det, score))
+    img_full = cv2.resize(img_det, (wd * 3, hd * 3), interpolation=cv2.INTER_NEAREST)
+    out_full = np.asarray(apply_ir_reconstruction(img_full, score))
+    down = cv2.resize(out_full, (wd, hd), interpolation=cv2.INTER_AREA)
+    speck = np.zeros((hd, wd), dtype=bool)
+    speck[46:54, 46:54] = True
+    assert abs(float(down[speck].mean()) - float(out_det[speck].mean())) < 0.05
+    assert float(down[50, 50].min()) > 0.35 and float(out_det[50, 50].min()) > 0.35
+
+
+def test_route_ir_defects_by_interior_radius_and_budget():
+    """Only at-floor components with a core the fill's 9×9 support can't see across
+    (chebyshev radius ≥ _IR_ROUTE_RADIUS) route to the heavy inpaint; a long thin hair
+    stays with the fill. The over-budget guard skips routing (never the fill)."""
+    score = np.ones((200, 200), dtype=np.float32)
+    score[10:12, 10:12] = _IR_SCORE_FLOOR  # 4 px speck: the fill's job
+    score[100:103, 20:180] = _IR_SCORE_FLOOR  # 480 px hair — big, but thin: fill's job too
+    assert route_ir_defects(score) is None
+
+    score[40:52, 40:52] = _IR_SCORE_FLOOR  # 12×12 blob: radius 6, past the fill's reach
+    routed = route_ir_defects(score)
+    assert routed is not None
+    assert routed[46, 46] == 1 and routed[39, 46] == 1, "routed, dilated past the skirt"
+    assert routed[10, 10] == 0, "the small speck stays with the fill"
+    assert routed[101, 100] == 0, "the hair stays with the fill"
+
+    score = np.ones((200, 200), dtype=np.float32)
+    score[40:70, 40:74] = _IR_SCORE_FLOOR  # ~2.5% of the frame once dilated
+    assert route_ir_defects(score) is None, "over budget: inpaint skipped, fill still runs"
+
+
 def test_gamma_fit_falls_back_when_the_band_is_too_small():
     """A frame with almost no semi-transparent dust has nothing to fit — the gain is ~1
     regardless of γ, so the fallback stands rather than fitting noise."""
@@ -420,25 +555,29 @@ def test_gamma_fit_falls_back_when_the_band_is_too_small():
     assert _fit_refraction_gammas(ratio, vis_log, img) == (_IR_GAMMA_FALLBACK,) * 3
 
 
-def test_hysteresis_grows_from_cores_but_admits_no_new_defects():
-    """Both halves of Canny's rule: a shallow dip touching a strong core is pulled in
-    whole, while an equally shallow dip with no core stays out."""
+def test_ir_defect_score_is_continuous_and_bleeds_one_pixel():
+    """The score replaces hysteresis: a shallow dip gets a proportional partial score
+    (no cliff to grow across), and the erode bleeds a defect's score one pixel outward
+    so sub-pixel hairs and the min-pool skirt take the correction too."""
     ratio = np.ones((80, 200), dtype=np.float32)
-    ratio[40, 20:60] = 0.40  # core, below the cutoff
-    ratio[40, 60:100] = 0.65  # its shallow continuation — above the cutoff
-    ratio[40, 140:180] = 0.65  # same depth, but no core anywhere near it
+    ratio[40, 20:60] = 0.40  # deep core, below the cutoff
+    ratio[40, 60:100] = 0.65  # shallow continuation
 
-    strokes, hair = detect_ir_regions(ratio, 0.586, pad_px=1.0, min_area=1)
-    covered = np.zeros((80, 200), dtype=bool)
-    for pts, size, _sdx, _sdy, _g in strokes:
-        for px, py in np.atleast_2d(pts):
-            covered[int(round(py * 80)), int(round(px * 200))] = True
-    if hair is not None:
-        covered |= hair.astype(bool)
+    cutoff = 0.586
+    score = ir_defect_score(ratio, cutoff)
+    assert abs(float(score[40, 30]) - _IR_SCORE_FLOOR) < 1e-6
+    assert _IR_SCORE_FLOOR < float(score[40, 80]) < _IR_WRITE_LO, "shallow dip: partial, proportional"
+    assert abs(float(score[39, 30]) - _IR_SCORE_FLOOR) < 1e-6, "erode bleeds the core one pixel outward"
+    assert float(score[38, 30]) > _IR_WRITE_HI, "...exactly one pixel"
+    assert float(score[:20].min()) == 1.0
 
-    assert covered[40, 20:60].all(), "the core itself"
-    assert covered[40, 60:100].any(), "its above-cutoff continuation is pulled in by the core"
-    assert not covered[40, 140:180].any(), "an identical dip with no core must stay rejected"
+    # Monotone in the slider, in both attenuation modes: a lower slider catches more
+    # (higher cutoff), so a fixed dip scores lower — more correction, no cliff anywhere.
+    dip = np.full((16, 16), 0.75, dtype=np.float32)
+    for att in (True, False):
+        scores = [float(ir_defect_score(dip, ir_detect_cutoff(s, att))[8, 8]) for s in (0.1, 0.5, 0.9)]
+        assert scores[0] <= scores[1] <= scores[2] + 1e-6
+        assert all(_IR_SCORE_FLOOR - 1e-6 <= s <= 1.0 for s in scores)
 
 
 def _curled_hair_mask(size: int = 120) -> np.ndarray:
@@ -517,35 +656,22 @@ def _noisy_frame(h: int, w: int, seed: int = 0) -> np.ndarray:
     return np.clip(rng.normal(0.5, 0.15, (h, w, 3)), 0, 1).astype(np.float32)
 
 
-def _inpaint_whole_frame(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """The pre-optimisation implementation, kept as the oracle: gamma-encode the entire
-    buffer, inpaint, decode, keep the masked pixels. apply_hair_inpaint now does this per
-    connected component's bbox, which must be bit-exact, not merely close."""
-    enc = np.clip(np.ascontiguousarray(img, dtype=np.float32), 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
-    filled = cv2.inpaint((enc * 255.0 + 0.5).astype(np.uint8), mask, _HAIR_INPAINT_RADIUS, cv2.INPAINT_NS)
-    dec = (filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA
-    out = np.ascontiguousarray(img, dtype=np.float32).copy()
-    mb = mask.astype(bool)
-    out[mb] = dec[mb]
-    return out
-
-
-def test_hair_inpaint_per_component_matches_whole_frame():
-    """cv2.inpaint only propagates outward from the mask boundary, so filling each defect
-    inside its own bbox is exactly the whole-frame result — without gamma-encoding 34MP to
-    serve a hairline (1.7s -> 0.3s on a full scan)."""
+def test_hair_inpaint_fills_and_leaves_clean_pixels():
+    """Per-component bbox fill: the hair is rebuilt to the surrounding level, everything
+    outside the mask stays byte-identical (the feather blends only inside the mask)."""
     img = _noisy_frame(300, 400)
     m = np.zeros((300, 400), dtype=np.uint8)
     cv2.line(m, (60, 80), (200, 190), 1, 2)
     mb = m.astype(bool)
+    img[mb] = 0.02  # a real defect, far darker than the 0.5 surround
 
     out = apply_hair_inpaint(img, [m], dilate_px=0)
-    assert np.array_equal(out, _inpaint_whole_frame(img, m))
     assert not np.array_equal(out[mb], img[mb]), "the hair must actually be filled"
     assert np.array_equal(out[~mb], img[~mb]), "clean pixels stay byte-identical"
+    assert float(np.abs(out[mb].mean() - 0.5)) < 0.15, "filled toward the surround level"
 
 
-def test_hair_inpaint_matches_for_scattered_hairs():
+def test_hair_inpaint_fills_scattered_hairs():
     """Hairs in opposite corners — their union bbox is the whole frame, which is why the
     crop is per-component and not one bbox over the union."""
     img = _noisy_frame(300, 400, seed=1)
@@ -553,19 +679,65 @@ def test_hair_inpaint_matches_for_scattered_hairs():
     cv2.line(m, (20, 20), (70, 60), 1, 2)
     cv2.line(m, (330, 240), (380, 280), 1, 2)
     assert cv2.connectedComponentsWithStats(m, connectivity=8)[0] - 1 == 2, "fixture must be two components"
-    assert np.array_equal(apply_hair_inpaint(img, [m], dilate_px=0), _inpaint_whole_frame(img, m))
+    mb = m.astype(bool)
+    img[mb] = 0.02
+    out = apply_hair_inpaint(img, [m], dilate_px=0)
+    for comp_label in (1, 2):
+        labels = cv2.connectedComponents(m, connectivity=8)[1]
+        sel = labels == comp_label
+        assert float(np.abs(out[sel].mean() - 0.5)) < 0.15, f"component {comp_label} filled"
+    assert np.array_equal(out[~mb], img[~mb])
 
 
 def test_hair_inpaint_neighbour_in_bbox_is_not_cloned_as_source():
-    """Two hairs closer than the bbox pad: each one's crop contains the other. The neighbour
-    has to stay masked inside that crop — mask only the component being filled and its dust
-    becomes clone source, filling the defect straight back in."""
+    """Two hairs closer than the bbox pad: each one's crop contains the other. The
+    neighbour has to stay masked inside that crop — mask only the component being filled
+    and its dust becomes fill source, pulling the defect value straight back in."""
     img = _noisy_frame(200, 200, seed=2)
     m = np.zeros((200, 200), dtype=np.uint8)
     cv2.line(m, (80, 40), (80, 160), 1, 2)
     cv2.line(m, (86, 40), (86, 160), 1, 2)  # 6 px away — well inside _HAIR_INPAINT_PAD
     assert cv2.connectedComponentsWithStats(m, connectivity=8)[0] - 1 == 2, "fixture must be two components"
-    assert np.array_equal(apply_hair_inpaint(img, [m], dilate_px=0), _inpaint_whole_frame(img, m))
+    mb = m.astype(bool)
+    img[mb] = 0.98  # both hairs blown far above the 0.5 surround
+    out = apply_hair_inpaint(img, [m], dilate_px=0)
+    assert float(out[mb].mean()) < 0.7, "a neighbour used as source would keep the fill near 0.98"
+    assert np.array_equal(out[~mb], img[~mb])
+
+
+def test_hair_inpaint_feathers_the_dilate_band():
+    """The detected defect takes the full fill; the dilate band around it (real scans:
+    the PSF skirt) ramps in by distance, so a partially-darkened skirt is lifted
+    partially instead of stamped — no hard seam at the patch boundary."""
+    img = np.full((120, 120, 3), 0.6, dtype=np.float32)
+    core = np.zeros((120, 120), dtype=np.uint8)
+    cv2.circle(core, (60, 60), 8, 1, -1)
+    skirt = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))).astype(bool) & ~core.astype(bool)
+    img[core.astype(bool)] = 0.1
+    img[skirt] = 0.35  # the soft penumbra the detection mask never covers
+
+    out = apply_hair_inpaint(img, [core], dilate_px=3)
+    assert float(out[60, 60].mean()) > 0.5, "the core takes the full fill"
+    inner = float(out[60, 51].mean())  # skirt px adjacent to the core (deep in the band)
+    outer = float(out[60, 49].mean())  # skirt px at the band's outer edge
+    assert inner > outer > 0.35 - 1e-6, "the band ramps: deeper in, more fill"
+    band = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))).astype(bool)
+    assert np.array_equal(out[~band], img[~band]), "outside the dilated mask: byte-identical"
+
+
+def test_hair_inpaint_context_range_survives_dark_regions():
+    """The 8-bit encode normalizes to the crop's own clean range: a defect deep in the
+    shadows otherwise lands on a handful of codes and fills as a posterized flat patch."""
+    rng = np.random.default_rng(8)
+    img = np.clip(rng.normal(0.003, 0.001, (200, 200, 3)), 0.0005, 1).astype(np.float32)
+    m = np.zeros((200, 200), dtype=np.uint8)
+    cv2.line(m, (60, 60), (140, 140), 1, 3)
+    mb = m.astype(bool)
+    img[mb] = 0.0006
+
+    out = apply_hair_inpaint(img, [m], dilate_px=0)
+    assert float(np.abs(out[mb].mean() - 0.003)) < 0.002, "filled toward the shadow level"
+    assert np.unique(out[mb]).size > 10, "posterized fill: the encode collapsed the range"
 
 
 def test_ir_attenuation_is_the_upsampled_gain_product():

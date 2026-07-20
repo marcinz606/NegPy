@@ -36,7 +36,7 @@ _DETECT_PAD_PX = 2.5
 # a ring on the defect's PSF skirt biases every boundary diff bright and the whole
 # clone renders as a soft ghost. The blend footprint stays at the blend radius.
 _MEMBRANE_RIM_PX = 2.0
-# Rim feather fraction of the blend radius (1.5px floor). Ungated auto/IR regions
+# Rim feather fraction of the blend radius (1.5px floor). Ungated auto-luma regions
 # widen it via the gate lane. Mirrored in retouch.wgsl.
 _RIM_FEATHER_FRAC = 0.25
 _RIM_FEATHER_UNGATED = 0.15
@@ -44,8 +44,6 @@ _RIM_FEATHER_UNGATED = 0.15
 # IR ratio-normalization base window (px at detection scale, pinned like HEAL_SIZE_REF).
 # Defects wider than ~half of it depress their own base (max-area/Scratch territory).
 _IR_BASE_WIN = 25
-_IR_COVERAGE_ABORT = 0.01  # cutoff marking >this fraction → unusable IR, return nothing
-_IR_GROW_FRAC = 0.3  # hysteresis: grow seeded defects this far across the gap to clean film
 _IR_GAIN_IDENTITY = 0.97  # gain is identity at/above this ratio
 _IR_GAIN_CLAMP = 2.0  # caps misregistration halos
 # Per-channel refraction γ, fitted per frame (patent 1.03–1.10 under-correct file IR).
@@ -60,7 +58,7 @@ _IR_DEAD_FLOOR = 0.05
 _IR_XTALK_MAX = 0.8  # per-channel exponent cap; ≥0 only — density can only block IR
 _IR_XTALK_MIN = 0.02  # |b| sum below this is a noise-level fit → exact no-op
 _IR_DEGENERATE_GHOST = 0.5  # fitted exponent sum above this: IR mirrors the image (B&W/Kodachrome)
-_IR_XTALK_TRIM = 5.0  # fit drops this bottom-ratio percentile (the dust minority); 5x the coverage abort
+_IR_XTALK_TRIM = 5.0  # fit drops this bottom-ratio percentile (the dust minority)
 # γ fit sample: keep this flattest fraction of the band by visible Laplacian, dropping the
 # restriction below _IR_FIT_MIN_PX rather than fitting a handful of pixels. See _fit_refraction_gammas.
 _IR_FIT_FLAT_PCT = 40
@@ -70,11 +68,36 @@ _IR_FIT_MIN_PX = 200
 # downsample_ir is min-preserving while the visible arrives area-averaged, so at detection scale
 # the ratio's dip runs deeper and ~1 px wider than the defect the visible carries (0.816 against
 # 0.892); uncapped, that skirt lifts clean film and every speck and hair renders with a dark
-# outline. Reaches ±4 px, past _DETECT_PAD_PX's skirt: wider re-admits the rim (25 px leaves 3x
-# the residual), narrower sits inside the skirt and caps real correction away.
+# outline. Reaches ±4 px, past _DETECT_PAD_PX's skirt. Base = defect-excluded local mean −
+# _IR_CAP_SIGMA·σ, not blur(dilate): the dilate is a local max, ~2σ of grain high, and re-admits
+# the ring on grainy film (#563). Under _IR_CAP_MIN_SUPPORT clean pixels in the window → the max
+# estimate returns (deep inside wide defects, where _IR_GAIN_CLAMP binds first).
 _IR_CAP_WIN = 9
+_IR_CAP_SIGMA = 1.0
+_IR_CAP_MIN_SUPPORT = 0.1  # fraction of the window (~8 px at 9×9)
 
-# Strong hairs/scratches (auto/IR) route to structure-following inpaint instead of
+# IR reconstruction: concepts ported from digital-fauxice (MIT, © 2026 Rohan
+# Pandula, see NOTICE.md) — continuous score, score-weighted fill, original-floor rule.
+# Score: 1 = clean (ratio ≥ _IR_GAIN_IDENTITY), floor at/below the slider's cutoff.
+# Never thresholded — no mask edge to halo, no coverage fraction to abort on.
+_IR_SCORE_FLOOR = 0.02
+# Fill supports (detection-scale px, × the buffer's upsample factor). Candidate per
+# support: Σ(rgb·score·win)/Σ(score·win) — low-score neighbours self-exclude. A finer
+# support wins once its clean fraction reaches _IR_FILL_TAU (edges continue through).
+_IR_FILL_SCALES = (9, 5, 3)
+_IR_FILL_TAU = 0.15
+# Write ramp: untouched above HI (grain survives), full fill at/below LO.
+_IR_WRITE_HI = 0.85
+_IR_WRITE_LO = 0.40
+# Route to inpaint only components with a core the fill can't see across (chebyshev
+# radius ≥ 5 ⇔ solid 9×9 interior). Thin hairs stay with the fill: every pixel is
+# within reach of clean film, and NS inpaint would smear structure the fill keeps.
+# The budget bounds only this heavy path; the fill always runs.
+_IR_ROUTE_RADIUS = 5
+_IR_ROUTE_DILATE = 2
+_IR_ROUTE_BUDGET = 0.02  # fraction of the frame
+
+# Strong hairs/scratches (auto-luma) route to structure-following inpaint instead of
 # the membrane clone: a long twist crosses varied background, and one clone-source
 # offset can't match it. Bar sits above the mild-elongation capsule test so ordinary
 # dust clusters stay on the membrane. Detection-scale px. See _is_hair.
@@ -496,23 +519,18 @@ def _mask_to_strokes(
     mask: np.ndarray,
     pad_px: float,
     max_n: int,
-    min_area: int = 1,
-    max_area: Optional[int] = None,
 ) -> Tuple[List[Tuple[np.ndarray, float, float]], Optional[np.ndarray]]:
     """Connected defect components → ``(compact_comps, hair_mask)``. Compact specks
     become ``(chain_px, radius_px, area)`` tuples (largest first, truncated to
     ``max_n``); mildly elongated ones a ≤8-point membrane capsule. Strongly
     elongated defects (long twisted hairs/scratches) are painted into ``hair_mask``
     instead — they route to structure-following inpaint, which a single-offset
-    membrane clone can't track. ``min_area``/``max_area`` drop noise specks and
-    oversized blobs (IR path); the luma path leaves them at the defaults."""
+    membrane clone can't track."""
     n_lbl, labels, stats, centroids = cv2.connectedComponentsWithStats(np.ascontiguousarray(mask, dtype=np.uint8), connectivity=8)
     comps = []
     hair_mask: Optional[np.ndarray] = None
     for i in range(1, n_lbl):
         area = int(stats[i, cv2.CC_STAT_AREA])
-        if area < min_area or (max_area is not None and area > max_area):
-            continue
         x0 = int(stats[i, cv2.CC_STAT_LEFT])
         y0 = int(stats[i, cv2.CC_STAT_TOP])
         bw = int(stats[i, cv2.CC_STAT_WIDTH])
@@ -778,19 +796,6 @@ def normalize_ir(plane: np.ndarray) -> np.ndarray:
     return plane / np.maximum(base, 1e-4)
 
 
-def _hysteresis(ratio: np.ndarray, strong: np.ndarray, cutoff: float) -> np.ndarray:
-    """Grow each seeded defect through ``_IR_GROW_FRAC`` of the gap to clean film, keeping
-    only components holding a strong pixel (Canny's rule).
-
-    ``_ir_decontaminate`` divides by ``Π vis^b`` and a defect blocks visible light too, so
-    it lifts the defect's own ratio (a hair core 0.252 → 0.362). Cores still clear the
-    cutoff by a mile; thin sections don't, so a hair would arrive shattered into specks."""
-    grow = cutoff + (1.0 - cutoff) * _IR_GROW_FRAC
-    _n, labels = cv2.connectedComponents((ratio < grow).astype(np.uint8), connectivity=8)
-    keep = np.unique(labels[strong])
-    return np.isin(labels, keep[keep > 0]).astype(np.uint8)
-
-
 def ir_detect_cutoff(slider: float, attenuation: bool) -> float:
     """UI IR sensitivity (higher = conservative) → ratio cutoff; lower slider catches
     more. Attenuation-on band sits lower (division handles the rest, only cores need cloning)."""
@@ -798,37 +803,89 @@ def ir_detect_cutoff(slider: float, attenuation: bool) -> float:
     return (0.85 - 0.40 * s) if attenuation else (0.95 - 0.20 * s)
 
 
-def detect_ir_regions(
-    ratio: np.ndarray,
-    cutoff: float,
-    pad_px: float = 3.0,
-    max_n: int = 512,
-    guide: Optional[np.ndarray] = None,
-    min_area: int = 2,
-    max_area: int = 2000,
-) -> Tuple[List[Tuple], Optional[np.ndarray]]:
-    """Normalized-IR defects → ``(strokes, hair_mask)``: compact cores become
-    ungated membrane strokes, strong hairs a detection-scale mask for inpaint
-    (``ratio`` from normalize_ir, ``cutoff`` from ir_detect_cutoff). Coverage abort
-    guards a misregistered IR plane. ``guide`` (RGB proxy) scores clone sources; else the ratio."""
-    ratio = np.ascontiguousarray(ratio, dtype=np.float32)
-    strong = ratio < cutoff
-    # Coverage guards a misregistered IR plane, so it reads the *seed*: hysteresis only
-    # completes defects the strict cutoff already accepted, it never finds new ones.
-    cov = float(strong.mean())
-    if cov <= 0.0:
-        return [], None
-    if cov > _IR_COVERAGE_ABORT:
-        logger.warning("IR dust: cutoff %.3f marks %.1f%% of the frame — skipping (raise IR threshold)", cutoff, cov * 100.0)
-        return [], None
-    mask = _hysteresis(ratio, strong, cutoff)
-    if guide is None or guide.shape[:2] != ratio.shape[:2]:
-        guide = ratio
-    comps, hair_mask = _mask_to_strokes(mask, pad_px, max_n, min_area=min_area, max_area=max_area)
-    if not comps:
-        return [], hair_mask
-    offsets = _pick_source_offsets(mask, comps, guide)
-    return _finalize_strokes(comps, offsets, mask.shape, gate=0.0), hair_mask
+def ir_defect_score(ratio: np.ndarray, cutoff: float) -> np.ndarray:
+    """Continuous defect score in ``[_IR_SCORE_FLOOR, 1]``: 1 = clean film, floor
+    at/below ``cutoff`` (from ir_detect_cutoff). The 3×3 erode bleeds a defect's score
+    one pixel outward, covering sub-pixel hairs and the min-pool skirt."""
+    span = max(_IR_GAIN_IDENTITY - cutoff, 1e-4)
+    t = (np.ascontiguousarray(ratio, dtype=np.float32) - cutoff) / span
+    score = np.clip(t * (1.0 - _IR_SCORE_FLOOR) + _IR_SCORE_FLOOR, _IR_SCORE_FLOOR, 1.0)
+    return cv2.erode(score, np.ones((3, 3), np.uint8))
+
+
+def score_weighted_fill(img: np.ndarray, score: np.ndarray, scales: Tuple[int, ...] = _IR_FILL_SCALES) -> np.ndarray:
+    """Multiscale score-normalized average, blended coarse→fine by clean fraction.
+    Where no support holds clean film the quotient tends to zero and the original-floor
+    rule in apply_ir_reconstruction keeps the source pixel."""
+    s3 = score[..., None]
+    weighted = img * s3
+    fill: Optional[np.ndarray] = None
+    for i, k in enumerate(scales):
+        if i == len(scales) - 1:
+            num = cv2.GaussianBlur(weighted, (k, k), 0)
+            den = cv2.GaussianBlur(score, (k, k), 0)
+        else:
+            num = cv2.boxFilter(weighted, -1, (k, k))
+            den = cv2.boxFilter(score, -1, (k, k))
+        cand = num / np.maximum(den, 1e-6)[..., None]
+        if fill is None:
+            fill = cand
+        else:
+            conf = np.clip(den / _IR_FILL_TAU, 0.0, 1.0)[..., None]
+            fill = fill * (1.0 - conf) + cand * conf
+    assert fill is not None  # scales is never empty
+    return fill
+
+
+def apply_ir_reconstruction(img: ImageBuffer, score_det: np.ndarray) -> ImageBuffer:
+    """Bake the score-weighted fill into the linear source (new array). The detection-scale
+    score is upsampled; the fill convolutions rerun at the buffer's own resolution with
+    rescaled supports — filled pixels are never upsampled."""
+    h, w = img.shape[:2]
+    src = np.ascontiguousarray(img, dtype=np.float32)
+    if score_det.shape[:2] == (h, w):
+        score, factor = np.ascontiguousarray(score_det, dtype=np.float32), 1.0
+    else:
+        factor = max(h / score_det.shape[0], w / score_det.shape[1])
+        score = cv2.resize(score_det, (w, h), interpolation=cv2.INTER_LINEAR)
+    scales = tuple(int(round(k * factor)) | 1 for k in _IR_FILL_SCALES)
+    fill = score_weighted_fill(src, score, scales)
+    a = np.clip((_IR_WRITE_HI - score) / (_IR_WRITE_HI - _IR_WRITE_LO), 0.0, 1.0)
+    a = (a * a * (3.0 - 2.0 * a))[..., None]
+    out = src * (1.0 - a) + fill * a
+    # Original-floor rule: dust is dark in negative transmittance — repairs only lighten.
+    np.maximum(out, src, out=out)
+    return ensure_image(out)
+
+
+def route_ir_defects(score: np.ndarray) -> Optional[np.ndarray]:
+    """Detection-scale mask of at-floor components past the fill's reach, for
+    apply_hair_inpaint. Over budget (misregistered/garbage IR) → None + warning."""
+    at_floor = (score <= _IR_SCORE_FLOOR + 1e-6).astype(np.uint8)
+    if not at_floor.any():
+        return None
+    n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(at_floor, connectivity=8)
+    routed = np.zeros_like(at_floor)
+    side = 2 * _IR_ROUTE_RADIUS - 1
+    hit = False
+    for i in range(1, n_lbl):
+        bw, bh = int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT])
+        if min(bw, bh) < side:  # can't contain a side² solid → radius under the bar
+            continue
+        x0, y0 = int(stats[i, cv2.CC_STAT_LEFT]), int(stats[i, cv2.CC_STAT_TOP])
+        sub = np.pad((labels[y0 : y0 + bh, x0 : x0 + bw] == i).astype(np.uint8), 1)
+        if float(cv2.distanceTransform(sub, cv2.DIST_C, 3).max()) >= _IR_ROUTE_RADIUS:
+            routed[labels == i] = 1
+            hit = True
+    if not hit:
+        return None
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * _IR_ROUTE_DILATE + 1,) * 2)
+    routed = cv2.dilate(routed, k)
+    frac = float(routed.mean())
+    if frac > _IR_ROUTE_BUDGET:
+        logger.warning("IR dust: routed defects cover %.1f%% of the frame — inpaint skipped, fill only", frac * 100.0)
+        return None
+    return routed
 
 
 def _ir_decontaminate(ratio: np.ndarray, vis_log: np.ndarray) -> Tuple[np.ndarray, float]:
@@ -880,15 +937,29 @@ def _fit_refraction_gammas(ratio: np.ndarray, vis_log: np.ndarray, img_det: np.n
     return tuple(float(np.clip(np.median(vis_log[:, :, c][fit] / xb), _IR_GAMMA_LO, _IR_GAMMA_HI)) for c in range(3))
 
 
+def _ir_clean_base(img_det: np.ndarray, ratio: np.ndarray) -> np.ndarray:
+    """Local clean-film level per channel over ``_IR_CAP_WIN``: mean of the pixels the
+    IR ratio calls clean, minus ``_IR_CAP_SIGMA`` of their σ (see the constants block)."""
+    win = (_IR_CAP_WIN, _IR_CAP_WIN)
+    w_clean = (ratio >= _IR_GAIN_IDENTITY).astype(np.float32)
+    den = np.maximum(cv2.blur(w_clean, win), 1e-6)[..., None]
+    mean = cv2.blur(img_det * w_clean[..., None], win) / den
+    var = cv2.blur(img_det * img_det * w_clean[..., None], win) / den - mean * mean
+    base = mean - _IR_CAP_SIGMA * np.sqrt(np.clip(var, 0.0, None))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (_IR_CAP_WIN, _IR_CAP_WIN))
+    dil = cv2.blur(cv2.dilate(img_det, kernel), win)
+    return np.where(den > _IR_CAP_MIN_SUPPORT, base, dil)
+
+
 def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
     """Detection-scale ``(ratio, gain HxWx3, degenerate, gammas)`` for IR-division
     attenuation: semi-transparent dust recovered by ``RGB / ratio^γ``, γ per channel from
     ``_fit_refraction_gammas``. ``degenerate`` = IR carrying image content
-    (B&W/Kodachrome) → caller skips bake and strokes."""
+    (B&W/Kodachrome) → caller skips the whole IR bake."""
     plane = ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det
     ratio = normalize_ir(plane)
-    # No film under the head is not a defect; left as a dip the holder margin alone trips
-    # the coverage abort at every threshold.
+    # No film under the head is not a defect; left as a dip the holder margin would score
+    # as one giant routed component and swamp the routing budget.
     ratio[plane < _IR_DEAD_FLOOR] = 1.0
     img_det = np.ascontiguousarray(img_det, dtype=np.float32)
     if img_det.shape[:2] != ratio.shape[:2]:
@@ -907,8 +978,7 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
         gain[:, :, c] = np.minimum(_IR_GAIN_CLAMP, base ** (-gammas[c]))
     # Never lift a pixel past its own local clean base (see _IR_CAP_WIN); floored at 1 so the
     # cap only ever holds the bake back, never darkens a pixel itself.
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (_IR_CAP_WIN, _IR_CAP_WIN))
-    clean = cv2.blur(cv2.dilate(img_det, kernel), (_IR_CAP_WIN, _IR_CAP_WIN))
+    clean = _ir_clean_base(img_det, ratio)
     np.minimum(gain, np.maximum(clean / np.maximum(img_det, 1e-5), 1.0), out=gain)
     return ratio, gain, degenerate, gammas
 
@@ -924,8 +994,10 @@ def apply_ir_attenuation(img: ImageBuffer, gain_det: np.ndarray) -> ImageBuffer:
 
 def ir_bake_token(retouch, has_ir: bool) -> str:
     """Config-identity token for the IR bake (mirrors ``flatfield_token``); folded into
-    source_hash so toggling it invalidates the engine cache."""
-    return "|irdiv1" if (retouch.ir_dust_remove and retouch.ir_attenuation and has_ir) else ""
+    source_hash so a toggle or threshold drag invalidates the engine cache."""
+    if not (retouch.ir_dust_remove and has_ir):
+        return ""
+    return f"|ir{int(retouch.ir_attenuation)}r{round(float(retouch.ir_threshold), 3)}"
 
 
 def apply_hair_inpaint(
@@ -943,10 +1015,11 @@ def apply_hair_inpaint(
     masks = [hm for hm in hair_masks if hm is not None]
     if not masks:
         return img
+    factor = max(1.0, h / masks[0].shape[0], w / masks[0].shape[1])
     if dilate_px is None:
         # A detection-scale mask knows its boundary only to within the upsample factor,
         # so the dilate tracks it; at 1:1 that's _HAIR_DILATE_PX, the PSF skirt alone.
-        dilate_px = max(_HAIR_DILATE_PX, round(max(h / masks[0].shape[0], w / masks[0].shape[1])))
+        dilate_px = max(_HAIR_DILATE_PX, round(factor))
     m = np.zeros((h, w), dtype=np.uint8)
     for hm in masks:
         r = hm if hm.shape[:2] == (h, w) else cv2.resize(hm.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
@@ -968,13 +1041,23 @@ def apply_hair_inpaint(
         # Mask the whole crop, not just this component: a neighbour reaching into the
         # bbox must stay unknown or it becomes clone source and its dust is filled back in.
         sub_m = np.ascontiguousarray(m[y0:y1, x0:x1])
-        enc = np.clip(src[y0:y1, x0:x1], 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
+        crop = src[y0:y1, x0:x1]
+        # Encode against the crop's clean range — clip(0,1) posterizes fills in dark regions.
+        ctx = crop[sub_m == 0]
+        lo = float(np.percentile(ctx, 0.5)) if ctx.size else 0.0
+        hi = float(np.percentile(ctx, 99.5)) if ctx.size else 1.0
+        span = max(hi - lo, 1e-4)
+        enc = np.clip((crop - lo) / span, 0.0, 1.0) ** (1.0 / _HAIR_INPAINT_GAMMA)
         filled = cv2.inpaint((enc * 255.0 + 0.5).astype(np.uint8), sub_m, radius, cv2.INPAINT_NS)
-        dec = (filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA
-        # ...but only keep this component: a neighbour clipped by the bbox fills badly here,
-        # and gets its own correctly-padded crop anyway.
+        dec = ((filled.astype(np.float32) / 255.0) ** _HAIR_INPAINT_GAMMA) * span + lo
+        # ...but only keep this component (a neighbour clipped by the bbox fills badly here,
+        # and gets its own correctly-padded crop anyway), alpha-feathered across the dilate
+        # band: full fill on the detected defect, ramp over the skirt. dilate_px=0 → no feather.
         mb = labels[y0:y1, x0:x1] == i
-        out[y0:y1, x0:x1][mb] = dec[mb]
+        d = cv2.distanceTransform(mb.astype(np.uint8), cv2.DIST_C, 3)
+        a = np.minimum(d / float(dilate_px + 1), 1.0)[..., None]
+        blended = crop * (1.0 - a) + dec * a
+        out[y0:y1, x0:x1][mb] = blended[mb]
     return out
 
 

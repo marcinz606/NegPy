@@ -427,6 +427,8 @@ class WorkspaceConfig:
         data.pop("vignette_strength", None)
         # Flare (veiling-glare floor) was removed; drop the key from old edits silently.
         data.pop("flare", None)
+        # IR stroke synthesis was replaced by the score-weighted fill; its pad radius is gone.
+        data.pop("ir_inpaint_radius", None)
         # Auto cast removal became always-on; drop the old toggle key.
         data.pop("auto_cast_removal", None)
 

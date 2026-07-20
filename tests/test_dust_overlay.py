@@ -17,39 +17,42 @@ def _speck_image():
     return img
 
 
-def test_augment_retouch_returns_split_lists():
+def test_augment_retouch_returns_luma_strokes():
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4))
-    settings, detected, _ = service._augment_retouch(cfg, _speck_image(), None, "s")
+    settings, detected, _ = service._augment_retouch(cfg, _speck_image(), "s")
 
-    assert detected is not None and set(detected) == {"luma", "ir"}
+    assert detected is not None and set(detected) == {"luma"}
     assert len(detected["luma"]) >= 1
-    assert detected["ir"] == []
     # The merged strokes still reach the render-local config (auto flag cleared).
     assert settings.retouch.dust_remove is False
     assert len(settings.retouch.manual_heal_strokes) >= 1
 
 
-def test_augment_retouch_ir_populates_ir_list():
+def test_ir_bake_repairs_defects_in_place():
+    """IR defects never become strokes — _ir_bake rebuilds them in the source buffer."""
     h, w = 80, 80
     rng = np.random.default_rng(17)
-    img = (np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3))).astype(np.float32)
+    img = np.clip(np.full((h, w, 3), 0.5) + rng.normal(0, 0.01, (h, w, 3)), 0, 1).astype(np.float32)
+    img[39:42, 39:42] = 0.05
     ir = np.full((h, w), 0.9, dtype=np.float32)
     ir[39:42, 39:42] = 0.05
 
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_threshold=0.5))
-    _, detected, _ = service._augment_retouch(cfg, img, ir, "s")
+    baked, corrected_mask, degenerate, routed = service._ir_bake(img, ir, cfg, "s")
+    assert not degenerate and routed is None
+    assert corrected_mask is not None and corrected_mask[40, 40]
+    assert float(np.asarray(baked)[40, 40].min()) > 0.4, "the speck is rebuilt in the bake"
 
-    assert detected is not None
-    assert len(detected["ir"]) >= 1
-    assert detected["luma"] == []
+    _, detected, _ = service._augment_retouch(cfg, baked, "s")
+    assert detected is None, "IR-only config synthesizes no strokes"
 
 
 def test_augment_retouch_returns_none_when_detection_off():
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=False, ir_dust_remove=False))
-    settings, detected, hair = service._augment_retouch(cfg, _speck_image(), None, "s")
+    settings, detected, hair = service._augment_retouch(cfg, _speck_image(), "s")
     assert detected is None and hair == []
     assert settings is cfg  # untouched
 
@@ -61,7 +64,6 @@ def test_run_pipeline_surfaces_detected_dust_to_metrics(monkeypatch):
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4))
     _, metrics = service.run_pipeline(_speck_image(), cfg, "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False)
     assert len(metrics["detected_dust_luma"]) >= 1
-    assert metrics["detected_dust_ir"] == []
 
     cfg_off = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=False))
     _, metrics_off = service.run_pipeline(_speck_image(), cfg_off, "h2", render_size_ref=512, prefer_gpu=False, readback_metrics=False)
