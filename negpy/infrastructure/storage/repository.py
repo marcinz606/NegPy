@@ -352,3 +352,91 @@ class StorageRepository(IRepository):
             except Exception:
                 pass
         return result
+
+    # ------------------------------------------------------------------
+    # Database management (view / clear) — backs the DB Management dialog.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _count(conn: sqlite3.Connection, table: str) -> int:
+        try:
+            return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        except sqlite3.OperationalError:
+            return 0  # table not created yet
+
+    @staticmethod
+    def _db_size_bytes(path: str) -> int:
+        """On-disk footprint including the WAL/SHM sidecars (uncheckpointed writes
+        live in -wal, so the bare .db size understates real usage)."""
+        total = 0
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                total += os.path.getsize(path + suffix)
+            except OSError:
+                pass
+        return total
+
+    def database_stats(self) -> dict[str, int]:
+        """Row counts per category plus on-disk sizes, for the management dialog.
+
+        ``export_presets`` is one JSON row inside global_settings, so it's counted
+        from that list and excluded from ``app_preferences`` to avoid double-counting.
+        """
+        with self._connect(self.edits_db_path) as conn:
+            file_settings = self._count(conn, "file_settings")
+            edit_history = self._count(conn, "edit_history")
+            file_marks = self._count(conn, "file_marks")
+            normalization_rolls = self._count(conn, "normalization_rolls")
+            flatfield_profiles = self._count(conn, "flatfield_profiles")
+
+        with self._connect(self.settings_db_path) as conn:
+            global_settings = self._count(conn, "global_settings")
+
+        raw_presets = self.get_global_setting("export_presets", default=None)
+        export_presets = len(raw_presets) if isinstance(raw_presets, list) else 0
+        has_presets_row = raw_presets is not None
+
+        return {
+            "file_settings": file_settings,
+            "edit_history": edit_history,
+            "file_marks": file_marks,
+            "normalization_rolls": normalization_rolls,
+            "flatfield_profiles": flatfield_profiles,
+            "export_presets": export_presets,
+            # global_settings rows minus the single export_presets row (if present).
+            "app_preferences": max(0, global_settings - (1 if has_presets_row else 0)),
+            "edits_db_bytes": self._db_size_bytes(self.edits_db_path),
+            "settings_db_bytes": self._db_size_bytes(self.settings_db_path),
+        }
+
+    def _wipe(self, path: str, tables: list[str]) -> None:
+        """Empty the given tables, then checkpoint + VACUUM so the disk footprint
+        actually shrinks (WAL retains freed pages until checkpointed; VACUUM
+        rebuilds the file). VACUUM must run outside a transaction — a fresh
+        connection with no prior DML has none open."""
+        with self._connect(path) as conn:
+            for table in tables:
+                try:
+                    conn.execute(f"DELETE FROM {table}")
+                except sqlite3.OperationalError:
+                    pass  # table absent — nothing to clear
+        with self._connect(path) as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.execute("VACUUM")
+
+    def clear_saved_edits(self) -> None:
+        """Drop per-image looks: saved edits, their undo history, and keep/reject
+        marks. Rig calibration (normalization rolls, flat-field profiles), export
+        presets, and app preferences are left intact — so a reloaded image starts
+        from defaults without losing the user's tooling."""
+        self._wipe(self.edits_db_path, ["file_settings", "edit_history", "file_marks"])
+
+    def reset_everything(self) -> None:
+        """Full clean slate: every table in both databases. Export presets, rig
+        profiles, and all app preferences go too. Schema is preserved (rows only),
+        so the app keeps working against the emptied databases without re-init."""
+        self._wipe(
+            self.edits_db_path,
+            ["file_settings", "edit_history", "file_marks", "normalization_rolls", "flatfield_profiles"],
+        )
+        self._wipe(self.settings_db_path, ["global_settings"])
