@@ -56,7 +56,9 @@ class RepairResult:
 class RepairEngine(Protocol):
     """What a repair implementation must provide to `register_engine()`."""
 
-    def repair(self, rgb: np.ndarray, ir: np.ndarray, mode: RepairMode) -> RepairResult: ...
+    def repair(
+        self, rgb: np.ndarray, ir: np.ndarray, mode: RepairMode, *, prepass_rgbi: np.ndarray | None = None
+    ) -> RepairResult: ...
 
 
 _engine: RepairEngine | None = None
@@ -89,7 +91,9 @@ def unregister_engine() -> None:
     _engine = None
 
 
-def repair(rgb: np.ndarray, ir: np.ndarray, mode: RepairMode) -> RepairResult:
+def repair(
+    rgb: np.ndarray, ir: np.ndarray, mode: RepairMode, *, prepass_rgbi: np.ndarray | None = None
+) -> RepairResult:
     """Repair one frame's RGB using its infrared plane.
 
     Raises `RuntimeError` if no engine is registered -- callers on the
@@ -98,4 +102,4 @@ def repair(rgb: np.ndarray, ir: np.ndarray, mode: RepairMode) -> RepairResult:
     """
     if _engine is None:
         raise RuntimeError("no dust-repair engine is registered; Tier 2 and Tier 3 are unavailable")
-    return _engine.repair(rgb, ir, mode)
+    return _engine.repair(rgb, ir, mode, prepass_rgbi=prepass_rgbi)

@@ -37,6 +37,7 @@ import numpy as np
 import tifffile
 
 from negpy.infrastructure.roll import coolscanpy_roll
+from negpy.infrastructure.roll import fauxice_bridge as _fauxice_bridge  # noqa: F401 — registers engine on import
 from negpy.infrastructure.roll import repair as roll_repair
 from negpy.infrastructure.roll.repair import RepairMode
 from negpy.kernel.system.logging import get_logger
@@ -235,7 +236,7 @@ class RollScanningService:
                 outputs["repaired"] = {"written": False, "status": "unavailable: no dust-repair engine registered"}
             else:
                 try:
-                    repair_result = roll_repair.repair(frame.rgb, frame.ir, resolved_repair_mode)
+                    repair_result = roll_repair.repair(frame.rgb, frame.ir, resolved_repair_mode, prepass_rgbi=getattr(frame, "meter_rgbi", None))
                 except Exception as error:
                     outputs["repaired"] = {"written": False, "status": f"repair failed: {error}"}
                 else:
