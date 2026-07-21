@@ -410,7 +410,7 @@ class ImageProcessor:
         half_size would distort colors (see _use_half_size_decode).
         Returns (rgb_uint16, loader_metadata).
         """
-        ctx_mgr, metadata = loader_factory.get_loader(file_path)
+        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
             user_wb = [1, 1, 1, 1] if linear_raw else None
