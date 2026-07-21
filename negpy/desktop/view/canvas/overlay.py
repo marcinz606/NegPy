@@ -675,13 +675,12 @@ class CanvasOverlay(QWidget):
 
         with self.state.metrics_lock:
             luma = self.state.last_metrics.get("detected_dust_luma")
-            ir = self.state.last_metrics.get("detected_dust_ir")
             uv_grid = self.state.last_metrics.get("uv_grid")
         if uv_grid is None:
             return
-        # Green = auto-luma, magenta = IR; absent lists (detection off) draw nothing.
+        # Green = auto-luma; an absent list (detection off) draws nothing. IR defects
+        # emit no capsules — the wash above is their overlay cue.
         self._draw_detection_strokes(painter, luma, uv_grid, _DUST_MARK_LUMA)
-        self._draw_detection_strokes(painter, ir, uv_grid, _DUST_MARK_IR)
 
     def _draw_detection_strokes(self, painter: QPainter, strokes, uv_grid: np.ndarray, color: QColor) -> None:
         """Neon outlines of detected dust strokes (mirrors _draw_placed_heals)."""
@@ -735,8 +734,8 @@ class CanvasOverlay(QWidget):
         return img
 
     def _corrected_masks(self) -> List[np.ndarray]:
-        """Auto-corrected-region masks to wash: IR division + inpainted hairs
-        (both emit no stroke capsules, so the wash is their only overlay cue)."""
+        """Auto-corrected-region masks to wash: IR corrections (division + fill)
+        and inpainted defects — none emit capsules, the wash is their overlay cue."""
         with self.state.metrics_lock:
             masks = []
             corr = self.state.last_metrics.get("ir_corrected_mask")

@@ -12,7 +12,8 @@ Four behaviours of the library shape this module; each is guarded below:
 * Property writes are asynchronous. The body needs ~1-2 s before it reports a new value
   back, so a write is confirmed by polling, never assumed. See `_set_verified`.
 * After a still, the event queue must be drained or the *next* capture fails with a bare
-  `[-1] unspecified error`. See `_drain_events`.
+  `[-1] unspecified error`. See `_drain_events`; after a successful still it runs on a
+  small worker so the wait overlaps the next channel's LED settle (`_finish_shot_async`).
 * Choice strings are run through gettext, so on a German desktop `focusmode` reads
   'Manuell'. The message locale is pinned before the library loads. See `_pin_locale`.
 
@@ -225,6 +226,8 @@ class GphotoCamera:
         # Raised while a still is in flight, so the preview thread doesn't queue another
         # ~40 ms frame grab ahead of the next channel of a triplet.
         self._busy = threading.Event()
+        # The post-shot event drain of the last successful still (see _finish_shot_async).
+        self._post_shot: Optional[threading.Thread] = None
         self._reset_body_state()
 
     def _reset_body_state(self) -> None:
@@ -279,6 +282,9 @@ class GphotoCamera:
 
     def close(self) -> None:
         self.stop()
+        prev = self._post_shot
+        if prev is not None and prev.is_alive():
+            prev.join(timeout=3.0)  # let a post-shot drain finish before the handle goes away
         with self._lock:
             self._alive = False
             if self._camera is not None:
@@ -549,10 +555,15 @@ class GphotoCamera:
         (a scan re-asserts them so a drifted setting can't falsify it); `_set_verified` skips the
         write when the body is already there, so it costs a read unless something actually moved.
         """
+        prev = self._post_shot
+        if prev is not None and prev.is_alive():
+            prev.join()  # the previous shot's drain normally finished during the caller's LED settle
         self._busy.set()
+        drained_async = False
         try:
             with self._lock:
                 camera = self._require()
+                t0 = time.perf_counter()
                 if shutter:
                     name = self._property("shutter")
                     if name is None or not self._set_verified(name, shutter):
@@ -564,20 +575,30 @@ class GphotoCamera:
                         name = self._property(prop)
                         if name is None or not self._set_verified(name, value):
                             logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)
+                t_assert = time.perf_counter()
                 try:
                     path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
+                    t_shot = time.perf_counter()
                     suffix = os.path.splitext(path.name)[1]
                     if suffix.lower() not in _CAMERA_RAW_EXTENSIONS:
                         shown = suffix or "(no extension)"
                         raise GphotoError(f"camera returned {shown}, not a RAW file; set the camera to RAW-only image quality and retry")
                     camera_file = camera.file_get(path.folder, path.name, self._gp.GP_FILE_TYPE_NORMAL)
                     data = bytes(memoryview(camera_file.get_data_and_size()))
-                except self._gp.GPhoto2Error as exc:
-                    raise GphotoError(f"capture failed: {exc}") from exc
-                finally:
+                    t_download = time.perf_counter()
+                except BaseException:
+                    # A failed shot drains inline, still under the lock: the error must leave a
+                    # clean queue behind before the preview or a retry can touch the session.
                     self._drain_events()
+                    raise
+        except self._gp.GPhoto2Error as exc:
+            raise GphotoError(f"capture failed: {exc}") from exc
+        else:
+            self._finish_shot_async()
+            drained_async = True
         finally:
-            self._busy.clear()
+            if not drained_async:
+                self._busy.clear()
 
         suffix = os.path.splitext(path.name)[1]
         if suffix:
@@ -587,8 +608,43 @@ class GphotoCamera:
         with open(tmp, "wb") as handle:
             handle.write(data)
         os.replace(tmp, out_path)
-        logger.info("gphoto2 captured %s (%.1f MB)", os.path.basename(out_path), len(data) / 1e6)
+        logger.info(
+            "gphoto2 captured %s (%.1f MB): assert %.0f ms, shot %.0f ms, download %.0f ms (%.0f MB/s)",
+            os.path.basename(out_path),
+            len(data) / 1e6,
+            (t_assert - t0) * 1000,
+            (t_shot - t_assert) * 1000,
+            (t_download - t_shot) * 1000,
+            len(data) / 1e6 / max(t_download - t_shot, 1e-9),
+        )
         return out_path
+
+    def _finish_shot_async(self) -> None:
+        """Drain the shot's leftover events off the caller's thread.
+
+        The ~150 ms of wait_for_event after every still would otherwise sit between two
+        channels of a triplet; on a worker it runs while the service is already switching
+        the light and sleeping its LED settle. Vendor-neutral by construction — the order
+        on the wire stays exactly sequential (shot → download → drain → next operation),
+        because `_busy` keeps the preview parked until the queue is clean and the next
+        `capture()` joins this thread before claiming the body.
+        """
+
+        def _run() -> None:
+            start = time.perf_counter()
+            try:
+                with self._lock:
+                    if self._camera is not None and self._alive:
+                        self._drain_events()
+                logger.info("gphoto2 post-shot drain %.0f ms (overlapped)", (time.perf_counter() - start) * 1000)
+            except Exception as exc:  # noqa: BLE001 — a teardown race must not kill the worker
+                logger.warning("gphoto2 post-shot drain: %s", exc)
+            finally:
+                self._busy.clear()
+
+        thread = threading.Thread(target=_run, name="gphoto-drain", daemon=True)
+        self._post_shot = thread
+        thread.start()
 
     # ----- live view -------------------------------------------------------------
 

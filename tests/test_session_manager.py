@@ -60,6 +60,7 @@ class TestWorkspaceSession(unittest.TestCase):
         self.assertIsNotNone(settings)
         self.mock_repo.load_file_settings.assert_called_with("abc123hash")
         self.assertEqual(settings.lab.sharpen, 0.25)
+        self.assertEqual(settings.lab.sharpen_method, "usm")
         self.assertEqual(self.session.file_settings["abc123hash"], settings)
 
     def test_get_active_settings_returns_saved_settings(self):

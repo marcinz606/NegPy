@@ -5,9 +5,9 @@ Validates that every WGSL shader and its corresponding CPU logic.py produce
 outputs within tolerance across representative configs.
 
 NOTE: Current tolerances are generous (atol=1.5e-1) because several operations
-(lab chroma-denoise, sharpen, glow/halation) use fundamentally different
-implementations between CPU (OpenCV) and GPU (custom WGSL filters).
-These tolerances should be tightened as the implementations converge.
+(lab chroma-denoise, glow/halation) use fundamentally different implementations
+between CPU (OpenCV) and GPU (custom WGSL filters). Sharpen has converged
+(shared kernel taps) and is held to 5e-2. Tighten the rest as they converge.
 
 These tests require a GPU adapter; they are skipped in CI environments
 where no GPU is available. For consistent parity validation, run these
@@ -337,11 +337,62 @@ class TestLabParity:
         )
         self._run_and_compare(s)
 
+    def _run_and_compare_sharpen(self, settings: WorkspaceConfig, scale: float) -> None:
+        """Sharpen-specific harness: both engines get the SAME explicit scale
+        factor (the shared _run_and_compare feeds CPU max/1600 vs GPU max/1024,
+        which at 64px degenerates the blur to identity and tests nothing), and
+        the tolerance is tight — both paths now convolve the same kernel taps."""
+        from negpy.domain.interfaces import PipelineContext
+
+        h, w = self.img.shape[:2]
+        ctx = PipelineContext(
+            original_size=(h, w),
+            scale_factor=scale,
+            process_mode=settings.process.process_mode,
+        )
+        cpu_result = self.cpu.process(self.img, settings, f"parity_sharpen_{scale}", context=ctx)
+        gpu_tex, _ = self.gpu.process_to_texture(
+            self.img,
+            settings,
+            scale_factor=scale,
+            apply_layout=False,
+            readback_metrics=False,
+        )
+        gpu_result = self.gpu._readback_downsampled(gpu_tex)
+
+        assert cpu_result.shape == gpu_result.shape
+        _assert_mostly_close(cpu_result, gpu_result, atol=5e-2, rtol=5e-2, max_violation_frac=0.001)
+
     def test_sharpen(self):
         s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.5))
-        # CPU (OpenCV) and GPU (WGSL) sharpen differ fundamentally; violations
-        # cluster on the synthetic image's hard patch edges.
-        self._run_and_compare(s, max_violation_frac=0.01)
+        self._run_and_compare_sharpen(s, scale=1.0)
+
+    def test_sharpen_radius(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.7, sharpen_radius=2.5))
+        self._run_and_compare_sharpen(s, scale=1.0)
+
+    def test_sharpen_masking(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.7, sharpen_masking=0.7))
+        self._run_and_compare_sharpen(s, scale=1.0)
+
+    def test_sharpen_export_scale(self):
+        """Regression for the old fixed-5x5 GPU kernel: at export scale factors
+        (full-res render, scale = long_edge/1600) the blur support must keep
+        tracking the CPU kernel instead of truncating."""
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.5))
+        self._run_and_compare_sharpen(s, scale=4.0)
+
+    def test_sharpen_rl(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.2))
+        self._run_and_compare_sharpen(s, scale=1.0)
+
+    def test_sharpen_rl_masking(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.2, sharpen_masking=0.7))
+        self._run_and_compare_sharpen(s, scale=1.0)
+
+    def test_sharpen_rl_export_scale(self):
+        s = replace(_make_base_settings(), lab=LabConfig(sharpen=0.8, sharpen_method="rl", sharpen_radius=1.0))
+        self._run_and_compare_sharpen(s, scale=4.0)
 
     def test_glow(self):
         s = replace(_make_base_settings(), lab=LabConfig(glow_amount=0.3))

@@ -59,11 +59,22 @@ class LocalAssetStore(IAssetStore):
             return None
 
     def get_thumbnail(self, file_hash: str) -> Optional[Image.Image]:
-        """Loads cached thumb."""
+        """Loads cached thumb, ignoring one cached at a different size.
+
+        The cache key is only the file hash, so a thumbnail written before
+        APP_CONFIG.thumbnail_size changed would otherwise be served forever and
+        scaled to the current cell — visibly soft. Treating a size mismatch as a
+        miss regenerates it at the current size.
+        """
+        from negpy.kernel.system.config import APP_CONFIG
+
         thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.jpg")
         if os.path.exists(thumb_path):
             try:
-                return Image.open(thumb_path)
+                img = Image.open(thumb_path)
+                if max(img.size) != APP_CONFIG.thumbnail_size:
+                    return None
+                return img
             except Exception:
                 return None
         return None

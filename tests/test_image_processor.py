@@ -155,11 +155,11 @@ def test_augment_retouch_reuses_stats_across_threshold_changes(monkeypatch) -> N
     service = ImageProcessor()
     for thr in (0.5, 0.6, 0.7):
         cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=thr, dust_size=4))
-        service._augment_retouch(cfg, img, None, "same-source")
+        service._augment_retouch(cfg, img, "same-source")
     assert len(calls) == 1, "stat maps must survive threshold-only changes"
 
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, dust_threshold=0.7, dust_size=6))
-    service._augment_retouch(cfg, img, None, "same-source")
+    service._augment_retouch(cfg, img, "same-source")
     assert len(calls) == 2, "dust_size changes the blur windows and must recompute"
 
 
@@ -190,9 +190,9 @@ def test_ir_ratio_gain_downsamples_once_per_source(monkeypatch) -> None:
     assert len(calls) == 2, "a new source must still recompute"
 
 
-def test_ir_two_tier_bake_and_detection() -> None:
-    """Semi-transparent dust is fixed by division (no stroke); an opaque core still
-    detects into a spatial-fill stroke."""
+def test_ir_two_tier_bake() -> None:
+    """Semi-transparent dust is fixed by division, the opaque core by the
+    score-weighted fill — both inside the same bake, no strokes anywhere."""
     from dataclasses import replace
 
     from negpy.features.retouch.models import RetouchConfig
@@ -208,80 +208,60 @@ def test_ir_two_tier_bake_and_detection() -> None:
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=True))
 
-    baked, corr_mask, degenerate = service._ir_bake(img, ir, cfg, "s")
-    assert not degenerate
+    baked, corr_mask, degenerate, routed = service._ir_bake(img, ir, cfg, "s")
+    assert not degenerate and routed is None
     assert corr_mask is not None
     assert baked[41, 41].mean() > img[41, 41].mean(), "semi-transparent speck not lifted by division"
+    assert float(np.asarray(baked)[151, 151].min()) > 0.4, "opaque core not rebuilt by the fill"
 
-    _, detected, _ = service._augment_retouch(cfg, baked, ir, "s")
-    assert detected is not None
-    assert len(detected["ir"]) == 1, "only the opaque core should become a stroke"
+    _, detected, _ = service._augment_retouch(cfg, baked, "s")
+    assert detected is None, "no strokes for an IR-only config"
 
 
-def test_ir_bake_noop_when_attenuation_off() -> None:
+def test_ir_bake_fill_runs_without_attenuation() -> None:
+    """ir_attenuation off is no longer a full escape hatch: the division gain is
+    skipped, but the score-weighted fill still repairs opaque defects."""
     from dataclasses import replace
 
     from negpy.features.retouch.models import RetouchConfig
 
     ir = np.full((80, 80), 0.9, dtype=np.float32)
-    ir[40:44, 40:44] = 0.2
+    ir[40:44, 40:44] = 0.1
     img = np.full((80, 80, 3), 0.5, dtype=np.float32)
+    img[40:44, 40:44] = 0.06
     service = ImageProcessor()
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=False))
-    baked, corr_mask, _ = service._ir_bake(img, ir, cfg, "s")
-    assert baked is img and corr_mask is None  # escape hatch: no correction
+    baked, corr_mask, _, _ = service._ir_bake(img, ir, cfg, "s")
+    assert corr_mask is not None and corr_mask[41, 41]
+    assert float(np.asarray(baked)[41, 41].min()) > 0.4, "the fill must run even without division"
+    off = np.ones((80, 80), dtype=bool)
+    off[36:48, 36:48] = False
+    assert np.array_equal(np.asarray(baked)[off], img[off]), "clean film untouched without the gain"
 
 
-def _ir_hair_and_core():
-    """Source + IR with a long diagonal hair (→ inpaint) and a compact core (→ stroke)."""
-    h = w = 200
-    ir = np.full((h, w), 0.9, dtype=np.float32)
-    img = np.full((h, w, 3), 0.5, dtype=np.float32)
-    for t in range(90):
-        y, x = 60 + t // 2, 40 + t
-        ir[y : y + 2, x : x + 2] = 0.1
-        img[y : y + 2, x : x + 2] = 0.95
-    ir[150:154, 150:154] = 0.1
-    img[150:154, 150:154] = 0.9
-    return img, ir
-
-
-def test_augment_retouch_routes_hair_to_inpaint_mask() -> None:
-    from dataclasses import replace
-
-    from negpy.features.retouch.models import RetouchConfig
-
-    img, ir = _ir_hair_and_core()
-    service = ImageProcessor()
-    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=False, ir_threshold=0.35))
-
-    settings, detected, hair_masks = service._augment_retouch(cfg, img, ir, "s")
-    assert hair_masks, "long hair must produce an inpaint mask"
-    assert len(detected["ir"]) == 1, "the compact core should still become one membrane stroke"
-
-    # Idempotent: the render-local config (flags cleared) yields no second bake.
-    _, _, hair_again = service._augment_retouch(settings, img, ir, "s2")
-    assert hair_again == []
-
-
-def test_run_pipeline_inpaints_hair_and_surfaces_mask(monkeypatch) -> None:
+def test_run_pipeline_routes_wide_ir_blob_to_inpaint(monkeypatch) -> None:
+    """A blob wider than the fill's reach is routed to the structure-following inpaint
+    inside the pipeline, and its mask surfaces for the overlay wash."""
     from dataclasses import replace
 
     from negpy.features.retouch.models import RetouchConfig
 
     service = ImageProcessor()
     monkeypatch.setattr(service.engine_cpu, "process", lambda img, s, sh, ctx: img)  # identity → inspect the baked source
-    img, ir = _ir_hair_and_core()
+    h = w = 200
+    ir = np.full((h, w), 0.9, dtype=np.float32)
+    img = np.full((h, w, 3), 0.5, dtype=np.float32)
+    ir[60:76, 60:76] = 0.1  # 16×16: interior radius ≥ the routing bar
+    img[60:76, 60:76] = 0.06
     cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(ir_dust_remove=True, ir_attenuation=False, ir_threshold=0.35))
 
     out, metrics = service.run_pipeline(img, cfg, "h", render_size_ref=512, prefer_gpu=False, readback_metrics=False, ir_buffer=ir)
     assert "hair_inpaint_masks" in metrics
-    assert float(out[72, 65, 0]) < 0.7, "hair not inpainted out of the source"
+    assert float(out[68, 68, 0]) > 0.4, "blob interior not inpainted out of the source"
 
 
 def test_augment_retouch_cap_keeps_largest(monkeypatch) -> None:
-    """Over budget, the largest regions survive across ir+luma (IR used to
-    head-truncate the whole luma list)."""
+    """Over budget, the largest detected regions survive."""
     from dataclasses import replace
 
     import negpy.services.rendering.image_processor as ip
@@ -289,17 +269,15 @@ def test_augment_retouch_cap_keeps_largest(monkeypatch) -> None:
 
     big = ([[0.5, 0.5]], 40.0, 0.1, 0.0, 0.0)
     small = ([[0.4, 0.4]], 5.0, 0.1, 0.0, 0.0)
-    monkeypatch.setattr(ip, "detect_ir_regions", lambda *a, **k: ([small, small, small], None))
-    monkeypatch.setattr(ip, "detect_luma_regions", lambda *a, **k: ([big, big, big], None))
+    monkeypatch.setattr(ip, "detect_luma_regions", lambda *a, **k: ([small, big, small, big, big], None))
 
     img = np.full((160, 160, 3), 0.5, dtype=np.float32)
-    ir = np.full((160, 160), 0.9, dtype=np.float32)
     manual = [([[0.1, 0.1]], 3.0, 0.0, 0.0)] * 510  # budget = 512 − 510 = 2
-    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, ir_dust_remove=True, manual_heal_strokes=manual))
+    cfg = replace(WorkspaceConfig(), retouch=RetouchConfig(dust_remove=True, manual_heal_strokes=manual))
 
-    settings, _, _ = ImageProcessor()._augment_retouch(cfg, img, ir, "s")
+    settings, _, _ = ImageProcessor()._augment_retouch(cfg, img, "s")
     survivors = settings.retouch.manual_heal_strokes[:2]
-    assert all(s[1] == 40.0 for s in survivors), "cap dropped the largest instead of the IR-first smalls"
+    assert all(s[1] == 40.0 for s in survivors), "cap dropped the largest instead of the head of the list"
 
 
 def test_run_pipeline_skip_flatfield(monkeypatch) -> None:

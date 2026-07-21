@@ -22,11 +22,11 @@ class TestScanParams:
         assert params.dpi == 3600
         assert params.depth == 16
         assert params.capture_ir is False
-        assert params.area is None
+        assert params.window is None
 
-    def test_with_area(self) -> None:
-        params = ScanParams(dpi=2400, depth=8, capture_ir=True, area=(0, 0, 36, 24))
-        assert params.area == (0, 0, 36, 24)
+    def test_with_window(self) -> None:
+        params = ScanParams(dpi=2400, depth=8, capture_ir=True, window=(0.0, 0.0, 1.0, 1.0))
+        assert params.window == (0.0, 0.0, 1.0, 1.0)
 
     def test_frozen(self) -> None:
         params = ScanParams(dpi=1200, depth=16, capture_ir=False)

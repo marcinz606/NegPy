@@ -252,6 +252,21 @@ class TestConfigDeserialization(unittest.TestCase):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict({"vignette_strength": 0.2})
 
+    def test_legacy_carrier_enabled_false_zeros_width(self):
+        # Pre-#542 saves always serialize both keys together; the old default
+        # width (2.0) must not read as "on" under the new width>0 gating just
+        # because the separate enabled toggle is gone.
+        config = WorkspaceConfig.from_flat_dict({"carrier_enabled": False, "carrier_width": 2.0})
+        self.assertEqual(config.finish.carrier_width, 0.0)
+
+    def test_legacy_carrier_enabled_true_keeps_width(self):
+        config = WorkspaceConfig.from_flat_dict({"carrier_enabled": True, "carrier_width": 3.0})
+        self.assertEqual(config.finish.carrier_width, 3.0)
+
+    def test_legacy_carrier_enabled_does_not_warn(self):
+        with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
+            WorkspaceConfig.from_flat_dict({"carrier_enabled": False, "carrier_width": 2.0})
+
     def test_autocrop_mode_defaults_to_image_for_legacy_dicts(self):
         config = WorkspaceConfig.from_flat_dict({"process_mode": ProcessMode.C41})
         self.assertEqual(config.geometry.autocrop_mode, "image")

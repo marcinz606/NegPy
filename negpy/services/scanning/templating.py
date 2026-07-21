@@ -13,3 +13,18 @@ def render_scan_filename(pattern: str, date: str, seq: int) -> str:
         return rendered or f"{date}_{seq:03d}"
     except Exception:
         return f"{date}_{seq:03d}"
+
+
+def require_sequence_varying_scan_filename(pattern: str, date: str, sequence: int = 1) -> None:
+    """Reject a scan template that cannot allocate a second basename.
+
+    Collision allocators advance ``seq`` until they find an unused basename. A
+    template whose rendered value does not change with ``seq`` would otherwise
+    retry the same occupied path forever.
+    """
+    if type(sequence) is not int or sequence < 1:
+        raise ValueError("sequence must be a positive integer")
+    current = render_scan_filename(pattern, date, sequence)
+    following = render_scan_filename(pattern, date, sequence + 1)
+    if current == following:
+        raise ValueError("filename pattern must produce a different basename when seq changes")

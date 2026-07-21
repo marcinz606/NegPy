@@ -73,6 +73,7 @@ class CaptureWorker(QObject):
 
     light_set = pyqtSignal(int, int, int, int)  # r, g, b, w actually applied
     progress = pyqtSignal(float)  # 0.0..1.0
+    channel = pyqtSignal(str)  # "R"/"G"/"B" as each triplet channel starts
     finished = pyqtSignal(list)  # [red_path, green_path, blue_path]
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
@@ -236,11 +237,16 @@ class CaptureWorker(QObject):
             )
             self.status.emit("Capturing R / G / B…")
             _names = {"R": "red", "G": "green", "B": "blue"}
+
+            def _on_channel(letter: str) -> None:
+                self.channel.emit(letter)
+                self.status.emit(f"Capturing {_names.get(letter, letter)} channel…")
+
             result = service.capture_triplet(
                 settings,
                 progress=self.progress.emit,
                 cancel=self._cancel,
-                on_channel=lambda letter: self.status.emit(f"Capturing {_names.get(letter, letter)} channel…"),
+                on_channel=_on_channel,
             )
 
             self.finished.emit(result.paths)

@@ -1,6 +1,6 @@
 """Large pop-out window for the Scanlight live view.
 
-Hosts a `RoiImageLabel` plus an inline toolbar (Scan / Retake) and a status line,
+Hosts a `RoiImageLabel` plus an inline toolbar (Scan / Retake), a capture progress bar and a status line,
 so a whole roll can be framed, focused, and scanned without switching back to the
 side panel. The live image carries a magnifier cursor: a click aims the camera
 focus magnifier at that spot, a double-click returns to full frame. The buttons
@@ -10,12 +10,19 @@ emit signals; `ScanlightSidebar` wires them and mirrors scanning state + status.
 import time
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from negpy.desktop.view.sidebar.roi_image import RoiImageLabel
 from negpy.desktop.view.styles.theme import THEME
+
+#: Progress-bar chunk colour per triplet channel. The live view freezes during a triplet
+#: (the capture holds the camera without gaps now), so the bar carries the R→G→B switch
+#: the preview frames used to show. Muted tones, readable on the dark theme.
+_CHANNEL_COLORS = {"R": "#B5443C", "G": "#3F8F4A", "B": "#3C6FB5"}
+_DONE_COLOR = "#3F8F4A"
+_FLASH_MS = 1500
 
 
 class SettingStepper(QWidget):
@@ -175,6 +182,18 @@ class LiveViewWindow(QDialog):
             settings_row.addLayout(col, 1)
         layout.addWidget(self.settings_widget)
 
+        # Capture progress lives here too (not only on the side panel): while scanning a roll
+        # the operator watches this window, and the bar reaching 100% is the "film may be
+        # advanced / next Scan may be pressed" signal. Below the view, mirroring the
+        # calibration window's bar placement.
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setFormat("Capturing… %p%")
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+        # Invalidates a pending post-capture flash when a new capture starts underneath it.
+        self._flash_token = 0
+
         self.status = QLabel("")
         self.status.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
         self.status.setWordWrap(True)
@@ -189,6 +208,40 @@ class LiveViewWindow(QDialog):
             QShortcut(QKeySequence(key), self, btn.click)
         self.scan_btn.setToolTip("Scan / Stop  (shortcut: S)")
         self.retake_btn.setToolTip("Re-capture the current frame without advancing the counter  (shortcut: R)")
+
+    def set_progress(self, frac: float) -> None:
+        self._flash_token += 1
+        self.progress.setVisible(True)
+        self.progress.setValue(int(frac * 100))
+
+    def set_channel(self, letter: str) -> None:
+        """Tint the bar in the channel being exposed and name it in the bar text."""
+        self._flash_token += 1
+        color = _CHANNEL_COLORS.get(letter)
+        if color:
+            self.progress.setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; }}")
+            self.progress.setFormat(f"Capturing {letter}… %p%")
+
+    def flash_captured(self, frame: str) -> None:
+        """Fill the bar green with a checkmark for a beat, then hide it — the 'frame is
+        in the can, film may be advanced' moment the frozen live view can't show."""
+        self._flash_token += 1
+        token = self._flash_token
+        self.progress.setStyleSheet(f"QProgressBar::chunk {{ background-color: {_DONE_COLOR}; }}")
+        self.progress.setFormat(f"✓ Frame {frame} captured" if frame else "✓ Captured")
+        self.progress.setValue(100)
+        self.progress.setVisible(True)
+        QTimer.singleShot(_FLASH_MS, lambda: self._end_flash(token))
+
+    def _end_flash(self, token: int) -> None:
+        if token == self._flash_token:  # stale flashes must not hide a newer capture's bar
+            self.clear_progress()
+
+    def clear_progress(self) -> None:
+        self._flash_token += 1
+        self.progress.setVisible(False)
+        self.progress.setStyleSheet("")
+        self.progress.setFormat("Capturing… %p%")
 
     def set_scanning(self, active: bool) -> None:
         """Mirror the panel's Scan/Stop toggle on the pop-up button."""

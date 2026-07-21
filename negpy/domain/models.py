@@ -427,8 +427,18 @@ class WorkspaceConfig:
         data.pop("vignette_strength", None)
         # Flare (veiling-glare floor) was removed; drop the key from old edits silently.
         data.pop("flare", None)
+        # IR stroke synthesis was replaced by the score-weighted fill; its pad radius is gone.
+        data.pop("ir_inpaint_radius", None)
         # Auto cast removal became always-on; drop the old toggle key.
         data.pop("auto_cast_removal", None)
+
+        # Filed carrier's separate on/off toggle was folded into carrier_width itself
+        # (0 = off) in #542. A pre-#542 save always serialized both keys together, so
+        # if the toggle was off, force width to 0 too — otherwise the leftover numeric
+        # width (2.0 by the old default) reads as "on" under the new width>0 gating,
+        # silently re-enabling a carrier the user had switched off.
+        if "carrier_enabled" in data and not data.pop("carrier_enabled"):
+            data["carrier_width"] = 0.0
 
         if "use_original_res" in data and "export_resolution_mode" not in data:
             data["export_resolution_mode"] = (

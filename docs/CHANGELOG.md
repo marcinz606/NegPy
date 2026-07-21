@@ -1,13 +1,26 @@
 # Change Log
 
+## 0.40.0
+
+- New: **Sharpening rebuilt — Radius, Masking and a new Deconvolution mode** — the Sharpen controls, now in their own section, gain a **Radius** slider (how fine or broad the sharpened detail is), a **Masking** slider (holds sharpening off flat areas like skies and skin so grain and noise stay quiet), and a **Method** dropdown: **Unsharp Mask** (the classic, now with halo suppression on high-contrast edges) or **Deconvolution** (Richardson-Lucy, which models the lens/scan blur in linear light to pull back genuinely soft detail). Existing edits keep their look on Unsharp Mask.
+- New: **Nikon Coolscan support - foundation work** — Initial backend preparation for expanded support. Current implementation stil relies on SANE but it's now done via generic ScannerBackend protocol - in preparation for supporting projects reverse-engineering old Nikon drivers. Initial SANE implementation supports auto focus, auto exposure, 6-frame preview from SA-21 and 6-frame batch scans. IR scanning is also supported but with some hacks on SANE side.
+**Mainline sane coolscan3 is buggy and has missing features, proper SA-21 spacing and & IR capture require you to build compiled sane backends until proper fixes are upstream - consider it feature for nerds for now :)**.
+- Change/Fix: **IR dust removal rebuilt** — heal more defects, minimize dark halo around repairs, very dusty scans no longer silently disable IR cleaning, and hairs are reconstructed from the surrounding film instead of turning into clone blobs. Based on ideas from digital-fauxice (@rohanpandula). Existing edits load unchanged; IR-cleaned frames render better.
+- Change/Fix: **Camera scanning is faster and clearer** — the R/G/B triplet cadence tightens (shorter, channel-purity-verified LED settle, with the next channel settling while the last shot's events drain), and a live roll now gives feedback: the capture progress bar sits below the view and tints per channel, a green flash confirms each capture, and scan pop-ups stay above the batch progress dialog. @light-sntchr
+- Change: **More crosstalk adjustment range** — the Process panel's spectral-crosstalk matrix allows a wider range of manual adjustment.
+- Change: **Rotate buttons are easier to tell apart** — Rotate CCW/CW reused the same circular-arrow glyphs as the Undo/Redo buttons beside them; they now use distinct page-with-rotation-arrow icons, a touch larger. @linkmodo
+- Change: **Analysis Region shows when it's active** — the Freedraw Analysis Region button carries a small dot whenever a custom region is overriding the Analysis Buffer slider, so it stays obvious after the draw tool closes. @linkmodo
+- Fix: **Preview and export sharpen the same** — the GPU preview used a fixed kernel that sharpened the wrong detail band at export scale, so a full-size export could look softer or harsher than the preview. Both paths now sharpen identically at every zoom and output size.
+- Fix: **Filmstrip thumbnails matched canvas colour + there is thumbnail size slider** — thumbnails double-applied the working→sRGB conversion the canvas already bakes in when soft-proofing, oversaturating them; both paths now share one colour-transform. There is also additional control for thumbnail size so you can decide between single column of bigger thumbnails vs cramming more of them in more columns. **Warning: First launch might re-generate your thumbnails** @linkmodo
+- Docs: **Expanded user guide** — [USER_GUIDE.md](USER_GUIDE.md) rewritten for the current tabbed layout, covering every panel and control (including the ones the old guide never mentioned) in the order the pipeline applies them.
+
+
 ## 0.39.0
 
 - New: **Half Frame mode** — a toggle in the Session panel for half-frame cameras (Pentax 17, Olympus Pen…) whose scans hold two photos side by side. Each scan appears as two frames in the contact sheet, split automatically at the gutter between them; every half gets its own edits, its own exposure measurement, its own sidecar, and exports as `name_1` / `name_2`. Toggling off puts the scans back together without losing the per-half edits.
 - New: **Set your own Auto Density and Auto Grade targets** — the autos used to aim at fixed numbers baked into the code, which suited one scanner and one taste. A **Set Targets** button next to the two toggles opens sliders for what they aim at: how bright the metered midtone prints, how punchy the roll comes out, and how far each meter is trusted (at zero you get a fixed setting for every frame, at full every frame is forced to the same key or contrast). The preview follows the sliders live, Cancel puts them back, and Restore Defaults returns to the shipped values. It's a calibration rather than an edit — it applies to every image, including ones you've already worked on, and is remembered between sessions.
 - Change: Also **moved the default Auto Grade** to be slightly more contrasty.
 - Change: **Update notice is now a link** — the "Update Available" banner under the logo is clickable and takes you straight to the GitHub releases page, with a download icon.
-
-
 
 
 ## 0.38.0

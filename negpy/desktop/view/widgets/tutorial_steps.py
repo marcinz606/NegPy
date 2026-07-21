@@ -249,9 +249,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
         TutorialStep(
             title="Narrowband Scan — Correcting LED Light",
             body=(
-                "A scan lit by <b>narrowband RGB LEDs</b> — a Scanlight, or most RGB-LED "
+                "A trichrome scan lit by <b>narrowband RGB LEDs</b> — a Scanlight, or most RGB-LED "
                 "sources — hits each dye layer with a much purer band than white light does. "
-                "The layers separate further than the film intends, and the conversion comes "
+                "The layers separate further than the film intends, and the conversion can come "
                 "out over-saturated.<br><br>"
                 "The <b>Narrowband Scan</b> toggle corrects for that light source. It applies "
                 "to the preview <i>and</i> every export, so what you judge is what you "

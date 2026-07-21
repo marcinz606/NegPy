@@ -7,10 +7,15 @@ import time
 import numpy as np
 import pytest
 
-from negpy.infrastructure.scanners.base import ScanMode, ScannerCapabilities, ScannerDevice
+from negpy.infrastructure.scanners.base import (
+    ScanMode,
+    ScannerCapabilities,
+    ScannerDevice,
+    TransientScanError,
+)
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.scanners.result import ScanResult
-from negpy.services.scanning.service import ScannerService
+from negpy.services.scanning.service import _SCAN_IO_RETRY_ATTEMPTS, ScannerService
 
 
 class FakeBackend:
@@ -20,11 +25,19 @@ class FakeBackend:
         self._devices = devices or []
         self._should_raise: Exception | None = None
         self._scan_delay: float = 0.0
+        self.scan_calls: int = 0
+        self.transient_failures: int = 0  # raise a transient I/O error this many times, then succeed
 
     def list_devices(self) -> list[ScannerDevice]:
         if self._should_raise:
             raise self._should_raise
         return self._devices
+
+    def refresh_devices(self) -> list[ScannerDevice]:
+        return self.list_devices()
+
+    def eject(self, device_id: str) -> bool:
+        return False
 
     def scan(
         self,
@@ -33,6 +46,10 @@ class FakeBackend:
         progress,
         cancel: threading.Event,
     ) -> ScanResult:
+        self.scan_calls += 1
+        if self.transient_failures > 0:
+            self.transient_failures -= 1
+            raise TransientScanError("RGB scan failed: Error during device I/O")
         if self._should_raise:
             raise self._should_raise
 
@@ -132,6 +149,40 @@ class TestScannerServiceWithFakeBackend:
         devices = service.list_devices()
         assert devices == []
 
+    def test_run_scan_retries_once_on_transient_device_io(self, fake_device: ScannerDevice) -> None:
+        service = ScannerService()
+        backend = FakeBackend(devices=[fake_device])
+        backend.transient_failures = 1  # one glitch, then a clean scan
+        service._backend = backend
+
+        params = ScanParams(dpi=1200, depth=16, capture_ir=False)
+        result = service.run_scan(fake_device.id, params, lambda _: None, threading.Event(), retry_delay=0)
+
+        assert result.rgb.shape == (100, 150, 3)
+        assert backend.scan_calls == 2
+
+    def test_run_scan_gives_up_after_bounded_transient_retries(self, fake_device: ScannerDevice) -> None:
+        service = ScannerService()
+        backend = FakeBackend(devices=[fake_device])
+        backend.transient_failures = 99  # never recovers
+        service._backend = backend
+
+        params = ScanParams(dpi=1200, depth=16, capture_ir=False)
+        with pytest.raises(RuntimeError, match="device I/O"):
+            service.run_scan(fake_device.id, params, lambda _: None, threading.Event(), retry_delay=0)
+        assert backend.scan_calls == _SCAN_IO_RETRY_ATTEMPTS  # bounded — not an infinite loop
+
+    def test_run_scan_does_not_retry_a_non_transient_error(self, fake_device: ScannerDevice) -> None:
+        service = ScannerService()
+        backend = FakeBackend(devices=[fake_device])
+        backend._should_raise = RuntimeError("Could not set frame=3")
+        service._backend = backend
+
+        params = ScanParams(dpi=1200, depth=16, capture_ir=False)
+        with pytest.raises(RuntimeError, match="Could not set frame"):
+            service.run_scan(fake_device.id, params, lambda _: None, threading.Event(), retry_delay=0)
+        assert backend.scan_calls == 1  # a real error fails fast
+
 
 class TestRenderScanFilename:
     def test_basic_template(self) -> None:
@@ -172,3 +223,18 @@ class TestRenderScanFilename:
             assert os.path.exists(path1)
             assert os.path.exists(path2)
             assert path1 != path2
+
+    def test_write_refuses_a_pattern_that_does_not_vary_with_sequence(self) -> None:
+        import tempfile
+
+        import numpy as np
+
+        from negpy.infrastructure.scanners.result import ScanResult
+
+        result = ScanResult(rgb=np.zeros((4, 4, 3), dtype=np.uint16), ir=None, dpi=300, device_model="Test")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = ScannerService()
+            service._backend = FakeBackend()
+            with pytest.raises(ValueError, match="different basename"):
+                service.write_result(result, tmpdir, "fixed_name", "TIFF")

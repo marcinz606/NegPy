@@ -129,7 +129,19 @@ The control lives in the Lab sidebar (`lab.clahe_strength`), but the stage runs 
 ## 5. Retouching
 **Code**: `negpy.features.retouch`
 
-This stage removes physical artifacts like dust, hairs, and scratches from the negative. We use two complementary approaches:
+This stage removes physical artifacts like dust, hairs, and scratches from the negative. Three complementary approaches:
+
+*   **Infrared (IR) Dust Removal** (scans carrying an IR channel — Coolscan, SilverFast iSRD, VueScan DNG):
+    Dust and scratches block infrared light while the film's dyes pass it, so the IR plane is a defect map independent of the photograph. This path runs on the **linear source before normalization**, so every meter reads the cleaned film. Algorithm concepts are ported from digital-fauxice (see `NOTICE.md`), a validated recreation of Digital ICE.
+
+    1.  **Normalized ratio**: the IR plane is divided by its own local clean base — $r = IR / \text{blur}(\text{dilate}(IR))$ — reading ~$1.0$ on clean film and dipping under defects, independent of illumination. A crosstalk fit divides out the visible image's IR ghost first.
+    2.  **Division tier**: semi-transparent dust *attenuates* rather than blocks, so the image beneath is recovered directly: $RGB / r^{\gamma}$ with per-channel γ fitted per frame. The gain never lifts a pixel past its local clean base (defect-excluded mean $- \sigma$) — the guard that used to be a grain-biased local max and printed dark rings around specks.
+    3.  **Score-weighted fill**: the ratio maps to a continuous defect score $s \in [0.02, 1]$ ($1$ = clean; the IR Threshold slider moves the ramp — nothing is ever thresholded, so there is no abort and no mask edge). Opaque cores and hairs are rebuilt as a multiscale score-weighted average over nested supports:
+        $$\text{fill} = \frac{\sum I \cdot s \cdot w}{\sum s \cdot w}$$
+        Defective neighbours self-exclude, edges continue through defects (the finest support with clean data wins). Written under the **original-floor rule**: dust is dark in negative transmittance, so a repair may only lighten — a dark halo cannot be produced.
+    4.  **Routed inpaint**: only defects with an interior the fill can't see across (chebyshev radius ≥ 5 at detection scale) go to structure-following inpaint, composited with an alpha feather. A 2% frame budget bounds this heavy path; the fill itself always runs.
+
+    B&W silver and Kodachrome block IR like dust does; such frames are auto-detected (the IR plane mirrors the image) and skipped.
 
 *   **Automatic Dust Removal**:
     A resolution-invariant impulse detector and patching engine.
@@ -166,13 +178,22 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
 2.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
 3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel. Before applying, the factor is multiplied by a grade-coupled chroma damping term $(k_{min}/k_g)^{strength}$ ("Dye Mute", default 0.5), where $k_g$ is the green print-curve slope and $k_{min}$ the softest printable slope. Per-channel H&D curves inflate chroma as contrast rises; the damping counters it, mimicking paper dyes' unwanted absorptions. Strength 0 disables. (The default was tuned against the old ProPhoto working gamut — it may run strong now that the working space is Adobe RGB.)
-4.  **Sharpening**: We sharpen just the Lightness channel ($L$) in LAB space using Unsharp Masking (USM). We apply a threshold to avoid amplifying noise.
+4.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius} \cdot \text{scale factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
 
-    $$L_{diff} = L - \text{GaussianBlur}(L, \sigma)$$
-    $$L_{final} = L + L_{diff} \cdot \text{amount} \cdot 2.5 \quad \text{if } |L_{diff}| > 2.0$$
-    *   $\sigma$: Blur radius (scale factor).
-    *   $2.5$: Hardcoded USM boosting factor.
-    *   $2.0$: Noise threshold.
+    **Unsharp Mask** — on the Lightness channel ($L$) in LAB space, with halo suppression (`lab_sharpen_h/v.wgsl`):
+
+    $$L_{diff} = L - \text{blur}(L, \sigma), \qquad \sigma = \text{radius} \cdot \text{scale factor}$$
+    $$\text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(1.5, 2.0, |L_{diff}|) \cdot m$$
+    $$L_{final} = \text{clamp}\big(L + L_{diff}\cdot\text{gain},\; L_{min}-2,\; L_{max}+1\big)$$
+    *   **Radius** (px): blur $\sigma$, scaled to the render size so preview and export match.
+    *   **Masking** ($m$): edge mask from the boxed $|\nabla L|$, $\text{smoothstep}(0.5t, t, |\nabla L|)$ with $t = 10\cdot\text{masking}$ — protects flat areas (sky, skin, grain); off at 0.
+    *   Smoothstep noise gate over $[1.5, 2.0]$ replaces a hard threshold. Overshoot clamp to the local $3\times3$ range ($L_{min}, L_{max}$) kills halos, tighter above (+1) than below (−2) because $L^{\ast}$-domain USM exaggerates light halos.
+
+    **Deconvolution** — Richardson-Lucy on linear luminance $Y$ (Gaussian PSF), reversing the scanner's optical blur (`rl_*.wgsl`). Runs on $Y$, not $L^{\ast}$: optical blur is physical, so the model must live in linear light.
+
+    $$\hat{o}_{n+1} = \hat{o}_n \cdot \Big(K \otimes \tfrac{o}{\max(K \otimes \hat{o}_n,\, \epsilon)}\Big), \qquad \hat{o}_0 = o = Y$$
+    Iterations are fixed by radius, $\text{clamp}(\text{round}(10\cdot\text{radius}), 5, 20)$ — a function of the *user* radius, never the scaled $\sigma$, so preview and export run identical counts (no per-pixel early stop, no damping; the edge mask alone governs grain, matching RawTherapee). The result is applied as an RGB ratio (chroma-preserving), gated by the same $L^{\ast}$ edge mask $m$:
+    $$\text{RGB}_{out} = \text{clamp}\Big(\text{RGB} \cdot \max\big(1 + (\tfrac{\hat{o}_N}{\max(o,\epsilon)} - 1)\cdot\text{amount}\cdot m,\; 0\big),\; 0,\; 1\Big)$$
 
 5.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 

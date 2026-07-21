@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QListView,
     QMenu,
     QPushButton,
+    QSlider,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -138,29 +139,75 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+# Thumbnail size preference (px), as set by the filmstrip's size slider. The default
+# is chosen so one column fills the session sidebar at its minimum width (~240px
+# viewport) — the sidebar can't be dragged narrower, so this is the smallest the
+# filmstrip is ever laid out at, and a single full-width frame is the most legible
+# use of it. Dropping toward THUMB_CELL_MIN fits a second column at that same width.
+#
+# The maximum is the default: the slider only shrinks frames. Anything larger just
+# holds a widened sidebar at one column — cells fill the panel, so a 500px-wide
+# sidebar became a single ~500px cell, and since cells are square a 3:2 frame in one
+# leaves ~165px of empty space above and below. Splitting into two columns is both
+# denser and larger-in-practice, so there is nothing above the default worth offering.
+THUMB_CELL_MIN = 100
+THUMB_CELL_DEFAULT = 220
+THUMB_CELL_MAX = THUMB_CELL_DEFAULT
+
+
 class ThumbnailGridView(QListView):
     """
     Icon-mode grid that justifies thumbnails to the panel width. It fits as many
-    MIN_CELL-wide columns as possible, then scales the cell up (to MAX_CELL) to fill
-    the width; once there's room for another MIN_CELL column it adds one and the cells
-    snap back down. e.g. with MIN 120 / MAX 180: 2 columns grow 120→180, and at ~3×120
-    of width a 3rd column appears.
+    columns of at least ``target_cell`` as the viewport allows, then grows the cell to
+    fill the leftover width exactly; once another target-wide column fits it adds one
+    and the cells snap back down. So ``target_cell`` sets thumbnail size and the panel
+    width sets how many fit — e.g. at the default 220 a 240px-wide panel shows one
+    236px column, and widening past ~444px splits into two.
+
+    Cells are not capped directly — at one column the frame is meant to fill the panel
+    — but capping the *target* at the default bounds them in practice: a target above
+    it only delays the split to two columns, which is what produced oversized cells
+    (and, since cells are square, large empty bands around a 3:2 frame) on a widened
+    sidebar. Cells can still exceed APP_CONFIG.thumbnail_size and upscale on a very
+    wide panel; the frames stay legible because the canvas is the place for detail.
     """
 
-    MIN_CELL = 120
-    MAX_CELL = 180
     SPACING = 2
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, target_cell: int = THUMB_CELL_DEFAULT):
         super().__init__(parent)
         self._last_cell = -1
+        self._target_cell = self._clamp_target(target_cell)
         # Reserve the vertical scrollbar permanently so the viewport width is stable —
         # otherwise scaling toggles the scrollbar, which changes the width and flips the
         # column count back, causing flicker.
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setSpacing(self.SPACING)
-        self._apply_cell(self.MIN_CELL)
+        self._apply_cell(self._target_cell)
+
+    @staticmethod
+    def _clamp_target(cell: int) -> int:
+        return max(THUMB_CELL_MIN, min(THUMB_CELL_MAX, int(cell)))
+
+    @property
+    def target_cell(self) -> int:
+        return self._target_cell
+
+    def set_target_cell(self, cell: int) -> None:
+        """Set the preferred thumbnail size and re-justify to the current width."""
+        cell = self._clamp_target(cell)
+        if cell == self._target_cell:
+            return
+        self._target_cell = cell
+        self._relayout()
+
+    def columns_for_width(self, vw: int) -> int:
+        return max(1, (vw - self.SPACING) // (self._target_cell + self.SPACING))
+
+    def cell_for_width(self, vw: int) -> int:
+        columns = self.columns_for_width(vw)
+        return max(1, (vw - (columns + 1) * self.SPACING) // columns)
 
     def _apply_cell(self, cell: int) -> None:
         if cell == self._last_cell:
@@ -170,11 +217,7 @@ class ThumbnailGridView(QListView):
         self.setIconSize(QSize(cell, cell))
 
     def _relayout(self) -> None:
-        vw = self.viewport().width()
-        columns = max(1, (vw - self.SPACING) // (self.MIN_CELL + self.SPACING))
-        cell = (vw - (columns + 1) * self.SPACING) // columns
-        cell = max(self.MIN_CELL, min(self.MAX_CELL, cell))
-        self._apply_cell(cell)
+        self._apply_cell(self.cell_for_width(self.viewport().width()))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -366,6 +409,16 @@ class FileBrowser(QWidget):
         self.regex_btn.setToolTip("Regex mode")
         search_row.addWidget(self.search_input)
         search_row.addWidget(self.regex_btn)
+
+        # Thumbnail size lives here rather than the toolbar row above, which already
+        # overflows the sidebar's minimum width with its eight buttons.
+        saved_cell = self.session.repo.get_global_setting("thumbnail_cell_size") or THUMB_CELL_DEFAULT
+        self.thumb_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.thumb_size_slider.setRange(THUMB_CELL_MIN, THUMB_CELL_MAX)
+        self.thumb_size_slider.setValue(ThumbnailGridView._clamp_target(int(saved_cell)))
+        self.thumb_size_slider.setFixedWidth(72)
+        self.thumb_size_slider.setToolTip("Thumbnail size — smaller fits more columns in the panel")
+        search_row.addWidget(self.thumb_size_slider)
         layout.addLayout(search_row)
 
         self.tally_label = QLabel("")
@@ -373,7 +426,7 @@ class FileBrowser(QWidget):
         self.tally_label.setVisible(False)
         layout.addWidget(self.tally_label)
 
-        self.list_view = ThumbnailGridView()
+        self.list_view = ThumbnailGridView(target_cell=self.thumb_size_slider.value())
         self.list_view.setModel(self.session.asset_model)
         self.list_view.setItemDelegate(_ThumbnailDelegate(self.list_view))
         self.list_view.setViewMode(QListView.ViewMode.IconMode)
@@ -403,12 +456,19 @@ class FileBrowser(QWidget):
         self.session.files_changed.connect(self._on_files_changed)
         self.search_input.textChanged.connect(lambda _: self.filter_timer.start())
         self.regex_btn.toggled.connect(lambda _: self.filter_timer.start())
+        # Relayout live while dragging, but only write the setting on release —
+        # a drag crosses dozens of values and each save is a DB round-trip.
+        self.thumb_size_slider.valueChanged.connect(self.list_view.set_target_cell)
+        self.thumb_size_slider.sliderReleased.connect(self._save_thumb_size)
 
         # Delete key unloads the selected frame(s) — scoped to the thumbnail list so it
         # doesn't fire while typing in the filter box or editing elsewhere.
         del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.list_view)
         del_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         del_shortcut.activated.connect(self._on_delete_key)
+
+    def _save_thumb_size(self) -> None:
+        self.session.repo.save_global_setting("thumbnail_cell_size", self.thumb_size_slider.value())
 
     def _on_files_changed(self) -> None:
         # A mark toggle can hide the active frame under a Sheet filter — pruning then

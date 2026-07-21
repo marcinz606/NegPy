@@ -1,371 +1,430 @@
 # NegPy User Guide
 
-## 1. Core Workflow
+NegPy turns film scans into finished positives with a non-destructive, darkroom-style pipeline. Nothing is ever written back to your source files — every edit lives in a local database, so you can experiment freely.
 
-NegPy follows a non-destructive pipeline:
-1.  **Import**: Add files to your session.
-2.  **Process**: Choose your film mode and perform roll-wide normalization.
-3.  **Geometry**: Crop and fine-tune rotation.
-4.  **Exposure**: Fine-tune the density, grade, and characteristic curve (Sigmoid).
-5.  **Lab**: Apply local contrast (CLAHE), sharpening, and colour enhancements.
-6.  **Toning**: Apply split tones, sepia/selenium, or a paper profile.
-7.  **Retouch**: Remove dust automatically or by hand.
-8.  **Finish**: Add vignette and border.
-9.  **Export**: Save your results as high-quality JPEG or TIFF.
-
-The sidebar is organized as collapsible panels in roughly that order, plus a top-level Header (GPU toggle), a Files browser, Presets, an ICC panel, and a Metadata editor in the session tabs.
+This guide is for new users. It explains what each control does, when you'd reach for it, and roughly what it does to your image. If you just want to know *why* the pipeline is ordered the way it is, read [PIPELINE.md](PIPELINE.md).
 
 ---
 
-## 2. Header
+## 1. The Big Picture
 
-A thin strip at the top of the sidebar with the NegPy logo, version, and a single switch:
+### Screen layout
 
-*   **GPU Acceleration**: Toggles the WebGPU rendering path. Default on when a compatible GPU is detected; the checkbox is disabled (with a tooltip explaining why) on hardware without GPU support. Turn off to force the CPU pipeline if you suspect a driver issue or want deterministic numerical results.
+*   **Left — Film strip**: your loaded frames as a contact sheet, plus import, sorting, and triage tools.
+*   **Centre — Canvas**: the live preview of the current frame. Most tools (crop, white-balance picker, heal brush, dodge/burn masks) are used by clicking directly on it.
+*   **Right — Controls**: a pinned **Analysis** readout at the top, and below it an icon tab bar. Each icon opens a *workflow page* holding one or more collapsible panels.
 
----
+### The workflow (and the order things happen)
 
-## 3. Process Panel
-The foundation of your edit — film type, exposure analysis, and roll-wide baselines.
+The right-hand tabs are arranged in the order you actually work, which mirrors the processing pipeline:
 
-*   **Mode**: Selects `C41`, `B&W`, or `E-6`. Changes the negative-to-positive math and invalidates the cache so the pipeline re-runs from scratch.
-*   **Lock Bounds**: Freezes the analyzed normalization bounds for this image. Cropping or moving sliders that would normally re-analyze the frame stop doing so, which is useful once you've dialed in good bounds and don't want them recomputed.
-*   **Analysis Buffer** (0.0–0.50): Insets the analysis window from the frame edge so film rebate, sprocket holes, and scanner borders don't skew the black/white-point detection. Raise it on scans with wide borders; lower it for tightly-cropped frames.
-*   **Luma Range Clip** (-100–100): Percentile clip on the histogram for the tonal-range (black/white-point) span, independent of colour. Positive values discard more outlier pixels — helpful for dense, fogged, or specular negatives where a few stray bright/dark pixels would otherwise pull the bounds to the extremes; negative values push the bounds outward for lifted blacks / unclipped highlights.
-*   **Colour Clip** (-100–100): Per-channel colour-balance clip percentile (orange-mask cast removal), independent of the tonal range. Positive values tighten the channel balance; negative values sample nearer the extremes.
-*   **White Point** (-0.25–0.25): Manual offset applied on top of the auto-detected white point. Positive values brighten; negative values pull highlights back down. Centered (0) means "use auto exactly."
-*   **Black Point** (-0.25–0.25): Manual offset for the black point. Positive values lift the blacks; negative values deepen them.
+| Tab | Icon | Panels | What it's for |
+|-----|------|--------|---------------|
+| **Setup** | cogs | Presets · Process · Roll Analysis | Film type, negative→positive normalization, roll-wide baselines |
+| **Geometry** | crop | Geometry · Flat Field | Crop, straighten, lens/falloff correction |
+| **Exposure** | sun | Filtration · Tone · Dodge & Burn | White balance, print density/contrast/curve, local burns |
+| **Colour** | palette | Lab · Toning | Saturation, sharpening, effects, split/chemical toning |
+| **Finish** | brush | Retouch · Finishing | Dust removal, vignette, border, carrier |
+| **History** | clock | Edit history | Step back through every change |
+| **Export** | file | Export settings | Format, size, colour, batch output |
+| **Metadata** | tags | Archival metadata | Original camera/lens/film details |
+| **Scan** | camera | Scanner · Camera Scanning | Capture film directly (Linux/macOS) |
 
-### CROSSTALK (hidden in B&W)
+You don't have to touch every panel. NegPy's defaults are tuned to produce a good print straight away — most frames need only a crop, maybe a white-balance nudge, and export.
 
-*   **Profile dropdown**: The spectral-crosstalk matrix for your film stock/scanner. **Default** is built-in; custom `.toml` matrices go in `<Documents>/NegPy/crosstalk/` (see docs/CROSSTALK.md).
-*   **Separation** (0.0–1.0): Strength of the dye unmix, applied to the raw negative densities before analysis and inversion — richer, cleaner colour separation. Because it changes what the analysis reads, re-run Batch Analysis after changing it.
-
-### AUTO
-
-*   **Normalize** (E-6 only): Auto-stretches the positive's histogram to fill the dynamic range. Useful for faded or expired slides; ignored in C41/B&W modes (where normalization runs on the negative density model instead).
-
-### BATCH
-
-*   **Batch Analysis**: Scans every loaded file and computes a "Roll Average" baseline — average per-channel density and colour balance with outliers discarded. Run this once after importing a roll.
-*   **Use Luma Average**: Takes the roll-wide tonal-range (black/white-point) baseline from Batch Analysis for this frame, while colour balance still re-derives per frame.
-*   **Use Colour Average**: Takes the roll-wide per-channel colour-balance baseline from Batch Analysis, while the tonal range still re-derives per frame. Enable both for a fully consistent roll-wide look; leave both off for per-image local auto-exposure.
-
-### ROLL
-
-*   **Roll dropdown**: Lists rolls previously saved to the database. Pick one to apply its normalization baseline to the current session.
-*   **Load**: Applies the selected roll's bounds and balance to the current workspace.
-*   **Save**: Prompts for a name and stores the current Batch Analysis result as a reusable roll (useful when you shoot the same film stock repeatedly).
-*   **Delete**: Removes the selected roll from the database. Confirmation expected.
+A small **dot** on a panel header (and on a tab icon) means you've changed something from its default. Every panel header has a **reset** action to return that panel to defaults.
 
 ---
 
-## 4. Geometry Panel
-Crop and rotation.
+## 2. Film strip (left panel)
 
-*   **Aspect Ratio**: Choose a target ratio for cropping: `Free`, `3:2`, `4:3`, `5:4`, `6:7`, `1:1`, `65:24`, plus vertical variants (`2:3`, `3:4`, `4:5`, `7:6`, `24:65`).
-*   **Detect Ratio**: Analyzes the frame and snaps the dropdown to the closest standard ratio. Handy for unknown formats.
+The header shows the NegPy logo and version (and an update link when a new release is out). Below it is the file browser.
 
-### Crop tools (mutually exclusive toggles)
+### Importing & managing files
 
-*   **Manual**: Enter manual-crop mode — drag a rectangle on the canvas.
-*   **Move**: Translate the current crop rectangle without resizing it. Useful for nudging composition after auto-crop.
-*   **Auto**: Runs automatic frame detection using the current ratio and offset. Best on scans with clean rebate.
-*   **Auto Crop All**: Analyzes all visible landscape frames as a roll, then uses confident detections to calibrate weaker ones with the same aspect-ratio setting. It runs in the background with progress and cancellation; cancelling saves nothing. Existing manual crops, Film-edge mode frames, portrait frames, and ambiguous detections are left unchanged. Run it in **Image only** mode before **Batch Analysis** so roll metering sees consistent explicit crops.
+Toolbar buttons, left to right:
 
-### Adjustments
+*   **Add files** / **Add folder**: load individual images or every image in a folder.
+*   **Clear all**: unload everything (or, when several frames are selected, unload just those).
+*   **Hot Folder**: watches the current folder and auto-loads new files as they appear — handy when a scanner drops files into a directory.
+*   **RGB Scan**: treats the folder as red/green/blue exposure triplets and assembles each frame from three shots (for narrowband trichrome scanning). Right-click a frame → **Edit RGB Triplet…** to assign the three files by hand.
+*   **Half Frame**: splits each scan into two frames (for half-frame cameras), edited and metered separately.
+*   **Apply (clone)**: copy the current frame's settings to selected frames or the whole roll — you choose which aspects in a dialog (crop and rotation are always per-image).
+*   **Sheet filter** (funnel): show *All frames*, *Keepers only*, or *Hide rejected*.
+*   **Sort**: by Name or Date, ascending or descending.
 
-*   **Crop Offset** (-5.0 to 100.0 px): Insets the auto-crop border inward from the detected film edge. Positive values trim more; negative values bleed slightly outside the detected edge (useful when the detection clips a tiny bit too aggressively).
-*   **Fine Rot** (-5.0° to 5.0°): Sub-degree rotation correction for tilted scans. Applied after auto-crop, so the cropped frame stays axis-aligned to the corrected image.
+Below the toolbar: a **filter box** (substring match; toggle **`.*`** for regex) and a **tally** — e.g. "36 frames · 12 keepers · 3 rejected".
 
----
+### Triage (culling the roll)
 
-## 5. Exposure Panel
-Shaping the light and colour.
+Right-click a thumbnail (or use keyboard shortcuts) to mark frames while you review the sheet:
 
-### Regional CMY
+*   **Keep** — a small check badge marks a keeper.
+*   **Reject** — a cross badge dims the frame. Rejected frames stay on the sheet but are skipped by batch exports and sidecar writes. **The file on disk is never touched.**
 
-The three CMY sliders target one of three tonal regions selected by the radio group at the top:
+Marks apply to a multi-selection and persist across sessions. A badge in the top-right corner instead flags a frame that failed to decode.
 
-*   **Global**: Affects the whole image (overall white balance).
-*   **Shadows**: Colour shift biased to low densities.
-*   **Highlights**: Colour shift biased to high densities.
-
-For the selected region:
-
-*   **Cyan** (-1.0–1.0): Cyan ↔ Red axis. Negative values pull toward cyan; positive toward red.
-*   **Magenta** (-1.0–1.0): Magenta ↔ Green axis.
-*   **Yellow** (-1.0–1.0): Yellow ↔ Blue axis.
-
-Shortcut hints appear in tooltips (e.g. `E/D`, `R/F`) — see [KEYBOARD.md](KEYBOARD.md).
-
-*   **Pick WB**: Activates the canvas eyedropper. Click any pixel you expect to be neutral grey and NegPy computes the CMY offsets that map it to true grey under the current region.
-*   **Linear RAW**: When off (default), the camera's as-shot white balance is applied during RAW decode, giving a balanced starting point. Turn on to decode with neutral multipliers (1,1,1,1) and work from completely raw, untoned data.
-
-### Exposure
-
-*   **Density** (0.0–2.0): Overall darkness of the print — simulates exposure time under the enlarger. Lower values = brighter print, higher = denser.
-*   **Grade** (0.0–5.0): Contrast grade, like switching paper grades in an analog darkroom. 0 is very soft (low contrast), 5 is very hard.
-
-### Sigmoid Curve
-
-Two transition zones at either end of the tone curve:
-
-*   **Toe** (-1.0–1.0): Shadow transition into black. Positive values lift shadows for a gentler toe; negative values deepen blacks.
-*   **Toe Width** (0.1–5.0): How broadly the toe transition is applied. Larger values spread the effect further into the midtones.
-*   **Shoulder** (-1.0–1.0): Highlight transition into white. Positive values compress highlights for a gentle film-like roll-off; negative values extend them and risk clipping.
-*   **Shoulder Width** (0.1–5.0): Spread of the shoulder region into the midtones.
+The right-click menu also offers **Copy/Paste Settings** (with or without normalization bounds), **Reset Settings**, **Apply settings…**, and per-frame export.
 
 ---
 
-## 6. Lab Panel
-Final polish and detail. Several sliders are hidden in B&W mode (where colour manipulation doesn't apply).
+## 3. Analysis readout (always visible)
 
-### Colour (hidden in B&W)
+Pinned above the tabs, this is your feedback while editing. Drag the divider to resize it, or collapse it entirely.
 
-*   **Denoise** (0.0–5.0): Chroma denoise in Lab space. Smooths colour noise (especially in shadows) while preserving the luminance grain that gives film its character.
-
-> Spectral **Crosstalk** (formerly "Separation") moved to the Process panel — it now
-> unmixes the raw negative densities before inversion, the domain the film matrices
-> are actually calibrated in. See docs/CROSSTALK.md.
-*   **Saturation** (0.0–2.0): Linear saturation. 1.0 = unchanged, 0 = greyscale, 2.0 = double saturation. Neutral-center slider.
-*   **Vibrance** (0.0–2.0): Smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones than raw Saturation. Neutral-center.
-
-### Detail
-
-*   **CLAHE** (0.0–1.0): Contrast Limited Adaptive Histogram Equalization. Adds local contrast without blowing global highlights or crushing shadows. Use sparingly — values near 1.0 can look cartoonish.
-*   **Sharpening** (0.0–1.0): L-channel unsharp mask. Crisps detail without introducing colour halos around edges.
-
-### Effects
-
-*   **Glow** (0.0–1.0): Lens bloom — bright highlights scatter equally across all channels, softening edges and giving a dreamy quality.
-*   **Halation** (0.0–1.0): Simulates the red glow caused by light scattering back through the film base. Affects only highlights and is strongly red-dominant, as in real film halation.
+*   **Photometric curve**: the paper characteristic (H&D) curve NegPy is currently applying, drawn over two histograms — the output tones and the negative density. Grab the toggle to switch the density axis between linear and log. Hover the canvas and the curve marks where that pixel lands.
+*   **Zone strip**: how your tones are distributed across print zones (shadow → highlight), with warnings when zones are clipping.
+*   **Densitometer**: click-hold on the canvas to probe a pixel's values.
+*   **Negative stats**: density range, metered exposure, and a **scan-clip warning** if the scanner clipped highlights or the film base (which permanently loses information — a capture problem NegPy can't undo).
 
 ---
 
-## 7. Toning Panel
-Colour treatments applied late in the pipeline.
+## 4. Setup tab
 
-### Toners (B&W only)
+### 4.1 Presets
 
-*   **Selenium** (0.0–2.0): Simulates selenium toning. Adds a cool blue-purple cast to shadows that deepens with strength.
-*   **Sepia** (0.0–2.0): Simulates sepia toning. Warm brown cast across the full tonal range.
+Save and recall a complete edit (the full workspace) by name.
 
-### Split Tone
+*   **Preset dropdown** + **Load**: apply a saved preset to the current image.
+*   **Name field** + **Save**: store the current settings as a new preset.
+*   **Trash**: delete the selected preset.
 
-Two colour injections — one in shadows, one in highlights — each with its own hue and strength. Works in any process mode.
+### 4.2 Process — negative → positive
 
-*   **Shadow Hue**: Hue wheel for the shadow split-tone colour.
-*   **Shadow Strength** (0.0–1.0): How strongly the shadow hue is mixed in.
-*   **Highlight Hue**: Hue wheel for the highlight split-tone colour.
-*   **Highlight Strength** (0.0–1.0): How strongly the highlight hue is mixed in.
+The foundation of every edit: film type, how the scan is decoded, and how the negative is normalized into a positive.
 
-### Paper
+*   **Mode**: `C41` (colour negative), `B&W`, or `E-6` (slide/reversal). Changes the core conversion math and re-runs the pipeline from scratch. The wand button beside it **auto-detects** the mode when a file loads.
+*   **Linear RAW**: off (default) decodes RAW with the camera's as-shot white balance for a balanced starting point; on decodes with neutral multipliers for completely raw data. Toggling reloads the file.
+*   **Narrowband**: corrects the oversaturation typical of narrowband (RGB-LED trichrome) scans using a bundled input profile. Leave off for ordinary broadband scans. An explicit Input ICC in Export overrides it.
+*   **Lock Bounds**: freezes the analyzed normalization bounds for this frame, so cropping or moving sliders no longer re-analyzes it. Lock in once you're happy with the bounds.
 
-*   **Paper Profile**: Dropdown of bundled paper-substrate profiles (warm-tone, neutral, cool-tone, etc.). Picks a baseline tone the rest of the toning stacks on top of.
+**Analysis window** — where NegPy measures the black/white points:
 
----
+*   **Analysis Buffer** (0.0–0.25): insets the measurement window from the frame edge so film rebate, sprocket holes, and scanner borders don't skew detection. Raise on scans with wide borders.
+*   **Analysis Region** (square-draw tool): draw a freehand region on the canvas to meter *exactly* that area (overrides the buffer). Double-click inside to confirm; the ✕ button clears it.
 
-## 8. Retouch Panel
-Cleanup and dust removal.
+**Normalization tuning:**
 
-*   **Threshold** (0.01–1.0): Brightness delta above which a pixel is classified as dust during auto-detection. Lower values catch more (including false positives on real detail); higher values are conservative.
-*   **Auto Size** (3–8 px): Maximum radius of auto-detected dust spots. Larger values catch bigger blobs but risk eating fine detail.
-*   **Auto Dust**: Toggle that enables/disables automatic dust removal using the above two settings.
-*   **Heal Tool**: Toggles the manual healing brush. With it on, click dust spots in the preview to paint them out one at a time.
-*   **Brush Size** (2–16 px): Radius of the manual heal brush. Only shown while Heal Tool is active.
+*   **Luma Range Clip** (-100–100): how aggressively the tonal range (black/white-point span) is set. Neutral already applies a small robust clip. Positive tightens it — good for dense or fogged negatives where a few stray pixels would push the bounds to extremes. Negative pushes the bounds *outward* for lifted blacks / unclipped highlights.
+*   **Colour Clip** (-100–100): the per-channel colour-balance clip (orange-mask removal), independent of the tonal range. Positive tightens channel balance; negative samples nearer the extremes.
+*   **Global / R / G / B** selector → **White Point** / **Black Point** (-0.25–0.25): manual offsets on top of the auto-detected bounds. Positive white point brightens; positive black point lifts blacks. In R/G/B mode these become per-layer trims — per-dye-layer film-base (Dmin) and Dmax corrections, i.e. scanner-style per-channel levels. Hidden in B&W.
 
-### HEALS · N
+**Crosstalk** (hidden in B&W) — spectral dye unmixing applied to the raw negative before inversion:
 
-The section header shows the current count of manual spots. Both buttons are disabled when there are no manual heals.
+*   **Matrix**: the crosstalk profile for your film/scanner. *Default* is built-in; drop custom `.toml` matrices in `<Documents>/NegPy/crosstalk/` (see [CROSSTALK.md](CROSSTALK.md)). The slider button opens a matrix editor.
+*   **Separation** (0.0–1.0): strength of the unmix — richer, cleaner colour separation. Because it changes what the analysis reads, **re-run Batch Analysis** after changing it.
 
-*   **Undo Last**: Removes the most recent manual healing spot.
-*   **Clear All**: Removes every manual spot (auto-detected dust is unaffected).
+**Normalize** (E-6 only): auto-stretches a slide's histogram to fill the dynamic range. Useful for faded/expired slides.
 
----
+### 4.3 Roll Analysis — a consistent look across the roll
 
-## 9. Finish Panel
-Vignette and border — applied at the very end of the pipeline.
+Meter the whole roll once and share the baseline, so frames from the same film match.
 
-### Vignette
+*   **Batch Analysis**: scans every loaded file and computes a roll-average density and colour balance (outliers discarded). Run it once after importing. *(Tip: if you use Batch Autocrop, run it first, in **Image only** mode, so metering sees consistent crops.)*
+*   **Use Luma Average**: this frame takes the roll-wide tonal range; colour still re-derives per frame.
+*   **Use Colour Average**: this frame takes the roll-wide colour balance; tonal range still re-derives per frame. Enable both for a fully consistent roll; leave both off for per-image auto-exposure.
 
-*   **Strength** (-1.0–1.0): Negative values darken the corners (classic vignette); positive values lighten them. 0 disables.
-*   **Size** (0.0–1.0): Falloff radius. Smaller values keep the effect tight around the corners; larger values spread it well into the frame.
+**ROLL** — reuse a baseline across sessions:
 
-### Border
-
-*   **Width** (0.0–2.5): Border thickness as a fraction of the image dimensions. Zero means no border.
-*   **Border Colour**: Square colour swatch — click to open a colour picker and pick any RGB colour for the border.
+*   **Roll dropdown** + **Load**: apply a saved roll's bounds and balance.
+*   **Save**: store the current Batch Analysis as a named roll (useful when you shoot the same stock repeatedly).
+*   **Delete**: remove the selected roll.
 
 ---
 
-## 10. ICC Panel
-ICC profile for soft-proofing in the preview and (optionally) embedding in the export.
+## 5. Geometry tab
 
-*   **Profile dropdown**: Lists `None` plus every ICC profile NegPy has discovered (system profiles + bundled profiles). Choose one to soft-proof against.
-*   **Direction**:
-    *   **Input**: Treat the chosen profile as the source profile (rarely used; helpful when you know the scan's profile but the file lacks an embedded tag).
-    *   **Output**: Treat it as the destination profile (default). The preview is rendered as it would look through that profile.
-*   **Apply to Export**: When on, the selected ICC profile is also applied to (and/or embedded in) exported files. When off, soft-proofing only affects the on-screen preview.
+### 5.1 Geometry — crop & straighten
 
----
+**Crop:**
 
-## 11. Metadata Panel
-Archival metadata for the **original analog capture** — gear, process, and scanning — written into exported JPEG, TIFF, and PNG files as EXIF and embedded XMP.
+*   **Ratio**: target aspect ratio (`Free`, `3:2`, `4:3`, `5:4`, `1:1`, `6:7`, `65:24`, …). The crop tool auto-orients to portrait or landscape as you drag.
+*   **Detect** (crosshairs): snap the ratio to the closest standard.
+*   **Crop** tool: draw a crop rectangle on the canvas. **Reset** clears it and turns auto-crop off.
+*   **Guide**: overlay a composition guide (thirds, golden spiral, …) while cropping; the redo button rotates guides that have orientations.
 
-### Original analog gear
+**Auto Crop** — detect the frame edge automatically:
 
-Pick gear from your library (or a saved preset). Use **Manage…** to edit cameras, lenses, film stocks, and gear presets — the item list and preset link combos support the same type-to-search filtering. Starter data is seeded into `~/NegPy/gear/` on first launch.
+*   **Mode**: *Image only* (exposed area) or *Film edge* (full film incl. rebate/sprockets).
+*   **Crop Offset** (-5–100 px): inset the detected edge inward. Positive trims more; negative bleeds slightly outside (when detection clips too tightly).
+*   **Auto**: detect and crop this frame. Best on clean rebate.
+*   **Batch Autocrop**: analyze all visible landscape frames as a roll, using confident detections to calibrate weaker ones. Runs in the background with progress and cancellation. Manual, Film-edge, portrait, and ambiguous frames are left alone. Only available in *Image only* mode.
 
-*   **Preset**: One-click camera + lens + film combination.
-*   **Camera / Lens / Film stock**: Searchable dropdowns — empty fields show a search hint; type to filter the list. An empty field means "not set", so clear the text to remove a selection. Changing any item clears the preset selection.
-*   **Clear**: Clears gear preset and library selections for this frame.
+**Alignment:**
 
-Structured fields for the **original capture** (camera, lens, film ISO) are written to **standard EXIF** when you set gear in the Metadata tab — so Lightroom and other DAMs show your film camera and lens. Scan-only tags from the source file (`FocalLengthIn35mmFormat`, scan exposure/ISO, etc.) are stripped so they do not mix with capture data. The **digitization rig** (DSLR, film scanner, copy-stand setup) is preserved in `negpy:Scan*` XMP tags only.
+*   **Fine Rotation** (±5°): sub-degree levelling for tilted scans (positive = clockwise). Applied after auto-crop so the frame stays axis-aligned.
+*   **Straighten** tool (ruler): draw a line along a horizon or vertical edge and NegPy rotates to make it level or plumb.
 
-If you have **not** set capture gear, standard EXIF is left as-is (your scanner or DSLR remains visible in Lightroom) and scan data is mirrored to `negpy:Scan*` XMP. Process-only fields (developer, format) never overwrite camera/lens EXIF.
+### 5.2 Flat Field — even out the light
 
-Capture fields are also written to `negpy:Capture*` in XMP for structured archival access.
+Corrects uneven illumination (vignetting/falloff) from your copy-stand or scanner light, using a reference shot of the bare light source.
 
-### Process
-
-*   **Format**: Film format — `35mm`, `120`, `4×5`, `8×10`, `110`, or `Other`.
-*   **Format (Custom)**: Shown when Format = `Other` (e.g. `6×7`).
-*   **Developer**: Developer and dilution, e.g. `D-76 1+1`.
-*   **Push / Pull**: `Push +3` … `Pull -3`, with `Normal` in the middle.
-
-### Scanning
-
-*   **Scanning**: Scan method or notes (written to `negpy:ScanMethod` in XMP). EXIF `Software` is always `NegPy`.
-*   **Sync custom metadata to all files in batch export**: When on, batch export uses the current metadata tab values for every file.
-
-### Exposure
-
-Optional **original capture** exposure (shutter, aperture, film ISO). Click the lock icon to edit a free-text string (e.g. `1/125s f/2.8 ISO 400`). Scan exposure from the source file appears in the preview under **Scan**, not here.
-
-### Metadata preview
-
-Collapsible live preview grouped by **Original capture**, **Scan**, **Process**, and **File** — the tag values embedded on export.
+*   **Flatfield Correction**: apply the active reference to this image (enabled once a profile exists).
+*   **Reference Profile** dropdown + **Add…** / **Delete**: pick a reference image and save it as a named profile.
+*   **Distortion** (-0.25–0.25): radial lens-distortion correction for the rig, saved with the profile. Use the film rebate as a straight-edge reference.
 
 ---
 
-## 12. Export Panel
-Delivering the final image.
+## 6. Exposure tab
 
-### Format
+This is the heart of the print. Three panels shape light, colour, and contrast — everything here happens in the "print" stage of the pipeline.
 
-*   **Format**: `JPEG` (compressed) or `TIFF` (high bit-depth).
-*   **Colour Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `Wide Gamut RGB`, `ACES`, `P3 D65`, `Rec 2020`, `XYZ`, or `Greyscale` (true B&W output).
-*   **Paper Aspect Ratio**: Final paper ratio — `Original` (no resize), or one of the standard ratios for fitting print stock.
+### 6.1 Filtration — white balance
 
-### Resolution (mutually exclusive)
+Colour timing, like the dichroic filters on an enlarger head. A **Global / Shadows / Highlights** selector scopes the controls to the whole image or biases them toward low- or high-density tones.
 
-*   **Original**: Export at the source RAW's full resolution.
-*   **Print**: Print-size mode. Reveals:
-    *   **Size** (1–500 cm): Long-edge physical print size in centimetres.
-    *   **DPI** (72–4800): Print resolution.
-*   **Pixels**: Pixel-dimension mode. Reveals:
-    *   **Long edge** (256–32768 px): Longest dimension in pixels; the shorter side is derived from the paper aspect ratio.
+*   **Pick WB** (eyedropper): click a pixel that should be neutral grey; NegPy solves the CMY filtration to make it neutral in the selected region.
+*   **Roll Lock**: re-aims each newly opened frame's temperature to the current target (its own tint preserved) — a per-region lock for consistent warmth across a roll.
+*   **Reset**: return the selected region's temperature and CMY to neutral.
+*   **Temperature**: a warm↔cool lever driving the region's magenta/yellow pair (cyan stays put, as in a real darkroom).
+*   **Cyan / Magenta / Yellow** (-1–1): the three filtration axes — Cyan↔Red, Magenta↔Green, Yellow↔Blue.
+*   **Cast Removal** (0.0–1.0): neutralizes the residual colour cast a negative leaves in the print, balancing each layer so greys stay neutral from deep shadows through highlights (C-41). Applied strength scales with how many clean near-neutrals the frame has. Default ~0.5; 0 turns it off.
 
-### Destination
+### 6.2 Tone — density, contrast, and the print curve
 
-*   **Filename Pattern**: Jinja2 template for output filenames. Available variables: `original_name`, `colorspace`, `format`, `paper_ratio`, `size`, `dpi`, `target_px`, `border`, `date`. See [TEMPLATING.md](TEMPLATING.md) for examples.
-*   **Overwrite existing files**: When on, exports replace files with the same name. When off, NegPy refuses to clobber.
-*   **Same folder as source**: When on, exports go next to the source file; the Export Path input is disabled.
-*   **Export Path**: Target directory when "Same folder as source" is off.
-*   **Browse**: Opens a folder picker for the export path.
+The paper's response. A **Global / R / G / B** selector at the top scopes most controls to the shared curve (Global) or to per-dye-layer trims for **crossover correction** (fixing casts that differ between shadows and highlights — something filtration alone can't do).
 
-### Batch
+**Automatic helpers** (on by default — they do per-frame work so you don't have to; turn off to let the negative print honestly):
 
-*   **Export All**: Triggers batch export of every loaded file using the current settings.
-*   **Sync export settings**: When on (default), the current Format / Colour Space / Size / DPI / Border are applied uniformly to every file in the batch. When off, each file keeps its own per-image export settings.
+*   **Auto Density**: meters each frame's midtone and anchors print brightness there, so dense and flat negatives land consistently.
+*   **Auto Grade**: aims each frame at a contrast target instead of printing the negative's own range, so dense negatives stop printing over-contrasty and flat ones stop printing muddy.
+*   **Set Targets** (sliders icon): tune the exact brightness/contrast the two helpers aim for. Applies to every frame and is remembered between sessions.
 
----
+**Exposure:**
 
-## 13. Files (Session)
-The file browser at the top of the session panel.
+*   **Print Density** (0.0–2.0): overall brightness — simulates enlarger exposure time. Lower = brighter, higher = denser.
+*   **ISO-R Grade** (50–180): contrast, as a paper ISO-R value. R110 ≈ classic grade 2; **lower R = harder** (more contrast), higher = softer. In R/G/B mode a **Grade** trim rotates one layer's slope about the midtone.
+*   **Shadows Density** / **Highlights Density** (zone density): brighten or darken just the shadow or highlight zone, without reshaping the curve. Bounded by paper black/white so a burn can't exceed the print's limits.
+*   **Shadows Grade** / **Highlights Grade** (split grade, ±50 ISO-R): rotate contrast locally in the deep shadows or highlights — the digital equivalent of split-grade printing.
 
-### File actions
+**Paper Response** — the characteristic-curve shape:
 
-*   **File**: Open one or more image files via a file picker.
-*   **Folder**: Load every image in a chosen folder.
-*   **Clear**: Unload all files from the current session.
+*   **Paper profile**: a bundled darkroom-paper profile (RA4 colour papers in C-41, tonal B&W papers in B&W). Re-shapes the curve as a baseline; Grade/Density/toe/shoulder still trim on top. *Neutral* reproduces the defaults.
+*   **Paper White**: simulate paper base density — whites print at ~0.93 instead of pure white, like a real print.
+*   **Paper Black**: show the paper's true (slightly milky) Dmax instead of compensating it to pure display black. Off (default) applies black-point compensation so the adapted eye reads black as black.
+*   **Snap** (-0.5–0.5): midtone gamma — steepens or flattens the S-curve around the reference tone while paper white/black stay put.
+*   **Toe** (-1–1) + **Toe Width** (0.1–5): the shadow roll-off into paper black. Positive toe lifts shadows for a gentle film toe; negative deepens (and, with Paper Black off, makes exact black reachable). Width sets how far the knee reaches into the midtones.
+*   **Shoulder** (-1–1) + **Shoulder Width** (0.1–5): the highlight roll-off into paper white. Positive compresses highlights (film-like); negative extends them and risks clipping.
 
-### Hot folder & sync
+In R/G/B mode, Toe/Shoulder/Snap and their Widths become per-layer trims for that dye emulsion.
 
-*   **Hot Folder Mode**: Watches the current folder and auto-loads new files as they appear. Useful when paired with a scanner that drops files into the directory.
-*   **Sync Edits**: Applies the current image's edit settings to every selected image (excludes crop and rotation, which are inherently per-image).
+### 6.3 Dodge & Burn — local exposure
 
-### Sorting
+Paint polygon masks and lighten or darken just those areas.
 
-*   **Name / Date** (mutually exclusive): Sort the file list by filename or by file date.
-*   **↑ Ascending / ↓ Descending** (mutually exclusive): Sort direction.
-
-### Filter
-
-*   **Filter input**: Filter the file list by filename (substring match by default).
-*   **Regex toggle (`.*`)**: When on, the filter is interpreted as a regular expression.
-
-### Triage
-
-Cull the roll right on the contact sheet:
-
-*   **Keep** (`K`, or right-click → Keep): marks the frame as a keeper — a small check badge in its corner.
-*   **Reject** (`Shift+X`, or right-click → Reject): a cross badge + dim. Rejected frames stay visible on the sheet but are skipped by batch exports and sidecar writes (the contact sheet still shows the whole roll). The file on disk is never touched.
-*   **Sheet filter** (funnel button next to Sort): All frames / Keepers only / Hide rejected. With a filter active, rejecting the open frame advances to the next visible one.
-*   A tally under the filter box counts the roll: "36 frames · 12 keepers · 3 rejected". Marks apply to the multi-selection when one exists and persist across sessions.
-
-### Session tabs
-
-Switches the panel below between modes. These are containers, not edit controls — content for each is documented in its own section above:
-
-*   **Analysis**: Histogram and photometric curve.
-*   **Export**: Export panel (section 12).
-*   **Metadata**: Metadata editor (section 11).
-*   **Scan**: Scanner interface (Linux only; unavailable on Windows).
+*   **Draw Mask**: click to place vertices; double-click / Enter / a click near the start closes the mask; Esc cancels. To edit an existing mask, select it in the list — drag a vertex, click an edge "+" to add a point, right-click a vertex to delete.
+*   **Mask list**: each mask shows Dodge (lighten) or Burn (darken) and its strength. The eye toggles its outline; the trash deletes it.
+*   **Strength** (-1–1 EV): dodge (+) or burn (−) for the selected mask.
+*   **Feather**: edge softness for the selected mask.
 
 ---
 
-## 14. Presets
+## 7. Colour tab
 
-*   **Preset dropdown**: Lists every saved preset. Pick one and click **Load** to apply its settings to the current image.
-*   **Load**: Applies the selected preset.
-*   **Preset Name input**: Name for a new preset.
-*   **Save**: Stores the current full WorkspaceConfig as a preset under the typed name.
+### 7.1 Lab — polish and detail
+
+Mimics what a lab scanner (Frontier/Noritsu) does automatically. Colour controls hide in B&W mode.
+
+**Colour** (hidden in B&W):
+
+*   **Saturation** (0.0–2.0): linear saturation. 1.0 = unchanged, 0 = greyscale, 2.0 = double.
+*   **Dye Mute** (0.0–1.0): counters the extra saturation that harder grades create, mimicking real paper dyes' unwanted absorptions. 0 disables.
+*   **Vibrance** (0.0–2.0): smart saturation that boosts muted colours more than already-saturated ones — gentler on skin tones.
+
+**Sharpen:**
+
+*   **Method**: *Unsharp Mask* (boosts edge contrast) or *Deconvolution* (Richardson–Lucy — reverses the scanner's optical blur; set Radius to the scan's blur width).
+*   **Sharpening** (0.0–1.0): amount, on the L (lightness) channel so there are no colour halos.
+*   **Radius** (0.5–3.0 px): blur width — small for fine grain, larger for soft scans. Scaled to render size so preview matches export.
+*   **Masking** (0.0–1.0): restrict sharpening to edges, protecting flat areas (sky, skin, grain).
+
+**Detail:**
+
+*   **CLAHE** (0.0–1.0): local contrast without blowing global highlights or crushing shadows. Use sparingly — near 1.0 can look cartoonish. (Runs before dust removal so healing operates on the final rendition.)
+*   **Denoise** (0.0–5.0, hidden in B&W): chroma denoise — smooths colour noise, especially in shadows, while leaving luminance grain intact.
+
+**Effects:**
+
+*   **Glow** (0.0–1.0): lens bloom — bright highlights scatter across all channels for a dreamy softness.
+*   **Halation** (0.0–1.0): the red glow of light scattering back through the film base. Highlights only, strongly red-dominant.
+
+### 7.2 Toning
+
+**Chemical Toning** (B&W only) — simulated as sequential toner baths, in the order shown; each strength 0.0–2.0:
+
+*   **Selenium**: deeper blacks, cool eggplant shadows.
+*   **Sepia**: warm highlights first (partial strength gives split-sepia).
+*   **Gold**: cool blue-black on untoned silver; over sepia, shifts highlights orange-red.
+*   **Iron Blue**: Prussian-blue shadows deepening to navy blacks.
+*   **Copper**: pink to brick-red shift, with the classic Dmax loss.
+*   **Vanadium**: greens the mids/highlights while deep shadows keep their black.
+
+**Split Toning** (all modes) — additive tint in Lab space, so grain and detail are preserved:
+
+*   **Shadow Hue** + **Shadow Strength** (0.0–1.0).
+*   **Highlight Hue** + **Highlight Strength** (0.0–1.0).
 
 ---
 
-## 15. Startup Override (`override.toml`)
+## 8. Finish tab
 
-If NegPy crashes on launch or has rendering glitches, you can force specific backend settings without touching code. On first run, NegPy creates `Documents/NegPy/override.toml` with defaults for your OS. Edit it and restart the app.
+### 8.1 Retouch — dust, hairs, scratches
 
-**Key settings:**
+An **Overlay** button cycles the detection overlay (Off → Marked → IR) so you can see what's being caught.
+
+**Optical Removal** — find specks on the visible scan by local contrast (no IR needed):
+
+*   Toggle **Optical Removal** on, then set **Threshold** (0.01–1.0; lower catches more, risking false positives) and **Size** (3–8 px; max spot radius).
+
+**IR Removal** — uses the scanner's infrared channel to remove dust invisible to the colour dyes (only enabled when the scan carries an IR plane):
+
+*   Toggle **IR Removal** and set **IR Threshold** (0.05–0.95; lower catches more).
+
+**Manual Heal** (header shows the current spot count):
+
+*   **Heal Tool**: click dust spots in the preview to paint them out one at a time.
+*   **Scratch Tool**: click points along a scratch or hair, double-click/Enter to finish; Esc cancels, Backspace removes the last point. Right-click an overlay to delete it.
+*   **Brush Size** (2–16 px): radius of the manual brush (shown while a manual tool is active).
+*   **Undo Last** / **Clear All**: remove the most recent or all manual heals (auto-detected dust is unaffected).
+
+### 8.2 Finishing — vignette, carrier, border
+
+Applied at the very end of the pipeline.
+
+**Vignette** (printer's edge burn, in stops):
+
+*   **Burn** (-2.0–2.0 stops): positive darkens the edges, negative holds them back (lightens). 0 = off.
+*   **Size** (0.0–1.0): falloff radius — small keeps it tight in the corners, large spreads it into the frame.
+*   **Roundness** (0.0–1.0): 0 = radial (lens-like), 1 = rectangular card burn following the print edges.
+
+**Filed Carrier** — a filed-out negative carrier: the clear rebate prints max black with a rough inner edge:
+
+*   **Width** (0.0–5.0 mm): black rebate frame thickness. 0 = off.
+*   **Roughness** (0.0–1.0): how ragged the inner edge is.
+
+**Border:**
+
+*   **Width** (0.0–2.5): border thickness as a fraction of the image. 0 = no border.
+*   **Bottom weight** (1.0–2.0): thickens the bottom border (window-mat proportions).
+*   **Colour swatch**: click to pick any border colour.
+*   **Paper white**: tint the border with the toned paper-white instead of the picked colour.
+
+---
+
+## 9. History tab
+
+A scrollable list of every edit step (last 100 kept), newest on top; the current step is bold.
+
+*   **Click** a step to jump to that state.
+*   **Right-click** → **Export this version…** to export a past state directly.
+
+---
+
+## 10. Export tab
+
+### Output intent
+
+*   **Print** (default): the full creative look you see on screen.
+*   **Flat**: a flat, neutral, low-contrast master that keeps maximum tonal/colour information for editing elsewhere (Lightroom, Darktable, Photoshop). Skips the print look, effects, toning, and vignette, and writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected.
+    *   **Format**: *16-bit TIFF* (widely compatible) or *Linear DNG*.
+    *   **Preview Flat**: temporarily show the flat master on the canvas without changing your edit.
+    *   **Roll Baseline**: measure every visible frame and share one exposure baseline, so flat masters are consistent across a roll (recommended before a flat batch).
+
+### Export button
+
+The primary **Export** action; its chevron menu picks the scope — current frame (Ctrl+E), selected frames, all visible with current settings, or all visible with each frame's saved settings.
+
+### Format / Size / Colour / Destination
+
+*   **Format**: `JPEG`, `TIFF`, `PNG`, `JPEG XL`, or `WebP` (with quality/effort options per format).
+*   **Colour Space**: `Same as Source`, `sRGB`, `Adobe RGB`, `ProPhoto RGB`, `ACES`, `P3 D65`, `Rec 2020`, `XYZ`, or `Greyscale` (true B&W output).
+*   **Input / Output ICC**: soft-proof against, and optionally embed, an ICC profile. Output is the destination profile (default); Input treats the profile as the source (when a scan's profile is known but untagged).
+*   **Paper Aspect Ratio**: final print ratio, or *Original* (no resize).
+*   **Resolution**: *Original* (full RAW resolution), *Print* (long-edge **Size** in cm + **DPI**), or *Pixels* (long-edge **px**; short side follows the paper ratio).
+*   **Destination**: **Filename Pattern** (a Jinja2 template — see [TEMPLATING.md](TEMPLATING.md)), **Overwrite** toggle, and output location (subfolder of source / same as source / an absolute **Export Path** with a browse button).
+
+### Collapsible sections
+
+*   **Presets**: a checklist of export presets (each a saved Format/Size/Colour recipe). **Manage** edits them; **Export Presets** renders the frame(s) with every enabled preset at once.
+*   **Sidecars**: **Save on export** writes a `.negpy` edit sidecar next to each source on every export; **Export sidecars** writes them for all visible frames now. (Edits always stay in the database too — sidecars are optional archival copies.)
+*   **Contact Sheet**: render all visible frames into a single sheet. Choose a **Template** or set **Cell / Gap / Margin / Max tiles** by hand, pick an output **Path**, and **Export contact sheet**.
+*   **Preview** (affects the on-screen preview only, never the file):
+    *   **Soft proof** (on by default): simulate the export colour space and Output profile so what you see matches what you'll get. Turn off only to preview at full gamut.
+    *   **Display**: the monitor profile the preview is shown through — auto-detected, or pick one manually if detection fails.
+
+---
+
+## 11. Metadata tab
+
+Archival metadata for the **original analog capture** — camera, lens, film, process — written into exported files as EXIF and embedded XMP so DAMs like Lightroom show your film gear rather than the scanner.
+
+*   **Protect original metadata**: copy the source file's EXIF/XMP to exports unchanged, adding nothing. When on, the fields below are ignored.
+
+**Analog Gear** (searchable — type in any field to filter the library):
+
+*   **Preset**: a reusable camera + lens + film combination. **Clear** empties gear selections.
+*   **Camera / Lens / Film stock**: pick from your library. Empty = not set.
+*   **Manage…**: edit cameras, lenses, film stocks, and presets. Starter data seeds into `~/NegPy/gear/` on first launch.
+
+**Process:**
+
+*   **Format**: `35mm`, `120`, `4×5`, `8×10`, `110`, or `Other` (with a free-text field).
+*   **Developer**: e.g. `D-76 1+1`.
+*   **Push / Pull**: `Push +3` … `Normal` … `Pull -3`.
+
+**Scanning:**
+
+*   **Scanning**: scan method/notes (EXIF `Software` is always `NegPy`).
+*   **Sync custom metadata to all files in batch export**: apply this tab's values to every file in a batch.
+
+**Exposure**: optional original shutter/aperture/ISO — click the lock to edit a free-text string (e.g. `1/125s f/2.8 ISO 400`).
+
+**Metadata preview**: a live view of exactly what will be embedded, grouped by capture / scan / process / file.
+
+When you set capture gear, it's written to standard EXIF and the digitizing rig is preserved separately in `negpy:Scan*` XMP tags. Leave gear unset and your scanner/DSLR stays visible in EXIF instead.
+
+---
+
+## 12. Scan tab
+
+Capture film directly into NegPy (Linux and macOS; unavailable on Windows). Two collapsible sections:
+
+*   **Scanner (SANE)**: drive a supported flatbed/film scanner over SANE.
+*   **Camera Scanning**: DSLR/mirrorless copy-stand capture. Auto-connects the camera over USB (PC-Remote mode). With a NegPy **Scanlight** connected it captures narrowband R/G/B triplets from saved film-stock presets; without one it does a single white-light exposure. A **Live View** window helps you frame and focus; captured frames land in the hot folder and flow straight into RGB-Scan mode.
+
+Camera scanning needs the optional `python-gphoto2` dependency (`pip install gphoto2`; no Windows build). See [CAMERA_SCANNING.md](CAMERA_SCANNING.md).
+
+---
+
+## 13. Startup Override (`override.toml`)
+
+If NegPy crashes on launch or has rendering glitches, you can force backend settings without touching code. On first run NegPy creates `Documents/NegPy/override.toml` with defaults for your OS. Edit it and restart.
 
 | Setting | Values | Effect |
 |---------|--------|--------|
 | `rendering.backend` | `"auto"`, `"vulkan"`, `"dx12"`, `"metal"`, `"cpu"` | GPU backend for image processing. `"cpu"` disables GPU entirely. |
 | `display.qt_rhi_backend` | `"auto"`, `"vulkan"`, `"d3d12"`, `"metal"`, `"opengl"`, `"software"` | Qt UI rendering backend. |
 | `display.qt_platform` | `"auto"`, `"xcb"`, `"wayland"` | Window system plugin (Linux only). |
-| `performance.max_texture_size` | `"auto"` or a number, e.g. `4096` | Caps GPU texture size — reduce if you see out-of-memory errors on low-VRAM cards. |
+| `performance.max_texture_size` | `"auto"` or a number, e.g. `4096` | Caps GPU texture size — reduce on low-VRAM cards. |
 | `performance.force_hq_preview` | `true` / `false` (or absent) | Overrides the saved HQ preview toggle. |
-| `performance.preview_cache_max_bytes` | a number, e.g. `1200000000` | Memory budget for the preview cache. Lower it on low-RAM machines (default ~1.2 GB). |
-| `performance.preview_cache_max_entries` | a number, e.g. `8` | Max recently-viewed photos kept in memory for instant navigation. |
-| `logging.level` | `"debug"`, `"info"`, `"warning"`, `"error"` | Controls log verbosity. Use `"debug"` when reporting issues. |
+| `performance.preview_cache_max_bytes` | a number, e.g. `1200000000` | Preview cache memory budget (default ~1.2 GB). |
+| `performance.preview_cache_max_entries` | a number, e.g. `8` | Max recently-viewed photos kept in memory. |
+| `logging.level` | `"debug"`, `"info"`, `"warning"`, `"error"` | Log verbosity. Use `"debug"` when reporting issues. |
 
 **Common fixes:**
 
-*   **App crashes immediately on Linux** → try `backend = "cpu"` or `qt_rhi_backend = "opengl"`.
-*   **Black/blank preview on Windows** → try `backend = "dx12"` or `qt_rhi_backend = "software"`.
-*   **Wayland rendering issues** → set `qt_platform = "xcb"` to force X11.
-*   **GPU out-of-memory during export** → set `max_texture_size = 4096`.
+*   **Crashes immediately on Linux** → `backend = "cpu"` or `qt_rhi_backend = "opengl"`.
+*   **Black/blank preview on Windows** → `backend = "dx12"` or `qt_rhi_backend = "software"`.
+*   **Wayland rendering issues** → `qt_platform = "xcb"` to force X11.
+*   **GPU out-of-memory during export** → `max_texture_size = 4096`.
 
 ---
 
 ## Additional Info
-*   **Hardware Acceleration**: NegPy uses your GPU for near-instant previews & responsive sliders with exceptions of *Process* section (analysis buffer, white/black point offset, normalize) which use CPU for calculations.
-*   **Roll Management**: Save your Batch Analysis as a "Roll" to apply the same look to future sessions with the same film stock.
-*   **Database**: All edits live in a local SQLite database, keyed by file hash. You can move or rename files without losing your work.
-*   **Edits**: Edits are saved to db on export/file change or when you explicitly save them. If you close the app without saving, your edits/settings will be lost.
-*   **Keyboard Shortcuts**: [see here](KEYBOARD.md)
-*   **Templating**: [see here](TEMPLATING.md)
-*   **Pipeline**: [see here](PIPELINE.md)
+
+*   **GPU acceleration**: NegPy uses your GPU for near-instant previews and responsive sliders. The Process panel's analysis (bounds, white/black point, normalize) runs on the CPU. There is no global GPU switch in the UI — force the CPU pipeline via `override.toml` if you suspect a driver issue.
+*   **Database**: all edits live in a local SQLite database keyed by file hash, so you can move or rename files without losing your work. Optional `.negpy` sidecars mirror edits next to your sources.
+*   **Saving edits**: edits are written to the database on export, when you switch frames, or when you save explicitly. Closing the app mid-edit without any of those loses unsaved changes.
+*   **Keyboard shortcuts**: [KEYBOARD.md](KEYBOARD.md)
+*   **Filename templating**: [TEMPLATING.md](TEMPLATING.md)
+*   **The pipeline in depth**: [PIPELINE.md](PIPELINE.md)

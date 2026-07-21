@@ -38,6 +38,8 @@ from negpy.features.geometry.logic import (
     get_autocrop_coords,
     get_manual_rect_coords,
 )
+from negpy.features.lab.logic import gaussian_kernel_1d, rl_iterations
+from negpy.features.lab.models import SharpenMethod
 from negpy.features.local.logic import compute_local_ev_map
 from negpy.features.process.models import ProcessMode, per_channel_point_offsets
 from negpy.features.retouch.logic import build_heal_regions
@@ -192,6 +194,12 @@ class GPUEngine:
             "clahe_cdf": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_cdf.wgsl")),
             "clahe_apply": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "clahe_apply.wgsl")),
             "retouch": get_resource_path(os.path.join("negpy", "features", "retouch", "shaders", "retouch.wgsl")),
+            "lab_sharpen_h": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab_sharpen_h.wgsl")),
+            "lab_sharpen_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab_sharpen_v.wgsl")),
+            "rl_init": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_init.wgsl")),
+            "rl_blur_h": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_blur_h.wgsl")),
+            "rl_div_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_div_v.wgsl")),
+            "rl_mult_v": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "rl_mult_v.wgsl")),
             "lab": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "lab.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
@@ -246,6 +254,8 @@ class GPUEngine:
         # Region build+upload cache — retouch re-dispatches on every exposure
         # frame, and rebuilds aren't free at hundreds of synthesized regions.
         self._retouch_regions_key: Optional[tuple] = None
+        # (radius, scale_factor) of the sharpen taps currently in sharpen_k.
+        self._sharpen_kernel_key: Optional[tuple] = None
 
         # Bind groups reference resources, not contents, so they survive across frames;
         # cache and reuse (cleared in cleanup()). Saves ~28 wgpu calls per frame.
@@ -332,8 +342,9 @@ class GPUEngine:
         """Initializes hardware pipelines and persistent buffers."""
         if self._pipelines or not self.gpu.device:
             return
-        # Buffers are recreated below — force the next region upload.
+        # Buffers are recreated below — force the next region/kernel upload.
         self._retouch_regions_key = None
+        self._sharpen_kernel_key = None
         t0 = time.perf_counter()
         device = self.gpu.device
         self._sampler = device.create_sampler(min_filter="linear", mag_filter="linear")
@@ -356,6 +367,8 @@ class GPUEngine:
             65536,
             wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC | wgpu.BufferUsage.COPY_DST,
         )
+        # Sharpen blur taps (gaussian_kernel_1d): 1024 f32 covers radius ≤ 511.
+        self._buffers["sharpen_k"] = GPUBuffer(4096, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         # 512 heal regions × 32 B, and 32K polyline/boundary points × 8 B.
         self._buffers["retouch_s"] = GPUBuffer(16384, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["retouch_p"] = GPUBuffer(262144, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
@@ -816,13 +829,60 @@ class GPUEngine:
             )
 
         if start_stage <= 4:
+            # Sharpen state (USM blur, or RL deconvolution) feeds the lab pass; a
+            # 1x1 dummy keeps binding 3 valid when sharpening is off.
+            usage = wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING
+            lab_u = self._get_uniform_binding("lab")
+            if settings.lab.sharpen > 0 and settings.lab.sharpen_method == SharpenMethod.RL:
+                # Iterative RL: ping-pong two textures through init + N × (blur_h,
+                # div_v, blur_h, mult_v). Final estimate lands back in rl_a.
+                tex_rl_a = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_a")
+                tex_rl_b = self._get_intermediate_texture(w_rot, h_rot, usage, "rl_b")
+                self._dispatch_pass(enc, "rl_init", [(0, tex_ret.view), (1, tex_rl_a.view)], w_rot, h_rot)
+                sk = self._buffers["sharpen_k"]
+                for _ in range(rl_iterations(settings.lab.sharpen_radius)):
+                    self._dispatch_pass(enc, "rl_blur_h", [(0, tex_rl_a.view), (1, tex_rl_b.view), (2, lab_u), (3, sk)], w_rot, h_rot)
+                    self._dispatch_pass(enc, "rl_div_v", [(0, tex_rl_b.view), (1, tex_rl_a.view), (2, lab_u), (3, sk)], w_rot, h_rot)
+                    self._dispatch_pass(enc, "rl_blur_h", [(0, tex_rl_a.view), (1, tex_rl_b.view), (2, lab_u), (3, sk)], w_rot, h_rot)
+                    self._dispatch_pass(enc, "rl_mult_v", [(0, tex_rl_b.view), (1, tex_rl_a.view), (2, lab_u), (3, sk)], w_rot, h_rot)
+                tex_sharpen_v = tex_rl_a
+            elif settings.lab.sharpen > 0:
+                tex_sharpen_h = self._get_intermediate_texture(w_rot, h_rot, usage, "sharpen_h")
+                tex_sharpen_v = self._get_intermediate_texture(w_rot, h_rot, usage, "sharpen_v")
+                self._dispatch_pass(
+                    enc,
+                    "lab_sharpen_h",
+                    [
+                        (0, tex_ret.view),
+                        (1, tex_sharpen_h.view),
+                        (2, lab_u),
+                        (3, self._buffers["sharpen_k"]),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
+                self._dispatch_pass(
+                    enc,
+                    "lab_sharpen_v",
+                    [
+                        (0, tex_sharpen_h.view),
+                        (1, tex_sharpen_v.view),
+                        (2, lab_u),
+                        (3, self._buffers["sharpen_k"]),
+                    ],
+                    w_rot,
+                    h_rot,
+                )
+            else:
+                tex_sharpen_v = self._get_intermediate_texture(1, 1, usage, "sharpen_v")
             self._dispatch_pass(
                 enc,
                 "lab",
                 [
                     (0, tex_ret.view),
                     (1, tex_lab.view),
-                    (2, self._get_uniform_binding("lab")),
+                    (2, lab_u),
+                    (3, tex_sharpen_v.view),
                 ],
                 w_rot,
                 h_rot,
@@ -1248,9 +1308,20 @@ class GPUEngine:
         )
 
         lab = settings.lab
+        # Sharpen taps are computed once in Python (gaussian_kernel_1d — the same
+        # array the CPU convolves with) and uploaded to sharpen_k; the shaders only
+        # need the half-width. Derived from the array itself so support matches.
+        sharpen_radius_px = 0
+        if lab.sharpen > 0:
+            kernel = gaussian_kernel_1d(lab.sharpen_radius * scale_factor)
+            sharpen_radius_px = len(kernel) // 2
+            kernel_key = (float(lab.sharpen_radius), float(scale_factor))
+            if self._sharpen_kernel_key != kernel_key:
+                self._buffers["sharpen_k"].upload(kernel)
+                self._sharpen_kernel_key = kernel_key
         l_data = (
             struct.pack(
-                "fffffff",
+                "ffffffffff",
                 float(lab.sharpen),
                 float(lab.chroma_denoise),
                 float(lab.saturation) * grade_chroma_damping(slopes[1], lab.chroma_damping),
@@ -1260,8 +1331,11 @@ class GPUEngine:
                 # Chroma-denoise scales its blur radius by the preview downsample ratio,
                 # mirroring the CPU path (radius * scale_factor).
                 float(scale_factor),
+                float(sharpen_radius_px),
+                float(lab.sharpen_masking),
+                1.0 if lab.sharpen_method == SharpenMethod.RL else 0.0,
             )
-            + b"\x00" * 4
+            + b"\x00" * 8
         )
 
         is_bw = 1 if settings.process.process_mode == ProcessMode.BW else 0
@@ -1793,6 +1867,15 @@ class GPUEngine:
         for _x, _y, size in ret.manual_dust_spots:
             # Legacy spots get a golden-angle fallback offset of 2.6·size px.
             halo = max(halo, int(np.ceil(size * (ref_scale * 0.5 + 2.6))) + rim_px + 2)
+        # The sharpen blur reads ±kernel-radius px, which outgrows TILE_HALO at
+        # export scale factors — without this, tile seams show in the USM band.
+        # RL's influence spreads with iterations but decays geometrically; 6× the
+        # kernel radius covers it in practice (widen if seams appear at extreme
+        # radius×scale). Capped by the 512 ceiling below.
+        if settings.lab.sharpen > 0:
+            k_radius = len(gaussian_kernel_1d(settings.lab.sharpen_radius * scale_factor)) // 2
+            mult = 6 if settings.lab.sharpen_method == SharpenMethod.RL else 1
+            halo = max(halo, k_radius * mult)
         halo = min(halo, 512)
 
         for ty in range(0, crop_h, TILE_SIZE):

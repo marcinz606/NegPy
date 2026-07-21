@@ -539,9 +539,18 @@ class ControlsPanel(QWidget):
         )
         lab.sharpen_slider.setToolTip(
             tooltip_with_shortcut(
-                "L-channel unsharp mask — crisps detail without introducing colour halos around edges",
+                "L-channel unsharp mask with halo suppression — crisps detail without bright edge outlines or colour fringing",
                 ["sharpen_inc", "sharpen_dec"],
             )
+        )
+        lab.sharpen_method_combo.setToolTip(
+            "Unsharp Mask boosts edge contrast; Deconvolution (Richardson–Lucy) reverses the scanner's optical blur — set Radius to the blur width of the scan"
+        )
+        lab.sharpen_radius_slider.setToolTip(
+            "Blur radius in pixels — small for fine grain and detail, larger for smoother films and soft scans"
+        )
+        lab.sharpen_masking_slider.setToolTip(
+            "Restricts sharpening to edges — higher values protect flat areas (sky, skin, grain) from being crisped"
         )
         lab.glow_slider.setToolTip(
             tooltip_with_shortcut(

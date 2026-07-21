@@ -20,9 +20,8 @@ class RetouchConfig:
     manual_dust_size: int = 6
     ir_dust_remove: bool = False
     # Sensitivity on the normalized IR ratio (higher = conservative). Default 0.66 →
-    # cutoff 0.59 with attenuation on: division fixes shallow dust, detection heals cores.
+    # cutoff 0.59 with attenuation on: division fixes shallow dust, the fill rebuilds cores.
     ir_threshold: float = 0.66
-    ir_inpaint_radius: int = 3
     # IR-division tier: recover the image under semi-transparent dust (no cloning).
     # Tracks ir_dust_remove from the single "IR Removal" control; B&W/Kodachrome
     # frames are auto-skipped by the degenerate guard, not this flag.

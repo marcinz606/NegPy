@@ -9,3 +9,4 @@ class ScanResult:
     ir: np.ndarray | None
     dpi: int
     device_model: str
+    ir_valid_mask: np.ndarray | None = None

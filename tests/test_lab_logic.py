@@ -7,8 +7,11 @@ from negpy.features.lab.logic import (
     apply_clahe,
     apply_glow_and_halation,
     apply_output_sharpening,
+    apply_rl_sharpening,
     apply_saturation,
     apply_vibrance,
+    gaussian_kernel_1d,
+    rl_iterations,
 )
 
 
@@ -73,6 +76,125 @@ class TestLabLogic(unittest.TestCase):
 
         # Sharpening should increase variance on edges
         self.assertGreater(np.var(res), np.var(img))
+
+    def test_gaussian_kernel_invariants(self) -> None:
+        """Shared CPU/GPU taps: normalised, symmetric, radius = ceil(2.5σ), capped."""
+        from negpy.features.lab.logic import gaussian_kernel_1d
+
+        for sigma, expected_r in ((0.5, 2), (1.0, 3), (3.75, 10), (45.0, 113)):
+            k = gaussian_kernel_1d(sigma)
+            self.assertEqual((len(k) - 1) // 2, expected_r)
+            self.assertEqual(k.dtype, np.float32)
+            self.assertAlmostEqual(float(k.sum()), 1.0, places=5)
+            np.testing.assert_allclose(k, k[::-1])
+        self.assertEqual(len(gaussian_kernel_1d(1000.0)), 511)
+
+    def test_sharpen_no_overshoot_on_step(self) -> None:
+        """Halo suppression: a hard step must stay within the local range plus
+        the (+1 light / -2 dark) overshoot tolerances in L*."""
+        img = np.zeros((40, 40, 3), dtype=np.float32)
+        img[:, 20:] = 0.8
+
+        res = apply_output_sharpening(img, amount=1.0, scale_factor=1.0)
+
+        l_in = rgb_to_lab_working(img)[..., 0]
+        l_out = rgb_to_lab_working(res.astype(np.float32))[..., 0]
+        self.assertGreaterEqual(float(l_out.min()), float(l_in.min()) - 2.0 - 0.1)
+        self.assertLessEqual(float(l_out.max()), float(l_in.max()) + 1.0 + 0.1)
+
+    def test_sharpen_flat_below_gate_passthrough(self) -> None:
+        """L* diffs under the noise gate must not be amplified."""
+        rng = np.random.default_rng(3)
+        img = np.clip(0.5 + rng.normal(0, 0.001, (64, 64, 3)), 0.0, 1.0).astype(np.float32)
+
+        res = apply_output_sharpening(img, amount=1.0, scale_factor=1.0)
+
+        l_in = rgb_to_lab_working(img)[..., 0]
+        l_out = rgb_to_lab_working(res.astype(np.float32))[..., 0]
+        np.testing.assert_allclose(l_out, l_in, atol=0.05)
+
+    def test_sharpen_masking_protects_flat_texture(self) -> None:
+        """masking=1 suppresses grain amplification in flat areas while the
+        strong edge still sharpens."""
+        rng = np.random.default_rng(5)
+        img = np.zeros((64, 64, 3), dtype=np.float32)
+        img[:, :32] = 0.2
+        img[:, 32:] = 0.8
+        img = np.clip(img + rng.normal(0, 0.02, img.shape), 0.0, 1.0).astype(np.float32)
+
+        res_open = apply_output_sharpening(img, amount=1.0, scale_factor=1.0, masking=0.0)
+        res_masked = apply_output_sharpening(img, amount=1.0, scale_factor=1.0, masking=1.0)
+
+        l_in = rgb_to_lab_working(img)[..., 0]
+        l_open = rgb_to_lab_working(res_open.astype(np.float32))[..., 0]
+        l_masked = rgb_to_lab_working(res_masked.astype(np.float32))[..., 0]
+
+        flat = np.s_[8:56, 8:24]
+        edge = np.s_[8:56, 30:34]
+        self.assertLess(
+            float(np.abs(l_masked[flat] - l_in[flat]).mean()),
+            float(np.abs(l_open[flat] - l_in[flat]).mean()),
+        )
+        self.assertGreater(float(np.abs(l_masked[edge] - l_in[edge]).max()), 0.5)
+
+    def test_rl_iterations_bounds(self) -> None:
+        """Deterministic iteration count from radius, clamped to [5, 20]."""
+        self.assertEqual(rl_iterations(0.5), 5)
+        self.assertEqual(rl_iterations(1.0), 10)
+        self.assertEqual(rl_iterations(3.0), 20)
+
+    def _luminance(self, img: np.ndarray) -> np.ndarray:
+        return img[..., 0] * 0.2973769 + img[..., 1] * 0.6273491 + img[..., 2] * 0.0752741
+
+    def test_rl_recovers_blurred_edge(self) -> None:
+        """RL deconvolution of a Gaussian-blurred step moves luminance closer to
+        the sharp step than the blurred input."""
+        img = np.zeros((40, 40, 3), dtype=np.float32)
+        img[:, 20:] = 0.7
+        k = gaussian_kernel_1d(1.0)
+        blurred = np.stack(
+            [cv2.sepFilter2D(img[..., c], -1, k, k, borderType=cv2.BORDER_REFLECT_101) for c in range(3)],
+            axis=-1,
+        ).astype(np.float32)
+
+        res = apply_rl_sharpening(blurred, amount=1.0, scale_factor=1.0, radius=1.0)
+
+        step_y, blur_y, res_y = self._luminance(img), self._luminance(blurred), self._luminance(res.astype(np.float32))
+        self.assertLess(float(np.abs(res_y - step_y).mean()), float(np.abs(blur_y - step_y).mean()))
+
+    def test_rl_masking_protects_flat_texture(self) -> None:
+        """masking=1 suppresses grain amplification in flat areas; the edge still sharpens."""
+        rng = np.random.default_rng(5)
+        img = np.zeros((64, 64, 3), dtype=np.float32)
+        img[:, :32] = 0.2
+        img[:, 32:] = 0.8
+        img = np.clip(img + rng.normal(0, 0.02, img.shape), 0.0, 1.0).astype(np.float32)
+
+        res_open = apply_rl_sharpening(img, amount=1.0, scale_factor=1.0, radius=1.0, masking=0.0)
+        res_masked = apply_rl_sharpening(img, amount=1.0, scale_factor=1.0, radius=1.0, masking=1.0)
+
+        y_in, y_open, y_masked = (
+            self._luminance(img),
+            self._luminance(res_open.astype(np.float32)),
+            self._luminance(res_masked.astype(np.float32)),
+        )
+        flat = np.s_[8:56, 8:24]
+        self.assertLess(
+            float(np.abs(y_masked[flat] - y_in[flat]).mean()),
+            float(np.abs(y_open[flat] - y_in[flat]).mean()),
+        )
+
+    def test_rl_preserves_chroma(self) -> None:
+        """RGB-ratio apply keeps hue: channel cross-products are unchanged."""
+        img = np.zeros((10, 10, 3), dtype=np.float32)
+        img[:, :5] = [0.6, 0.2, 0.1]
+        img[:, 5:] = [0.1, 0.5, 0.3]
+
+        res = apply_rl_sharpening(img, amount=1.0, scale_factor=1.0, radius=1.0)
+
+        mask = img.min(axis=-1) > 0.01
+        cross = np.abs(res[..., 0] * img[..., 1] - res[..., 1] * img[..., 0])
+        self.assertLess(float(cross[mask].max()), 1e-4)
 
     def test_saturation(self) -> None:
         """Saturation scales chroma in CIELAB — preserves L*, no V-style darkening."""

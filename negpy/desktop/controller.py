@@ -28,7 +28,7 @@ from negpy.desktop.workers.render import (
     ThumbnailUpdateTask,
     ThumbnailWorker,
 )
-from negpy.desktop.workers.scan_worker import ScanRequest, ScanWorker
+from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
     CaptureRequest,
@@ -41,6 +41,7 @@ from negpy.desktop.workers.roll_worker import (
     RollWorker,
 )
 from negpy.domain.models import (
+    ColorSpace,
     ExportFormat,
     ExportPreset,
     ExportPresetOutputMode,
@@ -206,10 +207,21 @@ class AppController(QObject):
     scan_finished = pyqtSignal(str)
     scan_error = pyqtSignal(str)
     scan_started = pyqtSignal()
+    scan_cancelled = pyqtSignal()
+    scan_ejected = pyqtSignal(bool)
+    scan_eject_error = pyqtSignal(str)
+    scan_frame_done = pyqtSignal(int, str)  # batch: frame number, rgb path
+    scan_batch_finished = pyqtSignal(list)  # batch: all completed rgb paths
+    scan_batch_requested = pyqtSignal(BatchRequest)
+    scan_eject_requested = pyqtSignal(str)
+    scan_roll_preview_requested = pyqtSignal(RollPreviewRequest)
+    scan_roll_preview_ready = pyqtSignal(object)  # one RollPreview per strip slot
+    scan_roll_preview_finished = pyqtSignal()
     capture_light_requested = pyqtSignal(int, int, int, int, str)
     capture_requested = pyqtSignal(CaptureRequest)
     capture_light_set = pyqtSignal(int, int, int, int)
     capture_progress = pyqtSignal(float)
+    capture_channel = pyqtSignal(str)  # "R"/"G"/"B" as each triplet channel starts
     capture_finished = pyqtSignal(list)
     capture_cancelled = pyqtSignal()
     capture_error = pyqtSignal(str)
@@ -497,10 +509,21 @@ class AppController(QObject):
         self.scan_worker.finished.connect(self._on_scan_finished)
         self.scan_worker.error.connect(self.scan_error.emit)
         self.scan_requested.connect(self.scan_worker.run_scan)
+        self.scan_batch_requested.connect(self.scan_worker.run_batch)
+        self.scan_eject_requested.connect(self.scan_worker.eject)
+        self.scan_worker.cancelled.connect(self.scan_cancelled.emit)
+        self.scan_worker.frame_done.connect(self.scan_frame_done.emit)
+        self.scan_worker.batch_finished.connect(self._on_scan_batch_finished)
+        self.scan_worker.ejected.connect(self.scan_ejected.emit)
+        self.scan_worker.eject_error.connect(self.scan_eject_error.emit)
+        self.scan_roll_preview_requested.connect(self.scan_worker.run_roll_preview)
+        self.scan_worker.roll_preview_ready.connect(self.scan_roll_preview_ready.emit)
+        self.scan_worker.roll_preview_finished.connect(self.scan_roll_preview_finished.emit)
         self.capture_light_requested.connect(self.capture_worker.set_light)
         self.capture_requested.connect(self.capture_worker.run_capture)
         self.capture_worker.light_set.connect(self.capture_light_set.emit)
         self.capture_worker.progress.connect(self.capture_progress.emit)
+        self.capture_worker.channel.connect(self.capture_channel.emit)
         self.capture_worker.finished.connect(self._on_capture_finished)
         self.capture_worker.cancelled.connect(self.capture_cancelled.emit)
         self.capture_worker.error.connect(self.capture_error.emit)
@@ -2050,8 +2073,25 @@ class AppController(QObject):
 
     def start_scan(self, req: ScanRequest) -> None:
         """Start a scan. The UI connects to scan signals for state updates."""
+        self.scan_worker.prepare_scan()
         self.scan_started.emit()
         self.scan_requested.emit(req)
+
+    def start_batch(self, req: BatchRequest) -> None:
+        """Start a frame-range batch scan over a roll/strip feeder."""
+        self.scan_worker.prepare_scan()
+        self.scan_started.emit()
+        self.scan_batch_requested.emit(req)
+
+    def start_roll_preview(self, req: RollPreviewRequest) -> None:
+        """Preview strip slots (results via scan_roll_preview_ready, then
+        scan_roll_preview_finished). No scan_started — preview is dialog-local."""
+        self.scan_worker.prepare_scan()
+        self.scan_roll_preview_requested.emit(req)
+
+    def eject_scanner(self, device_id: str) -> None:
+        """Trigger the scanner's eject action on the worker thread."""
+        self.scan_eject_requested.emit(device_id)
 
     def cancel_scan(self) -> None:
         self.scan_worker.cancel()
@@ -2061,6 +2101,13 @@ class AppController(QObject):
         self.scan_finished.emit(path)
         self._pending_scanned_file = path
         self.request_asset_discovery([path])
+
+    def _on_scan_batch_finished(self, paths: list) -> None:
+        """Import every frame a batch completed, including a stopped or failed run."""
+        self.scan_batch_finished.emit(paths)
+        if paths:
+            self._pending_scanned_file = paths[-1]
+            self.request_asset_discovery(list(paths))
 
     def _select_file_by_path(self, path: str) -> bool:
         """Find a file by path in uploaded_files and select it."""
@@ -2220,6 +2267,24 @@ class AppController(QObject):
         if p.narrowband_scan:
             return get_resource_path("icc/RGBScan.icc")
         return None
+
+    def display_transform_params(self, splash: bool = False) -> tuple[str, Optional[bytes]]:
+        """Source space + monitor profile to hand the display transform for the
+        current render, as ``(color_space, monitor_icc_bytes)``.
+
+        Single source of truth for every consumer of a rendered buffer — the canvas
+        and the filmstrip thumbnail must agree, or the same frame shows two different
+        colours. With a proof active the render worker already baked
+        source→output→monitor into the buffer, so the transform has to be a no-op
+        (sRGB→sRGB, no monitor profile); treating that buffer as working-space instead
+        re-applies the working→sRGB conversion and blows the saturation out. ``splash``
+        marks the embedded camera thumbnail, which is already sRGB.
+        """
+        if splash:
+            return ColorSpace.SRGB.value, self.state.monitor_icc_bytes
+        if self.proof_active():
+            return ColorSpace.SRGB.value, None
+        return self.state.workspace_color_space, self.state.monitor_icc_bytes
 
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or
@@ -3073,12 +3138,16 @@ class AppController(QObject):
         if buffer is None or not isinstance(buffer, np.ndarray):
             return
 
+        # Same transform the canvas used for this buffer, so the filmstrip and the
+        # canvas can't disagree about the frame's colour.
+        display_cs, monitor_bytes = self.display_transform_params(splash=bool(metrics.get("splash")))
         self.thumbnail_update_requested.emit(
             ThumbnailUpdateTask(
                 filename=os.path.basename(self.state.current_file_path),
                 file_hash=self.state.current_file_hash,
                 buffer=buffer,
-                color_space=self.state.workspace_color_space,
+                color_space=display_cs,
+                monitor_icc_bytes=monitor_bytes,
                 persist=persist,
             )
         )

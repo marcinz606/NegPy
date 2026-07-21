@@ -72,9 +72,10 @@ _MANUAL_PRESET = "\x00create-manual"
 
 
 # LED settle before each exposure. Narrowband PWM LEDs reach full brightness in <10 ms
-# and the serial set_color round-trip is ~5-20 ms, so 150 ms is a safe margin (the old
-# 400 ms was conservative). A fixed tuning constant, not a user/persisted setting.
-_LED_SETTLE_S = 0.15
+# and set_color is a fire-and-forget serial write (~1 ms on the wire at 115200 baud plus
+# CDC scheduling), so 50 ms still carries an order-of-magnitude margin (150/400 ms before
+# were conservatism). A fixed tuning constant, not a user/persisted setting.
+_LED_SETTLE_S = 0.05
 
 
 class _NoWheel(QObject):
@@ -396,6 +397,7 @@ class ScanlightSidebar(QWidget):
 
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
+        self.controller.capture_channel.connect(self._on_channel)
         self.controller.capture_finished.connect(self._on_finished)
         self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
@@ -406,6 +408,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_calibration_exposure.connect(self._on_calibration_exposure)
         self.controller.connection_polled.connect(self._on_poll_status)
         self.controller.light_temp_polled.connect(self._on_light_temp)
+        self.controller.batch_started.connect(self._keep_scan_windows_on_top)
         # Pop-up toolbar mirrors the panel actions (scan a roll without tab-switching).
         self.lv_window.scanRequested.connect(self._on_scan)
         self.lv_window.retakeRequested.connect(self._on_retake)
@@ -897,6 +900,15 @@ class ScanlightSidebar(QWidget):
             self.lv_btn.setChecked(False)  # stops live view via _on_live_view_toggled(False)
         self._maybe_release_camera_session(closing=self.lv_window)
 
+    def _keep_scan_windows_on_top(self, _title: str, _abortable: bool) -> None:
+        """The batch progress popup shows itself with raise_() on every batch — including the
+        per-frame "Hashing files"/"Generating thumbnails" imports after a capture — which puts
+        it over the live-view pop-up and reads as "wait here" mid-roll. Re-raise the operator's
+        open scan windows one event-loop turn later (the popup's own raise_() runs first)."""
+        for window in (self.lv_window, self.calib_window):
+            if window.isVisible():
+                QTimer.singleShot(0, window.raise_)
+
     def _refresh_live_view(self) -> None:
         if not self._lv_jpeg_path:
             return
@@ -1234,18 +1246,29 @@ class ScanlightSidebar(QWidget):
             aperture=s.aperture if rgb and not s.white_mode else "",
         )
         self.set_scanning(True)
+        if rgb and not req.white_mode:
+            # Triplet progress arrives only after each channel (~1.4 s apart); show the bar
+            # at 0% right away so the click has immediate feedback. White/normal captures
+            # emit no progress events, so a bar would just sit at 0% — skip it there.
+            self.lv_window.set_progress(0.0)
         self.controller.start_capture(req)
 
     @pyqtSlot(float)
     def _on_progress(self, progress: float) -> None:
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(int(progress * 100))
+        self.lv_window.set_progress(progress)
+
+    @pyqtSlot(str)
+    def _on_channel(self, letter: str) -> None:
+        self.lv_window.set_channel(letter)
 
     @pyqtSlot(list)
     def _on_finished(self, paths: list) -> None:
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
         frame = paths[0].split("_Frame")[-1][:3] if paths else ""
+        self.lv_window.flash_captured(frame)
         self._set_status(f"Captured frame {frame} — inverting in NegPy…")
         self._after_capture_live_view()  # re-light the still-running preview
 
@@ -1253,6 +1276,7 @@ class ScanlightSidebar(QWidget):
     def _on_cancelled(self) -> None:
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
+        self.lv_window.clear_progress()
         if self._calibrating_preset:
             self._finish_calibration_terminal("Calibration cancelled.")
             self._set_status("Calibration cancelled.")
@@ -1275,6 +1299,7 @@ class ScanlightSidebar(QWidget):
     def _on_error(self, msg: str) -> None:
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
+        self.lv_window.clear_progress()
         if self._calibrating_preset:
             # New-preset calibration failed: report in the pop-up, drop back to the scan target.
             self._finish_calibration_terminal(f"Calibration failed: {msg}")

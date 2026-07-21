@@ -8,14 +8,36 @@ struct LabUniforms {
     glow_amount: f32,
     halation_strength: f32,
     scale_factor: f32,
+    sharpen_radius_px: f32,
+    sharpen_masking: f32,
+    sharpen_method: f32,
     _pad1: f32,
+    _pad2: f32,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: LabUniforms;
+// USM: (blurred L*, original L*) from lab_sharpen_h/v.wgsl.
+// RL:  (deconvolved Y, observed Y) from the rl_*.wgsl chain. 1x1 dummy when sharpen=0.
+@group(0) @binding(3) var sharpen_tex: texture_2d<f32>;
+
+// Sharpen constants — mirrored from features/lab/logic.py.
+const SHARPEN_GATE_LO = 1.5;
+const SHARPEN_GATE_HI = 2.0;
+const SHARPEN_OVERSHOOT_LIGHT = 1.0;
+const SHARPEN_OVERSHOOT_DARK = 2.0;
+const SHARPEN_MASK_T_HI = 10.0;
+const RL_EPS = 1e-6;
 
 const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
+
+// CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors _lab_l_from_y in logic.py.
+fn lab_l_from_y(y_in: f32) -> f32 {
+    var y = max(y_in, 0.0);
+    if (y > 0.008856) { y = pow(y, 1.0 / 3.0); } else { y = (7.787 * y) + (16.0 / 116.0); }
+    return (116.0 * y) - 16.0;
+}
 
 // 64-tap Fibonacci spiral — uniform area coverage, smooth Gaussian approximation.
 // Points lie in the unit disk; scale by the desired pixel radius when sampling.
@@ -103,15 +125,6 @@ fn oetf_decode(c: vec3<f32>) -> vec3<f32> {
 
 fn load_lin(coords: vec2<i32>) -> vec3<f32> {
     return oetf_decode(textureLoad(input_tex, coords, 0).rgb);
-}
-
-// cv2's default border mode (BORDER_REFLECT_101, no repeated edge pixel) —
-// matches the CPU sharpen blur (cv2.GaussianBlur) at the image border.
-fn reflect_101(c: i32, n: i32) -> i32 {
-    var v = c;
-    if (v < 0) { v = -v; }
-    if (v >= n) { v = 2 * (n - 1) - v; }
-    return clamp(v, 0, n - 1);
 }
 
 fn rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
@@ -246,47 +259,79 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color = lab_to_rgb(lab);
     }
 
-    // 5. Sharpening
-    if (params.sharpen > 0.0) {
-        // Sigma tracks scale_factor, matching the CPU blur
-        // (cv2.GaussianBlur sigma = 1.0 * scale_factor, kernel shrinking with it) —
-        // a fixed sigma=1.0 here over-blurred small preview renders relative to CPU,
-        // inflating the USM diff and drifting the result on hard edges.
-        let sharpen_sigma = max(0.0001, params.scale_factor);
-        let inv_two_sigma2 = 1.0 / (2.0 * sharpen_sigma * sharpen_sigma);
-        var blur_l = 0.0;
-        var blur_weight_sum = 0.0;
-        for (var j = -2; j <= 2; j++) {
-            for (var i = -2; i <= 2; i++) {
-                let sample_coords = vec2<i32>(
-                    reflect_101(coords.x + i, i32(dims.x)),
-                    reflect_101(coords.y + j, i32(dims.y)),
-                );
-                let sample_color = load_lin(sample_coords);
-                let weight = exp(-f32(i * i + j * j) * inv_two_sigma2);
-                blur_l += rgb_to_lab(sample_color).x * weight;
-                blur_weight_sum += weight;
-            }
-        }
-        blur_l = blur_l / blur_weight_sum;
-        // Blur neighbours sample input_tex (pre chroma-denoise/vibrance/saturation) —
-        // those stages only ever rewrite a*/b*, never L*, so blur_l matches the L*
-        // the current `color` would blur to regardless. The centre uses `color`
-        // itself (CIELAB L*, not a gamma-luma proxy) so the noise-gate threshold
-        // below matches the CPU kernel's units exactly (_apply_unsharp_mask_jit),
-        // and its a*/b* carry forward unchanged — a real Lab merge like the CPU's,
-        // not an RGB-ratio scale (which drifts hue/sat on saturated edges).
+    // 5. Sharpening — sharpen_tex holds precomputed state from the h/v (USM) or
+    // rl_*.wgsl (deconvolution) passes over input_tex, which the earlier
+    // chroma/vibrance/saturation stages never touch in L*/Y (they only rewrite
+    // a*/b*), so the state matches what `color` would produce.
+    if (params.sharpen > 0.0 && params.sharpen_method < 0.5) {
+        // Unsharp mask — mirrors apply_output_sharpening in logic.py.
+        let blur_l = textureLoad(sharpen_tex, coords, 0).x;
         let current_lab = rgb_to_lab(color);
         let diff = current_lab.x - blur_l;
-        // Noise gate: mirrors the CPU unsharp mask's threshold=2.0 (L* units) so
-        // near-flat regions aren't amplified. Ramped over [1.5, 2.0] rather than a
-        // hard cutoff — the GPU's Gaussian blur only approximates cv2's, so a hard
-        // edge would flip sign on pixels straddling the boundary; a smoothstep ramp
-        // keeps those pixels close to the CPU result instead of snapping to it.
-        let gate = smoothstep(1.5, 2.0, abs(diff));
-        let amount = params.sharpen * 2.5;
-        let sharpened_l = clamp(current_lab.x + diff * amount * gate, 0.0, 100.0);
-        color = lab_to_rgb(vec3<f32>(sharpened_l, current_lab.y, current_lab.z));
+        let gate = smoothstep(SHARPEN_GATE_LO, SHARPEN_GATE_HI, abs(diff));
+        var gain = params.sharpen * 2.5 * gate;
+
+        // Local 3x3 stats over the original L* (sharpen_tex.y), clamped coords —
+        // matches the CPU's BORDER_REPLICATE erode/dilate and boxed gradient.
+        var l_min = 1e9;
+        var l_max = -1e9;
+        var grad_box = 0.0;
+        for (var j = -1; j <= 1; j++) {
+            for (var i = -1; i <= 1; i++) {
+                let p = clamp(coords + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(dims) - 1);
+                let lv = textureLoad(sharpen_tex, p, 0).y;
+                l_min = min(l_min, lv);
+                l_max = max(l_max, lv);
+                if (params.sharpen_masking > 0.0) {
+                    let px = clamp(p + vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let mx = clamp(p - vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let py = clamp(p + vec2<i32>(0, 1), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let my = clamp(p - vec2<i32>(0, 1), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let gx = (textureLoad(sharpen_tex, px, 0).y - textureLoad(sharpen_tex, mx, 0).y) * 0.5;
+                    let gy = (textureLoad(sharpen_tex, py, 0).y - textureLoad(sharpen_tex, my, 0).y) * 0.5;
+                    grad_box += sqrt(gx * gx + gy * gy);
+                }
+            }
+        }
+
+        // Edge mask: sharpening ramps in with local gradient; higher masking
+        // raises the bar, protecting flat areas (sky, skin, grain).
+        if (params.sharpen_masking > 0.0) {
+            let t = SHARPEN_MASK_T_HI * params.sharpen_masking;
+            gain = gain * smoothstep(0.5 * t, t, (grad_box / 9.0) * params.scale_factor);
+        }
+
+        // Overshoot clamp to the local range kills halos; tighter above than
+        // below because L*-domain USM exaggerates light halos.
+        var l_new = current_lab.x + diff * gain;
+        l_new = clamp(l_new, l_min - SHARPEN_OVERSHOOT_DARK, l_max + SHARPEN_OVERSHOOT_LIGHT);
+        l_new = clamp(l_new, 0.0, 100.0);
+        color = lab_to_rgb(vec3<f32>(l_new, current_lab.y, current_lab.z));
+    } else if (params.sharpen > 0.0) {
+        // Richardson-Lucy — mirrors apply_rl_sharpening in logic.py. sharpen_tex
+        // is (deconvolved Y, observed Y); apply the luminance ratio to RGB
+        // (chroma-preserving), gated by the shared edge mask over L*(obs).
+        let d = textureLoad(sharpen_tex, coords, 0);
+        var gain = params.sharpen;
+        if (params.sharpen_masking > 0.0) {
+            var grad_box = 0.0;
+            for (var j = -1; j <= 1; j++) {
+                for (var i = -1; i <= 1; i++) {
+                    let p = clamp(coords + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let px = clamp(p + vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let mx = clamp(p - vec2<i32>(1, 0), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let py = clamp(p + vec2<i32>(0, 1), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let my = clamp(p - vec2<i32>(0, 1), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let gx = (lab_l_from_y(textureLoad(sharpen_tex, px, 0).y) - lab_l_from_y(textureLoad(sharpen_tex, mx, 0).y)) * 0.5;
+                    let gy = (lab_l_from_y(textureLoad(sharpen_tex, py, 0).y) - lab_l_from_y(textureLoad(sharpen_tex, my, 0).y)) * 0.5;
+                    grad_box += sqrt(gx * gx + gy * gy);
+                }
+            }
+            let t = SHARPEN_MASK_T_HI * params.sharpen_masking;
+            gain = gain * smoothstep(0.5 * t, t, (grad_box / 9.0) * params.scale_factor);
+        }
+        let ratio = d.x / max(d.y, RL_EPS);
+        color = color * max(1.0 + (ratio - 1.0) * gain, 0.0);
     }
 
     // 6. Glow and Halation

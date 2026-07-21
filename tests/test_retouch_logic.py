@@ -8,12 +8,14 @@ from negpy.features.retouch.logic import (
     _mask_to_strokes,
     _pick_source_offsets,
     apply_hair_inpaint,
+    apply_ir_reconstruction,
     apply_manual_heals,
     build_heal_regions,
-    detect_ir_regions,
     detect_luma_regions,
     hair_bake_token,
+    ir_defect_score,
     normalize_ir,
+    route_ir_defects,
     select_source_offset,
 )
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
@@ -407,37 +409,29 @@ def test_detect_luma_regions_clean_frame_is_empty():
     assert detect_luma_regions(img, 0.66, 4)[0] == []
 
 
-def test_detect_ir_regions_speck_ungated():
-    ir = np.full((120, 120), 0.9, dtype=np.float32)
-    ir[60:63, 60:63] = 0.1
-    strokes, _ = detect_ir_regions(normalize_ir(ir), 0.5)
-    assert len(strokes) == 1
-    pts, size, sdx, sdy, gate = strokes[0]
-    assert gate == 0.0
-    assert abs(pts[0][0] - 61.5 / 120) < 0.02
-    json.dumps(strokes)
-
-
-def test_detect_ir_long_scratch_routes_to_hair_mask():
-    """A long twisted scratch no longer becomes a membrane capsule — it goes to the
-    structure-following inpaint mask (a single clone offset can't track a long twist)."""
+def test_ir_long_scratch_is_healed_by_the_fill():
+    """A long thin scratch stays with the score-weighted fill (every pixel sits within
+    reach of clean film) and is actually rebuilt — the #563 'cloned blobs' came from
+    handing this class to a single-offset membrane clone."""
     ir = np.full((200, 200), 0.9, dtype=np.float32)
+    img = np.clip(np.random.default_rng(4).normal(0.5, 0.01, (200, 200, 3)), 0, 1).astype(np.float32)
     for t in range(80):
         x, y = 40 + t, 60 + t // 2
         ir[y : y + 2, x : x + 2] = 0.1
-    strokes, hair = detect_ir_regions(normalize_ir(ir), 0.5)
-    assert strokes == [], "a long hair must not synthesize a clone stroke"
-    assert hair is not None and int(hair.sum()) > 0
+        img[y : y + 2, x : x + 2] = 0.06
+    score = ir_defect_score(normalize_ir(ir), 0.5)
+    assert route_ir_defects(score) is None, "thin: the fill's job, not the inpaint's"
+    out = np.asarray(apply_ir_reconstruction(img, score))
+    scratch = img[:, :, 0] < 0.1
+    assert float(out[scratch].min()) > 0.35, "the scratch is rebuilt from its flanks"
 
 
-def test_detect_ir_mild_elongation_still_capsule():
-    """Mildly elongated dust (below the hair bar) keeps its grain-preserving membrane
-    capsule — only strong hairs route to inpaint."""
+def test_ir_mild_speck_stays_with_the_fill():
+    """Small defects stay with the score-weighted fill — routing is reserved for
+    components the fill's support can't see across."""
     ir = np.full((120, 120), 0.9, dtype=np.float32)
-    ir[60:62, 55:66] = 0.1  # ~11px long, ~1px wide: mild elongation
-    strokes, hair = detect_ir_regions(normalize_ir(ir), 0.5)
-    assert hair is None
-    assert len(strokes) == 1 and len(strokes[0][0]) >= 2, "mild scratch should be a polyline capsule"
+    ir[60:62, 55:66] = 0.1  # ~11px long, ~1px wide: well inside the fill's reach
+    assert route_ir_defects(ir_defect_score(normalize_ir(ir), 0.5)) is None
 
 
 def test_pick_source_offsets_footprint_is_mask_free():

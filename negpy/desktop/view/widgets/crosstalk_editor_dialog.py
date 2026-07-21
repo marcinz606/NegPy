@@ -264,7 +264,7 @@ class CrosstalkEditorDialog(QDialog):
                     grid.addWidget(dash, r + 2, c + 2)
                     row_cells.append(None)
                     continue
-                sld = CompactSlider("", -0.25, 0.25, 0.0, step=0.001, precision=1000, has_neutral=True)
+                sld = CompactSlider("", -0.5, 0.5, 0.0, step=0.001, precision=1000, has_neutral=True)
                 sld.spin.setDecimals(3)
                 sld.valueChanged.connect(lambda _v: self._emit_preview())
                 grid.addWidget(sld, r + 2, c + 2)
