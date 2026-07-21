@@ -262,6 +262,9 @@ class ActionToolbar(QWidget):
         )
         overflow_menu.addSeparator()
 
+        overflow_menu.addAction(qta.icon("fa5s.database", color=icon_color), "Manage Database…", self._show_database_dialog)
+        overflow_menu.addSeparator()
+
         overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the tour", self._show_tour)
         overflow_menu.addAction(qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts  ?", self._show_shortcuts)
         self.btn_overflow.setMenu(overflow_menu)
@@ -530,6 +533,11 @@ class ActionToolbar(QWidget):
 
         dlg = ShortcutsOverlay(self.window().shortcut_manager, self.window())
         dlg.exec()
+
+    def _show_database_dialog(self) -> None:
+        from negpy.desktop.view.widgets.database_dialog import DatabaseDialog
+
+        DatabaseDialog(self.session.repo, self.window()).exec()
 
     def _update_ui_state(self) -> None:
         state = self.session.state

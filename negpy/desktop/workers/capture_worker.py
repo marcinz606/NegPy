@@ -74,6 +74,9 @@ class CaptureWorker(QObject):
     light_set = pyqtSignal(int, int, int, int)  # r, g, b, w actually applied
     progress = pyqtSignal(float)  # 0.0..1.0
     channel = pyqtSignal(str)  # "R"/"G"/"B" as each triplet channel starts
+    #: One set_camera_setting call ran to completion — verified, rejected, or skipped without a
+    #: session. Always fires, so the sidebar's pending-write gate on Scan can never stick.
+    camera_setting_applied = pyqtSignal(str)
     finished = pyqtSignal(list)  # [red_path, green_path, blue_path]
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
@@ -427,16 +430,17 @@ class CaptureWorker(QObject):
     def set_camera_setting(self, which: str, raw: int) -> None:
         """Change a live camera setting (iso/shutter/wb/aperture); `raw` is a choice index."""
         try:
-            if not self._holds_camera():
-                return
-            cam = self._camera
-            {
-                "iso": cam.set_iso,
-                "shutter": cam.set_shutter,
-                "aperture": cam.set_aperture,
-            }.get(which, lambda _r: None)(raw)
+            if self._holds_camera():
+                cam = self._camera
+                {
+                    "iso": cam.set_iso,
+                    "shutter": cam.set_shutter,
+                    "aperture": cam.set_aperture,
+                }.get(which, lambda _r: None)(raw)
         except Exception as exc:  # noqa: BLE001 — exceptions cannot cross a Qt slot
             self._camera_control_failed("set_camera_setting", exc)
+        finally:
+            self.camera_setting_applied.emit(which)
 
     # ----- calibration -----
 

@@ -11,6 +11,7 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.stitch.models import StitchConfig
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
@@ -421,6 +422,27 @@ def resolve_asset_rgbscan(params: WorkspaceConfig, asset: dict) -> WorkspaceConf
     return replace(params, rgbscan=RgbScanConfig())
 
 
+def resolve_asset_stitch(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
+    """Overlay a composite's stored registration (from the asset dict — the authoritative
+    source) onto its params. A non-stitch asset gets stitch reset so a plain frame never
+    inherits a leaked composite config. Session/JSON round-trips lists — coerce to tuples
+    so the frozen config stays hashable."""
+    paths = asset.get("stitch_paths")
+    if paths:
+        canvas = asset.get("stitch_canvas") or (0, 0)
+        return replace(
+            params,
+            stitch=StitchConfig(
+                stitch_enabled=True,
+                stitch_paths=tuple(paths),
+                stitch_transforms=tuple(tuple(float(v) for v in t) for t in asset.get("stitch_transforms") or ()),
+                stitch_canvas=(int(canvas[0]), int(canvas[1])),
+                stitch_sizes=tuple((int(s[0]), int(s[1])) for s in asset.get("stitch_sizes") or ()),
+            ),
+        )
+    return replace(params, stitch=StitchConfig())
+
+
 class DesktopSessionManager(QObject):
     """
     Manages application state, file list, and configuration persistence.
@@ -776,7 +798,7 @@ class DesktopSessionManager(QObject):
             config = self._apply_sticky_settings(saved_config, only_global=True)
         else:
             config = self._apply_sticky_settings(WorkspaceConfig(), only_global=False)
-        return resolve_asset_rgbscan(config, asset), is_new
+        return resolve_asset_stitch(resolve_asset_rgbscan(config, asset), asset), is_new
 
     def config_for_asset(self, asset: dict) -> WorkspaceConfig:
         """Return an asset's hydrated config without changing the active session state.
@@ -1101,6 +1123,20 @@ class DesktopSessionManager(QObject):
             if f.get("green_path") and f.get("blue_path")
         }
         self.repo.save_global_setting("session_triplets", triplets)
+        # Stitch composites keep their parts + registration here so restore can rebuild
+        # the merged asset without re-running SIFT (re-discovery sees only the primary).
+        stitches = {
+            f["path"]: {
+                "paths": list(f["stitch_paths"]),
+                "transforms": [list(t) for t in f["stitch_transforms"]],
+                "canvas": list(f["stitch_canvas"]),
+                "sizes": [list(s) for s in f["stitch_sizes"]],
+                "hash": f["hash"],
+            }
+            for f in self.state.uploaded_files
+            if f.get("stitch_paths")
+        }
+        self.repo.save_global_setting("session_stitches", stitches)
 
     def add_files(self, file_paths: List[str], validated_info: Optional[List[Dict]] = None) -> None:
         """
@@ -1156,6 +1192,26 @@ class DesktopSessionManager(QObject):
         self.asset_model.refresh()
         self.files_changed.emit()
         self._persist_session()
+
+    def apply_stitch(self, indices: List[int], composite: dict) -> None:
+        """Replace the part assets with their stitched composite (inserted at the first
+        part's position), then open it. Part edits stay in the DB under their content
+        hashes, so an unstitch restores them intact."""
+        valid = sorted({i for i in indices if 0 <= i < len(self.state.uploaded_files)})
+        if not valid:
+            return
+        pos = valid[0]
+        for i in reversed(valid):
+            removed = self.state.uploaded_files.pop(i)
+            self.state.thumbnails.pop(removed["name"], None)
+        marks = self.repo.load_file_marks()
+        m = marks.get(composite["hash"])
+        composite = {**composite, "keeper": m == "keeper", "excluded": m == "excluded"}
+        self.state.uploaded_files.insert(pos, composite)
+        self.asset_model.refresh()
+        self.files_changed.emit()
+        self._persist_session()
+        self.select_file(pos)
 
     def set_triplet(self, index: int, red_path: str, green_path: str, blue_path: str, align: bool = True) -> None:
         """Reassign the R/G/B exposures of an RGB-scan asset, then reload it."""

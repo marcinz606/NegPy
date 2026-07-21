@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
+from negpy.desktop.view.widgets.contact_sheet_colors_dialog import ContactSheetColorsDialog
 from negpy.desktop.view.styles.templates import (
     default_button_height,
     field_label,
@@ -187,6 +188,8 @@ class ExportSidebar(BaseSidebar):
         content_layout.addWidget(self.cs_save_template_btn)
 
         initial_layout = self._contact_sheet_layout_for_config(conf)
+        self._cs_background_color = initial_layout.background_color
+        self._cs_label_color = initial_layout.label_color
 
         def _labeled_spinbox(label: str, value: int, lo: int, hi: int) -> QSpinBox:
             row = QHBoxLayout()
@@ -203,6 +206,23 @@ class ExportSidebar(BaseSidebar):
         self.cs_gap_input = _labeled_spinbox("Gap px", initial_layout.gap, 0, 200)
         self.cs_margin_input = _labeled_spinbox("Margin px", initial_layout.margin, 0, 500)
         self.cs_max_tiles_input = _labeled_spinbox("Max tiles", initial_layout.max_tiles, 1, 200)
+
+        self.cs_show_labels_checkbox = QCheckBox("Show filenames")
+        self.cs_show_labels_checkbox.setChecked(initial_layout.show_labels)
+        self.cs_show_labels_checkbox.setToolTip("Print each frame's original filename below its thumbnail")
+        self.cs_show_labels_checkbox.stateChanged.connect(self._on_contact_sheet_settings_changed)
+        content_layout.addWidget(self.cs_show_labels_checkbox)
+
+        colors_row = QHBoxLayout()
+        colors_label = field_label("Colours")
+        colors_label.setFixedWidth(90)
+        colors_row.addWidget(colors_label)
+        self.cs_colors_btn = QPushButton(" Choose…")
+        self.cs_colors_btn.setToolTip("Background and label colours")
+        self._update_cs_colors_btn_tooltip()
+        self.cs_colors_btn.clicked.connect(self._on_cs_colors_clicked)
+        colors_row.addWidget(self.cs_colors_btn, 1)
+        content_layout.addLayout(colors_row)
 
         self._refresh_contact_sheet_templates()
         saved_template = conf.contact_sheet_template.strip()
@@ -254,6 +274,25 @@ class ExportSidebar(BaseSidebar):
         if path:
             self.cs_output_path_edit.setText(path)
 
+    def _update_cs_colors_btn_tooltip(self) -> None:
+        self.cs_colors_btn.setToolTip(
+            f"Background {self._cs_background_color}, labels {self._cs_label_color}"
+        )
+
+    def _on_cs_colors_clicked(self) -> None:
+        try:
+            dlg = ContactSheetColorsDialog(self._cs_background_color, self._cs_label_color, self)
+            if not dlg.exec():
+                return
+            bg, label = dlg.colors()
+        except Exception as exc:
+            QMessageBox.critical(self, "Contact Sheet Colours", f"Could not open colour picker:\n{exc}")
+            return
+        self._cs_background_color = bg
+        self._cs_label_color = label
+        self._update_cs_colors_btn_tooltip()
+        self._on_contact_sheet_settings_changed()
+
     def _contact_sheet_layout_for_config(self, conf) -> ContactSheetLayout:
         saved_template = conf.contact_sheet_template.strip()
         if saved_template and saved_template in ContactSheetTemplates.list_templates():
@@ -279,6 +318,9 @@ class ExportSidebar(BaseSidebar):
             gap=self.cs_gap_input.value(),
             margin=self.cs_margin_input.value(),
             max_tiles=self.cs_max_tiles_input.value(),
+            show_labels=self.cs_show_labels_checkbox.isChecked(),
+            background_color=self._cs_background_color,
+            label_color=self._cs_label_color,
         )
 
     def _apply_contact_sheet_layout(self, layout: ContactSheetLayout) -> None:
@@ -288,6 +330,10 @@ class ExportSidebar(BaseSidebar):
             self.cs_gap_input.setValue(layout.gap)
             self.cs_margin_input.setValue(layout.margin)
             self.cs_max_tiles_input.setValue(layout.max_tiles)
+            self.cs_show_labels_checkbox.setChecked(layout.show_labels)
+            self._cs_background_color = layout.background_color
+            self._cs_label_color = layout.label_color
+            self._update_cs_colors_btn_tooltip()
         finally:
             self._cs_syncing = False
 
@@ -298,6 +344,9 @@ class ExportSidebar(BaseSidebar):
         return name
 
     def _on_contact_sheet_layout_changed(self, _value: int) -> None:
+        self._on_contact_sheet_settings_changed()
+
+    def _on_contact_sheet_settings_changed(self) -> None:
         if self._cs_syncing:
             return
         self.update_timer.start()
@@ -917,6 +966,10 @@ class ExportSidebar(BaseSidebar):
             self.cs_gap_input.setValue(layout.gap)
             self.cs_margin_input.setValue(layout.margin)
             self.cs_max_tiles_input.setValue(layout.max_tiles)
+            self.cs_show_labels_checkbox.setChecked(layout.show_labels)
+            self._cs_background_color = layout.background_color
+            self._cs_label_color = layout.label_color
+            self._update_cs_colors_btn_tooltip()
             self.cs_output_path_edit.setText(conf.contact_sheet_output_path)
             self.sidecars_enabled_btn.setChecked(conf.export_sidecars_enabled)
             self._refresh_contact_sheet_templates()
@@ -949,6 +1002,8 @@ class ExportSidebar(BaseSidebar):
             self.cs_gap_input,
             self.cs_margin_input,
             self.cs_max_tiles_input,
+            self.cs_show_labels_checkbox,
+            self.cs_colors_btn,
             self.cs_output_path_edit,
             self.cs_template_combo,
             self.sidecars_enabled_btn,

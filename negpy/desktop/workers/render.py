@@ -118,6 +118,7 @@ class AssetDiscoveryTask:
     rgb_scan: bool = False  # Group discovered files into R/G/B triplets (one asset per frame).
     restore_triplets: dict | None = None  # {red_path: [green, blue]} — rebuild known triplets (session restore).
     half_frame: bool = False  # Expand each file into two half-frame assets (left/right).
+    restore_stitches: dict | None = None  # {primary_path: {paths, transforms, canvas, sizes, hash}} (session restore).
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,11 @@ class PreviewLoadTask:
     green_path: str = ""  # RGB-scan triplet: green/blue exposures merged with file_path (red).
     blue_path: str = ""
     align: bool = True  # sub-pixel registration of the triplet
+    stitch_paths: tuple[str, ...] = ()  # stitch composite: non-primary parts + stored registration
+    stitch_transforms: tuple[tuple[float, ...], ...] = ()
+    stitch_canvas: tuple[int, int] = (0, 0)
+    stitch_sizes: tuple[tuple[int, int], ...] = ()
+    flatfield_path: str = ""  # per-part flat-field for stitch previews
 
 
 class RenderWorker(QObject):
@@ -334,6 +340,9 @@ class AssetDiscoveryWorker(QObject):
         elif task.rgb_scan and valid_assets:
             valid_assets = self._group_rgb_triplets(valid_assets)
 
+        if task.restore_stitches and valid_assets:
+            valid_assets = self._attach_restored_stitches(valid_assets, task.restore_stitches)
+
         if task.half_frame and valid_assets:
             valid_assets = self._expand_half_frames(valid_assets)
 
@@ -346,7 +355,7 @@ class AssetDiscoveryWorker(QObject):
 
         out = []
         for i, a in enumerate(assets):
-            if a.get("green_path"):
+            if a.get("green_path") or a.get("stitch_paths"):
                 out.append(a)
                 continue
             self.progress.emit(i + 1, len(assets), f"Split {a['name']}")
@@ -366,6 +375,32 @@ class AssetDiscoveryWorker(QObject):
                 base = os.path.splitext(a["name"])[0]
                 align = bool(gb[2]) if len(gb) > 2 else True
                 out.append({**a, "name": f"{base} (RGB)", "green_path": gb[0], "blue_path": gb[1], "align": align})
+            else:
+                out.append(a)
+        return out
+
+    def _attach_restored_stitches(self, assets: list, stitches: dict) -> list:
+        """Re-attach saved stitch registrations to restored primary assets (no re-registration).
+        A composite whose parts vanished from disk restores as a plain asset."""
+        import os
+
+        from negpy.features.stitch.models import stitch_name
+
+        out = []
+        for a in assets:
+            entry = stitches.get(a["path"])
+            if entry and entry.get("paths") and all(os.path.exists(p) for p in entry["paths"]):
+                out.append(
+                    {
+                        **a,
+                        "name": stitch_name([a["path"], *entry["paths"]]),
+                        "hash": entry["hash"],
+                        "stitch_paths": tuple(entry["paths"]),
+                        "stitch_transforms": tuple(tuple(float(v) for v in t) for t in entry["transforms"]),
+                        "stitch_canvas": (int(entry["canvas"][0]), int(entry["canvas"][1])),
+                        "stitch_sizes": tuple((int(s[0]), int(s[1])) for s in entry["sizes"]),
+                    }
+                )
             else:
                 out.append(a)
         return out
@@ -435,6 +470,37 @@ class PreviewLoadWorker(QObject):
             return
         t0 = time.perf_counter()
         try:
+            if task.stitch_paths:
+                # Stitch composite: replay the stored registration at preview scale.
+                # No splash — the primary's embedded JPEG would flash a half frame.
+                from negpy.features.stitch.models import StitchConfig
+
+                stitch_cfg = StitchConfig(
+                    stitch_enabled=True,
+                    stitch_paths=task.stitch_paths,
+                    stitch_transforms=task.stitch_transforms,
+                    stitch_canvas=task.stitch_canvas,
+                    stitch_sizes=task.stitch_sizes,
+                )
+                raw, dims, metadata = self._preview_service.load_linear_preview_stitch(
+                    task.file_path,
+                    stitch_cfg,
+                    task.workspace_color_space,
+                    use_camera_wb=task.use_camera_wb,
+                    full_resolution=task.full_resolution,
+                    file_hash=task.file_hash,
+                    flatfield_path=task.flatfield_path,
+                )
+                source_cs = metadata.get("color_space") or WORKING_COLOR_SPACE
+                ir_preview = metadata.get("ir_preview")
+                detected_mode = self._detect_mode(task, raw) if task.detect_mode else ""
+                logger.info(
+                    "load-timing preview_worker_total %.0fms (stitch load->buffer) %s",
+                    (time.perf_counter() - t0) * 1000,
+                    task.file_path,
+                )
+                self.finished.emit(task.file_path, raw, dims, source_cs, ir_preview, detected_mode)
+                return
             if task.green_path and task.blue_path:
                 # RGB-scan triplet: assemble the frame from the three exposures.
                 # No splash — the red embedded JPEG would flash a red-cast preview.

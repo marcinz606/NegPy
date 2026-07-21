@@ -21,6 +21,9 @@ class ContactSheetLayout:
     gap: int = GAP
     margin: int = MARGIN
     max_tiles: int = MAX_TILES_PER_SHEET
+    show_labels: bool = True
+    background_color: str = "#000000"
+    label_color: str = "#ffffff"
 
 
 def _slugify(name: str) -> str:
@@ -37,6 +40,21 @@ def _clamp_int(value: object, lo: int, hi: int, default: int) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         return default
     return max(lo, min(hi, value))
+
+
+def _parse_hex_color(value: object, default: str) -> str:
+    if not isinstance(value, str):
+        return default
+    h = value.strip()
+    if len(h) == 7 and h[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in h[1:]):
+        return h.lower()
+    return default
+
+
+def _parse_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return default
 
 
 class ContactSheetTemplates:
@@ -85,6 +103,9 @@ class ContactSheetTemplates:
                 gap=_clamp_int(layout_data.get("gap"), *_GAP_RANGE, GAP),
                 margin=_clamp_int(layout_data.get("margin"), *_MARGIN_RANGE, MARGIN),
                 max_tiles=_clamp_int(layout_data.get("max_tiles"), *_MAX_TILES_RANGE, MAX_TILES_PER_SHEET),
+                show_labels=_parse_bool(layout_data.get("show_labels"), True),
+                background_color=_parse_hex_color(layout_data.get("background_color"), "#000000"),
+                label_color=_parse_hex_color(layout_data.get("label_color"), "#ffffff"),
             )
             raw_name = data.get("name")
             if isinstance(raw_name, str) and raw_name.strip():
@@ -114,6 +135,9 @@ class ContactSheetTemplates:
             gap=export.contact_sheet_default_gap,
             margin=export.contact_sheet_default_margin,
             max_tiles=export.contact_sheet_default_max_tiles,
+            show_labels=export.contact_sheet_default_show_labels,
+            background_color=export.contact_sheet_default_background_color,
+            label_color=export.contact_sheet_default_label_color,
         )
         if stored != factory:
             return stored
@@ -123,27 +147,36 @@ class ContactSheetTemplates:
                 gap=export.contact_sheet_gap,
                 margin=export.contact_sheet_margin,
                 max_tiles=export.contact_sheet_max_tiles,
+                show_labels=export.contact_sheet_show_labels,
+                background_color=export.contact_sheet_background_color,
+                label_color=export.contact_sheet_label_color,
             )
             if active != factory:
                 return active
         return factory
 
     @staticmethod
-    def default_layout_field_updates(layout: ContactSheetLayout) -> dict[str, int]:
+    def default_layout_field_updates(layout: ContactSheetLayout) -> dict:
         return {
             "contact_sheet_default_cell_px": layout.cell_px,
             "contact_sheet_default_gap": layout.gap,
             "contact_sheet_default_margin": layout.margin,
             "contact_sheet_default_max_tiles": layout.max_tiles,
+            "contact_sheet_default_show_labels": layout.show_labels,
+            "contact_sheet_default_background_color": layout.background_color,
+            "contact_sheet_default_label_color": layout.label_color,
         }
 
     @staticmethod
-    def active_layout_field_updates(layout: ContactSheetLayout) -> dict[str, int]:
+    def active_layout_field_updates(layout: ContactSheetLayout) -> dict:
         return {
             "contact_sheet_cell_px": layout.cell_px,
             "contact_sheet_gap": layout.gap,
             "contact_sheet_margin": layout.margin,
             "contact_sheet_max_tiles": layout.max_tiles,
+            "contact_sheet_show_labels": layout.show_labels,
+            "contact_sheet_background_color": layout.background_color,
+            "contact_sheet_label_color": layout.label_color,
         }
 
     @staticmethod
@@ -197,6 +230,9 @@ class ContactSheetTemplates:
             f"gap = {layout.gap}\n"
             f"margin = {layout.margin}\n"
             f"max_tiles = {layout.max_tiles}\n"
+            f"show_labels = {'true' if layout.show_labels else 'false'}\n"
+            f'background_color = "{_escape_toml_string(layout.background_color)}"\n'
+            f'label_color = "{_escape_toml_string(layout.label_color)}"\n'
         )
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)

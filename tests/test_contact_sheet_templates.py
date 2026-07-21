@@ -64,12 +64,33 @@ def test_partial_layout_uses_defaults(tmp_path, monkeypatch):
 
 def test_save_writes_readable_template(tmp_path, monkeypatch):
     monkeypatch.setattr(APP_CONFIG, "contact_sheet_templates_dir", str(tmp_path))
-    layout = ContactSheetLayout(cell_px=450, gap=12, margin=24, max_tiles=40)
+    layout = ContactSheetLayout(
+        cell_px=450,
+        gap=12,
+        margin=24,
+        max_tiles=40,
+        show_labels=False,
+        background_color="#1a1a1a",
+        label_color="#cccccc",
+    )
     path = ContactSheetTemplates.save("My Roll", layout)
     assert path.endswith("my_roll.toml")
     assert os.path.isfile(path)
     assert ContactSheetTemplates.list_templates() == ["Default", "My Roll"]
     assert ContactSheetTemplates.get_layout("My Roll") == layout
+
+
+def test_template_parses_label_and_color_fields(tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "contact_sheet_templates_dir", str(tmp_path))
+    _write(
+        os.path.join(tmp_path, "labeled.toml"),
+        'name = "Labeled"\n\n[layout]\ncell_px = 400\nshow_labels = false\n'
+        'background_color = "#112233"\nlabel_color = "#aabbcc"\n',
+    )
+    layout = ContactSheetTemplates.get_layout("Labeled")
+    assert layout.show_labels is False
+    assert layout.background_color == "#112233"
+    assert layout.label_color == "#aabbcc"
 
 
 def test_default_layout_matches_service_defaults():

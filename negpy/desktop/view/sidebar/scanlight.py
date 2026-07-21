@@ -37,7 +37,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.capture.gphoto import default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings
 from negpy.services.capture.calibration import REFERENCE_LEVELS, SHUTTER_CANDIDATES, normalize_start_point, shutter_seconds, usable_ladder
-from negpy.services.capture.presets import PresetStore, ScanlightPreset
+from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
 _CHANNEL_COLORS = {"R": "#E24B4A", "G": "#639922", "B": "#378ADD", "W": "#B4B2A9"}
 
@@ -108,6 +108,9 @@ class ScanlightSidebar(QWidget):
         self._slider_rows: dict = {}  # slider → its row widget, so the W row can be hidden on an RGB-only Scanlight
         self._light_has_white = True  # does the connected Scanlight have a white LED? (False = v1-v3, RGB-only)
         self._suppress_camera_release = False  # true only mid hand-off between lv_window/calib_window
+        # Preset-exposure writes (shutter/ISO/aperture) still in flight on the worker; Scan stays
+        # gated until each is confirmed, so a capture can't race the body's async programming.
+        self._pending_exposure_writes = 0
         self._no_wheel = _NoWheel(self)
 
         self.lv_window = LiveViewWindow(self)
@@ -398,6 +401,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_light_set.connect(self._on_light_set)
         self.controller.capture_progress.connect(self._on_progress)
         self.controller.capture_channel.connect(self._on_channel)
+        self.controller.capture_camera_setting_applied.connect(self._on_camera_setting_applied)
         self.controller.capture_finished.connect(self._on_finished)
         self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
@@ -452,10 +456,16 @@ class ScanlightSidebar(QWidget):
             self.controller.set_scanlight_color(0, 0, 0, self.w_slider.value(), self._settings.port)
         else:
             # Any RGB state — a selected preset, manual building, or framing/focusing in live view —
-            # lights the R/G/B mix from the sliders. The preset's own values are the framing light too
-            # (one light for scanning and focusing), so it works on every Scanlight and never assumes a
+            # lights the R/G/B mix from the sliders, so it works on every Scanlight and never assumes a
             # white LED an RGB-only body lacks. White stays off: the Scanlight can't mix white with RGB.
-            self.controller.set_scanlight_color(self.r_slider.value(), self.g_slider.value(), self.b_slider.value(), 0, self._settings.port)
+            r, g, b = self.r_slider.value(), self.g_slider.value(), self.b_slider.value()
+            if not self._manual_mode and self._preset_selected():
+                # A stored RGB preset frames by its own mix, but dimmed (issue #573): all three
+                # channels burn at once against a single-channel scan exposure, so full levels
+                # blow the live view out. The scan never reads this — capture levels come from
+                # the preset; manual building keeps full levels (the operator is dialling them).
+                r, g, b = framing_levels(r, g, b)
+            self.controller.set_scanlight_color(r, g, b, 0, self._settings.port)
         self._update_settings_from_ui()
 
     def _on_light_off(self) -> None:
@@ -706,8 +716,9 @@ class ScanlightSidebar(QWidget):
         return ""
 
     def _apply_active_preset_camera_settings(self) -> None:
-        """Push the active RGB preset's baked ISO/aperture to the body (no-op for white/built-in
-        presets or no selection). Used when the scan live view comes up after a preset was picked."""
+        """Push the active RGB preset's baked exposure (shutter/ISO/aperture) to the body (no-op for
+        white/built-in presets or no selection). Used when the scan live view comes up after a preset
+        was picked."""
         name = self.preset_combo.currentData()
         if not name or name in _BUILTIN_WHITE_PRESETS:
             return
@@ -716,11 +727,15 @@ class ScanlightSidebar(QWidget):
             self._apply_preset_camera_settings(preset)
 
     def _apply_preset_camera_settings(self, preset) -> None:
-        """Set the body's ISO + aperture to the values baked into the RGB preset, so the scan
-        matches the calibration. Labels are resolved against the live options (a no-op if the value
-        is absent, the body lacks the option, or no camera session is open to receive the write)."""
+        """Set the body's shutter + ISO + aperture to the values baked into the RGB preset, so the
+        scan matches the calibration and the framing brightness is deterministic: the dimmed framing
+        light (see framing_levels) is sized against the preset's shutter, so a body left on some
+        other speed would frame too dark or too bright. Shutter first — it dominates that brightness.
+        Labels are resolved against the live options (a no-op if the value is absent, the body lacks
+        the option, or no camera session is open to receive the write)."""
         data = self._settings_json()
-        for key, label in (("iso", preset.iso), ("aperture", preset.aperture)):
+        issued = 0
+        for key, label in (("shutter", preset.shutter_r), ("iso", preset.iso), ("aperture", preset.aperture)):
             if not label:
                 continue
             info = data.get(key)
@@ -729,7 +744,19 @@ class ScanlightSidebar(QWidget):
             for o in info.get("options", []):
                 if str(o.get("label", "")) == label:
                     self.controller.set_camera_setting(key, int(o["raw"]))
+                    issued += 1
                     break
+        if issued:
+            self._pending_exposure_writes += issued
+            self._apply_gating()  # Scan greys out until the worker confirms every write
+
+    @pyqtSlot(str)
+    def _on_camera_setting_applied(self, _which: str) -> None:
+        if self._pending_exposure_writes == 0:
+            return  # a stepper write from manual/white mode, not one of the gated preset writes
+        self._pending_exposure_writes -= 1
+        if self._pending_exposure_writes == 0:
+            self._apply_gating()
 
     def _available_shutters(self) -> tuple[str, ...]:
         """The camera's writable shutter labels (from the live-view settings JSON), fastest-first,
@@ -1419,6 +1446,8 @@ class ScanlightSidebar(QWidget):
         # queue — and then fire with the exposure the calibration was about to replace.
         if self._calibrating_preset:
             m.append("wait for the calibration to finish")
+        if self._pending_exposure_writes:
+            m.append("wait for the preset exposure to reach the camera")
         if not self._camera_verified:
             m.append("connect the camera")
         if self._rgb_mode:

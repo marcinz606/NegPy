@@ -9,6 +9,25 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 
+#: Framing runs all three channels at once against a single-channel scan exposure, so the
+#: live view blows out at full levels (issue #573). 3 stops ≈ the 3× light plus headroom.
+FRAMING_DIM_STOPS = 3
+
+
+def framing_levels(r: int, g: int, b: int, stops: int = FRAMING_DIM_STOPS) -> tuple[int, int, int]:
+    """The framing-light mix for a scan-level RGB recipe: the same colour, `stops` dimmer.
+
+    Dimming the light rather than speeding the shutter keeps the scan start free of the
+    1-2 s a verified shutter write costs, and works on bodies whose shutter NegPy cannot
+    drive. A lit channel never dims to 0, so the mix keeps its hue at single-digit levels.
+    """
+
+    def dim(level: int) -> int:
+        return max(1, level >> stops) if level > 0 else 0
+
+    return dim(r), dim(g), dim(b)
+
+
 @dataclass(frozen=True)
 class ScanlightPreset:
     """One film stock's capture recipe."""

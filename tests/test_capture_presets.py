@@ -1,6 +1,6 @@
 """Film-stock preset store unit tests (fake repo)."""
 
-from negpy.services.capture.presets import PresetStore, ScanlightPreset
+from negpy.services.capture.presets import PresetStore, ScanlightPreset, framing_levels
 
 
 class FakeRepo:
@@ -56,3 +56,11 @@ def test_legacy_preset_without_exposure_defaults_blank():
     repo.save_global_setting("scanlight_presets", {"Old": {"r_level": 200, "shutter_r": "1/5"}})
     p = PresetStore(repo).get("Old")
     assert p is not None and p.iso == "" and p.aperture == ""
+
+
+def test_framing_levels_dim_three_stops():
+    assert framing_levels(210, 95, 80) == (26, 11, 10)  # the reference start point, 2^3 dimmer
+
+
+def test_framing_levels_keep_lit_channels_lit_and_dark_channels_dark():
+    assert framing_levels(255, 4, 0) == (31, 1, 0)  # a lit channel never dims to 0; off stays off

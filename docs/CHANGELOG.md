@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.41.0
+
+- New: **Stitch multi-shot scans** — select overlapping shots of one frame (e.g. a 6×6 scanned in two halves) on the contact sheet and pick **Stitch selected frames**. Alignment, exposure matching and blending happen on the linear scan data before conversion, so the result develops like a single raw. No new file is written: the composite edits and exports like any frame, and **Unstitch** restores the parts. IR dust data is kept when all parts have it.
+
 ## 0.40.0
 
 - New: **Sharpening rebuilt — Radius, Masking and a new Deconvolution mode** — the Sharpen controls, now in their own section, gain a **Radius** slider (how fine or broad the sharpened detail is), a **Masking** slider (holds sharpening off flat areas like skies and skin so grain and noise stay quiet), and a **Method** dropdown: **Unsharp Mask** (the classic, now with halo suppression on high-contrast edges) or **Deconvolution** (Richardson-Lucy, which models the lens/scan blur in linear light to pull back genuinely soft detail). Existing edits keep their look on Unsharp Mask.

@@ -16,8 +16,12 @@ from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, get_bes
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, uint16_to_float32
 from negpy.kernel.image.validation import ensure_image
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
+from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.retouch.logic import downsample_ir
 from negpy.features.rgbscan.logic import assemble_rgb
+from negpy.features.stitch.logic import stitch_composite
+from negpy.features.stitch.models import StitchConfig, stitch_token
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.preview_cache import PreviewBufferCache, PreviewCacheKey
 
@@ -381,6 +385,56 @@ class PreviewManager:
             # Freshly assembled buffer — cache and caller alias it (read-only contract).
             self._cache.put(merged_key, out, dims, dict(meta))
         return out, dims, meta
+
+    def load_linear_preview_stitch(
+        self,
+        primary_path: str,
+        stitch: StitchConfig,
+        color_space: str | None = None,
+        use_camera_wb: bool = False,
+        full_resolution: bool = False,
+        file_hash: str | None = None,
+        flatfield_path: str = "",
+    ) -> Tuple[ImageBuffer, Dimensions, dict]:
+        """Assemble a stitch composite at preview scale by replaying the stored
+        registration. Flat-field is applied per part here (a composite canvas must
+        never be flat-fielded as one frame), so the pipeline skips its own step.
+
+        Returned dims are the full-resolution canvas, matching the single-file
+        convention of (original height, width) alongside a downsampled buffer.
+        """
+        flatfield = FlatFieldConfig(apply=bool(flatfield_path), reference_path=flatfield_path)
+        key = None
+        if file_hash and color_space is not None:
+            token = stitch_token(stitch)
+            if token:
+                key = PreviewCacheKey(
+                    file_hash=f"stitch|{file_hash}|{token}{flatfield_token(flatfield)}",
+                    use_camera_wb=use_camera_wb,
+                    workspace_color_space=color_space,
+                    full_resolution=full_resolution,
+                )
+                hit = self._cache.get(key)
+                if hit is not None:
+                    return hit  # cache hit — caller must not mutate this buffer
+
+        parts, irs = [], []
+        meta: dict = {}
+        for i, path in enumerate((primary_path, *stitch.stitch_paths)):
+            # file_hash=None: the composite hash is not the parts' content hash.
+            out, _, part_meta = self.load_linear_preview(path, color_space, use_camera_wb, full_resolution, None)
+            parts.append(apply_flatfield(np.asarray(out, dtype=np.float32), flatfield))
+            irs.append(part_meta.get("ir_preview"))
+            if i == 0:
+                meta = dict(part_meta)
+
+        rgb, ir = stitch_composite(parts, irs, stitch)
+        meta["ir_preview"] = ir
+        out_buf = ensure_image(rgb)
+        dims = (stitch.stitch_canvas[1], stitch.stitch_canvas[0])
+        if key is not None:
+            self._cache.put(key, out_buf, dims, meta)
+        return out_buf, dims, meta
 
     def load_splash_and_linear(
         self,

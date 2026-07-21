@@ -193,13 +193,25 @@ class ExportWorker(QObject):
         finally:
             gc.collect()
 
-    @pyqtSlot(list, str, int, int, int, int)
-    def run_contact_sheet(self, tasks: List[ExportTask], out_dir: str, cell_px: int, gap: int, margin: int, max_tiles: int) -> None:
-        """Renders each task small and composites darkroom contact sheet(s) on black."""
+    @pyqtSlot(list, str, int, int, int, int, bool, str, str)
+    def run_contact_sheet(
+        self,
+        tasks: List[ExportTask],
+        out_dir: str,
+        cell_px: int,
+        gap: int,
+        margin: int,
+        max_tiles: int,
+        show_labels: bool,
+        background_color: str,
+        label_color: str,
+    ) -> None:
+        """Renders each task small and composites contact sheet(s)."""
         self._cancel.clear()
         total = len(tasks)
         try:
             tiles = []
+            labels: list[str] = []
             for i, task in enumerate(tasks):
                 if self._cancel.is_set():
                     self.cancelled.emit()
@@ -221,8 +233,19 @@ class ExportWorker(QObject):
                 )
                 if tile is not None:
                     tiles.append(tile)
+                    labels.append(task.file_info["name"])
 
-            sheets = ContactSheetService.build_sheets(tiles, max_tiles=max_tiles, cell_px=cell_px, gap=gap, margin=margin)
+            sheets = ContactSheetService.build_sheets(
+                tiles,
+                labels=labels if show_labels else None,
+                show_labels=show_labels,
+                background_color=background_color,
+                label_color=label_color,
+                max_tiles=max_tiles,
+                cell_px=cell_px,
+                gap=gap,
+                margin=margin,
+            )
             os.makedirs(out_dir, exist_ok=True)
 
             for idx, sheet in enumerate(sheets):
