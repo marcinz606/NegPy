@@ -7,6 +7,8 @@
   [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
   [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](pyproject.toml)
   [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+  [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)](#getting-started)
+  [![Contributors](https://img.shields.io/github/contributors/marcinz606/NegPy)](https://github.com/marcinz606/NegPy/graphs/contributors)
 </div>
 
 **NegPy** is a tool for processing film negatives. I built it because I wanted something made specifically for film scans that goes beyond a simple inversion tool. It simulates how film and photographic paper work but also throws in some lab-scanner conveniences.
@@ -168,10 +170,6 @@ level = "info"
 Setting `backend = "cpu"` disables GPU acceleration entirely — useful if the GPU backend crashes on your hardware.
 
 ---
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=marcinz606/NegPy&type=Date)](https://star-history.com/#marcinz606/NegPy&Date)
 
 ## Roadmap
 Things I want to add later: [ROADMAP.md](docs/ROADMAP.md)
