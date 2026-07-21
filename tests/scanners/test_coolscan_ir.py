@@ -570,7 +570,7 @@ class TestPieusbCompatibility:
 
     def test_direct_pieusb_keeps_internal_strategy_and_flags(self) -> None:
         rng = np.random.default_rng(710)
-        true = rng.integers(0, 65535, size=(6, 5, 3), dtype=np.uint16)
+        true = rng.integers(0, 65535, size=(6, 5, 4), dtype=np.uint16)
         dev = FakeSaneDev(true, opt_map=self._options())
         backend = _make_backend(dev)
 
@@ -581,10 +581,10 @@ class TestPieusbCompatibility:
             threading.Event(),
         )
 
-        assert dev.recorded["mode"] == "Color"
-        assert dev.recorded["clean_image"] is True
+        assert dev.recorded["mode"] == "RGBI"
+        assert dev.recorded["clean_image"] is False
         assert dev.recorded["correct_infrared"] is True
-        assert result.ir is None
+        assert result.ir is not None
 
     def test_net_pieusb_prefix_alone_does_not_add_film_sources(self) -> None:
         caps = _caps_from_options({}, "net:scanner:pieusb:libusb:001:004")
