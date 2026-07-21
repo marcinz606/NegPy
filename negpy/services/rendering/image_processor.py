@@ -36,6 +36,8 @@ from negpy.features.retouch.logic import (
     route_ir_defects,
 )
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
+from negpy.features.stitch.logic import stitch_composite
+from negpy.features.stitch.models import stitch_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.engine import DarkroomEngine
 from negpy.services.rendering.gpu_engine import GPUEngine
@@ -285,8 +287,10 @@ class ImageProcessor:
         ``skip_flatfield``: the export CPU fallbacks pass an already-flat-fielded buffer.
         """
         # Flat-field is a source pre-correction (before geometry/crop); folding its token
-        # into source_hash invalidates the engine cache when it changes.
-        if not skip_flatfield:
+        # into source_hash invalidates the engine cache when it changes. Stitch buffers
+        # arrive per-part flat-fielded (both decode paths) — correcting the composite
+        # canvas as one frame would stretch the gain map across the seam.
+        if not skip_flatfield and not settings.stitch.stitch_enabled:
             img = apply_flatfield(img, settings.flatfield)
         h_orig, w_cols = img.shape[:2]
         # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
@@ -297,6 +301,7 @@ class ImageProcessor:
             source_hash
             + flatfield_token(settings.flatfield)
             + rgbscan_token(settings.rgbscan)
+            + stitch_token(settings.stitch)
             + linear_raw_token(settings.process)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
         )
@@ -429,9 +434,11 @@ class ImageProcessor:
     ) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
         """Decode a source file to a flatfield-corrected, EXIF-oriented float32 buffer.
 
+        A stitch composite decodes every part and assembles them by replaying the
+        registration stored in ``params.stitch``.
+
         Returns (f32_buffer, ir_buffer, source_color_space).
         """
-        linear_raw = params.process.linear_raw
         rgbcfg = params.rgbscan
         is_triplet = bool(rgbcfg.enabled and rgbcfg.green_path and rgbcfg.blue_path)
         # Narrowband triplet channels don't survive half_size CFA binning.
@@ -441,9 +448,47 @@ class ImageProcessor:
             mtime = os.path.getmtime(file_path)
         except OSError:
             mtime = 0.0
-        cache_key = (file_path, mtime, linear_raw, rgbscan_token(params.rgbscan), flatfield_token(params.flatfield), fast_decode)
+        cache_key = (
+            file_path,
+            mtime,
+            params.process.linear_raw,
+            rgbscan_token(params.rgbscan),
+            stitch_token(params.stitch),
+            flatfield_token(params.flatfield),
+            fast_decode,
+        )
         if cache_key == self._source_cache_key and self._source_cache_value is not None:
             return self._source_cache_value
+
+        if params.stitch.stitch_enabled and params.stitch.stitch_paths:
+            parts, irs = [], []
+            source_cs = WORKING_COLOR_SPACE
+            for i, path in enumerate((file_path, *params.stitch.stitch_paths)):
+                f32, ir, cs = self._decode_oriented_f32(path, params, fast_decode)
+                if i == 0:
+                    source_cs = cs
+                parts.append(f32)
+                irs.append(ir)
+            f32_buffer, ir_full = stitch_composite(parts, irs, params.stitch)
+            result = (f32_buffer, ir_full, source_cs)
+        else:
+            result = self._decode_oriented_f32(file_path, params, fast_decode)
+
+        self._source_cache_key = cache_key
+        self._source_cache_value = result
+        return result
+
+    def _decode_oriented_f32(
+        self, file_path: str, params: WorkspaceConfig, fast_decode: bool = False
+    ) -> Tuple[np.ndarray, Optional[np.ndarray], str]:
+        """Single-file decode tail: sensor RGB -> float32 -> EXIF orientation -> flatfield.
+
+        Stitch registration is estimated on buffers produced here, so any decode
+        the transforms are replayed against must come through here too.
+        """
+        linear_raw = params.process.linear_raw
+        rgbcfg = params.rgbscan
+        is_triplet = bool(rgbcfg.enabled and rgbcfg.green_path and rgbcfg.blue_path)
 
         rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode)
         # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
@@ -479,10 +524,7 @@ class ImageProcessor:
         f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
-        result = (f32_buffer, ir_full, source_cs)
-        self._source_cache_key = cache_key
-        self._source_cache_value = result
-        return result
+        return f32_buffer, ir_full, source_cs
 
     @staticmethod
     def _slice_half_source(
@@ -528,6 +570,7 @@ class ImageProcessor:
                 source_hash
                 + flatfield_token(params.flatfield)
                 + rgbscan_token(params.rgbscan)
+                + stitch_token(params.stitch)
                 + linear_raw_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
             )
@@ -751,6 +794,7 @@ class ImageProcessor:
                 source_hash
                 + flatfield_token(params.flatfield)
                 + rgbscan_token(params.rgbscan)
+                + stitch_token(params.stitch)
                 + linear_raw_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
             )

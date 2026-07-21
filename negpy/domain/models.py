@@ -15,6 +15,7 @@ from negpy.features.toning.models import ToningConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.stitch.models import StitchConfig
 from negpy.features.metadata.models import MetadataConfig
 from negpy.kernel.system.logging import get_logger
 import negpy.kernel.system.paths as paths
@@ -361,6 +362,7 @@ class WorkspaceConfig:
     exposure: ExposureConfig = field(default_factory=ExposureConfig)
     flatfield: FlatFieldConfig = field(default_factory=FlatFieldConfig)
     rgbscan: RgbScanConfig = field(default_factory=RgbScanConfig)
+    stitch: StitchConfig = field(default_factory=StitchConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     lab: LabConfig = field(default_factory=LabConfig)
     local: LocalAdjustmentsConfig = field(default_factory=LocalAdjustmentsConfig)
@@ -379,6 +381,7 @@ class WorkspaceConfig:
         res.update(asdict(self.exposure))
         res.update(asdict(self.flatfield))
         res.update(asdict(self.rgbscan))
+        res.update(asdict(self.stitch))
         res.update(asdict(self.geometry))
         res.update(asdict(self.lab))
         res["local_masks"] = asdict(self.local)
@@ -514,11 +517,24 @@ class WorkspaceConfig:
                 )
             return LocalAdjustmentsConfig(masks=tuple(masks))
 
+        def _build_stitch(d: Dict[str, Any]) -> StitchConfig:
+            # JSON round-trips tuples as lists; coerce back or the frozen config
+            # loses hashability/equality (breaks config-diff caching).
+            canvas = d.get("stitch_canvas", (0, 0))
+            return StitchConfig(
+                stitch_enabled=bool(d.get("stitch_enabled", False)),
+                stitch_paths=tuple(d.get("stitch_paths", ())),
+                stitch_transforms=tuple(tuple(float(v) for v in row) for row in d.get("stitch_transforms", ())),
+                stitch_canvas=(int(canvas[0]), int(canvas[1])),
+                stitch_sizes=tuple((int(s[0]), int(s[1])) for s in d.get("stitch_sizes", ())),
+            )
+
         return cls(
             process=ProcessConfig(**filter_keys(ProcessConfig, data)),
             exposure=ExposureConfig(**filter_keys(ExposureConfig, data)),
             flatfield=FlatFieldConfig(**filter_keys(FlatFieldConfig, data)),
             rgbscan=RgbScanConfig(**filter_keys(RgbScanConfig, data)),
+            stitch=_build_stitch(filter_keys(StitchConfig, data)),
             geometry=GeometryConfig(**filter_keys(GeometryConfig, data)),
             lab=LabConfig(**filter_keys(LabConfig, data)),
             local=_build_local(local_data),

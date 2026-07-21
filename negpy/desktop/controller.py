@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QCheckBox, QMessageBox
 
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.render_memo import RenderMemo
-from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan
+from negpy.desktop.session import AppState, DesktopSessionManager, ToolMode, resolve_asset_rgbscan, resolve_asset_stitch
 from negpy.desktop.workers.export import ExportTask, ExportWorker, find_export_conflicts
 from negpy.desktop.workers.render import (
     AssetDiscoveryTask,
@@ -29,6 +29,8 @@ from negpy.desktop.workers.render import (
     ThumbnailWorker,
 )
 from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
+from negpy.desktop.workers.stitch import StitchTask, StitchWorker
+from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
     CalibrationRequest,
     CaptureRequest,
@@ -127,6 +129,7 @@ class _DiscoveryRequest:
     reselect_path: Optional[str]
     rgb_scan: bool
     half_frame: bool
+    restore_stitches: Optional[dict] = None
 
 
 def baseline_compare_config(config: WorkspaceConfig) -> WorkspaceConfig:
@@ -176,6 +179,7 @@ class AppController(QObject):
     crop_guide_changed = pyqtSignal()
     dust_overlay_changed = pyqtSignal()
     asset_discovery_requested = pyqtSignal(AssetDiscoveryTask)
+    stitch_requested = pyqtSignal(object)
     thumbnail_requested = pyqtSignal(list)
     thumbnail_update_requested = pyqtSignal(ThumbnailUpdateTask)
     tool_sync_requested = pyqtSignal()
@@ -281,6 +285,9 @@ class AppController(QObject):
         self.export_thread = QThread()
         self.export_worker = ExportWorker()
         self.export_worker.moveToThread(self.export_thread)
+        # Shares the export thread: the batch lane serializes them anyway.
+        self.stitch_worker = StitchWorker()
+        self.stitch_worker.moveToThread(self.export_thread)
         self.export_thread.start()
 
         self.thumb_thread = QThread()
@@ -444,6 +451,12 @@ class AppController(QObject):
         self.export_worker.cancelled.connect(self._on_export_batch_cancelled)
         self.export_worker.error.connect(self._on_render_error)
         self.export_worker.error.connect(self._on_export_task_error)
+
+        self.stitch_requested.connect(self.stitch_worker.run)
+        self.stitch_worker.progress.connect(self._on_batch_progress)
+        self.stitch_worker.registered.connect(self._on_stitch_registered)
+        self.stitch_worker.cancelled.connect(self._on_stitch_cancelled)
+        self.stitch_worker.error.connect(self._on_stitch_error)
 
         self.thumbnail_requested.connect(self.thumb_worker.generate)
         self.thumb_worker.progress.connect(self._on_thumbnail_progress)
@@ -633,6 +646,8 @@ class AppController(QObject):
         elif self._active_batch == "autocrop":
             self._autocrop_cancel_requested = True
             self.batch_autocrop_worker.cancel(self._autocrop_batch_token)
+        elif self._active_batch == "stitch":
+            self.stitch_worker.cancel()
 
     def saved_session_paths(self) -> List[str]:
         """Returns last session's file paths that still exist on disk."""
@@ -647,7 +662,8 @@ class AppController(QObject):
         active = self.session.repo.get_global_setting("session_active_path")
         self._pending_scanned_file = active if active in paths else paths[0]
         triplets = self.session.repo.get_global_setting("session_triplets", {}) or {}
-        self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets)
+        stitches = self.session.repo.get_global_setting("session_stitches", {}) or {}
+        self.request_asset_discovery(paths, auto_open=True, restore_triplets=triplets, restore_stitches=stitches)
 
     def request_asset_discovery(
         self,
@@ -656,6 +672,7 @@ class AppController(QObject):
         restore_triplets: Optional[dict] = None,
         replace_existing: bool = False,
         reselect_path: Optional[str] = None,
+        restore_stitches: Optional[dict] = None,
     ) -> None:
         """
         Starts asynchronous discovery of supported assets.
@@ -673,6 +690,7 @@ class AppController(QObject):
             reselect_path=reselect_path,
             rgb_scan=bool(self.session.repo.get_global_setting("rgbscan_mode", False)),
             half_frame=bool(self.session.repo.get_global_setting("half_frame_mode", False)),
+            restore_stitches=restore_stitches,
         )
         if self._discovery_running:
             self._pending_asset_discoveries.append(request)
@@ -705,6 +723,7 @@ class AppController(QObject):
             rgb_scan=request.rgb_scan,
             restore_triplets=request.restore_triplets,
             half_frame=request.half_frame,
+            restore_stitches=request.restore_stitches,
         )
         self.asset_discovery_requested.emit(task)
 
@@ -913,6 +932,8 @@ class AppController(QObject):
             self.state.is_dirty = True
 
         rgbscan = self.state.config.rgbscan
+        stitch = self.state.config.stitch
+        flatfield = self.state.config.flatfield
         self.preview_load_requested.emit(
             PreviewLoadTask(
                 file_path=file_path,
@@ -931,6 +952,11 @@ class AppController(QObject):
                 green_path=rgbscan.green_path if rgbscan.enabled else "",
                 blue_path=rgbscan.blue_path if rgbscan.enabled else "",
                 align=rgbscan.align,
+                stitch_paths=stitch.stitch_paths if stitch.stitch_enabled else (),
+                stitch_transforms=stitch.stitch_transforms if stitch.stitch_enabled else (),
+                stitch_canvas=stitch.stitch_canvas,
+                stitch_sizes=stitch.stitch_sizes,
+                flatfield_path=flatfield.reference_path if (stitch.stitch_enabled and flatfield.apply) else "",
             )
         )
 
@@ -1280,7 +1306,7 @@ class AppController(QObject):
     def _config_for_autocrop_asset(self, asset: dict) -> WorkspaceConfig:
         """Resolve per-asset settings, including unsaved edits on the active frame."""
         if asset.get("hash") == self.state.current_file_hash:
-            return resolve_asset_rgbscan(self.state.config, asset)
+            return resolve_asset_stitch(resolve_asset_rgbscan(self.state.config, asset), asset)
         return self.session.config_for_asset(asset)
 
     def request_batch_auto_crop(self) -> None:
@@ -2068,6 +2094,76 @@ class AppController(QObject):
             self._pending_scanned_file = paths[-1]
             self.request_asset_discovery(list(paths))
 
+    # ── Stitch (multi-part scan composite) ─────────────────────────────
+
+    def request_stitch_selected(self) -> None:
+        """Register the selected frames into one stitched composite asset."""
+        if self._batch_busy("Stitch"):
+            return
+        files = [self.state.uploaded_files[i] for i in sorted(set(self.state.selected_indices)) if 0 <= i < len(self.state.uploaded_files)]
+        by_path = {f["path"]: f for f in files}  # half-frame assets share a path
+        ordered = sorted(by_path.values(), key=lambda f: os.path.basename(f["path"]).lower())
+        if len(ordered) < 2:
+            self.set_status("Select two or more frames to stitch", 4000)
+            return
+        if any(f.get("green_path") or f.get("stitch_paths") for f in ordered):
+            self.set_status("Stitching RGB-scan or already-stitched frames is not supported", 4000)
+            return
+        if self._begin_batch("stitch", "Stitching frames", abortable=True) is None:
+            return
+        self.stitch_requested.emit(
+            StitchTask(
+                files=tuple(dict(f) for f in ordered),
+                params_by_path={f["path"]: self._batch_params_for(f) for f in ordered},
+            )
+        )
+
+    def _on_stitch_registered(self, payload: dict) -> None:
+        self._end_batch("stitch")
+        files = payload["files"]
+        part_paths = [f["path"] for f in files]
+        composite = {
+            "name": stitch_name(part_paths),
+            "path": part_paths[0],
+            "hash": stitch_hash([f["hash"] for f in files]),
+            "stitch_paths": tuple(part_paths[1:]),
+            "stitch_transforms": payload["transforms"],
+            "stitch_canvas": payload["canvas"],
+            "stitch_sizes": payload["sizes"],
+        }
+        wanted = set(part_paths)
+        indices = [i for i, f in enumerate(self.state.uploaded_files) if f["path"] in wanted]
+        self.session.apply_stitch(indices, composite)
+        self.set_status(f"Stitched {len(files)} frames", 4000)
+        # The composite bypasses asset discovery, so nothing else queues its thumbnail.
+        self.generate_missing_thumbnails()
+
+    def _on_stitch_cancelled(self) -> None:
+        self._on_batch_cancelled("stitch")
+
+    def _on_stitch_error(self, message: str) -> None:
+        self._end_batch("stitch")
+        self.set_status(message, 6000)
+
+    def request_unstitch(self) -> None:
+        """Dissolve the active stitched composite back into its part frames.
+
+        Part edits restore from the DB by content hash; the composite's edits stay
+        keyed under its stitch hash for a future re-stitch of the same parts."""
+        idx = self.state.selected_file_idx
+        if not (0 <= idx < len(self.state.uploaded_files)):
+            return
+        asset = self.state.uploaded_files[idx]
+        parts = asset.get("stitch_paths")
+        if not parts:
+            return
+        paths = [asset["path"], *parts]
+        self.state.uploaded_files.pop(idx)
+        self.session.state.thumbnails.pop(asset["name"], None)
+        self.session.asset_model.refresh()
+        self._pending_scanned_file = paths[0]
+        self.request_asset_discovery(paths)
+
     def _select_file_by_path(self, path: str) -> bool:
         """Find a file by path in uploaded_files and select it."""
         for i, f_info in enumerate(self.session.state.uploaded_files):
@@ -2412,7 +2508,7 @@ class AppController(QObject):
         config), with its own RGB-scan green/blue re-injected from the asset dict — the
         same authoritative source individual export gets via select_file."""
         params = self.session.repo.load_file_settings(f["hash"]) or self.state.config
-        return resolve_asset_rgbscan(params, f)
+        return resolve_asset_stitch(resolve_asset_rgbscan(params, f), f)
 
     def _tasks_for_file(
         self,

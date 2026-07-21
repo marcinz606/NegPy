@@ -764,9 +764,15 @@ class FileBrowser(QWidget):
         act_reject.triggered.connect(lambda: self.session.toggle_mark("excluded"))
         menu.addSeparator()
         menu.addAction("Apply settings…").triggered.connect(self._open_apply_dialog)
-        if not multi:
+        if multi:
+            menu.addSeparator()
+            menu.addAction("Stitch selected frames").triggered.connect(lambda: self.controller.request_stitch_selected())
+        else:
             menu.addSeparator()
             menu.addAction("Edit RGB Triplet…").triggered.connect(self._on_edit_triplet)
+            active = state.uploaded_files[state.selected_file_idx] if 0 <= state.selected_file_idx < len(state.uploaded_files) else {}
+            if active.get("stitch_paths"):
+                menu.addAction("Unstitch").triggered.connect(lambda: self.controller.request_unstitch())
         menu.addSeparator()
         unload_label = "Unload Selected" if multi else "Unload"
         menu.addAction(unload_label).triggered.connect(self._on_remove_from_menu)
