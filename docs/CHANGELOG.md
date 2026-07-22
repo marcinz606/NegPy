@@ -2,6 +2,7 @@
 
 ## 0.41.0
 
+- Change: **Copy/paste and Apply-to-roll are now per-setting** — instead of a handful of broad section checkboxes, pasting settings and **Apply settings…** open a picker that lists exactly the settings you changed on the source frame, grouped in collapsible sections (Tone, Colour, Lab, Toning, Finish, Crop, Process, Retouch, Metadata, Export) with each value shown. Tick only what you want, hit Apply. Paste now pops the same picker (Ctrl+V) rather than replacing everything at once; per-frame things like dust spots, heal strokes and crop bounds are never overwritten.
 - New: **Stitch multi-shot scans** — select overlapping shots of one frame (e.g. a 6×6 scanned in two halves) on the contact sheet and pick **Stitch selected frames**. Alignment, exposure matching and blending happen on the linear scan data before conversion, so the result develops like a single raw. No new file is written: the composite edits and exports like any frame, and **Unstitch** restores the parts. IR dust data is kept when all parts have it.
 
 ## 0.40.0

@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
+from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -252,7 +253,7 @@ class ActionToolbar(QWidget):
         )
         self._action_copy_bounds.setToolTip("Copy settings plus the metering/normalization bounds")
         self._action_paste = overflow_menu.addAction(
-            qta.icon("fa5s.paste", color=icon_color), "Paste Settings  Ctrl+V", self.session.paste_settings
+            qta.icon("fa5s.paste", color=icon_color), "Paste Settings  Ctrl+V", lambda: open_paste_dialog(self, self.controller)
         )
         self._action_paste.setToolTip("Paste the copied settings onto this image")
         overflow_menu.addSeparator()

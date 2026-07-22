@@ -3,10 +3,17 @@ from unittest.mock import MagicMock, patch
 from dataclasses import replace
 
 from negpy.desktop.session import AppState, AssetListModel, DesktopSessionManager
+from negpy.desktop.settings_catalog import all_rows
 from negpy.domain.models import WorkspaceConfig, GeometryConfig, RetouchConfig, ProcessConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.infrastructure.storage.repository import StorageRepository
 from negpy.kernel.system.config import APP_CONFIG
+
+_ROWS = {r.label: r for r in all_rows()}
+
+
+def _row(label: str):
+    return _ROWS[label]
 
 
 class TestDesktopSessionSync(unittest.TestCase):
@@ -385,7 +392,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings(frozenset({"process", "exposure", "color", "finish"}))
+        self.session.sync_selected_settings([_row("Print Density"), _row("Mode"), _row("Dust Removal")])
 
         args, _ = self.mock_repo.save_file_settings.call_args
         self.assertEqual(args[0], "hash2")
@@ -393,13 +400,12 @@ class TestDesktopSessionSync(unittest.TestCase):
 
         self.assertEqual(saved_config.exposure.density, 1.5)
         self.assertEqual(saved_config.process.process_mode, "E-6")
-        self.assertTrue(saved_config.process.e6_normalize)
 
-        # Geometry entirely preserved from target
+        # Geometry not selected → entirely preserved from target
         self.assertEqual(saved_config.geometry.rotation, 0)
         self.assertEqual(saved_config.geometry.fine_rotation, 0.0)
         self.assertIsNone(saved_config.geometry.manual_crop_rect)
-        # Per-file retouch fields preserved from target
+        # Per-file retouch fields preserved from target even though Dust Removal was synced
         self.assertEqual(saved_config.retouch.manual_dust_spots, [])
         self.assertTrue(saved_config.retouch.dust_remove)
 
@@ -423,7 +429,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings(frozenset({"process", "exposure", "color", "finish", "crop", "rotation"}))
+        self.session.sync_selected_settings([_row("Print Density"), _row("Fine Rotation"), _row("Rotation"), _row("Manual Crop")])
 
         args, _ = self.mock_repo.save_file_settings.call_args
         saved_config = args[1]
@@ -453,7 +459,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.load_file_settings.return_value = target_config
 
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings(frozenset({"crop", "rotation"}))
+        self.session.sync_selected_settings([_row("Rotation"), _row("Fine Rotation"), _row("Manual Crop")])
 
         args, _ = self.mock_repo.save_file_settings.call_args
         saved_config = args[1]
@@ -465,12 +471,36 @@ class TestDesktopSessionSync(unittest.TestCase):
         # Other config preserved from target
         self.assertEqual(saved_config.exposure.density, 0.7)
 
-    def test_sync_selected_settings_invalid_aspect_is_noop(self):
+    def test_sync_selected_settings_empty_is_noop(self):
         self.session.state.selected_file_idx = 0
         self.session.state.current_file_hash = "hash1"
         self.session.update_selection([0, 1])
-        self.session.sync_selected_settings(frozenset({"bogus"}))
+        self.session.sync_selected_settings([])
         self.mock_repo.save_file_settings.assert_not_called()
+
+    def test_apply_pasted_fields_applies_subset_and_renders(self):
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.config = replace(WorkspaceConfig(), lab=replace(WorkspaceConfig().lab, saturation=1.9))
+        self.session.state.clipboard = replace(
+            WorkspaceConfig(),
+            exposure=replace(WorkspaceConfig().exposure, density=2.2),
+            lab=replace(WorkspaceConfig().lab, saturation=0.3),
+        )
+        rendered = []
+        self.session.state_changed.connect(lambda: rendered.append(True))
+
+        self.session.apply_pasted_fields([_row("Print Density")])
+
+        self.assertEqual(self.session.state.config.exposure.density, 2.2)  # pasted
+        self.assertEqual(self.session.state.config.lab.saturation, 1.9)  # not selected → kept
+        self.assertTrue(rendered)
+
+    def test_apply_pasted_fields_noop_when_clipboard_empty(self):
+        self.session.state.current_file_hash = "hash1"
+        self.session.state.clipboard = None
+        before = self.session.state.config
+        self.session.apply_pasted_fields([_row("Print Density")])
+        self.assertIs(self.session.state.config, before)
 
     def _seed_roll(self):
         self.session.state.uploaded_files = [
@@ -488,7 +518,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self._seed_roll()
         self.session.asset_model.set_filter(".arw", regex=False)  # hides c.jpg
 
-        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+        count = self.session.sync_selected_settings([_row("Print Density")], scope="roll")
 
         saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
         self.assertEqual(count, 1)
@@ -498,7 +528,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self._seed_roll()
         self.session.asset_model.refresh()  # no filter → every frame visible
 
-        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+        count = self.session.sync_selected_settings([_row("Print Density")], scope="roll")
 
         saved = {c.args[0] for c in self.mock_repo.save_file_settings.call_args_list}
         self.assertEqual(count, 2)
@@ -595,7 +625,7 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.session.asset_model.refresh()
         self.mock_repo.save_history_step.reset_mock()
 
-        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+        count = self.session.sync_selected_settings([_row("Print Density")], scope="roll")
 
         self.assertEqual(count, 2)
         # Each target got a two-step write: pre-apply at 0, post-apply at 1.
@@ -943,7 +973,7 @@ class TestRollActionRecoveryRoundTrip(unittest.TestCase):
         source = replace(self.session.state.config, exposure=replace(self.session.state.config.exposure, density=1.5))
         self.session.update_config(source, persist=True)
 
-        count = self.session.sync_selected_settings(frozenset({"exposure"}), scope="roll")
+        count = self.session.sync_selected_settings([_row("Print Density")], scope="roll")
         self.assertEqual(count, 1)
         self.assertEqual(self.repo.load_file_settings("hash2").exposure.density, 1.5)
 

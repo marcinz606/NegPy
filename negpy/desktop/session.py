@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
+from negpy.desktop.settings_catalog import apply_selected_fields
 from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import ExportPreset, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
@@ -295,20 +296,6 @@ class AssetListModel(QAbstractListModel):
         self.layoutChanged.emit()
 
 
-_ASPECT_LABELS = {
-    "process": "Process",
-    "crop": "Crop",
-    "rotation": "Rotation",
-    "exposure": "Exposure",
-    "color": "Lab & Toning",
-    "finish": "Finish",
-    "bounds_luma": "Tonal span",
-    "bounds_colour": "Colour balance",
-}
-
-_VALID_ASPECTS = frozenset(_ASPECT_LABELS)
-
-
 def _source_effective_bounds(process) -> Optional[tuple]:
     """The floors/ceils a source frame is currently rendering with.
 
@@ -320,95 +307,6 @@ def _source_effective_bounds(process) -> Optional[tuple]:
     if process.is_local_initialized:
         return process.local_floors, process.local_ceils
     return None
-
-
-def build_synced_config(
-    source: WorkspaceConfig,
-    target: WorkspaceConfig,
-    aspects: frozenset,
-    src_bounds: Optional[tuple],
-) -> WorkspaceConfig:
-    """Pure per-target merge for a bulk "Apply to selected" action.
-
-    `aspects` is a subset of _VALID_ASPECTS, checked independently in the Sync
-    Settings dialog. `src_bounds` is (floors, ceils) from _source_effective_bounds,
-    needed when bounds_luma/bounds_colour is checked. Builds the result by starting
-    from `target` and overlaying only the checked aspects, so anything not covered
-    by an aspect (flatfield, rgbscan, metadata, export, dust spots, per-frame local
-    bounds) always stays the target's own.
-    """
-    out = target
-
-    if "process" in aspects:
-        out = replace(
-            out,
-            process=replace(
-                source.process,
-                local_floors=out.process.local_floors,
-                local_ceils=out.process.local_ceils,
-                locked_floors=out.process.locked_floors,
-                locked_ceils=out.process.locked_ceils,
-                use_luma_average=out.process.use_luma_average,
-                use_colour_average=out.process.use_colour_average,
-            ),
-        )
-
-    if "crop" in aspects:
-        sg = source.geometry
-        out = replace(
-            out,
-            geometry=replace(
-                out.geometry,
-                auto_crop_enabled=sg.auto_crop_enabled,
-                autocrop_offset=sg.autocrop_offset,
-                autocrop_ratio=sg.autocrop_ratio,
-                autocrop_mode=sg.autocrop_mode,
-                manual_crop_rect=sg.manual_crop_rect,
-            ),
-        )
-
-    if "rotation" in aspects:
-        sg = source.geometry
-        out = replace(
-            out,
-            geometry=replace(
-                out.geometry,
-                rotation=sg.rotation,
-                fine_rotation=sg.fine_rotation,
-                flip_horizontal=sg.flip_horizontal,
-                flip_vertical=sg.flip_vertical,
-            ),
-        )
-
-    if "exposure" in aspects:
-        out = replace(out, exposure=source.exposure)
-
-    if "color" in aspects:
-        out = replace(out, lab=source.lab, toning=source.toning)
-
-    if "finish" in aspects:
-        # Heals are frame-specific: keep the target's spots AND strokes.
-        out = replace(
-            out,
-            retouch=replace(
-                source.retouch,
-                manual_dust_spots=out.retouch.manual_dust_spots,
-                manual_heal_strokes=out.retouch.manual_heal_strokes,
-            ),
-            finish=source.finish,
-        )
-
-    if aspects & {"bounds_luma", "bounds_colour"}:
-        floors, ceils = src_bounds
-        # locked_* is a shared pair, so always write it; toggle only the selected axis.
-        changes: dict = {"locked_floors": floors, "locked_ceils": ceils}
-        if "bounds_luma" in aspects:
-            changes["use_luma_average"] = True
-        if "bounds_colour" in aspects:
-            changes["use_colour_average"] = True
-        out = replace(out, process=replace(out.process, **changes))
-
-    return out
 
 
 def resolve_asset_rgbscan(params: WorkspaceConfig, asset: dict) -> WorkspaceConfig:
@@ -874,23 +772,24 @@ class DesktopSessionManager(QObject):
         self.asset_model.refresh()
         self.files_changed.emit()
 
-    def sync_selected_settings(self, aspects: frozenset, scope: str = "selection") -> int:
+    def sync_selected_settings(self, rows, bounds_flags: tuple[bool, bool] = (False, False), scope: str = "selection") -> int:
         """
-        Apply the active frame's settings to other frames. Returns the count changed.
+        Apply the active frame's chosen settings to other frames. Returns the count changed.
 
-        aspects: subset of _VALID_ASPECTS (process/crop/rotation/exposure/color/
-                 finish/bounds_luma/bounds_colour), checked independently.
-        scope:   "selection" (the multi-selected frames) or "roll" (all loaded frames).
+        rows:         SettingRows (from the granular picker) to copy from the source.
+        bounds_flags: (luma, colour) roll-baseline axes to broadcast; these need the
+                      source's rendered bounds, not a config field.
+        scope:        "selection" (the multi-selected frames) or "roll" (all loaded frames).
         """
-        aspects = frozenset(aspects) & _VALID_ASPECTS
-        if self.state.selected_file_idx == -1 or not aspects:
+        rows = list(rows)
+        luma, colour = bounds_flags
+        if self.state.selected_file_idx == -1 or not (rows or luma or colour):
             return 0
 
         source_config = self.state.config
 
         src_bounds = None
-        needs_bounds = bool(aspects & {"bounds_luma", "bounds_colour"})
-        if needs_bounds:
+        if luma or colour:
             src_bounds = _source_effective_bounds(source_config.process)
             if src_bounds is None:
                 self.settings_synced.emit("Render the source frame before syncing bounds")
@@ -905,17 +804,26 @@ class DesktopSessionManager(QObject):
             target_hash = self.state.uploaded_files[idx]["hash"]
             target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
             target_path = self.state.uploaded_files[idx]["path"]
-            synced = build_synced_config(source_config, target_config, aspects, src_bounds)
+            synced = apply_selected_fields(source_config, target_config, rows)
+            if src_bounds is not None:
+                floors, ceils = src_bounds
+                changes: dict = {"locked_floors": floors, "locked_ceils": ceils}
+                if luma:
+                    changes["use_luma_average"] = True
+                if colour:
+                    changes["use_colour_average"] = True
+                synced = replace(synced, process=replace(synced.process, **changes))
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=target_path)
             count += 1
 
         if count:
-            label = ", ".join(_ASPECT_LABELS[a] for a in _ASPECT_LABELS if a in aspects)
+            n = len(rows) + int(luma) + int(colour)
+            noun = "setting" if n == 1 else "settings"
             if scope == "roll":
-                msg = f"{label} synced to whole roll ({count} frames)"
+                msg = f"{n} {noun} synced to whole roll ({count} frames)"
             else:
-                msg = f"{label} synced to {count} frame{'s' if count != 1 else ''}"
+                msg = f"{n} {noun} synced to {count} frame{'s' if count != 1 else ''}"
             self.settings_synced.emit(msg)
             self.settings_saved.emit()
         return count
@@ -1094,12 +1002,14 @@ class DesktopSessionManager(QObject):
     def copy_settings_with_bounds(self) -> None:
         self.copy_settings(include_bounds=True)
 
-    def paste_settings(self) -> None:
-        if self.state.clipboard and self.state.current_file_hash:
-            import copy
-
-            self.update_config(copy.deepcopy(self.state.clipboard), persist=True)
-            self.settings_pasted.emit()
+    def apply_pasted_fields(self, rows) -> None:
+        """Overlay the picked clipboard settings onto the active frame."""
+        rows = list(rows)
+        if not rows or self.state.clipboard is None or not self.state.current_file_hash:
+            return
+        merged = apply_selected_fields(self.state.clipboard, self.state.config, rows)
+        self.update_config(merged, persist=True)
+        self.settings_pasted.emit()
 
     def persist_hidden_masks(self) -> None:
         """Writes the per-file mask hide-state through to settings so it survives restarts.

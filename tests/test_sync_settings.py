@@ -1,162 +1,107 @@
-"""Pure-merge logic for the Files sidebar "Apply to selected" bulk action."""
+"""Granular settings catalog + the per-field merge behind copy/paste and apply-to-many."""
 
 from dataclasses import replace
 
-from negpy.desktop.session import _source_effective_bounds, build_synced_config
+from negpy.desktop.session import _source_effective_bounds
+from negpy.desktop.settings_catalog import (
+    CATALOG,
+    all_rows,
+    apply_selected_fields,
+    edited_sections,
+)
 from negpy.domain.models import WorkspaceConfig
 
-_BOUNDS = ((0.11, 0.22, 0.33), (0.88, 0.77, 0.66))
+_ROWS = {r.label: r for r in all_rows()}
 
 
-def _source() -> WorkspaceConfig:
+def _row(label: str):
+    return _ROWS[label]
+
+
+# ── Catalog integrity ────────────────────────────────────────────────────────
+
+
+def test_every_catalog_field_exists_on_its_section():
+    default = WorkspaceConfig()
+    for _title, rows in CATALOG:
+        for row in rows:
+            fields = getattr(default, row.section).__dataclass_fields__
+            for f in row.fields:
+                assert f in fields, f"{row.label}: {row.section}.{f} is not a real field"
+
+
+# ── edited_sections ──────────────────────────────────────────────────────────
+
+
+def test_edited_sections_empty_for_default_config():
+    assert edited_sections(WorkspaceConfig()) == []
+
+
+def test_edited_sections_lists_only_changed_rows_and_drops_empty_sections():
     c = WorkspaceConfig()
-    return replace(
-        c,
-        exposure=replace(c.exposure, density=2.0, grade=130.0),
-        lab=replace(c.lab, saturation=1.5),
-        toning=replace(c.toning, sepia_strength=0.4),
-        finish=replace(c.finish, vignette_stops=0.3),
-        process=replace(c.process, process_mode="E-6", analysis_buffer=0.2),
-        geometry=replace(c.geometry, rotation=90, flip_horizontal=True, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
-        retouch=replace(
-            c.retouch,
-            dust_threshold=0.5,
-            manual_dust_spots=[(0.5, 0.5, 0.01)],
-            manual_heal_strokes=[([[0.5, 0.5]], 8.0, 0.02, 0.0)],
-        ),
-    )
+    cfg = replace(c, exposure=replace(c.exposure, density=1.4))
+    sections = edited_sections(cfg)
+    assert len(sections) == 1
+    title, rows = sections[0]
+    assert title == "Tone"
+    assert [r.label for r, _val in rows] == ["Print Density"]
+    assert rows[0][1] == "1.4"  # formatted value
 
 
-def _target() -> WorkspaceConfig:
+def test_edited_sections_groups_trim_channels_into_one_row():
     c = WorkspaceConfig()
-    return replace(
+    exp = replace(c.exposure, grade_trim_red=1.0, grade_trim_blue=-2.0)
+    _title, rows = edited_sections(replace(c, exposure=exp))[0]
+    by_label = {r.label: v for r, v in rows}
+    # one grouped "Grade Trim" row, value shows all three channels
+    assert by_label["Grade Trim"] == "R1 G0 B-2"
+
+
+# ── apply_selected_fields ────────────────────────────────────────────────────
+
+
+def test_apply_copies_only_selected_rows():
+    c = WorkspaceConfig()
+    src = replace(c, exposure=replace(c.exposure, density=2.0), lab=replace(c.lab, saturation=1.7))
+    out = apply_selected_fields(src, c, [_row("Print Density")])
+    assert out.exposure.density == 2.0
+    assert out.lab.saturation == c.lab.saturation  # not selected → untouched
+
+
+def test_apply_grouped_trim_copies_all_channels():
+    c = WorkspaceConfig()
+    src = replace(c, exposure=replace(c.exposure, grade_trim_red=1.0, grade_trim_green=2.0, grade_trim_blue=3.0))
+    out = apply_selected_fields(src, c, [_row("Grade Trim")])
+    assert (out.exposure.grade_trim_red, out.exposure.grade_trim_green, out.exposure.grade_trim_blue) == (1.0, 2.0, 3.0)
+
+
+def test_apply_preserves_target_only_fields():
+    c = WorkspaceConfig()
+    src = replace(c, exposure=replace(c.exposure, density=2.0))
+    tgt = replace(
         c,
-        geometry=replace(c.geometry, rotation=270, manual_crop_rect=(0.2, 0.2, 0.8, 0.8)),
-        retouch=replace(
-            c.retouch,
-            manual_dust_spots=[(0.1, 0.1, 0.02)],
-            manual_heal_strokes=[([[0.2, 0.3], [0.4, 0.3]], 6.0, 0.0, 0.03)],
-        ),
+        retouch=replace(c.retouch, manual_dust_spots=[(0.5, 0.5, 0.01)]),
         process=replace(c.process, local_floors=(0.05, 0.05, 0.05), local_ceils=(0.95, 0.95, 0.95)),
     )
+    out = apply_selected_fields(src, tgt, [_row("Print Density")])
+    assert out.exposure.density == 2.0
+    # per-frame fields never listed in the catalog → stay the target's own
+    assert out.retouch.manual_dust_spots == [(0.5, 0.5, 0.01)]
+    assert out.process.local_floors == (0.05, 0.05, 0.05)
 
 
-def test_crop_only_copies_crop_keeps_rotation_and_flips():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"crop"}), None)
-    assert out.geometry.manual_crop_rect == src.geometry.manual_crop_rect
-    assert out.geometry.rotation == tgt.geometry.rotation  # rotation preserved
-    assert out.geometry.flip_horizontal == tgt.geometry.flip_horizontal  # flip preserved
-    assert out.exposure == tgt.exposure
+def test_apply_crosstalk_copies_strength_profile_and_matrix_together():
+    c = WorkspaceConfig()
+    src = replace(
+        c, process=replace(c.process, crosstalk_strength=0.4, crosstalk_profile="Portra", crosstalk_matrix=(1, 0, 0, 0, 1, 0, 0, 0, 1))
+    )
+    out = apply_selected_fields(src, c, [_row("Crosstalk")])
+    assert out.process.crosstalk_strength == 0.4
+    assert out.process.crosstalk_profile == "Portra"
+    assert out.process.crosstalk_matrix == (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 
-def test_rotation_only_copies_rotation_and_flips_keeps_crop():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"rotation"}), None)
-    assert out.geometry.rotation == src.geometry.rotation
-    assert out.geometry.flip_horizontal == src.geometry.flip_horizontal  # flips ride with rotation
-    assert out.geometry.manual_crop_rect == tgt.geometry.manual_crop_rect  # crop preserved
-    assert out.exposure == tgt.exposure
-
-
-def test_crop_and_rotation_together_cover_full_geometry():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"crop", "rotation"}), None)
-    assert out.geometry == src.geometry
-
-
-def test_process_aspect_copies_setup_keeps_bounds():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"process"}), None)
-    assert out.process.process_mode == src.process.process_mode
-    assert out.process.analysis_buffer == src.process.analysis_buffer
-    # bounds-related fields stay the target's own
-    assert out.process.local_floors == tgt.process.local_floors
-    assert out.process.local_ceils == tgt.process.local_ceils
-    assert out.process.locked_floors == tgt.process.locked_floors
-    assert out.process.locked_ceils == tgt.process.locked_ceils
-    assert out.process.use_luma_average == tgt.process.use_luma_average
-    assert out.process.use_colour_average == tgt.process.use_colour_average
-    assert out.geometry == tgt.geometry
-
-
-def test_exposure_aspect_copies_exposure_only():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"exposure"}), None)
-    assert out.exposure == src.exposure
-    assert out.lab == tgt.lab
-    assert out.geometry == tgt.geometry
-
-
-def test_color_aspect_copies_lab_and_toning():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"color"}), None)
-    assert out.lab == src.lab
-    assert out.toning == src.toning
-    assert out.exposure == tgt.exposure
-
-
-def test_finish_aspect_copies_retouch_and_finish_keeps_heals():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"finish"}), None)
-    assert out.finish == src.finish
-    assert out.retouch.dust_threshold == src.retouch.dust_threshold
-    assert out.retouch.manual_dust_spots == tgt.retouch.manual_dust_spots  # frame-specific, preserved
-    assert out.retouch.manual_heal_strokes == tgt.retouch.manual_heal_strokes  # frame-specific, preserved
-    assert out.geometry == tgt.geometry
-
-
-def test_all_aspects_checked_keeps_frame_specifics_and_untouched_fields():
-    src, tgt = _source(), _target()
-    aspects = frozenset({"process", "crop", "rotation", "exposure", "color", "finish", "bounds_luma", "bounds_colour"})
-    out = build_synced_config(src, tgt, aspects, _BOUNDS)
-    assert out.geometry == src.geometry
-    assert out.exposure == src.exposure
-    assert out.lab == src.lab
-    assert out.toning == src.toning
-    assert out.finish == src.finish
-    assert out.process.process_mode == src.process.process_mode
-    assert out.retouch.manual_dust_spots == tgt.retouch.manual_dust_spots
-    assert out.retouch.manual_heal_strokes == tgt.retouch.manual_heal_strokes
-    assert out.process.local_floors == tgt.process.local_floors  # per-frame meter preserved
-    assert out.process.locked_floors == _BOUNDS[0]
-    assert out.process.locked_ceils == _BOUNDS[1]
-    assert out.process.use_luma_average and out.process.use_colour_average
-    # not a sync category: stays the target's own
-    assert out.flatfield == tgt.flatfield
-    assert out.rgbscan == tgt.rgbscan
-    assert out.metadata == tgt.metadata
-
-
-def test_bounds_both_only_changes_baseline():
-    src, tgt = _source(), _target()
-    out = build_synced_config(src, tgt, frozenset({"bounds_luma", "bounds_colour"}), _BOUNDS)
-    assert out.exposure == tgt.exposure
-    assert out.lab == tgt.lab
-    assert out.geometry == tgt.geometry
-    assert out.process.local_floors == tgt.process.local_floors  # per-frame meter untouched
-    assert out.process.locked_floors == _BOUNDS[0]
-    assert out.process.locked_ceils == _BOUNDS[1]
-    assert out.process.use_luma_average is True
-    assert out.process.use_colour_average is True
-
-
-def test_bounds_luma_preserves_other_axis():
-    src, tgt = _source(), _target()
-    tgt = replace(tgt, process=replace(tgt.process, use_colour_average=True))
-    out = build_synced_config(src, tgt, frozenset({"bounds_luma"}), _BOUNDS)
-    assert out.process.locked_floors == _BOUNDS[0]
-    assert out.process.use_luma_average is True
-    assert out.process.use_colour_average is True
-
-
-def test_bounds_colour_preserves_other_axis():
-    src, tgt = _source(), _target()
-    tgt = replace(tgt, process=replace(tgt.process, use_luma_average=True))
-    out = build_synced_config(src, tgt, frozenset({"bounds_colour"}), _BOUNDS)
-    assert out.process.locked_ceils == _BOUNDS[1]
-    assert out.process.use_colour_average is True
-    assert out.process.use_luma_average is True
+# ── _source_effective_bounds (roll-baseline broadcast) ───────────────────────
 
 
 def test_source_effective_bounds_prefers_per_frame_meter():
