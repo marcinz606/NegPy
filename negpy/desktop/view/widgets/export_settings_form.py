@@ -37,6 +37,17 @@ from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 _LABEL_WIDTH = 90
 
 
+def _coerce_output_mode(mode: Any) -> ExportPresetOutputMode:
+    """Persisted configs come back from JSON as plain strings. The destination
+    combo holds StrEnum members as item data, and findData() compares across the
+    QVariant boundary — a plain string never matches, so the row must be
+    normalized to the enum before lookup."""
+    try:
+        return ExportPresetOutputMode(mode)
+    except ValueError:
+        return ExportPresetOutputMode.ABSOLUTE
+
+
 def constrain_combo(combo: QComboBox, min_chars: int = 6) -> None:
     """Stop long item text from stretching the panel: size the combo to a small
     minimum and elide overflow, filling its row via the layout's spare space."""
@@ -509,7 +520,7 @@ class ExportSettingsForm(QWidget):
             out_path = v.get("icc_output_path")
             self.icc_output_combo.setCurrentText(os.path.basename(out_path) if out_path else "None")
 
-            mode = v.get("output_mode", ExportPresetOutputMode.ABSOLUTE)
+            mode = _coerce_output_mode(v.get("output_mode"))
             idx = self.output_mode_combo.findData(mode)
             if idx >= 0:
                 self.output_mode_combo.setCurrentIndex(idx)
