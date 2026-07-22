@@ -84,8 +84,7 @@ def test_template_parses_label_and_color_fields(tmp_path, monkeypatch):
     monkeypatch.setattr(APP_CONFIG, "contact_sheet_templates_dir", str(tmp_path))
     _write(
         os.path.join(tmp_path, "labeled.toml"),
-        'name = "Labeled"\n\n[layout]\ncell_px = 400\nshow_labels = false\n'
-        'background_color = "#112233"\nlabel_color = "#aabbcc"\n',
+        'name = "Labeled"\n\n[layout]\ncell_px = 400\nshow_labels = false\nbackground_color = "#112233"\nlabel_color = "#aabbcc"\n',
     )
     layout = ContactSheetTemplates.get_layout("Labeled")
     assert layout.show_labels is False

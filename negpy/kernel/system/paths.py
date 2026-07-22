@@ -46,6 +46,14 @@ def get_default_user_dir() -> str:
     if env_path:
         return os.path.abspath(env_path)
 
+    # A frozen macOS app must create a foreground Qt window before its first
+    # Documents access so macOS can present the Files & Folders prompt. Keep
+    # resolution pure here; the desktop startup handoff performs the first
+    # deliberate write/access probe once that window is visible.
+    if sys.platform == "darwin":
+        home = Path(os.path.expanduser("~"))
+        return str((home / "Documents" / "NegPy").absolute())
+
     docs_dir: Optional[Path] = None
 
     if sys.platform == "win32":
@@ -93,9 +101,6 @@ def get_default_user_dir() -> str:
                                     break
                 except Exception:
                     pass
-
-    elif sys.platform == "darwin":
-        docs_dir = Path.home() / "Documents"
 
     home = Path(os.path.expanduser("~"))
     if not docs_dir:

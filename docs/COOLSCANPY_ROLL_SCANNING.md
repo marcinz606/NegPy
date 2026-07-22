@@ -4,9 +4,8 @@ This page describes NegPy's optional integration with
 [coolscanpy](https://github.com/rohanpandula/coolscanpy), a standalone
 Python library for whole-roll scanning on a Nikon Coolscan LS-5000 with a
 roll feeder. coolscanpy talks to the scanner directly over USB and does not
-need SANE installed. NegPy consumes it the same way it consumes
-python-sane or gphoto2 elsewhere in this package: as an optional dependency
-that the rest of the application never requires.
+need SANE for the accepted color-negative path. NegPy consumes coolscanpy as
+an optional dependency that the rest of the application never requires.
 
 ## What it adds
 
@@ -19,11 +18,10 @@ correction, approval of any frame the transport could not place
 automatically, and batch scanning with per-frame receipts. This
 integration exposes all of it inside NegPy, including a desktop panel.
 
-Coverage is narrower than the plain Scan panel. Only color negative film
-scans through coolscanpy's roll engine end to end today. Black and white
-negative previews and approves normally, but batch fine scanning it raises
-`NotImplementedError` inside coolscanpy itself. That limitation is
-documented in the coolscanpy README and is unchanged by this integration.
+Color-negative roll scanning is the accepted path. Conventional silver
+black-and-white fine scanning remains explicitly refused by this pinned
+release rather than silently taking a different capture route; the current
+sidebar opens rolls as color negative.
 
 ## Install
 
@@ -39,15 +37,44 @@ gphoto2:
 uv sync --group coolscan-roll
 ```
 
+That group pins the reviewed immutable commit
+`733151d25b8e962e3d5cb6ac1a6989315dc4e1ed`, built on the merged streaming
+finalization from [PR #1](https://github.com/rohanpandula/coolscanpy/pull/1).
+The pin includes exact USB-topology ownership, six-strip leading-edge
+handling, Nikon density/exact-builder evidence, and Digital ICE acquisition
+evidence. Its complete Coolscan suite passed before the pin moved, and
+`build.py` independently rejects a stale API or capture-bundle hash before
+packaging. The pin can move to a tagged release once those APIs are published.
+
+The local macOS build may use the default ad-hoc code-signing identity (`-`)
+for on-machine integrity and testing. That is not publisher identity and does
+not make the DMG a notarized release. A distributable build must use a real
+Developer ID Application identity through `NEGPY_CODESIGN_IDENTITY`, pass the
+same offline frozen smoke, and then complete Apple's notarization and stapling
+workflow. `build.py` currently signs and verifies the app bundle but does not
+claim to perform that final notarization step.
+
+The hardened Developer ID build carries one runtime exception:
+`com.apple.security.cs.allow-unsigned-executable-memory`. Numba's llvmlite
+runtime allocates anonymous read/write pages and later changes them to
+read/execute; LLVM 20 does not use `MAP_JIT` for that path, so Apple's
+`allow-jit` entitlement is not applicable. The build intentionally does not
+disable library validation, executable-page protection, or DYLD protections.
+PyInstaller applies the entitlement to the initial bundle seal, the libusb
+post-processing step reapplies it explicitly, and the build reads the signed
+entitlement and hardened-runtime flag back before running the offline smoke.
+That smoke explicitly executes llvmlite's anonymous RW-to-RX allocation check,
+so a signed build fails before release if the JIT exception is absent.
+
 If you manage your own environment instead, install the package directly:
 
 ```
 pip install coolscanpy
 ```
 
-coolscanpy has no SANE dependency for the roll workflow. See the
-coolscanpy README if you also want its plain single-frame `scan()` path,
-which does need SANE.
+The accepted color-negative roll workflow has no SANE dependency.
+coolscanpy's separate plain single-frame `scan()` path may require SANE; see
+the coolscanpy README for that setup.
 
 ## Hardware support
 
@@ -88,11 +115,27 @@ the plain-SANE scanner packages:
   to disk across the three output tiers described below. It never imports
   coolscanpy itself, only the adapter above.
 - `negpy/infrastructure/roll/repair.py` is the Tier-2 repair engine seam:
-  an `available()` check and a `register_engine()` entry point, with no
-  engine registered by default. See "Output tiers" below.
+  an `available()` check and a `register_engine()` entry point. The
+  `fauxice_bridge` registers the portable Digital ICE engine when its pinned
+  core runtime is installed. The macOS parity build treats a missing
+  registration as a frozen-smoke failure rather than silently disabling
+  repair. See "Output tiers" below.
 - `negpy/services/roll/positive.py` renders Tier 3. It calls
   `ImageProcessor.run_pipeline`, the same in-memory entry point NegPy's own
   export pipeline uses after decoding a file, directly on a Tier-2 buffer.
+- `negpy/services/roll/exact_color.py` is the separate fail-closed seam for
+  portable Nikon-exact color. It contains no builder tables or CML4 math.
+- `negpy/services/roll/portable_builder.py` is an evidence/replay bridge. It
+  applies three pre-F builder LUTs captured and validated together by the
+  Stage-3 Windows oracle in the pinned order
+  `F[B_c(i)]`, using the 131,072-byte fixed LS5000.md3 post-F table. It
+  hashes both the repaired source and computed CML Stage-1 input. It is not
+  the final macOS-native per-scan builder.
+- `negpy/services/roll/portable_cms.py` is the production adapter for the
+  verified DLL-free CML4 Stage-1/Stage-2 evaluator. It loads nine pinned
+  binary tables (2,506,760 bytes total), verifies every SHA-256 before use,
+  and evaluates full frames in bounded chunks. Its integer evaluator is a
+  byte-identical copy of the independently validated oracle source.
 - `negpy/desktop/workers/roll_worker.py` defines `RollWorker`, a `QObject`
   moved to its own thread, mirroring `CaptureWorker`. It opens a device's
   roll extension lazily the first time a preview or batch scan names it,
@@ -105,8 +148,9 @@ the plain-SANE scanner packages:
 
 A batch scan can produce up to three tiers of output per slot, plus one
 receipt. Each tier is a separate on/off setting in the sidebar, and any
-combination is valid. See "Output tiers" below for what each tier is, why
-the defaults are set the way they are, and what happens when a tier cannot
+combination is valid. A new profile enables all three, selects Hybrid repair,
+and selects Nikon-exact color; existing saved choices are preserved. See
+"Output tiers" below for what each tier is and what happens when a tier cannot
 be produced.
 
 The filename pattern is the same Jinja2 template the plain Scan panel
@@ -119,11 +163,54 @@ copy beside them. This holds for every tier.
 Only a written Tier 1 (unrepaired) RGB TIFF is handed to NegPy's asset
 discovery once a batch scan finishes. Tier 2 and Tier 3 are written to
 disk when selected, but neither is opened as a NegPy asset automatically.
-The receipt is not opened as an asset either. The infrared confidence mask
-coolscanpy also returns per frame is not written to disk at all. Nothing
-downstream currently reads it, and adding a file format for it before
-there is a consumer would be guessing at a convention rather than
-following one.
+The receipt is not opened as an asset either. The scanner-native Digital ICE
+prepass and infrared-validity array are not part of that Tier-1 TIFF pair.
+They are consumed from the frame-bound acquisition while the scan is being
+written and retained in the movable acquisition archive described below.
+Hybrid output retains its disclosure mask and verified receipt, but that is
+provenance for the result, not a replacement input from which a later repair
+can be reconstructed.
+
+### Movable Digital ICE acquisition archive
+
+When Tier 1 includes infrared, NegPy also tries to retain the complete input
+set needed to reconstruct that frame's `RepairAcquisition`. The frame receipt
+records the result under `outputs.repair_acquisition_evidence`. A successful
+retention has `retained: true`, `replayable: true`, and schema
+`negpy.dice-acquisition-replay-v1`.
+
+The retained set contains:
+
+- `acquisition-binding.json`, represented by a `binding` object with `path`,
+  `bytes`, and `sha256`;
+- `prepass.rgbi16.npy` and `ir-validity.npy`, listed under `artifacts` as the
+  scanner-native prepass and validity map; and
+- the Tier-1 RGB and infrared TIFFs, listed under `sources` in
+  `upright-storage` orientation.
+
+Artifact and source rows include relative paths as well as their content and
+layout bindings. The binding's `replay.requires` list names all five required
+inputs: `storage_rgb_tiff`, `storage_ir_tiff`, `prepass_rgbi`, `ir_validity`,
+and `acquisition_provenance`. Replay stacks the upright-storage RGB and
+infrared planes, then applies `rot90(k=-1)` to reconstruct the scanner-native
+main RGBI array. The loader re-derives the producer acquisition identity and
+evidence hash before returning it.
+
+`load_repair_acquisition_evidence` accepts the retained binding file. Relative
+source paths make the archive movable when the whole output archive—including
+the Tier-1 TIFFs and its hidden evidence directories—is moved together. Moving
+only the binding directory, or only the TIFF pair, is incomplete. After a
+move, pass `acquisition-binding.json` at its new location; the capture-time
+absolute `binding.path` in the outer frame receipt does not relocate itself.
+The contract describes its authenticity as `integrity-bound-not-signed`:
+hashes and canonical producer bindings detect changed or mismatched inputs,
+but do not claim a cryptographic publisher signature.
+
+Retention is fail-soft for the irreplaceable Tier-1 output. If any unique
+input cannot be validated or retained, the RGB/IR TIFF pair can still be
+published while `retained: false`, `replayable: false`, and an `unavailable`
+status explain why repair replay was withheld. That TIFF pair remains useful
+as the scanner master, but is still insufficient by itself for parity repair.
 
 ## Output tiers
 
@@ -138,63 +225,154 @@ scratch repair applied, still scanner-linear and still a negative. It is
 written as `<basename>_repaired.tif` plus `<basename>_repaired_IR.tif`.
 That infrared sidecar is Tier 1's own infrared plane, unchanged, not a
 repaired version of it. Repair consumes infrared to find defects; it does
-not produce a new infrared image. Keeping the original lets a later repair
-pass, run under a different mode, start from the same evidence.
+not produce a new infrared image. Keeping the original infrared plane is
+still useful archival evidence, but it is not sufficient for a later parity
+repair without the bound prepass, validity data, and acquisition provenance.
 
-Repair runs in one of two modes. Exact mode heals only the pixels the
-infrared channel confidently flags as a defect. Hybrid mode additionally
-routes severe zero-signal regions, places where the infrared channel gives
-no usable reading at all, to an inpainting model. Both modes are
-deterministic: the same frame and the same mode always repair to the same
-result. That is what makes Tier 2 worth caching. Once a frame has been
-repaired under a given mode, repairing it again produces an identical
-file, so there is no need to redo the work. Exact mode is expected to take
-about 10 seconds per frame. Hybrid mode is expected to take 70 to 210
-seconds per frame, since inpainting is far slower than the exact-match
-heal.
+Repair runs in one of two modes. Exact mode uses the pinned portable Digital
+ICE runtime over the bound scanner-native main pass, 285-dpi prepass, and
+infrared-validity evidence. Hybrid mode additionally routes severe
+zero-signal regions, where the infrared channel gives no usable reading, to
+the separately pinned inpainting runtime. The receipt records the selected
+backend, resolved mode, hashes, and (for hybrid) disclosure evidence. Runtime
+depends heavily on backend, frame geometry, and the hybrid routing/model, so
+the integration does not promise a fixed time or make a blanket
+byte-identical claim for every hybrid environment.
 
-Tier 3 is the positive: Tier 2 inverted through NegPy's own
-negative-to-positive rendering pipeline, the same pipeline a freshly
-imported negative reaches the first time it is opened in NegPy. It is
-written as `<basename>_positive.tif`. Tier 3 always derives from Tier 2's
-result in memory, never from a Tier 1 or Tier 2 file already on disk, and
-never from Tier 1 directly. Selecting Tier 3 without Tier 2 still runs
-repair; the repaired result is just not written to disk on its own. Tier 3
-defaults off.
+Tier 3 is the positive. The Roll Scanning service and its persisted
+**Positive color** sidebar choice default to `nikon-exact` for the Nikon C-41
+parity workflow. `negpy-approximate` runs only when explicitly selected and
+remains visibly labeled as a preview path: Tier 2 is inverted through NegPy's
+own negative-to-positive rendering pipeline, the same pipeline a freshly
+imported negative reaches the first time it is opened in NegPy. It is never
+claimed or labeled as Nikon Scan parity.
+
+The service also exposes a fail-closed `nikon-exact` mode. NegPy ships two
+separate DLL-free adapters: `PortableStage1Builder`, which applies either a
+validated Stage-3 replay receipt or a freshly derived native receipt, and
+`PortableCMSOnEvaluator` for the two captured CML4 stages. Neither uses a Wine
+process, CML4 DLL, scanner, VM, or external repository at runtime.
+
+The native receipt boundary accepts the 97-dpi density result only as an
+explicit pair on the returned frame: `Frame.nikon_density_evidence` plus
+`Frame.nikon_density_ownership`, mirrored by
+`Frame.receipt.nikon_density_ownership`. The ownership receipt binds the same
+reservation and batch, preview bytes and preview identity, transport table,
+reviewed and fresh registration fingerprints, frame attempt, one-based batch
+index, and selected slot. A new preview or reservation, re-registration, film
+movement, eject/refeed, changed transport identity, missing field, or mismatch
+between the frame and its public receipt makes exact color unavailable. There
+is deliberately no generic Roll/session evidence cache that can be promoted
+later.
+
+In the current local reviewed overlay, a C-41 frame also carries
+`nikon_exact_builder_evidence`, which binds its settled 285-dpi analyzer
+raster and final exposure triplet to the same ownership pair. `Frame`
+construction revalidates the ownership, density, builder, and Digital ICE
+bindings before NegPy can consume them. The published streaming-only Git pin
+does not yet produce these fields; a clean build therefore fails its Coolscan
+API preflight instead of silently publishing an app that cannot complete the
+native exact path. The Stage-3 replay route remains independently usable with
+an explicit validated replay receipt.
+
+The Stage-3 replay bridge is deliberately not presented as the production
+builder architecture. The macOS-native path derives fresh pre-F LUTs for each
+acquisition from coolscanpy's settled, frame-bound meter and analyzer evidence.
+Reusing a previously captured Windows pre-F set is useful for evidence-bound
+replay and regression testing only.
+
+The builder receipt can only be created by the file-backed trusted loader. It
+uses stable, non-symlink reads and requires the complete PASS summary, an empty
+error list, the exact 15-file artifact inventory, the pinned LS5000.md3 module
+and resource, and complete observer source/executable provenance. The immutable
+builder envelope binds the raw Stage-3 PASS report and its
+SHA-256, the three 131,072-byte pre-F LUT blobs and their hashes, and the
+pinned fixed post-F LUT identity. The builder computes the Stage-1 input only
+after Fauxice repair; that future full-frame hash is output evidence in the
+builder-application receipt, not something the earlier prescan receipt is
+asked to predict. The CMS receipt separately binds that computed Stage-1
+input and final output. NegPy independently checks each receipt and content
+binding before writing. Missing, malformed, unattested, or tampered evidence
+produces an `unavailable` receipt entry; it never falls back to the
+approximate renderer under an exact label.
+
+The frozen app and wheel also carry the original 4,014-byte portable-oracle
+validation receipt, not only a copied summary of its result. Startup checks it
+against SHA-256
+`edf6f3f89158810f1de4ce3b4ff8938326bc50e1b3035af59af472258e7d95e8`
+and a closed schema before the CMS adapter can exist. The production CMS
+receipt derives and binds the verified totals: 12 events, 265,440 active
+16-bit values with zero mismatches, and 698,880 full-payload bytes with zero
+mismatched bytes.
+
+Native same-acquisition builder evidence is an acquisition artifact, not a
+side effect of rendering Tier 3. Whenever a frame carries it, NegPy validates
+and stages the canonical density receipt, frame-ownership receipt, analyzer
+raster, combined builder-evidence JSON, and three derived pre-F blobs before
+attempting repair or the positive. The frame sidecar records that result under
+`outputs.native_color_evidence`, including when Tier 3 was not selected or
+failed. A successful native exact positive points at that already retained
+artifact. A successful replay exact positive instead retains its raw Stage-3
+JSON and three pre-F blobs as part of the exact result. Every retained path,
+byte size, and SHA-256 is recorded, and the frame receipt is published last.
+The transaction rolls back errors observed by the process; it is not described
+as a power-loss durability guarantee. These color-builder artifacts do not
+replace Digital ICE's bound 285-dpi prepass, infrared-validity data, or repair
+provenance, so Tier 1 TIFF and IR files alone still cannot reconstruct a later
+parity repair.
+
+A successful exact positive also embeds Nikon Scan's exact 492-byte
+`Nikon Adobe RGB 4.0.0.3000` profile in TIFF tag 34675. The source-embedded
+profile is checked against SHA-256
+`a8d0d753bd6129357cc2647435ce675e8637a679eb526fa180fba460874ce1d3`
+before use, and the sidecar binds its name, byte size, and hash. Unrepaired,
+repaired, and `negpy-approximate` TIFFs keep their existing untagged behavior.
+The exact sidecar also records the finished TIFF's file hash, decoded-pixel
+hash, geometry, bit depth, planar layout, and embedded-profile hash after
+reopening it. Here “exact Nikon color” means the color-stage RGB values and
+ICC identity are exact; it does not claim that NegPy's TIFF compression,
+secondary pages, or unrelated application metadata are byte-identical to a
+Nikon Scan-written TIFF container.
+
+The positive is written as `<basename>_positive.tif`. Tier 3 always
+derives from Tier 2's result in memory, never from a Tier 1 or Tier 2 file
+already on disk, and never from Tier 1 directly. Selecting Tier 3 without
+Tier 2 still runs repair; the repaired result is just not written to disk
+on its own. Tier 3 is enabled in the first-run parity defaults; a saved user
+choice to disable it is preserved.
 
 Repair, when it can run, always runs before inversion: capture, then
 repair, then invert. That way Tier 3 benefits from whatever Tier 2 was
 able to fix, rather than inverting an uncorrected frame.
 
-The defaults follow from an asymmetry between the tiers. Tier 1 is the
-only tier the scanner can produce, so losing it is permanent. Tier 2 is
-expensive to compute but, once computed under a given mode, never needs
-recomputing. Tier 3 is cheap to compute, and NegPy's color rendering is
-still being tuned, so a Tier 3 file written today is expected to look
-different from what the same negative renders to later. Treat a Tier 3
-file as a current preview, not as a finished edit. Tier 1 defaults on
-because turning it off risks losing data that only the scanner can
-reproduce. Tier 2 and Tier 3 default off because both can be regenerated
-from Tier 1 at any time, once a repair engine is registered.
+The first-run parity defaults enable all three tiers, choose Hybrid repair,
+and choose Nikon-exact color. Tier 1 remains enabled because it is the archival
+scanner output. Repaired and Positive run while the frame-bound 285-dpi
+prepass, infrared-validity data, acquisition provenance, and native
+color-builder evidence are still available. Existing saved settings continue
+to win over these defaults, and users may opt out of derived tiers to reduce
+compute or storage. A later Tier-1-only reprocessing job must not invent the
+missing evidence or label its result exact.
 
-No repair engine ships with this integration today. `write_frame` checks
-whether one is registered before attempting Tier 2, and records a plain
-status in the receipt instead of raising when none is available. Since
-Tier 3 always depends on Tier 2's result, Tier 3 degrades the same way
-whenever repair is unavailable, even if Tier 2 itself was not selected for
-writing. Tier 1 still writes when selected, regardless of what happens to
-Tier 2 or Tier 3. If NegPy's own rendering pipeline fails for any reason,
-Tier 3 degrades on its own, and Tier 1 and Tier 2 are unaffected.
+The macOS parity build includes the pinned portable Digital ICE core and the
+bridge auto-registers it. Hybrid additionally needs its separately pinned
+companion interpreter/model manifest. `write_frame` still checks registration
+and evidence before attempting Tier 2, and records a plain unavailable status
+instead of losing lower tiers. Since Tier 3 depends on Tier 2's in-memory
+result, it degrades the same way whenever repair is unavailable, even if Tier
+2 itself was not selected for writing. Tier 1 still writes when selected,
+regardless of Tier-2 or Tier-3 failure.
 
 The receipt records, for every tier, whether it was written, and a status
 explaining why not when it was not. A successful Tier 2 write also records
 the repair engine's name and version, along with which mode ran. A
-successful Tier 3 write also records which rendering path produced it. It
-records the process mode and render intent that were used, and whether
-auto exposure was on, so a later regeneration or audit has something
-concrete to compare against. A Tier 3 receipt entry also carries the Tier
-2 provenance that fed it, so it stays self-contained even when Tier 2 was
-not itself written to disk.
+successful approximate Tier 3 write records its color-mode label, rendering
+path, process mode, render intent, and whether auto exposure was on. A
+successful exact write instead records the input/output content hashes, the
+bound ICC profile identity, and both embedded receipt payloads plus their
+SHA-256 bindings. Every Tier 3
+receipt entry also carries the Tier 2 provenance that fed it, so it stays
+self-contained even when Tier 2 was not itself written to disk.
 
 Writing every tier is not free of storage cost. At 4000 dpi, one frame's
 three tiers together take up roughly half a gigabyte on disk. A long roll
@@ -289,12 +467,11 @@ past the window that used it. coolscanpy's roll reservation has no
 equivalent failure mode, so there is nothing to protect against by
 closing it early.
 
-The panel does not expose a material picker. It always opens a roll as
-color negative, matching the one material coolscanpy's roll engine
-fine-scans end to end today. A black and white picker would only ever
-support preview, not the batch scan, as the coverage note above already
-explains, so adding one now would be a control with no working action
-behind it.
+The panel does not yet expose a material picker and opens a roll as color
+negative. Coolscanpy's B&W batch route is implemented and covered offline,
+but its first live macOS validation with conventional silver B&W film remains
+outstanding. Exposing that choice in NegPy waits on that hardware acceptance,
+not on a missing fine-scan implementation.
 
 A contact sheet thumbnail is a raw scanner preview frame, not a NegPy
 pipeline buffer, so it is converted to a displayable image with a small

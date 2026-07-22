@@ -1,5 +1,6 @@
 import os
 import re
+import stat
 import tomllib
 from typing import List, Optional
 
@@ -7,6 +8,7 @@ from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.paths import get_resource_path
 
 DEFAULT_NAME = "Default"
+_MAX_PROFILE_BYTES = 64 * 1024
 
 
 # ponytail: 2-line helpers duplicated from contact_sheet_templates; extract to a
@@ -69,9 +71,31 @@ class CrosstalkProfiles:
     @staticmethod
     def _parse_file(path: str) -> Optional[tuple]:
         """Parses a .toml file to (name, flat 9-float list), or None if invalid."""
+        descriptor: Optional[int] = None
         try:
-            with open(path, "rb") as f:
-                data = tomllib.load(f)
+            linked = os.lstat(path)
+            if stat.S_ISLNK(linked.st_mode) or not stat.S_ISREG(linked.st_mode):
+                return None
+            if linked.st_size < 0 or linked.st_size > _MAX_PROFILE_BYTES:
+                return None
+
+            flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+            descriptor = os.open(path, flags)
+            with os.fdopen(descriptor, "rb") as f:
+                descriptor = None
+                before = os.fstat(f.fileno())
+                if not stat.S_ISREG(before.st_mode) or not os.path.samestat(linked, before) or before.st_size != linked.st_size:
+                    return None
+                payload = f.read(_MAX_PROFILE_BYTES + 1)
+                after = os.fstat(f.fileno())
+            if (
+                len(payload) != before.st_size
+                or len(payload) > _MAX_PROFILE_BYTES
+                or (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+                != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            ):
+                return None
+            data = tomllib.loads(payload.decode("utf-8"))
             rows = data.get("matrix")
             if not isinstance(rows, list) or len(rows) != 3:
                 return None
@@ -88,6 +112,9 @@ class CrosstalkProfiles:
             return name, flat
         except Exception:
             return None
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
 
     @staticmethod
     def list_profiles() -> List[str]:

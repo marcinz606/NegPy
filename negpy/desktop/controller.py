@@ -28,7 +28,12 @@ from negpy.desktop.workers.render import (
     ThumbnailUpdateTask,
     ThumbnailWorker,
 )
-from negpy.desktop.workers.scan_worker import BatchRequest, RollPreviewRequest, ScanRequest, ScanWorker
+from negpy.desktop.workers.scan_worker import (
+    BatchRequest,
+    RollPreviewRequest as ScanRollPreviewRequest,
+    ScanRequest,
+    ScanWorker,
+)
 from negpy.desktop.workers.stitch import StitchTask, StitchWorker
 from negpy.features.stitch.models import stitch_hash, stitch_name
 from negpy.desktop.workers.capture_worker import (
@@ -39,7 +44,7 @@ from negpy.desktop.workers.capture_worker import (
 )
 from negpy.desktop.workers.roll_worker import (
     RollBatchScanRequest,
-    RollPreviewRequest,
+    RollPreviewRequest as CoolscanRollPreviewRequest,
     RollWorker,
 )
 from negpy.domain.models import (
@@ -58,6 +63,7 @@ from negpy.domain.models import (
 )
 from negpy.services.assets.half_frame import base_hash, slice_half
 from negpy.services.assets.sidecar import load_or_promote, write_sidecar
+from negpy.services.roll.service import RollScanningError
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
@@ -81,6 +87,7 @@ from negpy.infrastructure.storage.local_asset_store import LocalAssetStore
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.services.rendering.preview_manager import PreviewManager
+from negpy.services.repair.fauxice_hybrid_runner import HybridRuntimeConfig
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 
 logger = get_logger(__name__)
@@ -218,7 +225,7 @@ class AppController(QObject):
     scan_batch_finished = pyqtSignal(list)  # batch: all completed rgb paths
     scan_batch_requested = pyqtSignal(BatchRequest)
     scan_eject_requested = pyqtSignal(str)
-    scan_roll_preview_requested = pyqtSignal(RollPreviewRequest)
+    scan_roll_preview_requested = pyqtSignal(ScanRollPreviewRequest)
     scan_roll_preview_ready = pyqtSignal(object)  # one RollPreview per strip slot
     scan_roll_preview_finished = pyqtSignal()
     capture_light_requested = pyqtSignal(int, int, int, int, str)
@@ -249,7 +256,7 @@ class AppController(QObject):
     roll_devices_requested = pyqtSignal()
     roll_devices_ready = pyqtSignal(list)  # list[coolscanpy.DeviceInfo]
     roll_opened = pyqtSignal(str)  # device_id now open
-    roll_preview_requested = pyqtSignal(RollPreviewRequest)
+    roll_preview_requested = pyqtSignal(CoolscanRollPreviewRequest)
     roll_preview_ready = pyqtSignal(list)  # list[coolscanpy.Thumbnail]
     roll_spacing_offset_requested = pyqtSignal(int, int)
     roll_spacing_offset_set = pyqtSignal(int, int)
@@ -263,7 +270,12 @@ class AppController(QObject):
     roll_error = pyqtSignal(str)
     roll_status = pyqtSignal(str)
 
-    def __init__(self, session_manager: DesktopSessionManager):
+    def __init__(
+        self,
+        session_manager: DesktopSessionManager,
+        *,
+        hybrid_runtime: HybridRuntimeConfig | None = None,
+    ):
         super().__init__()
         self.session = session_manager
         self.state: AppState = session_manager.state
@@ -281,6 +293,8 @@ class AppController(QObject):
         self._pending_scanned_file: Optional[str] = None
         self._gpu_fallback_notified = False
         self._cleaned_up = False
+        self._roll_shutdown_complete = False
+        self._shutdown_block_reason: str | None = None
         self._active_batch: Optional[str] = None
         self._active_batch_title = ""
         self._active_batch_abortable = False
@@ -349,7 +363,7 @@ class AppController(QObject):
         self._capture_thread_started = False
 
         self.roll_thread = QThread()
-        self.roll_worker = RollWorker()
+        self.roll_worker = RollWorker(hybrid_runtime=hybrid_runtime)
         self.roll_worker.moveToThread(self.roll_thread)
         # Same lazy-start reasoning as _capture_thread_started (_ensure_roll_thread).
         self._roll_thread_started = False
@@ -2111,7 +2125,7 @@ class AppController(QObject):
         self.scan_started.emit()
         self.scan_batch_requested.emit(req)
 
-    def start_roll_preview(self, req: RollPreviewRequest) -> None:
+    def start_roll_preview(self, req: ScanRollPreviewRequest) -> None:
         """Preview strip slots (results via scan_roll_preview_ready, then
         scan_roll_preview_finished). No scan_started — preview is dialog-local."""
         self.scan_worker.prepare_scan()
@@ -2320,7 +2334,7 @@ class AppController(QObject):
         self._ensure_roll_thread()
         self.roll_devices_requested.emit()
 
-    def start_roll_preview(self, req: RollPreviewRequest) -> None:
+    def start_coolscan_roll_preview(self, req: CoolscanRollPreviewRequest) -> None:
         self._ensure_roll_thread()
         self.roll_preview_requested.emit(req)
 
@@ -2333,11 +2347,34 @@ class AppController(QObject):
         self.roll_approve_requested.emit(slot)
 
     def start_roll_scan(self, req: RollBatchScanRequest) -> None:
+        self.roll_worker.prepare_batch()
         self._ensure_roll_thread()
         self.roll_scan_requested.emit(req)
 
     def roll_safe_stop(self) -> None:
         self.roll_worker.safe_stop()
+
+    @property
+    def shutdown_block_reason(self) -> str | None:
+        return self._shutdown_block_reason
+
+    def request_shutdown(self) -> bool:
+        """Prove the scanner reservation closed before the UI may exit."""
+
+        if self._roll_shutdown_complete:
+            return True
+        try:
+            self.roll_worker.shutdown()
+        except Exception as error:
+            logger.exception("application shutdown blocked by scanner teardown")
+            self._shutdown_block_reason = str(error)
+            self.roll_status.emit(
+                "Cannot exit: the Coolscan reservation is not safely closed."
+            )
+            return False
+        self._roll_shutdown_complete = True
+        self._shutdown_block_reason = None
+        return True
 
     def _on_roll_scan_finished(self, outputs: list) -> None:
         """Feed newly-written roll frames into NegPy's file list, like the plain Scan and
@@ -3262,6 +3299,11 @@ class AppController(QObject):
         """
         if self._cleaned_up:
             return
+        if not self.request_shutdown():
+            raise RollScanningError(
+                self._shutdown_block_reason
+                or "Coolscan reservation is not safely closed"
+            )
         self._cleaned_up = True
         self._render_debounce.stop()
         self._cursor_readout_timer.stop()
@@ -3293,7 +3335,6 @@ class AppController(QObject):
         if self.capture_thread.isRunning():
             self.capture_thread.quit()
             self.capture_thread.wait()
-        self.roll_worker.shutdown()
         if self.roll_thread.isRunning():
             self.roll_thread.quit()
             self.roll_thread.wait()

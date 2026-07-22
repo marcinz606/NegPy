@@ -7,16 +7,61 @@ list-appending slots, no QThread or QApplication involved.
 from __future__ import annotations
 
 import os
+import threading
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 
 from negpy.desktop.workers.roll_worker import RollBatchScanRequest, RollPreviewRequest, RollWorker
+from negpy.infrastructure.roll import repair as roll_repair
+from negpy.services.repair.fauxice_hybrid_runner import HybridRuntimeConfig
+from negpy.services.roll import service as roll_service
 
 
 def _frame(fake_coolscanpy, *, slot, ir=None):
     rgb = np.random.randint(0, 65535, (4, 6, 3), dtype=np.uint16)
     receipt = fake_coolscanpy.Receipt(version=1, slot=slot, dpi=4000, depth=16, device_id="usb:1:2", transport_smear_verdict="clean")
-    return fake_coolscanpy.Frame(slot=slot, rgb=rgb, ir=ir, ir_validity=None, receipt=receipt)
+    acquisition = None
+    validity = None
+    meter = None
+    if ir is not None:
+        storage_rgbi = np.dstack((rgb, ir))
+        native_rgbi = np.ascontiguousarray(np.rot90(storage_rgbi, k=-1, axes=(0, 1)))
+        validity = np.ones(ir.shape, dtype=np.bool_)
+        native_validity = np.ascontiguousarray(np.rot90(validity, k=-1, axes=(0, 1)))
+        meter = np.full((2, 2, 4), 500, dtype=np.uint16)
+        reservation_id = f"reservation-{slot:03d}"
+        capture_attempt_id = f"fine-slot-{slot}-attempt-001"
+        acquisition_id, evidence_sha256 = roll_service._derive_digital_ice_producer_binding(
+            slot=slot,
+            reservation_id=reservation_id,
+            capture_attempt_id=capture_attempt_id,
+            main_rgbi=native_rgbi,
+            prepass_rgbi=meter,
+            ir_validity=native_validity,
+        )
+        acquisition = roll_repair.RepairAcquisition.from_arrays(
+            acquisition_id=acquisition_id,
+            slot=slot,
+            reservation_id=reservation_id,
+            capture_attempt_id=capture_attempt_id,
+            storage_transform=roll_repair.DIGITAL_ICE_STORAGE_TRANSFORM,
+            evidence_sha256=evidence_sha256,
+            main_rgbi=native_rgbi,
+            prepass_rgbi=meter,
+            ir_validity=native_validity,
+        )
+    return fake_coolscanpy.Frame(
+        slot=slot,
+        rgb=rgb,
+        ir=ir,
+        ir_validity=validity,
+        receipt=receipt,
+        meter_rgbi=meter,
+        digital_ice_acquisition=acquisition,
+    )
 
 
 def _open(fake_coolscanpy, roll=None):
@@ -27,6 +72,24 @@ def _open(fake_coolscanpy, roll=None):
 
 
 class TestListDevices:
+    def test_explicit_hybrid_runtime_is_injected_into_scanning_service(self, tmp_path: Path) -> None:
+        runtime = HybridRuntimeConfig(
+            hybrid_python=tmp_path / "hybrid" / "bin" / "python",
+            executable=tmp_path / "hybrid" / "bin" / "fauxce-hybrid",
+            core_source_manifest_sha256="c" * 64,
+            hybrid_source_manifest_sha256="d" * 64,
+            iopaint_python=tmp_path / "iopaint" / "bin" / "python",
+            iopaint_executable=tmp_path / "iopaint" / "bin" / "iopaint",
+            iopaint_source_manifest_sha256="a" * 64,
+            model_dir=tmp_path / "models",
+            model_weights=tmp_path / "models" / "big-lama.pt",
+            model_weights_sha256="b" * 64,
+        )
+
+        worker = RollWorker(hybrid_runtime=runtime)
+
+        assert worker._service._hybrid_runtime is runtime
+
     def test_success_emits_devices(self, fake_coolscanpy) -> None:
         fake_coolscanpy.state["devices"] = ["device-a", "device-b"]
         worker = RollWorker()
@@ -135,6 +198,26 @@ class TestOpenAndPreview:
         assert roll.closed is True
         assert worker._open_device_id is None
 
+    def test_close_roll_failure_retains_identity_and_does_not_emit_closed(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        _open(fake_coolscanpy)
+        worker = RollWorker()
+        worker.run_preview(RollPreviewRequest(device_id="ls5000-usb-001"))
+        closed = []
+        errors = []
+        worker.closed.connect(lambda: closed.append(True))
+        worker.error.connect(errors.append)
+        failure = RuntimeError("ownership remains uncertain")
+        worker._service.close = MagicMock(side_effect=failure)
+
+        assert worker.close_roll() is False
+
+        assert worker._open_device_id == "ls5000-usb-001"
+        assert closed == []
+        assert errors and "ownership remains uncertain" in errors[-1]
+
 
 class TestSpacingAndApproval:
     def test_set_spacing_offset_echoes_the_applied_value(self, fake_coolscanpy) -> None:
@@ -193,7 +276,9 @@ class TestBatchScan:
         worker.progress.connect(lambda frac, msg: progress.append((frac, msg)))
 
         worker.run_batch_scan(
-            RollBatchScanRequest(device_id="ls5000-usb-001", slots=(1, 2, 3), output_folder=str(tmp_path), filename_pattern='{{ "%03d" % seq }}')
+            RollBatchScanRequest(
+                device_id="ls5000-usb-001", slots=(1, 2, 3), output_folder=str(tmp_path), filename_pattern='{{ "%03d" % seq }}'
+            )
         )
 
         assert [w.slot for w in written] == [1, 2, 3]
@@ -226,7 +311,9 @@ class TestBatchScan:
         worker.error.connect(errors.append)
 
         worker.run_batch_scan(
-            RollBatchScanRequest(device_id="ls5000-usb-001", slots=(1, 2), output_folder=str(tmp_path), filename_pattern='{{ "%03d" % seq }}')
+            RollBatchScanRequest(
+                device_id="ls5000-usb-001", slots=(1, 2), output_folder=str(tmp_path), filename_pattern='{{ "%03d" % seq }}'
+            )
         )
 
         assert len(written) == 1  # slot 1 finished and was written before the stop landed
@@ -246,12 +333,104 @@ class TestBatchScan:
         worker.error.connect(errors.append)
 
         worker.run_batch_scan(
-            RollBatchScanRequest(device_id="ls5000-usb-001", slots=(1, 2), output_folder=str(tmp_path), filename_pattern='{{ "%03d" % seq }}')
+            RollBatchScanRequest(
+                device_id="ls5000-usb-001", slots=(1, 2), output_folder=str(tmp_path), filename_pattern='{{ "%03d" % seq }}'
+            )
         )
 
         assert len(written) == 1
         assert cancelled == []
         assert errors and "transport jam" in errors[-1]
+
+    def test_repair_cancellation_aborts_frame_transaction_and_batch(
+        self,
+        fake_coolscanpy,
+        fake_repair_engine,
+        tmp_path,
+    ) -> None:
+        frame = _frame(
+            fake_coolscanpy,
+            slot=1,
+            ir=np.full((4, 6), 2_000, dtype=np.uint16),
+        )
+        roll = fake_coolscanpy.Roll(frames=[frame])
+        _open(fake_coolscanpy, roll)
+        started = threading.Event()
+
+        def blocking_repair(
+            acquisition,
+            mode,
+            *,
+            hybrid_runtime=None,
+            progress=None,
+            cancel=None,
+        ):
+            started.set()
+            assert cancel is not None
+            assert cancel.wait(timeout=5)
+            raise roll_repair.RepairCancelled("repair cancelled by test")
+
+        fake_repair_engine.repair = blocking_repair
+        worker = RollWorker()
+        written, finished, cancelled, errors = [], [], [], []
+        worker.frame_written.connect(written.append)
+        worker.finished.connect(finished.append)
+        worker.cancelled.connect(lambda: cancelled.append(True))
+        worker.error.connect(errors.append)
+        request = RollBatchScanRequest(
+            device_id="ls5000-usb-001",
+            slots=(1,),
+            output_folder=str(tmp_path),
+            filename_pattern='{{ "%03d" % seq }}',
+            write_unrepaired=True,
+            write_repaired=True,
+        )
+        worker.prepare_batch()
+        stop_thread = threading.Thread(
+            target=lambda: (
+                started.wait(timeout=5),
+                worker.safe_stop(),
+            )
+        )
+        stop_thread.start()
+        worker.run_batch_scan(request)
+        stop_thread.join(timeout=5)
+
+        assert not stop_thread.is_alive()
+        assert written == []
+        assert finished == []
+        assert cancelled == [True]
+        assert errors == []
+        assert not any(path.name.endswith(".tif") for path in tmp_path.iterdir())
+        assert not any(path.name.endswith("_receipt.json") for path in tmp_path.iterdir())
+        assert not any(path.name.startswith(".negpy-frame-stage-") for path in tmp_path.iterdir())
+
+    def test_stop_after_batch_is_queued_is_not_cleared_at_first_scan(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        frame = _frame(fake_coolscanpy, slot=1)
+        roll = fake_coolscanpy.Roll(frames=[frame])
+        _open(fake_coolscanpy, roll)
+        worker = RollWorker()
+        cancelled, finished = [], []
+        worker.cancelled.connect(lambda: cancelled.append(True))
+        worker.finished.connect(finished.append)
+        request = RollBatchScanRequest(
+            device_id="ls5000-usb-001",
+            slots=(1,),
+            output_folder=str(tmp_path),
+            filename_pattern='{{ "%03d" % seq }}',
+        )
+
+        worker.prepare_batch()
+        worker.safe_stop()
+        worker.run_batch_scan(request)
+
+        assert cancelled == [True]
+        assert finished == []
+        assert not any(tmp_path.iterdir())
 
     def test_writes_ir_sidecar_when_frame_carries_one(self, fake_coolscanpy, tmp_path) -> None:
         ir = np.random.randint(0, 65535, (4, 6), dtype=np.uint16)
@@ -292,6 +471,37 @@ class TestSafeStopAndShutdown:
         assert roll.safe_stop_called is True
         assert roll.closed is True
 
+    def test_shutdown_close_failure_is_raised_and_retains_open_identity(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        _open(fake_coolscanpy)
+        worker = RollWorker()
+        worker.run_preview(RollPreviewRequest(device_id="ls5000-usb-001"))
+        failure = RuntimeError("ownership remains uncertain")
+        worker._service.close = MagicMock(side_effect=failure)
+
+        with pytest.raises(RuntimeError) as raised:
+            worker.shutdown(timeout_seconds=0)
+
+        assert raised.value is failure
+        assert worker._open_device_id == "ls5000-usb-001"
+
+    def test_queued_preview_cannot_reopen_after_shutdown_was_proven(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        _open(fake_coolscanpy)
+        worker = RollWorker()
+        errors = []
+        worker.error.connect(errors.append)
+
+        worker.shutdown(timeout_seconds=0)
+        worker.run_preview(RollPreviewRequest(device_id="ls5000-usb-001"))
+
+        assert worker._open_device_id is None
+        assert errors and "no new operation may begin" in errors[-1]
+
     def test_shutdown_without_any_roll_open_does_not_raise(self) -> None:
         RollWorker().shutdown()
 
@@ -302,18 +512,23 @@ class TestBatchScanOutputTiers:
     matrix (naming, receipt provenance, every degrade path); these tests only
     pin the plumbing between the request and the service call."""
 
-    def test_request_defaults_write_only_tier_1(self) -> None:
-        """A request built without naming the tier fields (every pre-existing
-        test in this file builds one this way) matches RollScanSettings
-        .defaults() -- unchanged from before Tier 2/3 existed."""
+    def test_request_defaults_match_the_complete_parity_workflow(self) -> None:
+        """An unnamed request follows the new-user Color + DICE target."""
         req = RollBatchScanRequest(device_id="d", slots=(1,), output_folder="/tmp/x", filename_pattern="p")
 
         assert req.write_unrepaired is True
-        assert req.write_repaired is False
-        assert req.write_positive is False
-        assert req.repair_mode == "exact"
+        assert req.write_repaired is True
+        assert req.write_positive is True
+        assert req.repair_mode == "hybrid"
+        assert req.positive_mode == "nikon-exact"
 
-    def test_tier_flags_are_forwarded_to_write_frame(self, fake_coolscanpy, tmp_path, monkeypatch) -> None:
+    def test_tier_flags_are_forwarded_to_write_frame(
+        self,
+        fake_coolscanpy,
+        no_repair_engine,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
         _open(fake_coolscanpy, fake_coolscanpy.Roll(frames=[_frame(fake_coolscanpy, slot=1)]))
         worker = RollWorker()
         captured = {}
@@ -335,17 +550,20 @@ class TestBatchScanOutputTiers:
                 write_repaired=True,
                 write_positive=True,
                 repair_mode="hybrid",
+                positive_mode="negpy-approximate",
             )
         )
 
         # write_repaired/write_positive=True with no repair engine registered degrades
         # gracefully (see test_service.py) rather than raising, so this exercises the
         # real write_frame end to end without needing a fake engine here.
+        assert callable(captured.pop("on_repair_progress"))
         assert captured == {
             "write_unrepaired": False,
             "write_repaired": True,
             "write_positive": True,
             "repair_mode": "hybrid",
+            "positive_mode": "negpy-approximate",
         }
 
     def test_repaired_tier_writes_through_the_worker_with_a_registered_engine(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:

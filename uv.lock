@@ -76,8 +76,8 @@ wheels = [
 
 [[package]]
 name = "coolscanpy"
-version = "0.1.2"
-source = { registry = "https://pypi.org/simple" }
+version = "0.1.3"
+source = { git = "https://github.com/rohanpandula/coolscanpy.git?rev=733151d25b8e962e3d5cb6ac1a6989315dc4e1ed#733151d25b8e962e3d5cb6ac1a6989315dc4e1ed" }
 dependencies = [
     { name = "imagecodecs" },
     { name = "jinja2" },
@@ -85,10 +85,6 @@ dependencies = [
     { name = "opencv-python-headless" },
     { name = "pyusb" },
     { name = "tifffile" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/d0/2ab023bcd243daa927f20e3cdaac0db36a8a4b5df02d3424640c7863e7bd/coolscanpy-0.1.2.tar.gz", hash = "sha256:1ff98ea9689b19ad765bb7109ac18ab9d71509d266e87cbdf8434fa14577808e", size = 289030, upload-time = "2026-07-19T02:58:42.101Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/66/18473737fcba32a57fbef3d2668b6f15d94c869810d1a7dbeb4fff57a7bd/coolscanpy-0.1.2-py3-none-any.whl", hash = "sha256:a780eb3613b30e1299913c3c5f33f6b3255382ac4c3309e46691a071ec477a24", size = 296086, upload-time = "2026-07-19T02:58:40.819Z" },
 ]
 
 [[package]]
@@ -436,7 +432,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 camera = [{ name = "gphoto2", marker = "sys_platform != 'win32'", specifier = ">=2.5" }]
-coolscan-roll = [{ name = "coolscanpy", specifier = ">=0.1.2" }]
+coolscan-roll = [{ name = "coolscanpy", git = "https://github.com/rohanpandula/coolscanpy.git?rev=733151d25b8e962e3d5cb6ac1a6989315dc4e1ed" }]
 dev = [
     { name = "pyinstaller", specifier = ">=6.18.0" },
     { name = "pytest", specifier = "==9.0.2" },

@@ -57,8 +57,10 @@ camera = [
 ]
 coolscan-roll = [
     # Direct-USB roll scanning on a Nikon Coolscan LS-5000 with an SA-21/SA-30 feeder.
+    # Pin the reviewed color-negative density/DICE/direct-USB implementation
+    # until its first tagged release.
     # No SANE dependency for this workflow; see docs/COOLSCANPY_ROLL_SCANNING.md.
-    "coolscanpy>=0.1.2",
+    "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@733151d25b8e962e3d5cb6ac1a6989315dc4e1ed",
 ]
 fauxice = [
     "portable-digital-ice @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl",
@@ -77,8 +79,15 @@ Issues = "https://github.com/marcinz606/NegPy/issues"
 requires = ["setuptools~=80.10.2"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["negpy"]
+[tool.setuptools.packages.find]
+include = ["negpy*"]
+
+[tool.setuptools.package-data]
+negpy = [
+    "assets/portable_builder/*.bin",
+    "assets/portable_cms/*.bin",
+    "assets/portable_cms/*.json",
+]
 
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }
@@ -108,6 +117,8 @@ exclude = [
     "dist",
     "desktop/bin",
     "build",
+    # Vendored byte-identical verified oracle; linting would change its pinned SHA.
+    "negpy/services/roll/portable_oracle_evaluator.py",
 ]
 
 [tool.coverage.run]

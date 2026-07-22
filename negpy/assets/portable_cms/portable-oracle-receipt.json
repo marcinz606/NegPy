@@ -1,0 +1,192 @@
+{
+  "stage1": {
+    "per_event": {
+      "30": {
+        "mismatched_u16": 0,
+        "total_u16": 32448,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "34": {
+        "mismatched_u16": 0,
+        "total_u16": 16848,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "38": {
+        "mismatched_u16": 0,
+        "total_u16": 22464,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 22464,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "42": {
+        "mismatched_u16": 0,
+        "total_u16": 11664,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 22464,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "47": {
+        "mismatched_u16": 0,
+        "total_u16": 32448,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "52": {
+        "mismatched_u16": 0,
+        "total_u16": 16848,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      }
+    },
+    "total": {
+      "mismatched_u16": 0,
+      "total_u16": 132720,
+      "max_abs": 0,
+      "mae": 0.0
+    },
+    "full_payload_total": {
+      "mismatched_u16": 0,
+      "total_u16": 174720,
+      "max_abs": 0,
+      "mae": 0.0
+    }
+  },
+  "stage2": {
+    "per_event": {
+      "31": {
+        "mismatched_u16": 0,
+        "total_u16": 32448,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "35": {
+        "mismatched_u16": 0,
+        "total_u16": 16848,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "39": {
+        "mismatched_u16": 0,
+        "total_u16": 22464,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 22464,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "43": {
+        "mismatched_u16": 0,
+        "total_u16": 11664,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 22464,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "48": {
+        "mismatched_u16": 0,
+        "total_u16": 32448,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      },
+      "53": {
+        "mismatched_u16": 0,
+        "total_u16": 16848,
+        "max_abs": 0,
+        "mae": 0.0,
+        "full_payload": {
+          "mismatched_u16": 0,
+          "total_u16": 32448,
+          "max_abs": 0,
+          "mae": 0.0
+        }
+      }
+    },
+    "total": {
+      "mismatched_u16": 0,
+      "total_u16": 132720,
+      "max_abs": 0,
+      "mae": 0.0
+    },
+    "full_payload_total": {
+      "mismatched_u16": 0,
+      "total_u16": 174720,
+      "max_abs": 0,
+      "mae": 0.0
+    }
+  },
+  "all_12_events": {
+    "mismatched_u16": 0,
+    "total_u16": 265440,
+    "max_abs": 0,
+    "mae": 0.0
+  },
+  "all_12_full_payloads": {
+    "mismatched_u16": 0,
+    "total_u16": 349440,
+    "max_abs": 0,
+    "mae": 0.0,
+    "total_bytes": 698880,
+    "mismatched_bytes": 0
+  }
+}

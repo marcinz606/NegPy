@@ -180,6 +180,25 @@ class TestAppController(unittest.TestCase):
         # No "started": a preview must not flip the main scan UI into scanning state.
         self.assertEqual(events, ["prepare", ("preview", request)])
 
+    def test_coolscan_roll_preview_uses_its_separate_worker_lane(self):
+        from negpy.desktop.workers.roll_worker import RollPreviewRequest
+
+        events: list[object] = []
+        request = RollPreviewRequest(device_id="usb:1:2", slots=(1, 2))
+        controller = SimpleNamespace(
+            _ensure_roll_thread=lambda: events.append("ensure-coolscan-thread"),
+            roll_preview_requested=SimpleNamespace(
+                emit=lambda value: events.append(("coolscan-preview", value))
+            ),
+        )
+
+        AppController.start_coolscan_roll_preview(controller, request)
+
+        self.assertEqual(
+            events,
+            ["ensure-coolscan-thread", ("coolscan-preview", request)],
+        )
+
     def test_thumbnail_refreshes_on_config_changed_settle(self):
         """Filmstrip thumbnail is re-captured on every settled render whose config
         differs from the last capture (covers in-place edits and reset), but not on a

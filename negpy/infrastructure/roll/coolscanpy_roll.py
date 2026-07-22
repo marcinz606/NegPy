@@ -39,6 +39,10 @@ from typing import TYPE_CHECKING, Iterable, Iterator
 
 if TYPE_CHECKING:
     import coolscanpy
+    from coolscanpy.protocol.ls5000_single_pass.capture_process import (
+        ManualFrameApproval as CoolscanManualFrameApproval,
+    )
+    from coolscanpy.types import ProgressCallback as CoolscanProgressCallback
 
 
 def available() -> bool:
@@ -72,11 +76,23 @@ class RollHandle:
         self._roll = roll
 
     def preview(
-        self, slots: Iterable[int] | None = None, *, on_progress: "coolscanpy.ProgressCallback | None" = None
+        self, slots: Iterable[int] | None = None, *, on_progress: "CoolscanProgressCallback | None" = None
     ) -> "list[coolscanpy.Thumbnail]":
         """One whole-roll transport read. See `coolscanpy.Roll.preview`."""
         try:
             return self._roll.preview(slots, on_progress=on_progress)
+        except Exception as error:
+            raise _translate(error) from error
+
+    def restore_preview_session(
+        self,
+        payload: str,
+        slots: Iterable[int] | None = None,
+    ) -> "list[coolscanpy.Thumbnail]":
+        """Restore one content-verified preview without scanner I/O."""
+
+        try:
+            return self._roll.restore_preview_session(payload, slots)
         except Exception as error:
             raise _translate(error) from error
 
@@ -86,9 +102,11 @@ class RollHandle:
         except Exception as error:
             raise _translate(error) from error
 
-    def approve(self, slot: int) -> None:
+    def approve(self, slot: int) -> "CoolscanManualFrameApproval":
+        """Approve one reviewed slot and return Coolscanpy's bound receipt."""
+
         try:
-            self._roll.approve(slot)
+            return self._roll.approve(slot)
         except Exception as error:
             raise _translate(error) from error
 
@@ -98,9 +116,7 @@ class RollHandle:
         except Exception as error:
             raise _translate(error) from error
 
-    def scan_many(
-        self, slots: Iterable[int], *, on_progress: "coolscanpy.ProgressCallback | None" = None
-    ) -> Iterator["coolscanpy.Frame"]:
+    def scan_many(self, slots: Iterable[int], *, on_progress: "CoolscanProgressCallback | None" = None) -> Iterator["coolscanpy.Frame"]:
         """Batch fine-scan `slots` in one transport reservation.
 
         A `RuntimeError` raised here whose `__cause__` is a
@@ -118,11 +134,10 @@ class RollHandle:
         self._roll.safe_stop()
 
     def close(self) -> None:
-        """Idempotent. Releases the roll extension, then the device."""
-        try:
-            self._roll.close()
-        finally:
-            self._device.close()
+        """Release the roll, then its device after ownership is confirmed."""
+
+        self._roll.close()
+        self._device.close()
 
     def __enter__(self) -> "RollHandle":
         return self
@@ -144,10 +159,10 @@ def open_roll(device_id: str | None = None, *, material: "coolscanpy.Material | 
     `device_id` follows `coolscanpy.open()`: omitted (`None`) picks "the one
     attached unit", an explicit id (from `list_devices()`) disambiguates
     when more than one is attached. `material` defaults to
-    `coolscanpy.Material.COLOR_NEGATIVE`, the only material coolscanpy's
-    roll engine fine-scans end to end today; black-and-white preview works
-    but its batch scan raises `NotImplementedError` (unchanged, surfaced as
-    a plain `RuntimeError` here like everything else).
+    `coolscanpy.Material.COLOR_NEGATIVE`, NegPy's live-accepted workflow.
+    Coolscanpy's host-native B&W fine-scan route is implemented and covered
+    without hardware, but still awaits its first live macOS acceptance with
+    conventional silver B&W film.
     """
     import coolscanpy
 

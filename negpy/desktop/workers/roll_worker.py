@@ -9,17 +9,23 @@ rather than reconnecting for every call.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.infrastructure.roll import coolscanpy_roll
-from negpy.infrastructure.roll.repair import RepairMode
+from negpy.infrastructure.roll.repair import RepairCancelled
 from negpy.infrastructure.roll.settings import RollScanSettings
 from negpy.kernel.system.logging import get_logger
+from negpy.services.repair.fauxice_hybrid_runner import HybridRuntimeConfig
 from negpy.services.roll.service import RollFrameOutput, RollScanningService
 
 logger = get_logger(__name__)
+
+
+class RollShutdownBlocked(RuntimeError):
+    """The scanner worker has not reached a state that is safe to close."""
 
 
 @dataclass(frozen=True)
@@ -35,13 +41,14 @@ class RollBatchScanRequest:
     output_folder: str
     filename_pattern: str
     # Which of the three output tiers to write -- see
-    # `RollScanningService.write_frame`. Defaults mirror `RollScanSettings`,
-    # so a request built without naming them writes Tier 1 only, matching
-    # this integration's behavior before Tier 2/3 existed.
+    # `RollScanningService.write_frame`. Defaults mirror `RollScanSettings`:
+    # first-run requests retain Tier 1 and produce Hybrid repair plus the
+    # Nikon-exact positive while their frame-bound evidence is available.
     write_unrepaired: bool = RollScanSettings.defaults().write_unrepaired
     write_repaired: bool = RollScanSettings.defaults().write_repaired
     write_positive: bool = RollScanSettings.defaults().write_positive
-    repair_mode: str = RepairMode.EXACT.value
+    repair_mode: str = RollScanSettings.defaults().repair_mode
+    positive_mode: str = RollScanSettings.defaults().positive_mode
 
 
 class RollWorker(QObject):
@@ -60,17 +67,31 @@ class RollWorker(QObject):
     error = pyqtSignal(str)
     status = pyqtSignal(str)
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        hybrid_runtime: HybridRuntimeConfig | None = None,
+    ) -> None:
         super().__init__()
-        self._service = RollScanningService()
+        self._service = RollScanningService(hybrid_runtime=hybrid_runtime)
         self._open_device_id: str | None = None
+        self._operation_lock = threading.RLock()
+        self._shutdown_requested = threading.Event()
+
+    def _reject_if_shutting_down(self) -> None:
+        if self._shutdown_requested.is_set():
+            raise RollShutdownBlocked(
+                "scanner teardown has started; no new operation may begin"
+            )
 
     # ----- device / roll lifecycle -----
 
     @pyqtSlot()
     def list_devices(self) -> None:
         try:
-            devices = self._service.list_devices()
+            with self._operation_lock:
+                self._reject_if_shutting_down()
+                devices = self._service.list_devices()
             self.devices_ready.emit(devices)
         except Exception as e:
             logger.exception("roll device listing failed")
@@ -85,6 +106,7 @@ class RollWorker(QObject):
         stale reservation on the old device would otherwise sit open with
         nothing left able to use it.
         """
+        self._reject_if_shutting_down()
         if self._open_device_id == device_id:
             return
         if self._open_device_id is not None:
@@ -96,26 +118,38 @@ class RollWorker(QObject):
         self.opened.emit(device_id)
 
     @pyqtSlot()
-    def close_roll(self) -> None:
+    def close_roll(self) -> bool:
         try:
-            self._service.close()
-        except Exception:
+            with self._operation_lock:
+                self._service.close()
+        except Exception as error:
             logger.exception("error closing roll")
-        finally:
+            self.status.emit(
+                "Scanner close is unresolved; the reservation remains open."
+            )
+            self.error.emit(f"Close roll: {error}")
+            return False
+        else:
             self._open_device_id = None
             self.closed.emit()
+            return True
 
     # ----- preview / approval -----
 
     @pyqtSlot(RollPreviewRequest)
     def run_preview(self, req: RollPreviewRequest) -> None:
         try:
-            self._ensure_open(req.device_id)
-            self.status.emit("Reading roll transport…")
-            thumbnails = self._service.preview(
-                req.slots or None,
-                on_progress=lambda p: self.progress.emit(p.fraction, p.message),
-            )
+            with self._operation_lock:
+                self._reject_if_shutting_down()
+                self._ensure_open(req.device_id)
+                self.status.emit("Reading roll transport…")
+                thumbnails = self._service.preview(
+                    req.slots or None,
+                    on_progress=lambda p: self.progress.emit(
+                        p.fraction,
+                        p.message,
+                    ),
+                )
             self.preview_ready.emit(thumbnails)
             self.status.emit(f"Previewed {len(thumbnails)} slot(s).")
         except Exception as e:
@@ -125,7 +159,9 @@ class RollWorker(QObject):
     @pyqtSlot(int, int)
     def set_spacing_offset(self, slot: int, offset_rows: int) -> None:
         try:
-            self._service.set_spacing_offset(slot, offset_rows)
+            with self._operation_lock:
+                self._reject_if_shutting_down()
+                self._service.set_spacing_offset(slot, offset_rows)
             self.spacing_offset_set.emit(slot, offset_rows)
         except Exception as e:
             logger.exception("set_spacing_offset failed")
@@ -134,7 +170,9 @@ class RollWorker(QObject):
     @pyqtSlot(int)
     def approve(self, slot: int) -> None:
         try:
-            self._service.approve(slot)
+            with self._operation_lock:
+                self._reject_if_shutting_down()
+                self._service.approve(slot)
             self.approved.emit(slot)
         except Exception as e:
             logger.exception("approve failed")
@@ -142,30 +180,49 @@ class RollWorker(QObject):
 
     # ----- scanning -----
 
+    def prepare_batch(self) -> None:
+        """Reset cancellation before the controller queues this batch."""
+
+        self._reject_if_shutting_down()
+        self._service.prepare_batch()
+
     @pyqtSlot(RollBatchScanRequest)
     def run_batch_scan(self, req: RollBatchScanRequest) -> None:
         written: list[RollFrameOutput] = []
         try:
-            self._ensure_open(req.device_id)
-            self.status.emit("Scanning…")
-            for frame in self._service.scan_many(
-                req.slots,
-                on_progress=lambda p: self.progress.emit(p.fraction, p.message),
-            ):
-                output = self._service.write_frame(
-                    frame,
-                    req.output_folder,
-                    req.filename_pattern,
-                    write_unrepaired=req.write_unrepaired,
-                    write_repaired=req.write_repaired,
-                    write_positive=req.write_positive,
-                    repair_mode=req.repair_mode,
-                )
-                written.append(output)
-                self.frame_written.emit(output)
+            with self._operation_lock:
+                self._reject_if_shutting_down()
+                self._ensure_open(req.device_id)
+                self.status.emit("Scanning…")
+                for frame in self._service.scan_many(
+                    req.slots,
+                    on_progress=lambda p: self.progress.emit(
+                        p.fraction,
+                        p.message,
+                    ),
+                ):
+                    output = self._service.write_frame(
+                        frame,
+                        req.output_folder,
+                        req.filename_pattern,
+                        write_unrepaired=req.write_unrepaired,
+                        write_repaired=req.write_repaired,
+                        write_positive=req.write_positive,
+                        repair_mode=req.repair_mode,
+                        positive_mode=req.positive_mode,
+                        on_repair_progress=lambda fraction: self.progress.emit(
+                            fraction,
+                            "Applying Digital ICE repair…",
+                        ),
+                    )
+                    written.append(output)
+                    self.frame_written.emit(output)
             self.finished.emit(written)
         except Exception as e:
-            if coolscanpy_roll.is_safe_stop(e):
+            if coolscanpy_roll.is_safe_stop(e) or isinstance(
+                e,
+                RepairCancelled,
+            ):
                 # safe_stop() was requested deliberately (see `safe_stop` below): the frame
                 # already in flight always finishes -- and is already written, already on
                 # disk, already in `written` -- so this is a clean stop, not a failure.
@@ -190,10 +247,38 @@ class RollWorker(QObject):
         """
         self._service.safe_stop()
 
-    def shutdown(self) -> None:
-        """Stop any scan and release the roll (called on app teardown)."""
+    def shutdown(self, *, timeout_seconds: float = 5.0) -> None:
+        """Stop any scan and release the roll, or block application exit.
+
+        The operation lock prevents teardown from racing the scanner-owning
+        worker path.  A timed-out or failed close leaves the service and
+        device identity intact so the user can retry instead of abandoning
+        an ownership-uncertain helper/reservation.
+        """
+
+        self._shutdown_requested.set()
         self.safe_stop()
+        acquired = self._operation_lock.acquire(timeout=timeout_seconds)
+        if not acquired:
+            message = (
+                "the current scanner operation is still stopping; "
+                "application exit is blocked"
+            )
+            self.status.emit(message)
+            raise RollShutdownBlocked(message)
         try:
             self._service.close()
-        except Exception:
+        except Exception as error:
             logger.exception("error closing roll on shutdown")
+            self.status.emit(
+                "Scanner close is unresolved; application exit is blocked."
+            )
+            self.error.emit(f"Shutdown: {error}")
+            raise
+        else:
+            was_open = self._open_device_id is not None
+            self._open_device_id = None
+            if was_open:
+                self.closed.emit()
+        finally:
+            self._operation_lock.release()

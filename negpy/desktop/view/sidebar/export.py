@@ -275,9 +275,7 @@ class ExportSidebar(BaseSidebar):
             self.cs_output_path_edit.setText(path)
 
     def _update_cs_colors_btn_tooltip(self) -> None:
-        self.cs_colors_btn.setToolTip(
-            f"Background {self._cs_background_color}, labels {self._cs_label_color}"
-        )
+        self.cs_colors_btn.setToolTip(f"Background {self._cs_background_color}, labels {self._cs_label_color}")
 
     def _on_cs_colors_clicked(self) -> None:
         try:

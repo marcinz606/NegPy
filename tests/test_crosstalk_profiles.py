@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 
 import pytest
 
@@ -49,6 +51,48 @@ def test_malformed_skipped(tmp_path, monkeypatch):
     _write(os.path.join(tmp_path, "bad_toml.toml"), "matrix = [[[not valid\n")
     _write(os.path.join(tmp_path, "no_matrix.toml"), 'name = "x"\n')
     assert CrosstalkProfiles.list_profiles() == ["Default"]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes are not available on this platform")
+def test_list_profiles_ignores_special_files_and_symlinks_without_blocking(tmp_path):
+    user_dir = tmp_path / "user"
+    crosstalk_dir = user_dir / "crosstalk"
+    crosstalk_dir.mkdir(parents=True)
+    linked_target = tmp_path / "outside.toml"
+    _write(
+        linked_target,
+        'name = "Unsafe Symlink"\nmatrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]\n',
+    )
+    os.symlink(linked_target, crosstalk_dir / "linked.toml")
+    os.mkfifo(crosstalk_dir / "stale.toml")
+
+    env = os.environ.copy()
+    env["NEGPY_USER_DIR"] = str(user_dir)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            ("from negpy.services.assets.crosstalk import CrosstalkProfiles; print(CrosstalkProfiles.list_profiles())"),
+        ],
+        cwd=os.getcwd(),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=True,
+    )
+
+    assert "Unsafe Symlink" not in completed.stdout
+
+
+def test_list_profiles_ignores_unreasonably_large_profile(tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "crosstalk_dir", str(tmp_path))
+    _write(
+        tmp_path / "oversized.toml",
+        "#" + ("x" * (64 * 1024)) + '\nname = "Oversized"\nmatrix = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]\n',
+    )
+
+    assert "Oversized" not in CrosstalkProfiles.list_profiles()
 
 
 def test_ensure_user_dir_creates_directory(tmp_path, monkeypatch):

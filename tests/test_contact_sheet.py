@@ -89,9 +89,7 @@ class TestContactSheetService(unittest.TestCase):
         tiles = [_tile(100, 150) for _ in range(4)]
         labels = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"]
         without = ContactSheetService.build_sheets(tiles, show_labels=False, cell_px=100, gap=4, margin=8)
-        with_labels = ContactSheetService.build_sheets(
-            tiles, labels=labels, show_labels=True, cell_px=100, gap=4, margin=8
-        )
+        with_labels = ContactSheetService.build_sheets(tiles, labels=labels, show_labels=True, cell_px=100, gap=4, margin=8)
         self.assertGreater(np.asarray(with_labels[0]).shape[0], np.asarray(without[0]).shape[0])
 
     def test_caption_band_present(self):

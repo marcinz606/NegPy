@@ -7,7 +7,6 @@ the same lazy `import coolscanpy` path the production code takes.
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 
 import numpy as np
@@ -19,10 +18,10 @@ from negpy.infrastructure.roll import coolscanpy_roll
 class TestAvailable:
     def test_false_when_not_importable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delitem(sys.modules, "coolscanpy", raising=False)
-        # This environment genuinely doesn't have coolscanpy installed (it's
-        # an optional dependency-group); if that ever changes, find_spec
-        # itself would need monkeypatching instead of just sys.modules.
-        assert importlib.util.find_spec("coolscanpy") is None
+        # The optional group may intentionally be installed by this test run,
+        # so model an absent package at the availability seam rather than
+        # assuming anything about the interpreter's installed extras.
+        monkeypatch.setattr(coolscanpy_roll.importlib.util, "find_spec", lambda _name: None)
         assert coolscanpy_roll.available() is False
 
     def test_true_when_fake_module_present(self, fake_coolscanpy) -> None:
@@ -109,9 +108,65 @@ class TestRollHandle:
         with pytest.raises(RuntimeError, match="fingerprint mismatch"):
             handle.preview()
 
-    def test_approve_records_slot(self, fake_coolscanpy) -> None:
-        handle, roll, _device = self._handle(fake_coolscanpy)
-        handle.approve(3)
+    def test_restore_preview_session_passthrough(self, fake_coolscanpy) -> None:
+        thumbnails = [
+            fake_coolscanpy.Thumbnail(
+                slot=slot,
+                image=np.zeros((2, 2, 3)),
+                boundary_rows=(0, 2),
+                spacing_offset=0,
+                needs_approval=False,
+            )
+            for slot in (1, 2, 3)
+        ]
+        handle, roll, _device = self._handle(
+            fake_coolscanpy,
+            fake_coolscanpy.Roll(thumbnails=thumbnails),
+        )
+
+        result = handle.restore_preview_session("saved-session", [1, 3])
+
+        assert [thumbnail.slot for thumbnail in result] == [1, 3]
+        assert roll.restore_preview_session_calls == [
+            ("saved-session", (1, 3))
+        ]
+
+    def test_restore_preview_session_exception_translated(
+        self, fake_coolscanpy
+    ) -> None:
+        error = fake_coolscanpy.module.PyCoolscanError(
+            "saved preview hash mismatch"
+        )
+        handle, _roll, _device = self._handle(
+            fake_coolscanpy,
+            fake_coolscanpy.Roll(
+                raise_on={"restore_preview_session": error}
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="saved preview hash mismatch") as excinfo:
+            handle.restore_preview_session("saved-session")
+
+        assert excinfo.value.__cause__ is error
+
+    def test_approve_returns_underlying_content_bound_receipt(
+        self, fake_coolscanpy
+    ) -> None:
+        approval = object()
+
+        class ReturningApprovalRoll(fake_coolscanpy.Roll):
+            def approve(self, slot):
+                super().approve(slot)
+                return approval
+
+        handle, roll, _device = self._handle(
+            fake_coolscanpy,
+            ReturningApprovalRoll(),
+        )
+
+        result = handle.approve(3)
+
+        assert result is approval
         assert roll.approved == [3]
 
     def test_manual_review_required_translated(self, fake_coolscanpy) -> None:
@@ -153,6 +208,23 @@ class TestRollHandle:
         handle.close()
         assert roll.closed is True
         assert device.closed is True
+
+    def test_close_retains_device_when_roll_ownership_is_uncertain(
+        self, fake_coolscanpy
+    ) -> None:
+        ownership_error = RuntimeError("USB ownership is retained")
+
+        class UncertainRoll(fake_coolscanpy.Roll):
+            def close(self) -> None:
+                raise ownership_error
+
+        handle, _roll, device = self._handle(fake_coolscanpy, UncertainRoll())
+
+        with pytest.raises(RuntimeError) as raised:
+            handle.close()
+
+        assert raised.value is ownership_error
+        assert device.closed is False
 
     def test_context_manager_closes_on_exit(self, fake_coolscanpy) -> None:
         roll = fake_coolscanpy.Roll()

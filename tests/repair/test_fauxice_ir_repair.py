@@ -18,6 +18,7 @@ fixture values used here.
 from __future__ import annotations
 
 import importlib.machinery
+import hashlib
 import json
 import subprocess
 import sys
@@ -31,10 +32,14 @@ import numpy as np
 import pytest
 import tifffile
 
-from negpy.services.repair.fauxice_hybrid_runner import HybridRuntimeConfig
+from negpy.services.repair.fauxice_hybrid_runner import (
+    HybridRunResult,
+    HybridRuntimeConfig,
+)
 from negpy.services.repair.fauxice_ir_repair import (
     ENGINE_IMPORT_NAME,
     HYBRID_IMPORT_NAME,
+    FauxiceRepairCancelled,
     FauxiceRepairConfig,
     RepairMode,
     RepairStatus,
@@ -192,13 +197,29 @@ def _prepass(height: int, width: int) -> np.ndarray:
 
 
 def _hybrid_runtime(tmp_path: Path) -> HybridRuntimeConfig:
+    hybrid_python = tmp_path / "hybrid" / "bin" / "python"
+    executable = tmp_path / "hybrid" / "bin" / "fauxce-hybrid"
+    iopaint_python = tmp_path / "iopaint" / "bin" / "python"
+    iopaint_executable = tmp_path / "iopaint" / "bin" / "iopaint"
+    model_dir = tmp_path / "models"
+    model_weights = model_dir / "torch" / "hub" / "checkpoints" / "big-lama.pt"
+    for path in (hybrid_python, executable, iopaint_python, iopaint_executable):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"#!/bin/sh\nexit 0\n")
+        path.chmod(0o700)
+    model_weights.parent.mkdir(parents=True, exist_ok=True)
+    model_weights.write_bytes(b"stub-model")
     return HybridRuntimeConfig(
-        iopaint_python=tmp_path / "iopaint" / "bin" / "python",
-        iopaint_executable=tmp_path / "iopaint" / "bin" / "iopaint",
+        hybrid_python=hybrid_python,
+        executable=executable,
+        core_source_manifest_sha256="c" * 64,
+        hybrid_source_manifest_sha256="d" * 64,
+        iopaint_python=iopaint_python,
+        iopaint_executable=iopaint_executable,
         iopaint_source_manifest_sha256="a" * 64,
-        model_dir=tmp_path / "models",
-        model_weights=tmp_path / "models" / "torch" / "hub" / "checkpoints" / "big-lama.pt",
-        model_weights_sha256="b" * 64,
+        model_dir=model_dir,
+        model_weights=model_weights,
+        model_weights_sha256=hashlib.sha256(b"stub-model").hexdigest(),
     )
 
 
@@ -232,14 +253,47 @@ def _stub_hybrid_runner(hybrid_rgb16: np.ndarray, *, receipt: dict | None = None
     return runner
 
 
+def _hybrid_outcome(hybrid_rgb16: np.ndarray) -> HybridRunResult:
+    mask = np.zeros(hybrid_rgb16.shape[:2], dtype=np.bool_)
+    receipt = b'{"schema":"fauxce-hybrid-receipt-v2"}'
+    mask_bytes = b"mask-bytes"
+    return HybridRunResult(
+        hybrid_rgb16=np.ascontiguousarray(hybrid_rgb16),
+        synth_mask_png=mask_bytes,
+        synth_mask_sha256=hashlib.sha256(mask_bytes).hexdigest(),
+        synth_mask=mask,
+        receipt=receipt,
+        receipt_sha256=hashlib.sha256(receipt).hexdigest(),
+        acquisition_manifest_sha256="1" * 64,
+        main_rgbi_sha256="2" * 64,
+        prepass_rgbi_sha256="3" * 64,
+        output_rgb16_sha256=hashlib.sha256(hybrid_rgb16.astype("<u2").tobytes()).hexdigest(),
+        provenance_class="caller_asserted_bare_npy",
+        synthesis_fraction=0.02,
+        engine_version="0.3.0",
+        backend_requested="cpu",
+        backend_used="cpu",
+        backend_selection_reason="stub",
+        routing_counts={
+            "final_regions": 2,
+            "synthesis_pixels": 40,
+            "frame_pixels": 400,
+            "at_floor_pixels": 60,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Availability gating
 # ---------------------------------------------------------------------------
 
 
 class TestAvailabilityGating:
-    def test_engine_unavailable_by_default(self) -> None:
-        # Neither optional package is installed in this test environment.
+    def test_engine_unavailable_when_distribution_is_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "negpy.services.repair.fauxice_ir_repair.importlib.util.find_spec",
+            lambda _name: None,
+        )
         assert engine_available() is False
 
     def test_hybrid_unavailable_by_default(self) -> None:
@@ -249,9 +303,8 @@ class TestAvailabilityGating:
         _install_stub_engine(monkeypatch)
         assert engine_available() is True
 
-    def test_hybrid_available_with_stub_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_stub_hybrid(monkeypatch)
-        assert hybrid_available() is True
+    def test_hybrid_available_with_explicit_external_runtime(self, tmp_path: Path) -> None:
+        assert hybrid_available(_hybrid_runtime(tmp_path)) is True
 
     def test_engine_and_hybrid_availability_are_independent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_stub_engine(monkeypatch)
@@ -271,7 +324,11 @@ class TestShortCircuits:
         assert result.status is RepairStatus.SKIPPED
         assert "disabled" in result.reason
 
-    def test_engine_unavailable_reports_unavailable_status(self) -> None:
+    def test_engine_unavailable_reports_unavailable_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "negpy.services.repair.fauxice_ir_repair.importlib.util.find_spec",
+            lambda _name: None,
+        )
         config = FauxiceRepairConfig(enabled=True)
         result = repair_ir_dust(_rgb(4, 4, 1000), _ir(4, 4, 500), same_frame_id="f1", config=config, prepass_rgbi=_prepass(4, 4))
         assert result.status is RepairStatus.UNAVAILABLE
@@ -436,17 +493,16 @@ class TestProgressAndCancellation:
         cancel = threading.Event()
         cancel.set()
 
-        result = repair_ir_dust(
-            _rgb(4, 4, 1000),
-            _ir(4, 4, 500),
-            same_frame_id="f1",
-            config=config,
-            prepass_rgbi=_prepass(4, 4),
-            cancel=cancel,
-        )
+        with pytest.raises(FauxiceRepairCancelled, match="cancelled"):
+            repair_ir_dust(
+                _rgb(4, 4, 1000),
+                _ir(4, 4, 500),
+                same_frame_id="f1",
+                config=config,
+                prepass_rgbi=_prepass(4, 4),
+                cancel=cancel,
+            )
 
-        assert result.status is RepairStatus.SKIPPED
-        assert "cancelled" in result.reason
         assert calls == []  # the engine was never invoked
 
     def test_cancel_during_exact_run_skips_with_clear_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -456,17 +512,18 @@ class TestProgressAndCancellation:
         # engine polls it mid-run.
         cancel = _FlippingCancelEvent(set_after_calls=1)
 
-        result = repair_ir_dust(
-            _rgb(4, 4, 1000),
-            _ir(4, 4, 500),
-            same_frame_id="f1",
-            config=config,
-            prepass_rgbi=_prepass(4, 4),
-            cancel=cancel,
-        )
-
-        assert result.status is RepairStatus.SKIPPED
-        assert "cancelled before completion" in result.reason
+        with pytest.raises(
+            FauxiceRepairCancelled,
+            match="cancelled before completion",
+        ):
+            repair_ir_dust(
+                _rgb(4, 4, 1000),
+                _ir(4, 4, 500),
+                same_frame_id="f1",
+                config=config,
+                prepass_rgbi=_prepass(4, 4),
+                cancel=cancel,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -480,6 +537,10 @@ class TestHybridMode:
         _install_stub_hybrid(monkeypatch)
         config = FauxiceRepairConfig(enabled=True, mode=RepairMode.HYBRID)
         hybrid_output = np.full((4, 4, 3), 9999, dtype=np.uint16)
+        monkeypatch.setattr(
+            "negpy.services.repair.fauxice_ir_repair.run_hybrid_repair",
+            lambda *args, **kwargs: _hybrid_outcome(hybrid_output),
+        )
 
         result = repair_ir_dust(
             _rgb(4, 4, 1000),
@@ -504,9 +565,36 @@ class TestHybridMode:
         }
         assert "2 region(s) routed" in result.reason
 
-    def test_hybrid_mode_without_hybrid_package_degrades_to_exact(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_hybrid_validity_composite_has_its_own_final_output_hash(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_stub_engine(monkeypatch)
-        # fauxce_hybrid deliberately not installed.
+        hybrid_output = np.full((4, 4, 3), 9999, dtype=np.uint16)
+        outcome = _hybrid_outcome(hybrid_output)
+        monkeypatch.setattr(
+            "negpy.services.repair.fauxice_ir_repair.run_hybrid_repair",
+            lambda *args, **kwargs: outcome,
+        )
+        source = _rgb(4, 4, 1000)
+        validity = np.ones((4, 4), dtype=np.bool_)
+        validity[1, 2] = False
+
+        result = repair_ir_dust(
+            source,
+            _ir(4, 4, 500),
+            same_frame_id="validity-bound",
+            config=FauxiceRepairConfig(enabled=True, mode=RepairMode.HYBRID),
+            prepass_rgbi=_prepass(4, 4),
+            validity_mask=validity,
+            hybrid_runtime=_hybrid_runtime(tmp_path),
+        )
+
+        expected = hybrid_output.copy()
+        expected[1, 2] = source[1, 2]
+        np.testing.assert_array_equal(result.repaired_rgb16, expected)
+        assert result.native_output_rgb_sha256 == hashlib.sha256(expected.astype("<u2").tobytes()).hexdigest()
+        assert result.hybrid_receipt_output_rgb_sha256 == outcome.output_rgb16_sha256
+
+    def test_hybrid_mode_without_runtime_degrades_to_exact_truthfully(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_stub_engine(monkeypatch)
         config = FauxiceRepairConfig(enabled=True, mode=RepairMode.HYBRID)
 
         result = repair_ir_dust(_rgb(4, 4, 1000), _ir(4, 4, 500), same_frame_id="f1", config=config, prepass_rgbi=_prepass(4, 4))
@@ -514,19 +602,8 @@ class TestHybridMode:
         assert result.status is RepairStatus.APPLIED
         assert result.mode_requested is RepairMode.HYBRID
         assert result.mode_resolved is RepairMode.EXACT
-        assert "not installed" in result.reason
-        assert "degraded to exact" in result.reason
-
-    def test_hybrid_mode_without_runtime_config_degrades_to_exact(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_stub_engine(monkeypatch)
-        _install_stub_hybrid(monkeypatch)
-        config = FauxiceRepairConfig(enabled=True, mode=RepairMode.HYBRID)
-
-        result = repair_ir_dust(_rgb(4, 4, 1000), _ir(4, 4, 500), same_frame_id="f1", config=config, prepass_rgbi=_prepass(4, 4))
-
-        assert result.status is RepairStatus.APPLIED
-        assert result.mode_resolved is RepairMode.EXACT
         assert "no hybrid runtime is configured" in result.reason
+        assert "degraded to exact" in result.reason
 
     def test_hybrid_run_failure_degrades_to_exact_never_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_stub_engine(monkeypatch)
@@ -565,19 +642,20 @@ class TestHybridMode:
         # before the mode is even inspected, so a cancellation requested up
         # front skips the whole call, hybrid included, without touching the
         # subprocess runner.
-        result = repair_ir_dust(
-            _rgb(4, 4, 1000),
-            _ir(4, 4, 500),
-            same_frame_id="f1",
-            config=config,
-            prepass_rgbi=_prepass(4, 4),
-            hybrid_runtime=_hybrid_runtime(tmp_path),
-            hybrid_subprocess_runner=unreachable_runner,
-            cancel=cancel,
-        )
-
-        assert result.status is RepairStatus.SKIPPED
-        assert "cancelled by caller before repair started" in result.reason
+        with pytest.raises(
+            FauxiceRepairCancelled,
+            match="cancelled by caller before repair started",
+        ):
+            repair_ir_dust(
+                _rgb(4, 4, 1000),
+                _ir(4, 4, 500),
+                same_frame_id="f1",
+                config=config,
+                prepass_rgbi=_prepass(4, 4),
+                hybrid_runtime=_hybrid_runtime(tmp_path),
+                hybrid_subprocess_runner=unreachable_runner,
+                cancel=cancel,
+            )
 
     def test_hybrid_mode_cancelled_between_preflight_and_hybrid_start(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Covers the hybrid-specific cancel check, distinct from the top-level one.
@@ -599,22 +677,20 @@ class TestHybridMode:
         def unreachable_runner(argv, **kwargs):
             raise AssertionError("hybrid subprocess must not run once cancelled")
 
-        result = repair_ir_dust(
-            _rgb(4, 4, 1000),
-            _ir(4, 4, 500),
-            same_frame_id="f1",
-            config=config,
-            prepass_rgbi=_prepass(4, 4),
-            hybrid_runtime=_hybrid_runtime(tmp_path),
-            hybrid_subprocess_runner=unreachable_runner,
-            cancel=cancel,
-        )
-
-        # Hybrid degrades to the exact path (never invoking the subprocess),
-        # and the same cancellation then cancels that exact fallback too.
-        assert result.status is RepairStatus.SKIPPED
-        assert "cancelled before the hybrid run started" in result.reason
-        assert "cancelled before completion" in result.reason
+        with pytest.raises(
+            FauxiceRepairCancelled,
+            match="cancelled before the hybrid run started",
+        ):
+            repair_ir_dust(
+                _rgb(4, 4, 1000),
+                _ir(4, 4, 500),
+                same_frame_id="f1",
+                config=config,
+                prepass_rgbi=_prepass(4, 4),
+                hybrid_runtime=_hybrid_runtime(tmp_path),
+                hybrid_subprocess_runner=unreachable_runner,
+                cancel=cancel,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -703,8 +779,11 @@ class TestRepairFrameFiles:
         assert result.status is RepairStatus.APPLIED
         np.testing.assert_array_equal(ir, ir_before)
 
-    def test_provenance_sidecar_written_even_when_unavailable(self, tmp_path: Path) -> None:
-        # No stub engine installed: engine_available() is False.
+    def test_provenance_sidecar_written_even_when_unavailable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "negpy.services.repair.fauxice_ir_repair.importlib.util.find_spec",
+            lambda _name: None,
+        )
         rgb_path, _ = self._write_frame(tmp_path)
         config = FauxiceRepairConfig(enabled=True)
 
@@ -724,6 +803,10 @@ class TestRepairFrameFiles:
         np.save(prepass_path, _prepass(4, 4), allow_pickle=False)
         config = FauxiceRepairConfig(enabled=True, mode=RepairMode.HYBRID)
         hybrid_output = np.full((4, 4, 3), 9999, dtype=np.uint16)
+        monkeypatch.setattr(
+            "negpy.services.repair.fauxice_ir_repair.run_hybrid_repair",
+            lambda *args, **kwargs: _hybrid_outcome(hybrid_output),
+        )
 
         result = repair_frame_files(
             rgb_path,

@@ -162,7 +162,32 @@ class MainWindow(QMainWindow):
         self.resize(w, h)
         self.move(x, y)
 
+    def request_shutdown_for_exit(self) -> bool:
+        """Gate both window-close and application-level quit requests."""
+
+        if not self.controller.request_shutdown():
+            reason = self.controller.shutdown_block_reason or (
+                "The scanner reservation has not closed safely yet."
+            )
+            self.statusBar().showMessage(
+                "Exit blocked until the Coolscan closes safely."
+            )
+            QMessageBox.critical(
+                self,
+                "Scanner still reserved",
+                "NegPy cannot exit while the Coolscan reservation is unresolved.\n\n"
+                f"{reason}\n\nWait for the current operation to stop, then close again.",
+            )
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            return False
+        return True
+
     def closeEvent(self, event) -> None:
+        if not self.request_shutdown_for_exit():
+            event.ignore()
+            return
         try:
             self.controller.session.repo.save_global_setting("window_geometry", [self.x(), self.y(), self.width(), self.height()])
         except Exception:

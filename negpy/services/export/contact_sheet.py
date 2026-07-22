@@ -179,9 +179,7 @@ class ContactSheetService:
             draw.text((x, y), display, font=font, fill=fg, anchor="lm")
 
     @staticmethod
-    def _truncate(
-        draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont | ImageFont.ImageFont, max_w: int
-    ) -> str:
+    def _truncate(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont | ImageFont.ImageFont, max_w: int) -> str:
         if draw.textlength(text, font=font) <= max_w:
             return text
         ellipsis = "..."

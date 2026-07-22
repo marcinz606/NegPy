@@ -1,7 +1,6 @@
 import sys
 import io
 import faulthandler
-from negpy.desktop.main import main
 
 
 def init_streams():
@@ -26,4 +25,11 @@ if __name__ == "__main__":
         faulthandler.enable()
     except Exception:
         pass
-    main()
+    # Frozen scanner helpers and the offline packaging smoke must not import
+    # the Qt desktop. Keep this dispatch before the GUI module import.
+    from negpy.desktop.frozen_entry import dispatch_frozen_auxiliary
+
+    if not dispatch_frozen_auxiliary(sys.argv):
+        from negpy.desktop.main import main
+
+        main()

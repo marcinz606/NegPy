@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from PyQt6.QtCore import QEvent
 
 from negpy.desktop.view.main_window import _display_buffer_for_canvas
 
@@ -53,6 +54,53 @@ class TestDropEvent(unittest.TestCase):
         MainWindow.dropEvent(stub, event)
 
         stub.controller.request_asset_discovery.assert_called_once_with(["/tmp/scan.dng"], auto_open=True)
+
+
+class TestCloseEvent(unittest.TestCase):
+    def test_unresolved_scanner_close_ignores_window_close(self):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from negpy.desktop.view.main_window import MainWindow
+
+        controller = MagicMock()
+        controller.request_shutdown.return_value = False
+        controller.shutdown_block_reason = "ownership remains uncertain"
+        status_bar = MagicMock()
+        stub = SimpleNamespace(
+            controller=controller,
+            statusBar=lambda: status_bar,
+            show=MagicMock(),
+            raise_=MagicMock(),
+            activateWindow=MagicMock(),
+        )
+        stub.request_shutdown_for_exit = lambda: MainWindow.request_shutdown_for_exit(
+            stub
+        )
+        event = MagicMock()
+
+        with patch(
+            "negpy.desktop.view.main_window.QMessageBox.critical"
+        ) as critical:
+            MainWindow.closeEvent(stub, event)
+
+        event.ignore.assert_called_once_with()
+        controller.session.repo.save_global_setting.assert_not_called()
+        status_bar.showMessage.assert_called_once()
+        critical.assert_called_once()
+
+    def test_application_quit_event_is_consumed_when_shutdown_is_blocked(self):
+        from unittest.mock import MagicMock
+
+        from negpy.desktop.main import _ApplicationShutdownGate
+
+        allow_shutdown = MagicMock(return_value=False)
+        gate = _ApplicationShutdownGate(allow_shutdown)
+        event = MagicMock()
+        event.type.return_value = QEvent.Type.Quit
+
+        assert gate.eventFilter(None, event) is True
+        allow_shutdown.assert_called_once_with()
 
 
 if __name__ == "__main__":

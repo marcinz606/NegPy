@@ -14,21 +14,15 @@ same physical frame: a 285 dpi RGBI prepass that supplies per-frame
 calibration the main pass depends on. Its own docs are explicit that this
 is not a resampling convenience and cannot be reconstructed after the fact:
 "Reconstructing or guessing it from the main scan would move outside the
-byte-exact claim." NegPy's current scanning pipeline
-(``negpy/services/scanning/writer.py``) captures one pass per frame and
-never retains a prepass, so on essentially every frame NegPy has imported to
-date, ``prepass_rgbi`` is unavailable and this module reports ``SKIPPED``
-rather than fabricate one. See ``docs/FAUXICE_IR_REPAIR.md`` for the
-consequence of that in practice, and for the ``exact``/``hybrid`` mode
-split (``fauxice_hybrid_runner.py`` covers the hybrid path).
+byte-exact claim." NegPy's generic import/scanning writer still lacks that
+paired capture, but the Coolscan roll path now supplies its scanner-bound
+285 dpi prepass, validity mask, and main RGBI acquisition directly. Calls
+without that real prepass report ``SKIPPED`` rather than fabricate one. See
+``docs/FAUXICE_IR_REPAIR.md`` for the exact/hybrid split
+(``fauxice_hybrid_runner.py`` covers the external hybrid path).
 
-This is a one-shot repair, not a per-render pipeline stage: the exact CPU
-reference measures roughly an hour per frame, and its compiled and GPU
-backends measure roughly six to ten seconds, still far too slow to sit in
-``DarkroomEngine.process()`` and re-run on every slider drag the way
-``RetouchConfig.ir_dust_remove`` does. Hybrid mode is slower still (see
-``docs/FAUXICE_IR_REPAIR.md``), so this module also accepts an optional
-progress callback and cancellation event, mirroring the shape
+This is a one-shot repair, not a per-render pipeline stage. It accepts an
+optional progress callback and cancellation event, mirroring the shape
 ``ScannerService.run_scan`` already uses for its own long operation
 (``negpy/services/scanning/service.py``), so a future background worker can
 wrap a repair call the same way ``ScanWorker`` wraps a scan.
@@ -45,6 +39,7 @@ companion is only ever opened for reading here.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 import subprocess
@@ -61,6 +56,7 @@ import tifffile
 
 from negpy.kernel.system.logging import get_logger
 from negpy.services.repair.fauxice_hybrid_runner import (
+    HybridRunCancelled,
     HybridRunError,
     HybridRuntimeConfig,
     run_hybrid_repair,
@@ -96,6 +92,10 @@ class RepairMode(str, Enum):
     HYBRID = "hybrid"
 
 
+class FauxiceRepairCancelled(RuntimeError):
+    """A cooperative stop requested by the caller."""
+
+
 def engine_available() -> bool:
     """True if the core digital-fauxice engine is importable.
 
@@ -106,15 +106,22 @@ def engine_available() -> bool:
     return importlib.util.find_spec(ENGINE_IMPORT_NAME) is not None
 
 
-def hybrid_available() -> bool:
-    """True if the optional fauxce-hybrid companion is importable.
+def hybrid_available(runtime: HybridRuntimeConfig | None = None) -> bool:
+    """True only when an explicit external hybrid runtime was supplied.
 
-    Independent of ``engine_available()``: a NegPy install can have the core
-    engine without the hybrid companion (the expected common case, since
-    hybrid also needs a separately configured, pinned IOPaint runtime that
-    this module never installs or manages).
+    The companion deliberately runs in a separate Python environment, so an
+    in-process import probe is both irrelevant and wrong on NegPy's supported
+    Python 3.13 runtime.  ``HybridRuntimeConfig`` is validated when built and
+    carries every executable/path/hash needed at the process boundary.
     """
-    return importlib.util.find_spec(HYBRID_IMPORT_NAME) is not None
+
+    if runtime is None:
+        return False
+    try:
+        runtime.validate_files()
+    except ValueError:
+        return False
+    return True
 
 
 def _engine_version() -> str | None:
@@ -165,8 +172,14 @@ class FauxiceRepairResult:
     backend_selection_reason: str | None = None
     hybrid_mask_png: bytes | None = None
     hybrid_mask_sha256: str | None = None
+    hybrid_mask: npt.NDArray[np.bool_] | None = None
     hybrid_synthesis_fraction: float | None = None
     hybrid_routing_counts: dict[str, int] | None = None
+    hybrid_receipt: bytes | None = None
+    hybrid_receipt_sha256: str | None = None
+    hybrid_provenance_class: str | None = None
+    hybrid_receipt_output_rgb_sha256: str | None = None
+    native_output_rgb_sha256: str | None = None
 
     def provenance(self) -> dict:
         """JSON-serializable provenance record; the sidecar's payload."""
@@ -254,12 +267,9 @@ def repair_ir_dust(
     ``progress`` and ``cancel`` follow ``ScannerService.run_scan``'s own
     shape (a ``0.0``-``1.0`` callback plus a ``threading.Event``) so a
     background worker can wire them the same way ``ScanWorker`` wires a
-    scan. Both are optional and both only cover the exact path: the engine
-    natively supports cooperative progress and cancellation there, but the
-    hybrid path is one blocking call to an external CLI, so ``progress`` is
-    never invoked during a hybrid run and ``cancel`` is only checked before
-    that call starts, not while it is running (see
-    ``docs/FAUXICE_IR_REPAIR.md``).
+    scan. The exact engine polls its native cooperative callback; the hybrid
+    runner polls the event while its isolated process group runs, terminates
+    that group on cancellation, and reports coarse phase progress.
     """
 
     mode_requested = config.mode
@@ -294,10 +304,8 @@ def repair_ir_dust(
         )
 
     if cancel is not None and cancel.is_set():
-        return FauxiceRepairResult(
-            status=RepairStatus.SKIPPED,
-            reason="cancelled by caller before repair started",
-            mode_requested=mode_requested,
+        raise FauxiceRepairCancelled(
+            "cancelled by caller before repair started"
         )
 
     main_rgbi = np.dstack([rgb, ir])
@@ -307,12 +315,20 @@ def repair_ir_dust(
     hybrid_outcome = None
 
     if mode_requested is RepairMode.HYBRID:
-        if not hybrid_available():
-            hybrid_note = f"hybrid mode requested but {HYBRID_IMPORT_NAME} is not installed; degraded to exact repair. "
-        elif hybrid_runtime is None:
+        if hybrid_runtime is None:
             hybrid_note = "hybrid mode requested but no hybrid runtime is configured; degraded to exact repair. "
+        elif not hybrid_available(hybrid_runtime):
+            try:
+                hybrid_runtime.validate_files()
+            except ValueError as error:
+                detail = str(error)
+            else:  # pragma: no cover - defensive against a racing runtime
+                detail = "runtime artifacts changed during validation"
+            hybrid_note = f"hybrid mode requested but the configured hybrid runtime is unavailable ({detail}); degraded to exact repair. "
         elif cancel is not None and cancel.is_set():
-            hybrid_note = "hybrid mode requested but cancelled before the hybrid run started; degraded to exact repair. "
+            raise FauxiceRepairCancelled(
+                "cancelled before the hybrid run started"
+            )
         else:
             try:
                 with tempfile.TemporaryDirectory(prefix="negpy-fauxice-hybrid-") as scratch:
@@ -323,9 +339,15 @@ def repair_ir_dust(
                         backend=config.backend,
                         runtime=hybrid_runtime,
                         scratch_dir=Path(scratch),
-                        runner=hybrid_subprocess_runner or subprocess.run,
+                        runner=hybrid_subprocess_runner,
+                        progress=progress,
+                        cancel=cancel,
                     )
                 mode_resolved = RepairMode.HYBRID
+            except HybridRunCancelled as error:
+                raise FauxiceRepairCancelled(
+                    f"hybrid repair cancelled: {error}"
+                ) from error
             except HybridRunError as error:
                 hybrid_note = f"hybrid mode requested but the fauxce-hybrid run failed ({error}); degraded to exact repair. "
 
@@ -339,8 +361,14 @@ def repair_ir_dust(
             "backend_selection_reason": hybrid_outcome.backend_selection_reason,
             "hybrid_mask_png": hybrid_outcome.synth_mask_png,
             "hybrid_mask_sha256": hybrid_outcome.synth_mask_sha256,
+            "hybrid_mask": hybrid_outcome.synth_mask,
             "hybrid_synthesis_fraction": hybrid_outcome.synthesis_fraction,
             "hybrid_routing_counts": hybrid_outcome.routing_counts,
+            "hybrid_receipt": hybrid_outcome.receipt,
+            "hybrid_receipt_sha256": hybrid_outcome.receipt_sha256,
+            "hybrid_provenance_class": hybrid_outcome.provenance_class,
+            "hybrid_receipt_output_rgb_sha256": (hybrid_outcome.output_rgb16_sha256),
+            "native_output_rgb_sha256": hybrid_outcome.output_rgb16_sha256,
         }
         region_note = ""
         if result_kwargs["hybrid_routing_counts"] is not None:
@@ -363,12 +391,9 @@ def repair_ir_dust(
                 cancel=cancel,
             )
         except ProcessingCancelled as error:
-            return FauxiceRepairResult(
-                status=RepairStatus.SKIPPED,
-                reason=f"{hybrid_note}cancelled before completion: {error}",
-                mode_requested=mode_requested,
-                mode_resolved=None,
-            )
+            raise FauxiceRepairCancelled(
+                f"{hybrid_note}cancelled before completion: {error}"
+            ) from error
         except (ValueError, TypeError, RuntimeError) as error:
             return FauxiceRepairResult(
                 status=RepairStatus.SKIPPED,
@@ -376,13 +401,21 @@ def repair_ir_dust(
                 mode_requested=mode_requested,
                 mode_resolved=None,
             )
-        result_kwargs = {"engine_version": _engine_version(), **backend_info}
+        result_kwargs = {
+            "engine_version": _engine_version(),
+            "native_output_rgb_sha256": hashlib.sha256(
+                np.array(repaired, dtype="<u2", order="C", copy=True).tobytes(order="C")
+            ).hexdigest(),
+            **backend_info,
+        }
         reason = (
             f"{hybrid_note}applied via {ENGINE_IMPORT_NAME} {result_kwargs['engine_version']} (backend {result_kwargs['backend_used']})"
         )
 
     if validity_mask is not None:
         repaired = np.where(validity_mask[:, :, None], repaired, rgb)
+    repaired = np.array(repaired, dtype="<u2", order="C", copy=True)
+    result_kwargs["native_output_rgb_sha256"] = hashlib.sha256(memoryview(repaired).cast("B")).hexdigest()
 
     return FauxiceRepairResult(
         status=RepairStatus.APPLIED,

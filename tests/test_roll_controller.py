@@ -9,7 +9,10 @@ reads .rgb_path, so nothing coolscanpy-shaped needs to be constructed.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from negpy.desktop.controller import AppController
+from negpy.services.roll.service import RollScanningError
 
 
 def _output(slot: int, rgb_path: str):
@@ -71,3 +74,52 @@ def test_batch_with_no_rgb_paths_at_all_does_not_request_discovery():
     AppController._on_roll_scan_finished(controller, outputs)
 
     controller.request_asset_discovery.assert_not_called()
+
+
+def test_request_shutdown_blocks_when_scanner_close_is_unresolved():
+    worker = MagicMock()
+    worker.shutdown.side_effect = RuntimeError("ownership remains uncertain")
+    controller = SimpleNamespace(
+        _roll_shutdown_complete=False,
+        _shutdown_block_reason=None,
+        roll_worker=worker,
+        roll_status=MagicMock(),
+    )
+
+    assert AppController.request_shutdown(controller) is False
+
+    assert controller._roll_shutdown_complete is False
+    assert controller._shutdown_block_reason == "ownership remains uncertain"
+    controller.roll_status.emit.assert_called_once()
+
+
+def test_request_shutdown_is_idempotent_after_verified_close():
+    worker = MagicMock()
+    controller = SimpleNamespace(
+        _roll_shutdown_complete=False,
+        _shutdown_block_reason="old failure",
+        roll_worker=worker,
+        roll_status=MagicMock(),
+    )
+
+    assert AppController.request_shutdown(controller) is True
+    assert AppController.request_shutdown(controller) is True
+
+    worker.shutdown.assert_called_once_with()
+    assert controller._shutdown_block_reason is None
+
+
+def test_cleanup_refuses_to_quit_worker_threads_before_scanner_close():
+    roll_thread = MagicMock()
+    controller = SimpleNamespace(
+        _cleaned_up=False,
+        _shutdown_block_reason="ownership remains uncertain",
+        request_shutdown=lambda: False,
+        roll_thread=roll_thread,
+    )
+
+    with pytest.raises(RollScanningError, match="ownership remains uncertain"):
+        AppController.cleanup(controller)
+
+    assert controller._cleaned_up is False
+    roll_thread.quit.assert_not_called()

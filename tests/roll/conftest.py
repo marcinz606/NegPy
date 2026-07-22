@@ -10,11 +10,13 @@ path the production code takes.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import importlib.machinery
 import sys
 import types
 from typing import Any
 
+import numpy as np
 import pytest
 
 from negpy.infrastructure.roll import repair as roll_repair
@@ -73,6 +75,13 @@ class FakeFrame:
     ir: Any
     ir_validity: Any
     receipt: Any
+    meter_rgbi: Any = None
+    digital_ice_acquisition: Any = None
+
+    def prepare_digital_ice(self):
+        if self.digital_ice_acquisition is None:
+            raise ValueError("frame has no bound Digital ICE acquisition")
+        return self.digital_ice_acquisition
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,6 +104,7 @@ class FakeRoll:
         self._frames = {frame.slot: frame for frame in (frames or [])}
         self._raise_on = raise_on or {}
         self.approved: list[int] = []
+        self.restore_preview_session_calls: list[tuple[str, tuple[int, ...] | None]] = []
         self.spacing_offsets: dict[int, int] = {}
         self.safe_stop_called = False
         self.closed = False
@@ -103,12 +113,26 @@ class FakeRoll:
         if "preview" in self._raise_on:
             raise self._raise_on["preview"]
         if on_progress is not None:
-            on_progress(FakeProgress(stage="preview", slot=None, index=0, total=1, fraction=0.0, message="reading whole-roll transport index"))
+            on_progress(
+                FakeProgress(stage="preview", slot=None, index=0, total=1, fraction=0.0, message="reading whole-roll transport index")
+            )
         wanted = None if slots is None else set(slots)
         result = [t for t in self._thumbnails if wanted is None or t.slot in wanted]
         if on_progress is not None:
             on_progress(FakeProgress(stage="preview", slot=None, index=1, total=1, fraction=1.0, message="preview complete"))
         return result
+
+    def restore_preview_session(self, payload, slots=None):
+        if "restore_preview_session" in self._raise_on:
+            raise self._raise_on["restore_preview_session"]
+        requested = None if slots is None else tuple(slots)
+        self.restore_preview_session_calls.append((payload, requested))
+        wanted = None if requested is None else set(requested)
+        return [
+            thumbnail
+            for thumbnail in self._thumbnails
+            if wanted is None or thumbnail.slot in wanted
+        ]
 
     def set_spacing_offset(self, slot, offset_rows) -> None:
         self.spacing_offsets[slot] = offset_rows
@@ -128,7 +152,9 @@ class FakeRoll:
             if error is not None:
                 raise error
             if on_progress is not None:
-                on_progress(FakeProgress(stage="fine-scan", slot=slot, index=i, total=len(ordered), fraction=1.0, message=f"slot {slot} complete"))
+                on_progress(
+                    FakeProgress(stage="fine-scan", slot=slot, index=i, total=len(ordered), fraction=1.0, message=f"slot {slot} complete")
+                )
             yield self._frames[slot]
 
     def safe_stop(self) -> None:
@@ -204,7 +230,8 @@ class FakeRepairEngine:
     tagged with this engine's name/version/mode) -- set `.transform` to a
     function to script a detectable change, or `.raise_error` to an exception
     instance to script a failure. `.calls` records every `(rgb, ir, mode)`
-    the service passed in, so a test can assert *what* was repaired (e.g.
+    and `.prepasses` the matching prepass the service passed in, so a test
+    can assert *what* was repaired (e.g.
     the Tier-1 array, not something already touched) without needing the
     repair to actually alter pixels.
     """
@@ -214,13 +241,45 @@ class FakeRepairEngine:
         self.engine_version = engine_version
         self.transform = lambda rgb: rgb
         self.raise_error: Exception | None = None
-        self.calls: list[tuple[Any, Any, roll_repair.RepairMode]] = []
+        self.calls: list[tuple[Any, roll_repair.RepairMode, Any]] = []
+        self.prepasses: list[Any] = []
 
-    def repair(self, rgb: Any, ir: Any, mode: roll_repair.RepairMode) -> roll_repair.RepairResult:
-        self.calls.append((rgb, ir, mode))
+    def repair(
+        self,
+        acquisition: Any,
+        mode: roll_repair.RepairMode,
+        *,
+        hybrid_runtime: Any = None,
+        progress: Any = None,
+        cancel: Any = None,
+    ) -> roll_repair.RepairResult:
+        self.calls.append((acquisition, mode, hybrid_runtime))
+        self.prepasses.append(acquisition.prepass_rgbi)
+        if progress is not None:
+            progress(1.0)
         if self.raise_error is not None:
             raise self.raise_error
-        return roll_repair.RepairResult(rgb=self.transform(rgb), engine=self.engine, engine_version=self.engine_version, mode=mode)
+        native_rgb = self.transform(acquisition.main_rgbi[..., :3])
+        storage_rgb = acquisition.storage_rgb(native_rgb)
+        resolved_mode = roll_repair.RepairMode.EXACT if mode is roll_repair.RepairMode.HYBRID and hybrid_runtime is None else mode
+        return roll_repair.RepairResult(
+            rgb=storage_rgb,
+            engine=self.engine,
+            engine_version=self.engine_version,
+            mode_requested=mode,
+            mode_resolved=resolved_mode,
+            reason=(
+                "hybrid mode requested but no hybrid runtime is configured; degraded to exact repair"
+                if resolved_mode is not mode
+                else "test repair applied"
+            ),
+            acquisition_id=acquisition.acquisition_id,
+            slot=acquisition.slot,
+            reservation_id=acquisition.reservation_id,
+            evidence_sha256=acquisition.evidence_sha256,
+            native_output_rgb_sha256=hashlib.sha256(np.asarray(native_rgb, dtype="<u2").tobytes(order="C")).hexdigest(),
+            storage_output_rgb_sha256=hashlib.sha256(np.asarray(storage_rgb, dtype="<u2").tobytes(order="C")).hexdigest(),
+        )
 
 
 @pytest.fixture
@@ -232,5 +291,15 @@ def fake_repair_engine():
     roll_repair.register_engine(engine)
     try:
         yield engine
+    finally:
+        roll_repair.unregister_engine()
+
+
+@pytest.fixture
+def no_repair_engine():
+    """Force the seam's unavailable state regardless of installed extras."""
+    roll_repair.unregister_engine()
+    try:
+        yield
     finally:
         roll_repair.unregister_engine()

@@ -8,12 +8,14 @@ never-really-running) controller/worker would deliver.
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 from PyQt6.QtWidgets import QApplication
 from unittest.mock import MagicMock
 
 from negpy.desktop.view.sidebar.coolscan_roll import CoolscanRollSidebar
+from negpy.infrastructure.roll import coolscanpy_roll
 
 if not QApplication.instance():
     _app = QApplication(sys.argv)
@@ -61,8 +63,12 @@ class TestBuildsAndGating:
         ):
             assert hasattr(w, attr), attr
 
-    def test_missing_coolscanpy_disables_preview_and_shows_hint(self) -> None:
-        w = _sidebar()  # no fake_coolscanpy fixture -- coolscanpy genuinely absent here
+    def test_missing_coolscanpy_disables_preview_and_shows_hint(self, monkeypatch) -> None:
+        # The optional group may be installed by this test run, so exercise
+        # the sidebar's unavailable branch at its adapter seam instead of
+        # assuming an interpreter-level package state.
+        monkeypatch.setattr(coolscanpy_roll, "available", lambda: False)
+        w = _sidebar()
         assert w.preview_btn.isEnabled() is False
         assert "install coolscanpy" in w.gate_hint.text()
         assert not w._setup_hint.isHidden()
@@ -100,14 +106,14 @@ class TestPreview:
 
         from negpy.desktop.workers.roll_worker import RollPreviewRequest
 
-        req = w.controller.start_roll_preview.call_args[0][0]
+        req = w.controller.start_coolscan_roll_preview.call_args[0][0]
         assert isinstance(req, RollPreviewRequest)
         assert req.device_id == "dev-42"
 
     def test_preview_click_without_a_device_is_a_noop(self) -> None:
         w = _sidebar()
         w._on_preview_clicked()
-        w.controller.start_roll_preview.assert_not_called()
+        w.controller.start_coolscan_roll_preview.assert_not_called()
 
     def test_preview_ready_populates_the_contact_sheet(self, fake_coolscanpy) -> None:
         w = _sidebar()
@@ -230,6 +236,192 @@ class TestScanning:
         assert w._scanning is False
         assert "Scanned 0" in w.status_label.text()
 
+    def test_finished_reports_hybrid_to_exact_degradation_as_an_issue(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        from negpy.desktop.workers.roll_worker import RollBatchScanRequest
+
+        w = _sidebar()
+        w._active_scan_request = RollBatchScanRequest(
+            device_id="ls5000-usb-001",
+            slots=(1,),
+            output_folder=str(tmp_path),
+            filename_pattern='{{ "%03d" % seq }}',
+            write_unrepaired=True,
+            write_repaired=True,
+            write_positive=False,
+            repair_mode="hybrid",
+        )
+        w.set_scanning(True)
+
+        w._on_finished(
+            [
+                SimpleNamespace(
+                    slot=1,
+                    rgb_path="001.tif",
+                    repaired_rgb_path="001_repaired.tif",
+                    positive_path=None,
+                    native_synthesis_mask_path=None,
+                    hybrid_receipt_path=None,
+                )
+            ]
+        )
+
+        assert w._scanning is False
+        assert "Completed with issues" in w.status_label.text()
+        assert "Hybrid repair degraded or unavailable" in w.status_label.text()
+        assert "Scanned 1 frame" not in w.status_label.text()
+
+    def test_finished_reports_unavailable_requested_exact_positive_as_an_issue(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        from negpy.desktop.workers.roll_worker import RollBatchScanRequest
+
+        w = _sidebar()
+        w._active_scan_request = RollBatchScanRequest(
+            device_id="ls5000-usb-001",
+            slots=(1,),
+            output_folder=str(tmp_path),
+            filename_pattern='{{ "%03d" % seq }}',
+            write_unrepaired=True,
+            write_repaired=False,
+            write_positive=True,
+            repair_mode="exact",
+            positive_mode="nikon-exact",
+        )
+        w.set_scanning(True)
+
+        w._on_finished(
+            [
+                SimpleNamespace(
+                    slot=1,
+                    rgb_path="001.tif",
+                    repaired_rgb_path=None,
+                    positive_path=None,
+                    native_synthesis_mask_path=None,
+                    hybrid_receipt_path=None,
+                )
+            ]
+        )
+
+        assert "Completed with issues" in w.status_label.text()
+        assert "Nikon exact positive unavailable" in w.status_label.text()
+        assert "Scanned 1 frame" not in w.status_label.text()
+
+    def test_finished_reports_missing_requested_slot_as_an_issue(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        from negpy.desktop.workers.roll_worker import RollBatchScanRequest
+
+        w = _sidebar()
+        w._active_scan_request = RollBatchScanRequest(
+            device_id="ls5000-usb-001",
+            slots=(1, 2),
+            output_folder=str(tmp_path),
+            filename_pattern='{{ "%03d" % seq }}',
+            write_unrepaired=True,
+            write_repaired=False,
+            write_positive=False,
+            repair_mode="exact",
+        )
+
+        w._on_finished(
+            [
+                SimpleNamespace(
+                    slot=1,
+                    rgb_path="001.tif",
+                    repaired_rgb_path=None,
+                    positive_path=None,
+                    native_synthesis_mask_path=None,
+                    hybrid_receipt_path=None,
+                )
+            ]
+        )
+
+        assert "Completed with issues" in w.status_label.text()
+        assert "slot(s) 2 did not complete" in w.status_label.text()
+        assert "Scanned 1 frame" not in w.status_label.text()
+
+    def test_finished_reports_each_missing_requested_file_tier_as_an_issue(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        from negpy.desktop.workers.roll_worker import RollBatchScanRequest
+
+        w = _sidebar()
+        w._active_scan_request = RollBatchScanRequest(
+            device_id="ls5000-usb-001",
+            slots=(1,),
+            output_folder=str(tmp_path),
+            filename_pattern='{{ "%03d" % seq }}',
+            write_unrepaired=True,
+            write_repaired=True,
+            write_positive=False,
+            repair_mode="exact",
+        )
+
+        w._on_finished(
+            [
+                SimpleNamespace(
+                    slot=1,
+                    rgb_path=None,
+                    repaired_rgb_path=None,
+                    positive_path=None,
+                    native_synthesis_mask_path=None,
+                    hybrid_receipt_path=None,
+                )
+            ]
+        )
+
+        status = w.status_label.text()
+        assert "Completed with issues" in status
+        assert "requested unrepaired output unavailable" in status
+        assert "requested repaired output unavailable" in status
+        assert "Scanned 1 frame" not in status
+
+    def test_finished_reports_full_success_only_when_hybrid_and_exact_exist(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        from negpy.desktop.workers.roll_worker import RollBatchScanRequest
+
+        w = _sidebar()
+        w._active_scan_request = RollBatchScanRequest(
+            device_id="ls5000-usb-001",
+            slots=(1,),
+            output_folder=str(tmp_path),
+            filename_pattern='{{ "%03d" % seq }}',
+            write_unrepaired=True,
+            write_repaired=True,
+            write_positive=True,
+            repair_mode="hybrid",
+            positive_mode="nikon-exact",
+        )
+        w.set_scanning(True)
+
+        w._on_finished(
+            [
+                SimpleNamespace(
+                    slot=1,
+                    rgb_path="001.tif",
+                    repaired_rgb_path="001_repaired.tif",
+                    positive_path="001_positive.tif",
+                    native_synthesis_mask_path="native-mask.png",
+                    hybrid_receipt_path="hybrid-receipt.json",
+                )
+            ]
+        )
+
+        assert w.status_label.text() == "Scanned 1 frame(s)."
+
     def test_safe_stop_disables_itself_and_forwards_to_controller(self, fake_coolscanpy) -> None:
         w = _sidebar()
         w.set_scanning(True)
@@ -314,9 +506,13 @@ class TestOutputTiers:
     def test_defaults_match_settings_defaults(self) -> None:
         w = _sidebar()
         assert w.write_unrepaired_check.isChecked() is True
-        assert w.write_repaired_check.isChecked() is False
-        assert w.write_positive_check.isChecked() is False
-        assert w.repair_mode_combo.currentData() == "exact"
+        assert w.write_repaired_check.isChecked() is True
+        assert w.write_positive_check.isChecked() is True
+        assert w.repair_mode_combo.currentData() == "hybrid"
+        assert "generative" in w.repair_mode_combo.currentText().lower()
+        assert "not bit-deterministic" in w.repair_mode_combo.toolTip()
+        assert w.positive_mode_combo.currentData() == "nikon-exact"
+        assert w.positive_mode_combo.currentText() == "Nikon C-41 exact (parity)"
         assert w.tier_hint.isHidden() is True  # Tier 1 is on by default -- nothing to warn about
 
     def test_tier_hint_shown_when_unrepaired_is_turned_off(self) -> None:
@@ -342,7 +538,9 @@ class TestOutputTiers:
         w.folder_edit.setText(str(tmp_path))
         w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
         w.contact_sheet.item(0).setSelected(True)
-        w.write_unrepaired_check.setChecked(False)  # the only tier on by default
+        w.write_unrepaired_check.setChecked(False)
+        w.write_repaired_check.setChecked(False)
+        w.write_positive_check.setChecked(False)
 
         assert "select at least one output tier" in w._missing_for_scan()
         assert w.scan_btn.isEnabled() is False
@@ -357,6 +555,7 @@ class TestOutputTiers:
         w.write_repaired_check.setChecked(True)
         w.write_positive_check.setChecked(True)
         w.repair_mode_combo.setCurrentIndex(w.repair_mode_combo.findData("hybrid"))
+        w.positive_mode_combo.setCurrentIndex(w.positive_mode_combo.findData("negpy-approximate"))
 
         w._on_scan_clicked()
 
@@ -365,6 +564,7 @@ class TestOutputTiers:
         assert req.write_repaired is True
         assert req.write_positive is True
         assert req.repair_mode == "hybrid"
+        assert req.positive_mode == "negpy-approximate"
 
     def test_scan_click_without_any_tier_selected_is_a_noop(self, fake_coolscanpy, tmp_path) -> None:
         w = _sidebar()
@@ -373,6 +573,8 @@ class TestOutputTiers:
         w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
         w.contact_sheet.item(0).setSelected(True)
         w.write_unrepaired_check.setChecked(False)
+        w.write_repaired_check.setChecked(False)
+        w.write_positive_check.setChecked(False)
 
         w._on_scan_clicked()
 
@@ -383,6 +585,7 @@ class TestOutputTiers:
         w.write_unrepaired_check.setChecked(False)
         w.write_repaired_check.setChecked(True)
         w.repair_mode_combo.setCurrentIndex(w.repair_mode_combo.findData("hybrid"))
+        w.positive_mode_combo.setCurrentIndex(w.positive_mode_combo.findData("negpy-approximate"))
 
         w._update_settings_from_ui()
 
@@ -391,6 +594,7 @@ class TestOutputTiers:
         assert saved[1]["write_unrepaired"] is False
         assert saved[1]["write_repaired"] is True
         assert saved[1]["repair_mode"] == "hybrid"
+        assert saved[1]["positive_mode"] == "negpy-approximate"
 
     def test_load_settings_restores_tier_choices(self) -> None:
         ctrl = MagicMock()
@@ -399,6 +603,7 @@ class TestOutputTiers:
             "write_repaired": True,
             "write_positive": True,
             "repair_mode": "hybrid",
+            "positive_mode": "negpy-approximate",
         }
         w = CoolscanRollSidebar(ctrl)
 
@@ -406,6 +611,24 @@ class TestOutputTiers:
         assert w.write_repaired_check.isChecked() is True
         assert w.write_positive_check.isChecked() is True
         assert w.repair_mode_combo.currentData() == "hybrid"
+        assert w.positive_mode_combo.currentData() == "negpy-approximate"
+
+    def test_existing_saved_exact_and_disabled_choices_override_new_defaults(self) -> None:
+        ctrl = MagicMock()
+        ctrl.session.repo.get_global_setting.return_value = {
+            "write_unrepaired": True,
+            "write_repaired": False,
+            "write_positive": False,
+            "repair_mode": "exact",
+            "positive_mode": "nikon-exact",
+        }
+
+        w = CoolscanRollSidebar(ctrl)
+
+        assert w.write_unrepaired_check.isChecked() is True
+        assert w.write_repaired_check.isChecked() is False
+        assert w.write_positive_check.isChecked() is False
+        assert w.repair_mode_combo.currentData() == "exact"
 
 
 class TestActivation:

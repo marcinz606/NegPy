@@ -42,10 +42,13 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.roll import coolscanpy_roll
 from negpy.infrastructure.roll.repair import RepairMode
 from negpy.infrastructure.roll.settings import RollScanSettings
+from negpy.services.roll.exact_color import PositiveColorMode
 from negpy.services.roll.service import RollFrameOutput
 
 if TYPE_CHECKING:
     import coolscanpy
+
+    from negpy.desktop.workers.roll_worker import RollBatchScanRequest
 
 _SLOT_ROLE = Qt.ItemDataRole.UserRole
 _WARN_COLOR = "#C8922E"  # matches ScanlightSidebar's advisory tone
@@ -86,6 +89,7 @@ class CoolscanRollSidebar(QWidget):
         self._thumbnails: dict[int, "coolscanpy.Thumbnail"] = {}
         self._scanning = False
         self._stopping = False  # safe-stop acknowledged, waiting for the in-flight frame
+        self._active_scan_request: RollBatchScanRequest | None = None
 
         self._init_ui()
         self._connect_signals()
@@ -114,7 +118,8 @@ class CoolscanRollSidebar(QWidget):
             write_unrepaired=self.write_unrepaired_check.isChecked(),
             write_repaired=self.write_repaired_check.isChecked(),
             write_positive=self.write_positive_check.isChecked(),
-            repair_mode=self.repair_mode_combo.currentData() or RepairMode.EXACT.value,
+            repair_mode=self.repair_mode_combo.currentData() or RollScanSettings.defaults().repair_mode,
+            positive_mode=self.positive_mode_combo.currentData() or PositiveColorMode.NIKON_EXACT.value,
         )
         if updated == self._settings:
             return
@@ -174,7 +179,9 @@ class CoolscanRollSidebar(QWidget):
         folder_row.addWidget(self.folder_browse)
         out_form.addRow("Folder", folder_row)
         self.pattern_edit = QLineEdit(self._settings.filename_pattern)
-        self.pattern_edit.setToolTip('Jinja2 template. Variables: {{ date }}, {{ seq }} (the slot number).\nExample: {{ date }}_{{ "%03d" % seq }}')
+        self.pattern_edit.setToolTip(
+            'Jinja2 template. Variables: {{ date }}, {{ seq }} (the slot number).\nExample: {{ date }}_{{ "%03d" % seq }}'
+        )
         out_form.addRow("Filename", self.pattern_edit)
 
         # Three independent tiers, not a single three-way choice -- any combination is
@@ -192,28 +199,41 @@ class CoolscanRollSidebar(QWidget):
         self.write_repaired_check.setChecked(self._settings.write_repaired)
         self.write_repaired_check.setToolTip(
             "Tier 2: the unrepaired capture with infrared-guided dust/scratch repair applied, "
-            "still scanner-linear. Needs a repair engine to be registered; degrades with a "
-            "status in the receipt when none is available."
+            "still scanner-linear. It needs the frame-bound scanner prepass and validity evidence; "
+            "the Tier 1 TIFFs alone cannot recreate parity repair later."
         )
         self.write_positive_check = QCheckBox("Positive")
         self.write_positive_check.setChecked(self._settings.write_positive)
         self.write_positive_check.setToolTip(
-            "Tier 3: the repaired capture inverted through NegPy's own rendering pipeline. "
-            "A regenerable preview, not an edit -- it will be superseded as the pipeline "
-            "improves, and needs Tier 2 to be producible first."
+            "Tier 3: the repaired capture converted through the Positive color path selected "
+            "below. Nikon exact is the parity default; NegPy approximate is an explicitly "
+            "labeled preview choice. Tier 2 must be producible first."
         )
         tiers_row.addWidget(self.write_unrepaired_check)
         tiers_row.addWidget(self.write_repaired_check)
         tiers_row.addWidget(self.write_positive_check)
         out_form.addRow("Write", tiers_row)
 
+        self.positive_mode_combo = QComboBox()
+        self.positive_mode_combo.addItem("Nikon C-41 exact (parity)", PositiveColorMode.NIKON_EXACT.value)
+        self.positive_mode_combo.addItem("NegPy approximate (preview)", PositiveColorMode.NEGPY_APPROXIMATE.value)
+        self.positive_mode_combo.setToolTip(
+            "Color path for Tier 3. Nikon exact is the fail-closed parity path and requires "
+            "frame-bound builder evidence. NegPy approximate is a selectable preview path "
+            "and is never labeled Nikon-exact."
+        )
+        idx = self.positive_mode_combo.findData(self._settings.positive_mode)
+        if idx >= 0:
+            self.positive_mode_combo.setCurrentIndex(idx)
+        out_form.addRow("Positive color", self.positive_mode_combo)
+
         self.repair_mode_combo = QComboBox()
-        self.repair_mode_combo.addItem("Exact", RepairMode.EXACT.value)
-        self.repair_mode_combo.addItem("Hybrid (inpaint severe defects)", RepairMode.HYBRID.value)
+        self.repair_mode_combo.addItem("Exact (Nikon parity)", RepairMode.EXACT.value)
+        self.repair_mode_combo.addItem("Hybrid (generative severe-defect fill)", RepairMode.HYBRID.value)
         self.repair_mode_combo.setToolTip(
-            "Governs Tier 2, and Tier 3 through it, whenever a repair engine is registered. Hybrid "
-            "additionally routes severe zero-signal regions to an inpainting model and costs "
-            "substantially more time per frame than Exact."
+            "Governs Tier 2, and Tier 3 through it. Hybrid uses a generative inpainting model for "
+            "severe zero-signal regions and records every synthesized pixel in a disclosure mask. "
+            "Those fills are not recovered film data and are not bit-deterministic Nikon output."
         )
         idx = self.repair_mode_combo.findData(self._settings.repair_mode)
         if idx >= 0:
@@ -274,7 +294,9 @@ class CoolscanRollSidebar(QWidget):
         layout.addWidget(self.scan_btn)
 
         self.safe_stop_btn = QPushButton(qta.icon("fa5s.stop", color=THEME.text_secondary), " Safe Stop")
-        self.safe_stop_btn.setToolTip("Finish the frame in flight, then stop before the next one -- the transport can't be aborted mid-pull.")
+        self.safe_stop_btn.setToolTip(
+            "Finish the frame in flight, then stop before the next one -- the transport can't be aborted mid-pull."
+        )
         self.safe_stop_btn.setEnabled(False)
         layout.addWidget(self.safe_stop_btn)
 
@@ -290,6 +312,7 @@ class CoolscanRollSidebar(QWidget):
             w.editingFinished.connect(self._update_settings_from_ui)
         for cb in (self.write_unrepaired_check, self.write_repaired_check, self.write_positive_check):
             cb.toggled.connect(self._update_settings_from_ui)
+        self.positive_mode_combo.currentIndexChanged.connect(self._update_settings_from_ui)
         self.repair_mode_combo.currentIndexChanged.connect(self._update_settings_from_ui)
         self.preview_btn.clicked.connect(self._on_preview_clicked)
         self.contact_sheet.itemSelectionChanged.connect(self._on_selection_changed)
@@ -386,7 +409,9 @@ class CoolscanRollSidebar(QWidget):
         self._set_status("Reading roll transport…")
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.controller.start_roll_preview(RollPreviewRequest(device_id=device_id))
+        self.controller.start_coolscan_roll_preview(
+            RollPreviewRequest(device_id=device_id)
+        )
 
     @pyqtSlot(list)
     def _on_preview_ready(self, thumbnails: "list[coolscanpy.Thumbnail]") -> None:
@@ -491,15 +516,17 @@ class CoolscanRollSidebar(QWidget):
             write_unrepaired=self.write_unrepaired_check.isChecked(),
             write_repaired=self.write_repaired_check.isChecked(),
             write_positive=self.write_positive_check.isChecked(),
-            repair_mode=self.repair_mode_combo.currentData() or RepairMode.EXACT.value,
+            repair_mode=self.repair_mode_combo.currentData() or RollScanSettings.defaults().repair_mode,
+            positive_mode=self.positive_mode_combo.currentData() or PositiveColorMode.NIKON_EXACT.value,
         )
+        self._active_scan_request = req
         self.set_scanning(True)
         self.controller.start_roll_scan(req)
 
     def _on_safe_stop_clicked(self) -> None:
         self._stopping = True
         self.safe_stop_btn.setEnabled(False)
-        self._set_status("Stopping after the current frame…")
+        self._set_status("Stopping the current frame safely…")
         self.controller.roll_safe_stop()
 
     @pyqtSlot(float, str)
@@ -516,16 +543,23 @@ class CoolscanRollSidebar(QWidget):
 
     @pyqtSlot(list)
     def _on_finished(self, outputs: list[RollFrameOutput]) -> None:
+        issues = self._completion_issues(outputs)
+        self._active_scan_request = None
         self.set_scanning(False)
-        self._set_status(f"Scanned {len(outputs)} frame(s).")
+        if issues:
+            self._set_status("Completed with issues — " + "; ".join(issues))
+        else:
+            self._set_status(f"Scanned {len(outputs)} frame(s).")
 
     @pyqtSlot()
     def _on_cancelled(self) -> None:
+        self._active_scan_request = None
         self.set_scanning(False)
         self._set_status("Stopped.")
 
     @pyqtSlot(str)
     def _on_error(self, msg: str) -> None:
+        self._active_scan_request = None
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
         self._set_status(f"Error: {msg}")
@@ -538,6 +572,52 @@ class CoolscanRollSidebar(QWidget):
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
         self.status_label.setVisible(bool(text))
+
+    def _completion_issues(
+        self,
+        outputs: list[RollFrameOutput],
+    ) -> list[str]:
+        """Describe requested outputs that the fail-closed service withheld."""
+
+        request = self._active_scan_request
+        if request is None:
+            return []
+        issues: list[str] = []
+        completed_slots = {output.slot for output in outputs}
+        missing_slots = [
+            slot for slot in request.slots if slot not in completed_slots
+        ]
+        if missing_slots:
+            issues.append(
+                "slot(s) "
+                + ", ".join(str(slot) for slot in missing_slots)
+                + " did not complete"
+            )
+        for output in outputs:
+            prefix = f"slot {output.slot}: "
+            if request.write_unrepaired and not output.rgb_path:
+                issues.append(prefix + "requested unrepaired output unavailable")
+            if request.write_repaired and not output.repaired_rgb_path:
+                issues.append(prefix + "requested repaired output unavailable")
+            repair_was_needed = request.write_repaired or request.write_positive
+            if (
+                repair_was_needed
+                and request.repair_mode == RepairMode.HYBRID.value
+                and not (
+                    output.native_synthesis_mask_path
+                    and output.hybrid_receipt_path
+                )
+            ):
+                issues.append(prefix + "Hybrid repair degraded or unavailable")
+            if request.write_positive and not output.positive_path:
+                if (
+                    request.positive_mode
+                    == PositiveColorMode.NIKON_EXACT.value
+                ):
+                    issues.append(prefix + "Nikon exact positive unavailable")
+                else:
+                    issues.append(prefix + "requested positive output unavailable")
+        return issues
 
     # ── browse ────────────────────────────────────────────────────────
 

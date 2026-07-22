@@ -42,6 +42,20 @@ def test_env_override_wins(monkeypatch, tmp_path):
     assert get_default_user_dir() == os.path.abspath(str(tmp_path / "custom"))
 
 
+def test_macos_resolution_is_path_only_before_the_visible_startup_handoff(monkeypatch, tmp_path):
+    """Resolving the frozen app's default cannot itself touch protected Documents."""
+    home = tmp_path / "home"
+
+    monkeypatch.delenv("NEGPY_USER_DIR", raising=False)
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(home) if p == "~" else p)
+    monkeypatch.setattr(os.path, "isdir", lambda _path: (_ for _ in ()).throw(AssertionError("resolution touched Documents")))
+    monkeypatch.setattr(os, "makedirs", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("resolution created Documents")))
+
+    assert get_default_user_dir() == str((home / "Documents" / "NegPy").absolute())
+    assert not home.exists()
+
+
 def test_broken_documents_falls_back_to_home(monkeypatch, tmp_path):
     home = tmp_path / "home"
     home.mkdir()
