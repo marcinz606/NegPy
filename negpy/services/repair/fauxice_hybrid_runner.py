@@ -982,7 +982,6 @@ def _validate_receipt_bindings(
         or counts["synthesis_pixels"] != pixel_count
         or counts["frame_pixels"] != frame_pixels
         or counts["at_floor_pixels"] > frame_pixels
-        or counts["synthesis_pixels"] > counts["at_floor_pixels"]
         or counts["final_regions"] > counts["synthesis_pixels"]
         or (counts["final_regions"] == 0) != (pixel_count == 0)
     ):

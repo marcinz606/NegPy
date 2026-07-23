@@ -66,8 +66,19 @@ def _rgbi(height: int, width: int, base: int) -> np.ndarray:
     return np.full((height, width, 4), base, dtype=np.uint16)
 
 
-def _receipt(*, requested: str = "cpu", used: str = "cpu", fraction: float = 0.01) -> dict:
-    return {"fraction": fraction, "requested": requested, "used": used}
+def _receipt(
+    *,
+    requested: str = "cpu",
+    used: str = "cpu",
+    fraction: float = 0.01,
+    at_floor_pixels: int | None = None,
+) -> dict:
+    return {
+        "at_floor_pixels": at_floor_pixels,
+        "fraction": fraction,
+        "requested": requested,
+        "used": used,
+    }
 
 
 def _arg(argv: list[str], flag: str) -> str:
@@ -171,7 +182,11 @@ def _write_success_outputs(
         },
         "routing": {
             "counts": {
-                "at_floor_pixels": synthesis_pixels,
+                "at_floor_pixels": (
+                    synthesis_pixels
+                    if receipt_options["at_floor_pixels"] is None
+                    else receipt_options["at_floor_pixels"]
+                ),
                 "final_regions": 1 if synthesis_pixels else 0,
                 "frame_pixels": int(mask.size),
                 "synthesis_pixels": synthesis_pixels,
@@ -441,6 +456,34 @@ class TestRunHybridRepairSuccess:
             "final_regions": 1,
             "synthesis_pixels": 1,
             "frame_pixels": 100,
+            "at_floor_pixels": 1,
+        }
+
+    def test_accepts_synthesis_context_outside_at_floor_evidence(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        hybrid_rgb16 = np.zeros((2, 2, 3), dtype=np.uint16)
+        runner = _RecordingRunner(
+            hybrid_rgb16=hybrid_rgb16,
+            receipt=_receipt(fraction=0.5, at_floor_pixels=1),
+        )
+
+        result = run_hybrid_repair(
+            _rgbi(2, 2, 1000),
+            _rgbi(2, 2, 500),
+            same_frame_id="context-halo",
+            backend="cpu",
+            runtime=_runtime_config(tmp_path),
+            scratch_dir=tmp_path,
+            runner=runner,
+            receipt_verifier=_test_receipt_verifier,
+        )
+
+        assert result.routing_counts == {
+            "final_regions": 1,
+            "synthesis_pixels": 2,
+            "frame_pixels": 4,
             "at_floor_pixels": 1,
         }
 

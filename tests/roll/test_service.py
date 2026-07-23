@@ -412,10 +412,13 @@ def _tier_frame(
 
 def _valid_hybrid_result(
     acquisition: roll_repair.RepairAcquisition,
+    *,
+    routed_pixel_count: int = 1,
+    at_floor_pixel_count: int = 1,
 ) -> roll_repair.RepairResult:
     native_rgb = np.ascontiguousarray(acquisition.main_rgbi[..., :3] + 3)
     routed_mask = np.zeros(acquisition.main_rgbi.shape[:2], dtype=np.bool_)
-    routed_mask.reshape(-1)[0] = True
+    routed_mask.reshape(-1)[:routed_pixel_count] = True
     applied_mask = np.ascontiguousarray(routed_mask & acquisition.ir_validity)
 
     def png(mask: np.ndarray) -> bytes:
@@ -432,10 +435,10 @@ def _valid_hybrid_result(
     storage_png = png(storage_mask)
     native_hash = sha256(native_rgb.astype("<u2").tobytes()).hexdigest()
     counts = {
-        "at_floor_pixels": 1,
-        "final_regions": 1,
+        "at_floor_pixels": at_floor_pixel_count,
+        "final_regions": 1 if routed_pixel_count else 0,
         "frame_pixels": routed_mask.size,
-        "synthesis_pixels": 1,
+        "synthesis_pixels": routed_pixel_count,
     }
     routed_u8 = routed_mask.astype(np.uint8) * 255
     receipt_document = {
@@ -456,9 +459,9 @@ def _valid_hybrid_result(
         "routing": {"counts": counts},
         "schema": "fauxce-hybrid-receipt-v2",
         "synthesis": {
-            "fraction": 1 / routed_mask.size,
+            "fraction": routed_pixel_count / routed_mask.size,
             "frame_pixel_count": routed_mask.size,
-            "pixel_count": 1,
+            "pixel_count": routed_pixel_count,
             "within_budget": True,
         },
     }
@@ -1167,6 +1170,23 @@ class TestThreeTierWriting:
         assert all(path is not None and not os.path.exists(path) for path in stale_paths)
         replaced_payload = self._receipt(replacement.receipt_path)["outputs"]
         assert replaced_payload["repaired"]["status"] == "not selected"
+
+    def test_hybrid_result_binding_accepts_synthesis_context_outside_at_floor_evidence(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        acquisition = _tier_frame(fake_coolscanpy).prepare_digital_ice()
+        result = _valid_hybrid_result(
+            acquisition,
+            routed_pixel_count=2,
+            at_floor_pixel_count=1,
+        )
+
+        roll_service._validate_repair_result_binding(
+            acquisition,
+            result,
+            requested_mode=roll_repair.RepairMode.HYBRID,
+        )
 
     @pytest.mark.parametrize(
         ("tamper", "match"),

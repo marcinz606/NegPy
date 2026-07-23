@@ -2176,7 +2176,6 @@ def _validate_repair_result_binding(
         or counts.get("synthesis_pixels") != routed_pixels
         or counts.get("frame_pixels") != frame_pixels
         or counts["at_floor_pixels"] > frame_pixels
-        or counts["synthesis_pixels"] > counts["at_floor_pixels"]
         or counts["final_regions"] > counts["synthesis_pixels"]
         or (counts["final_regions"] == 0) != (routed_pixels == 0)
     ):
