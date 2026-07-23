@@ -521,6 +521,24 @@ class TestBatchScanOutputTiers:
         assert req.write_positive is True
         assert req.repair_mode == "hybrid"
         assert req.positive_mode == "nikon-exact"
+        assert req.hybrid_synthesis_limit_percent == 10.0
+
+    @pytest.mark.parametrize(
+        "value",
+        (float("nan"), float("inf"), -0.1, 100.1, True),
+    )
+    def test_request_rejects_invalid_hybrid_synthesis_limit(
+        self,
+        value: float | bool,
+    ) -> None:
+        with pytest.raises(ValueError, match="hybrid_synthesis_limit_percent"):
+            RollBatchScanRequest(
+                device_id="d",
+                slots=(1,),
+                output_folder="/tmp/x",
+                filename_pattern="p",
+                hybrid_synthesis_limit_percent=value,
+            )
 
     def test_tier_flags_are_forwarded_to_write_frame(
         self,
@@ -564,6 +582,7 @@ class TestBatchScanOutputTiers:
             "write_positive": True,
             "repair_mode": "hybrid",
             "positive_mode": "negpy-approximate",
+            "hybrid_runtime": None,
         }
 
     def test_repaired_tier_writes_through_the_worker_with_a_registered_engine(self, fake_coolscanpy, fake_repair_engine, tmp_path) -> None:

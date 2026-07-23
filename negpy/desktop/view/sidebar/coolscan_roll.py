@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QProgressBar,
     QPushButton,
+    QDoubleSpinBox,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -120,6 +121,7 @@ class CoolscanRollSidebar(QWidget):
             write_positive=self.write_positive_check.isChecked(),
             repair_mode=self.repair_mode_combo.currentData() or RollScanSettings.defaults().repair_mode,
             positive_mode=self.positive_mode_combo.currentData() or PositiveColorMode.NIKON_EXACT.value,
+            hybrid_synthesis_limit_percent=self.hybrid_synthesis_limit_spin.value(),
         )
         if updated == self._settings:
             return
@@ -240,12 +242,32 @@ class CoolscanRollSidebar(QWidget):
             self.repair_mode_combo.setCurrentIndex(idx)
         out_form.addRow("Repair mode", self.repair_mode_combo)
 
+        self.hybrid_synthesis_limit_spin = QDoubleSpinBox()
+        self.hybrid_synthesis_limit_spin.setRange(0.0, 100.0)
+        self.hybrid_synthesis_limit_spin.setDecimals(1)
+        self.hybrid_synthesis_limit_spin.setSuffix("%")
+        self.hybrid_synthesis_limit_spin.setValue(
+            self._settings.hybrid_synthesis_limit_percent
+        )
+        self.hybrid_synthesis_limit_spin.setToolTip(
+            "Maximum portion of a frame Hybrid may synthesize. This is a ceiling, not a target; "
+            "the pinned runtime's own ceiling remains in force if it is lower. Set 0% to forbid synthesis."
+        )
+        out_form.addRow("Hybrid ceiling", self.hybrid_synthesis_limit_spin)
+
         layout.addLayout(out_form)
 
         self.tier_hint = QLabel("")
         self.tier_hint.setStyleSheet(f"color: {_WARN_COLOR}; font-size: {THEME.font_size_small}px;")
         self.tier_hint.setWordWrap(True)
         layout.addWidget(self.tier_hint)
+
+        self.hybrid_guidance = QLabel("")
+        self.hybrid_guidance.setStyleSheet(
+            f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;"
+        )
+        self.hybrid_guidance.setWordWrap(True)
+        layout.addWidget(self.hybrid_guidance)
 
         # ── PROGRESS / STATUS ────────────────────────────────
         self.progress_bar = QProgressBar()
@@ -314,6 +336,7 @@ class CoolscanRollSidebar(QWidget):
             cb.toggled.connect(self._update_settings_from_ui)
         self.positive_mode_combo.currentIndexChanged.connect(self._update_settings_from_ui)
         self.repair_mode_combo.currentIndexChanged.connect(self._update_settings_from_ui)
+        self.hybrid_synthesis_limit_spin.valueChanged.connect(self._update_settings_from_ui)
         self.preview_btn.clicked.connect(self._on_preview_clicked)
         self.contact_sheet.itemSelectionChanged.connect(self._on_selection_changed)
         self.offset_apply_btn.clicked.connect(self._on_apply_offset)
@@ -518,6 +541,7 @@ class CoolscanRollSidebar(QWidget):
             write_positive=self.write_positive_check.isChecked(),
             repair_mode=self.repair_mode_combo.currentData() or RollScanSettings.defaults().repair_mode,
             positive_mode=self.positive_mode_combo.currentData() or PositiveColorMode.NIKON_EXACT.value,
+            hybrid_synthesis_limit_percent=self.hybrid_synthesis_limit_spin.value(),
         )
         self._active_scan_request = req
         self.set_scanning(True)
@@ -664,6 +688,21 @@ class CoolscanRollSidebar(QWidget):
             self.tier_hint.setText("")
             self.tier_hint.setVisible(False)
 
+    def _update_hybrid_guidance(self) -> None:
+        """Explain the choice without silently opting a frame into AI fill."""
+
+        if self.repair_mode_combo.currentData() == RepairMode.HYBRID.value:
+            ceiling = self.hybrid_synthesis_limit_spin.value()
+            self.hybrid_guidance.setText(
+                f"Hybrid is recommended only when the scanner finds severe zero-signal infrared areas. "
+                f"It keeps Exact repair elsewhere, discloses every generated pixel, and is capped at {ceiling:.1f}%."
+            )
+        else:
+            self.hybrid_guidance.setText(
+                "Exact is recommended for normal dust and scratches with usable infrared, and for Nikon-parity-only output. "
+                "Use Hybrid only when infrared has a severe zero-signal area that Exact cannot repair."
+            )
+
     def _apply_gating(self) -> None:
         missing_preview = self._missing_for_preview()
         missing_scan = self._missing_for_scan()
@@ -671,6 +710,7 @@ class CoolscanRollSidebar(QWidget):
         self.scan_btn.setEnabled(not missing_scan and not self._scanning)
         self.safe_stop_btn.setEnabled(self._scanning)
         self._update_tier_hint()
+        self._update_hybrid_guidance()
         if missing_scan:
             self.gate_hint.setText("To scan: " + ", ".join(missing_scan) + ".")
             self.gate_hint.setVisible(True)

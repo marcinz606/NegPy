@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from negpy.infrastructure.roll.repair import RepairMode
 from negpy.services.roll.exact_color import PositiveColorMode
@@ -43,6 +44,20 @@ class RollScanSettings:
     write_positive: bool = True
     repair_mode: str = RepairMode.HYBRID.value
     positive_mode: str = PositiveColorMode.NIKON_EXACT.value
+    # This is a user-selected ceiling, not a target percentage. The pinned
+    # runtime remains the final hard limit; the worker takes the lower value.
+    hybrid_synthesis_limit_percent: float = 10.0
+
+    def __post_init__(self) -> None:
+        value = self.hybrid_synthesis_limit_percent
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or not 0.0 <= float(value) <= 100.0
+        ):
+            raise ValueError("hybrid_synthesis_limit_percent must be finite and in [0, 100]")
+        object.__setattr__(self, "hybrid_synthesis_limit_percent", float(value))
 
     @classmethod
     def defaults(cls) -> "RollScanSettings":

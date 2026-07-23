@@ -856,6 +856,7 @@ class RollScanningService:
         repair_mode: str = RepairMode.EXACT.value,
         positive_mode: str = roll_exact_color.PositiveColorMode.NIKON_EXACT.value,
         builder_receipt: roll_exact_color.BuilderReceipt | None = None,
+        hybrid_runtime: HybridRuntimeConfig | None = None,
         on_repair_progress: Callable[[float], None] | None = None,
     ) -> RollFrameOutput:
         """Write one scanned `Frame` to disk across up to three tiers, plus a
@@ -1032,7 +1033,7 @@ class RollScanningService:
                     repair_result = roll_repair.repair(
                         acquisition,
                         resolved_repair_mode,
-                        hybrid_runtime=self._hybrid_runtime,
+                        hybrid_runtime=hybrid_runtime or self._hybrid_runtime,
                         progress=on_repair_progress,
                         cancel=self._repair_cancel,
                     )

@@ -60,6 +60,8 @@ class TestBuildsAndGating:
             "approve_btn",
             "gate_hint",
             "status_label",
+            "hybrid_synthesis_limit_spin",
+            "hybrid_guidance",
         ):
             assert hasattr(w, attr), attr
 
@@ -220,6 +222,7 @@ class TestScanning:
         assert req.device_id == "dev-1"
         assert req.slots == (1, 2)
         assert req.output_folder == str(tmp_path)
+        assert req.hybrid_synthesis_limit_percent == 10.0
         assert w._scanning is True
 
     def test_scan_click_without_a_selected_slot_is_a_noop(self, fake_coolscanpy, tmp_path) -> None:

@@ -9,6 +9,8 @@ rather than reconnecting for every call.
 
 from __future__ import annotations
 
+import dataclasses
+import math
 import threading
 from dataclasses import dataclass
 
@@ -49,6 +51,22 @@ class RollBatchScanRequest:
     write_positive: bool = RollScanSettings.defaults().write_positive
     repair_mode: str = RollScanSettings.defaults().repair_mode
     positive_mode: str = RollScanSettings.defaults().positive_mode
+    hybrid_synthesis_limit_percent: float = (
+        RollScanSettings.defaults().hybrid_synthesis_limit_percent
+    )
+
+    def __post_init__(self) -> None:
+        value = self.hybrid_synthesis_limit_percent
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or not 0.0 <= float(value) <= 100.0
+        ):
+            raise ValueError(
+                "hybrid_synthesis_limit_percent must be finite and in [0, 100]"
+            )
+        object.__setattr__(self, "hybrid_synthesis_limit_percent", float(value))
 
 
 class RollWorker(QObject):
@@ -73,6 +91,7 @@ class RollWorker(QObject):
         hybrid_runtime: HybridRuntimeConfig | None = None,
     ) -> None:
         super().__init__()
+        self._hybrid_runtime = hybrid_runtime
         self._service = RollScanningService(hybrid_runtime=hybrid_runtime)
         self._open_device_id: str | None = None
         self._operation_lock = threading.RLock()
@@ -194,6 +213,16 @@ class RollWorker(QObject):
                 self._reject_if_shutting_down()
                 self._ensure_open(req.device_id)
                 self.status.emit("Scanning…")
+                hybrid_runtime = self._hybrid_runtime
+                if hybrid_runtime is not None:
+                    user_fraction = req.hybrid_synthesis_limit_percent / 100.0
+                    hybrid_runtime = dataclasses.replace(
+                        hybrid_runtime,
+                        max_synthesis_fraction=min(
+                            user_fraction,
+                            hybrid_runtime.max_synthesis_fraction,
+                        ),
+                    )
                 for frame in self._service.scan_many(
                     req.slots,
                     on_progress=lambda p: self.progress.emit(
@@ -210,6 +239,7 @@ class RollWorker(QObject):
                         write_positive=req.write_positive,
                         repair_mode=req.repair_mode,
                         positive_mode=req.positive_mode,
+                        hybrid_runtime=hybrid_runtime,
                         on_repair_progress=lambda fraction: self.progress.emit(
                             fraction,
                             "Applying Digital ICE repair…",
