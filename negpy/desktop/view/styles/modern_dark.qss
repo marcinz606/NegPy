@@ -498,7 +498,7 @@ QPushButton#collapsible_header[overlay="true"]:checked {
     background-color: rgba(26, 26, 26, 0.82);
 }
 
-/* Preset list in the Export Presets dialog. */
+/* Preset lists: Export Presets dialog and the Presets sidebar. */
 QListWidget#preset_list {
     background: #0D0D0D;
     border: 1px solid #262626;

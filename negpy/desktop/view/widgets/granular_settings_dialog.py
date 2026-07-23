@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -33,14 +34,20 @@ class GranularSettingsDialog(QDialog):
         show_bounds: bool = False,
         sel_count: int = 0,
         roll_count: int = 0,
+        ask_name: bool = False,
+        exclude_sections: frozenset[str] = frozenset(),
     ):
         super().__init__(parent)
         self._checks: list[tuple[QCheckBox, SettingRow]] = []
         self._bounds_luma: QCheckBox | None = None
         self._bounds_colour: QCheckBox | None = None
+        self._name_edit: QLineEdit | None = None
         self._scope = "selection" if sel_count > 0 else "roll"
 
-        self.setWindowTitle("Paste Settings" if not show_scope else "Apply Settings")
+        if ask_name:
+            self.setWindowTitle("Save Preset")
+        else:
+            self.setWindowTitle("Paste Settings" if not show_scope else "Apply Settings")
         self.setStyleSheet(f"QDialog {{ background: {THEME.bg_dark}; }}")
         self.resize(420, 620)
 
@@ -52,11 +59,16 @@ class GranularSettingsDialog(QDialog):
         header.setStyleSheet(f"color: {THEME.text_primary}; font-weight: bold;")
         root.addWidget(header)
 
+        if ask_name:
+            self._name_edit = QLineEdit()
+            self._name_edit.setPlaceholderText("Preset name")
+            self._name_edit.textChanged.connect(self._update_apply_enabled)
+            root.addWidget(self._name_edit)
         if show_scope:
             root.addLayout(self._build_scope_row(sel_count, roll_count))
         root.addLayout(self._build_checks_row())
-        root.addWidget(self._build_sections(source_cfg, show_bounds), 1)
-        root.addLayout(self._build_footer())
+        root.addWidget(self._build_sections(source_cfg, show_bounds, exclude_sections), 1)
+        root.addLayout(self._build_footer(ask_name))
 
         self._update_apply_enabled()
 
@@ -86,7 +98,7 @@ class GranularSettingsDialog(QDialog):
         row.addStretch()
         return row
 
-    def _build_sections(self, source_cfg, show_bounds: bool) -> QScrollArea:
+    def _build_sections(self, source_cfg, show_bounds: bool, exclude_sections: frozenset[str] = frozenset()) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -96,6 +108,8 @@ class GranularSettingsDialog(QDialog):
         col.setSpacing(THEME.space_sm)
 
         for title, rows in edited_sections(source_cfg):
+            if title in exclude_sections:
+                continue
             section = CollapsibleSection(title, expanded=True)
             section.set_modified(len(rows))
             section.set_content(self._build_rows(rows))
@@ -138,12 +152,12 @@ class GranularSettingsDialog(QDialog):
             col.addWidget(box)
         return body
 
-    def _build_footer(self) -> QHBoxLayout:
+    def _build_footer(self, ask_name: bool = False) -> QHBoxLayout:
         row = QHBoxLayout()
         row.addStretch()
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
-        self.apply_btn = QPushButton("Apply")
+        self.apply_btn = QPushButton("Save" if ask_name else "Apply")
         self.apply_btn.clicked.connect(self._on_apply)
         row.addWidget(cancel_btn)
         row.addWidget(self.apply_btn)
@@ -159,7 +173,10 @@ class GranularSettingsDialog(QDialog):
             box.setChecked(checked)
 
     def _update_apply_enabled(self) -> None:
-        self.apply_btn.setEnabled(any(box.isChecked() for box in self._all_boxes()))
+        enabled = any(box.isChecked() for box in self._all_boxes())
+        if self._name_edit is not None:
+            enabled = enabled and bool(self._name_edit.text().strip())
+        self.apply_btn.setEnabled(enabled)
 
     def _on_apply(self) -> None:
         if hasattr(self, "sel_radio"):
@@ -168,6 +185,13 @@ class GranularSettingsDialog(QDialog):
 
     def selected(self) -> list[SettingRow]:
         return [row for box, row in self._checks if box.isChecked()]
+
+    def name(self) -> str:
+        return self._name_edit.text().strip() if self._name_edit is not None else ""
+
+    def set_name(self, value: str) -> None:
+        if self._name_edit is not None:
+            self._name_edit.setText(value)
 
     def bounds_flags(self) -> tuple[bool, bool]:
         return (

@@ -1,80 +1,74 @@
 from PyQt6.QtWidgets import (
-    QComboBox,
-    QPushButton,
+    QDialog,
     QHBoxLayout,
-    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
 )
 import qtawesome as qta
+from negpy.desktop.settings_catalog import preset_summary, selected_flat_dict
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.services.assets.presets import Presets
-from negpy.domain.models import WorkspaceConfig
+from negpy.desktop.view.styles.templates import wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
+from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
+from negpy.domain.models import WorkspaceConfig
+from negpy.services.assets.presets import Presets
+
+_PRESET_EXCLUDED_SECTIONS = frozenset({"Crop", "Rotation"})
 
 
 class PresetsSidebar(BaseSidebar):
     """
-    Panel for saving and loading editing presets.
+    Panel for saving and applying editing presets.
     """
 
     def _init_ui(self) -> None:
-        # Load Row
-        row_load = QHBoxLayout()
-        self.preset_combo = QComboBox()
-        self.preset_combo.setToolTip("Saved presets — full WorkspaceConfig snapshots")
+        self.preset_list = QListWidget()
+        self.preset_list.setObjectName("preset_list")
+        self.preset_list.setMaximumHeight(180)
         self._refresh_presets()
+        self.layout.addWidget(self.preset_list)
 
-        self.load_btn = QPushButton(" Load")
-        self.load_btn.setIcon(qta.icon("fa5s.upload", color=THEME.text_primary))
-        self.load_btn.setToolTip("Apply the selected preset to the current image")
+        row = QHBoxLayout()
+        self.apply_btn = QPushButton(" Apply")
+        self.apply_btn.setIcon(qta.icon("fa5s.check", color=THEME.text_primary))
+        self.apply_btn.setToolTip("Apply the selected preset to the current image (or double-click a preset)")
+
+        self.save_btn = QPushButton(" Save…")
+        self.save_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
+        self.save_btn.setToolTip("Pick which of the current settings to store as a new preset")
+
+        self.edit_btn = QPushButton()
+        self.edit_btn.setIcon(qta.icon("fa5s.pen", color=THEME.text_primary))
+        self.edit_btn.setToolTip("Edit the selected preset — rename it or change which settings it stores")
+        self.edit_btn.setFixedWidth(32)
 
         self.delete_btn = QPushButton()
         self.delete_btn.setIcon(qta.icon("fa5s.trash", color=THEME.text_primary))
         self.delete_btn.setToolTip("Delete the selected preset")
         self.delete_btn.setFixedWidth(32)
 
-        row_load.addWidget(self.preset_combo, stretch=1)
-        row_load.addWidget(self.load_btn)
-        row_load.addWidget(self.delete_btn)
-        self.layout.addLayout(row_load)
-
-        # Save Row
-        row_save = QHBoxLayout()
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("New Preset Name")
-        self.save_btn = QPushButton(" Save")
-        self.save_btn.setIcon(qta.icon("fa5s.save", color=THEME.text_primary))
-        self.save_btn.setToolTip("Save the current settings as a new preset under the typed name")
-
-        row_save.addWidget(self.name_input, stretch=1)
-        row_save.addWidget(self.save_btn)
-        self.layout.addLayout(row_save)
+        row.addWidget(self.apply_btn, stretch=1)
+        row.addWidget(self.save_btn, stretch=1)
+        row.addWidget(self.edit_btn)
+        row.addWidget(self.delete_btn)
+        self.layout.addLayout(row)
 
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
-        self.load_btn.clicked.connect(self._on_load_clicked)
+        self.preset_list.itemDoubleClicked.connect(self._apply_preset)
+        self.apply_btn.clicked.connect(self._apply_preset)
         self.save_btn.clicked.connect(self._on_save_clicked)
+        self.edit_btn.clicked.connect(self._on_edit_clicked)
         self.delete_btn.clicked.connect(self._on_delete_clicked)
 
-    def _on_delete_clicked(self) -> None:
-        from PyQt6.QtWidgets import QMessageBox
+    def _current_name(self) -> str:
+        item = self.preset_list.currentItem()
+        return item.text() if item is not None else ""
 
-        name = self.preset_combo.currentText()
-        if not name:
-            return
-        reply = QMessageBox.question(
-            self,
-            "Delete Preset",
-            f"Delete preset '{name}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            Presets.delete_preset(name)
-            self._refresh_presets()
-
-    def _on_load_clicked(self) -> None:
-        name = self.preset_combo.currentText()
+    def _apply_preset(self) -> None:
+        name = self._current_name()
         if not name or not self.state.current_file_hash:
             return
 
@@ -87,19 +81,69 @@ class PresetsSidebar(BaseSidebar):
             self.controller.request_render()
 
     def _on_save_clicked(self) -> None:
-        name = self.name_input.text()
-        if not name or not self.state.current_file_hash:
+        if not self.state.current_file_hash:
             return
+        dlg = GranularSettingsDialog(
+            self,
+            self.state.config,
+            "current settings",
+            ask_name=True,
+            exclude_sections=_PRESET_EXCLUDED_SECTIONS,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            Presets.save_preset(dlg.name(), selected_flat_dict(self.state.config, dlg.selected()))
+            self._refresh_presets(force=True)
 
-        Presets.save_preset(name, self.state.config)
-        self._refresh_presets()
-        self.name_input.clear()
+    def _on_edit_clicked(self) -> None:
+        name = self._current_name()
+        data = Presets.load_preset(name) if name else None
+        if not data:
+            return
+        # Rebuild a config from the stored fields so the picker shows the
+        # preset's own values, not the current image's.
+        base = WorkspaceConfig().to_dict()
+        base.update(data)
+        cfg = WorkspaceConfig.from_flat_dict(base)
+        dlg = GranularSettingsDialog(self, cfg, name, ask_name=True, exclude_sections=_PRESET_EXCLUDED_SECTIONS)
+        dlg.setWindowTitle("Edit Preset")
+        dlg.set_name(name)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_name = dlg.name()
+            Presets.save_preset(new_name, selected_flat_dict(cfg, dlg.selected()))
+            if new_name != name:
+                Presets.delete_preset(name)
+            self._refresh_presets(force=True)
 
-    def _refresh_presets(self) -> None:
-        self.preset_combo.blockSignals(True)
-        self.preset_combo.clear()
-        self.preset_combo.addItems(Presets.list_presets())
-        self.preset_combo.blockSignals(False)
+    def _on_delete_clicked(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+
+        name = self._current_name()
+        if not name:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Preset",
+            f"Delete preset '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            Presets.delete_preset(name)
+            self._refresh_presets(force=True)
+
+    def _refresh_presets(self, force: bool = False) -> None:
+        # sync_ui fires on every state sync; skip the rebuild (N file reads)
+        # unless the name set actually changed. force covers same-name overwrites.
+        names = sorted(Presets.list_presets())
+        if not force and names == [self.preset_list.item(i).text() for i in range(self.preset_list.count())]:
+            return
+        self.preset_list.clear()
+        for name in names:
+            item = QListWidgetItem(name)
+            data = Presets.load_preset(name)
+            if data:
+                item.setToolTip(wrap_tooltip(preset_summary(data)))
+            self.preset_list.addItem(item)
 
     def sync_ui(self) -> None:
         self._refresh_presets()

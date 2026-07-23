@@ -347,13 +347,11 @@ def test_old_config_without_strokes_loads_default():
     assert restored.retouch.manual_heal_strokes == []
 
 
-def test_preset_save_excludes_frame_specific_heals(tmp_path, monkeypatch):
-    from dataclasses import replace as dc_replace
+def test_preset_save_excludes_frame_specific_heals():
+    # Enforcement moved from the presets service to the catalog: dust spots and
+    # heal strokes have no SettingRow, so even saving every row can't leak them.
+    from negpy.desktop.settings_catalog import all_rows, selected_flat_dict
 
-    import negpy.services.assets.presets as presets_mod
-    from negpy.kernel.system.config import APP_CONFIG
-
-    monkeypatch.setattr(presets_mod, "APP_CONFIG", dc_replace(APP_CONFIG, presets_dir=str(tmp_path)))
     cfg = WorkspaceConfig(
         retouch=RetouchConfig(
             dust_remove=True,
@@ -361,8 +359,7 @@ def test_preset_save_excludes_frame_specific_heals(tmp_path, monkeypatch):
             manual_heal_strokes=[([[0.3, 0.4]], 5.0, 0.02, -0.01)],
         )
     )
-    presets_mod.Presets.save_preset("t", cfg)
-    data = json.loads((tmp_path / "t.json").read_text())
+    data = selected_flat_dict(cfg, all_rows())
     assert "manual_heal_strokes" not in data
     assert "manual_dust_spots" not in data
     assert data["dust_remove"] is True

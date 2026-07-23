@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.42.0
+
+- Change: **Presets redesigned** — the Presets section shows saved presets in a visible list (double-click applies, tooltips show what each preset stores), **Save…** opens the same per-setting picker as copy/paste with a name field, so you choose exactly which settings a preset contains, and an edit button reopens the picker to rename a preset or change what it stores.
+- Change: **Presets overlay instead of replace** — applying a preset sets only the settings it stores and leaves the rest of your edit alone; per-frame crop and rotation are never carried. Existing preset files keep working and still replace the full look.
+
 ## 0.41.0
 
 - New: **Stitch multi-shot scans** — select overlapping shots of one frame (e.g. a 6×6 scanned in two halves) on the contact sheet and pick **Stitch selected frames**. Alignment, exposure matching and blending happen on the linear scan data before conversion, so the result develops like a single raw. No new file is written: the composite edits and exports like any frame, and **Unstitch** restores the parts. IR dust data is kept when all parts have it.

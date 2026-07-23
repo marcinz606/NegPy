@@ -9,8 +9,10 @@ heal/masks, machine paths, derived caches) are simply not listed here.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
-from typing import Callable, Iterable, Optional
+from functools import lru_cache
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.models import PUSH_PULL_LABELS
@@ -250,3 +252,27 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
     for section, changes in by_section.items():
         out = replace(out, **{section: replace(getattr(out, section), **changes)})
     return out
+
+
+def selected_flat_dict(cfg: WorkspaceConfig, rows: Iterable[SettingRow]) -> dict[str, Any]:
+    """Flat dict of the chosen rows' fields (flat keys are field names). A row's
+    fields travel as a unit, default-valued ones included."""
+    return {f: getattr(getattr(cfg, r.section), f) for r in rows for f in r.fields}
+
+
+# json round-trip so tuple-typed defaults compare equal to json-loaded preset values.
+@lru_cache(maxsize=1)
+def _default_flat_json() -> dict[str, Any]:
+    return json.loads(json.dumps(WorkspaceConfig().to_dict()))
+
+
+def preset_summary(data: Mapping[str, Any]) -> str:
+    """One line per display section listing the non-default settings a preset
+    stores, e.g. "Tone: Print Density, Snap". Unknown keys are skipped."""
+    dfl = _default_flat_json()
+    lines = []
+    for title, rows in CATALOG:
+        labels = [r.label for r in rows if any(f in data and data[f] != dfl.get(f) for f in r.fields)]
+        if labels:
+            lines.append(f"{title}: {', '.join(labels)}")
+    return "\n".join(lines)
