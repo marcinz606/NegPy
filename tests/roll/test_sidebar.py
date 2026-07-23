@@ -65,8 +65,14 @@ class TestBuildsAndGating:
             "status_label",
             "hybrid_synthesis_limit_spin",
             "hybrid_guidance",
+            "preview_workspace",
+            "preview_display_combo",
+            "open_preview_workspace_btn",
         ):
             assert hasattr(w, attr), attr
+        assert w.contact_sheet is w.preview_workspace.contact_sheet
+        assert w.contact_sheet.minimumHeight() >= 360
+        assert w.contact_sheet.iconSize().width() >= 200
 
     def test_missing_coolscanpy_disables_preview_and_shows_hint(self, monkeypatch) -> None:
         # The optional group may be installed by this test run, so exercise
@@ -122,6 +128,19 @@ class TestPreview:
         w._on_preview_clicked()
         w.controller.start_coolscan_roll_preview.assert_not_called()
 
+    def test_workspace_buttons_switch_between_roll_preview_and_editor(self) -> None:
+        w = _sidebar()
+        opened: list[bool] = []
+        closed: list[bool] = []
+        w.workspace_requested.connect(lambda: opened.append(True))
+        w.preview_workspace.back_requested.connect(lambda: closed.append(True))
+
+        w.open_preview_workspace_btn.click()
+        w.preview_workspace.back_btn.click()
+
+        assert opened == [True]
+        assert closed == [True]
+
     def test_preview_ready_populates_the_contact_sheet(self, fake_coolscanpy) -> None:
         w = _sidebar()
         thumbs = [_thumb(fake_coolscanpy, s) for s in (2, 1, 3)]
@@ -135,6 +154,38 @@ class TestPreview:
 
         listed = [w.contact_sheet.item(i).data(_SLOT_ROLE) for i in range(w.contact_sheet.count())]
         assert listed == [1, 2, 3]
+
+    def test_display_toggle_updates_icons_without_mutating_capture_data(self, fake_coolscanpy) -> None:
+        w = _sidebar()
+        image = np.zeros((8, 12, 3), dtype=np.uint8)
+        image[:, :6, :] = (10, 20, 30)
+        image[:, 6:, :] = (180, 190, 200)
+        original = image.copy()
+
+        w._on_preview_ready(
+            [
+                fake_coolscanpy.Thumbnail(
+                    slot=1,
+                    image=image,
+                    boundary_rows=(0, 8),
+                    spacing_offset=0,
+                    needs_approval=False,
+                )
+            ]
+        )
+
+        assert w.preview_display_combo.currentData() is True
+        positive_key = w.contact_sheet.item(0).icon().cacheKey()
+        w.preview_display_combo.setCurrentIndex(1)
+        raw_key = w.contact_sheet.item(0).icon().cacheKey()
+        w.preview_display_combo.setCurrentIndex(0)
+        positive_again_key = w.contact_sheet.item(0).icon().cacheKey()
+
+        assert positive_key != raw_key
+        assert raw_key != positive_again_key
+        np.testing.assert_array_equal(w._thumbnails[1].image, original)
+        w.controller.start_coolscan_roll_preview.assert_not_called()
+        w.controller.start_roll_scan.assert_not_called()
 
     def test_needs_approval_slot_is_marked_and_shows_approve_button(self, fake_coolscanpy) -> None:
         w = _sidebar()

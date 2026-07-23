@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import qtawesome as qta
-from PyQt6.QtCore import QSize, Qt, pyqtSlot
+from PyQt6.QtCore import QSize, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -54,10 +54,10 @@ if TYPE_CHECKING:
 
 _SLOT_ROLE = Qt.ItemDataRole.UserRole
 _WARN_COLOR = "#C8922E"  # matches ScanlightSidebar's advisory tone
-_THUMBNAIL_SIZE = QSize(96, 96)
+_THUMBNAIL_SIZE = QSize(220, 150)
 
 
-def _thumbnail_pixmap(image: "np.ndarray") -> QPixmap:
+def _thumbnail_pixmap(image: "np.ndarray", *, inverted: bool = False) -> QPixmap:
     """A `coolscanpy.Thumbnail.image` array as a displayable QPixmap.
 
     Deliberately dumb: this is a raw scanner preview frame for framing and
@@ -74,13 +74,78 @@ def _thumbnail_pixmap(image: "np.ndarray") -> QPixmap:
         scale = 255.0 if peak <= 1.0 else (255.0 / peak if peak > 255.0 else 1.0)
         arr = np.clip(arr.astype(np.float64) * scale, 0, 255).astype(np.uint8)
     arr = np.ascontiguousarray(arr[..., :3])
+    if inverted:
+        # Display only. The scanner thumbnail remains untouched and this never
+        # enters the capture or output-color pipelines.
+        arr = np.ascontiguousarray(255 - arr)
     h, w = arr.shape[:2]
     qimg = QImage(arr.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()  # copy: detach from arr's buffer
     return QPixmap.fromImage(qimg)
 
 
+class RollPreviewWorkspace(QWidget):
+    """Center-stage contact sheet for the whole-roll workflow."""
+
+    back_requested = pyqtSignal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title = QLabel("Roll preview")
+        title.setStyleSheet(f"color: {THEME.text_primary}; font-size: 20px; font-weight: 600;")
+        subtitle = QLabel("Review, approve, and select frames here. Display mode does not change captured or saved files.")
+        subtitle.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
+        subtitle.setWordWrap(True)
+        title_col.addWidget(title)
+        title_col.addWidget(subtitle)
+        header.addLayout(title_col, 1)
+
+        mode_label = QLabel("Show as")
+        mode_label.setStyleSheet(f"color: {THEME.text_secondary};")
+        self.display_mode_combo = QComboBox()
+        self.display_mode_combo.setObjectName("roll_preview_display_mode")
+        self.display_mode_combo.addItem("Positive (inverted)", True)
+        self.display_mode_combo.addItem("Negative (raw)", False)
+        self.display_mode_combo.setMinimumHeight(40)
+        self.display_mode_combo.setMinimumWidth(180)
+        self.display_mode_combo.setToolTip(
+            "Display only: Positive inverts the preview for easier review. "
+            "Negative shows the scanner thumbnail without inversion. Neither changes capture bytes or output color."
+        )
+        self.back_btn = QPushButton("Back to image editor")
+        self.back_btn.setMinimumHeight(40)
+        self.back_btn.clicked.connect(lambda _checked=False: self.back_requested.emit())
+        header.addWidget(mode_label)
+        header.addWidget(self.display_mode_combo)
+        header.addWidget(self.back_btn)
+        layout.addLayout(header)
+
+        self.contact_sheet = QListWidget()
+        self.contact_sheet.setObjectName("roll_preview_contact_sheet")
+        self.contact_sheet.setViewMode(QListWidget.ViewMode.IconMode)
+        self.contact_sheet.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.contact_sheet.setMovement(QListWidget.Movement.Static)
+        self.contact_sheet.setWrapping(True)
+        self.contact_sheet.setSpacing(12)
+        self.contact_sheet.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.contact_sheet.setIconSize(_THUMBNAIL_SIZE)
+        self.contact_sheet.setMinimumHeight(360)
+        self.contact_sheet.setToolTip(
+            "Click a slot to nudge its spacing or approve it; select several, then use Scan Selected in the controls panel."
+        )
+        layout.addWidget(self.contact_sheet, 1)
+
+
 class CoolscanRollSidebar(QWidget):
     """Whole-roll preview, spacing/approval and batch fine-scan panel."""
+
+    workspace_requested = pyqtSignal()
 
     def __init__(self, controller) -> None:
         super().__init__()
@@ -97,6 +162,9 @@ class CoolscanRollSidebar(QWidget):
         self._eject_failed = False
         self._active_scan_request: RollBatchScanRequest | None = None
 
+        self.preview_workspace = RollPreviewWorkspace()
+        self.contact_sheet = self.preview_workspace.contact_sheet
+        self.preview_display_combo = self.preview_workspace.display_mode_combo
         self._init_ui()
         self._connect_signals()
 
@@ -286,17 +354,13 @@ class CoolscanRollSidebar(QWidget):
         self.status_label.setVisible(False)
         layout.addWidget(self.status_label)
 
-        # ── CONTACT SHEET ─────────────────────────────────────
-        layout.addWidget(section_subheader("CONTACT SHEET"))
-        self.contact_sheet = QListWidget()
-        self.contact_sheet.setViewMode(QListWidget.ViewMode.IconMode)
-        self.contact_sheet.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.contact_sheet.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.contact_sheet.setIconSize(_THUMBNAIL_SIZE)
-        self.contact_sheet.setMinimumHeight(160)
-        self.contact_sheet.setToolTip("Click a slot to nudge its spacing or approve it; select several, then Scan Selected.")
-        layout.addWidget(self.contact_sheet)
-
+        # The images live in the main center workspace; the sidebar contains
+        # only the actions and details needed to operate on that selection.
+        layout.addWidget(section_subheader("FRAME REVIEW"))
+        self.open_preview_workspace_btn = QPushButton(qta.icon("fa5s.th", color=THEME.text_secondary), " Open Roll Preview")
+        self.open_preview_workspace_btn.setMinimumHeight(40)
+        self.open_preview_workspace_btn.setToolTip("Show the roll thumbnails in the main workspace")
+        layout.addWidget(self.open_preview_workspace_btn)
         selection_row = QHBoxLayout()
         self.select_all_btn = QPushButton("Select All Frames")
         self.select_all_btn.setToolTip("Select every frame found by the current roll preview")
@@ -353,6 +417,8 @@ class CoolscanRollSidebar(QWidget):
         self.repair_mode_combo.currentIndexChanged.connect(self._update_settings_from_ui)
         self.hybrid_synthesis_limit_spin.valueChanged.connect(self._update_settings_from_ui)
         self.preview_btn.clicked.connect(self._on_preview_clicked)
+        self.open_preview_workspace_btn.clicked.connect(lambda _checked=False: self.workspace_requested.emit())
+        self.preview_display_combo.currentIndexChanged.connect(self._on_preview_display_changed)
         self.contact_sheet.itemSelectionChanged.connect(self._on_selection_changed)
         self.select_all_btn.clicked.connect(self.contact_sheet.selectAll)
         self.clear_selection_btn.clicked.connect(self.contact_sheet.clearSelection)
@@ -470,6 +536,7 @@ class CoolscanRollSidebar(QWidget):
         from negpy.desktop.workers.roll_worker import RollPreviewRequest
 
         self._preview_pending = True
+        self.workspace_requested.emit()
         self._clear_contact_sheet()
         self._set_status("Reading roll transport…")
         self.progress_bar.setVisible(True)
@@ -492,10 +559,11 @@ class CoolscanRollSidebar(QWidget):
         for t in sorted(self._thumbnails):
             self._add_slot_item(self._thumbnails[t])
         self._show_slot_detail(None)
+        self.workspace_requested.emit()
         self._apply_gating()
 
     def _add_slot_item(self, thumb: "coolscanpy.Thumbnail") -> None:
-        pixmap = _thumbnail_pixmap(thumb.image).scaled(
+        pixmap = _thumbnail_pixmap(thumb.image, inverted=self._preview_is_inverted()).scaled(
             _THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
         item = QListWidgetItem(QIcon(pixmap), f"Slot {thumb.slot}" + (" ⚠" if thumb.needs_approval else ""))
@@ -503,6 +571,24 @@ class CoolscanRollSidebar(QWidget):
         if thumb.needs_approval:
             item.setForeground(QColor(_WARN_COLOR))
         self.contact_sheet.addItem(item)
+
+    def _preview_is_inverted(self) -> bool:
+        return bool(self.preview_display_combo.currentData())
+
+    def _on_preview_display_changed(self) -> None:
+        for i in range(self.contact_sheet.count()):
+            item = self.contact_sheet.item(i)
+            if item is None:
+                continue
+            thumb = self._thumbnails.get(item.data(_SLOT_ROLE))
+            if thumb is None:
+                continue
+            pixmap = _thumbnail_pixmap(thumb.image, inverted=self._preview_is_inverted()).scaled(
+                _THUMBNAIL_SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            item.setIcon(QIcon(pixmap))
 
     def _on_selection_changed(self) -> None:
         current = self.contact_sheet.currentItem()
@@ -783,6 +869,7 @@ class CoolscanRollSidebar(QWidget):
         self.device_combo.setEnabled(not self._scanning and not self._preview_pending and not self._eject_pending)
         self.refresh_btn.setEnabled(not self._scanning and not self._preview_pending and not self._eject_pending)
         self.contact_sheet.setEnabled(not self._scanning and not registration_locked)
+        self.open_preview_workspace_btn.setEnabled(not self._eject_failed)
         self.select_all_btn.setEnabled(bool(self._thumbnails) and not self._scanning and not registration_locked)
         self.clear_selection_btn.setEnabled(bool(self._selected_slots()) and not self._scanning and not registration_locked)
         self.eject_btn.setEnabled(

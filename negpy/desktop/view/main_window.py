@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
     QMessageBox,
+    QStackedWidget,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -253,7 +254,9 @@ class MainWindow(QMainWindow):
         self.loading_overlay = LoadingOverlay(self.canvas)
         self.loading_overlay.raise_()
 
-        self.central_layout.addWidget(self.canvas, stretch=1)
+        self.central_stack = QStackedWidget()
+        self.central_stack.addWidget(self.canvas)
+        self.central_layout.addWidget(self.central_stack, stretch=1)
 
         self.setCentralWidget(self.central_widget)
 
@@ -266,6 +269,8 @@ class MainWindow(QMainWindow):
         self.drawer.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
         self.right_panel = RightPanel(self.controller)
+        self.roll_preview_workspace = self.right_panel.coolscan_roll_sidebar.preview_workspace
+        self.central_stack.addWidget(self.roll_preview_workspace)
         # Back-compat alias: tutorial, keyboard shortcuts, and _sync_tool_buttons reach feature sidebars here.
         self.controls_panel = self.right_panel.controls_panel
 
@@ -379,6 +384,8 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         """Wire controller and view."""
         self.controller.session.state_changed.connect(self._update_title)
+        self.right_panel.coolscan_roll_sidebar.workspace_requested.connect(self._show_roll_preview_workspace)
+        self.roll_preview_workspace.back_requested.connect(self._show_image_workspace)
 
         # visibilityChanged only mirrors the button — it also fires on close/minimize,
         # so we persist in the toggle methods to avoid clobbering the saved state on exit.
@@ -398,6 +405,7 @@ class MainWindow(QMainWindow):
         # Metadata updates only on persistent history changes or file selection
         self.controller.session.history_changed.connect(self._refresh_image_info)
         self.controller.session.file_selected.connect(lambda _: self._refresh_image_info())
+        self.controller.session.file_selected.connect(lambda _: self._show_image_workspace())
         self.controller.session.session_emptied.connect(self._on_session_emptied)
 
         self.canvas.clicked.connect(self.controller.handle_canvas_clicked)
@@ -442,6 +450,12 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self) -> None:
         self.toolbar.refresh_gpu_status()
+
+    def _show_roll_preview_workspace(self) -> None:
+        self.central_stack.setCurrentWidget(self.roll_preview_workspace)
+
+    def _show_image_workspace(self) -> None:
+        self.central_stack.setCurrentWidget(self.canvas)
 
     def _display_buffer_for_canvas(self, buffer):
         if isinstance(buffer, GPUTexture):
