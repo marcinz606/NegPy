@@ -412,12 +412,14 @@ class AppController(QObject):
             norm_h, norm_w = nl.shape[:2]
         else:
             norm_w, norm_h = nl.width, nl.height
+        # nx,ny arrive content-normalized (the overlay subtracts the border) —
+        # passing content_rect here would compensate twice.
         pos = map_display_to_norm(
             nx,
             ny,
             disp[0],
             disp[1],
-            self.canvas.content_rect(),
+            None,
             metrics.get("active_roi"),
             self.state.active_tool in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW),
             norm_w,

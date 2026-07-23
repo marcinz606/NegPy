@@ -523,13 +523,14 @@ class CanvasOverlay(QWidget):
         painter.drawEllipse(self._mouse_pos, radius, radius)
 
     def _brush_screen_radius(self, size: float) -> float:
-        max_screen_dim = max(self._view_rect.width(), self._view_rect.height())
+        rect = self._content_view_rect()
+        max_screen_dim = max(rect.width(), rect.height())
         return (size / (2.0 * HEAL_SIZE_REF)) * max_screen_dim
 
     def _preview_curve_path(self, pts: List[QPointF]) -> QPainterPath:
         """Smoothed path through the placed points plus the live cursor."""
         scr = [(p.x(), p.y()) for p in pts]
-        if self._view_rect.contains(self._mouse_pos):
+        if self._content_view_rect().contains(self._mouse_pos):
             scr.append((self._mouse_pos.x(), self._mouse_pos.y()))
         if len(scr) >= 3:
             scr = smooth_polyline(scr, closed=False)
@@ -663,7 +664,7 @@ class CanvasOverlay(QWidget):
         if mode == "ir":
             img = self._ir_layer_qimage()
             if img is not None:
-                painter.drawImage(self._view_rect, img)
+                painter.drawImage(self._content_view_rect(), img)
             return
 
         # Dim wash over the auto-corrected regions (IR division + inpainted hairs);
@@ -671,7 +672,7 @@ class CanvasOverlay(QWidget):
         for mask in self._corrected_masks():
             wash = self._mask_wash_qimage(mask)
             if wash is not None:
-                painter.drawImage(self._view_rect, wash)
+                painter.drawImage(self._content_view_rect(), wash)
 
         with self.state.metrics_lock:
             luma = self.state.last_metrics.get("detected_dust_luma")
@@ -774,6 +775,17 @@ class CanvasOverlay(QWidget):
         self._wash_cache[id(mask)] = (key, img)
         return img
 
+    def _content_view_rect(self) -> QRectF:
+        """Screen rect of the image content inside the (possibly padded) view."""
+        if self._content_rect is None or self._view_rect.isEmpty() or not self._current_size:
+            return self._view_rect
+        dw, dh = self._current_size
+        off_x, off_y, cw, ch = self._content_rect
+        if cw <= 0 or ch <= 0 or (off_x, off_y, cw, ch) == (0, 0, dw, dh):
+            return self._view_rect
+        sx, sy = self._view_rect.width() / dw, self._view_rect.height() / dh
+        return QRectF(self._view_rect.x() + off_x * sx, self._view_rect.y() + off_y * sy, cw * sx, ch * sy)
+
     def _raw_to_screen(self, rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> QPointF:
         """
         Inverse UV-grid lookup: raw-normalised (0-1) -> screen position.
@@ -804,10 +816,8 @@ class CanvasOverlay(QWidget):
 
         nx = min((x0 + wx + 0.5) / w_uv, 1.0)
         ny = min((y0 + wy + 0.5) / h_uv, 1.0)
-        return QPointF(
-            self._view_rect.x() + nx * self._view_rect.width(),
-            self._view_rect.y() + ny * self._view_rect.height(),
-        )
+        rect = self._content_view_rect()
+        return QPointF(rect.x() + nx * rect.width(), rect.y() + ny * rect.height())
 
     def _norm_to_screen(self, nx: float, ny: float) -> QPointF:
         """Transformed-image normalized coords (0-1) -> screen position."""
@@ -1214,11 +1224,12 @@ class CanvasOverlay(QWidget):
         painter.drawEllipse(first, r, r)
 
     def _map_to_image_coords(self, screen_pos: QPointF) -> Optional[Tuple[float, float]]:
-        if self._view_rect.isEmpty() or not self._view_rect.contains(screen_pos):
+        rect = self._content_view_rect()
+        if rect.isEmpty() or not rect.contains(screen_pos):
             return None
 
-        nb_x = (screen_pos.x() - self._view_rect.x()) / self._view_rect.width()
-        nb_y = (screen_pos.y() - self._view_rect.y()) / self._view_rect.height()
+        nb_x = (screen_pos.x() - rect.x()) / rect.width()
+        nb_y = (screen_pos.y() - rect.y()) / rect.height()
 
         return float(np.clip(nb_x, 0, 1)), float(np.clip(nb_y, 0, 1))
 
@@ -1253,7 +1264,7 @@ class CanvasOverlay(QWidget):
             return
 
         if self._tool_mode == ToolMode.SCRATCH_PICK:
-            if self._view_rect.contains(event.position()):
+            if self._content_view_rect().contains(event.position()):
                 self._scratch_pts.append(event.position())
                 self.update()
             event.accept()
@@ -1262,7 +1273,7 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.DUST_PICK:
             # Heal commits on release: a plain click heals the spot, a drag paints a
             # continuous stroke healed as one region (one undo step, one render).
-            if self._view_rect.contains(event.position()):
+            if self._content_view_rect().contains(event.position()):
                 self._heal_drag_pts = [event.position()]
                 self.update()
             event.accept()
@@ -1376,8 +1387,9 @@ class CanvasOverlay(QWidget):
             return
 
         if self._local_drag_vertex is not None and self._local_edit_verts is not None and not self._view_rect.isEmpty():
-            px = float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right()))
-            py = float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom()))
+            rect = self._content_view_rect()
+            px = float(np.clip(event.position().x(), rect.left(), rect.right()))
+            py = float(np.clip(event.position().y(), rect.top(), rect.bottom()))
             self._local_edit_verts[self._local_drag_vertex] = QPointF(px, py)
             self.update()
             event.accept()
@@ -1387,9 +1399,10 @@ class CanvasOverlay(QWidget):
         # radius so long drags stay a sane number of capsule segments), clamped to
         # the image so the stroke can't run off into the border.
         if self._tool_mode == ToolMode.DUST_PICK and self._heal_drag_pts and event.buttons() & Qt.MouseButton.LeftButton:
+            rect = self._content_view_rect()
             pos = QPointF(
-                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
-                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
+                float(np.clip(event.position().x(), rect.left(), rect.right())),
+                float(np.clip(event.position().y(), rect.top(), rect.bottom())),
             )
             spacing = max(6.0, self._brush_screen_radius(self.state.config.retouch.manual_dust_size) * 0.5)
             if (pos - self._heal_drag_pts[-1]).manhattanLength() >= spacing:
@@ -1717,9 +1730,10 @@ class CanvasOverlay(QWidget):
         if self._tool_mode == ToolMode.DUST_PICK and self._heal_drag_pts and event.button() == Qt.MouseButton.LeftButton:
             pts = self._heal_drag_pts
             self._heal_drag_pts = []
+            rect = self._content_view_rect()
             end = QPointF(
-                float(np.clip(event.position().x(), self._view_rect.left(), self._view_rect.right())),
-                float(np.clip(event.position().y(), self._view_rect.top(), self._view_rect.bottom())),
+                float(np.clip(event.position().x(), rect.left(), rect.right())),
+                float(np.clip(event.position().y(), rect.top(), rect.bottom())),
             )
             if (end - pts[-1]).manhattanLength() > 2.0:
                 pts.append(end)
@@ -1739,11 +1753,12 @@ class CanvasOverlay(QWidget):
             selected = getattr(self.state, "local_selected_mask", -1)
             self._end_local_edit()
             if verts and selected >= 0 and not self._view_rect.isEmpty():
-                w, h = self._view_rect.width(), self._view_rect.height()
+                rect = self._content_view_rect()
+                w, h = rect.width(), rect.height()
                 vp = [
                     (
-                        float(np.clip((p.x() - self._view_rect.x()) / w, 0.0, 1.0)),
-                        float(np.clip((p.y() - self._view_rect.y()) / h, 0.0, 1.0)),
+                        float(np.clip((p.x() - rect.x()) / w, 0.0, 1.0)),
+                        float(np.clip((p.y() - rect.y()) / h, 0.0, 1.0)),
                     )
                     for p in verts
                 ]

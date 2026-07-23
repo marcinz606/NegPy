@@ -322,16 +322,24 @@ class ImageCanvas(QWidget):
         return None
 
     def get_pixel_rgb(self, nx: float, ny: float) -> Optional[Tuple[float, float, float]]:
-        """Returns the displayed sRGB triplet in 0..1 at normalized image coords, or None."""
+        """Returns the displayed sRGB triplet in 0..1 at content-normalized coords, or None."""
         import numpy as np
 
         buf = self._last_buffer
         if buf is None:
             return None
+        rect = self.content_rect()
+
+        def _xy(w: int, h: int) -> Tuple[int, int]:
+            if rect is not None:
+                off_x, off_y, cw, ch = rect
+                fx, fy = off_x + nx * cw, off_y + ny * ch
+            else:
+                fx, fy = nx * w, ny * h
+            return int(max(0, min(w - 1, fx))), int(max(0, min(h - 1, fy)))
+
         if isinstance(buf, GPUTexture):
-            w, h = buf.width, buf.height
-            x = int(max(0, min(w - 1, nx * w)))
-            y = int(max(0, min(h - 1, ny * h)))
+            x, y = _xy(buf.width, buf.height)
             try:
                 arr = buf.readback_region(x, y, 1, 1)
             except Exception:
@@ -339,8 +347,7 @@ class ImageCanvas(QWidget):
             return (float(arr[0, 0, 0]), float(arr[0, 0, 1]), float(arr[0, 0, 2]))
         if isinstance(buf, np.ndarray):
             h, w = buf.shape[:2]
-            x = int(max(0, min(w - 1, nx * w)))
-            y = int(max(0, min(h - 1, ny * h)))
+            x, y = _xy(w, h)
             px = buf[y, x]
             scale = 1.0 / 255.0 if buf.dtype == np.uint8 else 1.0
             px = np.atleast_1d(px)

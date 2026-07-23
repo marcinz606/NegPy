@@ -466,7 +466,11 @@ class MainWindow(QMainWindow):
         if isinstance(buffer, np.ndarray) and not self.state.gpu_enabled:
             finish_conf = self.state.config.finish
             export_conf = self.state.config.export
-            should_preview = finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
+            # Crop/analysis render the uncropped border-less frame — padding it would
+            # misalign the tool rect (GPU skips the layout pass there too).
+            should_preview = (
+                finish_conf.border_size > 0 or export_conf.paper_aspect_ratio != AspectRatio.ORIGINAL
+            ) and self.state.active_tool not in (ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW)
 
             if should_preview:
                 pil_img = Image.fromarray(float_to_uint8(buffer))
