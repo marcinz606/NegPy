@@ -38,7 +38,8 @@ uv sync --group coolscan-roll
 ```
 
 That group pins the reviewed immutable commit
-`c9cc36d4890f1e013d0e51b5e67dffb6dc1b98ef`, built on the merged streaming
+`4675b8bedd10ff101f2275c30095a7dc065c846a`, built on the fixed-size
+Nikon frame-table repair and the merged streaming
 finalization from [PR #1](https://github.com/rohanpandula/coolscanpy/pull/1).
 The pin includes exact USB-topology ownership, six-strip leading-edge
 handling, Nikon density/exact-builder evidence, and Digital ICE acquisition
@@ -72,7 +73,7 @@ so a signed build fails before release if the JIT exception is absent.
 If you manage your own environment instead, install the package directly:
 
 ```
-pip install "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@c9cc36d4890f1e013d0e51b5e67dffb6dc1b98ef"
+pip install "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@4675b8bedd10ff101f2275c30095a7dc065c846a"
 ```
 
 The accepted color-negative roll workflow has no SANE dependency.
