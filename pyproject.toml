@@ -60,7 +60,7 @@ coolscan-roll = [
     # Pin the reviewed color-negative density/DICE/direct-USB implementation
     # until its first tagged release.
     # No SANE dependency for this workflow; see docs/COOLSCANPY_ROLL_SCANNING.md.
-    "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@586f575cde5ca33a0119b0c4c9d37f48ef9be1c2",
+    "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@ef4e7d383d0a8e71e64e445a2b370ebaba80ac2b",
 ]
 fauxice = [
     "portable-digital-ice @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/portable_digital_ice-0.3.1-py3-none-any.whl",
