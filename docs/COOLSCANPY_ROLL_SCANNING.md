@@ -73,7 +73,7 @@ so a signed build fails before release if the JIT exception is absent.
 If you manage your own environment instead, install the package directly:
 
 ```
-pip install "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@12793304be8ca5d7848f269014f721ea09772ca3"
+pip install "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@e27f5f773c36f46b8ec6000df2c84eb2813a3dab"
 ```
 
 The accepted color-negative roll workflow has no SANE dependency.
