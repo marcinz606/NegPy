@@ -63,10 +63,10 @@ coolscan-roll = [
     "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@e42c68fb53b74aee9fc29eae432d092de351001d",
 ]
 fauxice = [
-    "portable-digital-ice @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl",
+    "portable-digital-ice @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/portable_digital_ice-0.3.1-py3-none-any.whl",
 ]
 fauxice-hybrid = [
-    "fauxce-hybrid @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/fauxce_hybrid-0.3.0-py3-none-any.whl",
+    "fauxce-hybrid @ https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/fauxce_hybrid-0.3.1-py3-none-any.whl",
 ]
 
 [project.urls]

@@ -158,8 +158,8 @@ wheels = [
 
 [[package]]
 name = "fauxce-hybrid"
-version = "0.3.0"
-source = { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/fauxce_hybrid-0.3.0-py3-none-any.whl" }
+version = "0.3.1"
+source = { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/fauxce_hybrid-0.3.1-py3-none-any.whl" }
 dependencies = [
     { name = "imageio" },
     { name = "jsonschema" },
@@ -168,7 +168,7 @@ dependencies = [
     { name = "scipy" },
 ]
 wheels = [
-    { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/fauxce_hybrid-0.3.0-py3-none-any.whl", hash = "sha256:c732bbfd64883eec52f57a15cfb0f2d1cb71981142e977ca653b7e0471d2371c" },
+    { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/fauxce_hybrid-0.3.1-py3-none-any.whl", hash = "sha256:f36c66d8e4e2d2a2b32caf79bc35241aaf92b0453781f713ffd5e5345ae3032f" },
 ]
 
 [package.metadata]
@@ -176,7 +176,7 @@ requires-dist = [
     { name = "imageio", specifier = ">=2.37,<3" },
     { name = "jsonschema", specifier = ">=4.25,<5" },
     { name = "numpy", specifier = ">=2.4,<3" },
-    { name = "portable-digital-ice", extras = ["fast"], specifier = "==0.3.0" },
+    { name = "portable-digital-ice", extras = ["fast"], specifier = "==0.3.1" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9,<10" },
     { name = "ruff", marker = "extra == 'test'", specifier = ">=0.11" },
     { name = "scipy", specifier = ">=1.16,<2" },
@@ -440,8 +440,8 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
-fauxice = [{ name = "portable-digital-ice", url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl" }]
-fauxice-hybrid = [{ name = "fauxce-hybrid", url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/fauxce_hybrid-0.3.0-py3-none-any.whl" }]
+fauxice = [{ name = "portable-digital-ice", url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/portable_digital_ice-0.3.1-py3-none-any.whl" }]
+fauxice-hybrid = [{ name = "fauxce-hybrid", url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/fauxce_hybrid-0.3.1-py3-none-any.whl" }]
 scanner = [{ name = "python-sane", specifier = ">=2.9" }]
 
 [[package]]
@@ -632,13 +632,13 @@ wheels = [
 
 [[package]]
 name = "portable-digital-ice"
-version = "0.3.0"
-source = { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl" }
+version = "0.3.1"
+source = { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/portable_digital_ice-0.3.1-py3-none-any.whl" }
 dependencies = [
     { name = "numpy" },
 ]
 wheels = [
-    { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.0/portable_digital_ice-0.3.0-py3-none-any.whl", hash = "sha256:d3cb4145a66f28a7eb795aac112a638cc9a2c11b2000907508b2490d84c8b5bb" },
+    { url = "https://github.com/rohanpandula/digital-fauxice/releases/download/v0.3.1/portable_digital_ice-0.3.1-py3-none-any.whl", hash = "sha256:54fc0cfd42456abdc91a33a5530b5a615a6ec05a98577d195f2b9d8d080bcfa4" },
 ]
 
 [package.optional-dependencies]
