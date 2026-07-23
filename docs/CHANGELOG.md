@@ -2,8 +2,17 @@
 
 ## 0.41.0
 
-- Change: **Copy/paste and Apply-to-roll are now per-setting** — instead of a handful of broad section checkboxes, pasting settings and **Apply settings…** open a picker that lists exactly the settings you changed on the source frame, grouped in collapsible sections (Tone, Colour, Lab, Toning, Finish, Crop, Process, Retouch, Metadata, Export) with each value shown. Tick only what you want, hit Apply. Paste now pops the same picker (Ctrl+V) rather than replacing everything at once; per-frame things like dust spots, heal strokes and crop bounds are never overwritten.
 - New: **Stitch multi-shot scans** — select overlapping shots of one frame (e.g. a 6×6 scanned in two halves) on the contact sheet and pick **Stitch selected frames**. Alignment, exposure matching and blending happen on the linear scan data before conversion, so the result develops like a single raw. No new file is written: the composite edits and exports like any frame, and **Unstitch** restores the parts. IR dust data is kept when all parts have it.
+- New: **Manage Database…** — dialog to inspect and clear stored data; Clear Saved Edits or Reset Everything, both guarded. @linkmodo
+- Change: **Copy/paste and Apply-to-roll are now per-setting** — instead of a handful of broad section checkboxes, pasting settings and **Apply settings…** open a picker that lists exactly the settings you changed on the source frame, grouped in collapsible sections (Tone, Colour, Lab, Toning, Finish, Crop, Process, Retouch, Metadata, Export) with each value shown. Tick only what you want, hit Apply. Paste now pops the same picker (Ctrl+V) rather than replacing everything at once; per-frame things like dust spots, heal strokes and crop bounds are never overwritten.
+- New: **Contact sheet labels and colours** — per-frame labels plus background/label colour, saved as templates. @jboneng
+- Change: **Bottom toolbar streamlined** — zoom slider removed, GPU/CPU toggle moved to the overflow menu, tooltips on every item; Before/After and Peak Flat are now mutually exclusive and survive rotate/flip. @linkmodo
+- Change: **pieusb scans use NegPy's IR dust removal** — RGBI scan routed through NegPy's own dust removal instead of the scanner's. @hullrich
+- Fix/Change: **Linear RAW now controls TIFF decoding** — TIFFs are no longer always degamma'd to linear when the sRGB tag is wrong.
+- Fix: **RGB preset scans expose correctly** — framing light dimmed 3 stops, preset exposure asserted when the scan window opens, Scan gated until the writes land. @light-sntchr
+- Fix: **Correct colour profiles on every export format** — greyscale JPEG/WebP now tagged, ACES/XYZ fall back to the tagged working space, contact-sheet JPEGs embed sRGB. @linkmodo
+- Fix: **Contact sheets no longer drop frames on large rolls** — tiles downsample to target size instead of holding every frame full-res in memory. @linkmodo
+- Fix: **Saved export destination restored on reopen** — the Folder mode no longer resets to "Subfolder of source". @paulglover
 
 ## 0.40.0
 
