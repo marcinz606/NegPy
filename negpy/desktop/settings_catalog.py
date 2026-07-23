@@ -266,13 +266,6 @@ def _default_flat_json() -> dict[str, Any]:
     return json.loads(json.dumps(WorkspaceConfig().to_dict()))
 
 
-def non_default_fields(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Preset fields whose values differ from the defaults (json-normalized).
-    Unknown/legacy keys are kept — from_flat_dict migrations handle them."""
-    dfl = _default_flat_json()
-    return {k: v for k, v in data.items() if k not in dfl or v != dfl[k]}
-
-
 def preset_summary(data: Mapping[str, Any]) -> str:
     """One line per display section listing the non-default settings a preset
     stores, e.g. "Tone: Print Density, Snap". Unknown keys are skipped."""

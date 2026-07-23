@@ -8,8 +8,6 @@ from PyQt6.QtWidgets import (
 import qtawesome as qta
 from negpy.desktop.settings_catalog import (
     CATALOG,
-    apply_selected_fields,
-    non_default_fields,
     preset_summary,
     selected_flat_dict,
 )
@@ -82,42 +80,41 @@ class PresetsSidebar(BaseSidebar):
         name = self._current_name()
         if not name or not self.state.current_file_hash:
             return
-        mode = self._ask_apply_mode(name)
-        if mode:
-            self._do_apply(name, mode)
-
-    def _ask_apply_mode(self, name: str) -> str:
-        from PyQt6.QtWidgets import QMessageBox
-
-        box = QMessageBox(self)
-        box.setWindowTitle("Apply Preset")
-        box.setText(f'Apply "{name}" on top of your current edits, or replace them with the preset?')
-        overlay_btn = box.addButton("Apply on top", QMessageBox.ButtonRole.AcceptRole)
-        replace_btn = box.addButton("Replace edits", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton(QMessageBox.StandardButton.Cancel)
-        box.setDefaultButton(overlay_btn)
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked is overlay_btn:
-            return "overlay"
-        if clicked is replace_btn:
-            return "replace"
-        return ""
-
-    def _do_apply(self, name: str, mode: str) -> None:
-        p_settings = Presets.load_preset(name)
-        if not p_settings:
+        preset_cfg = self._preset_config(name)
+        if preset_cfg is None:
             return
-        if mode == "replace":
-            base_cfg = apply_selected_fields(WorkspaceConfig(), self.state.config, _LOOK_ROWS)
-        else:
-            base_cfg = self.state.config
-            p_settings = non_default_fields(p_settings)
-        current_dict = base_cfg.to_dict()
-        current_dict.update(p_settings)
-        new_config = WorkspaceConfig.from_flat_dict(current_dict)
-        self.controller.session.update_config(new_config, persist=True)
-        self.controller.request_render()
+
+        visible = self.controller.session.asset_model.visible_actual_indices()
+        sel_count = len([i for i in set(self.state.selected_indices) if i in visible])
+        dlg = GranularSettingsDialog(
+            self,
+            preset_cfg,
+            name,
+            show_scope=True,
+            show_current=True,
+            show_apply_mode=True,
+            sel_count=sel_count,
+            roll_count=len(visible),
+            exclude_sections=_PRESET_EXCLUDED_SECTIONS,
+        )
+        dlg.setWindowTitle("Apply Preset")
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        rows = dlg.selected()
+        if dlg.apply_mode() == "replace":
+            rows = list(_LOOK_ROWS) + rows
+        if self.controller.session.apply_preset_fields(preset_cfg, rows, dlg.scope()):
+            self.controller.request_render()
+
+    def _preset_config(self, name: str) -> WorkspaceConfig | None:
+        """The preset's stored fields over defaults, so pickers show the preset's
+        own values, not the current image's."""
+        data = Presets.load_preset(name)
+        if not data:
+            return None
+        base = WorkspaceConfig().to_dict()
+        base.update(data)
+        return WorkspaceConfig.from_flat_dict(base)
 
     def _on_save_clicked(self) -> None:
         if not self.state.current_file_hash:
@@ -135,14 +132,9 @@ class PresetsSidebar(BaseSidebar):
 
     def _on_edit_clicked(self) -> None:
         name = self._current_name()
-        data = Presets.load_preset(name) if name else None
-        if not data:
+        cfg = self._preset_config(name) if name else None
+        if cfg is None:
             return
-        # Rebuild a config from the stored fields so the picker shows the
-        # preset's own values, not the current image's.
-        base = WorkspaceConfig().to_dict()
-        base.update(data)
-        cfg = WorkspaceConfig.from_flat_dict(base)
         dlg = GranularSettingsDialog(self, cfg, name, ask_name=True, exclude_sections=_PRESET_EXCLUDED_SECTIONS)
         dlg.setWindowTitle("Edit Preset")
         dlg.set_name(name)

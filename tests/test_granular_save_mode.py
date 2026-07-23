@@ -47,6 +47,22 @@ def test_set_name_prefills_and_enables(qapp):
     assert dlg.apply_btn.isEnabled()
 
 
+def test_scope_current_and_apply_mode(qapp):
+    dlg = GranularSettingsDialog(
+        None, _edited_cfg(), "P", show_scope=True, show_current=True, show_apply_mode=True, sel_count=2, roll_count=3
+    )
+    assert dlg.current_radio.isChecked()
+    assert dlg.apply_mode() == "overlay"
+    dlg._on_apply()
+    assert dlg.scope() == "current"
+
+    dlg.replace_radio.setChecked(True)
+    dlg.sel_radio.setChecked(True)
+    dlg._on_apply()
+    assert dlg.scope() == "selection"
+    assert dlg.apply_mode() == "replace"
+
+
 def test_default_mode_unchanged(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "clipboard")
     assert dlg.windowTitle() == "Paste Settings"

@@ -828,6 +828,43 @@ class DesktopSessionManager(QObject):
             self.settings_saved.emit()
         return count
 
+    def apply_preset_fields(self, source: WorkspaceConfig, rows, scope: str = "current") -> int:
+        """Overlay a preset's chosen rows onto the current frame, the selection, or
+        the whole (visible) roll. Unlike sync_selected_settings the source is the
+        preset itself, so the active frame is a target too. Returns frames changed."""
+        rows = list(rows)
+        if not rows or self.state.selected_file_idx == -1:
+            return 0
+
+        if scope == "roll":
+            target_indices = self.asset_model.visible_actual_indices_ordered()
+        elif scope == "selection":
+            target_indices = self.state.selected_indices
+        else:
+            target_indices = [self.state.selected_file_idx]
+
+        count = 0
+        for idx in target_indices:
+            if not (0 <= idx < len(self.state.uploaded_files)):
+                continue
+            if idx == self.state.selected_file_idx:
+                self.update_config(apply_selected_fields(source, self.state.config, rows), persist=True, render=False)
+                count += 1
+                continue
+            target_hash = self.state.uploaded_files[idx]["hash"]
+            target_config = self.repo.load_file_settings(target_hash) or WorkspaceConfig()
+            synced = apply_selected_fields(source, target_config, rows)
+            self.push_external_history(target_hash, target_config, synced)
+            self.repo.save_file_settings(target_hash, synced, file_path=self.state.uploaded_files[idx]["path"])
+            count += 1
+
+        if count:
+            n = len(rows)
+            noun = "setting" if n == 1 else "settings"
+            self.settings_synced.emit(f"Preset applied: {n} {noun} to {count} frame{'s' if count != 1 else ''}")
+            self.settings_saved.emit()
+        return count
+
     def next_file(self) -> None:
         display_idx = self.asset_model.actual_to_display(self.state.selected_file_idx)
         if display_idx == -1:

@@ -3,7 +3,7 @@ the flat-dict merge apply path, and preset_summary tooltips."""
 
 from dataclasses import replace
 
-from negpy.desktop.settings_catalog import all_rows, non_default_fields, preset_summary, selected_flat_dict
+from negpy.desktop.settings_catalog import all_rows, preset_summary, selected_flat_dict
 from negpy.domain.models import WorkspaceConfig
 
 
@@ -49,12 +49,6 @@ def test_full_snapshot_preset_applies():
     cfg = replace(base, lab=replace(base.lab, saturation=1.4))
     merged = _merge(cfg, WorkspaceConfig().to_dict())
     assert merged == WorkspaceConfig()
-
-
-def test_non_default_fields_filters_defaults_keeps_legacy():
-    base = WorkspaceConfig()
-    data = {"density": base.exposure.density, "saturation": 1.4, "true_black": False}
-    assert non_default_fields(data) == {"saturation": 1.4, "true_black": False}
 
 
 def test_preset_summary_lists_non_default_settings():

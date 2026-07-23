@@ -3,7 +3,7 @@
 ## 0.42.0
 
 - Change: **Presets redesigned** — the Presets section shows saved presets in a visible list (double-click applies, tooltips show what each preset stores), **Save…** opens the same per-setting picker as copy/paste with a name field, so you choose exactly which settings a preset contains, and an edit button reopens the picker to rename a preset or change what it stores.
-- Change: **Applying a preset asks how** — **Apply on top** lays the preset's non-default settings over your current edits, **Replace edits** resets the look to the preset; per-frame crop, rotation, metadata, dust spots and masks are never touched. Existing preset files keep working.
+- Change: **Applying a preset shows what it applies** — a picker lists the preset's settings with their values (untick what you don't want), targets the current frame, the selected frames or the whole roll, and applies either on top of existing edits or as a look replacement; per-frame crop, rotation, metadata, dust spots and masks are never touched. Existing preset files keep working.
 
 ## 0.41.0
 
