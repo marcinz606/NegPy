@@ -620,6 +620,36 @@ def test_build_preflight_rejects_a_stale_coolscan_api(
         build.preflight_coolscan_runtime()
 
 
+def test_build_preflight_rejects_coolscan_without_durable_attempts_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import build
+
+    real_import = build.importlib.import_module
+
+    class StaleDevice:
+        def roll(self, *, material=None):
+            del material
+
+    def import_with_stale_device(module_name: str):
+        module = real_import(module_name)
+        if module_name != "coolscanpy":
+            return module
+        return SimpleNamespace(
+            Device=StaleDevice,
+            DigitalIceAcquisition=module.DigitalIceAcquisition,
+            DigitalIceAcquisitionEvidence=module.DigitalIceAcquisitionEvidence,
+            build_digital_ice_acquisition_evidence=(
+                module.build_digital_ice_acquisition_evidence
+            ),
+        )
+
+    monkeypatch.setattr(build.importlib, "import_module", import_with_stale_device)
+
+    with pytest.raises(RuntimeError, match="attempts_root"):
+        build.preflight_coolscan_runtime()
+
+
 def test_build_preflight_accepts_the_current_sealed_capture_bundle() -> None:
     import build
     from coolscanpy.protocol.ls5000_single_pass.bundle import CAPTURE_BUNDLE_SHA256

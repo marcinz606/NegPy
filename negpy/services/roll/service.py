@@ -769,11 +769,21 @@ class RollScanningService:
     def list_devices(self) -> "list[coolscanpy.DeviceInfo]":
         return coolscanpy_roll.list_devices()
 
-    def open_roll(self, device_id: str | None = None, *, material: "coolscanpy.Material | None" = None) -> None:
+    def open_roll(
+        self,
+        device_id: str | None = None,
+        *,
+        material: "coolscanpy.Material | None" = None,
+        attempts_root: str | os.PathLike[str] | None = None,
+    ) -> None:
         """Open a device and its roll extension. Call `close()` when done."""
         if self._roll is not None:
             raise RollScanningError("a roll is already open on this service; call close() first")
-        self._roll = coolscanpy_roll.open_roll(device_id, material=material)
+        self._roll = coolscanpy_roll.open_roll(
+            device_id,
+            material=material,
+            attempts_root=attempts_root,
+        )
 
     def close(self) -> None:
         """Idempotent. Ends the roll reservation and releases the device."""

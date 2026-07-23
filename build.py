@@ -2,6 +2,7 @@ import ctypes
 import glob
 import importlib
 import importlib.util
+import inspect
 import os
 import platform
 import plistlib
@@ -129,6 +130,7 @@ if is_macos and not MACOS_CODESIGN_IDENTITY:
 
 _REQUIRED_COOLSCAN_API = {
     "coolscanpy": (
+        "Device",
         "DigitalIceAcquisition",
         "DigitalIceAcquisitionEvidence",
         "build_digital_ice_acquisition_evidence",
@@ -154,6 +156,19 @@ def preflight_coolscan_runtime() -> str:
         missing.extend(f"{module_name}.{symbol}" for symbol in symbols if not callable(getattr(module, symbol, None)))
     if missing:
         raise RuntimeError("Coolscan build API is stale or incomplete: " + ", ".join(missing))
+
+    device_type = getattr(loaded["coolscanpy"], "Device")
+    roll_parameters = inspect.signature(device_type.roll).parameters
+    attempts_root = roll_parameters.get("attempts_root")
+    if (
+        attempts_root is None
+        or attempts_root.kind is not inspect.Parameter.KEYWORD_ONLY
+        or attempts_root.default is not None
+    ):
+        raise RuntimeError(
+            "Coolscan build API is stale or incomplete: "
+            "coolscanpy.Device.roll must expose optional keyword-only attempts_root"
+        )
 
     bundle_module = loaded["coolscanpy.protocol.ls5000_single_pass.bundle"]
     verify_capture_bundle = getattr(bundle_module, "verify_capture_bundle")

@@ -8,6 +8,7 @@ the same lazy `import coolscanpy` path the production code takes.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -55,6 +56,35 @@ class TestOpenRoll:
         coolscanpy_roll.open_roll(material=fake_coolscanpy.module.Material.BLACK_AND_WHITE_NEGATIVE)
 
         assert device.roll_called_with == fake_coolscanpy.module.Material.BLACK_AND_WHITE_NEGATIVE
+
+    def test_caller_owned_attempts_root_is_forwarded(
+        self,
+        fake_coolscanpy,
+        tmp_path: Path,
+    ) -> None:
+        roll = fake_coolscanpy.Roll()
+
+        class EvidenceDevice(fake_coolscanpy.Device):
+            def __init__(self) -> None:
+                super().__init__(roll)
+                self.attempts_root = None
+
+            def roll(self, *, material=None, attempts_root=None):
+                self.roll_called_with = material
+                self.attempts_root = attempts_root
+                return self._roll
+
+        device = EvidenceDevice()
+        fake_coolscanpy.state["open_device"] = device
+        evidence = tmp_path / "scanner-attempts"
+
+        handle = coolscanpy_roll.open_roll(
+            "ls5000-usb-001",
+            attempts_root=evidence,
+        )
+
+        assert device.attempts_root == evidence
+        handle.close()
 
     def test_device_not_found_translated_to_runtime_error(self, fake_coolscanpy) -> None:
         fake_coolscanpy.state["open_error"] = fake_coolscanpy.module.DeviceNotFound("no Coolscan LS-5000 unit is attached")

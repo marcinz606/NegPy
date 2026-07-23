@@ -38,11 +38,14 @@ uv sync --group coolscan-roll
 ```
 
 That group pins the reviewed immutable commit
-`733151d25b8e962e3d5cb6ac1a6989315dc4e1ed`, built on the merged streaming
+`c9cc36d4890f1e013d0e51b5e67dffb6dc1b98ef`, built on the merged streaming
 finalization from [PR #1](https://github.com/rohanpandula/coolscanpy/pull/1).
 The pin includes exact USB-topology ownership, six-strip leading-edge
 handling, Nikon density/exact-builder evidence, and Digital ICE acquisition
-evidence. Its complete Coolscan suite passed before the pin moved, and
+evidence, retained caller-owned attempt evidence, terminal-tail-safe
+short-strip mapping, and complete continuation-frame meter-layout receipts
+(required for multi-frame Nikon-exact publication and for NegPy's
+six-frame capture-evidence validation). Its complete Coolscan suite passed before the pin moved, and
 `build.py` independently rejects a stale API or capture-bundle hash before
 packaging. The pin can move to a tagged release once those APIs are published.
 
@@ -69,7 +72,7 @@ so a signed build fails before release if the JIT exception is absent.
 If you manage your own environment instead, install the package directly:
 
 ```
-pip install coolscanpy
+pip install "coolscanpy @ git+https://github.com/rohanpandula/coolscanpy.git@c9cc36d4890f1e013d0e51b5e67dffb6dc1b98ef"
 ```
 
 The accepted color-negative roll workflow has no SANE dependency.
@@ -93,6 +96,35 @@ combination above is untested. The transport protocol is not assumed to be
 LS-5000-only where it does not have to be, but nothing beyond that one
 combination has scanned real film. Windows has never run the roll engine
 against hardware.
+
+## Durable live-acceptance evidence
+
+The six-frame command-line acceptance requires `--attempts-root`. Point it at
+an existing, empty, non-symlink directory owned by this one run. It must be
+different from `--output-dir`, and the run receipt must live outside both
+directories. NegPy passes that directory to
+`coolscanpy.Device.roll(..., attempts_root=...)`; unlike Coolscan's default
+temporary workspace, its worker journals and durable acquisition evidence
+survive a successful close and remain available for audit. Fine-scan
+`capture.bin` streams are verified scratch: Coolscan hashes and finalizes each
+one, then intentionally deletes it after the frame has been consumed.
+
+The final run receipt records these files under `capture_evidence`. NegPy
+hashes a complete path/size/SHA-256 inventory, caps its canonical manifest at
+128 KiB, and binds it to exactly one completed slots-1-through-6 batch. A
+successful binding requires the hashed batch job, the session journal's
+`batch_job_sha256`, all six frame journals, every fine-capture hash and byte
+count recorded before scratch deletion, all six
+durable meter sidecars and parent acknowledgements, the first-frame preview,
+transport table, and frame map, exact USB topology, and the sealed
+plan/engine/bundle identities. Extra attempt trees, incomplete or inconsistent
+frame evidence, mixed sessions, and post-hash mutations are fatal. If evidence
+changes during success or failure finalization, the receipt is downgraded
+truthfully to `retained: false` instead of preserving an earlier success claim.
+
+This caller-owned attempt tree is scanner-transport evidence for the whole
+live run. It is separate from the per-frame movable Digital ICE acquisition
+archive described below; neither archive substitutes for the other.
 
 ## Structure
 
@@ -265,15 +297,14 @@ between the frame and its public receipt makes exact color unavailable. There
 is deliberately no generic Roll/session evidence cache that can be promoted
 later.
 
-In the current local reviewed overlay, a C-41 frame also carries
+The pinned Coolscan release gives each C-41 frame
 `nikon_exact_builder_evidence`, which binds its settled 285-dpi analyzer
 raster and final exposure triplet to the same ownership pair. `Frame`
 construction revalidates the ownership, density, builder, and Digital ICE
-bindings before NegPy can consume them. The published streaming-only Git pin
-does not yet produce these fields; a clean build therefore fails its Coolscan
-API preflight instead of silently publishing an app that cannot complete the
-native exact path. The Stage-3 replay route remains independently usable with
-an explicit validated replay receipt.
+bindings before NegPy can consume them. A clean build verifies that API and
+the sealed Coolscan capture-bundle hash before packaging, so a stale pin cannot
+silently publish an app that lacks the native exact path. The Stage-3 replay
+route remains independently usable with an explicit validated replay receipt.
 
 The Stage-3 replay bridge is deliberately not presented as the production
 builder architecture. The macOS-native path derives fresh pre-F LUTs for each

@@ -50,6 +50,25 @@ class TestRollLifecycle:
         assert roll.closed is True
         assert device.closed is True
 
+    def test_open_forwards_caller_owned_attempts_root(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        sentinel = object()
+        calls: list[tuple[object, object, object]] = []
+
+        def open_roll(device_id, *, material=None, attempts_root=None):
+            calls.append((device_id, material, attempts_root))
+            return sentinel
+
+        monkeypatch.setattr(roll_service.coolscanpy_roll, "open_roll", open_roll)
+        service = RollScanningService()
+        evidence = tmp_path / "scanner-attempts"
+        service.open_roll("ls5000-usb-001", attempts_root=evidence)
+
+        assert calls == [("ls5000-usb-001", None, evidence)]
+
     def test_failed_close_retains_the_open_handle_for_a_safe_retry(self, fake_coolscanpy) -> None:
         ownership_error = RuntimeError("USB ownership is retained")
 

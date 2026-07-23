@@ -35,6 +35,7 @@ returns.
 from __future__ import annotations
 
 import importlib.util
+from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Iterator
 
 if TYPE_CHECKING:
@@ -153,7 +154,12 @@ def list_devices() -> "list[coolscanpy.DeviceInfo]":
     return coolscanpy.get_devices()
 
 
-def open_roll(device_id: str | None = None, *, material: "coolscanpy.Material | None" = None) -> RollHandle:
+def open_roll(
+    device_id: str | None = None,
+    *,
+    material: "coolscanpy.Material | None" = None,
+    attempts_root: str | Path | None = None,
+) -> RollHandle:
     """Open one LS-5000 and its roll-feeder extension.
 
     `device_id` follows `coolscanpy.open()`: omitted (`None`) picks "the one
@@ -173,7 +179,10 @@ def open_roll(device_id: str | None = None, *, material: "coolscanpy.Material | 
         raise _translate(error) from error
 
     try:
-        roll = device.roll(material=resolved_material)
+        roll_kwargs = {"material": resolved_material}
+        if attempts_root is not None:
+            roll_kwargs["attempts_root"] = Path(attempts_root)
+        roll = device.roll(**roll_kwargs)
     except Exception as error:
         device.close()
         raise _translate(error) from error

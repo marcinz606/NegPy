@@ -18,7 +18,7 @@ from negpy.services.roll.live_acceptance import (
     LiveAcceptanceRequest,
     run_live_acceptance,
 )
-from negpy.services.roll.live_reservation import OUTPUT_LOCK_NAME
+from negpy.services.roll.live_reservation import FixedOutputLease, OUTPUT_LOCK_NAME
 from negpy.services.roll.live_review import (
     REVIEW_BASIS,
     SCHEMA as REVIEW_SCHEMA,
@@ -41,6 +41,27 @@ _OUTPUT_FIELDS = (
     "native_synthesis_mask_path",
     "hybrid_receipt_path",
 )
+_METER_BYTES = 3_264_000
+_METER_SHA256 = "2d417c2ed40641cd243f33989601b5a06c7a7c5b893c092c1868e0b9addd03e1"
+_PREVIEW_BYTES = 6_250_496
+_PREVIEW_SHA256 = "690563a295100f3bb51b5cedbfc3e4a3df467d171d96483420810fd63e75a380"
+_METER_LAYOUT = {
+    "passes": 3,
+    "rows_per_pass": 425,
+    "columns": 281,
+    "decoded_raster_channel_order": ["R", "G", "B", "IR"],
+    "wire_window_color_order": [9, 1, 2, 3],
+    "wire_color_to_controller_channel": {
+        "9": "IR",
+        "1": "R",
+        "2": "G",
+        "3": "B",
+    },
+    "sample_byte_order": "big-endian-u16",
+    "row_core_bytes": 2_248,
+    "row_stride_bytes": 2_560,
+    "row_tail_bytes": 312,
+}
 
 
 class _Runtime:
@@ -151,14 +172,17 @@ def _fixture(
 
     output_dir = tmp_path / "outputs"
     output_dir.mkdir()
+    attempts_root = tmp_path / "scanner-attempts"
+    attempts_root.mkdir()
     request = LiveAcceptanceRequest(
-        device_id="ls5000-usb-001",
+        device_id="usb:2:7",
         preview_session_path=session_path,
         preview_session_sha256=hashlib.sha256(session_bytes).hexdigest(),
         reviewed_approval_path=review_path,
         reviewed_approval_sha256=review.sha256,
         output_dir=output_dir,
         run_receipt_path=tmp_path / "run-receipt.json",
+        attempts_root_path=attempts_root,
         confirm_live=confirm_live,
     )
     return _AcceptanceFixture(
@@ -166,6 +190,225 @@ def _fixture(
         review=review,
         thumbnails=thumbnails,
     )
+
+
+def _write_sparse_zeros(path: Path, size: int) -> None:
+    with path.open("xb") as stream:
+        stream.truncate(size)
+
+
+def _write_completed_attempt_evidence(
+    attempts_root: Path,
+    *,
+    reviewed_fingerprint: str,
+    approvals: dict[int, _Approval],
+) -> Path:
+    """Mirror Coolscan's durable batch tree after fine-stream cleanup."""
+
+    batch = attempts_root / "batch-slot01-slot06-test"
+    batch.mkdir()
+    session_id = batch.name
+    fresh_fingerprint = "e" * 64
+    from coolscanpy.protocol.ls5000_single_pass.bundle import (
+        CAPTURE_BUNDLE_SHA256,
+        CAPTURE_WORKER_SHA256,
+    )
+
+    engine_sha256 = CAPTURE_WORKER_SHA256
+    bundle_sha256 = CAPTURE_BUNDLE_SHA256
+    plan_payload = b"pinned first-frame plan\n"
+    continuation_payload = b'{"kind":"pinned-continuation"}\n'
+    plan_sha256 = hashlib.sha256(plan_payload).hexdigest()
+    continuation_sha256 = hashlib.sha256(continuation_payload).hexdigest()
+    (batch / "replay-first-rgbi4-plan.jsonl").write_bytes(plan_payload)
+    (batch / "replay-next-rgbi4-plan.json").write_bytes(continuation_payload)
+    (batch / "replay-first-rgbi4-manifest.json").write_text(
+        json.dumps({"plan_sha256": plan_sha256}),
+        encoding="utf-8",
+    )
+    (batch / "stdout.txt").write_bytes(b"")
+    (batch / "stderr.txt").write_bytes(b"")
+
+    approval_payloads = {slot: approval.to_payload() for slot, approval in approvals.items()}
+    frames = [
+        {
+            "ack": f"frame-{slot:03d}/parent-ack.json",
+            "boundary_offset_rows": 0,
+            "journal": f"frame-{slot:03d}/journal.json",
+            "manual_review_approval": approval_payloads.get(slot),
+            "output": f"frame-{slot:03d}/capture.bin",
+            "slot": slot,
+        }
+        for slot in _SLOTS
+    ]
+    job = {
+        "apply_all_boundary_offsets_before_first_frame": True,
+        "capture_plan_sha256": plan_sha256,
+        "continuation_plan_sha256": continuation_sha256,
+        "expected_usb_address": 7,
+        "expected_usb_bus": 3,
+        "frames": frames,
+        "parent_ack_required_after_every_frame": True,
+        "release_once_after_last_frame": True,
+        "reviewed_roll_fingerprint": {
+            "binding_sha256": reviewed_fingerprint,
+        },
+        "schema_version": 3,
+        "session_id": session_id,
+        "session_contract": "one-process-one-reservation",
+    }
+    job_bytes = json.dumps(
+        job,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    (batch / "batch-job.json").write_bytes(job_bytes)
+    job_sha256 = hashlib.sha256(job_bytes).hexdigest()
+    density_calibration = {"session_id": session_id, "fixture": "validated"}
+    (batch / "session-journal.json").write_text(
+        json.dumps(
+            {
+                "status": "complete",
+                "session_id": session_id,
+                "density_calibration_session_id": session_id,
+                "nikon_density_calibration": density_calibration,
+                "selected_slots": list(_SLOTS),
+                "completed_slots": list(_SLOTS),
+                "active_frame_index": None,
+                "active_slot": None,
+                "batch_job_sha256": job_sha256,
+                "capture_engine_sha256": engine_sha256,
+                "capture_bundle_sha256": bundle_sha256,
+                "plan_sha256": plan_sha256,
+                "continuation_plan_sha256": continuation_sha256,
+                "manual_review_approval_sha256_by_slot": {
+                    str(slot): (None if slot not in approval_payloads else approval_payloads[slot]["binding_sha256"]) for slot in _SLOTS
+                },
+                "reviewed_roll_fingerprint_sha256": reviewed_fingerprint,
+                "expected_usb_bus": 3,
+                "expected_usb_address": 7,
+                "actual_usb_bus": 3,
+                "actual_usb_address": 7,
+                "reservation_acquired": True,
+                "unit_release_attempts": 1,
+                "unit_released": True,
+                "recovery_required": "none",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    for frame_index, slot in enumerate(_SLOTS, start=1):
+        frame = batch / f"frame-{slot:03d}"
+        frame.mkdir()
+        meter = frame / "capture-meter.bin"
+        _write_sparse_zeros(meter, _METER_BYTES)
+        nonce = f"{slot:032x}"
+        selection = {
+            "frame": slot,
+            "requested_boundary_offset_rows": 0,
+            "applied_boundary_offset_rows": 0,
+            "roll_identity": {
+                "reviewed_fingerprint_sha256": reviewed_fingerprint,
+                "fresh_fingerprint_sha256": fresh_fingerprint,
+                "comparison": {"matches": True, "reason": "matched"},
+                "selected_slot_comparison": {
+                    "matches": True,
+                    "reason": "matched",
+                    "slot": slot,
+                },
+            },
+        }
+        journal: dict[str, object] = {
+            "status": "frame-complete",
+            "frame_complete": True,
+            "session_reservation_retained": True,
+            "unit_released": False,
+            "recovery_required": None,
+            "batch_session": {
+                "session_id": session_id,
+                "frame_index": frame_index,
+                "frame_total": len(_SLOTS),
+                "selected_slots": list(_SLOTS),
+            },
+            "capture_mode": "full",
+            "requested_frame": slot,
+            "requested_boundary_offset_rows": 0,
+            "expected_reads": 2_980,
+            "completed_reads": 2_980,
+            "expected_bytes": 619_458_560,
+            "completed_bytes": 619_458_560,
+            "disk_bytes": 619_458_560,
+            "output": str(frame / "capture.bin"),
+            "output_sha256": hashlib.sha256(f"capture-{slot}".encode()).hexdigest(),
+            "plan_sha256": plan_sha256,
+            "continuation_plan_sha256": continuation_sha256,
+            "capture_engine_sha256": engine_sha256,
+            "capture_bundle_sha256": bundle_sha256,
+            "manual_review_approval": approval_payloads.get(slot),
+            "reviewed_roll_fingerprint_sha256": reviewed_fingerprint,
+            "expected_usb_bus": 3,
+            "expected_usb_address": 7,
+            "actual_usb_bus": 3,
+            "actual_usb_address": 7,
+            "ack_nonce": nonce,
+            "density_calibration_session_id": session_id,
+            "nikon_density_calibration": density_calibration,
+            "live_frame_selection": selection,
+            "meter_evidence": {
+                "path": str(meter),
+                "bytes": _METER_BYTES,
+                "sha256": _METER_SHA256,
+                "complete": True,
+                "durable_completed_passes": 3,
+            },
+            "meter_evidence_persisted_before_fine_arm": True,
+            "meter_group_bytes": [1_088_000, 1_088_000, 1_088_000],
+            "meter_group_offsets": [0, 1_088_000, 2_176_000],
+            "meter_completed_reads": 15,
+            "meter_completed_bytes": _METER_BYTES,
+            "meter_layout": _METER_LAYOUT,
+        }
+        if slot == 1:
+            preview = frame / "capture-preview.bin"
+            _write_sparse_zeros(preview, _PREVIEW_BYTES)
+            table_payload = b"six-strip-transport-table"
+            table = frame / "capture-008e.bin"
+            table.write_bytes(table_payload)
+            mapping = frame / "capture-frame-map.json"
+            mapping.write_text(json.dumps(selection, sort_keys=True), encoding="utf-8")
+            journal["live_index_artifacts"] = {
+                "preview": str(preview),
+                "table": str(table),
+                "mapping": str(mapping),
+            }
+            journal["live_index_evidence"] = {
+                "status": "persisted-before-frame-detection",
+                "preview_bytes": _PREVIEW_BYTES,
+                "preview_sha256": _PREVIEW_SHA256,
+                "table_bytes": len(table_payload),
+                "table_sha256": hashlib.sha256(table_payload).hexdigest(),
+            }
+        (frame / "journal.json").write_text(
+            json.dumps(journal, sort_keys=True),
+            encoding="utf-8",
+        )
+        (frame / "parent-ack.json").write_text(
+            json.dumps(
+                {
+                    "ack_nonce": nonce,
+                    "action": "continue",
+                    "frame_index": frame_index,
+                    "schema_version": 1,
+                    "session_id": session_id,
+                    "slot": slot,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+    return batch
 
 
 class _Service:
@@ -182,6 +425,7 @@ class _Service:
         self.output_dir = fixture.request.output_dir
         self.thumbnails = fixture.thumbnails
         self.approvals = fixture.review.approvals
+        self.reviewed_fingerprint = fixture.review.reviewed_fingerprint_sha256
         self.restored_slots = restored_slots
         self.approval_slots = approval_slots
         self.wrong_approval_slot = wrong_approval_slot
@@ -193,8 +437,13 @@ class _Service:
         self.safe_stop_calls = 0
         self.eject_calls = 0
 
-    def open_roll(self, device_id: str) -> None:
-        self.calls.append(("open_roll", device_id))
+    def open_roll(self, device_id: str, *, attempts_root=None) -> None:
+        self.calls.append(("open_roll", device_id, attempts_root))
+        _write_completed_attempt_evidence(
+            Path(attempts_root),
+            reviewed_fingerprint=self.reviewed_fingerprint,
+            approvals=self.approvals,
+        )
 
     def restore_preview_session(self, payload: str, slots=None):
         self.calls.append(("restore_preview_session", payload, slots))
@@ -363,6 +612,47 @@ class _PoisonTelemetryService(_Service):
         )
 
 
+class _MutatingEvidenceLease:
+    def __init__(self, delegate: FixedOutputLease, target: Path) -> None:
+        self._delegate = delegate
+        self._target = target
+
+    @property
+    def released(self) -> bool:
+        return self._delegate.released
+
+    def assert_inventory(self, *args, **kwargs):
+        return self._delegate.assert_inventory(*args, **kwargs)
+
+    def release(self) -> None:
+        self._delegate.release()
+
+    def release_verified(self, owned_files, *, previous, finalize):
+        def finalize_then_mutate() -> None:
+            finalize()
+            self._target.write_bytes(b"mutated-after-receipt-publication")
+
+        return self._delegate.release_verified(
+            owned_files,
+            previous=previous,
+            finalize=finalize_then_mutate,
+        )
+
+
+def _mutating_evidence_lease_factory(target: Path):
+    def acquire(root, lock_document, *, require_empty):
+        return _MutatingEvidenceLease(
+            FixedOutputLease.acquire(
+                root,
+                lock_document,
+                require_empty=require_empty,
+            ),
+            target,
+        )
+
+    return acquire
+
+
 def _output_paths(output: RollFrameOutput) -> list[Path]:
     paths = [Path(getattr(output, field)) for field in _OUTPUT_FIELDS]
     assert all(path.is_absolute() and path.is_file() for path in paths)
@@ -427,7 +717,7 @@ class _ValidationHarness:
             "output_dir": str(output_dir),
             "slots": list(_SLOTS),
             "approved_slots": list(_APPROVED_SLOTS),
-            "device_id": "ls5000-usb-001",
+            "device_id": "usb:2:7",
             "device_model": "Nikon LS-5000 ED 1.03",
             "reviewed_fingerprint_sha256": approval_payloads[1]["reviewed_fingerprint_sha256"],
             "manual_approval_bindings": [
@@ -510,7 +800,11 @@ def test_runs_one_six_slot_hybrid_nikon_exact_batch_and_records_truthful_state(
     assert receipt["deep_acceptance"]["status"] == "passed"
     assert runtime.validated is True
     assert service.calls[:5] == [
-        ("open_roll", "ls5000-usb-001"),
+        (
+            "open_roll",
+            "usb:2:7",
+            fixture.request.attempts_root_path.resolve(),
+        ),
         ("restore_preview_session", '{"version":1}', _SLOTS),
         ("approve", 1),
         ("approve", 6),
@@ -551,6 +845,30 @@ def test_runs_one_six_slot_hybrid_nikon_exact_batch_and_records_truthful_state(
         "transport_may_have_advanced_beyond_yielded": False,
     }
     assert receipt["output_lease"]["released"] is True
+    assert receipt["capture_evidence_lease"]["released"] is True
+    evidence = receipt["capture_evidence"]
+    assert evidence["retained"] is True
+    assert evidence["file_count"] == 28
+    assert evidence["snapshot_error"] is None
+    assert {Path(row["path"]).name for row in evidence["files"]} == {
+        "batch-job.json",
+        "capture-preview.bin",
+        "capture-008e.bin",
+        "capture-frame-map.json",
+        "capture-meter.bin",
+        "journal.json",
+        "parent-ack.json",
+        "replay-first-rgbi4-manifest.json",
+        "replay-first-rgbi4-plan.jsonl",
+        "replay-next-rgbi4-plan.json",
+        "session-journal.json",
+        "stderr.txt",
+        "stdout.txt",
+    }
+    assert not any(Path(row["path"]).name == "capture.bin" for row in evidence["files"])
+    assert evidence["batch_binding"]["selected_slots"] == list(_SLOTS)
+    assert evidence["batch_binding"]["first_frame_directory"].endswith("/frame-001")
+    assert not (fixture.request.attempts_root_path / OUTPUT_LOCK_NAME).exists()
     assert not (fixture.request.output_dir / OUTPUT_LOCK_NAME).exists()
     assert json.loads(fixture.request.run_receipt_path.read_text(encoding="utf-8")) == receipt
     assert any(event["event"] == "scan_progress" for event in events)
@@ -709,6 +1027,142 @@ def test_output_path_swap_during_finalization_overwrites_any_success_with_failur
     _assert_no_recovery_or_eject(service, raised.value.receipt)
 
 
+def test_capture_evidence_mutation_after_success_publication_is_truthfully_failed(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    runtime = _Runtime()
+    service = _Service(fixture)
+    harness = _ValidationHarness(service)
+    target = fixture.request.attempts_root_path / "batch-slot01-slot06-test" / "frame-001" / "capture-preview.bin"
+
+    with pytest.raises(LiveAcceptanceError, match="previously owned output changed") as raised:
+        _invoke(
+            fixture,
+            service,
+            runtime,
+            frame_inventory_collector=harness.collect,
+            batch_validator=harness.validate_batch,
+            evidence_lease_factory=_mutating_evidence_lease_factory(target),
+        )
+
+    receipt = raised.value.receipt
+    assert receipt["status"] == "failed"
+    assert receipt["capture_evidence"]["retained"] is False
+    assert receipt["capture_evidence"]["snapshot_error"] is not None
+    assert json.loads(fixture.request.run_receipt_path.read_text(encoding="utf-8")) == receipt
+    _assert_no_recovery_or_eject(service, receipt)
+
+
+def test_failed_scan_evidence_mutation_is_truthfully_failed(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    runtime = _Runtime()
+    service = _Service(fixture, scan_error=RuntimeError("scan failed"))
+    target = fixture.request.attempts_root_path / "batch-slot01-slot06-test" / "frame-001" / "capture-preview.bin"
+
+    with pytest.raises(LiveAcceptanceError, match="scan failed") as raised:
+        _invoke(
+            fixture,
+            service,
+            runtime,
+            evidence_lease_factory=_mutating_evidence_lease_factory(target),
+        )
+
+    receipt = raised.value.receipt
+    assert receipt["status"] == "failed"
+    assert receipt["capture_evidence"]["retained"] is False
+    assert receipt["capture_evidence"]["snapshot_error"] is not None
+    assert json.loads(fixture.request.run_receipt_path.read_text(encoding="utf-8")) == receipt
+    _assert_no_recovery_or_eject(service, receipt)
+
+
+def test_required_capture_basenames_split_across_directories_never_pass(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    runtime = _Runtime()
+    service = _Service(fixture)
+    harness = _ValidationHarness(service)
+    original_open = service.open_roll
+
+    def open_with_split_evidence(device_id: str, *, attempts_root=None) -> None:
+        original_open(device_id, attempts_root=attempts_root)
+        frame = Path(attempts_root) / "batch-slot01-slot06-test" / "frame-001"
+        for index, name in enumerate(("capture-preview.bin", "capture-008e.bin", "capture-frame-map.json")):
+            decoy = Path(attempts_root) / f"decoy-{index}"
+            decoy.mkdir()
+            (frame / name).rename(decoy / name)
+
+    service.open_roll = open_with_split_evidence  # type: ignore[method-assign]
+
+    with pytest.raises(LiveAcceptanceError, match="accepted batch capture evidence"):
+        _invoke(
+            fixture,
+            service,
+            runtime,
+            frame_inventory_collector=harness.collect,
+            batch_validator=harness.validate_batch,
+        )
+
+    receipt = json.loads(fixture.request.run_receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "failed"
+    _assert_no_recovery_or_eject(service, receipt)
+
+
+def test_missing_sixth_frame_journal_never_passes_completed_batch_evidence(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    runtime = _Runtime()
+    service = _Service(fixture)
+    harness = _ValidationHarness(service)
+    original_open = service.open_roll
+
+    def open_without_sixth_journal(device_id: str, *, attempts_root=None) -> None:
+        original_open(device_id, attempts_root=attempts_root)
+        missing = Path(attempts_root) / "batch-slot01-slot06-test" / "frame-006" / "journal.json"
+        missing.unlink()
+
+    service.open_roll = open_without_sixth_journal  # type: ignore[method-assign]
+
+    with pytest.raises(LiveAcceptanceError, match="accepted batch capture evidence"):
+        _invoke(
+            fixture,
+            service,
+            runtime,
+            frame_inventory_collector=harness.collect,
+            batch_validator=harness.validate_batch,
+        )
+
+
+def test_session_journal_must_bind_hashed_batch_job(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    runtime = _Runtime()
+    service = _Service(fixture)
+    harness = _ValidationHarness(service)
+    original_open = service.open_roll
+
+    def open_with_wrong_job_hash(device_id: str, *, attempts_root=None) -> None:
+        original_open(device_id, attempts_root=attempts_root)
+        session_path = Path(attempts_root) / "batch-slot01-slot06-test" / "session-journal.json"
+        session = json.loads(session_path.read_text(encoding="utf-8"))
+        session["batch_job_sha256"] = "0" * 64
+        session_path.write_text(json.dumps(session), encoding="utf-8")
+
+    service.open_roll = open_with_wrong_job_hash  # type: ignore[method-assign]
+
+    with pytest.raises(LiveAcceptanceError, match="completed six-frame batch"):
+        _invoke(
+            fixture,
+            service,
+            runtime,
+            frame_inventory_collector=harness.collect,
+            batch_validator=harness.validate_batch,
+        )
+
+
 def _never_constructed_factory(calls: list[str]):
     def factory(*, hybrid_runtime):
         calls.append("constructed")
@@ -798,6 +1252,66 @@ def test_preexisting_output_collision_is_preserved_without_opening_roll(
     receipt = json.loads(fixture.request.run_receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "failed"
     assert receipt["operation_state"]["roll_opened"] is False
+
+
+def test_preexisting_capture_evidence_is_preserved_without_opening_roll(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    existing = fixture.request.attempts_root_path / "existing.bin"
+    existing.write_bytes(b"do not overwrite")
+    factory_calls: list[str] = []
+
+    with pytest.raises(LiveAcceptanceError, match="unexpected files"):
+        run_live_acceptance(
+            fixture.request,
+            service_factory=_never_constructed_factory(factory_calls),
+            emit=lambda _event: None,
+        )
+
+    assert factory_calls == []
+    assert existing.read_bytes() == b"do not overwrite"
+    assert sorted(path.name for path in fixture.request.attempts_root_path.iterdir()) == ["existing.bin"]
+    receipt = json.loads(fixture.request.run_receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "failed"
+    assert receipt["operation_state"]["roll_opened"] is False
+
+
+def test_capture_evidence_root_must_not_overlap_output(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    request = dataclasses.replace(
+        fixture.request,
+        attempts_root_path=fixture.request.output_dir,
+    )
+    factory_calls: list[str] = []
+
+    with pytest.raises(LiveAcceptanceError, match="disjoint"):
+        run_live_acceptance(
+            request,
+            service_factory=_never_constructed_factory(factory_calls),
+            emit=lambda _event: None,
+        )
+
+    assert factory_calls == []
+    assert not request.run_receipt_path.exists()
+
+
+def test_capture_evidence_root_must_not_be_a_symlink(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    linked = tmp_path / "linked-attempts"
+    linked.symlink_to(fixture.request.attempts_root_path, target_is_directory=True)
+    request = dataclasses.replace(fixture.request, attempts_root_path=linked)
+    factory_calls: list[str] = []
+
+    with pytest.raises(LiveAcceptanceError, match="non-symlink"):
+        run_live_acceptance(
+            request,
+            service_factory=_never_constructed_factory(factory_calls),
+            emit=lambda _event: None,
+        )
+
+    assert factory_calls == []
+    assert not request.run_receipt_path.exists()
 
 
 def test_preexisting_run_receipt_is_never_overwritten_or_live_opened(
@@ -933,6 +1447,9 @@ def test_scan_exception_closes_without_retry_safe_stop_or_eject(
     assert state["batch_exhausted"] is False
     assert state["transport_may_have_advanced_beyond_yielded"] is True
     assert service.closed is True
+    assert raised.value.receipt["capture_evidence"]["retained"] is True
+    assert raised.value.receipt["capture_evidence"]["file_count"] == 28
+    assert raised.value.receipt["capture_evidence_lease"]["released"] is True
     _assert_no_recovery_or_eject(service, raised.value.receipt)
 
 
@@ -998,4 +1515,118 @@ def test_injected_deep_batch_failure_fails_only_after_scanner_close(
     assert state["batch_exhausted"] is True
     assert state["transport_may_have_advanced_beyond_yielded"] is False
     assert service.closed is True
+    _assert_no_recovery_or_eject(service, raised.value.receipt)
+
+
+def test_sane_style_device_id_fails_before_constructing_service(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    request = dataclasses.replace(
+        fixture.request,
+        device_id="coolscan3:usb:libusb:002:007",
+    )
+    factory_calls: list[str] = []
+
+    with pytest.raises(LiveAcceptanceError, match="usb:BUS:ADDRESS") as raised:
+        run_live_acceptance(
+            request,
+            service_factory=_never_constructed_factory(factory_calls),
+            emit=lambda _event: None,
+        )
+
+    assert factory_calls == []
+    assert raised.value.receipt["operation_state"]["roll_opened"] is False
+
+
+def test_receipt_inside_attempts_root_fails_before_constructing_service(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    request = dataclasses.replace(
+        fixture.request,
+        run_receipt_path=fixture.request.attempts_root_path / "receipt.json",
+    )
+    factory_calls: list[str] = []
+
+    with pytest.raises(LiveAcceptanceError, match="outside the attempts root"):
+        run_live_acceptance(
+            request,
+            service_factory=_never_constructed_factory(factory_calls),
+            emit=lambda _event: None,
+        )
+
+    assert factory_calls == []
+
+
+def test_parser_requires_attempts_root() -> None:
+    from negpy.services.roll import live_acceptance as module
+
+    argv = [
+        "--device-id", "usb:2:7",
+        "--preview-session", "session.json",
+        "--preview-session-sha256", "0" * 64,
+        "--reviewed-approval", "review.json",
+        "--reviewed-approval-sha256", "0" * 64,
+        "--output-dir", "outputs",
+        "--run-receipt", "receipt.json",
+        "--confirm-live",
+    ]
+    with pytest.raises(SystemExit):
+        module._parser().parse_args(argv)
+    parsed = module._parser().parse_args([*argv, "--attempts-root", "attempts"])
+    assert parsed.attempts_root == Path("attempts")
+
+
+def test_interrupt_handlers_route_signals_to_truthful_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import signal as signal_module
+
+    from negpy.services.roll import live_acceptance as module
+
+    recorded: dict[int, object] = {}
+    monkeypatch.setattr(
+        module.signal,
+        "signal",
+        lambda number, handler: recorded.__setitem__(number, handler),
+    )
+
+    assert module.install_interrupt_handlers() is True
+    assert set(recorded) == {signal_module.SIGINT, signal_module.SIGTERM}
+
+    handler = recorded[signal_module.SIGTERM]
+    assert callable(handler)
+    with pytest.raises(module.LiveAcceptanceInterrupted, match="signal"):
+        handler(signal_module.SIGTERM, None)
+    assert recorded[signal_module.SIGINT] is signal_module.SIG_IGN
+    assert recorded[signal_module.SIGTERM] is signal_module.SIG_IGN
+
+
+def test_interrupt_mid_scan_closes_and_writes_truthful_failed_receipt(
+    tmp_path: Path,
+) -> None:
+    from negpy.services.roll.live_acceptance import LiveAcceptanceInterrupted
+
+    fixture = _fixture(tmp_path)
+    runtime = _Runtime()
+    service = _Service(
+        fixture,
+        scan_error=LiveAcceptanceInterrupted("received signal 15"),
+    )
+    harness = _ValidationHarness(service)
+
+    with pytest.raises(LiveAcceptanceError, match="received signal 15") as raised:
+        _invoke(
+            fixture,
+            service,
+            runtime,
+            frame_inventory_collector=harness.collect,
+            batch_validator=harness.validate_batch,
+        )
+
+    state = raised.value.receipt["operation_state"]
+    assert state["committed_slots"] == []
+    assert service.closed is True
+    assert raised.value.receipt["status"] == "failed"
     _assert_no_recovery_or_eject(service, raised.value.receipt)

@@ -10,7 +10,9 @@ import json
 import math
 import os
 import re
+import signal
 import stat
+import threading
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -33,6 +35,12 @@ from negpy.services.roll.live_reservation import (
     FixedOutputLease,
     ReservationConflict,
 )
+from negpy.services.roll.live_evidence import (
+    CaptureEvidenceSnapshot,
+    bind_capture_evidence_inventory,
+    snapshot_capture_evidence,
+    validate_six_frame_batch_capture_evidence,
+)
 from negpy.services.roll.live_review import (
     ValidatedReviewedApproval,
     approval_payload,
@@ -50,6 +58,8 @@ FILENAME_PATTERN = 'acceptance_slot{{ "%02d" % seq }}'
 _SESSION_MAX_BYTES = 64 * 1024
 _FRAME_RECEIPT_MAX_BYTES = 16 * 1024 * 1024
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
+# The frozen app enumerates attached units with direct usb:BUS:ADDRESS ids.
+_DIRECT_DEVICE_ID_RE = re.compile(r"usb:[0-9]{1,4}:[0-9]{1,4}")
 _MAX_TELEMETRY_ERRORS = 16
 
 
@@ -70,6 +80,7 @@ class LiveAcceptanceRequest:
     reviewed_approval_sha256: str
     output_dir: Path
     run_receipt_path: Path
+    attempts_root_path: Path
     confirm_live: bool
     hybrid_runtime_manifest_path: Path | None = None
 
@@ -183,7 +194,11 @@ def _default_review_loader(
     )
 
 
-def _preflight_paths(request: LiveAcceptanceRequest) -> tuple[Path, Path]:
+def _paths_overlap(left: Path, right: Path) -> bool:
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def _preflight_paths(request: LiveAcceptanceRequest) -> tuple[Path, Path, Path]:
     output = request.output_dir.resolve(strict=True)
     linked_output = request.output_dir.lstat()
     if stat.S_ISLNK(linked_output.st_mode) or not stat.S_ISDIR(linked_output.st_mode):
@@ -195,7 +210,15 @@ def _preflight_paths(request: LiveAcceptanceRequest) -> tuple[Path, Path]:
     receipt = receipt_parent / receipt.name
     if receipt == output or receipt.is_relative_to(output):
         raise ValueError("run receipt must be outside the output directory")
-    return output, receipt
+    attempts = request.attempts_root_path.resolve(strict=True)
+    linked_attempts = request.attempts_root_path.lstat()
+    if stat.S_ISLNK(linked_attempts.st_mode) or not stat.S_ISDIR(linked_attempts.st_mode):
+        raise ValueError("attempts root must be an existing non-symlink directory")
+    if _paths_overlap(attempts, output):
+        raise ValueError("attempts root must be disjoint from the output directory")
+    if receipt == attempts or receipt.is_relative_to(attempts):
+        raise ValueError("run receipt must be outside the attempts root")
+    return output, receipt, attempts
 
 
 def _require_artifact(path_value: str | None, *, output_dir: Path, label: str) -> str:
@@ -367,6 +390,7 @@ def run_live_acceptance(
     batch_validator: Callable[..., dict[str, Any]] = validate_six_frame_batch,
     receipt_reserver: Callable[..., Any] = ExclusiveReceiptReservation.reserve,
     output_lease_factory: Callable[..., Any] = FixedOutputLease.acquire,
+    evidence_lease_factory: Callable[..., Any] = FixedOutputLease.acquire,
     emit: Callable[[dict[str, Any]], None] = _json_event,
 ) -> dict[str, Any]:
     """Run one exact six-slot batch; any discrepancy ends it without retry."""
@@ -395,6 +419,7 @@ def run_live_acceptance(
     runtime: Any = None
     deep_batch: dict[str, Any] | None = None
     output_dir: Path | None = None
+    attempts_root: Path | None = None
     receipt_path = request.run_receipt_path.absolute()
     receipt_reservation: Any = None
     receipt_inode: tuple[int, int] | None = None
@@ -403,6 +428,14 @@ def run_live_acceptance(
     lease_acquired = False
     lease_release_attempted = False
     lease_released = False
+    evidence_lease: Any = None
+    evidence_lease_acquired = False
+    evidence_lease_release_attempted = False
+    evidence_lease_released = False
+    evidence_snapshot: CaptureEvidenceSnapshot | None = None
+    evidence_inventory: Any = None
+    capture_evidence: dict[str, object] | None = None
+    capture_evidence_error: dict[str, str] | None = None
     inventory_snapshot: Any = None
     owned_files: set[Path] = set()
     service: Any = None
@@ -491,6 +524,20 @@ def run_live_acceptance(
                 ),
             },
             "output_dir": str(output_dir or request.output_dir.absolute()),
+            "capture_evidence": (
+                capture_evidence
+                if capture_evidence is not None
+                else {
+                    "path": str(attempts_root or request.attempts_root_path.absolute()),
+                    "retained": False,
+                    "manifest_sha256": None,
+                    "file_count": None,
+                    "directory_count": None,
+                    "total_bytes": None,
+                    "files": None,
+                    "snapshot_error": capture_evidence_error,
+                }
+            ),
             "run_receipt": str(receipt_path),
             "receipt_reservation": {
                 "reserved": receipt_reserved,
@@ -501,6 +548,12 @@ def run_live_acceptance(
                 "lock_name": OUTPUT_LOCK_NAME,
                 "release_attempted": lease_release_attempted,
                 "released": lease_released,
+            },
+            "capture_evidence_lease": {
+                "acquired": evidence_lease_acquired,
+                "lock_name": OUTPUT_LOCK_NAME,
+                "release_attempted": evidence_lease_release_attempted,
+                "released": evidence_lease_released,
             },
             "slots": list(SLOTS),
             "approved_slots": list(approved_slots),
@@ -551,7 +604,13 @@ def run_live_acceptance(
             raise ValueError("--confirm-live is required")
         if not request.device_id.strip():
             raise ValueError("device id must be non-empty")
-        output_dir, receipt_path = _preflight_paths(request)
+        if _DIRECT_DEVICE_ID_RE.fullmatch(request.device_id) is None:
+            raise ValueError(
+                "device id must be the direct usb:BUS:ADDRESS form reported by "
+                "this app's own enumeration (for example usb:2:7); SANE-style "
+                f"identifiers are not accepted here, got {request.device_id!r}"
+            )
+        output_dir, receipt_path, attempts_root = _preflight_paths(request)
 
         phase = "reserving_receipt"
         receipt_reservation = receipt_reserver(
@@ -574,6 +633,19 @@ def run_live_acceptance(
         )
         lease_acquired = True
         inventory_snapshot = output_lease.assert_inventory(())
+
+        phase = "reserving_capture_evidence"
+        evidence_lease = evidence_lease_factory(
+            attempts_root,
+            {
+                "schema": "negpy.ls5000-live-capture-evidence-lock.v1",
+                "run_id": run_id,
+                "run_receipt": str(receipt_path),
+                "created_at": started_at,
+            },
+            require_empty=True,
+        )
+        evidence_lease_acquired = True
         phase = "output_reserved"
         receipt_reservation.publish(receipt_document("in_progress"))
 
@@ -611,7 +683,10 @@ def run_live_acceptance(
             previous=inventory_snapshot,
         )
         phase = "opening_roll"
-        service.open_roll(request.device_id)
+        service.open_roll(
+            request.device_id,
+            attempts_root=attempts_root,
+        )
         roll_opened = True
         safe_emit({"event": "roll_opened", "device_id": request.device_id})
 
@@ -792,6 +867,24 @@ def run_live_acceptance(
     if iterator_created and not batch_exhausted:
         transport_may_have_advanced_beyond_yielded = True
 
+    if evidence_lease is not None:
+        try:
+            if roll_opened and not close_succeeded:
+                raise RuntimeError("capture evidence cannot be sealed while scanner ownership is uncertain")
+            if attempts_root is None:
+                raise RuntimeError("capture evidence path was not resolved")
+            evidence_snapshot = snapshot_capture_evidence(attempts_root)
+            evidence_inventory = evidence_lease.assert_inventory(evidence_snapshot.files)
+            capture_evidence = bind_capture_evidence_inventory(
+                evidence_snapshot,
+                evidence_inventory,
+            )
+            capture_evidence["snapshot_error"] = None
+        except BaseException as evidence_error:
+            capture_evidence_error = _error_payload(evidence_error)
+            if operation_error is None:
+                operation_error = evidence_error
+
     if operation_error is None:
         try:
             phase = "validating_six_frame_batch"
@@ -799,6 +892,12 @@ def run_live_acceptance(
                 raise RuntimeError("live acceptance state is incomplete")
             if not close_succeeded:
                 raise RuntimeError("scanner was not closed before deep acceptance")
+            if evidence_snapshot is None or evidence_inventory is None or capture_evidence is None:
+                raise RuntimeError("capture evidence was not sealed before deep acceptance")
+            batch_binding = validate_six_frame_batch_capture_evidence(evidence_snapshot)
+            if review is None or (batch_binding.get("reviewed_fingerprint_sha256") != review.reviewed_fingerprint_sha256):
+                raise RuntimeError("capture evidence batch does not match the reviewed fingerprint")
+            capture_evidence["batch_binding"] = batch_binding
             receipt_reservation.publish(receipt_document("in_progress"))
             deep_batch = batch_validator(
                 outputs,
@@ -868,42 +967,79 @@ def run_live_acceptance(
             operation_error = validation_error
 
     receipt: dict[str, Any] | None = None
+    failed_receipt_published = False
     if operation_error is None:
         if output_lease is None or inventory_snapshot is None:
             operation_error = RuntimeError("output lease state is incomplete at finalization")
         elif receipt_reservation is None:
             operation_error = RuntimeError("run receipt was never reserved")
+        elif evidence_lease is None or evidence_snapshot is None or evidence_inventory is None:
+            operation_error = RuntimeError("capture evidence lease state is incomplete at finalization")
 
     if operation_error is None:
         lease_release_attempted = True
         phase = "finalizing_success"
         safe_emit({"event": "run_finalizing", "status": "succeeded"})
 
-        def publish_success_while_directory_is_held() -> None:
-            nonlocal lease_released, phase, receipt
-            # release_verified invokes this only after unlinking the fixed
-            # lock, while retaining the directory descriptor for a second
-            # pathname + inventory check after publication.
-            lease_released = True
-            phase = "succeeded"
-            safe_emit(
-                {
-                    "event": "run_finished",
-                    "status": "succeeded",
-                    "run_receipt": str(receipt_path),
-                }
-            )
-            receipt = receipt_document(
-                "succeeded",
-                finished_at=_utc_now(),
-            )
-            receipt_reservation.publish(receipt)
+        def publish_success_while_output_directory_is_held() -> None:
+            nonlocal capture_evidence
+            nonlocal capture_evidence_error
+            nonlocal evidence_lease_release_attempted
+            nonlocal evidence_lease_released
+            nonlocal lease_released
+            nonlocal phase
+            nonlocal receipt
+
+            evidence_lease_release_attempted = True
+
+            def publish_success_while_both_directories_are_held() -> None:
+                nonlocal evidence_lease_released
+                nonlocal lease_released
+                nonlocal phase
+                nonlocal receipt
+
+                # Both fixed locks have been unlinked, but both directory
+                # descriptors remain held. Each lease performs a second exact
+                # inventory check after this durable receipt publication.
+                evidence_lease_released = True
+                lease_released = True
+                phase = "succeeded"
+                safe_emit(
+                    {
+                        "event": "run_finished",
+                        "status": "succeeded",
+                        "run_receipt": str(receipt_path),
+                    }
+                )
+                receipt = receipt_document(
+                    "succeeded",
+                    finished_at=_utc_now(),
+                )
+                receipt_reservation.publish(receipt)
+
+            try:
+                evidence_lease.release_verified(
+                    evidence_snapshot.files,
+                    previous=evidence_inventory,
+                    finalize=publish_success_while_both_directories_are_held,
+                )
+            except BaseException as evidence_lease_error:
+                capture_evidence_error = _error_payload(evidence_lease_error)
+                if capture_evidence is not None:
+                    capture_evidence = {
+                        **capture_evidence,
+                        "retained": False,
+                        "snapshot_error": capture_evidence_error,
+                    }
+                raise
+            finally:
+                evidence_lease_released = bool(evidence_lease.released)
 
         try:
             output_lease.release_verified(
                 owned_files,
                 previous=inventory_snapshot,
-                finalize=publish_success_while_directory_is_held,
+                finalize=publish_success_while_output_directory_is_held,
             )
         except BaseException as lease_error:
             operation_error = _combine_error(
@@ -936,18 +1072,71 @@ def run_live_acceptance(
                 "run_receipt": str(receipt_path),
             }
         )
-        receipt = receipt_document(
-            "failed",
-            finished_at=_utc_now(),
-            error=operation_error,
-        )
+        if evidence_lease is not None and not evidence_lease.released:
+            evidence_lease_release_attempted = True
+            if evidence_snapshot is not None and evidence_inventory is not None:
+
+                def publish_failure_while_evidence_directory_is_held() -> None:
+                    nonlocal evidence_lease_released
+                    nonlocal failed_receipt_published
+                    nonlocal receipt
+
+                    evidence_lease_released = True
+                    receipt = receipt_document(
+                        "failed",
+                        finished_at=_utc_now(),
+                        error=operation_error,
+                    )
+                    if receipt_reservation is not None:
+                        receipt_reservation.publish(receipt)
+                        failed_receipt_published = True
+
+                try:
+                    evidence_lease.release_verified(
+                        evidence_snapshot.files,
+                        previous=evidence_inventory,
+                        finalize=publish_failure_while_evidence_directory_is_held,
+                    )
+                except BaseException as evidence_lease_error:
+                    operation_error = _combine_error(
+                        operation_error,
+                        evidence_lease_error,
+                        label="verified capture evidence release failed",
+                    )
+                    capture_evidence_error = _error_payload(evidence_lease_error)
+                    if capture_evidence is not None:
+                        capture_evidence = {
+                            **capture_evidence,
+                            "retained": False,
+                            "snapshot_error": capture_evidence_error,
+                        }
+                    failed_receipt_published = False
+                finally:
+                    evidence_lease_released = bool(evidence_lease.released)
+            else:
+                try:
+                    evidence_lease.release()
+                except BaseException as evidence_lease_error:
+                    operation_error = _combine_error(
+                        operation_error,
+                        evidence_lease_error,
+                        label="capture evidence lease cleanup failed",
+                    )
+                finally:
+                    evidence_lease_released = bool(evidence_lease.released)
+        if not failed_receipt_published:
+            receipt = receipt_document(
+                "failed",
+                finished_at=_utc_now(),
+                error=operation_error,
+            )
 
     assert receipt is not None
     if receipt_reservation is None:
         message = _error_payload(operation_error or RuntimeError("run receipt reservation failed"))["message"]
         raise LiveAcceptanceError(message, receipt=receipt) from operation_error
 
-    if receipt.get("status") == "failed":
+    if receipt.get("status") == "failed" and not failed_receipt_published:
         try:
             receipt_reservation.publish(receipt)
         except BaseException as receipt_error:
@@ -986,12 +1175,45 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--reviewed-approval-sha256", required=True)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--run-receipt", required=True, type=Path)
+    parser.add_argument("--attempts-root", required=True, type=Path)
     parser.add_argument("--hybrid-runtime-manifest", type=Path)
     parser.add_argument("--confirm-live", action="store_true")
     return parser
 
 
+class LiveAcceptanceInterrupted(BaseException):
+    """Raised at the interrupted call site when SIGINT/SIGTERM arrives.
+
+    A BaseException on purpose: the acceptance's broad failure handling and
+    close/finalize path treat it exactly like any other fatal interruption,
+    producing a truthful failed receipt and a clean roll/service close.
+    """
+
+
+def install_interrupt_handlers() -> bool:
+    """Route SIGINT and SIGTERM through the truthful-failure path.
+
+    The first signal raises LiveAcceptanceInterrupted at the interrupted call
+    site; later signals are ignored so close/finalize and receipt publication
+    cannot themselves be interrupted. Returns False outside the main thread,
+    where CPython forbids installing signal handlers.
+    """
+
+    if threading.current_thread() is not threading.main_thread():
+        return False
+
+    def _abort(signum: int, _frame: object) -> None:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise LiveAcceptanceInterrupted(f"received signal {signum}")
+
+    signal.signal(signal.SIGINT, _abort)
+    signal.signal(signal.SIGTERM, _abort)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
+    install_interrupt_handlers()
     args = _parser().parse_args(argv)
     request = LiveAcceptanceRequest(
         device_id=args.device_id,
@@ -1001,6 +1223,7 @@ def main(argv: list[str] | None = None) -> int:
         reviewed_approval_sha256=args.reviewed_approval_sha256,
         output_dir=args.output_dir,
         run_receipt_path=args.run_receipt,
+        attempts_root_path=args.attempts_root,
         confirm_live=args.confirm_live,
         hybrid_runtime_manifest_path=args.hybrid_runtime_manifest,
     )
