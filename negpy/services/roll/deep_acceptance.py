@@ -1271,9 +1271,14 @@ def _validate_frame(
         acquisition = roll_service.load_repair_acquisition_evidence(binding_path)
     except (OSError, TypeError, ValueError) as error:
         raise DeepAcceptanceError(f"{label}: DICE replay failed: {error}") from error
-    expected_rgb_name = f"acceptance_slot{expected_slot:02d}.tif"
-    expected_dice_token = _sha256(f"{acquisition.acquisition_id}\0acceptance_slot{expected_slot:02d}".encode("utf-8"))
-    if rgb_path.name != expected_rgb_name or binding_path.parent.name != expected_dice_token:
+    # Production frame validation is also used for ordinary dated output
+    # names. The live-acceptance inventory separately enforces its fixed
+    # ``acceptance_slotNN`` pattern; the archive itself is content-addressed
+    # against whichever basename RollScanningService actually published.
+    expected_dice_token = _sha256(
+        f"{acquisition.acquisition_id}\0{rgb_path.stem}".encode("utf-8")
+    )
+    if binding_path.parent.name != expected_dice_token:
         _fail(label, "DICE evidence directory is not content-addressed")
     acquisition_entry = _require_dict(repaired.get("acquisition"), label=f"{label} repaired acquisition")
     expected_acquisition = {

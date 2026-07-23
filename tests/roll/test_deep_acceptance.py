@@ -718,7 +718,7 @@ def test_completed_frame_runs_full_production_replay_end_to_end(
     output = RollScanningService(hybrid_runtime=runtime).write_frame(
         frame,
         str(tmp_path),
-        'acceptance_slot{{ "%02d" % seq }}',
+        '20260723_{{ "%03d" % seq }}',
         write_unrepaired=True,
         write_repaired=True,
         write_positive=True,

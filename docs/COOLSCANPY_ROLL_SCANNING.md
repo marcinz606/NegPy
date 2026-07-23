@@ -37,8 +37,8 @@ gphoto2:
 uv sync --group coolscan-roll
 ```
 
-That group pins the reviewed immutable commit
-`e42c68fb53b74aee9fc29eae432d092de351001d`, built on the fixed-size
+That group pins the live-validated immutable commit
+`970d18e4b092737a633bd20141d3eaa62b25dcc6`, built on the fixed-size
 Nikon frame-table repair and the merged streaming
 finalization from [PR #1](https://github.com/rohanpandula/coolscanpy/pull/1).
 The pin includes exact USB-topology ownership, six-strip leading-edge
@@ -85,12 +85,12 @@ the coolscanpy README for that setup.
 coolscanpy, and by extension this integration, has been validated against
 one specific setup: a Nikon Super Coolscan 5000 ED (LS-5000) running
 firmware 1.03, with an SA-21 roll feeder wired for SA-30 compatibility.
-Live hardware validation on 2026-07-18 confirmed USB enumeration, device
-open, and a full roll preview with correct spacing and manual-review
-flagging. Fine scanning and infrared capture through the roll engine have
-not yet been re-run live since coolscanpy was extracted into its own
-package. That is the remaining validation step on the coolscanpy side, not
-something specific to this NegPy integration.
+Live hardware acceptance completed on 2026-07-23: USB enumeration, device
+ownership, a 36-frame preview with manual-review flagging, and 36 fine scans
+at 4,000 dpi/16-bit RGBI all completed against that pin. Every frame recorded
+2,980 reads and 619,458,560 capture bytes. The retained journals and scanner
+evidence are banked under
+`reverse_engineering/results/NEGPY-LS5000-FULL-ROLL-LIVE-20260723-A/evidence/`.
 
 Every other Coolscan model and every roll feeder other than the SA-21/SA-30
 combination above is untested. The transport protocol is not assumed to be
@@ -468,11 +468,13 @@ coolscanpy is not importable, the same way `ScanlightSidebar` handles a
 missing gphoto2.
 
 The panel covers device selection, a whole-roll preview rendered as a
-thumbnail contact sheet, a spacing-offset spinner and an approve button
-for whichever slot is selected, and a batch scan of every selected slot
-with a progress bar and a Safe Stop button. Select All Frames makes a
-full-roll batch explicit instead of requiring every thumbnail to be
-clicked individually.
+thumbnail contact sheet in the app's central viewing area, a spacing-offset
+spinner and an approve button for whichever slot is selected, and a batch
+scan of every selected slot with a progress bar and a Safe Stop button.
+Select All Frames makes a full-roll batch explicit instead of requiring
+every thumbnail to be clicked individually. The preview can be toggled
+between the scanner negative and an auto-toned positive display; this is a
+display-only transform and never changes the Nikon-exact saved TIFF.
 
 Eject Roll uses the same proven SANE `scanimage --eject` transport action
 as NegPy's ordinary scanner panel. It first closes the coolscanpy roll
@@ -520,5 +522,8 @@ not on a missing fine-scan implementation.
 A contact sheet thumbnail is a raw scanner preview frame, not a NegPy
 pipeline buffer, so it is converted to a displayable image with a small
 local helper rather than going through NegPy's color-managed
-`ImageConverter`. That converter assumes a working-space buffer a
-scanner's preview array is not.
+`ImageConverter`. Raw display exposure uses a robust high percentile, while
+positive display uses optical-density inversion, robust per-channel
+endpoints, and a display gamma. Hot pixels therefore cannot wash out the
+entire contact sheet. `ImageConverter` is not used because it assumes a
+working-space buffer a scanner's preview array is not.

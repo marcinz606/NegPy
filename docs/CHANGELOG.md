@@ -3,6 +3,9 @@
 ## 0.41.0
 
 - New: **Stitch multi-shot scans** — select overlapping shots of one frame (e.g. a 6×6 scanned in two halves) on the contact sheet and pick **Stitch selected frames**. Alignment, exposure matching and blending happen on the linear scan data before conversion, so the result develops like a single raw. No new file is written: the composite edits and exports like any frame, and **Unstitch** restores the parts. IR dust data is kept when all parts have it.
+- New: **Direct Nikon LS-5000 whole-roll scanning** — NegPy can drive a converted SA-21/SA-30 feeder through CoolscanPy, preview and approve the roll, batch-capture 16-bit RGBI, retain scanner evidence, and publish unrepaired, Digital ICE/Hybrid-repaired, and byte-verified Nikon-colour positive tiers. Hybrid synthesis is configurable and fail-closed at a maximum of 10%, with a per-frame recommendation explaining when it is useful.
+- New: **Roll-scanner controls that match the workflow** — the contact sheet is shown in the central viewer, with a raw-negative/auto-toned-positive preview toggle, automatic crop and orientation support, Safe Stop, and a one-click **Eject Roll** action that invalidates the old registration after a confirmed eject.
+- Fix: **Roll previews no longer look washed out** — preview exposure now ignores isolated hot pixels and the positive view tones optical density per channel. This changes display thumbnails only; saved Nikon-exact TIFF pixels and profiles are untouched.
 
 ## 0.40.0
 
