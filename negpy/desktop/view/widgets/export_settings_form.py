@@ -23,6 +23,7 @@ from negpy.desktop.view.styles.templates import hint_label, labeled_toggle_qss, 
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.domain.models import (
+    EXPORT_COLOR_SPACES,
     JXL_TAGGABLE_SPACES,
     AspectRatio,
     ColorSpace,
@@ -35,6 +36,17 @@ from negpy.infrastructure.display.color_mgmt import ColorService
 from negpy.infrastructure.display.color_spaces import ColorSpaceRegistry
 
 _LABEL_WIDTH = 90
+
+
+def _coerce_output_mode(mode: Any) -> ExportPresetOutputMode:
+    """Persisted configs come back from JSON as plain strings. The destination
+    combo holds StrEnum members as item data, and findData() compares across the
+    QVariant boundary — a plain string never matches, so the row must be
+    normalized to the enum before lookup."""
+    try:
+        return ExportPresetOutputMode(mode)
+    except ValueError:
+        return ExportPresetOutputMode.ABSOLUTE
 
 
 def constrain_combo(combo: QComboBox, min_chars: int = 6) -> None:
@@ -246,7 +258,7 @@ class ExportSettingsForm(QWidget):
         cs_row = QHBoxLayout()
         cs_row.addWidget(self._row_label("Colour space"))
         self.color_space_combo = QComboBox()
-        self.color_space_combo.addItems([cs.value for cs in ColorSpace])
+        self.color_space_combo.addItems(EXPORT_COLOR_SPACES)
         constrain_combo(self.color_space_combo)
         self.color_space_combo.currentTextChanged.connect(self._on_changed)
         self.color_space_combo.currentTextChanged.connect(self._refresh_jxl_warning)
@@ -509,7 +521,7 @@ class ExportSettingsForm(QWidget):
             out_path = v.get("icc_output_path")
             self.icc_output_combo.setCurrentText(os.path.basename(out_path) if out_path else "None")
 
-            mode = v.get("output_mode", ExportPresetOutputMode.ABSOLUTE)
+            mode = _coerce_output_mode(v.get("output_mode"))
             idx = self.output_mode_combo.findData(mode)
             if idx >= 0:
                 self.output_mode_combo.setCurrentIndex(idx)

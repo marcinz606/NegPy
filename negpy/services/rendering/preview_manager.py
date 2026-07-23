@@ -274,7 +274,7 @@ class PreviewManager:
                 logger.debug("preview cache hit %.3fs for %s", time.perf_counter() - t_all, file_path)
                 return hit  # cache hit — caller must not mutate this buffer
 
-        ctx_mgr, metadata = loader_factory.get_loader(file_path)
+        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb)
 
         if color_space is None:
             color_space = metadata.get("color_space") or WORKING_COLOR_SPACE
@@ -314,7 +314,7 @@ class PreviewManager:
         """No-WB linear decode for autodetect only — skips the preview resize/orient/cache
         (detect_process_mode downsamples), so it costs just the demosaic. Mirrors the fast path."""
         try:
-            ctx_mgr, _meta = loader_factory.get_loader(file_path)
+            ctx_mgr, _meta = loader_factory.get_loader(file_path, linear_raw=True)
             with ctx_mgr as raw:
                 if isinstance(raw, NonStandardFileWrapper):
                     demosaic = get_best_demosaic_algorithm(raw)
@@ -471,7 +471,7 @@ class PreviewManager:
                 return None, hit  # no splash on cache hit — linear is already fast
 
         try:
-            ctx_mgr, metadata = loader_factory.get_loader(file_path)
+            ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=not use_camera_wb)
         except Exception as e:
             logger.debug("preview load_splash_and_linear open failed: %s", e)
             raise

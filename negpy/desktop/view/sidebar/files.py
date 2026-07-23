@@ -26,9 +26,10 @@ from PyQt6.QtWidgets import (
 )
 
 from negpy.desktop.controller import AppController
+from negpy.desktop.session import _source_effective_bounds
 from negpy.desktop.view.confirm import confirm_unload
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.sync_settings_dialog import SyncSettingsDialog
+from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog, open_paste_dialog
 from negpy.infrastructure.filesystem.watcher import FolderWatchService
 from negpy.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
@@ -731,9 +732,19 @@ class FileBrowser(QWidget):
         sel_targets = len([i for i in set(state.selected_indices) if i != src and i in visible])
         roll_targets = len([i for i in visible if i != src])
 
-        dlg = SyncSettingsDialog(self, self._source_name(), sel_targets, roll_targets)
+        source_cfg = self.session.state.config
+        show_bounds = _source_effective_bounds(source_cfg.process) is not None
+        dlg = GranularSettingsDialog(
+            self,
+            source_cfg,
+            self._source_name(),
+            show_scope=True,
+            show_bounds=show_bounds,
+            sel_count=sel_targets,
+            roll_count=roll_targets,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.session.sync_selected_settings(dlg.aspects(), dlg.scope())
+            self.session.sync_selected_settings(dlg.selected(), dlg.bounds_flags(), dlg.scope())
 
     def _build_context_menu(self) -> QMenu:
         state = self.session.state
@@ -748,7 +759,7 @@ class FileBrowser(QWidget):
         menu.addAction("Copy Settings  Ctrl+C").triggered.connect(self.session.copy_settings)
         menu.addAction("Copy Settings + Bounds  Ctrl+Shift+C").triggered.connect(self.session.copy_settings_with_bounds)
         act_paste = menu.addAction("Paste Settings  Ctrl+V")
-        act_paste.triggered.connect(self.session.paste_settings)
+        act_paste.triggered.connect(lambda: open_paste_dialog(self, self.controller))
         act_paste.setEnabled(state.clipboard is not None)
         menu.addAction("Reset Settings").triggered.connect(self.session.reset_settings)
         menu.addSeparator()

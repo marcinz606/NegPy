@@ -1698,3 +1698,81 @@ class TestDisplayTransformParams(unittest.TestCase):
         task = emitted[0]
         self.assertEqual((task.color_space, task.monitor_icc_bytes), self.controller.display_transform_params())
         self.assertNotEqual(task.color_space, state.workspace_color_space)
+
+
+class TestCompareFlatPeekInteraction(unittest.TestCase):
+    """Before/After and flat-peek are mutually exclusive overlays; a geometry op must
+    keep whichever one is active instead of dropping the user back to the plain edit."""
+
+    def setUp(self):
+        import numpy as np
+
+        self.mock_session_manager = MagicMock(spec=DesktopSessionManager)
+        self.mock_session_manager.state = AppState()
+        self.mock_session_manager.repo = MagicMock()
+        with (
+            patch("negpy.desktop.controller.RenderWorker") as mock_rw_class,
+            patch("negpy.desktop.controller.PreviewManager") as mock_pm_class,
+        ):
+            mock_rw_class.return_value = MagicMock()
+            mock_pm_class.return_value = MagicMock(spec=PreviewManager)
+            mock_pm_class.return_value.load_linear_preview.return_value = (None, (0, 0), {})
+            self.controller = AppController(self.mock_session_manager)
+        # toggle_compare / rerender_active_view early-return without a preview buffer.
+        self.controller.state.preview_raw = np.empty((8, 8, 3), dtype=np.float32)
+
+    def tearDown(self):
+        import gc
+
+        for thread in [
+            self.controller.render_thread,
+            self.controller.export_thread,
+            self.controller.thumb_thread,
+            self.controller.norm_thread,
+            self.controller.discovery_thread,
+            self.controller.preview_load_thread,
+            self.controller.scan_thread,
+        ]:
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait()
+        del self.controller
+        gc.collect()
+
+    def test_enabling_compare_clears_an_active_flat_peek(self):
+        """Regression: turning on Before/After while flat-peek was on left flat-peek's
+        toggle lit though the compare baseline was what actually rendered."""
+        self.controller.state.flat_peek = True
+        seen: list = []
+        self.controller.flat_peek_changed.connect(seen.append)
+        with patch.object(self.controller, "request_render"):
+            self.controller.toggle_compare()
+        self.assertTrue(self.controller.state.compare_mode)
+        self.assertFalse(self.controller.state.flat_peek)
+        self.assertIn(False, seen)
+
+    def test_rerender_active_view_re_renders_the_compare_baseline(self):
+        from negpy.desktop.controller import baseline_compare_config
+
+        self.controller.state.compare_mode = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.rerender_active_view()
+        _, kwargs = rr.call_args
+        # A plain request_render() (override None) would exit compare; passing the
+        # baseline keeps the user in it.
+        self.assertEqual(kwargs.get("config_override"), baseline_compare_config(self.controller.state.config))
+
+    def test_rerender_active_view_re_renders_the_flat_master(self):
+        from negpy.domain.models import flat_master_config
+
+        self.controller.state.flat_peek = True
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.rerender_active_view()
+        _, kwargs = rr.call_args
+        self.assertEqual(kwargs.get("config_override"), flat_master_config(self.controller.state.config))
+
+    def test_rerender_active_view_is_a_plain_render_when_no_overlay(self):
+        with patch.object(self.controller, "request_render") as rr:
+            self.controller.rerender_active_view()
+        _, kwargs = rr.call_args
+        self.assertIsNone(kwargs.get("config_override"))

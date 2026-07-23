@@ -1,3 +1,4 @@
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,8 +7,19 @@ from PyQt6.QtWidgets import QDialog
 from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.view.sidebar.files import THUMB_CELL_MAX, THUMB_CELL_MIN, FileBrowser
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.sync_settings_dialog import SyncSettingsDialog
+from negpy.desktop.view.widgets.granular_settings_dialog import GranularSettingsDialog
+from negpy.domain.models import WorkspaceConfig
 from negpy.infrastructure.storage.repository import StorageRepository
+
+
+def _edited_cfg() -> WorkspaceConfig:
+    """A config with a couple of non-default settings so the picker renders rows."""
+    c = WorkspaceConfig()
+    return replace(
+        c,
+        exposure=replace(c.exposure, density=1.5),
+        geometry=replace(c.geometry, manual_crop_rect=(0.1, 0.1, 0.9, 0.9)),
+    )
 
 
 @pytest.fixture
@@ -134,8 +146,8 @@ def test_context_menu_multi_selection_adds_apply_and_remove_selected(browser, se
     assert "Unload" not in labels
 
 
-def test_apply_dialog_shows_header_scope_and_counts():
-    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=2, roll_count=3)
+def test_apply_dialog_shows_header_scope_and_counts(qapp):
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=2, roll_count=3)
     assert dlg.sel_radio.text() == "Selected frames (2)"
     assert dlg.sel_radio.isEnabled()
     assert dlg.sel_radio.isChecked()  # selection preferred when it has targets
@@ -143,53 +155,63 @@ def test_apply_dialog_shows_header_scope_and_counts():
     assert dlg.roll_radio.isEnabled()
 
 
-def test_apply_dialog_defaults_to_roll_when_selection_empty():
-    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=0, roll_count=3)
+def test_apply_dialog_defaults_to_roll_when_selection_empty(qapp):
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=0, roll_count=3)
     assert not dlg.sel_radio.isEnabled()
     assert dlg.roll_radio.isChecked()
 
 
-def test_apply_dialog_check_all_and_none():
-    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=1, roll_count=3)
+def test_apply_dialog_check_all_and_none(qapp):
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
+    assert dlg.apply_btn.isEnabled()  # rows checked by default
+    dlg._set_all_checked(False)
+    assert not any(box.isChecked() for box in dlg._all_boxes())
     assert not dlg.apply_btn.isEnabled()
     dlg._set_all_checked(True)
-    assert all(box.isChecked() for box in dlg._checkboxes.values())
+    assert all(box.isChecked() for box in dlg._all_boxes())
     assert dlg.apply_btn.isEnabled()
-    dlg._set_all_checked(False)
-    assert not any(box.isChecked() for box in dlg._checkboxes.values())
-    assert not dlg.apply_btn.isEnabled()
 
 
-def test_apply_dialog_apply_collects_checked_aspects_and_scope():
-    dlg = SyncSettingsDialog(None, "IMG_0001.cr2", sel_count=1, roll_count=3)
-    dlg._checkboxes["crop"].setChecked(True)
-    dlg._checkboxes["exposure"].setChecked(True)
+def test_apply_dialog_apply_collects_checked_rows_and_scope(qapp):
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
     dlg.roll_radio.setChecked(True)
     dlg._on_apply()
-    assert dlg.aspects() == frozenset({"crop", "exposure"})
+    labels = {r.label for r in dlg.selected()}
+    assert "Print Density" in labels  # the edited exposure setting
+    assert "Manual Crop" in labels  # the edited geometry setting
     assert dlg.scope() == "roll"
 
 
-def test_open_apply_dialog_routes_aspects_and_scope_to_session(browser, session):
+def test_apply_dialog_only_lists_edited_settings(qapp):
+    dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
+    labels = {r.label for _box, r in dlg._checks}
+    assert labels == {"Print Density", "Manual Crop"}  # nothing else was non-default
+
+
+def test_open_apply_dialog_routes_rows_bounds_scope_to_session(browser, session):
     session.state.selected_indices = [0, 1]
     session.state.selected_file_idx = 0
     session.sync_selected_settings = MagicMock()
 
+    rows = [object()]
     mock_dlg = MagicMock()
     mock_dlg.exec.return_value = QDialog.DialogCode.Accepted
-    mock_dlg.aspects.return_value = frozenset({"exposure"})
+    mock_dlg.selected.return_value = rows
+    mock_dlg.bounds_flags.return_value = (False, False)
     mock_dlg.scope.return_value = "selection"
-    with patch("negpy.desktop.view.sidebar.files.SyncSettingsDialog", return_value=mock_dlg) as ctor:
+    with patch("negpy.desktop.view.sidebar.files.GranularSettingsDialog", return_value=mock_dlg) as ctor:
         browser._open_apply_dialog()
 
-    assert ctor.call_args.args[1:] == ("IMG_0001.cr2", 1, 3)  # 1 other selected, 3 other on roll
-    session.sync_selected_settings.assert_called_once_with(frozenset({"exposure"}), "selection")
+    assert ctor.call_args.args[2] == "IMG_0001.cr2"
+    assert ctor.call_args.kwargs["sel_count"] == 1  # 1 other selected
+    assert ctor.call_args.kwargs["roll_count"] == 3  # 3 other on roll
+    session.sync_selected_settings.assert_called_once_with(rows, (False, False), "selection")
 
 
 def test_open_apply_dialog_noop_without_active_file(browser, session):
     session.state.selected_file_idx = -1
     session.sync_selected_settings = MagicMock()
-    with patch("negpy.desktop.view.sidebar.files.SyncSettingsDialog") as ctor:
+    with patch("negpy.desktop.view.sidebar.files.GranularSettingsDialog") as ctor:
         browser._open_apply_dialog()
     ctor.assert_not_called()
     session.sync_selected_settings.assert_not_called()

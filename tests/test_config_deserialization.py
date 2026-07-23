@@ -284,6 +284,34 @@ class TestConfigDeserialization(unittest.TestCase):
         config = WorkspaceConfig.from_flat_dict({"autocrop_mode": "banana"})
         self.assertEqual(config.geometry.autocrop_mode, "image")
 
+    def test_stitch_config_round_trips(self):
+        """Stitch fields must survive to_dict/from_flat_dict (JSON turns tuples into
+        lists), keeping the frozen StitchConfig hashable for the pipeline cache key."""
+        config = replace(
+            WorkspaceConfig(),
+            stitch=replace(
+                WorkspaceConfig().stitch,
+                stitch_enabled=True,
+                stitch_paths=("/scans/b.raw", "/scans/c.raw"),
+                stitch_transforms=((1.0, 0.0, 10.0, 0.0, 1.0, 20.0),),
+                stitch_canvas=(4000, 3000),
+                stitch_sizes=((2000, 3000), (2100, 3000)),
+            ),
+        )
+        reloaded = WorkspaceConfig.from_flat_dict(json.loads(json.dumps(config.to_dict(), default=str)))
+
+        self.assertTrue(reloaded.stitch.stitch_enabled)
+        self.assertEqual(reloaded.stitch.stitch_paths, ("/scans/b.raw", "/scans/c.raw"))
+        self.assertEqual(reloaded.stitch.stitch_canvas, (4000, 3000))
+        self.assertEqual(reloaded.stitch.stitch_sizes, ((2000, 3000), (2100, 3000)))
+        hash(reloaded.stitch)  # must not raise
+
+    def test_stitch_keys_do_not_warn(self):
+        """Regression: StitchConfig was missing from the known-keys set, so every
+        load of a stitched edit warned 'Dropping unknown config keys: [stitch_*]'."""
+        with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
+            WorkspaceConfig.from_flat_dict(WorkspaceConfig().to_dict())
+
 
 if __name__ == "__main__":
     unittest.main()

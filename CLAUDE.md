@@ -19,6 +19,7 @@ uv run pytest tests/test_exposure_logic.py::test_name -v
 ```
 
 All commands run through `uv run`; never invoke pytest/ruff/ty directly.
+Before commiting always run `make format`. If any non-related files got re-formatted by ruff - also commit the changes as lint fixes.
 
 ## Architecture
 

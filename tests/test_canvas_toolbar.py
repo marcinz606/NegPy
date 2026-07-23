@@ -76,7 +76,6 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
             QApplication.processEvents()
             self.assertTrue(tb.btn_prev.isVisible())
             self.assertTrue(tb.btn_next.isVisible())
-            self.assertTrue(tb.btn_gpu.isVisible())
             self.assertTrue(tb.btn_overflow.isVisible())
 
     def test_full_width_shows_all_optional_groups(self):
@@ -95,6 +94,7 @@ class TestCanvasToolbarResponsive(unittest.TestCase):
     def _all_overflow_actions(self, tb: ActionToolbar) -> list:
         return [
             tb._ov_hq_action,
+            tb._ov_gpu_action,
             *tb._ov_color_actions,
             tb._ov_fit_action,
             tb._ov_original_action,

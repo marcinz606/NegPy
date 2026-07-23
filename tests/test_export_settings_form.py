@@ -120,6 +120,22 @@ def test_destination_subfields_track_output_mode(qapp):
     assert form._abspath_container.isHidden()
 
 
+def test_destination_mode_restored_from_persisted_plain_string(qapp):
+    """Saved settings come back from JSON as plain strings, not StrEnum members —
+    the combo must still land on the saved destination mode."""
+    form = ExportSettingsForm()
+    for mode in ExportPresetOutputMode:
+        form.load(_values(output_mode=str(mode.value)))
+        assert form.output_mode_combo.currentData() == mode, mode
+        assert form.values()["output_mode"] == mode, mode
+
+
+def test_destination_mode_falls_back_to_absolute_when_unknown(qapp):
+    form = ExportSettingsForm()
+    form.load(_values(output_mode="not_a_mode"))
+    assert form.values()["output_mode"] == ExportPresetOutputMode.ABSOLUTE
+
+
 def test_load_does_not_emit_changed(qapp):
     form = ExportSettingsForm()
     fired = []

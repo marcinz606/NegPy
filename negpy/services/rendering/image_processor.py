@@ -77,6 +77,16 @@ def _use_half_size_decode(raw: Any, linear_raw: bool) -> bool:
     return not isinstance(raw, NonStandardFileWrapper) and not (is_xtrans(raw) and linear_raw)
 
 
+def _downsample_to_long_edge(buf: np.ndarray, long_px: int) -> np.ndarray:
+    """Shrink so the long edge is at most long_px; never upscales."""
+    h, w = buf.shape[:2]
+    long_edge = max(h, w)
+    if long_px <= 0 or long_edge <= long_px:
+        return buf
+    s = long_px / long_edge
+    return cv2.resize(buf, (max(1, int(round(w * s))), max(1, int(round(h * s)))), interpolation=cv2.INTER_AREA)
+
+
 def _detection_downsample(buf: np.ndarray) -> np.ndarray:
     """Dust detection always runs at preview scale so preview and export produce
     the identical region set (WYSIWYG) and full-res export detection stays cheap."""
@@ -410,7 +420,7 @@ class ImageProcessor:
         half_size would distort colors (see _use_half_size_decode).
         Returns (rgb_uint16, loader_metadata).
         """
-        ctx_mgr, metadata = loader_factory.get_loader(file_path)
+        ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw)
         with ctx_mgr as raw:
             algo = get_best_demosaic_algorithm(raw)
             user_wb = [1, 1, 1, 1] if linear_raw else None
@@ -629,10 +639,19 @@ class ImageProcessor:
         Input ICC overrides the source, output ICC the destination; both are always
         applied so the file matches the preview.
         """
-        is_greyscale = color_space == ColorSpace.GREYSCALE.value
         fmt = export_settings.export_fmt
         icc_input = export_settings.icc_input_path
         icc_output = export_settings.icc_output_path
+
+        # A target with no ICC profile (ACES/XYZ, or a stale custom name) can be
+        # neither converted to nor tagged — the file would silently carry untagged
+        # working-space pixels. Export the working space itself, correctly tagged,
+        # instead. An output override supplies its own destination, so it exempts.
+        if ColorSpaceRegistry.get_icc_path(color_space) is None and not (icc_output and os.path.exists(icc_output)):
+            logger.warning(f"No ICC profile available for '{color_space}'; exporting as {working_color_space} instead")
+            color_space = working_color_space
+
+        is_greyscale = color_space == ColorSpace.GREYSCALE.value
 
         if fmt == ExportFormat.TIFF:
             if is_greyscale:
@@ -716,10 +735,15 @@ class ImageProcessor:
         elif fmt == ExportFormat.WEBP:
             # 8-bit only (WebP has no higher bit depth). Lossy or lossless via a
             # flag; PIL embeds the ICC profile for any colour space.
-            img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
-            pil_img, icc_bytes = self.apply_color_management(
-                Image.fromarray(img_int), working_color_space, color_space, icc_output, icc_input
-            )
+            if is_greyscale:
+                # apply_color_management can't transform an L image with the RGB
+                # working profile (lcms refuses the transform, leaving the file
+                # untagged in the working TRC); use the synthetic grey re-encode.
+                pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
+            else:
+                pil_img, icc_bytes = self.apply_color_management(
+                    Image.fromarray(float_to_uint8(buffer)), working_color_space, color_space, icc_output, icc_input
+                )
             if max(pil_img.size) > 16383:
                 raise ValueError("WebP max dimension is 16383 px; use TIFF/PNG for larger exports.")
             output_buf = io.BytesIO()
@@ -734,15 +758,18 @@ class ImageProcessor:
             pil_img.save(output_buf, **save_kwargs)
             return output_buf.getvalue(), "webp"
         else:
-            img_int = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=8) if is_greyscale else float_to_uint8(buffer)
-
-            pil_img, icc_bytes = self.apply_color_management(
-                Image.fromarray(img_int),
-                working_color_space,
-                color_space,
-                icc_output,
-                icc_input,
-            )
+            if is_greyscale:
+                # Same constraint as the WebP branch: greyscale can't go through the
+                # RGB CMS transform, so re-encode at 16-bit and downconvert.
+                pil_img, icc_bytes = self._greyscale_to_pil_u8(buffer, working_color_space, color_space, icc_output, icc_input)
+            else:
+                pil_img, icc_bytes = self.apply_color_management(
+                    Image.fromarray(float_to_uint8(buffer)),
+                    working_color_space,
+                    color_space,
+                    icc_output,
+                    icc_input,
+                )
             output_buf = io.BytesIO()
             self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
             return output_buf.getvalue(), "jpg"
@@ -781,6 +808,11 @@ class ImageProcessor:
 
         Mirrors the export render path but at small resolution and in display space,
         so a contact-sheet tile matches the on-canvas look. Returns None on failure.
+
+        The result is downsampled to target_long_px: the caller holds every tile in
+        memory at once, so returning full-res here made peak cost scale with
+        frames x full resolution (a 24MP roll cost ~72MB per tile instead of ~3MB)
+        until allocations failed and tiles were silently dropped.
         """
         try:
             from negpy.infrastructure.display.color_mgmt import apply_display_transform
@@ -827,6 +859,9 @@ class ImageProcessor:
             if isinstance(buffer, np.ndarray) and buffer.ndim == 3 and buffer.shape[2] == 4:
                 buffer = buffer[:, :, :3]
             buffer = apply_display_transform(buffer, working_color_space)
+            # Downsample after the display transform, matching where the sheet
+            # compositor resamples, so the tile looks identical — just smaller.
+            buffer = _downsample_to_long_edge(buffer, target_long_px)
             return float_to_uint8(buffer)
         except Exception as e:
             logger.error(f"Contact-sheet tile render failed for {file_path}: {e}")
@@ -924,19 +959,41 @@ class ImageProcessor:
         output_icc_path: Optional[str],
         input_icc_path: Optional[str] = None,
     ) -> Tuple[np.ndarray, Optional[bytes]]:
-        """Re-encode a (H,W) uint16 luma buffer to the target grey profile's gamma.
+        """Re-encode a (H,W) uint16 luma buffer to the tagged grey profile's TRC.
 
-        The buffer is luma in the working TRC (ProPhoto ROMM 1.8); the grey profile
-        (GrayGamma2.2) expects a 2.2 gamma. Decode the working TRC to linear and
-        re-encode to 2.2 so the tagged output matches — an RGB working profile can't
-        drive a 1-channel ICC transform.
+        The buffer is luma in the working TRC. The bundled GrayGamma2.2.icc actually
+        carries the sRGB TRC despite its name (verified against the profile; see the
+        _JXL_COLOR note), and JXL tags greyscale as SRGB transfer — so encode with the
+        sRGB OETF, not a pure 2.2 power, or the pixels won't match their own tag in
+        the shadows. An RGB working profile can't drive a 1-channel ICC transform,
+        hence this synthetic re-encode instead of lcms.
         """
         if working_color_space == color_space:
             return img_u16, self._get_target_icc_bytes(color_space, output_icc_path)
-        lin = np.asarray(working_oetf_decode(img_u16.astype(np.float32) / 65535.0))
-        gray = np.clip(lin, 0.0, 1.0) ** (1.0 / 2.2)
+        lin = np.clip(np.asarray(working_oetf_decode(img_u16.astype(np.float32) / 65535.0)), 0.0, 1.0)
+        gray = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1.0 / 2.4) - 0.055)
         out = np.clip(gray * 65535.0 + 0.5, 0.0, 65535.0).astype(np.uint16)
         return out, self._get_target_icc_bytes(color_space, output_icc_path)
+
+    def _greyscale_to_pil_u8(
+        self,
+        buffer: np.ndarray,
+        working_color_space: str,
+        color_space: str,
+        output_icc_path: Optional[str],
+        input_icc_path: Optional[str] = None,
+    ) -> Tuple[Image.Image, Optional[bytes]]:
+        """Greyscale buffer -> colour-managed 8-bit L image for JPEG/WebP.
+
+        Runs the 16-bit grey re-encode first so the 8-bit result carries the same
+        TRC (and profile bytes) as the greyscale TIFF/PNG of the same edit.
+        """
+        img16 = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
+        img16, icc_bytes = self._apply_color_management_u16_greyscale(
+            img16, working_color_space, color_space, output_icc_path, input_icc_path
+        )
+        img8 = np.clip(np.round(img16.astype(np.float32) / 257.0), 0.0, 255.0).astype(np.uint8)
+        return Image.fromarray(img8), icc_bytes
 
     def _apply_color_management_u16(
         self,

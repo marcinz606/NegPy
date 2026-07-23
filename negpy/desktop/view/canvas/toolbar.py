@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSlider,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -16,10 +15,10 @@ from PyQt6.QtWidgets import (
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.view.keyboard_shortcuts import _context_undo
+from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
 from negpy.desktop.view.shortcut_registry import key_for, tooltip_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.gpu.device import GPUDevice
-from negpy.kernel.system.config import APP_CONFIG
 
 CANVAS_COLORS = [
     ("#050505", (0.02, 0.02, 0.02), "Black"),
@@ -119,17 +118,13 @@ class ActionToolbar(QWidget):
         self.btn_flip_v.setIcon(qta.icon("fa5s.arrows-alt-v", color=icon_color))
         self.btn_flip_v.setToolTip(tooltip_with_shortcut("Flip Vertical", "flip_v"))
 
-        # 3. Zoom (range matches APP_CONFIG canvas_zoom_min/max, percent)
-        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
-        self.zoom_slider.setRange(
-            int(APP_CONFIG.canvas_zoom_min * 100),
-            int(APP_CONFIG.canvas_zoom_max * 100),
-        )
-        self.zoom_slider.setValue(100)
-        self.zoom_slider.setFixedWidth(80)
+        # 3. Zoom — read-only percent readout (users zoom directly on the canvas).
+        # Match the button height and center both axes so it sits on the same line
+        # as the icons rather than floating; a touch larger/bolder than a caption.
         self.zoom_label = QLabel("100%")
-        self.zoom_label.setFixedWidth(42)
-        self.zoom_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_xs}px;")
+        self.zoom_label.setFixedSize(48, btn_height)
+        self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.zoom_label.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_header}px; font-weight: 600;")
 
         self.btn_zoom_fit = QToolButton()
         self.btn_zoom_fit.setIcon(qta.icon("fa5s.expand", color=icon_color))
@@ -160,17 +155,8 @@ class ActionToolbar(QWidget):
             tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
         )
 
-        # GPU acceleration toggle (details surfaced via tooltip, refreshed by the dashboard)
-        self.btn_gpu = QToolButton()
-        self.btn_gpu.setCheckable(True)
-        self.btn_gpu.setIcon(qta.icon("fa5s.bolt", color=icon_color))
+        # GPU availability drives the overflow toggle built below (btn moved off the row).
         self._gpu_available = GPUDevice.get().is_available
-        if self._gpu_available:
-            self.btn_gpu.setChecked(self.session.state.gpu_enabled)
-        else:
-            self.btn_gpu.setEnabled(False)
-            self.btn_gpu.setChecked(False)
-        self.btn_gpu.setToolTip("GPU Acceleration")
 
         # 4. Overflow menu & responsive groups
         self.btn_overflow = QToolButton()
@@ -179,6 +165,7 @@ class ActionToolbar(QWidget):
         self.btn_overflow.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         overflow_menu = QMenu(self.btn_overflow)
+        overflow_menu.setToolTipsVisible(True)  # so the GPU action can surface its backend/status
 
         # Overflow always mirrors the full action set, independent of which of these
         # also happen to be visible in the toolbar row at the current canvas width —
@@ -188,6 +175,18 @@ class ActionToolbar(QWidget):
         # the row enough width to show them directly instead).
         self._ov_hq_action = overflow_menu.addAction("Toggle HQ Preview")
         self._ov_hq_action.setCheckable(True)
+        self._ov_hq_action.setToolTip("Toggle High Quality Preview")
+
+        # GPU acceleration lives here (not on the editing row) — details in tooltip,
+        # refreshed by the dashboard via refresh_gpu_status().
+        self._ov_gpu_action = overflow_menu.addAction(qta.icon("fa5s.bolt", color=icon_color), "GPU Acceleration")
+        self._ov_gpu_action.setCheckable(True)
+        self._ov_gpu_action.setToolTip("GPU Acceleration")
+        if self._gpu_available:
+            self._ov_gpu_action.setChecked(self.session.state.gpu_enabled)
+        else:
+            self._ov_gpu_action.setEnabled(False)
+            self._ov_gpu_action.setChecked(False)
         overflow_menu.addSeparator()
 
         # Canvas background — overflow-only (no toolbar swatches), exclusive
@@ -199,48 +198,76 @@ class ActionToolbar(QWidget):
             action = overflow_menu.addAction(f"Canvas: {label}")
             action.setCheckable(True)
             action.setChecked(i == self.session.state.canvas_bg_index)
+            action.setToolTip(f"Set the canvas background to {label.lower()}")
             self._ov_color_group.addAction(action)
             self._ov_color_actions.append(action)
         overflow_menu.addSeparator()
 
         overflow_menu.addSeparator()
         self._ov_fit_action = overflow_menu.addAction(qta.icon("fa5s.expand", color=icon_color), "Fit to Window")
+        self._ov_fit_action.setToolTip(tooltip_with_shortcut("Fit to Window", "fit_view"))
         self._ov_original_action = overflow_menu.addAction("Original Size (1:1)")
+        self._ov_original_action.setToolTip(
+            tooltip_with_shortcut(
+                "Original size (100%). Displays a lower-resolution preview unless HQ is enabled.",
+                "zoom_100",
+            )
+        )
         self._ov_compare_action = overflow_menu.addAction(qta.icon("fa5s.adjust", color=icon_color), "Before / After")
         self._ov_compare_action.setCheckable(True)
+        self._ov_compare_action.setToolTip(tooltip_with_shortcut("Before / After — show the auto baseline", "toggle_compare"))
         self._ov_flat_peek_action = overflow_menu.addAction(qta.icon("fa5s.eye", color=icon_color), "Peek Flat Scan")
         self._ov_flat_peek_action.setCheckable(True)
+        self._ov_flat_peek_action.setToolTip(
+            tooltip_with_shortcut("Peek flat scan — temporarily show the flat master (does not change your edit)", "toggle_flat_peek")
+        )
         self._ov_undo_action = overflow_menu.addAction(qta.icon("mdi.undo", color=icon_color), "Undo")
+        self._ov_undo_action.setToolTip(tooltip_with_shortcut("Undo", "undo"))
         self._ov_redo_action = overflow_menu.addAction(qta.icon("mdi.redo", color=icon_color), "Redo")
+        self._ov_redo_action.setToolTip(tooltip_with_shortcut("Redo", "redo"))
 
         overflow_menu.addSeparator()
         self._ov_rot_l_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-left", color=icon_color), "Rotate CCW")
+        self._ov_rot_l_action.setToolTip(tooltip_with_shortcut("Rotate CCW", "rotate_ccw"))
         self._ov_rot_r_action = overflow_menu.addAction(qta.icon("mdi6.file-rotate-right", color=icon_color), "Rotate CW")
+        self._ov_rot_r_action.setToolTip(tooltip_with_shortcut("Rotate CW", "rotate_cw"))
         self._ov_flip_h_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-h", color=icon_color), "Flip Horizontal")
         self._ov_flip_h_action.setCheckable(True)
+        self._ov_flip_h_action.setToolTip(tooltip_with_shortcut("Flip Horizontal", "flip_h"))
         self._ov_flip_v_action = overflow_menu.addAction(qta.icon("fa5s.arrows-alt-v", color=icon_color), "Flip Vertical")
         self._ov_flip_v_action.setCheckable(True)
+        self._ov_flip_v_action.setToolTip(tooltip_with_shortcut("Flip Vertical", "flip_v"))
         overflow_menu.addSeparator()
 
         # Edits auto-save to the DB (and surface in History), so an explicit Save
         # lives here in the overflow rather than the main toolbar.
-        overflow_menu.addAction(qta.icon("fa5s.save", color=icon_color), "Save Edits", self.controller.save_current_edits)
+        save_action = overflow_menu.addAction(qta.icon("fa5s.save", color=icon_color), "Save Edits", self.controller.save_current_edits)
+        save_action.setToolTip("Write the current edit to the database now (edits also auto-save)")
         overflow_menu.addSeparator()
         self._action_copy = overflow_menu.addAction(
             qta.icon("fa5s.copy", color=icon_color), "Copy Settings  Ctrl+C", self.session.copy_settings
         )
+        self._action_copy.setToolTip("Copy this image's settings to the clipboard")
         self._action_copy_bounds = overflow_menu.addAction(
             qta.icon("fa5s.copy", color=icon_color), "Copy Settings + Bounds  Ctrl+Shift+C", self.session.copy_settings_with_bounds
         )
+        self._action_copy_bounds.setToolTip("Copy settings plus the metering/normalization bounds")
         self._action_paste = overflow_menu.addAction(
-            qta.icon("fa5s.paste", color=icon_color), "Paste Settings  Ctrl+V", self.session.paste_settings
+            qta.icon("fa5s.paste", color=icon_color), "Paste Settings  Ctrl+V", lambda: open_paste_dialog(self, self.controller)
         )
+        self._action_paste.setToolTip("Paste the copied settings onto this image")
         overflow_menu.addSeparator()
-        overflow_menu.addAction(qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings)
+        reset_settings_action = overflow_menu.addAction(
+            qta.icon("fa5s.history", color=icon_color), "Reset Settings", self.session.reset_settings
+        )
+        reset_settings_action.setToolTip("Discard all edits and return this image to its default look")
         overflow_menu.addSeparator()
-        overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self._on_overflow_unload)
+        unload_action = overflow_menu.addAction(qta.icon("fa5s.times-circle", color=icon_color), "Unload", self._on_overflow_unload)
+        unload_action.setToolTip("Remove this image from the session (its saved edit is kept)")
         overflow_menu.addSeparator()
         scale_menu = overflow_menu.addMenu(qta.icon("fa5s.search-plus", color=icon_color), "UI Scale")
+        scale_menu.setToolTipsVisible(True)
+        scale_menu.menuAction().setToolTip("Scale the whole interface (applies after a restart)")
         self._ui_scale_group = QActionGroup(self)
         self._ui_scale_group.setExclusive(True)
         current_scale = float(self.session.repo.get_global_setting("ui_scale", 1.0) or 1.0)
@@ -255,18 +282,24 @@ class ActionToolbar(QWidget):
 
         reset_key = key_for("reset_panel_layout")
         reset_label = "Reset Panel Layout" + (f"  {reset_key}" if reset_key else "")
-        overflow_menu.addAction(
+        reset_layout_action = overflow_menu.addAction(
             qta.icon("fa5s.thumbtack", color=icon_color),
             reset_label,
             self._reset_panel_layout,
         )
+        reset_layout_action.setToolTip("Restore the default panel sizes and positions")
         overflow_menu.addSeparator()
 
-        overflow_menu.addAction(qta.icon("fa5s.database", color=icon_color), "Manage Database…", self._show_database_dialog)
+        db_action = overflow_menu.addAction(qta.icon("fa5s.database", color=icon_color), "Manage Database…", self._show_database_dialog)
+        db_action.setToolTip("View stored data and clear saved edits")
         overflow_menu.addSeparator()
 
-        overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the tour", self._show_tour)
-        overflow_menu.addAction(qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts  ?", self._show_shortcuts)
+        tour_action = overflow_menu.addAction(qta.icon("fa5s.map-signs", color=icon_color), "Take the tour", self._show_tour)
+        tour_action.setToolTip("Replay the guided feature tour")
+        shortcuts_action = overflow_menu.addAction(
+            qta.icon("fa5s.keyboard", color=icon_color), "Keyboard Shortcuts  ?", self._show_shortcuts
+        )
+        shortcuts_action.setToolTip("Show the full keyboard shortcuts reference")
         self.btn_overflow.setMenu(overflow_menu)
 
         standard_buttons = [
@@ -281,7 +314,6 @@ class ActionToolbar(QWidget):
             self.btn_hq,
             self.btn_compare,
             self.btn_flat_peek,
-            self.btn_gpu,
             self.btn_overflow,
         ]
         for btn in standard_buttons:
@@ -303,13 +335,12 @@ class ActionToolbar(QWidget):
         for btn in (self.btn_zoom_fit, self.btn_zoom_original):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Single-row layout: toggle_left · prev · next · sep1 · zoom+label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · gpu · overflow · toggle_right
+        # Single-row layout: toggle_left · prev · next · sep1 · zoom_label · hq · sep2 · rot_l · rot_r · flip_h · flip_v · sep3 · undo · redo · compare · flat_peek · overflow · toggle_right
         row_layout.addWidget(self.btn_toggle_left)
         row_layout.addWidget(self.btn_prev)
         row_layout.addWidget(self.btn_next)
         self._sep1 = self._create_separator()
         row_layout.addWidget(self._sep1)
-        row_layout.addWidget(self.zoom_slider)
         row_layout.addWidget(self.zoom_label)
         row_layout.addWidget(self.btn_zoom_fit)
         row_layout.addWidget(self.btn_zoom_original)
@@ -326,7 +357,6 @@ class ActionToolbar(QWidget):
         row_layout.addWidget(self.btn_redo)
         row_layout.addWidget(self.btn_compare)
         row_layout.addWidget(self.btn_flat_peek)
-        row_layout.addWidget(self.btn_gpu)
         row_layout.addWidget(self.btn_overflow)
         row_layout.addWidget(self.btn_toggle_right)
 
@@ -369,7 +399,6 @@ class ActionToolbar(QWidget):
         self.btn_undo.clicked.connect(lambda: _context_undo(self.controller))
         self.btn_redo.clicked.connect(self.session.redo)
 
-        self.zoom_slider.valueChanged.connect(lambda v: self.controller.zoom_requested.emit(float(v / 100.0)))
         self.btn_zoom_fit.clicked.connect(self._on_fit_clicked)
         self.btn_zoom_original.clicked.connect(self._on_original_clicked)
         self.btn_hq.clicked.connect(self.controller.toggle_hq_preview)
@@ -378,7 +407,7 @@ class ActionToolbar(QWidget):
         self.controller.compare_changed.connect(self._ov_compare_action.setChecked)
         self.btn_flat_peek.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.controller.flat_peek_changed.connect(self._on_flat_peek_changed)
-        self.btn_gpu.toggled.connect(self._on_gpu_toggled)
+        self._ov_gpu_action.toggled.connect(self._on_gpu_toggled)
         self.controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
@@ -412,26 +441,27 @@ class ActionToolbar(QWidget):
             self.session.set_gpu_enabled(checked)
 
     def refresh_gpu_status(self) -> None:
-        """Reflect current GPU on/off state and active backend in the toolbar button."""
+        """Reflect current GPU on/off state and active backend in the overflow toggle."""
         enabled = self.session.state.gpu_enabled
+        action = self._ov_gpu_action
 
-        self.btn_gpu.blockSignals(True)
-        self.btn_gpu.setChecked(enabled and self._gpu_available)
-        self.btn_gpu.blockSignals(False)
+        action.blockSignals(True)
+        action.setChecked(enabled and self._gpu_available)
+        action.blockSignals(False)
 
         icon_color = THEME.accent_primary if (enabled and self._gpu_available) else THEME.text_primary
-        self.btn_gpu.setIcon(qta.icon("fa5s.bolt", color=icon_color))
+        action.setIcon(qta.icon("fa5s.bolt", color=icon_color))
 
         if not self._gpu_available:
-            self.btn_gpu.setToolTip("GPU not available on this hardware")
+            action.setToolTip("GPU not available on this hardware")
         elif enabled:
             try:
                 backend = self.controller.render_worker.processor.backend_name
             except Exception:
                 backend = "GPU"
-            self.btn_gpu.setToolTip(f"GPU Acceleration: ON — {backend}\nClick to force the CPU pipeline.")
+            action.setToolTip(f"GPU Acceleration: ON — {backend}\nClick to force the CPU pipeline.")
         else:
-            self.btn_gpu.setToolTip("GPU Acceleration: OFF — CPU pipeline\nClick to enable WebGPU for near-instant previews.")
+            action.setToolTip("GPU Acceleration: OFF — CPU pipeline\nClick to enable WebGPU for near-instant previews.")
 
     def _on_ui_scale_selected(self, value: float, pct: int) -> None:
         self.session.repo.save_global_setting("ui_scale", value)
@@ -449,11 +479,8 @@ class ActionToolbar(QWidget):
                 self.controller.canvas.set_background_color(r, g, b)
 
     def _on_zoom_changed(self, zoom: float) -> None:
-        # The slider tracks the internal fit-relative zoom_level; the label shows the
-        # true pixel zoom (zoom_level x fit_scale), which is what the user cares about.
-        self.zoom_slider.blockSignals(True)
-        self.zoom_slider.setValue(int(round(max(0.0, zoom) * 100.0)))
-        self.zoom_slider.blockSignals(False)
+        # The label shows the true pixel zoom (zoom_level x fit_scale), which is what
+        # the user cares about; zoom_level itself is fit-relative.
         canvas = getattr(self.controller, "canvas", None)
         pct = canvas.current_zoom_percent() if canvas is not None else int(round(max(0.0, zoom) * 100.0))
         self.zoom_label.setText(f"{pct}%")
@@ -494,7 +521,9 @@ class ActionToolbar(QWidget):
             new_rect = rotate_normalized_rect(config.process.analysis_rect, visual_turns_ccw)
             new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
         self.session.update_config(new_config, persist=True)
-        self.controller.request_render()
+        # Rotating shouldn't drop an active before/after or flat-peek — re-render in
+        # place within whichever view is on.
+        self.controller.rerender_active_view()
 
     def flip(self, axis: str) -> None:
         from dataclasses import replace
@@ -512,7 +541,8 @@ class ActionToolbar(QWidget):
             new_rect = mirror_normalized_rect(config.process.analysis_rect, horizontal)
             new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
         self.session.update_config(new_config, persist=True)
-        self.controller.request_render()
+        # Flipping shouldn't drop an active before/after or flat-peek (see rotate()).
+        self.controller.rerender_active_view()
 
     def _reset_panel_layout(self) -> None:
         from negpy.desktop.view.main_window import MainWindow
@@ -595,7 +625,7 @@ class ActionToolbar(QWidget):
     def set_available_width(self, w: int) -> None:
         """Show as many toolbar groups as fit the canvas width.
 
-        Grow from a minimal core (nav, zoom, GPU, overflow) by re-adding optional
+        Grow from a minimal core (nav, zoom, overflow) by re-adding optional
         groups until the measured pill width would exceed the budget. The overflow
         menu is not touched here — it always carries the full action set (see
         _init_ui), so a control moving between the row and the menu never changes

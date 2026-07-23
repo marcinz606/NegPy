@@ -3,6 +3,7 @@ from collections.abc import Callable
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from negpy.desktop.session import ToolMode
+from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
 from negpy.desktop.view.shortcut_registry import (
     REGISTRY,
     load_bindings,
@@ -111,7 +112,7 @@ class ShortcutManager:
             "export": controller.request_export,
             "copy": controller.session.copy_settings,
             "copy_with_bounds": controller.session.copy_settings_with_bounds,
-            "paste": controller.session.paste_settings,
+            "paste": lambda: open_paste_dialog(self.window, controller),
             "undo": lambda: _context_undo(controller),
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),

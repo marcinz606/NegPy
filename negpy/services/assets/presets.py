@@ -2,7 +2,6 @@ import json
 import os
 from typing import List, Dict, Any, Optional
 from negpy.kernel.system.config import APP_CONFIG
-from negpy.domain.models import WorkspaceConfig
 
 
 class Presets:
@@ -11,49 +10,11 @@ class Presets:
     """
 
     @staticmethod
-    def save_preset(name: str, settings: WorkspaceConfig) -> None:
-        """
-        Saves partial WorkspaceConfig to JSON.
-        """
+    def save_preset(name: str, settings: Dict[str, Any]) -> None:
         os.makedirs(APP_CONFIG.presets_dir, exist_ok=True)
-
-        # Exclude keys that are not relevant for presets
-        exclude_keys = {
-            "rotation",
-            "fine_rotation",
-            "autocrop",
-            "autocrop_mode",
-            "autocrop_offset",
-            "manual_dust_spots",
-            "manual_heal_strokes",
-            "local_adjustments",
-            "active_adjustment_idx",
-            "export_path",
-            "icc_input_path",
-            "icc_output_path",
-            "autocrop_assist_point",
-            "autocrop_assist_luma",
-            "manual_dust_size",
-            "locked_floors",
-            "locked_ceils",
-            "use_luma_average",
-            "use_colour_average",
-            "roll_name",
-            "analysis_buffer",
-            "luma_range_clip",
-            "color_range_clip",
-            "flip_horizontal",
-            "flip_vertical",
-        }
-
-        settings_dict = settings.to_dict()
-        default_dict = WorkspaceConfig().to_dict()
-
-        filtered = {k: v for k, v in settings_dict.items() if k in default_dict and k not in exclude_keys}
-
         filepath = os.path.join(APP_CONFIG.presets_dir, f"{name}.json")
         with open(filepath, "w") as f_out:
-            json.dump(filtered, f_out, indent=4)
+            json.dump(settings, f_out, indent=4)
 
     @staticmethod
     def load_preset(name: str) -> Optional[Dict[str, Any]]:

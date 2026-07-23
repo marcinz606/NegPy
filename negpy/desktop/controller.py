@@ -2559,9 +2559,29 @@ class AppController(QObject):
             self.compare_changed.emit(False)
             self.request_render()
         else:
+            # Mutually exclusive with flat-peek: drop it so its toggle can't linger
+            # lit while the compare baseline is what's actually on screen (mirrors
+            # toggle_flat_peek, which exits compare on the way in).
+            if self.state.flat_peek:
+                self.state.flat_peek = False
+                self.flat_peek_changed.emit(False)
             self.state.compare_mode = True
             self.compare_changed.emit(True)
             self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
+
+    def rerender_active_view(self) -> None:
+        """Re-render the canvas keeping whatever comparison overlay is active.
+
+        Geometry ops (rotate/flip) change the config but shouldn't kick the user
+        out of before/after or flat-peek; a plain request_render() would exit both.
+        Passing the mode's config_override re-renders in place and leaves the mode on.
+        """
+        if self.state.compare_mode:
+            self.request_render(readback_metrics=False, config_override=self._baseline_compare_config())
+        elif self.state.flat_peek:
+            self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
+        else:
+            self.request_render()
 
     # --- Flat ("for editing elsewhere") master output -----------------------
 

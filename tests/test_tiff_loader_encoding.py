@@ -22,8 +22,8 @@ def _rgb16(seed: int = 0) -> np.ndarray:
     return rng.integers(0, 30000, (32, 48, 3), dtype=np.uint16)
 
 
-def _load(path: str) -> tuple[np.ndarray, dict]:
-    ctx, metadata = TiffLoader().load(path)
+def _load(path: str, linear_raw: bool = False) -> tuple[np.ndarray, dict]:
+    ctx, metadata = TiffLoader().load(path, linear_raw=linear_raw)
     with ctx as raw:
         return raw.data, metadata
 
@@ -57,6 +57,27 @@ class TestTiffEncodingAssumptions:
             f32, metadata = _load(path)
             np.testing.assert_allclose(f32, srgb_to_linear(data.astype(np.float32) / 65535.0), atol=1e-6)
             assert metadata["color_space"] == ColorSpace.SRGB.value
+
+    def test_linear_raw_ignores_srgb_icc_tag(self) -> None:
+        """Linear RAW couples to the loader: a stitched/scanner TIFF that lies about
+        being sRGB (see #588) must decode as literal linear data when it's on."""
+        icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+        data = _rgb16()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "tagged.tif")
+            tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(icc), icc, True)])
+            f32, metadata = _load(path, linear_raw=True)
+            np.testing.assert_allclose(f32, data.astype(np.float32) / 65535.0, atol=1e-7)
+            assert metadata["color_space"] is None
+
+    def test_linear_raw_ignores_untagged_uint8_srgb_assumption(self) -> None:
+        data = np.linspace(0, 255, 32 * 48 * 3).reshape(32, 48, 3).astype(np.uint8)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "photo.tif")
+            tifffile.imwrite(path, data, photometric="rgb")
+            f32, metadata = _load(path, linear_raw=True)
+            np.testing.assert_allclose(f32, data.astype(np.float32) / 255.0, atol=1e-7)
+            assert metadata["color_space"] is None
 
 
 class TestScanRoundTripParity:

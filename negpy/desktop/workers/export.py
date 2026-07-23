@@ -5,13 +5,22 @@ import os
 import tempfile
 import threading
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
-from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
+from negpy.domain.models import ColorSpace, WorkspaceConfig, ExportConfig, ExportFormat, ExportPreset, ExportPresetOutputMode
 from negpy.features.metadata.writer import embed_metadata, preserve_source_metadata
 from negpy.features.metadata.models import MetadataConfig
-from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
+from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE, ColorSpaceRegistry
 from negpy.services.rendering.image_processor import ImageProcessor
 from negpy.services.export.templating import render_export_filename
 from negpy.services.export.contact_sheet import ContactSheetService
+
+
+def _srgb_icc_bytes() -> Optional[bytes]:
+    """Bundled sRGB profile for tagging contact sheets (tiles are display/sRGB)."""
+    path = ColorSpaceRegistry.get_icc_path(ColorSpace.SRGB.value)
+    if path and os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    return None
 
 
 @dataclass(frozen=True)
@@ -234,6 +243,10 @@ class ExportWorker(QObject):
                 if tile is not None:
                     tiles.append(tile)
                     labels.append(task.file_info["name"])
+                else:
+                    # A dropped tile silently shrinks the sheet; report it so the
+                    # run doesn't look like a clean success with frames missing.
+                    self.error.emit(f"{name}: could not be rendered for the contact sheet")
 
             sheets = ContactSheetService.build_sheets(
                 tiles,
@@ -248,6 +261,7 @@ class ExportWorker(QObject):
             )
             os.makedirs(out_dir, exist_ok=True)
 
+            sheet_icc = _srgb_icc_bytes()
             for idx, sheet in enumerate(sheets):
                 suffix = "" if idx == 0 else f"_{idx + 1}"
                 path = os.path.join(out_dir, f"contact_sheet{suffix}.jpg")
@@ -260,7 +274,7 @@ class ExportWorker(QObject):
                 try:
                     with tempfile.NamedTemporaryFile(dir=out_dir, delete=False, suffix=".part") as tmp:
                         tmp_path = tmp.name
-                        sheet.save(tmp, format="JPEG", quality=95, subsampling=0)
+                        sheet.save(tmp, format="JPEG", quality=95, subsampling=0, icc_profile=sheet_icc)
                     os.replace(tmp_path, path)
                 except Exception as write_err:
                     if tmp_path is not None and os.path.exists(tmp_path):

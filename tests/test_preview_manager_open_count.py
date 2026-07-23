@@ -37,7 +37,7 @@ def _make_fake_raw(w: int = 100, h: int = 100) -> MagicMock:
 def _make_loader_factory_patch(fake_raw: MagicMock, open_count: dict):
     """Return a side_effect callable for loader_factory.get_loader."""
 
-    def fake_get_loader(path):
+    def fake_get_loader(path, linear_raw=False):
         open_count["n"] += 1
         metadata = {"color_space": "Adobe RGB", "orientation": 0, "raw_flip": 0}
         return fake_raw, metadata

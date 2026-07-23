@@ -173,6 +173,12 @@ class ColorSpace(Enum):
     GREYSCALE = "Greyscale"
 
 
+# Colour spaces offered for export. ACES and XYZ are rawpy *decode* spaces with no
+# bundled ICC profile — an export targeting them can be neither converted nor tagged
+# (the encoder falls back to the working space), so they're excluded here.
+EXPORT_COLOR_SPACES: list[str] = [cs.value for cs in ColorSpace if cs not in (ColorSpace.ACES, ColorSpace.XYZ)]
+
+
 # Colour spaces JPEG XL can tag (mirror _JXL_COLOR in image_processor). Same as
 # Source is allowed — resolved at export time and rejected by the encoder if it
 # lands on an unsupported space.
@@ -484,6 +490,7 @@ class WorkspaceConfig:
             ExposureConfig,
             FlatFieldConfig,
             RgbScanConfig,
+            StitchConfig,
             GeometryConfig,
             LabConfig,
             RetouchConfig,

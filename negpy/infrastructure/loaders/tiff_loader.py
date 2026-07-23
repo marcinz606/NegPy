@@ -125,7 +125,7 @@ class TiffLoader(IImageLoader):
     (either as a 4th sample with ExtraSamples=UNSPECIFIED, or via a `_IR.tif` sidecar).
     """
 
-    def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
+    def load(self, file_path: str, linear_raw: bool = False) -> Tuple[ContextManager[Any], dict]:
         img = iio.imread(file_path)
         ir: Optional[np.ndarray] = None
         ir_valid_mask: Optional[np.ndarray] = None
@@ -161,13 +161,15 @@ class TiffLoader(IImageLoader):
         except Exception:
             icc_bytes = None
 
-        color_space = identify_color_space_from_icc(icc_bytes)
-        if color_space is None and img.dtype == np.uint8:
-            # Untagged 8-bit is display-encoded in practice. Untagged 16-bit is
-            # scanner-raw linear, which no ColorSpace names, so it stays None.
-            color_space = ColorSpace.SRGB.value
-        if color_space == ColorSpace.SRGB.value:
-            f32 = srgb_to_linear(f32)
+        color_space = None
+        if not linear_raw:
+            color_space = identify_color_space_from_icc(icc_bytes)
+            if color_space is None and img.dtype == np.uint8:
+                # Untagged 8-bit is display-encoded in practice. Untagged 16-bit is
+                # scanner-raw linear, which no ColorSpace names, so it stays None.
+                color_space = ColorSpace.SRGB.value
+            if color_space == ColorSpace.SRGB.value:
+                f32 = srgb_to_linear(f32)
         metadata = {
             "orientation": read_orientation(file_path),
             "color_space": color_space,

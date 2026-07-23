@@ -8,6 +8,7 @@ from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.hud import CanvasHud
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
+from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.desktop.view.styles.theme import THEME
@@ -575,7 +576,7 @@ class ImageCanvas(QWidget):
         act_copy_bounds = menu.addAction("Copy Settings + Bounds  Ctrl+Shift+C")
         act_copy_bounds.triggered.connect(self._controller.session.copy_settings_with_bounds)  # type: ignore[union-attr]
         act_paste = menu.addAction("Paste Settings  Ctrl+V")
-        act_paste.triggered.connect(self._controller.session.paste_settings)  # type: ignore[union-attr]
+        act_paste.triggered.connect(lambda: open_paste_dialog(self, self._controller))  # type: ignore[arg-type]
         act_paste.setEnabled(self.state.clipboard is not None)
         menu.addSeparator()
         act_reset = menu.addAction("Reset View")
