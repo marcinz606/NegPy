@@ -6,7 +6,13 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 import qtawesome as qta
-from negpy.desktop.settings_catalog import preset_summary, selected_flat_dict
+from negpy.desktop.settings_catalog import (
+    CATALOG,
+    apply_selected_fields,
+    non_default_fields,
+    preset_summary,
+    selected_flat_dict,
+)
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
@@ -15,6 +21,11 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.services.assets.presets import Presets
 
 _PRESET_EXCLUDED_SECTIONS = frozenset({"Crop", "Rotation"})
+
+# "Replace edits" resets only the look sections; per-frame geometry, frame
+# metadata and export prefs stay (dust/heal/masks aren't catalog rows at all).
+_REPLACE_KEPT_SECTIONS = frozenset({"Crop", "Rotation", "Metadata", "Export"})
+_LOOK_ROWS = tuple(r for title, rows in CATALOG if title not in _REPLACE_KEPT_SECTIONS for r in rows)
 
 
 class PresetsSidebar(BaseSidebar):
@@ -71,14 +82,42 @@ class PresetsSidebar(BaseSidebar):
         name = self._current_name()
         if not name or not self.state.current_file_hash:
             return
+        mode = self._ask_apply_mode(name)
+        if mode:
+            self._do_apply(name, mode)
 
+    def _ask_apply_mode(self, name: str) -> str:
+        from PyQt6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Apply Preset")
+        box.setText(f'Apply "{name}" on top of your current edits, or replace them with the preset?')
+        overlay_btn = box.addButton("Apply on top", QMessageBox.ButtonRole.AcceptRole)
+        replace_btn = box.addButton("Replace edits", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(overlay_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is overlay_btn:
+            return "overlay"
+        if clicked is replace_btn:
+            return "replace"
+        return ""
+
+    def _do_apply(self, name: str, mode: str) -> None:
         p_settings = Presets.load_preset(name)
-        if p_settings:
-            current_dict = self.state.config.to_dict()
-            current_dict.update(p_settings)
-            new_config = WorkspaceConfig.from_flat_dict(current_dict)
-            self.controller.session.update_config(new_config, persist=True)
-            self.controller.request_render()
+        if not p_settings:
+            return
+        if mode == "replace":
+            base_cfg = apply_selected_fields(WorkspaceConfig(), self.state.config, _LOOK_ROWS)
+        else:
+            base_cfg = self.state.config
+            p_settings = non_default_fields(p_settings)
+        current_dict = base_cfg.to_dict()
+        current_dict.update(p_settings)
+        new_config = WorkspaceConfig.from_flat_dict(current_dict)
+        self.controller.session.update_config(new_config, persist=True)
+        self.controller.request_render()
 
     def _on_save_clicked(self) -> None:
         if not self.state.current_file_hash:
