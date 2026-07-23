@@ -6,6 +6,7 @@
 - New: **Direct Nikon LS-5000 whole-roll scanning** — NegPy can drive a converted SA-21/SA-30 feeder through CoolscanPy, preview and approve the roll, batch-capture 16-bit RGBI, retain scanner evidence, and publish unrepaired, Digital ICE/Hybrid-repaired, and byte-verified Nikon-colour positive tiers. Hybrid synthesis is configurable and fail-closed at a maximum of 10%, with a per-frame recommendation explaining when it is useful.
 - New: **Roll-scanner controls that match the workflow** — the contact sheet is shown in the central viewer, with a raw-negative/auto-toned-positive preview toggle, automatic crop and orientation support, Safe Stop, and a one-click **Eject Roll** action that invalidates the old registration after a confirmed eject.
 - Fix: **Roll previews no longer look washed out** — preview exposure now ignores isolated hot pixels and the positive view tones optical density per channel. This changes display thumbnails only; saved Nikon-exact TIFF pixels and profiles are untouched.
+- Fix: **A timed-out roll eject no longer reads like a definite failure** — the button stays latched against a second transport action and explains that the eject may already have been dispatched, so the operator checks the film physically instead of retrying.
 
 ## 0.40.0
 

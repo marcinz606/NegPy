@@ -485,6 +485,12 @@ panel deliberately disables preview and further eject attempts for the
 rest of that app session: the physical result is uncertain and a blind
 retry could move film twice.
 
+The 30-second software wait is only a bound on how long NegPy waits for
+`scanimage` to confirm the action; it is not proof that the transport failed.
+If that wait expires, the button action may already have been dispatched.
+The panel keeps the operation latched, reports the outcome as uncertain, and
+requires a physical check rather than a software retry.
+
 The Output section has three checkboxes, one per tier, plus a repair-mode
 dropdown that governs Tier 2. Any combination of the three checkboxes is
 valid, and at least one must be checked before Scan Selected enables.

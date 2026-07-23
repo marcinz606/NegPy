@@ -302,6 +302,7 @@ class TestEject:
         assert w.eject_btn.isEnabled() is False
         assert w.preview_btn.isEnabled() is False
         assert "Ejecting" in w.status_label.text()
+        assert "do not press eject again" in w.status_label.text().lower()
 
     def test_confirmation_cancel_does_not_eject(self, monkeypatch) -> None:
         w = _sidebar()

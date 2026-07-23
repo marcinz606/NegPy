@@ -514,7 +514,7 @@ class CoolscanRollSidebar(QWidget):
         self._eject_pending = True
         self._eject_latched = True
         self._clear_contact_sheet()
-        self._set_status("Ejecting roll…")
+        self._set_status("Ejecting roll… Do not press Eject again; wait for the film or a result.")
         self._apply_gating()
         self.controller.eject_roll(device_id)
 

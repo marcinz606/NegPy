@@ -235,13 +235,36 @@ class TestSaneBackendEject:
     def test_spurious_out_of_documents_exit_is_treated_as_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
         backend = _make_backend(FakeSaneModule(dev))
-        _patch_run(
+        run = _patch_run(
             monkeypatch,
             returncode=7,
             stderr="scanimage: sane_start: Document feeder out of documents\n",
         )
 
         assert backend.eject(_DEV) is True
+        assert run.calls[0][1]["timeout"] == sane_backend._EJECT_TIMEOUT_S
+
+    def test_timeout_reports_that_eject_may_have_dispatched_and_forbids_retry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        dev = FakeSaneDev(dict(COOLSCAN3_OPT_WITH_EJECT))
+        backend = _make_backend(FakeSaneModule(dev))
+        _patch_run(
+            monkeypatch,
+            raises=sane_backend.subprocess.TimeoutExpired(
+                ["scanimage", "-d", _DEV, "--eject"],
+                timeout=sane_backend._EJECT_TIMEOUT_S,
+            ),
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            backend.eject(_DEV)
+
+        message = str(exc_info.value)
+        assert "may already have been dispatched" in message
+        assert "Check the film physically" in message
+        assert "do not retry" in message
 
     def test_capability_gated_skip_when_device_has_no_eject_option(self, monkeypatch: pytest.MonkeyPatch) -> None:
         dev = FakeSaneDev(dict(COOLSCAN3_OPT_NO_EJECT))

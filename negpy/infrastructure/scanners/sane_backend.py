@@ -354,7 +354,10 @@ def _scanimage_eject(device_id: str) -> None:
     except FileNotFoundError as exc:
         raise RuntimeError("Cannot eject: `scanimage` (sane-utils) is not installed") from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Eject timed out after {_EJECT_TIMEOUT_S:g}s for {device_id!r}") from exc
+        raise RuntimeError(
+            f"Eject confirmation timed out after {_EJECT_TIMEOUT_S:g}s for {device_id!r}; "
+            "the button action may already have been dispatched. Check the film physically and do not retry"
+        ) from exc
 
     if proc.returncode == 0:
         return
