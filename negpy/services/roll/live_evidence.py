@@ -531,10 +531,7 @@ def validate_six_frame_batch_capture_evidence(
             or batch_session.get("selected_slots") != list(_SIX_FRAME_SLOTS)
             or not isinstance(selection, dict)
             or selection.get("frame") != slot
-            # The Coolscan worker writes this proof beneath ``boundary_offset``
-            # alongside the resolved transport origin.  Keep the validation
-            # closed over that canonical, engine-owned layout rather than
-            # silently accepting an obsolete flattened representation.
+            # Coolscan's engine-owned offset proof uses this nested layout.
             or not isinstance(boundary_offset, dict)
             or boundary_offset.get("requested_rows") != frame_job["boundary_offset_rows"]
             or boundary_offset.get("applied_rows") != frame_job["boundary_offset_rows"]
