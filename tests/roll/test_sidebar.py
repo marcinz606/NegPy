@@ -14,7 +14,7 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 from unittest.mock import MagicMock
 
-from negpy.desktop.view.sidebar.coolscan_roll import CoolscanRollSidebar
+from negpy.desktop.view.sidebar.coolscan_roll import CoolscanRollSidebar, QMessageBox
 from negpy.infrastructure.roll import coolscanpy_roll
 
 if not QApplication.instance():
@@ -50,6 +50,9 @@ class TestBuildsAndGating:
             "preview_btn",
             "scan_btn",
             "safe_stop_btn",
+            "eject_btn",
+            "select_all_btn",
+            "clear_selection_btn",
             "device_combo",
             "refresh_btn",
             "folder_edit",
@@ -111,6 +114,8 @@ class TestPreview:
         req = w.controller.start_coolscan_roll_preview.call_args[0][0]
         assert isinstance(req, RollPreviewRequest)
         assert req.device_id == "dev-42"
+        assert w._preview_pending is True
+        assert w.eject_btn.isEnabled() is False
 
     def test_preview_click_without_a_device_is_a_noop(self) -> None:
         w = _sidebar()
@@ -160,6 +165,140 @@ class TestPreview:
 
         assert w.contact_sheet.count() == 1
         assert list(w._thumbnails.keys()) == [9]
+
+    def test_select_all_frames_prepares_a_full_roll_selection(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        w = _sidebar()
+        _pick_device(w)
+        w.folder_edit.setText(str(tmp_path))
+        w._on_preview_ready([_thumb(fake_coolscanpy, slot) for slot in range(1, 37)])
+
+        w.select_all_btn.click()
+
+        assert w._selected_slots() == list(range(1, 37))
+        assert w.scan_btn.isEnabled() is True
+        assert w.clear_selection_btn.isEnabled() is True
+
+
+class TestEject:
+    def test_preview_in_flight_blocks_eject(self, fake_coolscanpy, monkeypatch) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="usb:2:7")
+        w._on_preview_clicked()
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        )
+
+        w._on_eject_clicked()
+
+        w.controller.eject_roll.assert_not_called()
+        assert w._preview_pending is True
+        assert w.eject_btn.isEnabled() is False
+
+    def test_confirmation_ejects_selected_direct_usb_device(
+        self,
+        fake_coolscanpy,
+        monkeypatch,
+    ) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="usb:2:7")
+        w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        )
+
+        w._on_eject_clicked()
+
+        w.controller.eject_roll.assert_called_once_with("usb:2:7")
+        assert w.contact_sheet.count() == 0
+        assert w.eject_btn.isEnabled() is False
+        assert w.preview_btn.isEnabled() is False
+        assert "Ejecting" in w.status_label.text()
+
+    def test_confirmation_cancel_does_not_eject(self, monkeypatch) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="usb:2:7")
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.No,
+        )
+
+        w._on_eject_clicked()
+
+        w.controller.eject_roll.assert_not_called()
+        assert w.eject_btn.isEnabled() is True
+
+    def test_success_clears_registration_and_latches_against_second_eject(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="usb:2:7")
+        w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
+        w._eject_pending = True
+
+        w._on_ejected(True)
+
+        assert w.contact_sheet.count() == 0
+        assert w.eject_btn.isEnabled() is False
+        assert "Eject started" in w.status_label.text()
+
+    def test_late_preview_after_eject_cannot_restore_registration(
+        self,
+        fake_coolscanpy,
+        tmp_path,
+    ) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="usb:2:7")
+        w.folder_edit.setText(str(tmp_path))
+        w._eject_latched = True
+
+        w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
+        w.contact_sheet.selectAll()
+        w._on_scan_clicked()
+
+        assert w.contact_sheet.count() == 0
+        assert w._thumbnails == {}
+        assert w.select_all_btn.isEnabled() is False
+        assert w.scan_btn.isEnabled() is False
+        w.controller.start_roll_scan.assert_not_called()
+
+    def test_fresh_preview_after_refeed_reestablishes_registration(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="usb:2:7")
+        w._eject_latched = True
+        w._apply_gating()
+
+        w._on_preview_clicked()
+        w._on_preview_ready([_thumb(fake_coolscanpy, 1)])
+
+        assert w._preview_pending is False
+        assert w._eject_latched is False
+        assert w.contact_sheet.count() == 1
+        assert w.eject_btn.isEnabled() is True
+
+    def test_uncertain_failure_blocks_preview_and_retry(self) -> None:
+        w = _sidebar()
+        _pick_device(w, device_id="usb:2:7")
+        w._eject_pending = True
+
+        w._on_eject_error("transport status unknown")
+
+        assert w.eject_btn.isEnabled() is False
+        assert w.preview_btn.isEnabled() is False
+        assert "do not retry" in w.status_label.text()
+        assert "physically checking" in w._missing_for_preview()[-1]
 
 
 class TestSpacingAndApproval:

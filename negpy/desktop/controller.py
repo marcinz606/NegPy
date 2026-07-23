@@ -267,6 +267,9 @@ class AppController(QObject):
     roll_frame_written = pyqtSignal(object)  # RollFrameOutput
     roll_finished = pyqtSignal(list)  # list[RollFrameOutput]
     roll_cancelled = pyqtSignal()
+    roll_eject_requested = pyqtSignal(str)
+    roll_ejected = pyqtSignal(bool)
+    roll_eject_error = pyqtSignal(str)
     roll_error = pyqtSignal(str)
     roll_status = pyqtSignal(str)
 
@@ -586,6 +589,9 @@ class AppController(QObject):
         self.roll_worker.frame_written.connect(self.roll_frame_written.emit)
         self.roll_worker.finished.connect(self._on_roll_scan_finished)
         self.roll_worker.cancelled.connect(self.roll_cancelled.emit)
+        self.roll_eject_requested.connect(self.roll_worker.eject)
+        self.roll_worker.ejected.connect(self.roll_ejected.emit)
+        self.roll_worker.eject_error.connect(self.roll_eject_error.emit)
         self.roll_worker.error.connect(self.roll_error.emit)
         self.roll_worker.status.connect(self.roll_status.emit)
 
@@ -2353,6 +2359,12 @@ class AppController(QObject):
 
     def roll_safe_stop(self) -> None:
         self.roll_worker.safe_stop()
+
+    def eject_roll(self, device_id: str) -> None:
+        """Release and eject the selected Coolscan roll on its worker thread."""
+
+        self._ensure_roll_thread()
+        self.roll_eject_requested.emit(device_id)
 
     @property
     def shutdown_block_reason(self) -> str | None:

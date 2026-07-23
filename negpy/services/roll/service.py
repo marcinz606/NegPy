@@ -791,6 +791,13 @@ class RollScanningService:
             self._roll.close()
             self._roll = None
 
+    def eject(self, device_id: str) -> bool:
+        """Eject a released direct-USB roll through the proven SANE action."""
+
+        if self._roll is not None:
+            raise RollScanningError("close the roll reservation before ejecting")
+        return coolscanpy_roll.eject(device_id)
+
     def __enter__(self) -> "RollScanningService":
         return self
 

@@ -219,6 +219,80 @@ class TestOpenAndPreview:
         assert errors and "ownership remains uncertain" in errors[-1]
 
 
+class TestEject:
+    def test_eject_without_an_open_roll_emits_success(self) -> None:
+        worker = RollWorker()
+        worker._service.eject = MagicMock(return_value=True)
+        results: list[bool] = []
+        worker.ejected.connect(results.append)
+
+        worker.eject("usb:2:7")
+
+        worker._service.eject.assert_called_once_with("usb:2:7")
+        assert results == [True]
+
+    def test_eject_closes_the_matching_roll_before_motion(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        _open(fake_coolscanpy)
+        worker = RollWorker()
+        worker.run_preview(RollPreviewRequest(device_id="usb:2:7"))
+        events: list[str] = []
+        real_close = worker._service.close
+
+        def close() -> None:
+            events.append("close")
+            real_close()
+
+        def eject(device_id: str) -> bool:
+            events.append(f"eject:{device_id}")
+            return True
+
+        worker._service.close = close
+        worker._service.eject = eject
+
+        worker.eject("usb:2:7")
+
+        assert events == ["close", "eject:usb:2:7"]
+        assert worker._open_device_id is None
+
+    def test_close_failure_preserves_identity_and_never_ejects(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        _open(fake_coolscanpy)
+        worker = RollWorker()
+        worker.run_preview(RollPreviewRequest(device_id="usb:2:7"))
+        worker._service.close = MagicMock(side_effect=RuntimeError("reservation uncertain"))
+        worker._service.eject = MagicMock(return_value=True)
+        errors: list[str] = []
+        worker.eject_error.connect(errors.append)
+
+        worker.eject("usb:2:7")
+
+        assert worker._open_device_id == "usb:2:7"
+        worker._service.eject.assert_not_called()
+        assert errors == ["reservation uncertain"]
+
+    def test_refuses_to_eject_a_device_other_than_the_open_roll(
+        self,
+        fake_coolscanpy,
+    ) -> None:
+        _open(fake_coolscanpy)
+        worker = RollWorker()
+        worker.run_preview(RollPreviewRequest(device_id="usb:2:7"))
+        worker._service.eject = MagicMock(return_value=True)
+        errors: list[str] = []
+        worker.eject_error.connect(errors.append)
+
+        worker.eject("usb:2:8")
+
+        worker._service.eject.assert_not_called()
+        assert worker._open_device_id == "usb:2:7"
+        assert errors and "not requested device" in errors[0]
+
+
 class TestSpacingAndApproval:
     def test_set_spacing_offset_echoes_the_applied_value(self, fake_coolscanpy) -> None:
         roll, _device = _open(fake_coolscanpy)

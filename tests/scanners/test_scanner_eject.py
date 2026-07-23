@@ -138,6 +138,7 @@ class FakeRun:
 
 def _patch_run(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> FakeRun:
     fake = FakeRun(**kwargs)
+    monkeypatch.setattr(sane_backend, "_scanimage_executable", lambda: "scanimage")
     monkeypatch.setattr(sane_backend.subprocess, "run", fake)
     return fake
 
@@ -173,6 +174,36 @@ class TestFindEjectOption:
 
     def test_matches_hyphenated_spelling(self) -> None:
         assert _find_eject_option({"eject": FakeOption()}) == "eject"
+
+
+class TestDirectUsbEject:
+    def test_maps_the_exact_direct_usb_topology_to_coolscan3(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls: list[str] = []
+        monkeypatch.setattr(sane_backend, "_scanimage_eject", calls.append)
+
+        assert sane_backend.scanimage_eject_direct_usb("usb:2:7") is True
+        assert calls == ["coolscan3:usb:libusb:002:007"]
+
+    @pytest.mark.parametrize(
+        "device_id",
+        (
+            "ls5000",
+            "usb:2",
+            "usb:0:7",
+            "usb:2:0",
+            "usb:2:7:extra",
+            "usb:1000:7",
+        ),
+    )
+    def test_rejects_ambiguous_or_out_of_range_topologies(
+        self,
+        device_id: str,
+    ) -> None:
+        with pytest.raises(ValueError, match="direct Coolscan eject"):
+            sane_backend.scanimage_eject_direct_usb(device_id)
 
 
 class TestSaneBackendEject:

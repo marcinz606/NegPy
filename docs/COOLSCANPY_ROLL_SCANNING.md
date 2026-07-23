@@ -470,7 +470,18 @@ missing gphoto2.
 The panel covers device selection, a whole-roll preview rendered as a
 thumbnail contact sheet, a spacing-offset spinner and an approve button
 for whichever slot is selected, and a batch scan of every selected slot
-with a progress bar and a Safe Stop button.
+with a progress bar and a Safe Stop button. Select All Frames makes a
+full-roll batch explicit instead of requiring every thumbnail to be
+clicked individually.
+
+Eject Roll uses the same proven SANE `scanimage --eject` transport action
+as NegPy's ordinary scanner panel. It first closes the coolscanpy roll
+reservation so the direct SANE command never competes for the scanner.
+Successful ejection discards the contact sheet because the film's
+registration is no longer valid. If the command returns an error, the
+panel deliberately disables preview and further eject attempts for the
+rest of that app session: the physical result is uncertain and a blind
+retry could move film twice.
 
 The Output section has three checkboxes, one per tier, plus a repair-mode
 dropdown that governs Tier 2. Any combination of the three checkboxes is
@@ -491,13 +502,14 @@ actually does.
 The panel keeps a roll reservation open for the life of the app session,
 including across a tab switch. It closes the current reservation only
 when the user picks a different device, opening the new one in its place.
-There is no separate close button. This differs from the camera route,
-where the tethered session is deliberately released once neither the
-live-view window nor the calibration window is open, because some camera
-bodies get stuck in a tethered-capture state if a session is left open
-past the window that used it. coolscanpy's roll reservation has no
-equivalent failure mode, so there is nothing to protect against by
-closing it early.
+Eject Roll also closes it immediately before handing transport control to
+SANE. There is no separate close-without-eject button. This differs from
+the camera route, where the tethered session is deliberately released
+once neither the live-view window nor the calibration window is open,
+because some camera bodies get stuck in a tethered-capture state if a
+session is left open past the window that used it. coolscanpy's roll
+reservation has no equivalent failure mode, so there is nothing to
+protect against by closing it early.
 
 The panel does not yet expose a material picker and opens a roll as color
 negative. Coolscanpy's B&W batch route is implemented and covered offline,

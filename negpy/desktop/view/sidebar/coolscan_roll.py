@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QDoubleSpinBox,
@@ -90,6 +91,10 @@ class CoolscanRollSidebar(QWidget):
         self._thumbnails: dict[int, "coolscanpy.Thumbnail"] = {}
         self._scanning = False
         self._stopping = False  # safe-stop acknowledged, waiting for the in-flight frame
+        self._preview_pending = False
+        self._eject_pending = False
+        self._eject_latched = False
+        self._eject_failed = False
         self._active_scan_request: RollBatchScanRequest | None = None
 
         self._init_ui()
@@ -164,8 +169,13 @@ class CoolscanRollSidebar(QWidget):
         self.refresh_btn.setIcon(qta.icon("fa5s.redo", color=THEME.text_secondary))
         self.refresh_btn.setToolTip("Refresh device list")
         self.refresh_btn.setFixedWidth(32)
+        self.eject_btn = QPushButton(qta.icon("fa5s.eject", color=THEME.text_secondary), " Eject Roll…")
+        self.eject_btn.setToolTip(
+            "Release the scanner reservation and eject the loaded roll. This invalidates the current preview and frame registration."
+        )
         device_row.addWidget(self.device_combo, 1)
         device_row.addWidget(self.refresh_btn)
+        device_row.addWidget(self.eject_btn)
         layout.addLayout(device_row)
 
         # ── OUTPUT ──────────────────────────────────────────
@@ -287,6 +297,14 @@ class CoolscanRollSidebar(QWidget):
         self.contact_sheet.setToolTip("Click a slot to nudge its spacing or approve it; select several, then Scan Selected.")
         layout.addWidget(self.contact_sheet)
 
+        selection_row = QHBoxLayout()
+        self.select_all_btn = QPushButton("Select All Frames")
+        self.select_all_btn.setToolTip("Select every frame found by the current roll preview")
+        self.clear_selection_btn = QPushButton("Clear Selection")
+        selection_row.addWidget(self.select_all_btn)
+        selection_row.addWidget(self.clear_selection_btn)
+        layout.addLayout(selection_row)
+
         slot_row = QFormLayout()
         slot_row.setSpacing(6)
         self.slot_label = QLabel("—")
@@ -324,6 +342,7 @@ class CoolscanRollSidebar(QWidget):
 
     def _connect_signals(self) -> None:
         self.refresh_btn.clicked.connect(self._on_refresh)
+        self.eject_btn.clicked.connect(self._on_eject_clicked)
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)
         self.folder_browse.clicked.connect(self._on_browse_folder)
         for w in (self.folder_edit, self.pattern_edit):
@@ -335,6 +354,8 @@ class CoolscanRollSidebar(QWidget):
         self.hybrid_synthesis_limit_spin.valueChanged.connect(self._update_settings_from_ui)
         self.preview_btn.clicked.connect(self._on_preview_clicked)
         self.contact_sheet.itemSelectionChanged.connect(self._on_selection_changed)
+        self.select_all_btn.clicked.connect(self.contact_sheet.selectAll)
+        self.clear_selection_btn.clicked.connect(self.contact_sheet.clearSelection)
         self.offset_apply_btn.clicked.connect(self._on_apply_offset)
         self.approve_btn.clicked.connect(self._on_approve)
         self.scan_btn.clicked.connect(self._on_scan_clicked)
@@ -349,6 +370,8 @@ class CoolscanRollSidebar(QWidget):
         self.controller.roll_frame_written.connect(self._on_frame_written)
         self.controller.roll_finished.connect(self._on_finished)
         self.controller.roll_cancelled.connect(self._on_cancelled)
+        self.controller.roll_ejected.connect(self._on_ejected)
+        self.controller.roll_eject_error.connect(self._on_eject_error)
         self.controller.roll_error.connect(self._on_error)
         self.controller.roll_status.connect(self._on_status)
 
@@ -374,6 +397,28 @@ class CoolscanRollSidebar(QWidget):
     def _on_refresh(self) -> None:
         self._devices_loaded = False
         self._request_devices()
+
+    def _on_eject_clicked(self) -> None:
+        device_id = self._current_device_id()
+        if not device_id or self._scanning or self._preview_pending or self._eject_pending or self._eject_latched or self._eject_failed:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Eject roll?",
+            "Eject the loaded roll?\n\n"
+            "The current preview and frame registration will be discarded. "
+            "If eject reports an uncertain outcome, do not press it again.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._eject_pending = True
+        self._eject_latched = True
+        self._clear_contact_sheet()
+        self._set_status("Ejecting roll…")
+        self._apply_gating()
+        self.controller.eject_roll(device_id)
 
     @pyqtSlot(list)
     def _on_devices_ready(self, devices: "list[coolscanpy.DeviceInfo]") -> None:
@@ -420,19 +465,28 @@ class CoolscanRollSidebar(QWidget):
 
     def _on_preview_clicked(self) -> None:
         device_id = self._current_device_id()
-        if not device_id:
+        if not device_id or self._scanning or self._preview_pending or self._eject_pending or self._eject_failed:
             return
         from negpy.desktop.workers.roll_worker import RollPreviewRequest
 
+        self._preview_pending = True
         self._clear_contact_sheet()
         self._set_status("Reading roll transport…")
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        self._apply_gating()
         self.controller.start_coolscan_roll_preview(RollPreviewRequest(device_id=device_id))
 
     @pyqtSlot(list)
     def _on_preview_ready(self, thumbnails: "list[coolscanpy.Thumbnail]") -> None:
         self.progress_bar.setVisible(False)
+        if self._eject_pending or self._eject_failed or (self._eject_latched and not self._preview_pending):
+            self._preview_pending = False
+            self._clear_contact_sheet()
+            self._apply_gating()
+            return
+        self._preview_pending = False
+        self._eject_latched = False
         self._thumbnails = {t.slot: t for t in thumbnails}
         self.contact_sheet.clear()
         for t in sorted(self._thumbnails):
@@ -519,7 +573,17 @@ class CoolscanRollSidebar(QWidget):
         device_id = self._current_device_id()
         slots = self._selected_slots()
         output_folder = self.folder_edit.text().strip()
-        if not device_id or not slots or not output_folder or not self._any_tier_selected():
+        if (
+            not device_id
+            or not slots
+            or not output_folder
+            or not self._any_tier_selected()
+            or self._scanning
+            or self._preview_pending
+            or self._eject_pending
+            or self._eject_latched
+            or self._eject_failed
+        ):
             return
         from negpy.desktop.workers.roll_worker import RollBatchScanRequest
 
@@ -575,9 +639,31 @@ class CoolscanRollSidebar(QWidget):
         self.set_scanning(False)
         self._set_status("Stopped.")
 
+    @pyqtSlot(bool)
+    def _on_ejected(self, triggered: bool) -> None:
+        self._eject_pending = False
+        self._eject_latched = True
+        self._clear_contact_sheet()
+        if triggered:
+            self._set_status("Eject started. Wait until the roll is fully out; preview registration cleared.")
+        else:
+            self._eject_failed = True
+            self._set_status("This device reported no eject action. Check the film physically; do not retry in this session.")
+        self._apply_gating()
+
+    @pyqtSlot(str)
+    def _on_eject_error(self, message: str) -> None:
+        self._eject_pending = False
+        self._eject_latched = True
+        self._eject_failed = True
+        self._clear_contact_sheet()
+        self._set_status(f"Eject outcome uncertain: {message}. Check the film physically; do not retry in this session.")
+        self._apply_gating()
+
     @pyqtSlot(str)
     def _on_error(self, msg: str) -> None:
         self._active_scan_request = None
+        self._preview_pending = False
         self.set_scanning(False)
         self.progress_bar.setVisible(False)
         self._set_status(f"Error: {msg}")
@@ -641,6 +727,8 @@ class CoolscanRollSidebar(QWidget):
             m.append("install coolscanpy")
         if not self._current_device_id():
             m.append("select a device")
+        if self._eject_failed:
+            m.append("restart after physically checking the uncertain eject")
         return m
 
     def _any_tier_selected(self) -> bool:
@@ -688,9 +776,23 @@ class CoolscanRollSidebar(QWidget):
     def _apply_gating(self) -> None:
         missing_preview = self._missing_for_preview()
         missing_scan = self._missing_for_scan()
-        self.preview_btn.setEnabled(not missing_preview and not self._scanning)
-        self.scan_btn.setEnabled(not missing_scan and not self._scanning)
+        registration_locked = self._preview_pending or self._eject_pending or self._eject_latched or self._eject_failed
+        self.preview_btn.setEnabled(not missing_preview and not self._scanning and not self._preview_pending and not self._eject_pending)
+        self.scan_btn.setEnabled(not missing_scan and not self._scanning and not registration_locked)
         self.safe_stop_btn.setEnabled(self._scanning)
+        self.device_combo.setEnabled(not self._scanning and not self._preview_pending and not self._eject_pending)
+        self.refresh_btn.setEnabled(not self._scanning and not self._preview_pending and not self._eject_pending)
+        self.contact_sheet.setEnabled(not self._scanning and not registration_locked)
+        self.select_all_btn.setEnabled(bool(self._thumbnails) and not self._scanning and not registration_locked)
+        self.clear_selection_btn.setEnabled(bool(self._selected_slots()) and not self._scanning and not registration_locked)
+        self.eject_btn.setEnabled(
+            bool(self._current_device_id())
+            and not self._scanning
+            and not self._preview_pending
+            and not self._eject_pending
+            and not self._eject_latched
+            and not self._eject_failed
+        )
         self._update_tier_hint()
         self._update_hybrid_guidance()
         if missing_scan:

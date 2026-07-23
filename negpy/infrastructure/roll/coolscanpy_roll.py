@@ -154,6 +154,14 @@ def list_devices() -> "list[coolscanpy.DeviceInfo]":
     return coolscanpy.get_devices()
 
 
+def eject(device_id: str) -> bool:
+    """Eject one direct-USB roll after its coolscanpy reservation is closed."""
+
+    from negpy.infrastructure.scanners.sane_backend import scanimage_eject_direct_usb
+
+    return scanimage_eject_direct_usb(device_id)
+
+
 def open_roll(
     device_id: str | None = None,
     *,

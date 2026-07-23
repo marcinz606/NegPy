@@ -78,6 +78,8 @@ class RollWorker(QObject):
     frame_written = pyqtSignal(object)  # RollFrameOutput
     finished = pyqtSignal(list)  # list[RollFrameOutput] written this batch
     cancelled = pyqtSignal()
+    ejected = pyqtSignal(bool)
+    eject_error = pyqtSignal(str)
     error = pyqtSignal(str)
     status = pyqtSignal(str)
 
@@ -144,6 +146,26 @@ class RollWorker(QObject):
             self._open_device_id = None
             self.closed.emit()
             return True
+
+    @pyqtSlot(str)
+    def eject(self, device_id: str) -> None:
+        """Release the roll reservation, then issue one intentional eject."""
+
+        try:
+            with self._operation_lock:
+                self._reject_if_shutting_down()
+                if self._open_device_id is not None and self._open_device_id != device_id:
+                    raise RuntimeError(f"open roll belongs to {self._open_device_id!r}, not requested device {device_id!r}")
+                if self._open_device_id is not None:
+                    self._service.close()
+                    self._open_device_id = None
+                    self.closed.emit()
+                self.status.emit("Ejecting roll…")
+                triggered = self._service.eject(device_id)
+            self.ejected.emit(triggered)
+        except Exception as error:
+            logger.exception("roll eject failed")
+            self.eject_error.emit(str(error))
 
     # ----- preview / approval -----
 

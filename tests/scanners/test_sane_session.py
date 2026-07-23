@@ -252,6 +252,7 @@ class TestSessionEject:
         session = backend.open_session(_DEV_ID)
         observed: dict[str, int] = {}
         run = FakeRun(on_call=lambda: observed.__setitem__("close_calls_at_press", module.dev.close_calls))
+        monkeypatch.setattr(sane_backend, "_scanimage_executable", lambda: "scanimage")
         monkeypatch.setattr(sane_backend.subprocess, "run", run)
         return backend, module, session, run, observed
 

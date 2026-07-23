@@ -1,7 +1,10 @@
 import math
+import re
+import shutil
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -56,6 +59,12 @@ _EJECT_OPTION_NAMES = ("eject",)
 # "out of documents"; the eject has already fired, so that exit is expected.
 _EJECT_TIMEOUT_S = 30.0
 _EJECT_BENIGN_STDERR_MARKERS = ("out of documents", "no documents", "no more documents")
+_SCANIMAGE_FALLBACK_PATHS = (
+    "/opt/homebrew/bin/scanimage",
+    "/usr/local/bin/scanimage",
+    "/usr/bin/scanimage",
+)
+_DIRECT_USB_DEVICE_ID = re.compile(r"usb:(?P<bus>[1-9][0-9]*):(?P<address>[1-9][0-9]*)\Z")
 
 # Standard SANE option-unit enum values. Kept local so capability detection
 # does not require importing the optional python-sane extension.
@@ -314,6 +323,18 @@ def _find_eject_option(opt) -> str | None:
     return None
 
 
+def _scanimage_executable() -> str:
+    """Resolve scanimage even when a frozen Finder app has a minimal PATH."""
+
+    discovered = shutil.which("scanimage")
+    if discovered:
+        return discovered
+    for candidate in _SCANIMAGE_FALLBACK_PATHS:
+        if Path(candidate).is_file():
+            return candidate
+    raise RuntimeError("Cannot eject: `scanimage` (sane-utils) is not installed")
+
+
 def _scanimage_eject(device_id: str) -> None:
     """Press the vendor eject button via `scanimage --eject`.
 
@@ -325,7 +346,7 @@ def _scanimage_eject(device_id: str) -> None:
     """
     try:
         proc = subprocess.run(
-            ["scanimage", "-d", device_id, "--eject"],
+            [_scanimage_executable(), "-d", device_id, "--eject"],
             capture_output=True,
             text=True,
             timeout=_EJECT_TIMEOUT_S,
@@ -342,6 +363,28 @@ def _scanimage_eject(device_id: str) -> None:
         return
     detail = (proc.stderr or "").strip() or f"exit code {proc.returncode}"
     raise RuntimeError(f"scanimage --eject failed for {device_id!r}: {detail}")
+
+
+def scanimage_eject_direct_usb(device_id: str) -> bool:
+    """Eject a direct-USB Coolscan device through its exact SANE topology.
+
+    The accepted roll path identifies the scanner as ``usb:BUS:ADDRESS``
+    because it captures directly over USB. The proven eject path is
+    coolscan3's ``scanimage --eject`` action, whose device name carries the
+    same bus and address as zero-padded decimal fields. Reject every other
+    spelling so an Eject button can never drift onto a different scanner.
+    """
+
+    match = _DIRECT_USB_DEVICE_ID.fullmatch(device_id)
+    if match is None:
+        raise ValueError(f"direct Coolscan eject requires usb:BUS:ADDRESS, got {device_id!r}")
+    bus = int(match.group("bus"))
+    address = int(match.group("address"))
+    if bus > 999 or address > 999:
+        raise ValueError(f"direct Coolscan eject topology is out of range: {device_id!r}")
+    sane_id = f"coolscan3:usb:libusb:{bus:03d}:{address:03d}"
+    _scanimage_eject(sane_id)
+    return True
 
 
 def _sane_container_depth(requested_depth: int) -> int:
