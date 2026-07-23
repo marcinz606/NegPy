@@ -19,6 +19,7 @@ from typing import Any, Self
 
 
 OUTPUT_LOCK_NAME = ".negpy-live-acceptance.lock"
+_IGNORABLE_FINDER_METADATA_NAMES = frozenset({".DS_Store"})
 DEFAULT_RECEIPT_MAX_BYTES = 1024 * 1024
 DEFAULT_LOCK_MAX_BYTES = 16 * 1024
 
@@ -139,6 +140,18 @@ def _directory_checkpoint(metadata: os.stat_result) -> tuple[int, int, int, int]
         metadata.st_mtime_ns,
         metadata.st_ctime_ns,
     )
+
+
+def is_ignorable_finder_metadata_file(name: str, metadata: os.stat_result) -> bool:
+    """Return whether ``name`` is macOS directory metadata, never an artifact.
+
+    Finder creates a regular ``.DS_Store`` merely by browsing a directory. It
+    has no capture or output provenance, so it must not make a held receipt
+    fail. Keep the exception exact: a directory, symlink, or any other hidden
+    name remains an inventory conflict.
+    """
+
+    return name in _IGNORABLE_FINDER_METADATA_NAMES and stat.S_ISREG(metadata.st_mode)
 
 
 def _write_all(descriptor: int, payload: bytes) -> None:
@@ -484,6 +497,8 @@ class FixedOutputLease:
         name = os.fspath(relative)
         if name == OUTPUT_LOCK_NAME:
             raise InventoryConflict("the fixed output lock cannot be declared as an output")
+        if Path(name).name in _IGNORABLE_FINDER_METADATA_NAMES:
+            raise InventoryConflict("Finder metadata cannot be declared as an output")
         return name
 
     def _scan_directory(
@@ -507,6 +522,8 @@ class FixedOutputLease:
                 metadata = _child_metadata(descriptor, name)
             except OSError as error:
                 raise InventoryConflict(f"output entry changed while inspecting {relative}: {error}") from error
+            if is_ignorable_finder_metadata_file(name, metadata):
+                continue
             if stat.S_ISLNK(metadata.st_mode):
                 raise InventoryConflict(f"output entry is a symbolic link: {relative}")
             if stat.S_ISREG(metadata.st_mode):

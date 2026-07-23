@@ -160,8 +160,10 @@ def _write_completed_batch(root: Path) -> dict[str, object]:
         nonce = f"{slot:032x}"
         selection = {
             "frame": slot,
-            "requested_boundary_offset_rows": 0,
-            "applied_boundary_offset_rows": 0,
+            "boundary_offset": {
+                "requested_rows": 0,
+                "applied_rows": 0,
+            },
             "roll_identity": {
                 "reviewed_fingerprint_sha256": reviewed_sha256,
                 "fresh_fingerprint_sha256": fresh_sha256,
@@ -285,6 +287,43 @@ def test_completed_post_finalization_batch_binds_all_six_capture_records(
     assert binding["reviewed_fingerprint_sha256"] == expected["reviewed_sha256"]
 
 
+def test_finder_metadata_is_ignored_without_weakening_capture_evidence_inventory(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "attempts"
+    root.mkdir()
+    lease = _lease(root)
+    completed = _write_completed_batch(root)
+    batch = completed["batch"]
+    assert isinstance(batch, Path)
+    (root / ".DS_Store").write_bytes(b"finder root metadata")
+    (batch / ".DS_Store").write_bytes(b"finder batch metadata")
+
+    try:
+        snapshot = snapshot_capture_evidence(root)
+        inventory = lease.assert_inventory(snapshot.files)
+        binding = validate_six_frame_batch_capture_evidence(snapshot)
+        receipt_evidence = bind_capture_evidence_inventory(snapshot, inventory)
+    finally:
+        lease.release()
+
+    assert snapshot.manifest["file_count"] == 28
+    assert all(not row["path"].endswith(".DS_Store") for row in snapshot.manifest["files"])
+    assert binding["session_id"] == batch.name
+    assert receipt_evidence["retained"] is True
+
+
+def test_finder_metadata_name_does_not_bypass_symlink_rejection(tmp_path: Path) -> None:
+    root = tmp_path / "attempts"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"must not be followed")
+    (root / ".DS_Store").symlink_to(outside)
+
+    with pytest.raises(InventoryConflict, match="exclusively owned regular file"):
+        snapshot_capture_evidence(root)
+
+
 def _rewrite_json(path: Path, mutate) -> None:
     document = json.loads(path.read_text(encoding="utf-8"))
     mutate(document)
@@ -375,6 +414,11 @@ def test_additional_diagnostic_inside_completed_batch_is_allowed(
             "frame-001/capture-frame-map.json",
             lambda document: document.__setitem__("frame", 2),
             "live preview, transport table, or frame map",
+        ),
+        (
+            "frame-005/journal.json",
+            lambda document: document["live_frame_selection"]["boundary_offset"].__setitem__("applied_rows", 1),
+            "frame 5 journal",
         ),
     ],
 )

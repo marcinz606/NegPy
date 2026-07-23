@@ -307,8 +307,10 @@ def _write_completed_attempt_evidence(
         nonce = f"{slot:032x}"
         selection = {
             "frame": slot,
-            "requested_boundary_offset_rows": 0,
-            "applied_boundary_offset_rows": 0,
+            "boundary_offset": {
+                "requested_rows": 0,
+                "applied_rows": 0,
+            },
             "roll_identity": {
                 "reviewed_fingerprint_sha256": reviewed_fingerprint,
                 "fresh_fingerprint_sha256": fresh_fingerprint,

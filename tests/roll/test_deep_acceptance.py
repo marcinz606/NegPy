@@ -772,6 +772,59 @@ def test_six_frame_batch_rejects_one_unreferenced_file(
         )
 
 
+def test_six_frame_batch_ignores_regular_finder_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    outputs, audits = _fake_audits(tmp_path)
+    iterator = iter(audits)
+    monkeypatch.setattr(
+        deep_acceptance,
+        "_validate_frame",
+        lambda *args, **kwargs: next(iterator),
+    )
+    (tmp_path / ".DS_Store").write_bytes(b"finder metadata")
+
+    result = deep_acceptance.validate_six_frame_batch(
+        outputs,
+        output_dir=tmp_path,
+        builder=object(),
+        evaluator=object(),
+        hybrid_runtime=_Runtime(),
+    )
+
+    assert result["status"] == "passed"
+    assert result["inventory"]["visible_file_count"] == 42
+
+
+def test_six_frame_batch_rejects_finder_metadata_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    outputs, audits = _fake_audits(tmp_path)
+    iterator = iter(audits)
+    monkeypatch.setattr(
+        deep_acceptance,
+        "_validate_frame",
+        lambda *args, **kwargs: next(iterator),
+    )
+    outside = tmp_path.parent / "outside-metadata"
+    outside.write_bytes(b"not metadata")
+    (tmp_path / ".DS_Store").symlink_to(outside)
+
+    with pytest.raises(
+        deep_acceptance.DeepAcceptanceError,
+        match="file entry is unsafe",
+    ):
+        deep_acceptance.validate_six_frame_batch(
+            outputs,
+            output_dir=tmp_path,
+            builder=object(),
+            evaluator=object(),
+            hybrid_runtime=_Runtime(),
+        )
+
+
 def test_six_frame_batch_rejects_cross_frame_fingerprint_drift(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

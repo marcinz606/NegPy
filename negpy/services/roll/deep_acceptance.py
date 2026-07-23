@@ -32,6 +32,7 @@ from negpy.services.repair.hybrid_runtime_manifest import (
 )
 from negpy.services.roll import exact_color, nikon_icc
 from negpy.services.roll import service as roll_service
+from negpy.services.roll.live_reservation import is_ignorable_finder_metadata_file
 from negpy.services.roll.portable_builder import PortableStage1Builder
 from negpy.services.roll.portable_cms import PortableCMSOnEvaluator
 from negpy.services.roll.service import RollFrameOutput
@@ -1637,6 +1638,8 @@ def _inventory(
             for name in files:
                 child = parent / name
                 metadata = child.lstat()
+                if is_ignorable_finder_metadata_file(name, metadata):
+                    continue
                 if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
                     _fail("inventory", f"file entry is unsafe: {child}")
                 found_files.add(child.resolve(strict=True))

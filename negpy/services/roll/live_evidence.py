@@ -16,6 +16,7 @@ from negpy.services.roll.live_reservation import (
     FileIdentity,
     InventoryConflict,
     InventorySnapshot,
+    is_ignorable_finder_metadata_file,
 )
 
 
@@ -189,6 +190,9 @@ def snapshot_capture_evidence(root: Path) -> CaptureEvidenceSnapshot:
         for name in file_names:
             path = current / name
             if current == canonical and name == OUTPUT_LOCK_NAME:
+                continue
+            metadata = path.lstat()
+            if is_ignorable_finder_metadata_file(name, metadata):
                 continue
             paths.append(path)
             if len(paths) > _MAX_FILES:
@@ -487,6 +491,7 @@ def validate_six_frame_batch_capture_evidence(
         batch_session = journal.get("batch_session")
         output_sha256 = journal.get("output_sha256")
         selection = journal.get("live_frame_selection")
+        boundary_offset = selection.get("boundary_offset") if isinstance(selection, dict) else None
         roll_identity = selection.get("roll_identity") if isinstance(selection, dict) else None
         selected_comparison = roll_identity.get("selected_slot_comparison") if isinstance(roll_identity, dict) else None
         comparison = roll_identity.get("comparison") if isinstance(roll_identity, dict) else None
@@ -526,8 +531,13 @@ def validate_six_frame_batch_capture_evidence(
             or batch_session.get("selected_slots") != list(_SIX_FRAME_SLOTS)
             or not isinstance(selection, dict)
             or selection.get("frame") != slot
-            or selection.get("requested_boundary_offset_rows") != frame_job["boundary_offset_rows"]
-            or selection.get("applied_boundary_offset_rows") != frame_job["boundary_offset_rows"]
+            # The Coolscan worker writes this proof beneath ``boundary_offset``
+            # alongside the resolved transport origin.  Keep the validation
+            # closed over that canonical, engine-owned layout rather than
+            # silently accepting an obsolete flattened representation.
+            or not isinstance(boundary_offset, dict)
+            or boundary_offset.get("requested_rows") != frame_job["boundary_offset_rows"]
+            or boundary_offset.get("applied_rows") != frame_job["boundary_offset_rows"]
             or not isinstance(roll_identity, dict)
             or roll_identity.get("reviewed_fingerprint_sha256") != reviewed_binding
             or not _is_sha256(roll_identity.get("fresh_fingerprint_sha256"))

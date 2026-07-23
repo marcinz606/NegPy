@@ -211,6 +211,25 @@ def test_inventory_allows_only_declared_files_and_implied_directories(
         lease.release()
 
 
+def test_inventory_ignores_only_regular_finder_metadata(tmp_path: Path) -> None:
+    output = tmp_path / "outputs"
+    output.mkdir()
+    lease = FixedOutputLease.acquire(output, _lock_document())
+    artifact = output / "acceptance_slot01.tif"
+    artifact.write_bytes(b"captured")
+    (output / ".DS_Store").write_bytes(b"finder metadata")
+
+    try:
+        snapshot = lease.assert_inventory([artifact])
+    finally:
+        lease.release()
+
+    assert [name for name, _identity in snapshot.files] == [
+        OUTPUT_LOCK_NAME,
+        artifact.name,
+    ]
+
+
 def test_inventory_detects_mutation_of_previously_owned_file(tmp_path: Path) -> None:
     output = tmp_path / "outputs"
     output.mkdir()
