@@ -72,10 +72,7 @@ def test_wheel_contains_and_loads_all_negpy_packages_and_portable_assets(tmp_pat
         packaged = set(archive.namelist())
         packaged_python = {name for name in packaged if name.startswith("negpy/") and name.endswith(".py")}
         packaged_assets = {
-            name
-            for name in packaged
-            if name.startswith("negpy/assets/portable_")
-            and Path(name).suffix in {".bin", ".json"}
+            name for name in packaged if name.startswith("negpy/assets/portable_") and Path(name).suffix in {".bin", ".json"}
         }
         assert packaged_python == expected_python
         assert ROLL_MODULES <= packaged
@@ -142,10 +139,7 @@ assert __import__('hashlib').sha256(profile).hexdigest() == nikon_icc.NIKON_ADOB
     env.pop("PYTHONPATH", None)
     _run([str(venv_python), "-c", smoke, str(venv_site)], cwd=tmp_path, env=env)
 
-    validation_path = (
-        venv_site
-        / "negpy/assets/portable_cms/portable-oracle-receipt.json"
-    )
+    validation_path = venv_site / "negpy/assets/portable_cms/portable-oracle-receipt.json"
     validation_payload = validation_path.read_bytes()
     for failure, expected in (
         ("missing", "portable CMS validation receipt is unavailable"),

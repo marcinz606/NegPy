@@ -21,14 +21,10 @@ def test_embedded_profile_is_the_pinned_nikon_scan_rgb_profile() -> None:
     assert profile[16:20] == b"RGB "
     assert profile[20:24] == b"XYZ "
     assert profile[36:40] == b"acsp"
-    assert hashlib.sha256(profile).hexdigest() == (
-        "a8d0d753bd6129357cc2647435ce675e8637a679eb526fa180fba460874ce1d3"
-    )
+    assert hashlib.sha256(profile).hexdigest() == ("a8d0d753bd6129357cc2647435ce675e8637a679eb526fa180fba460874ce1d3")
     parsed = ImageCms.ImageCmsProfile(BytesIO(profile))
     assert ImageCms.getProfileName(parsed).strip() == "Nikon Adobe RGB 4.0.0.3000"
-    assert ImageCms.getProfileCopyright(parsed).strip() == (
-        "Nikon Inc. & Nikon Corporation 2001"
-    )
+    assert ImageCms.getProfileCopyright(parsed).strip() == ("Nikon Inc. & Nikon Corporation 2001")
     assert nikon_icc.profile_receipt_binding() == {
         "bytes": 492,
         "name": "Nikon Adobe RGB 4.0.0.3000",

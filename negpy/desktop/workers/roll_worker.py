@@ -51,9 +51,7 @@ class RollBatchScanRequest:
     write_positive: bool = RollScanSettings.defaults().write_positive
     repair_mode: str = RollScanSettings.defaults().repair_mode
     positive_mode: str = RollScanSettings.defaults().positive_mode
-    hybrid_synthesis_limit_percent: float = (
-        RollScanSettings.defaults().hybrid_synthesis_limit_percent
-    )
+    hybrid_synthesis_limit_percent: float = RollScanSettings.defaults().hybrid_synthesis_limit_percent
 
     def __post_init__(self) -> None:
         value = self.hybrid_synthesis_limit_percent
@@ -63,9 +61,7 @@ class RollBatchScanRequest:
             or not math.isfinite(float(value))
             or not 0.0 <= float(value) <= 100.0
         ):
-            raise ValueError(
-                "hybrid_synthesis_limit_percent must be finite and in [0, 100]"
-            )
+            raise ValueError("hybrid_synthesis_limit_percent must be finite and in [0, 100]")
         object.__setattr__(self, "hybrid_synthesis_limit_percent", float(value))
 
 
@@ -99,9 +95,7 @@ class RollWorker(QObject):
 
     def _reject_if_shutting_down(self) -> None:
         if self._shutdown_requested.is_set():
-            raise RollShutdownBlocked(
-                "scanner teardown has started; no new operation may begin"
-            )
+            raise RollShutdownBlocked("scanner teardown has started; no new operation may begin")
 
     # ----- device / roll lifecycle -----
 
@@ -143,9 +137,7 @@ class RollWorker(QObject):
                 self._service.close()
         except Exception as error:
             logger.exception("error closing roll")
-            self.status.emit(
-                "Scanner close is unresolved; the reservation remains open."
-            )
+            self.status.emit("Scanner close is unresolved; the reservation remains open.")
             self.error.emit(f"Close roll: {error}")
             return False
         else:
@@ -290,19 +282,14 @@ class RollWorker(QObject):
         self.safe_stop()
         acquired = self._operation_lock.acquire(timeout=timeout_seconds)
         if not acquired:
-            message = (
-                "the current scanner operation is still stopping; "
-                "application exit is blocked"
-            )
+            message = "the current scanner operation is still stopping; application exit is blocked"
             self.status.emit(message)
             raise RollShutdownBlocked(message)
         try:
             self._service.close()
         except Exception as error:
             logger.exception("error closing roll on shutdown")
-            self.status.emit(
-                "Scanner close is unresolved; application exit is blocked."
-            )
+            self.status.emit("Scanner close is unresolved; application exit is blocked.")
             self.error.emit(f"Shutdown: {error}")
             raise
         else:

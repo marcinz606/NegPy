@@ -2368,9 +2368,7 @@ class AppController(QObject):
         except Exception as error:
             logger.exception("application shutdown blocked by scanner teardown")
             self._shutdown_block_reason = str(error)
-            self.roll_status.emit(
-                "Cannot exit: the Coolscan reservation is not safely closed."
-            )
+            self.roll_status.emit("Cannot exit: the Coolscan reservation is not safely closed.")
             return False
         self._roll_shutdown_complete = True
         self._shutdown_block_reason = None
@@ -3300,10 +3298,7 @@ class AppController(QObject):
         if self._cleaned_up:
             return
         if not self.request_shutdown():
-            raise RollScanningError(
-                self._shutdown_block_reason
-                or "Coolscan reservation is not safely closed"
-            )
+            raise RollScanningError(self._shutdown_block_reason or "Coolscan reservation is not safely closed")
         self._cleaned_up = True
         self._render_debounce.stop()
         self._cursor_readout_timer.stop()

@@ -601,9 +601,7 @@ def test_duplicate_json_keys_in_capture_evidence_are_rejected(tmp_path: Path) ->
     document = json.loads(session_path.read_text(encoding="utf-8"))
     body = json.dumps(document, sort_keys=True)
     assert body.startswith("{")
-    duplicated = (
-        '{"batch_job_sha256": "' + "0" * 64 + '", ' + body[1:]
-    )
+    duplicated = '{"batch_job_sha256": "' + "0" * 64 + '", ' + body[1:]
     assert json.loads(duplicated)["batch_job_sha256"] == document["batch_job_sha256"]
     session_path.write_text(duplicated, encoding="utf-8")
 

@@ -246,9 +246,7 @@ class CoolscanRollSidebar(QWidget):
         self.hybrid_synthesis_limit_spin.setRange(0.0, 100.0)
         self.hybrid_synthesis_limit_spin.setDecimals(1)
         self.hybrid_synthesis_limit_spin.setSuffix("%")
-        self.hybrid_synthesis_limit_spin.setValue(
-            self._settings.hybrid_synthesis_limit_percent
-        )
+        self.hybrid_synthesis_limit_spin.setValue(self._settings.hybrid_synthesis_limit_percent)
         self.hybrid_synthesis_limit_spin.setToolTip(
             "Maximum portion of a frame Hybrid may synthesize. This is a ceiling, not a target; "
             "the pinned runtime's own ceiling remains in force if it is lower. Set 0% to forbid synthesis."
@@ -263,9 +261,7 @@ class CoolscanRollSidebar(QWidget):
         layout.addWidget(self.tier_hint)
 
         self.hybrid_guidance = QLabel("")
-        self.hybrid_guidance.setStyleSheet(
-            f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;"
-        )
+        self.hybrid_guidance.setStyleSheet(f"color: {THEME.text_muted}; font-size: {THEME.font_size_small}px;")
         self.hybrid_guidance.setWordWrap(True)
         layout.addWidget(self.hybrid_guidance)
 
@@ -432,9 +428,7 @@ class CoolscanRollSidebar(QWidget):
         self._set_status("Reading roll transport…")
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.controller.start_coolscan_roll_preview(
-            RollPreviewRequest(device_id=device_id)
-        )
+        self.controller.start_coolscan_roll_preview(RollPreviewRequest(device_id=device_id))
 
     @pyqtSlot(list)
     def _on_preview_ready(self, thumbnails: "list[coolscanpy.Thumbnail]") -> None:
@@ -608,15 +602,9 @@ class CoolscanRollSidebar(QWidget):
             return []
         issues: list[str] = []
         completed_slots = {output.slot for output in outputs}
-        missing_slots = [
-            slot for slot in request.slots if slot not in completed_slots
-        ]
+        missing_slots = [slot for slot in request.slots if slot not in completed_slots]
         if missing_slots:
-            issues.append(
-                "slot(s) "
-                + ", ".join(str(slot) for slot in missing_slots)
-                + " did not complete"
-            )
+            issues.append("slot(s) " + ", ".join(str(slot) for slot in missing_slots) + " did not complete")
         for output in outputs:
             prefix = f"slot {output.slot}: "
             if request.write_unrepaired and not output.rgb_path:
@@ -627,17 +615,11 @@ class CoolscanRollSidebar(QWidget):
             if (
                 repair_was_needed
                 and request.repair_mode == RepairMode.HYBRID.value
-                and not (
-                    output.native_synthesis_mask_path
-                    and output.hybrid_receipt_path
-                )
+                and not (output.native_synthesis_mask_path and output.hybrid_receipt_path)
             ):
                 issues.append(prefix + "Hybrid repair degraded or unavailable")
             if request.write_positive and not output.positive_path:
-                if (
-                    request.positive_mode
-                    == PositiveColorMode.NIKON_EXACT.value
-                ):
+                if request.positive_mode == PositiveColorMode.NIKON_EXACT.value:
                     issues.append(prefix + "Nikon exact positive unavailable")
                 else:
                     issues.append(prefix + "requested positive output unavailable")

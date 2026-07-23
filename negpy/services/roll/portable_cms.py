@@ -148,12 +148,9 @@ class PortableCMSOnEvaluator:
         validation_digest = hashlib.sha256(validation_payload).hexdigest()
         if validation_digest != VALIDATION_RECEIPT_SHA256:
             raise ExactColorIntegrityError(
-                "portable CMS validation receipt hash mismatch: "
-                f"{validation_digest} != {VALIDATION_RECEIPT_SHA256}"
+                f"portable CMS validation receipt hash mismatch: {validation_digest} != {VALIDATION_RECEIPT_SHA256}"
             )
-        self._validation_summary = MappingProxyType(
-            _validate_validation_receipt(validation_payload)
-        )
+        self._validation_summary = MappingProxyType(_validate_validation_receipt(validation_payload))
         oracle = _load_verified_oracle()
         payloads = _read_verified_assets(self.assets_dir)
         self._transforms = _LoadedTransforms(payloads, oracle)
@@ -204,12 +201,8 @@ class PortableCMSOnEvaluator:
                 "upstream_builder_included": False,
                 "validation": {
                     "events": self._validation_summary["events"],
-                    "full_payload_mismatched_bytes": self._validation_summary[
-                        "full_payload_mismatched_bytes"
-                    ],
-                    "full_payload_total_bytes": self._validation_summary[
-                        "full_payload_total_bytes"
-                    ],
+                    "full_payload_mismatched_bytes": self._validation_summary["full_payload_mismatched_bytes"],
+                    "full_payload_total_bytes": self._validation_summary["full_payload_total_bytes"],
                     "mismatched_u16": self._validation_summary["mismatched_u16"],
                     "receipt_sha256": ORACLE_VALIDATION_RECEIPT_SHA256,
                     "total_u16": self._validation_summary["total_u16"],
@@ -286,9 +279,7 @@ def _read_verified_payload(
         if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
             raise OSError("not a regular non-symlink file")
         if expected_bytes is not None and before.st_size != expected_bytes:
-            raise ExactColorIntegrityError(
-                f"{label} byte size mismatch: {before.st_size} != {expected_bytes}"
-            )
+            raise ExactColorIntegrityError(f"{label} byte size mismatch: {before.st_size} != {expected_bytes}")
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(path, flags)
         opened = os.fstat(descriptor)
@@ -320,18 +311,14 @@ def _validate_validation_receipt(payload: bytes) -> dict[str, int]:
             parse_constant=_reject_json_constant,
         )
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-        raise ExactColorIntegrityError(
-            f"portable CMS validation receipt is invalid JSON: {error}"
-        ) from error
+        raise ExactColorIntegrityError(f"portable CMS validation receipt is invalid JSON: {error}") from error
     if type(document) is not dict or set(document) != {
         "all_12_events",
         "all_12_full_payloads",
         "stage1",
         "stage2",
     }:
-        raise ExactColorIntegrityError(
-            "portable CMS validation receipt top-level schema is incomplete"
-        )
+        raise ExactColorIntegrityError("portable CMS validation receipt top-level schema is incomplete")
 
     stage_totals: list[int] = []
     stage_full_totals: list[int] = []
@@ -342,14 +329,10 @@ def _validate_validation_receipt(payload: bytes) -> dict[str, int]:
             "per_event",
             "total",
         }:
-            raise ExactColorIntegrityError(
-                f"portable CMS validation receipt {stage_name} schema is incomplete"
-            )
+            raise ExactColorIntegrityError(f"portable CMS validation receipt {stage_name} schema is incomplete")
         per_event = stage.get("per_event")
         if type(per_event) is not dict or set(per_event) != set(expected_events):
-            raise ExactColorIntegrityError(
-                f"portable CMS validation receipt {stage_name} event inventory is incomplete"
-            )
+            raise ExactColorIntegrityError(f"portable CMS validation receipt {stage_name} event inventory is incomplete")
         event_total = 0
         event_full_total = 0
         for event, (expected_total, expected_full_total) in expected_events.items():
@@ -361,14 +344,9 @@ def _validate_validation_receipt(payload: bytes) -> dict[str, int]:
                 "mismatched_u16",
                 "total_u16",
             }:
-                raise ExactColorIntegrityError(
-                    f"portable CMS validation receipt event {event} schema is incomplete"
-                )
+                raise ExactColorIntegrityError(f"portable CMS validation receipt event {event} schema is incomplete")
             _require_zero_metrics(
-                {
-                    key: row[key]
-                    for key in ("mae", "max_abs", "mismatched_u16", "total_u16")
-                },
+                {key: row[key] for key in ("mae", "max_abs", "mismatched_u16", "total_u16")},
                 expected_total=expected_total,
                 label=f"event {event}",
             )
@@ -409,9 +387,7 @@ def _validate_validation_receipt(payload: bytes) -> dict[str, int]:
         "total_bytes",
         "total_u16",
     }:
-        raise ExactColorIntegrityError(
-            "portable CMS validation receipt full-payload schema is incomplete"
-        )
+        raise ExactColorIntegrityError("portable CMS validation receipt full-payload schema is incomplete")
     _require_zero_metrics(
         {key: full_payload[key] for key in ("mae", "max_abs", "mismatched_u16", "total_u16")},
         expected_total=full_total_u16,
@@ -423,9 +399,7 @@ def _validate_validation_receipt(payload: bytes) -> dict[str, int]:
         or type(full_payload.get("mismatched_bytes")) is not int
         or full_payload.get("mismatched_bytes") != 0
     ):
-        raise ExactColorIntegrityError(
-            "portable CMS validation receipt byte totals are inconsistent"
-        )
+        raise ExactColorIntegrityError("portable CMS validation receipt byte totals are inconsistent")
     return {
         "events": sum(len(events) for events in _VALIDATION_EVENTS.values()),
         "mismatched_u16": 0,
@@ -442,9 +416,7 @@ def _require_zero_metrics(
     label: str,
 ) -> None:
     if type(value) is not dict:
-        raise ExactColorIntegrityError(
-            f"portable CMS validation receipt {label} is not an exact zero-mismatch result"
-        )
+        raise ExactColorIntegrityError(f"portable CMS validation receipt {label} is not an exact zero-mismatch result")
     metrics = cast(dict[str, object], value)
     if (
         set(metrics) != {"mae", "max_abs", "mismatched_u16", "total_u16"}
@@ -457,9 +429,7 @@ def _require_zero_metrics(
         or type(metrics.get("mae")) is not float
         or metrics.get("mae") != 0.0
     ):
-        raise ExactColorIntegrityError(
-            f"portable CMS validation receipt {label} is not an exact zero-mismatch result"
-        )
+        raise ExactColorIntegrityError(f"portable CMS validation receipt {label} is not an exact zero-mismatch result")
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

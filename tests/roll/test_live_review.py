@@ -62,14 +62,8 @@ def _approval(slot: int, thumbnail: str, fingerprint: str) -> dict:
 
 def _fixture(tmp_path: Path):
     fingerprint = "c" * 64
-    images = {
-        slot: np.full((2, 3, 3), slot, dtype=np.uint16)
-        for slot in range(1, 7)
-    }
-    approvals = {
-        slot: _approval(slot, thumbnail_sha256(images[slot]), fingerprint)
-        for slot in (1, 6)
-    }
+    images = {slot: np.full((2, 3, 3), slot, dtype=np.uint16) for slot in range(1, 7)}
+    approvals = {slot: _approval(slot, thumbnail_sha256(images[slot]), fingerprint) for slot in (1, 6)}
     session_payload = '{"version":1}'
     session_path = tmp_path / "session.json"
     session_path.write_text(session_payload, encoding="utf-8")

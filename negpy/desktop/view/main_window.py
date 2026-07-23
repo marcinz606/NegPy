@@ -166,12 +166,8 @@ class MainWindow(QMainWindow):
         """Gate both window-close and application-level quit requests."""
 
         if not self.controller.request_shutdown():
-            reason = self.controller.shutdown_block_reason or (
-                "The scanner reservation has not closed safely yet."
-            )
-            self.statusBar().showMessage(
-                "Exit blocked until the Coolscan closes safely."
-            )
+            reason = self.controller.shutdown_block_reason or ("The scanner reservation has not closed safely yet.")
+            self.statusBar().showMessage("Exit blocked until the Coolscan closes safely.")
             QMessageBox.critical(
                 self,
                 "Scanner still reserved",

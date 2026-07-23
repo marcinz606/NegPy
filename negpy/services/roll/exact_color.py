@@ -351,10 +351,7 @@ def load_native_builder_receipt(
     ownership_path = directory / "nikon-density-frame-ownership.json"
     density_path = directory / "nikon-density-evidence.json"
     analyzer_path = directory / "analyzer-rgb-u16le.bin"
-    lut_paths = tuple(
-        directory / f"builder-preF-{channel}.bin"
-        for channel in _BUILDER_CHANNELS
-    )
+    lut_paths = tuple(directory / f"builder-preF-{channel}.bin" for channel in _BUILDER_CHANNELS)
     paths = (
         receipt_path,
         evidence_path,
@@ -420,9 +417,7 @@ def load_native_builder_receipt(
 
     envelope = _parse_json_object(receipt_blob, label="native builder receipt")
     if _canonical_json(envelope) != receipt_blob:
-        raise ExactColorIntegrityError(
-            "native builder receipt is not canonical JSON"
-        )
+        raise ExactColorIntegrityError("native builder receipt is not canonical JSON")
     # Import lazily: native_builder owns the pinned derivation and imports this
     # boundary for its receipt factory. Re-running that derivation is what
     # prevents a writable evidence directory from self-attesting new LUTs.
@@ -437,9 +432,7 @@ def load_native_builder_receipt(
         pre_f_luts=(pre_f_r, pre_f_g, pre_f_b),
     )
     if directory.name != rebuilt.sha256:
-        raise ExactColorIntegrityError(
-            "native builder evidence is outside its content-addressed directory"
-        )
+        raise ExactColorIntegrityError("native builder evidence is outside its content-addressed directory")
     return rebuilt
 
 
@@ -1336,12 +1329,7 @@ def _stable_read_non_symlink(
             raise ExactColorIntegrityError(f"{label} must be exactly {expected_bytes} bytes")
         if max_bytes is not None and before.st_size > max_bytes:
             raise ExactColorIntegrityError(f"{label} exceeds the bounded receipt size")
-        flags = (
-            os.O_RDONLY
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0)
-        )
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         descriptor = os.open(path, flags)
         opened = os.fstat(descriptor)
         chunks: list[bytes] = []
@@ -1356,9 +1344,7 @@ def _stable_read_non_symlink(
             chunks.append(chunk)
             total += len(chunk)
         if total > byte_limit:
-            raise ExactColorIntegrityError(
-                f"{label} exceeds its bounded byte length"
-            )
+            raise ExactColorIntegrityError(f"{label} exceeds its bounded byte length")
         after = os.fstat(descriptor)
         final = path.lstat()
     except ExactColorIntegrityError:
@@ -1387,13 +1373,9 @@ def _assert_paths_unchanged(
         try:
             current = path.lstat()
         except OSError as error:
-            raise ExactColorUnavailable(
-                f"{label} disappeared: {path}: {error}"
-            ) from error
+            raise ExactColorUnavailable(f"{label} disappeared: {path}: {error}") from error
         if stat.S_ISLNK(current.st_mode) or not stat.S_ISREG(current.st_mode) or _file_identity(current) != expected:
-            raise ExactColorIntegrityError(
-                f"{label} changed during snapshot: {path}"
-            )
+            raise ExactColorIntegrityError(f"{label} changed during snapshot: {path}")
 
 
 def _file_identity(value: os.stat_result) -> tuple[int, int, int, int, int]:

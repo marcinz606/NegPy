@@ -152,9 +152,7 @@ def test_bridge_runs_hybrid_in_scanner_native_orientation_and_rotates_once(monke
     assert result.mode_resolved is roll_repair.RepairMode.HYBRID
     assert result.degraded is False
     assert result.routed_native_synthesis_mask_png == native_mask_png
-    assert result.routed_native_synthesis_mask_sha256 == hashlib.sha256(
-        native_mask_png
-    ).hexdigest()
+    assert result.routed_native_synthesis_mask_sha256 == hashlib.sha256(native_mask_png).hexdigest()
     with Image.open(io.BytesIO(result.native_synthesis_mask_png)) as image:
         final_native_mask = np.asarray(image.convert("L")) != 0
     np.testing.assert_array_equal(final_native_mask, applied_mask)

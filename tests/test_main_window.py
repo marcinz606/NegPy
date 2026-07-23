@@ -74,14 +74,10 @@ class TestCloseEvent(unittest.TestCase):
             raise_=MagicMock(),
             activateWindow=MagicMock(),
         )
-        stub.request_shutdown_for_exit = lambda: MainWindow.request_shutdown_for_exit(
-            stub
-        )
+        stub.request_shutdown_for_exit = lambda: MainWindow.request_shutdown_for_exit(stub)
         event = MagicMock()
 
-        with patch(
-            "negpy.desktop.view.main_window.QMessageBox.critical"
-        ) as critical:
+        with patch("negpy.desktop.view.main_window.QMessageBox.critical") as critical:
             MainWindow.closeEvent(stub, event)
 
         event.ignore.assert_called_once_with()

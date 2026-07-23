@@ -187,9 +187,7 @@ class TestAppController(unittest.TestCase):
         request = RollPreviewRequest(device_id="usb:1:2", slots=(1, 2))
         controller = SimpleNamespace(
             _ensure_roll_thread=lambda: events.append("ensure-coolscan-thread"),
-            roll_preview_requested=SimpleNamespace(
-                emit=lambda value: events.append(("coolscan-preview", value))
-            ),
+            roll_preview_requested=SimpleNamespace(emit=lambda value: events.append(("coolscan-preview", value))),
         )
 
         AppController.start_coolscan_roll_preview(controller, request)

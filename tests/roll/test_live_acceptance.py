@@ -1565,13 +1565,20 @@ def test_parser_requires_attempts_root() -> None:
     from negpy.services.roll import live_acceptance as module
 
     argv = [
-        "--device-id", "usb:2:7",
-        "--preview-session", "session.json",
-        "--preview-session-sha256", "0" * 64,
-        "--reviewed-approval", "review.json",
-        "--reviewed-approval-sha256", "0" * 64,
-        "--output-dir", "outputs",
-        "--run-receipt", "receipt.json",
+        "--device-id",
+        "usb:2:7",
+        "--preview-session",
+        "session.json",
+        "--preview-session-sha256",
+        "0" * 64,
+        "--reviewed-approval",
+        "review.json",
+        "--reviewed-approval-sha256",
+        "0" * 64,
+        "--output-dir",
+        "outputs",
+        "--run-receipt",
+        "receipt.json",
         "--confirm-live",
     ]
     with pytest.raises(SystemExit):

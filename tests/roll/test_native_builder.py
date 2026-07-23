@@ -748,9 +748,7 @@ def test_noncanonical_dice_binding_withholds_positive_but_keeps_native_color_evi
     assert "Tier 2" in receipt["positive"]["status"]
     native = receipt["native_color_evidence"]
     assert native["retained"] is True
-    assert Path(
-        native["retained_builder_evidence"]["builder_receipt"]["path"]
-    ).is_file()
+    assert Path(native["retained_builder_evidence"]["builder_receipt"]["path"]).is_file()
 
 
 def test_service_refuses_explicit_builder_evidence_without_current_frame_ownership(fake_repair_engine, tmp_path: Path) -> None:

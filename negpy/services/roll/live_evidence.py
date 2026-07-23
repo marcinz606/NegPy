@@ -257,13 +257,12 @@ def _snapshot_json(
     )
     if hashlib.sha256(payload).hexdigest() != matches[0]["sha256"]:
         raise InventoryConflict(f"capture evidence changed after hashing: {relative}")
+
     def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
         merged: dict[str, object] = {}
         for key, value in pairs:
             if key in merged:
-                raise InventoryConflict(
-                    f"capture evidence JSON repeats key {key!r}: {relative}"
-                )
+                raise InventoryConflict(f"capture evidence JSON repeats key {key!r}: {relative}")
             merged[key] = value
         return merged
 

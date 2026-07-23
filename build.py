@@ -160,14 +160,9 @@ def preflight_coolscan_runtime() -> str:
     device_type = getattr(loaded["coolscanpy"], "Device")
     roll_parameters = inspect.signature(device_type.roll).parameters
     attempts_root = roll_parameters.get("attempts_root")
-    if (
-        attempts_root is None
-        or attempts_root.kind is not inspect.Parameter.KEYWORD_ONLY
-        or attempts_root.default is not None
-    ):
+    if attempts_root is None or attempts_root.kind is not inspect.Parameter.KEYWORD_ONLY or attempts_root.default is not None:
         raise RuntimeError(
-            "Coolscan build API is stale or incomplete: "
-            "coolscanpy.Device.roll must expose optional keyword-only attempts_root"
+            "Coolscan build API is stale or incomplete: coolscanpy.Device.roll must expose optional keyword-only attempts_root"
         )
 
     bundle_module = loaded["coolscanpy.protocol.ls5000_single_pass.bundle"]

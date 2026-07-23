@@ -107,36 +107,26 @@ class _FauxiceEngine:
                 or not routed_native_mask.flags.c_contiguous
             ):
                 raise RuntimeError("hybrid disclosure mask geometry is invalid")
-            if (
-                hashlib.sha256(routed_native_mask_png).hexdigest()
-                != result.hybrid_mask_sha256
-            ):
+            if hashlib.sha256(routed_native_mask_png).hexdigest() != result.hybrid_mask_sha256:
                 raise RuntimeError("hybrid native mask SHA-256 changed")
             if hashlib.sha256(result.hybrid_receipt).hexdigest() != result.hybrid_receipt_sha256:
                 raise RuntimeError("hybrid receipt SHA-256 changed")
-            native_mask = np.ascontiguousarray(
-                routed_native_mask & acquisition.ir_validity
-            )
+            native_mask = np.ascontiguousarray(routed_native_mask & acquisition.ir_validity)
             native_mask_png = _encode_mask_png(native_mask)
             storage_mask = acquisition.storage_mask(native_mask)
             storage_mask_png = _encode_mask_png(storage_mask)
             mask_fields = {
                 "native_synthesis_mask_png": native_mask_png,
-                "native_synthesis_mask_sha256": hashlib.sha256(
-                    native_mask_png
-                ).hexdigest(),
+                "native_synthesis_mask_sha256": hashlib.sha256(native_mask_png).hexdigest(),
                 "native_synthesis_mask_shape": tuple(native_mask.shape),
                 "routed_native_synthesis_mask_png": routed_native_mask_png,
                 "routed_native_synthesis_mask_sha256": result.hybrid_mask_sha256,
-                "routed_native_synthesis_mask_shape": tuple(
-                    routed_native_mask.shape
-                ),
+                "routed_native_synthesis_mask_shape": tuple(routed_native_mask.shape),
                 "storage_synthesis_mask_png": storage_mask_png,
                 "storage_synthesis_mask_sha256": hashlib.sha256(storage_mask_png).hexdigest(),
                 "storage_synthesis_mask_shape": tuple(storage_mask.shape),
                 "synthesis_mask_transform": acquisition.storage_transform,
-                "synthesis_fraction": float(np.count_nonzero(native_mask))
-                / float(native_mask.size),
+                "synthesis_fraction": float(np.count_nonzero(native_mask)) / float(native_mask.size),
                 "routing_counts": result.hybrid_routing_counts,
                 "hybrid_receipt": result.hybrid_receipt,
                 "hybrid_receipt_sha256": result.hybrid_receipt_sha256,

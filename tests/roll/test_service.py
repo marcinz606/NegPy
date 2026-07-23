@@ -125,9 +125,7 @@ class TestRollLifecycle:
         assert service.approve(1) is approval
         assert roll.approved == [1]
 
-    def test_restore_preview_session_delegates_to_open_handle(
-        self, fake_coolscanpy
-    ) -> None:
+    def test_restore_preview_session_delegates_to_open_handle(self, fake_coolscanpy) -> None:
         thumbnails = [
             fake_coolscanpy.Thumbnail(
                 slot=slot,
@@ -146,9 +144,7 @@ class TestRollLifecycle:
         result = service.restore_preview_session("saved-session", [2])
 
         assert [thumbnail.slot for thumbnail in result] == [2]
-        assert roll.restore_preview_session_calls == [
-            ("saved-session", (2,))
-        ]
+        assert roll.restore_preview_session_calls == [("saved-session", (2,))]
 
     def test_restore_preview_session_requires_an_open_roll(self) -> None:
         service = RollScanningService()

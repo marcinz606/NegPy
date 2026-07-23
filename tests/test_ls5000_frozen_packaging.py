@@ -77,9 +77,7 @@ def test_live_acceptance_dispatch_forwards_exact_arguments_without_qt(
         "--confirm-live",
     ]
 
-    handled = frozen_entry.dispatch_frozen_auxiliary(
-        ["NegPy", frozen_entry.LIVE_ACCEPTANCE_FLAG, *arguments]
-    )
+    handled = frozen_entry.dispatch_frozen_auxiliary(["NegPy", frozen_entry.LIVE_ACCEPTANCE_FLAG, *arguments])
 
     assert handled is True
     assert forwarded == [arguments]
@@ -101,9 +99,7 @@ def test_live_acceptance_dispatch_propagates_failure_exit_code(
     )
 
     with pytest.raises(SystemExit) as stopped:
-        frozen_entry.dispatch_frozen_auxiliary(
-            ["NegPy", frozen_entry.LIVE_ACCEPTANCE_FLAG]
-        )
+        frozen_entry.dispatch_frozen_auxiliary(["NegPy", frozen_entry.LIVE_ACCEPTANCE_FLAG])
 
     assert stopped.value.code == 23
 
@@ -639,9 +635,7 @@ def test_build_preflight_rejects_coolscan_without_durable_attempts_api(
             Device=StaleDevice,
             DigitalIceAcquisition=module.DigitalIceAcquisition,
             DigitalIceAcquisitionEvidence=module.DigitalIceAcquisitionEvidence,
-            build_digital_ice_acquisition_evidence=(
-                module.build_digital_ice_acquisition_evidence
-            ),
+            build_digital_ice_acquisition_evidence=(module.build_digital_ice_acquisition_evidence),
         )
 
     monkeypatch.setattr(build.importlib, "import_module", import_with_stale_device)
@@ -855,9 +849,7 @@ def test_macos_postbuild_smoke_refuses_the_live_acceptance_flag(
     monkeypatch.setattr(
         build.subprocess,
         "run",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("live acceptance reached subprocess")
-        ),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("live acceptance reached subprocess")),
     )
 
     with pytest.raises(RuntimeError, match="attempted to enable live acceptance"):

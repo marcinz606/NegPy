@@ -128,11 +128,7 @@ class FakeRoll:
         requested = None if slots is None else tuple(slots)
         self.restore_preview_session_calls.append((payload, requested))
         wanted = None if requested is None else set(requested)
-        return [
-            thumbnail
-            for thumbnail in self._thumbnails
-            if wanted is None or thumbnail.slot in wanted
-        ]
+        return [thumbnail for thumbnail in self._thumbnails if wanted is None or thumbnail.slot in wanted]
 
     def set_spacing_offset(self, slot, offset_rows) -> None:
         self.spacing_offsets[slot] = offset_rows

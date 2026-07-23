@@ -65,12 +65,7 @@ def _stable_regular_bytes(path: Path, *, maximum_bytes: int, label: str) -> byte
             raise HybridRuntimeManifestError(f"{label} must be a regular non-symlink file")
         if linked.st_size < 0 or linked.st_size > maximum_bytes:
             raise HybridRuntimeManifestError(f"{label} exceeds its safe size limit")
-        flags = (
-            os.O_RDONLY
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0)
-        )
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         descriptor = os.open(path, flags)
         with os.fdopen(descriptor, "rb", closefd=True) as handle:
             descriptor = None

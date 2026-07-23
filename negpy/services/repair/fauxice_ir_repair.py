@@ -304,9 +304,7 @@ def repair_ir_dust(
         )
 
     if cancel is not None and cancel.is_set():
-        raise FauxiceRepairCancelled(
-            "cancelled by caller before repair started"
-        )
+        raise FauxiceRepairCancelled("cancelled by caller before repair started")
 
     main_rgbi = np.dstack([rgb, ir])
 
@@ -326,9 +324,7 @@ def repair_ir_dust(
                 detail = "runtime artifacts changed during validation"
             hybrid_note = f"hybrid mode requested but the configured hybrid runtime is unavailable ({detail}); degraded to exact repair. "
         elif cancel is not None and cancel.is_set():
-            raise FauxiceRepairCancelled(
-                "cancelled before the hybrid run started"
-            )
+            raise FauxiceRepairCancelled("cancelled before the hybrid run started")
         else:
             try:
                 with tempfile.TemporaryDirectory(prefix="negpy-fauxice-hybrid-") as scratch:
@@ -345,9 +341,7 @@ def repair_ir_dust(
                     )
                 mode_resolved = RepairMode.HYBRID
             except HybridRunCancelled as error:
-                raise FauxiceRepairCancelled(
-                    f"hybrid repair cancelled: {error}"
-                ) from error
+                raise FauxiceRepairCancelled(f"hybrid repair cancelled: {error}") from error
             except HybridRunError as error:
                 hybrid_note = f"hybrid mode requested but the fauxce-hybrid run failed ({error}); degraded to exact repair. "
 
@@ -391,9 +385,7 @@ def repair_ir_dust(
                 cancel=cancel,
             )
         except ProcessingCancelled as error:
-            raise FauxiceRepairCancelled(
-                f"{hybrid_note}cancelled before completion: {error}"
-            ) from error
+            raise FauxiceRepairCancelled(f"{hybrid_note}cancelled before completion: {error}") from error
         except (ValueError, TypeError, RuntimeError) as error:
             return FauxiceRepairResult(
                 status=RepairStatus.SKIPPED,

@@ -157,21 +157,13 @@ class TestRollHandle:
         result = handle.restore_preview_session("saved-session", [1, 3])
 
         assert [thumbnail.slot for thumbnail in result] == [1, 3]
-        assert roll.restore_preview_session_calls == [
-            ("saved-session", (1, 3))
-        ]
+        assert roll.restore_preview_session_calls == [("saved-session", (1, 3))]
 
-    def test_restore_preview_session_exception_translated(
-        self, fake_coolscanpy
-    ) -> None:
-        error = fake_coolscanpy.module.PyCoolscanError(
-            "saved preview hash mismatch"
-        )
+    def test_restore_preview_session_exception_translated(self, fake_coolscanpy) -> None:
+        error = fake_coolscanpy.module.PyCoolscanError("saved preview hash mismatch")
         handle, _roll, _device = self._handle(
             fake_coolscanpy,
-            fake_coolscanpy.Roll(
-                raise_on={"restore_preview_session": error}
-            ),
+            fake_coolscanpy.Roll(raise_on={"restore_preview_session": error}),
         )
 
         with pytest.raises(RuntimeError, match="saved preview hash mismatch") as excinfo:
@@ -179,9 +171,7 @@ class TestRollHandle:
 
         assert excinfo.value.__cause__ is error
 
-    def test_approve_returns_underlying_content_bound_receipt(
-        self, fake_coolscanpy
-    ) -> None:
+    def test_approve_returns_underlying_content_bound_receipt(self, fake_coolscanpy) -> None:
         approval = object()
 
         class ReturningApprovalRoll(fake_coolscanpy.Roll):
@@ -239,9 +229,7 @@ class TestRollHandle:
         assert roll.closed is True
         assert device.closed is True
 
-    def test_close_retains_device_when_roll_ownership_is_uncertain(
-        self, fake_coolscanpy
-    ) -> None:
+    def test_close_retains_device_when_roll_ownership_is_uncertain(self, fake_coolscanpy) -> None:
         ownership_error = RuntimeError("USB ownership is retained")
 
         class UncertainRoll(fake_coolscanpy.Roll):
