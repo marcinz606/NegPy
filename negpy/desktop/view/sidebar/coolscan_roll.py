@@ -57,27 +57,59 @@ _WARN_COLOR = "#C8922E"  # matches ScanlightSidebar's advisory tone
 _THUMBNAIL_SIZE = QSize(220, 150)
 
 
-def _thumbnail_pixmap(image: "np.ndarray", *, inverted: bool = False) -> QPixmap:
-    """A `coolscanpy.Thumbnail.image` array as a displayable QPixmap.
+def _thumbnail_rgb8(
+    image: "np.ndarray",
+    *,
+    positive: bool = False,
+) -> np.ndarray:
+    """Tone a scanner-linear roll thumbnail for display without mutating it.
 
-    Deliberately dumb: this is a raw scanner preview frame for framing and
-    review, not a NegPy pipeline buffer, so it does not go through
-    `ImageConverter.to_qimage`'s color management -- that helper assumes a
-    working-space buffer this array isn't. Normalizes whatever numeric
-    range/dtype/channel-count arrives to 8-bit RGB.
+    The 97-dpi index is scanner-linear negative transmission, not a display
+    image.  A peak-normalize followed by ``255 - value`` makes ordinary C-41
+    frames look pale cyan and badly overexposed, especially when one hot
+    pixel or rail sets the peak.  Raw display therefore ignores only the
+    extreme highlight tail.  Positive display converts transmission to
+    optical density, applies robust per-channel endpoints, then a display
+    gamma.  This is intentionally an auto-toned review preview; the saved
+    Nikon-exact positive still comes from the acquisition-bound builder/CMS.
     """
     arr = np.asarray(image)
     if arr.ndim == 2:
         arr = np.stack([arr] * 3, axis=-1)
-    if arr.dtype != np.uint8:
-        peak = float(arr.max()) if arr.size else 1.0
-        scale = 255.0 if peak <= 1.0 else (255.0 / peak if peak > 255.0 else 1.0)
-        arr = np.clip(arr.astype(np.float64) * scale, 0, 255).astype(np.uint8)
-    arr = np.ascontiguousarray(arr[..., :3])
-    if inverted:
-        # Display only. The scanner thumbnail remains untouched and this never
-        # enters the capture or output-color pipelines.
-        arr = np.ascontiguousarray(255 - arr)
+    if arr.ndim != 3 or arr.shape[2] < 3:
+        raise ValueError("roll thumbnail must be a grayscale or RGB image")
+    rgb = np.asarray(arr[..., :3], dtype=np.float64)
+    if not rgb.size:
+        return np.empty((*rgb.shape[:2], 3), dtype=np.uint8)
+    finite = np.where(np.isfinite(rgb), rgb, 0.0)
+    finite = np.maximum(finite, 0.0)
+
+    if not positive:
+        white = max(float(np.percentile(finite, 99.5)), 1.0)
+        display = np.clip(finite / white, 0.0, 1.0)
+    else:
+        channel_white = np.maximum(
+            np.percentile(finite, 99.5, axis=(0, 1)),
+            1.0,
+        )
+        transmission = np.clip(
+            finite / channel_white,
+            1.0 / 65535.0,
+            1.0,
+        )
+        density = -np.log10(transmission)
+        black = np.percentile(density, 1.0, axis=(0, 1))
+        white = np.percentile(density, 99.0, axis=(0, 1))
+        span = np.maximum(white - black, np.finfo(np.float64).eps)
+        display = np.clip((density - black) / span, 0.0, 1.0)
+        display = np.sqrt(display)
+
+    return np.ascontiguousarray(np.rint(display * 255.0).astype(np.uint8))
+
+
+def _thumbnail_pixmap(image: "np.ndarray", *, positive: bool = False) -> QPixmap:
+    """A `coolscanpy.Thumbnail.image` array as a displayable QPixmap."""
+    arr = _thumbnail_rgb8(image, positive=positive)
     h, w = arr.shape[:2]
     qimg = QImage(arr.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()  # copy: detach from arr's buffer
     return QPixmap.fromImage(qimg)
@@ -110,13 +142,13 @@ class RollPreviewWorkspace(QWidget):
         mode_label.setStyleSheet(f"color: {THEME.text_secondary};")
         self.display_mode_combo = QComboBox()
         self.display_mode_combo.setObjectName("roll_preview_display_mode")
-        self.display_mode_combo.addItem("Positive (inverted)", True)
+        self.display_mode_combo.addItem("Positive preview (auto tone)", True)
         self.display_mode_combo.addItem("Negative (raw)", False)
         self.display_mode_combo.setMinimumHeight(40)
         self.display_mode_combo.setMinimumWidth(180)
         self.display_mode_combo.setToolTip(
-            "Display only: Positive inverts the preview for easier review. "
-            "Negative shows the scanner thumbnail without inversion. Neither changes capture bytes or output color."
+            "Display only: Positive preview applies optical-density auto tone for exposure and framing review. "
+            "Negative shows the scanner-linear thumbnail. Neither changes capture bytes or the saved Nikon-exact color."
         )
         self.back_btn = QPushButton("Back to image editor")
         self.back_btn.setMinimumHeight(40)
@@ -563,7 +595,7 @@ class CoolscanRollSidebar(QWidget):
         self._apply_gating()
 
     def _add_slot_item(self, thumb: "coolscanpy.Thumbnail") -> None:
-        pixmap = _thumbnail_pixmap(thumb.image, inverted=self._preview_is_inverted()).scaled(
+        pixmap = _thumbnail_pixmap(thumb.image, positive=self._preview_is_positive()).scaled(
             _THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
         item = QListWidgetItem(QIcon(pixmap), f"Slot {thumb.slot}" + (" ⚠" if thumb.needs_approval else ""))
@@ -572,7 +604,7 @@ class CoolscanRollSidebar(QWidget):
             item.setForeground(QColor(_WARN_COLOR))
         self.contact_sheet.addItem(item)
 
-    def _preview_is_inverted(self) -> bool:
+    def _preview_is_positive(self) -> bool:
         return bool(self.preview_display_combo.currentData())
 
     def _on_preview_display_changed(self) -> None:
@@ -583,7 +615,7 @@ class CoolscanRollSidebar(QWidget):
             thumb = self._thumbnails.get(item.data(_SLOT_ROLE))
             if thumb is None:
                 continue
-            pixmap = _thumbnail_pixmap(thumb.image, inverted=self._preview_is_inverted()).scaled(
+            pixmap = _thumbnail_pixmap(thumb.image, positive=self._preview_is_positive()).scaled(
                 _THUMBNAIL_SIZE,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,

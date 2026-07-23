@@ -14,7 +14,11 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 from unittest.mock import MagicMock
 
-from negpy.desktop.view.sidebar.coolscan_roll import CoolscanRollSidebar, QMessageBox
+from negpy.desktop.view.sidebar.coolscan_roll import (
+    CoolscanRollSidebar,
+    QMessageBox,
+    _thumbnail_rgb8,
+)
 from negpy.infrastructure.roll import coolscanpy_roll
 
 if not QApplication.instance():
@@ -109,6 +113,32 @@ class TestBuildsAndGating:
 
 
 class TestPreview:
+    def test_positive_preview_auto_tones_scanner_linear_negative(self) -> None:
+        levels = np.linspace(0.0, 1.0, 64, dtype=np.float64).reshape(8, 8, 1)
+        black = np.array([500.0, 350.0, 250.0]).reshape(1, 1, 3)
+        film_base = np.array([35_000.0, 27_000.0, 22_000.0]).reshape(1, 1, 3)
+        scanner_linear = np.rint(black + levels * (film_base - black)).astype(
+            np.uint16
+        )
+        original = scanner_linear.copy()
+
+        positive = _thumbnail_rgb8(scanner_linear, positive=True)
+
+        assert positive.dtype == np.uint8
+        assert positive.shape == scanner_linear.shape
+        assert int(np.percentile(positive, 5)) < 80
+        assert int(np.percentile(positive, 95)) > 200
+        np.testing.assert_array_equal(scanner_linear, original)
+
+    def test_raw_preview_ignores_one_hot_pixel(self) -> None:
+        scanner_linear = np.full((20, 20, 3), 16_000, dtype=np.uint16)
+        scanner_linear[0, 0] = 65_535
+
+        raw = _thumbnail_rgb8(scanner_linear, positive=False)
+
+        assert int(np.median(raw)) > 240
+        assert raw[0, 0].tolist() == [255, 255, 255]
+
     def test_preview_click_starts_request_for_selected_device(self, fake_coolscanpy) -> None:
         w = _sidebar()
         _pick_device(w, device_id="dev-42")
