@@ -43,6 +43,9 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_RECEIPT_BYTES = 1024 * 1024
 _BUILDER_CHANNELS = ("r", "g", "b")
 _PRE_F_LUT_BYTES = 65_536 * 2
+# Keep this in lockstep with native_builder: both producer-side and serialized
+# receipt validation accept only the two proven LS-5000 97-dpi geometries.
+_SUPPORTED_DENSITY_SOURCE_WIRE_BYTES = frozenset((6_250_496, 5_804_032))
 BUILDER_RECEIPT_SCHEMA = "negpy.validated-stage1-builder"
 STAGE3_REPORT_SCHEMA = "nikonre.ls5000_stage3_validation"
 FIXED_COMPOSITION_SHA256 = "8729cae5a7aa551ae35926b80d097d73d92ecb6bde471130d6344c6c10ecbe7a"
@@ -888,7 +891,8 @@ def _validate_native_evidence_document(
         or density_evidence_document.get("schema_version") != 1
         or density_evidence_document.get("scope") != "reservation-preview"
         or density_evidence_document.get("per_frame_binding_status") != "requires-explicit-frame-ownership-receipt"
-        or density_evidence_document.get("source_payload_bytes") != 6_250_496
+        or density_evidence_document.get("source_payload_bytes")
+        not in _SUPPORTED_DENSITY_SOURCE_WIRE_BYTES
         or density_evidence_document.get("preview_identity_sha256") != receipt.preview_identity_sha256
     ):
         raise ExactColorIntegrityError("native density evidence belongs to another preview or reservation")

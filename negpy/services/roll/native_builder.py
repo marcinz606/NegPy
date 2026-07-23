@@ -20,7 +20,10 @@ CHANNELS: Final = ("r", "g", "b")
 ANALYZER_SHAPE: Final = (425, 281, 3)
 ANALYZER_RESOLUTION_DPI: Final = 285
 DENSITY_SOURCE_RESOLUTION_DPI: Final = 97
-DENSITY_SOURCE_WIRE_BYTES: Final = 6_250_496
+# The scanner has two proven 97-dpi roll-preview geometries. The shorter
+# variant is produced by the live 37-record full-roll table; accepting it is
+# deliberately a closed whitelist, not a variable-length tolerance.
+SUPPORTED_DENSITY_SOURCE_WIRE_BYTES: Final = frozenset((6_250_496, 5_804_032))
 DENSITY_ARITHMETIC: Final = "ls5000-md3-10088810-layout1-u16-proven-inputs-macos-binary64-exact-v6"
 FRAME_OWNERSHIP_STATUS: Final = "proven-exact-reservation-preview-registration-and-transport"
 DENSITY_PER_FRAME_BINDING_STATUS: Final = "requires-explicit-frame-ownership-receipt"
@@ -545,7 +548,8 @@ def _validate_density_receipt_binding(
         or density_receipt.get("scope") != "reservation-preview"
         or density_receipt.get("per_frame_binding_status") != DENSITY_PER_FRAME_BINDING_STATUS
         or density_receipt.get("preview_identity_sha256") != evidence.preview_identity_sha256
-        or density_receipt.get("source_payload_bytes") != DENSITY_SOURCE_WIRE_BYTES
+        or density_receipt.get("source_payload_bytes")
+        not in SUPPORTED_DENSITY_SOURCE_WIRE_BYTES
         or any(identity != calibration_identity for identity in binding_identities)
         or calibration_identity[0] != evidence.reservation_id
         or calibration_identity[2] != evidence.scan_identity

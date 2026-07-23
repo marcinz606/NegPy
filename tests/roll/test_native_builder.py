@@ -82,6 +82,7 @@ def _density_document(
     *,
     numerators: tuple[int, int, int] = (57_114, 48_036, 32_683),
     density_f03: tuple[int, int, int] = (70_307, 136_614, 125_470),
+    source_payload_bytes: int = 6_250_496,
     densities: tuple[float, float, float] = (
         struct.unpack(">d", bytes.fromhex("3fd8b159777b9d5f"))[0],
         struct.unpack(">d", bytes.fromhex("3fe9cc75f7f6705a"))[0],
@@ -98,7 +99,7 @@ def _density_document(
         "scope": "reservation-preview",
         "per_frame_binding_status": "requires-explicit-frame-ownership-receipt",
         "preview_identity_sha256": PREVIEW_IDENTITY_SHA256,
-        "source_payload_bytes": 6_250_496,
+        "source_payload_bytes": source_payload_bytes,
         "calibration_binding": {
             "calibration": {
                 "session_id": RESERVATION_ID,
@@ -251,7 +252,9 @@ def _capture_d_evidence() -> NativeBuilderEvidence:
     )
 
 
-def _synthetic_native_evidence() -> NativeBuilderEvidence:
+def _synthetic_native_evidence(
+    *, source_payload_bytes: int = 6_250_496
+) -> NativeBuilderEvidence:
     """Small deterministic provenance fixture whose analyzer is self-contained."""
 
     numerators = (57_114, 48_036, 32_683)
@@ -268,6 +271,7 @@ def _synthetic_native_evidence() -> NativeBuilderEvidence:
         _density_document(
             numerators=numerators,
             density_f03=density_f03,
+            source_payload_bytes=source_payload_bytes,
             densities=densities,
         )
     )
@@ -467,6 +471,30 @@ def test_archived_capture_builder_math_reproduces_all_three_pref_luts_byte_exact
     assert payload["density_source"]["resolution_dpi"] == 97
     assert payload["analyzer_source"]["resolution_dpi"] == 285
     assert payload["density_source"]["f03_denominators_raw_10ns_rgb"] != payload["analyzer_source"]["final_f02_denominators_raw_10ns_rgb"]
+
+
+@pytest.mark.parametrize("source_payload_bytes", (6_250_496, 5_804_032))
+def test_native_builder_accepts_each_proven_roll_preview_geometry(
+    source_payload_bytes: int,
+) -> None:
+    receipt = build_native_builder_receipt(
+        _synthetic_native_evidence(source_payload_bytes=source_payload_bytes)
+    )
+
+    assert exact_color.builder_receipt_payload(receipt)["native_per_acquisition_builder"] is True
+
+
+@pytest.mark.parametrize("source_payload_bytes", (5_804_031, 5_804_033, 6_250_495, 6_250_497))
+def test_native_builder_rejects_near_miss_roll_preview_geometry(
+    source_payload_bytes: int,
+) -> None:
+    with pytest.raises(
+        exact_color.ExactColorUnavailable,
+        match="density evidence belongs to a different preview or reservation",
+    ):
+        build_native_builder_receipt(
+            _synthetic_native_evidence(source_payload_bytes=source_payload_bytes)
+        )
 
 
 def test_native_receipt_runs_through_stage1_and_cms_with_native_application_binding() -> None:
