@@ -55,6 +55,8 @@ else:
 
 SCHEMA = "negpy.ls5000-deep-acceptance.v1"
 SLOTS = (1, 2, 3, 4, 5, 6)
+# Historical fixture/export compatibility only.  The production audit derives
+# the actual approved slots from the sealed frame evidence.
 APPROVED_SLOTS = frozenset((1, 6))
 _OUTPUT_FIELDS = (
     "rgb_path",
@@ -1548,11 +1550,11 @@ def validate_completed_frame(
 def _validate_manual_approval(
     frame: _FrameAudit,
     *,
-    expected: bool,
+    expected: bool | None,
 ) -> dict[str, Any] | None:
     slot = frame.summary["slot"]
     approval_value = frame.receipt.get("manual_approval")
-    if (approval_value is not None) is not expected:
+    if expected is not None and (approval_value is not None) is not expected:
         _fail(f"slot {slot}", "manual approval presence is wrong")
     if approval_value is None:
         return None
@@ -1706,6 +1708,7 @@ def _run_receipt_binding(
     operation_state = document.get("operation_state")
     deep_result = document.get("deep_acceptance")
     expected_device_id = frames[0].receipt.get("device_id") if frames else None
+    approved_slots = sorted(approvals)
     if (
         document.get("schema") != "negpy.ls5000-live-acceptance.v2"
         or document.get("status") != "succeeded"
@@ -1713,7 +1716,7 @@ def _run_receipt_binding(
         or document.get("device_id") != expected_device_id
         or document.get("output_dir") != str(root)
         or document.get("slots") != list(SLOTS)
-        or document.get("approved_slots") != sorted(APPROVED_SLOTS)
+        or document.get("approved_slots") != approved_slots
         or settings
         != {
             "write_unrepaired": True,
@@ -1798,7 +1801,7 @@ def _run_receipt_binding(
     )
     if _canonical_json(reviewed_document, newline=True, ensure_ascii=True) != reviewed_bytes:
         _fail("live run receipt", "reviewed approval is not canonical JSON")
-    expected_approval_rows = [approvals[slot] for slot in sorted(APPROVED_SLOTS)]
+    expected_approval_rows = [approvals[slot] for slot in approved_slots]
     reviewed_contact = _require_dict(
         reviewed_document.get("contact_sheet"),
         label="reviewed contact sheet",
@@ -1868,10 +1871,7 @@ def _validate_six_frame_batch_locked(
             or getattr(ownership, "selected_slot") != index
         ):
             _fail(f"slot {index}", "batch coordinates are wrong")
-        approval_row = _validate_manual_approval(
-            frame,
-            expected=index in APPROVED_SLOTS,
-        )
+        approval_row = _validate_manual_approval(frame, expected=None)
         if approval_row is not None:
             approval_rows[index] = approval_row
         candidate = (
@@ -1914,13 +1914,14 @@ def _validate_six_frame_batch_locked(
         approvals=approval_rows,
     )
     assert common is not None
+    approved_slots = sorted(approval_rows)
     result: dict[str, Any] = {
         "schema": SCHEMA,
         "status": "passed",
         "scope": "six-frame-batch",
         "output_dir": str(root),
         "slots": list(SLOTS),
-        "approved_slots": sorted(APPROVED_SLOTS),
+        "approved_slots": approved_slots,
         "reservation_id": common[0],
         "preview_sha256": common[2],
         "preview_identity_sha256": common[3],
@@ -1943,7 +1944,7 @@ def _validate_six_frame_batch_locked(
                 "slot": slot,
                 "binding_sha256": approval_rows[slot]["binding_sha256"],
             }
-            for slot in sorted(APPROVED_SLOTS)
+            for slot in approved_slots
         ],
     )
     return result

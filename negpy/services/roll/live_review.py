@@ -20,6 +20,11 @@ from PIL import Image
 
 SCHEMA = "negpy.ls5000-reviewed-approval.v1"
 REVIEW_BASIS = "visual-inspection-of-six-frame-contact-sheet-and-canonical-restored-thumbnails"
+# Historical six-strip reviews used slots 1 and 6.  A refeed can legitimately
+# change which boundary has enough direct transport evidence, so production
+# review must derive this list from the restored preview instead of treating
+# the historical pair as a physical invariant.  Keep the pair as a fallback
+# for lightweight older test/session doubles that do not expose ``slots``.
 APPROVED_SLOTS = (1, 6)
 _SHA256_CHARS = frozenset("0123456789abcdef")
 _MAX_REVIEW_BYTES = 64 * 1024
@@ -163,6 +168,34 @@ def _default_approval_parser(payload: object) -> object:
     return ManualFrameApproval.from_payload(payload)
 
 
+def _required_approval_slots(session: object) -> tuple[int, ...]:
+    """Return the exact slots that this restored preview marks manual.
+
+    The preview session is the authority for this list.  Falling back only
+    preserves compatibility with deliberately minimal legacy test doubles;
+    real ``RollPreviewSession`` instances always expose immutable slots.
+    """
+
+    slots = getattr(session, "slots", None)
+    if not isinstance(slots, tuple):
+        return APPROVED_SLOTS
+    selected = getattr(session, "selected_slots", None)
+    if isinstance(selected, tuple) and selected and all(type(slot) is int for slot in selected):
+        selected_slots = frozenset(selected)
+    else:
+        selected_slots = None
+    required: list[int] = []
+    for item in slots:
+        slot_id = getattr(item, "slot_id", None)
+        origin = getattr(item, "base_origin", None)
+        manual = getattr(origin, "manual_review", None)
+        if type(slot_id) is not int or type(manual) is not bool:
+            return APPROVED_SLOTS
+        if manual and (selected_slots is None or slot_id in selected_slots):
+            required.append(slot_id)
+    return tuple(required)
+
+
 def load_reviewed_approval(
     review_path: Path,
     expected_sha256: str,
@@ -173,7 +206,7 @@ def load_reviewed_approval(
     session_loader: Callable[[str], object] = _default_session_loader,
     approval_parser: Callable[[object], object] = _default_approval_parser,
 ) -> ValidatedReviewedApproval:
-    """Load, pin, and rederive the exact approvals for selected edge slots."""
+    """Load, pin, and rederive the exact approvals the preview requires."""
 
     if not _is_sha256(expected_sha256):
         raise ValueError("reviewed-approval pin must be a lowercase SHA-256 digest")
@@ -246,11 +279,12 @@ def load_reviewed_approval(
     if not _is_sha256(fingerprint) or document.get("reviewed_fingerprint_sha256") != fingerprint:
         raise ValueError("reviewed approval fingerprint does not match the preview")
 
+    expected_slots = _required_approval_slots(session)
     rows = document.get("approvals")
-    if type(rows) is not list or len(rows) != len(APPROVED_SLOTS):
-        raise ValueError("reviewed approval must contain exactly slots 1 and 6")
+    if type(rows) is not list or len(rows) != len(expected_slots):
+        raise ValueError("reviewed approval does not match the preview manual-review slots")
     approvals: dict[int, object] = {}
-    for expected_slot, row in zip(APPROVED_SLOTS, rows, strict=True):
+    for expected_slot, row in zip(expected_slots, rows, strict=True):
         parsed = approval_parser(row)
         parsed_payload = approval_payload(parsed)
         if parsed_payload != row or parsed_payload.get("slot") != expected_slot:

@@ -52,6 +52,8 @@ from negpy.services.roll.service import RollFrameOutput, RollScanningService
 
 SCHEMA = "negpy.ls5000-live-acceptance.v2"
 SLOTS = (1, 2, 3, 4, 5, 6)
+# Kept for backwards-compatible imports.  The active approval set is derived
+# from the restored preview and the SHA-pinned review document below.
 APPROVED_SLOTS = (1, 6)
 EXPECTED_DEVICE_MODEL = "Nikon LS-5000 ED 1.03"
 FILENAME_PATTERN = 'acceptance_slot{{ "%02d" % seq }}'
@@ -416,6 +418,7 @@ def run_live_acceptance(
 
     session: _SessionPayload | None = None
     review: ValidatedReviewedApproval | None = None
+    reviewed_approval_slots: tuple[int, ...] = ()
     runtime: Any = None
     deep_batch: dict[str, Any] | None = None
     output_dir: Path | None = None
@@ -655,6 +658,7 @@ def run_live_acceptance(
             request.preview_session_sha256,
         )
         review = review_loader(request, session)
+        reviewed_approval_slots = tuple(sorted(review.approvals))
         runtime = hybrid_runtime_loader(request.hybrid_runtime_manifest_path)
         if runtime is None:
             raise ValueError("the pinned Hybrid runtime is not installed")
@@ -697,12 +701,16 @@ def run_live_acceptance(
             raise ValueError(f"restored slots are {tuple(restored_slots)}; expected exactly {SLOTS}")
         validate_restored_thumbnails(thumbnails, review)
         required_approval_slots.extend(slot for slot in SLOTS if service.needs_approval(slot))
-        if tuple(required_approval_slots) != APPROVED_SLOTS:
-            raise ValueError(f"restored session approval set is {tuple(required_approval_slots)}; expected {APPROVED_SLOTS}")
+        if tuple(required_approval_slots) != reviewed_approval_slots:
+            raise ValueError(
+                "restored session approval set does not match the reviewed "
+                f"evidence: session={tuple(required_approval_slots)}, "
+                f"review={reviewed_approval_slots}"
+            )
         safe_emit({"event": "preview_session_restored", "slots": list(restored_slots)})
 
         phase = "applying_reviewed_approvals"
-        for slot in APPROVED_SLOTS:
+        for slot in reviewed_approval_slots:
             returned = service.approve(slot)
             expected_payload = approval_payload(review.approvals[slot])
             if approval_payload(returned) != expected_payload:
@@ -908,7 +916,7 @@ def run_live_acceptance(
             if review is None:
                 raise RuntimeError("reviewed approval disappeared before deep acceptance")
             expected_manual_approval_bindings: list[dict[str, Any]] = []
-            for slot in APPROVED_SLOTS:
+            for slot in reviewed_approval_slots:
                 binding = approval_payload(review.approvals[slot]).get("binding_sha256")
                 if type(binding) is not str or _SHA256_RE.fullmatch(binding) is None:
                     raise ValueError(f"reviewed approval binding for slot {slot} is invalid")
@@ -922,7 +930,7 @@ def run_live_acceptance(
                 type(deep_batch) is not dict
                 or deep_batch.get("status") != "passed"
                 or deep_batch.get("slots") != list(SLOTS)
-                or deep_batch.get("approved_slots") != list(APPROVED_SLOTS)
+                or deep_batch.get("approved_slots") != list(reviewed_approval_slots)
                 or deep_batch.get("device_id") != request.device_id
                 or deep_batch.get("device_model") != EXPECTED_DEVICE_MODEL
                 or deep_batch.get("reviewed_fingerprint_sha256") != review.reviewed_fingerprint_sha256

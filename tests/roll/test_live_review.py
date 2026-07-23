@@ -134,6 +134,29 @@ def test_loads_pinned_review_and_rederives_both_approvals(tmp_path: Path) -> Non
     validate_restored_thumbnails(thumbnails, reviewed)
 
 
+def test_derives_required_approvals_from_the_restored_preview(tmp_path: Path) -> None:
+    values = list(_fixture(tmp_path))
+    approvals = {1: values[7]["approvals"][0]}
+    document = dict(values[7])
+    document["approvals"] = [approvals[1]]
+    values[0].write_text(json.dumps(document), encoding="utf-8")
+    values[1] = hashlib.sha256(values[0].read_bytes()).hexdigest()
+
+    session = _Session("c" * 64, approvals)
+    session.slots = tuple(
+        SimpleNamespace(
+            slot_id=slot,
+            base_origin=SimpleNamespace(manual_review=(slot in (1, 7))),
+        )
+        for slot in range(1, 8)
+    )
+    session.selected_slots = (1, 2, 3, 4, 5, 6)
+    values[5] = session
+
+    reviewed = _load(tuple(values))
+    assert tuple(reviewed.approvals) == (1,)
+
+
 def test_wrong_review_hash_fails_before_parsing(tmp_path: Path) -> None:
     values = list(_fixture(tmp_path))
     values[1] = "0" * 64
