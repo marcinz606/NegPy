@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import signal
@@ -129,6 +130,7 @@ class HybridRuntimeConfig:
     inpaint_device: str = "cpu"
     inpaint_threads: int = 1
     inpaint_seed: int = 0
+    max_synthesis_fraction: float = 0.02
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -157,6 +159,14 @@ class HybridRuntimeConfig:
             raise ValueError("inpaint_threads must be a positive integer")
         if type(self.inpaint_seed) is not int or self.inpaint_seed < 0:
             raise ValueError("inpaint_seed must be a non-negative integer")
+        if (
+            isinstance(self.max_synthesis_fraction, bool)
+            or not isinstance(self.max_synthesis_fraction, (int, float))
+            or not math.isfinite(float(self.max_synthesis_fraction))
+            or not 0.0 <= float(self.max_synthesis_fraction) <= 1.0
+        ):
+            raise ValueError("max_synthesis_fraction must be finite and in [0, 1]")
+        object.__setattr__(self, "max_synthesis_fraction", float(self.max_synthesis_fraction))
 
     def validate_files(self) -> None:
         """Fail closed unless every configured runtime artifact is present."""
@@ -723,6 +733,8 @@ def run_hybrid_repair(
         str(acquisition_manifest_path),
         "--backend",
         backend,
+        "--max-synth-fraction",
+        format(runtime.max_synthesis_fraction, ".12g"),
         "--iopaint-python",
         str(runtime.iopaint_python),
         "--iopaint-executable",
@@ -958,6 +970,7 @@ def _validate_receipt_bindings(
         or synthesis.get("frame_pixel_count") != frame_pixels
         or synthesis.get("fraction") != expected_fraction
         or synthesis.get("within_budget") is not True
+        or synthesis.get("maximum_fraction") != runtime.max_synthesis_fraction
     ):
         raise HybridRunError("hybrid receipt synthesis accounting changed")
     routing = receipt.get("routing")

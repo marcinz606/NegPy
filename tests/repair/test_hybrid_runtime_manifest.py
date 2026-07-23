@@ -30,6 +30,7 @@ def _document(root: Path) -> dict[str, object]:
         "iopaint_executable": str(root / "iopaint" / "bin" / "iopaint"),
         "iopaint_python": str(root / "iopaint" / "bin" / "python"),
         "iopaint_source_manifest_sha256": "3" * 64,
+        "max_synthesis_fraction": 0.1,
         "model_dir": str(root / "models"),
         "model_weights": str(root / "models" / "torch" / "hub" / "checkpoints" / "big-lama.pt"),
         "model_weights_sha256": "4" * 64,
@@ -54,6 +55,7 @@ def test_loads_canonical_hash_pinned_runtime(tmp_path: Path) -> None:
     assert runtime.hybrid_python == tmp_path / "hybrid" / "bin" / "python"
     assert runtime.core_source_manifest_sha256 == "1" * 64
     assert runtime.hybrid_source_manifest_sha256 == "2" * 64
+    assert runtime.max_synthesis_fraction == 0.1
 
 
 def test_default_loader_requires_manifest_and_independent_pin(tmp_path: Path) -> None:

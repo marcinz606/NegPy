@@ -181,6 +181,7 @@ def _write_success_outputs(
         "synthesis": {
             "fraction": fraction,
             "frame_pixel_count": int(mask.size),
+            "maximum_fraction": float(_arg(argv, "--max-synth-fraction")),
             "pixel_count": synthesis_pixels,
             "within_budget": True,
         },
@@ -489,6 +490,7 @@ class TestRunHybridRepairSuccess:
         for flag, value in (
             ("--same-frame-id", "frame-004"),
             ("--backend", "cpu"),
+            ("--max-synth-fraction", "0.02"),
             ("--iopaint-python", str(runtime.iopaint_python)),
             ("--iopaint-executable", str(runtime.iopaint_executable)),
             ("--iopaint-source-manifest-sha256", runtime.iopaint_source_manifest_sha256),

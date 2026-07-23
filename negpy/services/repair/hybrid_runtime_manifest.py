@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -13,7 +14,7 @@ from negpy.kernel.system.config import BASE_USER_DIR
 from negpy.services.repair.fauxice_hybrid_runner import HybridRuntimeConfig
 
 
-RUNTIME_MANIFEST_SCHEMA = "negpy.fauxce-hybrid-runtime.v1"
+RUNTIME_MANIFEST_SCHEMA = "negpy.fauxce-hybrid-runtime.v2"
 RUNTIME_MANIFEST_FILENAME = "fauxce-hybrid-runtime.json"
 RUNTIME_MANIFEST_MAX_BYTES = 64 * 1024
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
@@ -39,6 +40,7 @@ _REQUIRED_FIELDS = frozenset(
         "inpaint_device",
         "inpaint_threads",
         "inpaint_seed",
+        "max_synthesis_fraction",
     }
 )
 
@@ -159,6 +161,14 @@ def load_hybrid_runtime_manifest(
         value = document[field]
         if type(value) is not int or value < minimum:
             raise HybridRuntimeManifestError(f"{field} must be an integer greater than or equal to {minimum}")
+    maximum_fraction = document["max_synthesis_fraction"]
+    if (
+        isinstance(maximum_fraction, bool)
+        or not isinstance(maximum_fraction, (int, float))
+        or not math.isfinite(float(maximum_fraction))
+        or not 0.0 <= float(maximum_fraction) <= 1.0
+    ):
+        raise HybridRuntimeManifestError("max_synthesis_fraction must be finite and in [0, 1]")
     try:
         return HybridRuntimeConfig(
             hybrid_python=Path(document["hybrid_python"]),
@@ -174,6 +184,7 @@ def load_hybrid_runtime_manifest(
             inpaint_device=document["inpaint_device"],
             inpaint_threads=document["inpaint_threads"],
             inpaint_seed=document["inpaint_seed"],
+            max_synthesis_fraction=float(maximum_fraction),
         )
     except (TypeError, ValueError) as error:
         raise HybridRuntimeManifestError(f"hybrid runtime manifest values are invalid: {error}") from error
