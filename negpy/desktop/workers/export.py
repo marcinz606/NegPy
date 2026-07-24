@@ -43,6 +43,7 @@ def _same_decode_source(a: ExportTask, b: ExportTask) -> bool:
     return (
         a.file_info["path"] == b.file_info["path"]
         and a.params.process.linear_raw == b.params.process.linear_raw
+        and a.params.process.sensor_matrix == b.params.process.sensor_matrix
         and a.params.rgbscan == b.params.rgbscan
         and a.params.flatfield == b.params.flatfield
     )

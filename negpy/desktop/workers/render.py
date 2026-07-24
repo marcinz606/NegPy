@@ -11,6 +11,8 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.analysis import output_histogram
 from negpy.features.flatfield.logic import apply_flatfield
 from negpy.features.geometry.batch_autocrop import detect_crop_candidate, resolve_roll_crops
+from negpy.features.process.sensor import apply_sensor_correction
+from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.features.geometry.processor import GeometryProcessor
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.infrastructure.gpu.resources import GPUTexture
@@ -830,6 +832,10 @@ class NormalizationWorker(QObject):
                         base_hash(f_info.get("hash")),  # halves share one decode
                     )
                     raw = slice_for_asset(raw, f_info)
+                    # Bounds must be measured on the same channel mix the render path
+                    # normalizes (triplet composites are never sensor-corrected there).
+                    if params is not None and params.process.sensor_matrix is not None and not is_rgb_triplet(params.rgbscan):
+                        raw = await asyncio.to_thread(apply_sensor_correction, raw, params.process.sensor_matrix)
 
                     ctx = PipelineContext(
                         original_size=(raw.shape[1], raw.shape[0]),

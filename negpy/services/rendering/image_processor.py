@@ -19,6 +19,7 @@ from negpy.domain.models import (
 )
 from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import linear_raw_token
+from negpy.features.process.sensor import apply_sensor_correction, sensor_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.retouch.logic import (
@@ -36,6 +37,7 @@ from negpy.features.retouch.logic import (
     route_ir_defects,
 )
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
+from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.stitch.models import stitch_token
 from negpy.domain.interfaces import PipelineContext
@@ -302,6 +304,12 @@ class ImageProcessor:
         # canvas as one frame would stretch the gain map across the seam.
         if not skip_flatfield and not settings.stitch.stitch_enabled:
             img = apply_flatfield(img, settings.flatfield)
+        # Sensor unmix is a source pre-correction like flat-field. skip_flatfield buffers
+        # come from _load_source_f32, which already applied it; triplet composites take
+        # each channel from its own single-band exposure, so unmixing them would inject
+        # crosstalk that was never captured.
+        if not skip_flatfield and not is_rgb_triplet(settings.rgbscan):
+            img = apply_sensor_correction(img, settings.process.sensor_matrix)
         h_orig, w_cols = img.shape[:2]
         # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
         # file at full resolution with unchanged settings, so without this the engine
@@ -313,6 +321,7 @@ class ImageProcessor:
             + rgbscan_token(settings.rgbscan)
             + stitch_token(settings.stitch)
             + linear_raw_token(settings.process)
+            + sensor_token(settings.process)
             + ir_bake_token(settings.retouch, ir_buffer is not None)
         )
 
@@ -449,8 +458,7 @@ class ImageProcessor:
 
         Returns (f32_buffer, ir_buffer, source_color_space).
         """
-        rgbcfg = params.rgbscan
-        is_triplet = bool(rgbcfg.enabled and rgbcfg.green_path and rgbcfg.blue_path)
+        is_triplet = is_rgb_triplet(params.rgbscan)
         # Narrowband triplet channels don't survive half_size CFA binning.
         fast_decode = fast_decode and not is_triplet
 
@@ -465,6 +473,7 @@ class ImageProcessor:
             rgbscan_token(params.rgbscan),
             stitch_token(params.stitch),
             flatfield_token(params.flatfield),
+            sensor_token(params.process),
             fast_decode,
         )
         if cache_key == self._source_cache_key and self._source_cache_value is not None:
@@ -498,7 +507,7 @@ class ImageProcessor:
         """
         linear_raw = params.process.linear_raw
         rgbcfg = params.rgbscan
-        is_triplet = bool(rgbcfg.enabled and rgbcfg.green_path and rgbcfg.blue_path)
+        is_triplet = is_rgb_triplet(rgbcfg)
 
         rgb, metadata = self._decode_sensor_rgb(file_path, linear_raw, fast=fast_decode)
         # No embedded profile (scanner-raw linear, sensor-native RAW) → the buffer is
@@ -532,6 +541,8 @@ class ImageProcessor:
         orientation = metadata.get("orientation", 1)
         f32_buffer = apply_exif_orientation(f32_buffer, orientation)
         f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
+        if not is_triplet:
+            f32_buffer = apply_sensor_correction(f32_buffer, params.process.sensor_matrix)
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
         return f32_buffer, ir_full, source_cs
@@ -582,6 +593,7 @@ class ImageProcessor:
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
                 + linear_raw_token(params.process)
+                + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
             )
             f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
@@ -828,6 +840,7 @@ class ImageProcessor:
                 + rgbscan_token(params.rgbscan)
                 + stitch_token(params.stitch)
                 + linear_raw_token(params.process)
+                + sensor_token(params.process)
                 + ir_bake_token(params.retouch, ir_full is not None)
             )
             f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)

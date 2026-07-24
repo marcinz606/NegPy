@@ -22,6 +22,7 @@ from negpy.desktop.view.sidebar.presets import PresetsSidebar
 from negpy.desktop.view.sidebar.flatfield import FlatFieldSidebar
 from negpy.desktop.view.sidebar.process import ProcessSidebar
 from negpy.desktop.view.sidebar.roll import RollAnalysisSidebar
+from negpy.desktop.view.sidebar.sensor import SensorSidebar
 from negpy.desktop.view.sidebar.colour import ColourSidebar
 from negpy.desktop.view.sidebar.tone import ToneSidebar
 from negpy.desktop.view.sidebar.geometry import GeometrySidebar
@@ -147,6 +148,14 @@ class ControlsPanel(QWidget):
             icon=qta.icon("fa5s.cogs", color=icon_color),
         )
 
+        self.sensor_sidebar = SensorSidebar(self.controller)
+        self.sensor_section = self._make_section(
+            "Sensor Calibration",
+            "sensor",
+            self.sensor_sidebar,
+            icon=qta.icon("fa5s.vials", color=icon_color),
+        )
+
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
         self.roll_section = self._make_section(
             "Roll Analysis",
@@ -222,9 +231,9 @@ class ControlsPanel(QWidget):
             (
                 "setup",
                 "fa5s.cogs",
-                "Setup — Presets, Process, Roll Analysis",
-                [self.presets_section, self.process_section, self.roll_section],
-                ["process_section", "roll_section"],
+                "Setup — Presets, Sensor Calibration, Process, Roll Analysis",
+                [self.presets_section, self.sensor_section, self.process_section, self.roll_section],
+                ["sensor_section", "process_section", "roll_section"],
             ),
             (
                 "geometry",
@@ -668,6 +677,7 @@ class ControlsPanel(QWidget):
         self.finish_sidebar.sync_ui()
         self.presets_sidebar.sync_ui()
         self.flatfield_sidebar.sync_ui()
+        self.sensor_sidebar.sync_ui()
         self._sync_modified_dots()
 
     def _update_histogram(self) -> None:

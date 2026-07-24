@@ -5,7 +5,7 @@ from typing import Callable, List, Sequence, Tuple
 import cv2
 import numpy as np
 
-from negpy.features.rgbscan.models import RgbScanConfig
+from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 
 # Channel indices, matching the demosaiced RGB axis order.
 RED, GREEN, BLUE = 0, 1, 2
@@ -132,7 +132,7 @@ def merge_rgb_triplet(
 
 def rgbscan_token(config: RgbScanConfig) -> str:
     """Identity of the active triplet, folded into the render source hash. Empty when inactive."""
-    if not config.enabled or not config.green_path or not config.blue_path:
+    if not is_rgb_triplet(config):
         return ""
     try:
         g_mtime = os.path.getmtime(config.green_path)

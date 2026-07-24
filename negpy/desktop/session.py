@@ -554,6 +554,8 @@ class DesktopSessionManager(QObject):
         sticky_crosstalk_strength = self.repo.get_global_setting("last_crosstalk_strength")
         sticky_crosstalk_matrix = self.repo.get_global_setting("last_crosstalk_matrix")
         sticky_crosstalk_profile = self.repo.get_global_setting("last_crosstalk_profile")
+        sticky_sensor_matrix = self.repo.get_global_setting("last_sensor_matrix")
+        sticky_sensor_profile = self.repo.get_global_setting("last_sensor_profile")
 
         new_process = config.process
         if sticky_mode:
@@ -570,6 +572,10 @@ class DesktopSessionManager(QObject):
             new_process = replace(new_process, crosstalk_matrix=tuple(sticky_crosstalk_matrix))
         if sticky_crosstalk_profile:
             new_process = replace(new_process, crosstalk_profile=str(sticky_crosstalk_profile))
+        if sticky_sensor_matrix:
+            new_process = replace(new_process, sensor_matrix=tuple(sticky_sensor_matrix))
+        if sticky_sensor_profile:
+            new_process = replace(new_process, sensor_profile=str(sticky_sensor_profile))
         config = replace(config, process=new_process)
 
         sticky_ratio = self.repo.get_global_setting("last_aspect_ratio")
@@ -657,6 +663,8 @@ class DesktopSessionManager(QObject):
                 "last_crosstalk_strength": config.process.crosstalk_strength,
                 "last_crosstalk_matrix": config.process.crosstalk_matrix,
                 "last_crosstalk_profile": config.process.crosstalk_profile,
+                "last_sensor_matrix": config.process.sensor_matrix,
+                "last_sensor_profile": config.process.sensor_profile,
                 "last_density": config.exposure.density,
                 "last_grade": config.exposure.grade,
                 "last_wb_cyan": config.exposure.wb_cyan,

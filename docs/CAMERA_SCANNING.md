@@ -104,6 +104,28 @@ panel (next to **Linear RAW**) corrects this by applying the bundled RGBScan inp
 profile to the preview and every export. An explicit **Input ICC** chosen in Export
 settings takes precedence while set.
 
+### Sensor calibration
+
+Single-shot scans under a narrowband RGB source can come out with hues that no slider
+fixes — yellows drifting orange is the classic sign. The cause is **sensor crosstalk**:
+the camera's colour-filter passbands overlap the source's bands (the green pixel sees
+the blue LED and some red), so every channel carries a share of its neighbours. It is a
+fixed property of your sensor + light pair, independent of the film.
+
+To correct it, photograph the bare light — no film in the holder — three times: red-only,
+green-only, blue-only, at the same settings you scan with, exposed just below clipping.
+Then in the Process panel open **Sensor Calibration**, press the calibrate button, pick
+the three captures, name the profile and save. Selecting the profile un-mixes every scan
+with a 3×3 matrix in the linear domain, before inversion. Profiles are TOML files in the
+`NegPy/sensor` folder. Re-run **Batch Analysis** after changing the profile.
+
+When *not* to use it: RGB-triplet (trichrome) scans are crosstalk-free by construction —
+each channel comes from its own single-light exposure — and NegPy skips the correction
+automatically for triplet assets. Dedicated film scanners (a Coolscan's mono CCD reads
+one LED at a time) have no sensor crosstalk either; their residual colour error is
+film-dye crosstalk, which the density-domain **Crosstalk** matrix handles (see
+[CROSSTALK.md](CROSSTALK.md)).
+
 ---
 
 ## Troubleshooting

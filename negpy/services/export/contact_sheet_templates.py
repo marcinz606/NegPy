@@ -1,10 +1,10 @@
 import os
-import re
 import tomllib
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.services.assets.naming import escape_toml_string, slugify
 from negpy.services.export.contact_sheet import CELL_PX, GAP, MARGIN, MAX_TILES_PER_SHEET
 
 DEFAULT_NAME = "Default"
@@ -24,16 +24,6 @@ class ContactSheetLayout:
     show_labels: bool = True
     background_color: str = "#000000"
     label_color: str = "#ffffff"
-
-
-def _slugify(name: str) -> str:
-    slug = re.sub(r"[^\w\s-]", "", name.lower())
-    slug = re.sub(r"[-\s]+", "_", slug).strip("_")
-    return slug or "template"
-
-
-def _escape_toml_string(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _clamp_int(value: object, lo: int, hi: int, default: int) -> int:
@@ -189,7 +179,7 @@ class ContactSheetTemplates:
     @staticmethod
     def path_for_name(name: str) -> str:
         """Filesystem path a template with this display name would use."""
-        return os.path.join(ContactSheetTemplates._templates_dir(), f"{_slugify(name)}.toml")
+        return os.path.join(ContactSheetTemplates._templates_dir(), f"{slugify(name, 'template')}.toml")
 
     @staticmethod
     def template_exists(name: str) -> bool:
@@ -224,15 +214,15 @@ class ContactSheetTemplates:
         os.makedirs(templates_dir, exist_ok=True)
         path = ContactSheetTemplates.path_for_name(name)
         content = (
-            f'name = "{_escape_toml_string(name)}"\n\n'
+            f'name = "{escape_toml_string(name)}"\n\n'
             "[layout]\n"
             f"cell_px = {layout.cell_px}\n"
             f"gap = {layout.gap}\n"
             f"margin = {layout.margin}\n"
             f"max_tiles = {layout.max_tiles}\n"
             f"show_labels = {'true' if layout.show_labels else 'false'}\n"
-            f'background_color = "{_escape_toml_string(layout.background_color)}"\n'
-            f'label_color = "{_escape_toml_string(layout.label_color)}"\n'
+            f'background_color = "{escape_toml_string(layout.background_color)}"\n'
+            f'label_color = "{escape_toml_string(layout.label_color)}"\n'
         )
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)

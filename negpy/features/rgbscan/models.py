@@ -13,3 +13,8 @@ class RgbScanConfig:
     green_path: str = ""
     blue_path: str = ""
     align: bool = True  # sub-pixel registration of green/blue to the red exposure
+
+
+def is_rgb_triplet(config: RgbScanConfig) -> bool:
+    """The predicate the decode paths use to decide to merge a triplet."""
+    return bool(config.enabled and config.green_path and config.blue_path)

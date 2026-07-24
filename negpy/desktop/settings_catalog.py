@@ -79,6 +79,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         # Strength + profile + baked matrix copy atomically: strength alone would
         # leave the target on a stale/None matrix.
         _row("Crosstalk", "process", "crosstalk_strength", "crosstalk_profile", "crosstalk_matrix", fmt=lambda v: _fmt_scalar(v[0])),
+        _row("Sensor Calibration", "process", "sensor_profile", "sensor_matrix", fmt=lambda v: _fmt_scalar(v[0])),
     )),
     ("Crop", (
         _row("Auto Crop", "geometry", "auto_crop_enabled"),

@@ -68,6 +68,13 @@ class ProcessConfig:
     crosstalk_matrix: Optional[tuple] = None
     crosstalk_profile: str = "Default"
 
+    # Sensor (CFA) crosstalk unmix on the LINEAR capture, before inversion —
+    # a per-setup property calibrated from three bare-light R/G/B exposures
+    # (features/process/sensor.py). 9 floats row-major, baked from a sensor
+    # profile; None = off (no built-in default).
+    sensor_matrix: Optional[tuple] = None
+    sensor_profile: str = "None"
+
     lock_bounds: bool = False
 
     roll_name: Optional[str] = None
@@ -82,6 +89,8 @@ class ProcessConfig:
         object.__setattr__(self, "local_ceils", tuple(self.local_ceils))
         if self.crosstalk_matrix is not None:
             object.__setattr__(self, "crosstalk_matrix", tuple(self.crosstalk_matrix))
+        if self.sensor_matrix is not None:
+            object.__setattr__(self, "sensor_matrix", tuple(self.sensor_matrix))
         if self.analysis_rect is not None:
             object.__setattr__(self, "analysis_rect", tuple(self.analysis_rect))
 

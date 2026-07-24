@@ -35,6 +35,7 @@ class AppConfig:
     cache_dir: str
     user_icc_dir: str
     crosstalk_dir: str
+    sensor_dir: str
     gear_dir: str
     contact_sheet_templates_dir: str
     default_export_dir: str
