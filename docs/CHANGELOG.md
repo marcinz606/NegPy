@@ -2,8 +2,10 @@
 
 ## 0.42.0
 
-- Fix: **Tool clicks no longer offset by the print border** — heal spots, dodge & burn masks and white-balance picks land where clicked when a border or paper size pads the preview; the crop tool's preview is no longer padded either.
+- New: **Selectable scanner backend** — a Backend dropdown in the Film Scanner panel picks the scan transport; SANE is the only one today, and more slot in through a registry.
 - Change: **Presets UX pass** — presets now live in a visible list (tooltips show contents), and Save, Edit and Apply all use the per-setting picker from copy/paste: a preset stores exactly the settings you tick, and applying shows them again with a choice of current frame, selection or whole roll, laid over existing edits or replacing the look. Per-frame crop, rotation, metadata, dust and masks are never touched; existing preset files keep working.
+- Fix: **Tool clicks no longer offset by the print border** — heal spots, dodge & burn masks and white-balance picks land where clicked when a border or paper size pads the preview; the crop tool's preview is no longer padded either.
+- Fix: **IR sidecars matched case-insensitively** — infrared files named `_ir.tiff` (not just `_IR.tif`) are now detected, so IR dust removal works on scans from more tools.
 
 ## 0.41.0
 

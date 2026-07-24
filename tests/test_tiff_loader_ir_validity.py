@@ -52,6 +52,39 @@ def test_ir_sidecar_without_validity_mask_preserves_existing_behavior(tmp_path) 
     assert metadata["ir"][0, 0] == np.float32(50000.0 / 65535.0)
 
 
+def test_lowercase_ir_sidecar_is_detected(tmp_path) -> None:
+    """Scanner tools (nkscan) emit lowercase `_ir.tiff`; the loader must still pair it."""
+    ir = np.full((5, 7), 50000, dtype=np.uint16)
+    ir[1, 2] = 0
+    rgb_path = tmp_path / "frame.tif"
+    tifffile.imwrite(rgb_path, np.full((*ir.shape, 3), 30000, dtype=np.uint16), photometric="rgb")
+    tifffile.imwrite(tmp_path / "frame_ir.tiff", ir, photometric="minisblack")
+
+    _context, metadata = TiffLoader().load(str(rgb_path))
+
+    assert metadata["ir"] is not None
+    assert metadata["ir_valid_mask"] is None
+    assert metadata["ir"][1, 2] == 0.0
+    assert metadata["ir"][0, 0] == np.float32(50000.0 / 65535.0)
+
+
+def test_lowercase_ir_valid_mask_pairs_with_lowercase_sidecar(tmp_path) -> None:
+    ir = np.full((6, 8), 32768, dtype=np.uint16)
+    ir[2, 3] = 0
+    valid = np.ones(ir.shape, dtype=np.uint8) * 255
+    valid[2, 3] = 0
+    rgb_path = tmp_path / "frame.tif"
+    tifffile.imwrite(rgb_path, np.full((*ir.shape, 3), 30000, dtype=np.uint16), photometric="rgb")
+    tifffile.imwrite(tmp_path / "frame_ir.tiff", ir, photometric="minisblack")
+    tifffile.imwrite(tmp_path / "frame_ir_valid.tiff", valid, photometric="minisblack")
+
+    _context, metadata = TiffLoader().load(str(rgb_path))
+
+    assert metadata["ir_valid_mask"].dtype == np.bool_
+    np.testing.assert_array_equal(metadata["ir_valid_mask"], valid.astype(bool))
+    assert metadata["ir"][2, 3] == 1.0
+
+
 @pytest.mark.parametrize("failure", ("mismatched", "malformed"))
 def test_invalid_validity_mask_ignores_ir_sidecar_fail_closed(
     tmp_path,
