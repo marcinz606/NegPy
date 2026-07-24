@@ -31,7 +31,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from negpy.infrastructure.loaders.constants import (
     SUPPORTED_JPEG_EXTENSIONS,
@@ -211,10 +211,15 @@ class GphotoCamera:
         jpeg_path: Optional[str] = None,
         settings_path: Optional[str] = None,
         gp_module: Optional[Any] = None,
+        on_preview_died: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._gp = gp_module or _gp()
         self._jpeg_path = jpeg_path or default_jpeg_path()
         self._settings_path = settings_path or default_settings_path()
+        # Called (from the preview thread) when the stream dies after retries — NOT on a
+        # normal stop(). Without it a body that stops answering (issue #617: GFX50S II
+        # times out with [-110]) leaves the UI spinning on "loading live view" forever.
+        self._on_preview_died = on_preview_died
         self._camera: Any = None
         self._model = ""
         # Cleared when the body stops answering — unplugging it leaves the handle behind,
@@ -692,6 +697,11 @@ class GphotoCamera:
                     # close() from here, it would join this very thread.
                     logger.warning("gphoto2: camera stopped answering, dropping the session")
                     self._alive = False
+                    if self._on_preview_died is not None:
+                        try:
+                            self._on_preview_died(str(exc))
+                        except Exception:  # noqa: BLE001 — the report must not break teardown
+                            logger.exception("preview-died callback failed")
                     return
                 self._stop.wait(0.5)
                 continue

@@ -82,6 +82,9 @@ class CaptureWorker(QObject):
     error = pyqtSignal(str)
     status = pyqtSignal(str)
     live_view_started = pyqtSignal(str)  # jpeg path being refreshed
+    #: The preview thread died after its retries and the session was dropped (issue #617) —
+    #: carries the last gphoto error, so the UI can stop the spinner and offer a retry.
+    live_view_failed = pyqtSignal(str)
     calibration_progress = pyqtSignal(float, str)
     calibration_finished = pyqtSignal(object)  # CalibrationResult
     calibration_exposure = pyqtSignal(str)  # "over"/"under" — target unreachable, run aborted, no preset
@@ -114,7 +117,9 @@ class CaptureWorker(QObject):
         probe (a probe IS a claim, and would steal the body mid-live-view), so open attempts
         are the verdict's only eyes."""
         if self._camera is None:
-            self._camera = GphotoCamera()
+            # The callback runs on the camera's own preview thread; the signal hop is what
+            # moves the report onto the Qt side.
+            self._camera = GphotoCamera(on_preview_died=self.live_view_failed.emit)
         if not self._camera.is_open():
             try:
                 self._camera.open()

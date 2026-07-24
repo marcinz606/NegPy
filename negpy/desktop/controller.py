@@ -223,6 +223,7 @@ class AppController(QObject):
     capture_progress = pyqtSignal(float)
     capture_channel = pyqtSignal(str)  # "R"/"G"/"B" as each triplet channel starts
     capture_camera_setting_applied = pyqtSignal(str)  # a set_camera_setting call ran to completion
+    capture_live_view_failed = pyqtSignal(str)  # preview thread died after retries; session dropped
     capture_finished = pyqtSignal(list)
     capture_cancelled = pyqtSignal()
     capture_error = pyqtSignal(str)
@@ -516,6 +517,7 @@ class AppController(QObject):
         self.capture_worker.progress.connect(self.capture_progress.emit)
         self.capture_worker.channel.connect(self.capture_channel.emit)
         self.capture_worker.camera_setting_applied.connect(self.capture_camera_setting_applied.emit)
+        self.capture_worker.live_view_failed.connect(self.capture_live_view_failed.emit)
         self.capture_worker.finished.connect(self._on_capture_finished)
         self.capture_worker.cancelled.connect(self.capture_cancelled.emit)
         self.capture_worker.error.connect(self.capture_error.emit)

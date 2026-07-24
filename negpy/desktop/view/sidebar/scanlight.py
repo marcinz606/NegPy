@@ -395,6 +395,8 @@ class ScanlightSidebar(QWidget):
         self.preset_new_btn.clicked.connect(self._on_preset_new)
         self.preset_save_btn.clicked.connect(self._on_preset_save)
         self.preset_del_btn.clicked.connect(self._on_preset_delete)
+        # Typing an invalid path greys Scan immediately (with the reason), not on the next click.
+        self.folder_edit.editingFinished.connect(self._apply_gating)
         for w in (self.roll_edit, self.folder_edit):
             w.editingFinished.connect(self._update_settings_from_ui)
 
@@ -402,6 +404,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_progress.connect(self._on_progress)
         self.controller.capture_channel.connect(self._on_channel)
         self.controller.capture_camera_setting_applied.connect(self._on_camera_setting_applied)
+        self.controller.capture_live_view_failed.connect(self._on_live_view_failed)
         self.controller.capture_finished.connect(self._on_finished)
         self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
@@ -975,6 +978,29 @@ class ScanlightSidebar(QWidget):
         if self.lv_btn.isChecked():
             self._push_light()
 
+    @pyqtSlot(str)
+    def _on_live_view_failed(self, reason: str) -> None:
+        """The preview thread died after its retries and the session was dropped (issue #617:
+        the GFX50S II times out with [-110] three times) — without this, whichever pop-up was
+        streaming spins on "loading live view" forever. Covers the scan window and the idle
+        calibration window (which streams for crosshair placement before a run and as the
+        exposure-abort retry surface); a death during a *running* calibration is left to that
+        run's own capture error. Both pop-ups close and the same pinned panel warning names
+        the reason — reopening is the retry."""
+        if self._calibrating_preset:
+            return
+        if self.lv_btn.isChecked():
+            self.lv_btn.setChecked(False)  # full teardown via _on_live_view_toggled(False)
+        elif self.calib_window.isVisible():
+            self.calib_window.close()  # its closed-handler stops the calib stream + routes the session
+        else:
+            return
+        self._set_status(
+            f"⚠ Live view failed — the camera stopped answering ({reason}). "
+            "Reconnect or power-cycle the camera, then start Live View again.",
+            pinned=True,
+        )
+
     def _stop_calibration_live_view(self) -> None:
         """Tear down the live view a calibration captured inside (Step-1-style, no reconnect)
         once it's done or failed — restores the pre-migration state: LV off, re-enable Scan to
@@ -1229,6 +1255,13 @@ class ScanlightSidebar(QWidget):
             output_folder = self.folder_edit.text().strip()
             if not output_folder:
                 return
+        if not (os.path.isabs(output_folder) and os.path.isdir(output_folder)):
+            # Belt for a folder that vanished after gating last ran (ejected drive) or was
+            # typed invalid: without this, makedirs resolves it against the app's working
+            # directory and the scan lands somewhere the operator will never look.
+            self._set_status(f"Output folder does not exist: {output_folder}")
+            self._apply_gating()  # greys Scan and repeats the reason in the gate hint
+            return
 
         roll = self._capture_roll_name()
         if roll is None:
@@ -1455,8 +1488,14 @@ class ScanlightSidebar(QWidget):
                 m.append("connect the Scanlight")
             if not self._preset_selected():
                 m.append("select or create a preset")
-        if not self.folder_edit.text().strip():
+        folder = self.folder_edit.text().strip()
+        if not folder:
             m.append("choose an output folder")
+        elif not (os.path.isabs(folder) and os.path.isdir(folder)):
+            # A typed or stale path (ejected drive, a literal "~", relative text) must not
+            # gate through: the capture's makedirs would silently create it relative to the
+            # app's working directory and the scans would "vanish" with no error shown.
+            m.append("choose a valid output folder (the current one does not exist)")
         return m
 
     def _apply_gating(self) -> None:

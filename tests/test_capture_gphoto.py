@@ -545,7 +545,13 @@ def test_unplugged_camera_stops_reporting_itself_open(fake, tmp_path):
     """A handle left behind by a vanished body must not keep claiming to be open."""
     import time
 
-    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(tmp_path / "lv.json"))
+    deaths: list[str] = []
+    camera = GphotoCamera(
+        gp_module=fake,
+        jpeg_path=str(tmp_path / "lv.jpg"),
+        settings_path=str(tmp_path / "lv.json"),
+        on_preview_died=deaths.append,
+    )
     camera.start()
     assert camera.is_open()
 
@@ -557,6 +563,7 @@ def test_unplugged_camera_stops_reporting_itself_open(fake, tmp_path):
     else:
         raise AssertionError("the session still reports itself open")
     assert not camera.is_running()  # the preview thread gave up rather than spinning forever
+    assert len(deaths) == 1  # the death was reported, not swallowed (issue #617's silent hang)
     camera.close()
 
 
