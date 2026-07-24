@@ -200,6 +200,7 @@ class AppController(QObject):
     densitometer_readout = pyqtSignal(object)  # DensitometerReading or None
     tone_drag_changed = pyqtSignal(str)  # exposure field being slider-dragged; "" = drag ended
     scan_devices_requested = pyqtSignal()
+    scan_backend_requested = pyqtSignal(str)
     scan_requested = pyqtSignal(ScanRequest)
     scan_devices_ready = pyqtSignal(list)
     scan_progress = pyqtSignal(float)
@@ -493,6 +494,7 @@ class AppController(QObject):
         self.preview_load_worker.load_failed.connect(self._on_preview_load_failed)
 
         self.scan_devices_requested.connect(self.scan_worker.list_devices)
+        self.scan_backend_requested.connect(self.scan_worker.set_backend)
         self.scan_worker.devices_ready.connect(self.scan_devices_ready.emit)
         self.scan_worker.progress.connect(self.scan_progress.emit)
         self.scan_worker.finished.connect(self._on_scan_finished)
@@ -2057,6 +2059,10 @@ class AppController(QObject):
     def request_scan_devices(self) -> None:
         """Request device enumeration on the scan worker thread."""
         self.scan_devices_requested.emit()
+
+    def set_scan_backend(self, backend_id: str) -> None:
+        """Route the chosen scanner backend to the worker thread."""
+        self.scan_backend_requested.emit(backend_id)
 
     def start_scan(self, req: ScanRequest) -> None:
         """Start a scan. The UI connects to scan signals for state updates."""

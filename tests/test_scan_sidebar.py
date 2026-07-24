@@ -96,10 +96,14 @@ class _FakeController(QObject):
         self.started: list[tuple[str, object]] = []
         self.ejected_ids: list[str] = []
         self.device_requests = 0
+        self.backend_requests: list[str] = []
         self.cancels = 0
 
     def request_scan_devices(self) -> None:
         self.device_requests += 1
+
+    def set_scan_backend(self, backend_id: str) -> None:
+        self.backend_requests.append(backend_id)
 
     def start_scan(self, req) -> None:
         self.started.append(("scan", req))
@@ -238,6 +242,35 @@ def test_ui_edit_preserves_dialog_selection() -> None:
 
     assert sidebar._settings.selected_frames == (1, 2, 4)
     assert sidebar._settings.frame_windows == {4: rect}
+
+
+def test_backend_combo_lists_registry_default() -> None:
+    sidebar, _ = _sidebar()
+    assert sidebar.backend_combo.findData("sane") >= 0
+    assert sidebar._current_backend_id() == "sane"
+
+
+def test_request_devices_routes_the_backend() -> None:
+    sidebar, controller = _sidebar()
+    controller.device_requests = 0
+    sidebar._request_devices()
+    assert controller.backend_requests[-1] == "sane"
+    assert controller.device_requests == 1
+
+
+def test_backend_change_persists_and_re_enumerates(monkeypatch) -> None:
+    from negpy.desktop.view.sidebar import scan as scan_mod
+
+    monkeypatch.setattr(scan_mod, "backend_choices", lambda: [("sane", "SANE"), ("mock", "Mock")])
+    sidebar, controller = _sidebar()
+    before = controller.device_requests
+
+    sidebar.backend_combo.setCurrentIndex(1)  # fires _on_backend_changed
+
+    assert sidebar._current_backend_id() == "mock"
+    assert controller.backend_requests[-1] == "mock"
+    assert controller.device_requests == before + 1
+    assert controller.session.repo.get_global_setting("scanner_settings")["backend"] == "mock"
 
 
 def test_ui_edit_preserves_offset_and_drift() -> None:

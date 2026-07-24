@@ -16,6 +16,19 @@ def test_scan_window_json_roundtrip_yields_tuple():
     assert isinstance(restored.scan_window, tuple)
 
 
+def test_backend_default_is_sane():
+    assert ScannerSettings.defaults().backend == "sane"
+
+
+def test_backend_survives_json_roundtrip():
+    from dataclasses import replace
+
+    original = replace(ScannerSettings.defaults(), backend="mock")
+    restored = ScannerSettings(**json.loads(json.dumps(asdict(original), default=str)))
+    assert restored.backend == "mock"
+    assert restored == original
+
+
 def test_per_frame_defaults_are_empty():
     d = ScannerSettings.defaults()
     assert d.frame_windows == {}

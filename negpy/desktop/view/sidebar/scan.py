@@ -15,9 +15,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from negpy.desktop.view.styles.templates import hint_label, section_subheader
+from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.styles.theme import THEME
 from negpy.infrastructure.scanners.base import ScannerCapabilities, ScannerDevice
+from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID, backend_choices
 from negpy.infrastructure.scanners.settings import ScannerSettings
 
 
@@ -67,9 +68,19 @@ class ScanSidebar(QWidget):
         layout.setSpacing(THEME.space_lg)
 
         # ── DEVICE ───────────────────────────────────────────
-        layout.addWidget(section_subheader("DEVICE"))
+        device_form = QFormLayout()
+        device_form.setSpacing(6)
+
+        self.backend_combo = QComboBox()
+        self.backend_combo.setToolTip("Scanner transport backend")
+        for backend_id, backend_label in backend_choices():
+            self.backend_combo.addItem(backend_label, backend_id)
+        idx = self.backend_combo.findData(self._settings.backend)
+        self.backend_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        device_form.addRow("Backend", self.backend_combo)
 
         device_row = QHBoxLayout()
+        device_row.setContentsMargins(0, 0, 0, 0)
         self.device_combo = QComboBox()
         self.device_combo.setToolTip("Select scanner")
         self.device_combo.addItem("Detecting scanners…", None)
@@ -88,7 +99,10 @@ class ScanSidebar(QWidget):
         device_row.addWidget(self.device_combo, 1)
         device_row.addWidget(self.refresh_btn)
         device_row.addWidget(self.eject_btn)
-        layout.addLayout(device_row)
+        device_row_widget = QWidget()
+        device_row_widget.setLayout(device_row)
+        device_form.addRow("Device", device_row_widget)
+        layout.addLayout(device_form)
 
         # ── CAPS INFO ───────────────────────────────────────
         self.frame_label = hint_label("")
@@ -215,6 +229,7 @@ class ScanSidebar(QWidget):
     def _connect_signals(self) -> None:
         self.refresh_btn.clicked.connect(self._on_refresh)
         self.eject_btn.clicked.connect(self._on_eject)
+        self.backend_combo.currentIndexChanged.connect(self._on_backend_changed)
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)
         self.browse_btn.clicked.connect(self._on_browse)
         self.scan_btn.clicked.connect(self._on_scan)
@@ -253,6 +268,7 @@ class ScanSidebar(QWidget):
 
     def _request_devices(self) -> None:
         """Request device list from the scan worker thread."""
+        self.controller.set_scan_backend(self._current_backend_id())
         self.device_combo.clear()
         self.device_combo.addItem("Detecting scanners…", None)
         self.device_combo.setEnabled(False)
@@ -260,6 +276,16 @@ class ScanSidebar(QWidget):
         self.controller.request_scan_devices()
 
     def _on_refresh(self) -> None:
+        self._request_devices()
+
+    def _current_backend_id(self) -> str:
+        return self.backend_combo.currentData() or DEFAULT_BACKEND_ID
+
+    def _on_backend_changed(self, _index: int) -> None:
+        # Device lists are backend-specific → persist the choice, then re-enumerate.
+        # Per-backend UI tweaks that capabilities can't express branch here on
+        # _current_backend_id(); none needed today.
+        self._update_settings_from_ui()
         self._request_devices()
 
     def _on_eject(self) -> None:
@@ -621,6 +647,7 @@ class ScanSidebar(QWidget):
     def set_scanning(self, active: bool) -> None:
         self._scanning = active
         device = self._current_device()
+        self.backend_combo.setEnabled(not active)
         self.eject_btn.setEnabled(bool(device and device.capabilities.can_eject) and not active)
         if active:
             self.scan_btn.setText(" Stop")
@@ -652,6 +679,7 @@ class ScanSidebar(QWidget):
         self.settings = replace(
             self._settings,
             last_device_id=device.id if device else self._settings.last_device_id,
+            backend=self._current_backend_id(),
             dpi=dpi,
             depth=depth,
             capture_ir=self.ir_check.isChecked() and self.ir_check.isEnabled(),

@@ -29,14 +29,15 @@ class ScannerService:
     capabilities. See ScannerBackend for what an implementation owes this class.
     """
 
-    def __init__(self, backend: ScannerBackend | None = None) -> None:
+    def __init__(self, backend: ScannerBackend | None = None, backend_id: str | None = None) -> None:
         self._backend = backend
+        self._backend_id = backend_id
 
     def _get_backend(self) -> ScannerBackend:
         if self._backend is None:
-            from negpy.infrastructure.scanners.sane_backend import SaneBackend
+            from negpy.infrastructure.scanners.registry import DEFAULT_BACKEND_ID, create_backend
 
-            self._backend = SaneBackend()
+            self._backend = create_backend(self._backend_id or DEFAULT_BACKEND_ID)
         return self._backend
 
     def list_devices(self) -> list[ScannerDevice]:

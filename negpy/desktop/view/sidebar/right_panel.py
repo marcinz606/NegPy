@@ -225,7 +225,7 @@ class RightPanel(QWidget):
             section.expanded_changed.connect(lambda checked, k=key: repo.save_global_setting(f"section_expanded_{k}", checked))
             return section
 
-        self.scan_sane_section = make("Scanner (SANE)", "scan_sane", "fa5s.camera-retro", self.scan_sidebar, False)
+        self.scan_sane_section = make("Film Scanner", "scan_sane", "fa5s.camera-retro", self.scan_sidebar, False)
         self.scan_rgb_section = make("Camera Scanning", "scan_rgb", "fa5s.camera", self.scanlight_sidebar, True)
 
         page = QWidget()

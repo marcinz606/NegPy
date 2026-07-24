@@ -8,6 +8,7 @@ class ScannerSettings:
     """Persisted scanner preferences, stored as JSON blob."""
 
     last_device_id: str = ""
+    backend: str = "sane"  # mirrors registry.DEFAULT_BACKEND_ID; keep in sync
     dpi: int = 3600
     depth: int = 16
     capture_ir: bool = False

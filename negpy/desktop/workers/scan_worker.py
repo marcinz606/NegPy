@@ -67,6 +67,7 @@ class ScanWorker(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._service: ScannerService | None = None
+        self._backend_id: str | None = None  # None → ScannerService uses the registry default
         self._cancel_event = threading.Event()
         self._state_lock = threading.Lock()
         self._request_prepared = False
@@ -74,8 +75,19 @@ class ScanWorker(QObject):
 
     def _ensure_service(self) -> ScannerService:
         if self._service is None:
-            self._service = ScannerService()
+            self._service = ScannerService(backend_id=self._backend_id)
         return self._service
+
+    @pyqtSlot(str)
+    def set_backend(self, backend_id: str) -> None:
+        """Select the scanner transport. Rebuilds the service lazily on next use.
+
+        Queued onto the worker thread, so it serializes with list_devices/run_scan
+        and can never swap the backend out from under an in-flight scan."""
+        if backend_id == self._backend_id:
+            return
+        self._backend_id = backend_id
+        self._service = None
 
     @pyqtSlot()
     def list_devices(self) -> None:
