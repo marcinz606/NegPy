@@ -29,6 +29,16 @@ class _NoScrollSlider(QSlider):
         else:
             event.ignore()
 
+    def _value_from_x(self, x: float) -> int:
+        # Mirrors paintEvent's handle mapping (handle_w=12) so click-to-position
+        # and the default-marker tick agree. Any y within the widget maps here.
+        handle_w = 12
+        usable = max(1, self.width() - handle_w)
+        pos = max(0.0, min(1.0, (x - handle_w / 2) / usable))
+        if self.invertedAppearance():
+            pos = 1.0 - pos
+        return self.minimum() + round(pos * (self.maximum() - self.minimum()))
+
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             mods = event.modifiers()
@@ -37,6 +47,11 @@ class _NoScrollSlider(QSlider):
                 self.sliderReleased.emit()
                 event.accept()
                 return
+            # Jump the handle under the cursor (ignoring y), then let Qt grab it
+            # so the drag continues from there. Shift keeps the handle put for a
+            # relative fine-drag from wherever it already is.
+            if not mods & Qt.KeyboardModifier.ShiftModifier:
+                self.setValue(self._value_from_x(event.position().x()))
             self._drag_anchor_px = event.position().x()
             self._drag_anchor_value = self.value()
         super().mousePressEvent(event)
@@ -242,11 +257,16 @@ class CompactSlider(BaseSlider):
         self._label_color = color if color else THEME.text_secondary
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(2)
+        # Bias the row's dead space below the groove so the near-miss grab band
+        # (see _GRAB_PAD) has room underneath: drop the header<->slider gap and
+        # move it below the slider. Net row height is unchanged; the groove sits
+        # ~2px closer to its label than the default.
+        layout.setContentsMargins(2, 2, 2, 4)
+        layout.setSpacing(0)
 
         header = QHBoxLayout()
         header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        header.setSpacing(2)  # explicit: the VBox spacing (0) would otherwise collapse the label<->edited-dot gap
         self.label = QLabel(label)
         self.label.setStyleSheet(slider_label_qss(self._label_color))
         self.label.setToolTip(f"{label} (double-click to reset)")
@@ -275,6 +295,7 @@ class CompactSlider(BaseSlider):
         self._scrub_active = False
         self._scrub_start_x = 0.0
         self._scrub_start_val = 0.0
+        self._band_drag = False
 
         header.addWidget(self.label)
         header.addWidget(self._edited_dot)
@@ -292,6 +313,47 @@ class CompactSlider(BaseSlider):
         if not self.spin.hasFocus():
             self.spin.setMaximumWidth(0)
         super().leaveEvent(event)
+
+    # Extra clickable px above/below the thin slider so a near-miss on the
+    # handle still grabs it. The slider widget's own rect is only ~handle-tall,
+    # so clicks land here on the container's padding and get forwarded as a
+    # real grab-drag — no layout/height change to the visible row.
+    _GRAB_PAD = 8
+
+    def _band_hit(self, pos) -> bool:
+        if not self.isEnabled():
+            return False
+        r = self.slider.geometry()
+        return r.left() <= pos.x() <= r.right() and (r.top() - self._GRAB_PAD) <= pos.y() <= (r.bottom() + self._GRAB_PAD)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._band_hit(event.position()):
+            mods = event.modifiers()
+            if mods & Qt.KeyboardModifier.ControlModifier and self.slider._default_slider_value is not None:
+                self.slider.setValue(self.slider._default_slider_value)
+                self.slider.sliderReleased.emit()
+            else:
+                self._band_drag = True
+                self.slider.setSliderDown(True)  # emits sliderPressed -> dragStarted
+                self.slider.setValue(self.slider._value_from_x(event.position().x() - self.slider.x()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._band_drag:
+            self.slider.setValue(self.slider._value_from_x(event.position().x() - self.slider.x()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._band_drag:
+            self._band_drag = False
+            self.slider.setSliderDown(False)  # emits sliderReleased -> commit + dragEnded
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _on_slider_changed(self, value: int) -> None:
         super()._on_slider_changed(value)
