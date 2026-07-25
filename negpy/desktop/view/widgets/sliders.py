@@ -160,8 +160,11 @@ class BaseSlider(QWidget):
 
     def _to_int(self, value: float) -> int:
         """Value -> slider int; subclasses override the pair for nonlinear
-        travel. Must stay stateless: called during __init__."""
-        return int(value * self._precision)
+        travel. Must stay stateless: called during __init__.
+
+        round(), not int(): truncation drops the handle a step on the
+        commit->sync round-trip (e.g. 0.29*100 == 28.9999) — a visible jump-back."""
+        return round(value * self._precision)
 
     def _from_int(self, i: int) -> float:
         return i / self._precision
