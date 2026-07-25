@@ -197,13 +197,11 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 
     **Deconvolution** — Richardson-Lucy on linear luminance $Y$ (Gaussian PSF), reversing the scanner's optical blur (`rl_*.wgsl`). Runs on $Y$, not $L^{\ast}$: optical blur is physical, so the model must live in linear light.
 
-    ```math
-    \hat{o}_{n+1} = \hat{o}_n \cdot \left(K \otimes \frac{o}{\max(K \otimes \hat{o}_n,\ \epsilon)}\right), \qquad \hat{o}_0 = o = Y
-    ```
+    $$\hat{o}_{n+1} = \hat{o}_n \cdot \left(K \otimes \frac{o}{\max(K \otimes \hat{o}_n,\ \epsilon)}\right), \qquad \hat{o}_0 = o = Y$$
+
     Iterations are fixed by radius, $\text{clamp}(\text{round}(10\cdot\text{radius}), 5, 20)$ — a function of the *user* radius, never the scaled $\sigma$, so preview and export run identical counts (no per-pixel early stop, no damping; the edge mask alone governs grain, matching RawTherapee). The result is applied as an RGB ratio (chroma-preserving), gated by the same $L^{\ast}$ edge mask $m$:
-    ```math
-    \mathrm{RGB}_{out} = \mathrm{clamp}\left(\mathrm{RGB} \cdot \max\left(1 + \left(\frac{\hat{o}_N}{\max(o,\epsilon)} - 1\right) \cdot \mathrm{amount} \cdot m,\ 0\right),\ 0,\ 1\right)
-    ```
+
+    $$\mathrm{RGB}_{out} = \mathrm{clamp}\left(\mathrm{RGB} \cdot \max\left(1 + \left(\frac{\hat{o}_N}{\max(o,\epsilon)} - 1\right) \cdot \mathrm{amount} \cdot m,\ 0\right),\ 0,\ 1\right)$$
 
 5.  **Glow**: Simulates lens bloom (a print-side effect) by blurring highlights and adding them back in linear light.
 
