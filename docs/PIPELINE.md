@@ -2,13 +2,16 @@
 
 Here is what actually happens to your image. We apply these steps in order, passing the buffer from one stage to the next.
 
+**Colour handling — no input colorspace.** NegPy works on **linear RGB straight from the raw decode** (`output_color=raw`, `gamma=(1,1)`, unity white balance): the sensor's own channels, never converted through camera primaries into a colorimetric space. The entire pipeline processes this sensor-native data — channel balance is handled in film terms instead (independent per-channel normalization bounds in §2, spectral crosstalk unmix, cast removal in §3). Adobe RGB (1998) is an *assumed boundary profile*, not an input characterisation (`WORKING_COLOR_SPACE` in `infrastructure/display/color_spaces.py`): stages needing a perceptual model (CLAHE, Lab, Toning) compute CIELAB from the linear data using Adobe RGB primaries/D65, and the Adobe RGB TRC is applied as the final engine step (§3 Output). Colorspace primaries are applied only on the way **out** — the preview is colour-managed from the working profile to the display profile, and export converts to the selected target space and embeds its ICC profile.
+
 ## 1. Geometry (Straighten & Crop)
 **Code**: `negpy.features.geometry`
 
 *   **Rotation**: We spin the image array (90° steps) and fine-tune with affine transformations. We use bilinear interpolation so it stays sharp.
+*   **Lens distortion**: a radial $k_1$ coefficient — a rig property mirrored from the active flat-field profile (`flatfield.k1`) — is corrected in the same resample.
 *   **Autocrop**: I try to detect where the film ends and the scanner bed begins by looking for the density jump. It's not perfect (light leaks or weird scanning holders can fool it), so there's a manual override.
 
-**Note:** Cropping happens early because the normalization step needs to know what is "image" and what is "border" to calculate the black/white points correctly. Instead of cropping you can also use the "Analysis buffer" option to exclude outer X% of the image from the analysis. This is useful when you have a border around the film.
+**Note:** The crop *selection* is resolved here (it becomes the analysis ROI) because the normalization step needs to know what is "image" and what is "border" to calculate the black/white points correctly — but the pixels are only actually cropped **after Toning** (before Finish), so retouching, Lab and the preview overlays all operate on the full frame. Instead of cropping you can also use the "Analysis buffer" option to exclude the outer X% of the image from the analysis, or draw a freehand **analysis region** (`analysis_rect`) that the meters then read exactly. Useful when a border rides around the film.
 
 ---
 
@@ -16,6 +19,9 @@ Here is what actually happens to your image. We apply these steps in order, pass
 **Code**: `negpy.features.exposure.normalization`
 
 *   **Physical Model**: We treat the input as a **radiometric measurement**. Pixel values represent linear transmittance captured by the sensor.
+*   **Source corrections** (linear domain, before the log conversion):
+    *   **Flat-field** (`negpy.features.flatfield`): divides out illumination falloff using a blank reference frame — a per-channel gain map $\text{mean}(\text{blur})/\text{blur}$ (computed on a 256 px copy, clamped to $[0.25, 4]$) multiplies the linear source. The reference's identity is folded into the render's source hash.
+    *   **Sensor crosstalk unmix** (`sensor_matrix`, `features/process/sensor.py`): for single-shot narrowband camera scans, the camera's CFA passbands overlap the light source's bands, so a pure R/G/B exposure leaks into the other channels — a fixed property of the sensor+light pair, independent of film. Calibrated once from three bare-light exposures (response columns normalized to a unit diagonal so per-capture exposure cancels, then inverted) and applied as a 3×3 unmix of the **linear** capture — before the log/inversion where the film-dye crosstalk below lives. The related **narrowband scan** toggle instead applies the bundled RGBScan *input* profile at the display/export boundary (an explicit Input ICC overrides it).
 *   **Log Conversion**: Film density is logarithmic ($D \propto \log E$). We convert the raw signal to log-space to align with the physics of the film layers:
     $$E_{log} = \log_{10}(I_{raw})$$
 *   **Bounding & Polarity**:
@@ -27,6 +33,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Luma Range Clip** (`luma_range_clip`): Tunes how aggressively the *luminance* percentile window is set — the black/white-point span (dynamic range). **Positive** values symmetrically tighten the window before bounds detection — useful for very dense or fogged negatives where a few outlier pixels would otherwise pull the white or black point to an extreme. **Zero** uses robust extremes (a block-median prefilter rejects dust and speculars, and a small base clip excludes tiny outlier populations). **Negative** values push the bounds *outward* beyond the extremes, leaving lifted blacks and unclipped highlights as headroom.
     *   **Colour Clip** (`color_range_clip`): The absolute per-tail clip percentile for the per-channel colour deviation (white balance / orange-mask cast), independent of the luma span. A **tighter** (larger) clip gives a more robust, outlier-resistant channel balance; a **gentler** (smaller) clip samples nearer the extremes. The default neutral is `base_color_clip` ($1.0$); the slider spans log-interpolated percentiles either side of it.
     *   **White & Black Point Offsets**: Fine-tunes the detected bounds after statistical analysis. Shifting the White Point floor or Black Point ceiling enables precise highlight recovery or shadow crushing without re-running the analysis. A **[Global / R / G / B]** selector on the Process page scopes the sliders to per-layer trims (`white_point_trim_*` / `black_point_trim_*`) added on top of the global offsets — per-dye-layer film-base (Dmin) and Dmax correction, scanner-style per-channel levels (`per_channel_point_offsets`, single source for CPU/GPU; E6 negates; hidden in B&W).
+    *   **Roll baseline & locks**: Batch Analysis measures every frame of a roll; **Use luma / colour average** (`use_luma_average` / `use_colour_average`) swap in the roll-wide baseline independently per axis (luma span, colour cast) so the whole roll normalizes consistently, and **Lock bounds** (`lock_bounds`) freezes the stored floors/ceils against re-analysis.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range. The result is **not clamped**: tones outside the detected bounds are kept and rolled off later by the soft toe/shoulder of the print curve, rather than being truncated here.
 *   **Per-frame metering**: Normalization also measures a few statistics used later by the Print stage's automatic helpers — per-channel **shadow references** ($P_{98}$, for Cast Removal) and a per-frame **exposure anchor** ($P_{50}$ luminance) and **textural range** ($P_{10}\text{–}P_{90}$, for Auto Density / Auto Grade). See §3.
 *   **Spectral crosstalk / dye unmix** (`crosstalk_strength` / `crosstalk_matrix`): applies a spectral-crosstalk matrix (`.toml` profiles, see docs/CROSSTALK.md) to the raw **negative** log densities *before* bounds analysis and the stretch. This is the physically correct domain — secondary dye absorptions are linear in negative dye density (Beer–Lambert), and the bundled matrices are derived from negative spectral dye-density curves. The matrix is blended with identity by strength and row-normalized (grays preserved); every meter (bounds, anchor, shadow refs, neutral axis) reads the unmixed film. Batch Analysis applies the same unmix — bounds measured under a different matrix are invalid for the render, so re-run it (and re-check locked bounds) after changing the matrix or strength.
@@ -38,6 +45,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
 **Code**: `negpy.features.exposure`
 
 *   **Virtual Darkroom**: Simulates shining light through the normalized log-signal onto paper.
+*   **B&W (panchromatic)**: in B&W mode the normalized signal collapses to a **single density** (its luminance) *before* the curve — the H&D curve shapes one channel instead of mixing three, like paper under a B&W negative; per-channel colour controls are hidden.
 *   **Color Timing**: Applies subtractive filtration (CMY) in log-space. This mimics a dichroic head on an enlarger. Adjustments can be targeted to **Global**, **Shadows**, or **Highlights** regions; the shadow/highlight offsets are weighted by a smooth sigmoid about the midtone — $w_{sh} = \sigma(3 \cdot (v - z))$, where $z$ is the midtone zone centre (`anchor_target_density`) — so shadow weight rises with density and highlight weight falls. The Temperature slider, WB picker and temperature roll-lock all operate on the *selected region's* M/Y pair.
 *   **The H&D Curve**: Models paper response as an **asymmetric toe-linear-shoulder** curve in **density** space. A straight line of slope $k$ through the exposure pivot is smoothly bounded above by the **toe** (shadows rolling into paper black) and below by the **shoulder** (highlights rolling into paper white). Both bounds are independent **softplus** knees, so each slider shapes only its own end of the scale (film/print convention). With $v = k \cdot (x_{adj} - x_0)$:
     $$v_1 = D_{min} + \frac{\text{softplus}\big(a_{hl} (v - D_{min})\big)}{a_{hl}} \qquad \text{(shoulder → paper white)}$$
@@ -49,6 +57,7 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   $x_{adj}$: Adjusted input log-exposure (after CMY offsets); $x_0$ is the pivot.
 *   **Variable-gamma paper S-curve**: Before the bounds, a midtone gamma boost adds an anchor-preserving S-shape — $v \mathrel{+}= \gamma \cdot w \cdot \tanh\big((v - v^{\ast})/w\big)$ (`paper_midtone_gamma` $= 0.15$, `paper_gamma_width` $= 0.6$). Centred on the reference tone $v^{\ast}$ so the anchor is preserved, easing to zero toward toe and shoulder — a real paper's continuously varying gamma. The **Snap** slider (`midtone_gamma`) is a user trim added to the paper's baseline $\gamma$; in R/G/B mode it retargets to per-layer trims (`midtone_gamma_trim_*`) on top of that — midtone crossover, evaluated per channel (`per_channel_midtone_gamma`, single source for CPU/GPU/chart).
 *   **Grade (ISO-R)**: Contrast is set as an **ISO range (R) value**, default 115, range 50–180 (R110 ≈ classic paper grade 2; higher R = softer). The straight-line slope is $k = \text{(grade contrast scale)} \cdot \text{range} / (R/100)$ (`grade_contrast_scale` $= 2.9$), clamped to $[2.0, 10.0]$ — the literal H&D gamma (negative density range over paper exposure range). Edits saved under the old 0–5 paper-grade scale are auto-migrated via $R = 150 - 20 \cdot G$.
+*   **Split Grade** (`shadow_grade` / `highlight_grade`, ISO-R points, negative = harder): zone-local contrast, the split-grade print — the curve rotates about the shadow/highlight zone centres, $v \mathrel{+}= \Delta k_{ch} \cdot w \cdot (v - z_{zone})$, using the same mid-sparing sigmoid weights as Zone Density ($z_{sh} = z + 0.75$, $z_{hl} = z - 0.40$, $k = 4$). The ISO-R points fold into a slope ratio exactly like Grade trims (`split_grade_deltas`, single source for CPU/GPU/chart), with per-layer trims (`shadow_grade_trim_*` / `highlight_grade_trim_*`) on top. Runs **before** Zone Density as its own block — sequential blocks stay monotone where shared weights would not.
 *   **Per-layer trims (crossover correction)**: each dye layer has its own characteristic curve; the **Global / R / G / B** selector on the Tone page trims one layer relative to the shared curve. CMY filtration can only *shift* a layer's curve in parallel — it cannot fix **crossover** (shadows cast one colour, highlights the complement), which is a per-layer curve-*shape* mismatch. The trims are:
     *   **Grade trim** (`grade_trim_*`, ±30 ISO-R points): folds into the layer's slope exactly like a paper's `channel_gamma` — since $k \propto 1/R$, a trim is the pure ratio $R/(R+\Delta R)$ — and the pivot is re-solved per channel, so the layer rotates about the anchor and midtones stay neutral.
     *   **Toe / Shoulder trims** (`toe_trim_*` / `shoulder_trim_*`, ±1 on top of the global knee): per-layer endpoint casts — one layer's shadow or highlight knee moves, the other layers and the opposite end stay put. Effective per-channel values are clamped to the slider domain (`per_channel_toe_shoulder`, single source for CPU/GPU/chart).
@@ -59,12 +68,13 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Shoulder** — highlights. Lifts the paper-white floor (compresses/greys highlights): $D_{min,eff} = D_{min} + \text{shoulder} \cdot 0.35$ (`shoulder_height`).
     *   **Grade-coupled baseline**: hard grades (high slope) physically have snappier toes and compressed shoulders, so a slope-proportional amount is added automatically (`toe_grade_strength` $\approx 0.058$ — rescaled with the `toe_height` retune so the baseline $\Delta D$ matches the old $0.15 \cdot 0.35$ — and `shoulder_grade_strength` $= 0.12$, scaled by the normalized slope).
 *   **Zone Density (ΔD)**: two achromatic sliders (`shadow_density` ±0.9, `highlight_density` ±0.5) brighten/darken the shadow and highlight zones without reshaping the knees — the slider value is a literal density offset at full zone weight. Unlike the regional CMY (a broad complementary blend that pushes half of each offset into the mids), each slider has its own **mid-sparing** weight centred in the three-quarter/quarter tones: $v \mathrel{+}= \Delta D_{sh} \cdot \sigma\big(k(v - z_{sh})\big) + \Delta D_{hl} \cdot \big(1 - \sigma(k(v - z_{hl}))\big)$ with $z_{sh} = z + 0.75$, $z_{hl} = z - 0.40$, $k = 4$ (`zone_density_*` constants, mirrored as literals in `exposure.wgsl`) — midtones get neither offset. Applied before the softplus bounds, so a shadow burn can never exceed paper black and a highlight bleach never crosses paper white; a highlight burn shows first in the quarter-tones (near paper white the shoulder bound absorbs it, like a real print). Ranges are asymmetric because density is $\log_{10}$ — an equal $\Delta D$ reads far smaller near $D_{max}$ than near $D_{min}$. The chart mirrors the shift (`CharacteristicCurve`).
+*   **Dodge & Burn** (`negpy.features.local`): polygon masks drawn over the print, each with a strength in **EV stops** (positive = dodge / hold back, negative = burn) and a Gaussian feather ($\sigma$ as a fraction of the short side). The masks rasterize to a per-pixel EV map added to the log-exposure input alongside the CMY offsets — a true print-exposure change that rides the full curve, not a brightness overlay. One stop is $\log_{10}(2)$ scaled by each channel's stretch range (`local_ev_scale`), so a 1-stop dodge holds back exactly one stop of print exposure regardless of the frame's bounds. Vertices are stored in raw-image coordinates and follow geometry (rotation, flips, distortion). The Flat intent skips them.
 *   **Output**: Converts print density back to **scene-linear** reflectance (transmittance):
     $$I_{out} = 10^{-D}$$
     *   **Paper Black** (`paper_black`, off): off applies black point compensation, the same idea as ICC relative-colorimetric soft-proofing — a reflection print's D-max ($2.3$) floors reflectance at $10^{-2.3} \approx 0.005$, but the adapted eye reads paper black as black, so the display should too; on preserves the paper's lifted D-max instead. With compensation (the default), per channel, with $t_b = 10^{-D_b}$:
         $$I_{out} = \frac{I - t_b}{1 - t_b}, \quad D_b = D_{max} + \text{toe}_{ch} \cdot 0.90 \text{ (for } \text{toe}_{ch} < 0\text{)},\ D_{max} \text{ otherwise}$$
         clamped at $0$. The curve reaches $D_{max}$ only asymptotically, so a **negative toe raises the clip point** into the shadows — that's what makes exact $0$ reachable ("negative toe deepens blacks", literally); a lifted toe and per-layer shadow casts survive because the reference is the *physical* $D_{max}$, not $D_{max,eff}$. A negative per-layer toe trim (with compensation on) tints the deepest black.
-    *   **Note**: The pipeline is **scene-linear internally** — the exposure stage emits linear light and every creative stage (Retouch, Lab, Local, Toning, Finish) operates on it. The working-space OETF (the **Adobe RGB (1998) TRC**, a pure $563/256 \approx 2.199$ power with no linear segment) is applied **only as the final engine step** (the output transform), so it composes correctly with the Adobe RGB ICC profile at the display/export boundary. Retouch's dust *detection* is perceptual, so on the CPU it computes its luma on a display-encoded copy while healing in linear; the GPU keeps a single encoded perceptual region (exposure → clahe/retouch encoded → lab decodes back to linear).
+    *   **Note**: The pipeline is **scene-linear internally** — the exposure stage emits linear light and every creative stage (Local Contrast, Retouch, Lab, Toning, Finish) operates on it. The working-space OETF (the **Adobe RGB (1998) TRC**, a pure $563/256 \approx 2.199$ power with no linear segment) is applied **only as the final engine step** (the output transform), so it composes correctly with the Adobe RGB ICC profile at the display/export boundary. Retouch is a perceptual op, so the CPU brackets that stage through the OETF (encode → heal → decode); the GPU keeps a single encoded perceptual region (exposure → clahe/retouch encoded → lab decodes back to linear).
 
 ### Automatic helpers
 
@@ -89,7 +99,7 @@ With the helpers off, the conversion **shows you your photography** — exactly 
 ### Paper profiles
 **Code**: `negpy.features.exposure.papers`
 
-A **paper profile** (`paper_profile`, default *Neutral*) overrides the print *character* — the H&D curve shape — without touching contrast or exposure. Each profile sets the paper's $D_{max}$/$D_{min}$, toe/shoulder knee sharpness and height, and midtone gamma; colour papers add a per-channel slope crossover (`channel_gamma`, the dye-layer divergence at the extremes) and a paper-base tint (`base_tint_cmy`). Grade still owns contrast and the Density/toe/shoulder sliders still trim on top — the *Neutral* profile reproduces the defaults exactly.
+A **paper profile** (`paper_profile`, default *Neutral*) overrides the print *character* — the H&D curve shape — without touching contrast or exposure. Each profile sets the paper's $D_{max}$/$D_{min}$, toe/shoulder knee sharpness and height, and midtone gamma; colour papers add a per-channel slope crossover (`channel_gamma`, the dye-layer divergence at the extremes), a paper-base tint (`base_tint_cmy`, an addition to the minimum-density floor that shows in highlights) and a **dye-coupling matrix** (`dye_matrix`, $D_{rgb} = M \cdot D_{dye}$ above base — the dyes' unwanted absorptions, row-normalized at use). Grade still owns contrast and the Density/toe/shoulder sliders still trim on top — the *Neutral* profile reproduces the defaults exactly.
 
 Profiles are **mode-aware**: C-41 exposes the RA4 colour papers, B&W exposes the tonal-only B&W papers (paper tone is a Toning job, so B&W profiles carry no colour terms), and E-6 gets only *Neutral*. An incompatible stored value collapses to *Neutral* so it can never leak into a render. Bundled papers: **Neutral**; *B&W* — Ilford Multigrade RC, Ilford Multigrade FB Classic, Foma Fomatone, Foma Fomabrom; *RA4* — Kodak Endura Premier, Fujicolor Crystal Archive. Values are loosely mapped from datasheets (mainly $D_{max}$ is grounded; the knee/midtone tweaks are light character touches).
 
@@ -106,7 +116,7 @@ $$I_{out} = \text{clip}\big(\text{lift} + \text{gain} \cdot (1 - \text{val}),\ 0
 *   `flat_log_lift` $= 0.10$: the output value the scene **shadow** lands on (black lift).
 *   Result: scene shadow → $0.10$, mid-grey → $\approx 0.46$, highlight → $0.75$ — headroom above white and below black, fully invertible for downstream grading.
 
-Both are **fixed** (no per-frame metering) so an evenly-exposed roll renders identically; manual white balance still rides as an additive per-channel shift in log space. The engine also **bypasses** the creative stages (Retouch, Lab, Local, Toning, Finish) for a flat intent; only Geometry → Normalization → this log map → Crop run. Export is full-resolution; the colour space follows the export selection (color-managed at encode like the print path), as 16-bit TIFF or Linear DNG. CPU engine is forced (no GPU flat shader) for numerical exactness.
+Both are **fixed** (no per-frame metering) so an evenly-exposed roll renders identically; manual white balance still rides as an additive per-channel shift in log space. The engine also **bypasses** the creative stages (Local Contrast, Retouch, Lab, Toning, Finish — dodge/burn masks are skipped too) for a flat intent; only Geometry → Normalization → this log map → Crop run. Export is full-resolution; the colour space follows the export selection (color-managed at encode like the print path), as 16-bit TIFF or Linear DNG. CPU engine is forced (no GPU flat shader) for numerical exactness.
 
 ---
 
@@ -129,7 +139,7 @@ The control lives in the Lab sidebar (`lab.clahe_strength`), but the stage runs 
 ## 5. Retouching
 **Code**: `negpy.features.retouch`
 
-This stage removes physical artifacts like dust, hairs, and scratches from the negative. Three complementary approaches:
+This stage removes physical artifacts like dust, hairs, and scratches from the negative. Defects come from three complementary sources — the IR channel (hardware), statistical detection (software), and your manual strokes — and all repairs run through one shared membrane-clone engine, with a routed inpaint for defects a clone can't cover:
 
 *   **Infrared (IR) Dust Removal** (scans carrying an IR channel — Coolscan, SilverFast iSRD, VueScan DNG):
     Dust and scratches block infrared light while the film's dyes pass it, so the IR plane is a defect map independent of the photograph. This path runs on the **linear source before normalization**, so every meter reads the cleaned film. Algorithm concepts are ported from digital-fauxice (see `NOTICE.md`), a validated recreation of Digital ICE.
@@ -143,25 +153,21 @@ This stage removes physical artifacts like dust, hairs, and scratches from the n
 
     B&W silver and Kodachrome block IR like dust does; such frames are auto-detected (the IR plane mirrors the image) and skipped.
 
-*   **Automatic Dust Removal**:
-    A resolution-invariant impulse detector and patching engine.
-    
-    1.  **Statistical Gating**: Uses dual-radius analysis. A local window ($3\times$ scaled) identifies luminance spikes, while a wide window ($4\times$ scaled) provides texture context. A cubic variance penalty ($w_{std}^3$) aggressively raises detection thresholds in high-frequency regions (foliage, rocks) to minimize false positives.
-    2.  **Peak Integrity**: Validates candidates via a strict 3x3 Local Maximum check and a $Z > 3.0$ sigma outlier gate. A strong-signal bypass ensures saturation-limited artifacts (hairs/scratches) are captured even if they form plateaus.
-    3.  **Annular Sampling (SPS)**: Background data is reconstructed via Stochastic Perimeter Sampling. Samples are fetched from a ring strictly exterior to the artifact footprint, ensuring zero contamination from the dust luminance itself.
-    4.  **Soft Patching**: Healed regions are integrated using distance-weighted alpha blending with cubic falloff and procedural grain injection to match local noise characteristics.
+*   **Automatic Dust Removal** (`dust_remove`, with Threshold / Size):
+    A resolution-invariant impulse detector; what it finds is healed by the same membrane engine as the manual tool.
 
-*   **Manual Healing (Stochastic Boundary Sampling - SBS)**:
-    When you use the Heal tool, we fill the brush area using information from its own perimeter.
-    
-    1.  **Perimeter Characterization**: The tool identifies the cleanest background luminance at the edge of the brush circle. This sets a "Perimeter-Safe" floor to prevent dark artifacts in bright areas like skies.
-    2.  **Stochastic Sampling**: For every pixel inside the brush, we sample the immediate boundary with small angular jitter:
-        $$I_{patch} = \frac{1}{3} \sum_{j=1}^{3} \text{min3x3}(P_{\theta + \Delta\theta_j})$$
-        *   $P_{\theta + \Delta\theta_j}$: Perimeter point at pixel's angle $\theta$ with random jitter $\Delta\theta$.
-        *   This reconstructs the natural grain and texture of the surrounding area without using "synthetic" noise.
-    3.  **Luminance Keying**: To preserve original details and grain within the brush, we only apply the patch to pixels that are significantly brighter than the reconstructed background:
-        $$m_{luma} = \text{smoothstep}(0.04, 0.12, I_{curr} - I_{patch})$$
-    4.  **Cumulative Patching**: Patches can be overlaid and stacked. The tool intelligently heals long hairs or scratches by basing each new patch on the current accumulated state.
+    1.  **Detection proxy**: percentile-normalized source **density** ($-\log_{10}$ of linear luminance, 0.5–99.5% window). Grade-independent — dust reads bright in every process mode, and a defect's step stays proportional to its physical density excess (a print-like tone map would compress it below threshold on wide-range scans).
+    2.  **Statistical gating**: dual-window statistics — a local window ($3\times$ size) supplies the spike mean/σ, a wide window ($4\times$ size) a texture penalty (cubic in the wide σ) that raises the threshold in high-frequency regions (foliage, rocks). Candidates must clear the adaptive threshold, a $Z > 3.0$ outlier gate and a strict $3\times3$ local-max check, with a strong-signal bypass so saturation-limited plateaus (hairs, scratches) still register. The stat maps are threshold-independent and cached — dragging the Threshold slider re-runs only the cheap gate.
+    3.  **Specks → membrane strokes**: connected components become heal regions for the membrane engine (compact specks a disc, mildly elongated ones a ≤8-point capsule chain). Each gets an auto-picked **clean clone source** nearby, scored on the per-channel density proxy so dusty or wrong-colour sources are rejected.
+    4.  **Hairs → routed inpaint**: strongly elongated defects (thinness $= \text{area}/\text{thickness}^2$ — bending-invariant where PCA aspect calls a twisted hair "compact") can't be cloned with a single offset; they're rebuilt by structure-following inpaint (Navier–Stokes), encoded against the local clean range, alpha-feathered over the dilated PSF skirt, and baked into the **linear source** (folded into the render's source identity).
+
+*   **Healing engine (membrane clone)**:
+    One engine heals everything — manual strokes and spots, auto-detected specks, IR-routed cores — via **mean-value-coordinates membrane cloning** (the healing-brush construction):
+    $$\text{out}(p) = I(p + \text{off}) + \sum_i \hat{w}_i \big( I(b_i) - I(b_i + \text{off}) \big)$$
+    The copied source patch (at offset $\text{off}$) carries real grain; the MVC-weighted boundary-difference field is the smooth membrane that matches it into the destination rim — no synthetic noise, no smudging.
+    *   **Dust guard**: every clone and boundary sample passes a clean-sample filter, so specks in the source patch or on the boundary are never recloned.
+    *   **Destination dust gate**: dust regions heal only pixels *brighter* than the membrane-predicted clean value (smoothstep on the excess) — a brush marks a search area, and clean grain inside it stays untouched. Manual clone regions (gate off) copy unconditionally, with a wider rim feather.
+    *   Healing is perceptual work, so the stage brackets the linear buffer through the working OETF (encode → heal → decode; see §3 Output note).
 
 *   **Resolution Independence**:
     Retouching coordinates and sizes are scaled relative to the full-resolution RAW data, ensuring that edits made on the preview translate perfectly to the high-resolution export.
@@ -176,8 +182,8 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 1.  **Chroma Denoise**: Applies a Gaussian filter to the A and B channels in LAB space. This reduces color noise and digital "chroma speckle" while leaving the L-channel (and its film grain) completely untouched.
 
 
-2.  **Vibrance**: Selectively boosts the saturation of muted colors using a chroma mask. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
-3.  **Global Saturation**: A linear boost applied to all colors via the HSV saturation channel. Before applying, the factor is multiplied by a grade-coupled chroma damping term $(k_{min}/k_g)^{strength}$ ("Dye Mute", default 0.5), where $k_g$ is the green print-curve slope and $k_{min}$ the softest printable slope. Per-channel H&D curves inflate chroma as contrast rises; the damping counters it, mimicking paper dyes' unwanted absorptions. Strength 0 disables.
+2.  **Vibrance**: Selectively boosts the saturation of muted colors via a chroma mask in LAB space. The mask is strongest at zero chroma and fades to zero for already vibrant colors, preventing over-saturation of sensitive areas like skin tones.
+3.  **Global Saturation**: A linear chroma scale ($a^{\ast}/b^{\ast}$) in CIELAB — lightness-preserving, unlike HSV S-scaling which darkens already-saturated colours when S clips. Before applying, the factor is multiplied by a grade-coupled chroma damping term $(k_{min}/k_g)^{strength}$ ("Dye Mute", default 0.5), where $k_g$ is the green print-curve slope and $k_{min}$ the softest printable slope. Per-channel H&D curves inflate chroma as contrast rises; the damping counters it, mimicking paper dyes' unwanted absorptions. Strength 0 disables.
 4.  **Sharpening**: A **Method** selector picks Unsharp Mask or Deconvolution; both share the Amount/Radius/Masking controls and the same $\text{radius} \cdot \text{scale factor}$ Gaussian taps from `gaussian_kernel_1d` (uploaded to the `sharpen_k` storage buffer, convolved identically on CPU `cv2.sepFilter2D` and the separable WGSL passes), so CPU and GPU match bit-for-bit.
 
     **Unsharp Mask** — on the Lightness channel ($L$) in LAB space, with halo suppression (`lab_sharpen_h/v.wgsl`):
@@ -217,31 +223,24 @@ This mimics what lab scanners like Frontier or Noritsu do automatically. For max
 ## 7. Toning
 **Code**: `negpy.features.toning`
 
-*   **Chemical Toning** (B&W mode only): We simulate toner by blending the original pixel with a tinted version based on luminance ($Y$, Rec. 709) masks.
-    *   **Selenium**: Targets the shadows (inverse squared luminance).
-      
-        $$m_{sel} = S_{sel} \cdot (1 - Y)^2$$
-        $$I' = I \cdot (1 - m_{sel}) + (I \cdot C_{selenium}) \cdot m_{sel}$$
-        *   $Y$: Pixel Luminance.
-        *   $S_{sel}$: Selenium strength.
-        *   $C_{selenium}$: Selenium target color $(0.85,\ 0.75,\ 0.85)$ (cool purple).
-    *   **Sepia**: Targets the midtones using a Gaussian bell curve centered at $0.6$ luminance.
-      
-        $$m_{sep} = S_{sep} \cdot \exp\left(-\frac{(Y - 0.6)^2}{0.08}\right)$$
-        $$I_{out} = I' \cdot (1 - m_{sep}) + (I' \cdot C_{sepia}) \cdot m_{sep}$$
-        *   $S_{sep}$: Sepia strength.
-        *   $C_{sepia}$: Sepia target color $(1.1,\ 0.99,\ 0.825)$ (warm gold).
-
-*   **Chromaticity-Preserving Black Point** (B&W mode only): After chemical toning, the black point is re-seated about the $0.05$ luminance percentile, preserving the toner's hue:
-    $$I_{out} = \frac{I - bp}{1 - bp}$$
-    *   $bp$: $0.05$-percentile luminance.
+*   **Chemical Toning** (B&W mode only): six bath simulations — **Selenium**, **Sepia**, **Gold**, **Iron Blue**, **Copper**, **Vanadium Green** — modelled as a **silver ledger** in density space (`TONING_CONSTANTS`). The pixel's original mean density $D_0$ is its metallic-silver reservoir; each toner converts a fraction of it, and converted silver is locked away from later baths (Rudman/Ilford — the archival selenium-then-sepia split; "no silver left" exhaustion).
+    *   **Susceptibility**: each toner's conversion $c_i$ is a pure function of $D_0$ (a grain property — sequence only decides who claims silver first):
+        *   *silver-proportional, shadows first*: Selenium $c = S \cdot (D_0/D_{ref})^{p}$; Iron Blue and Copper likewise, with a low $D_{ref}$ ($0.9$) so the colour reaches the mids instead of hiding in the deep shadows.
+        *   *bleach-limited, highlights first*: Sepia, Gold, Vanadium $c = S \cdot (1 - D_0/D_{ref})^{p}$ — the thinnest silver converts first (split-sepia character comes from the exponent).
+        Strength $> 1$ reads as a longer bath; conversion caps at 1 (all remaining silver toned).
+    *   **The ledger**: the untoned fraction $a$ starts at 1; in bath order (selenium → sepia → gold → blue → copper → vanadium) each toner claims $f_i = a \cdot c_i$, $a \mathrel{-}= f_i$. **Gold is the one lock-out exception**: it also plates the *sulfide* (sepia) fraction — the classic gold-over-sepia orange-red shift, with compounded covering power.
+    *   **Covering power**: the final per-channel density is the mix
+        $$D_{ch} = D_0 \cdot \Big(a + \sum_i f_i \cdot g_{i,ch}\Big), \qquad I_{out} = 10^{-D_{ch}}$$
+        where each gain triplet $g_i$ carries the deposit's colour and density change: selenium all $\ge 1$ (the Dmax boost it's used for, eggplant shadow hue), sepia's sulfide lower covering power (lifts and warms), gold slight intensification (cool blue-black), Prussian blue net $> 1$ with G at exactly $1.00$ (what lets the classic sepia+blue *green* split emerge from the mix), copper net $< 1$ (the ferricyanide bleaches while it tones — brick red), vanadium R/B absorbed with slight density loss (green print, black blacks).
 
 *   **Split Toning** (all modes): Additive tint in LAB ($a^{\ast}b^{\ast}$) space, so luminance — and therefore grain and detail — is preserved. Shadows and highlights are pushed toward independent hue angles. With $L$ the CIELAB lightness ($0$–$100$):
     $$m_{shadow} = \text{clip}(1 - L/50,\ 0,\ 1), \qquad m_{highlight} = \text{clip}((L - 50)/50,\ 0,\ 1)$$
     For each region (using its hue $\theta$, strength $S$, and mask $m$):
     $$a^{\ast} \mathrel{+}= \cos\theta \cdot 20 \cdot S \cdot m, \qquad b^{\ast} \mathrel{+}= \sin\theta \cdot 20 \cdot S \cdot m$$
 
-## 7. Finish
+---
+
+## 8. Finish
 **Code**: `negpy.features.finish`
 
 Post-crop print finishing, in scene-linear before the output transform. Stage order: edge burn → filed carrier (the layout extras below run at compositing time).
