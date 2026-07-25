@@ -31,6 +31,17 @@ class TestGPUEngine(unittest.TestCase):
         self.assertIn("histogram_raw", metrics)
         self.assertEqual(metrics["histogram_raw"].shape, (4, 256))
 
+    def test_gpu_metrics_export_cast_refs(self):
+        """The chart re-solves the render's cast curves from metrics — the GPU
+        path must export the raw refs like the CPU path does."""
+        rng = np.random.default_rng(3)
+        img = (rng.random((100, 100, 3), dtype=np.float32) * 0.5 + 0.2).astype(np.float32)
+        _, metrics = self.engine.process(img, WorkspaceConfig())
+
+        self.assertIn("shadow_log_refs", metrics)
+        self.assertIn("neutral_axis_refs", metrics)
+        self.assertIsNotNone(metrics["shadow_log_refs"])
+
     def test_gpu_process_to_texture(self):
         """Verify process_to_texture returns a GPUTexture."""
         from negpy.infrastructure.gpu.resources import GPUTexture

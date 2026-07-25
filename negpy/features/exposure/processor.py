@@ -8,15 +8,13 @@ from negpy.features.exposure.analysis import density_histogram
 from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     apply_flat_curve,
-    effective_cast_strength,
+    cast_solve_inputs,
     effective_midtone_gamma,
     filtration_offsets,
     flat_curve_params,
     grade_coupled_shape,
     split_grade_deltas,
     local_ev_scale,
-    normalized_neutral_axis,
-    normalized_shadow_refs,
     per_channel_curve_params,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig, RenderIntent
@@ -212,11 +210,12 @@ class PhotometricProcessor:
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
         lum_range = context.metrics.get("norm_density_range")
         final_bounds = context.metrics.get("final_bounds")
-        shadow_refs_norm = normalized_shadow_refs(final_bounds, context.metrics.get("shadow_log_refs"))
-        neutral_axis_refs = context.metrics.get("neutral_axis_refs")
-        neutral_axis_norm = normalized_neutral_axis(final_bounds, neutral_axis_refs)
-        confidence = neutral_axis_refs[3] if neutral_axis_refs is not None else None
-        strength = effective_cast_strength(self.config.cast_removal_strength, confidence)
+        strength, shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
+            final_bounds,
+            context.metrics.get("shadow_log_refs"),
+            context.metrics.get("neutral_axis_refs"),
+            self.config.cast_removal_strength,
+        )
         slopes, pivots, curvatures = per_channel_curve_params(
             self.config.grade,
             self.config.density,

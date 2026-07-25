@@ -210,9 +210,20 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "neutral_axis_shadow_band": (0.72, 0.92),
     # Lowest-chroma fraction of each band kept as the near-neutral set.
     "neutral_axis_chroma_quantile": 0.30,
-    # Above this median chroma the set isn't trustworthy -> fall back to the shadow-only tie.
-    "neutral_axis_chroma_cap": 0.35,
+    # Above this median corrected chroma (pass 2) the set isn't trustworthy -> fall back to the shadow-only tie.
+    "neutral_axis_chroma_cap": 0.29,
+    # Pass-1 (pre-correction) chroma ceiling: admits strong correctable casts, rejects saturated content.
+    "neutral_axis_first_pass_cap": 0.55,
     "neutral_axis_min_pixels": 64,
+    # Confidence sample-size half-point: the size term is n / (n + this).
+    "neutral_axis_confidence_n0": 256,
+    # Mid<->shadow deviation-difference dead zone (plausible crossover passes free)
+    # and roll-off width of the confidence agreement term beyond it.
+    "neutral_axis_agreement_deadzone": 0.10,
+    "neutral_axis_agreement_scale": 0.20,
+    # Width (percentile points) of the luma-extreme band the same-pixel colour
+    # floor refs read; Colour Clip sets the band's depth.
+    "color_bounds_band_width": 4.0,
     # Clamp on each channel's deviation from green at any anchor (generous: refs are clean).
     "midtone_cast_max_offset": 0.2,
     # Curvature clamp (fraction of slope, <0.5): keeps the per-channel core monotonic on [0,1].

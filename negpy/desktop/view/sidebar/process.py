@@ -24,9 +24,11 @@ from negpy.services.assets.crosstalk import CrosstalkProfiles
 _LUMA_MARGIN_MIN = 1e-6
 _LUMA_MARGIN_MAX = 1.0
 
-# Colour Clip slider: the absolute per-channel-balance clip percentile, log-interpolated
-# around the neutral (pos 0 = base_color_clip). The ends reach _COLOR_CLIP_MIN (gentlest,
-# near-extreme bounds) and _COLOR_CLIP_MAX (tightest channel balance).
+# Colour Clip slider: the per-channel-balance sampling depth, log-interpolated
+# around the neutral (pos 0 = base_color_clip) — the luma-band depth of the
+# same-pixel dense-end refs and the clip percentile of the thin-end/fallback
+# pass. The ends reach _COLOR_CLIP_MIN (gentlest, near-extreme bounds) and
+# _COLOR_CLIP_MAX (tightest channel balance).
 _COLOR_CLIP_NEUTRAL = float(EXPOSURE_CONSTANTS["base_color_clip"])
 _COLOR_CLIP_MIN = 1e-6
 _COLOR_CLIP_MAX = 5.0

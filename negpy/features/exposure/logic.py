@@ -244,11 +244,13 @@ class CharacteristicCurve:
         highlight_density: float = 0.0,
         shadow_grade_delta: float = 0.0,
         highlight_grade_delta: float = 0.0,
+        curvature: float = 0.0,
     ):
         c = effective_constants(paper)
         ts = float(c["toe_shoulder_strength"])
         self.k = float(contrast)
         self.x0 = float(pivot)
+        self.curvature = float(curvature)
         self.d_min = float(d_min)
         self.v_star = _reference_linear_value(d_min, paper)
         self.midtone_gamma = float(c["paper_midtone_gamma"]) if midtone_gamma is None else float(midtone_gamma)
@@ -283,7 +285,8 @@ class CharacteristicCurve:
             self.d_max_eff = self.d_min_eff + 0.1
 
     def __call__(self, x: ImageBuffer) -> ImageBuffer:
-        v = self.k * (np.asarray(x, dtype=np.float64) - self.x0)
+        xv = np.asarray(x, dtype=np.float64)
+        v = self.k * (xv - self.x0) + self.curvature * xv * xv
         if self.midtone_gamma != 0.0:
             v = v + self.midtone_gamma * self.gamma_width * np.tanh((v - self.v_star) / self.gamma_width)
         if self.shadow_grade_delta != 0.0 or self.highlight_grade_delta != 0.0:
@@ -729,6 +732,20 @@ def effective_cast_strength(strength: float, confidence: Optional[float]) -> flo
     if confidence is not None:
         return confidence * strength
     return strength
+
+
+def cast_solve_inputs(
+    bounds: Any,
+    shadow_log_refs: Optional[Tuple[float, float, float]],
+    neutral_axis_refs: Any,
+    slider_strength: float,
+) -> Tuple[float, Optional[Tuple[float, float, float]], Any]:
+    """(effective strength, shadow_refs_norm, neutral_axis_norm) from raw metrics;
+    single source of truth for the CPU processor and the chart."""
+    shadow_refs_norm = normalized_shadow_refs(bounds, shadow_log_refs)
+    neutral_axis_norm = normalized_neutral_axis(bounds, neutral_axis_refs)
+    confidence = neutral_axis_refs[3] if neutral_axis_refs is not None else None
+    return effective_cast_strength(slider_strength, confidence), shadow_refs_norm, neutral_axis_norm
 
 
 def per_channel_curve_params(

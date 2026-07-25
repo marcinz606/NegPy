@@ -1012,6 +1012,9 @@ class GPUEngine:
             "metered_anchor": metered_anchor,
             "textural_range": textural_range,
             "scan_clip_fractions": scan_clip_fractions,
+            # Raw cast refs so the chart can re-solve the exact render curves.
+            "shadow_log_refs": shadow_refs,
+            "neutral_axis_refs": neutral_axis_refs,
         }
 
         if not tiling_mode and readback_metrics:
@@ -1126,13 +1129,12 @@ class GPUEngine:
 
         from negpy.features.exposure.logic import (
             _reference_linear_value,
-            effective_cast_strength,
+            cast_solve_inputs,
             filtration_offsets,
             grade_chroma_damping,
             per_channel_toe_shoulder,
             grade_coupled_shape,
             local_ev_scale,
-            normalize_refs,
             paper_dmin_rgb,
             per_channel_curve_params,
             per_channel_midtone_gamma,
@@ -1153,17 +1155,12 @@ class GPUEngine:
         lum_range = luminance_density_range(bounds)
         # adj_floors/adj_ceils (packed above) are the final bounds the shader
         # normalizes with; shared by the Cast Removal shadow refs (CPU mirror).
-        shadow_refs_norm = None
-        if shadow_refs is not None:
-            shadow_refs_norm = normalize_refs(shadow_refs, adj_floors, adj_ceils)
-        neutral_axis_norm = None
-        cast_confidence = None
-        if neutral_axis_refs is not None:
-            mid_refs, sh_refs, hl_refs = neutral_axis_refs[0], neutral_axis_refs[1], neutral_axis_refs[2]
-            cast_confidence = neutral_axis_refs[3]
-            nf = lambda r: normalize_refs(r, adj_floors, adj_ceils) if r is not None else None  # noqa: E731
-            neutral_axis_norm = (nf(mid_refs), nf(sh_refs), nf(hl_refs))
-        strength = effective_cast_strength(exp.cast_removal_strength, cast_confidence)
+        strength, shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
+            LogNegativeBounds(adj_floors, adj_ceils),
+            shadow_refs,
+            neutral_axis_refs,
+            exp.cast_removal_strength,
+        )
         slopes, pivots, curvatures = per_channel_curve_params(
             exp.grade,
             exp.density,

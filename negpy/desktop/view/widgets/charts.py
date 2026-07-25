@@ -163,6 +163,7 @@ class PhotometricCurveWidget(QWidget):
         pivot: float | None = None,
         slopes: tuple[float, float, float] | None = None,
         pivots: tuple[float, float, float] | None = None,
+        curvatures: tuple[float, float, float] | None = None,
         process_mode: str | None = None,
         flat: bool = False,
     ) -> None:
@@ -215,6 +216,7 @@ class PhotometricCurveWidget(QWidget):
             sw_ch: float | None = None,
             sg_ch: float | None = None,
             hg_ch: float | None = None,
+            curv_ch: float = 0.0,
         ) -> list[tuple[float, float]]:
             if flat:
                 # True log master: code value linear in the log signal (1 - val),
@@ -236,6 +238,7 @@ class PhotometricCurveWidget(QWidget):
                 highlight_density=params.highlight_density,
                 shadow_grade_delta=sg_base[0] if sg_ch is None else sg_ch,
                 highlight_grade_delta=hg_base[0] if hg_ch is None else hg_ch,
+                curvature=curv_ch,
             )
             d = curve(ensure_image(x_log_exp))
             t = np.power(10.0, -d)
@@ -271,9 +274,11 @@ class PhotometricCurveWidget(QWidget):
                 params.shoulder_width_trim_green,
                 params.shoulder_width_trim_blue,
             )
+            curvs = (0.0, 0.0, 0.0) if curvatures is None else curvatures
             diverged = (
                 (max(slopes) - min(slopes) > 1e-9)
                 or (max(pivots) - min(pivots) > 1e-9)
+                or (max(curvs) - min(curvs) > 1e-9)
                 or any(t != 0.0 for t in knee_trims + snap_trims + width_trims + split_sh_trims + split_hi_trims)
             )
             if diverged:
@@ -284,7 +289,7 @@ class PhotometricCurveWidget(QWidget):
                 self._channel_curves = [
                     (
                         ch_colors[ch],
-                        _curve_points(slopes[ch], pivots[ch], toe3[ch], sh3[ch], mg3[ch], tw3[ch], sw3[ch], sg3[ch], hg3[ch]),
+                        _curve_points(slopes[ch], pivots[ch], toe3[ch], sh3[ch], mg3[ch], tw3[ch], sw3[ch], sg3[ch], hg3[ch], curvs[ch]),
                     )
                     for ch in range(3)
                 ]

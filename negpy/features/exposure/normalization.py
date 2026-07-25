@@ -239,6 +239,14 @@ def measure_shadow_log_refs(
     return measure_shadow_refs_from_log(img_log, roi, analysis_buffer)
 
 
+def _rms_chroma(triplets: np.ndarray) -> np.ndarray:
+    """Distance from the neutral axis in normalized-density space (pairwise RMS):
+    rotation-symmetric around grey, so the near-neutral ranking is hue-uniform
+    (max-min scores an opposed R/B split double a same-side deviation)."""
+    r, g, b = triplets[..., 0], triplets[..., 1], triplets[..., 2]
+    return np.sqrt(((r - g) ** 2 + (g - b) ** 2 + (r - b) ** 2) / 3.0)
+
+
 def measure_neutral_axis_from_log(
     img_log: ImageBuffer,
     bounds: "LogNegativeBounds",
@@ -247,12 +255,14 @@ def measure_neutral_axis_from_log(
 ) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float], Optional[Tuple[float, float, float]], float]]:
     """
     Per-channel neutral axis: median raw-log density at a highlight, a midtone and a shadow
-    luma band, over each band's lowest-chroma pixels. The relative chroma quantile finds the
-    near-neutral population through the residual cast and rejects saturated content
-    (foliage/skin) that would otherwise pull the balance green. Returns (midtone, shadow,
-    highlight, confidence) — highlight is None when that band has no trustworthy neutral set
-    (callers then fit a 2-point line); confidence in [0,1] rates how tight the midtone grey set
-    is (drives Auto Cast Removal). None overall when midtone or shadow is missing (shadow tie).
+    luma band, over each band's lowest-chroma pixels. Two passes: pass 1 selects through the
+    residual cast under a loose cap (a strong but correctable cast must not collapse the axis;
+    saturated content still fails it), then the affine R/B->G correction implied by its
+    mid+shadow refs re-ranks chroma so pass 2 selects true neutrals under the strict cap.
+    Returns (midtone, shadow, highlight, confidence) — highlight is None when that band has no
+    trustworthy neutral set (callers then fit a 2-point line); confidence in [0,1] combines the
+    grey sets' corrected tightness, the midtone sample size and mid<->shadow deviation agreement
+    (drives Auto Cast Removal). None overall when midtone or shadow is missing (shadow tie).
     """
     from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 
@@ -265,44 +275,84 @@ def measure_neutral_axis_from_log(
     img_log = _block_median_grid(img_log)
     norm = normalize_log_image(img_log, bounds)
     luma = LUMA_R * norm[:, :, 0] + LUMA_G * norm[:, :, 1] + LUMA_B * norm[:, :, 2]
-    chroma = norm.max(axis=2) - norm.min(axis=2)
 
     flat_log = img_log.reshape(-1, 3)
+    norm_f = norm.reshape(-1, 3)
     luma_f = luma.reshape(-1)
-    chroma_f = chroma.reshape(-1)
+    chroma_f = _rms_chroma(norm_f)
 
     c = EXPOSURE_CONSTANTS
     q = float(c["neutral_axis_chroma_quantile"])
     cap = float(c["neutral_axis_chroma_cap"])
+    pass1_cap = float(c["neutral_axis_first_pass_cap"])
     min_px = int(c["neutral_axis_min_pixels"])
+    epsilon = 1e-6
 
-    def _band_refs(lo: float, hi: float) -> Optional[Tuple[Tuple[float, float, float], float]]:
+    def _band_refs(
+        lo: float, hi: float, chroma_vals: np.ndarray, cap_val: float
+    ) -> Optional[Tuple[Tuple[float, float, float], float, int]]:
         band = (luma_f >= lo) & (luma_f <= hi)
         if int(band.sum()) < min_px:
             return None
-        band_chroma = chroma_f[band]
+        band_chroma = chroma_vals[band]
         thr = float(np.quantile(band_chroma, q))
         idx = np.nonzero(band)[0][band_chroma <= thr]
-        near_neutral_chroma = float(np.median(chroma_f[idx])) if idx.size else cap
-        if idx.size < min_px or near_neutral_chroma > cap:
+        near_neutral_chroma = float(np.median(chroma_vals[idx])) if idx.size else cap_val
+        if idx.size < min_px or near_neutral_chroma > cap_val:
             return None
         refs = (
             float(np.median(flat_log[idx, 0])),
             float(np.median(flat_log[idx, 1])),
             float(np.median(flat_log[idx, 2])),
         )
-        return (refs, near_neutral_chroma)
+        return (refs, near_neutral_chroma, int(idx.size))
+
+    def _norm_ref(refs: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        out = []
+        for ch in range(3):
+            denom = bounds.ceils[ch] - bounds.floors[ch]
+            if abs(denom) < epsilon:
+                denom = epsilon if denom >= 0 else -epsilon
+            out.append((refs[ch] - bounds.floors[ch]) / denom)
+        return (out[0], out[1], out[2])
 
     hb = c["neutral_axis_highlight_band"]
     mb = c["neutral_axis_mid_band"]
     sb = c["neutral_axis_shadow_band"]
-    mid = _band_refs(float(mb[0]), float(mb[1]))
-    shadow = _band_refs(float(sb[0]), float(sb[1]))
+    mid1 = _band_refs(float(mb[0]), float(mb[1]), chroma_f, pass1_cap)
+    sh1 = _band_refs(float(sb[0]), float(sb[1]), chroma_f, pass1_cap)
+    if mid1 is None or sh1 is None:
+        return None
+
+    nm, ns = _norm_ref(mid1[0]), _norm_ref(sh1[0])
+    corrected = norm_f.copy()
+    for ch in (0, 2):
+        du = nm[ch] - ns[ch]
+        if abs(du) < epsilon:
+            a, b = 1.0, nm[1] - nm[ch]
+        else:
+            a = (nm[1] - ns[1]) / du
+            b = nm[1] - a * nm[ch]
+        corrected[:, ch] = a * norm_f[:, ch] + b
+    chroma2_f = _rms_chroma(corrected)
+
+    mid = _band_refs(float(mb[0]), float(mb[1]), chroma2_f, cap)
+    shadow = _band_refs(float(sb[0]), float(sb[1]), chroma2_f, cap)
     if mid is None or shadow is None:
         return None
-    highlight = _band_refs(float(hb[0]), float(hb[1]))
-    # 1 when the midtone grey set is spectrally tight, 0 near the trust cap.
-    confidence = float(np.clip(1.0 - mid[1] / cap, 0.0, 1.0))
+    highlight = _band_refs(float(hb[0]), float(hb[1]), chroma2_f, cap)
+
+    # Confidence: corrected tightness of the grey sets x midtone sample size x
+    # mid<->shadow deviation agreement (a dead zone passes plausible crossover).
+    n0 = float(c["neutral_axis_confidence_n0"])
+    dead = float(c["neutral_axis_agreement_deadzone"])
+    scale = float(c["neutral_axis_agreement_scale"])
+    tight = float(np.clip(1.0 - max(mid[1], shadow[1]) / cap, 0.0, 1.0))
+    size_term = mid[2] / (mid[2] + n0)
+    dm, ds = _norm_ref(mid[0]), _norm_ref(shadow[0])
+    spread = max(abs((dm[ch] - dm[1]) - (ds[ch] - ds[1])) for ch in (0, 2))
+    agree = 1.0 - min(max(spread - dead, 0.0) / scale, 1.0)
+    confidence = float(np.clip(tight * size_term * agree, 0.0, 1.0))
     return (mid[0], shadow[0], highlight[0] if highlight is not None else None, confidence)
 
 
@@ -495,6 +545,76 @@ def _sample_log_bounds(
     return floors, ceils
 
 
+def _same_pixel_color_floor_refs(
+    img_log: ImageBuffer,
+    luma_floors: list,
+    luma_ceils: list,
+    base_refs: Tuple[float, float, float],
+    color_clip: float,
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Dense-end (print-white) colour refs from one shared pixel set: the luma-extreme
+    band's lowest-chroma subset, chroma measured base-anchored (offsets from the
+    thin-end refs, per-channel span as provisional gamma, refined once from the
+    band medians). Independent per-channel percentiles read a different scene
+    object per channel, so coloured highlight content masquerades as film cast;
+    a shared chroma-gated set cannot. The thin end needs no such treatment —
+    density on real film is bounded below by base, anchoring per-channel ceils.
+    None when the band's neutral set is too small or too chromatic (caller falls
+    back to the percentile pass).
+    """
+    from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+
+    c = EXPOSURE_CONSTANTS
+    q = float(c["neutral_axis_chroma_quantile"])
+    cap = float(c["neutral_axis_chroma_cap"])
+    min_px = int(c["neutral_axis_min_pixels"])
+    width = float(c["color_bounds_band_width"])
+    epsilon = 1e-6
+
+    flat = img_log.reshape(-1, 3).astype(np.float64)
+    base = np.asarray(base_refs, dtype=np.float64)
+    norm = np.empty_like(flat)
+    for ch in range(3):
+        denom = luma_ceils[ch] - luma_floors[ch]
+        if abs(denom) < epsilon:
+            denom = epsilon if denom >= 0 else -epsilon
+        norm[:, ch] = (flat[:, ch] - luma_floors[ch]) / denom
+    luma = LUMA_R * norm[:, 0] + LUMA_G * norm[:, 1] + LUMA_B * norm[:, 2]
+
+    clip = max(0.00001, min(50.0 - width, float(color_clip)))
+    lo, hi = np.percentile(luma, [clip, clip + width])
+    band = (luma >= lo) & (luma <= hi)
+    if int(band.sum()) < min_px:
+        return None
+    d = flat[band] - base[None, :]
+
+    def _select(gamma: np.ndarray) -> Optional[Tuple[np.ndarray, float]]:
+        g = gamma.copy()
+        g[np.abs(g) < epsilon] = epsilon
+        chroma = _rms_chroma(d / g[None, :])
+        thr = float(np.quantile(chroma, q))
+        sel = chroma <= thr
+        if int(sel.sum()) < min_px:
+            return None
+        return sel, float(np.median(chroma[sel]))
+
+    spans = np.array([luma_floors[ch] - base_refs[ch] for ch in range(3)], dtype=np.float64)
+    first = _select(spans)
+    # Pass-1 loose cap: a homogeneous coloured cluster would otherwise be
+    # self-normalized to zero chroma by pass 2 and read as neutral.
+    if first is None or first[1] > float(c["neutral_axis_first_pass_cap"]):
+        return None
+    provisional = np.median(d[first[0]], axis=0)
+    if np.any(np.abs(provisional) < epsilon):
+        return None
+    second = _select(provisional)
+    if second is None or second[1] > cap:
+        return None
+    refs = base + np.median(d[second[0]], axis=0)
+    return (float(refs[0]), float(refs[1]), float(refs[2]))
+
+
 def analyze_log_exposure_bounds(
     image: ImageBuffer,
     roi: Optional[tuple[int, int, int, int]] = None,
@@ -554,10 +674,16 @@ def analyze_log_exposure_bounds_from_log(
 
     floors, ceils = _sample_log_bounds(img_log, percentile_clip, base_luma, process_mode, e6_normalize)
 
-    # Colour pass: per-channel deviation sampled at its own absolute clip percentile
-    # (color_clip), recombined onto the luma mean centre+span. Tightening the colour
-    # clip tightens channel balance / cast removal without touching the luma span.
+    # Colour pass: per-channel deviations recombined onto the luma mean centre+span.
+    # Ceils (thin end, base-anchored) come from per-channel percentiles at color_clip;
+    # floors (dense end, scene content) prefer the same-pixel chroma-gated band refs,
+    # falling back to the percentile pass when the band holds no trustworthy neutrals
+    # (and always for E-6 / margin-mode clips).
     c_floors, c_ceils = _sample_log_bounds(img_log, color_clip, 0.0, process_mode, e6_normalize)
+    if process_mode != ProcessMode.E6 and color_clip >= 0:
+        sp = _same_pixel_color_floor_refs(img_log, floors, ceils, (c_ceils[0], c_ceils[1], c_ceils[2]), color_clip)
+        if sp is not None:
+            c_floors = [sp[0], sp[1], sp[2]]
     mean_lf, mean_lc = sum(floors) / 3.0, sum(ceils) / 3.0
     mean_cf, mean_cc = sorted(c_floors)[1], sorted(c_ceils)[1]
     floors = [mean_lf + (c_floors[ch] - mean_cf) for ch in range(3)]

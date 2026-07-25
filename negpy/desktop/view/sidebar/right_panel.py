@@ -354,7 +354,7 @@ class RightPanel(QWidget):
 
         self._update_histograms(metrics)
 
-        from negpy.features.exposure.logic import normalized_shadow_refs, per_channel_curve_params
+        from negpy.features.exposure.logic import cast_solve_inputs, per_channel_curve_params
         from negpy.features.exposure.papers import effective_paper_profile
 
         config = self.controller.session.state.config.exposure
@@ -377,23 +377,31 @@ class RightPanel(QWidget):
             anchor = metrics.get("metered_anchor") if config.auto_exposure else None
             d_min = paper.d_min if config.paper_dmin else 0.0
             bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
-            shadow_refs_norm = normalized_shadow_refs(bounds, metrics.get("shadow_log_refs"))
-            slopes, pivots, _ = per_channel_curve_params(
+            strength, shadow_refs_norm, neutral_axis_norm = cast_solve_inputs(
+                bounds,
+                metrics.get("shadow_log_refs"),
+                metrics.get("neutral_axis_refs"),
+                config.cast_removal_strength,
+            )
+            slopes, pivots, curvatures = per_channel_curve_params(
                 config.grade,
                 config.density,
                 config.auto_normalize_contrast,
-                config.cast_removal_strength,
+                strength,
                 metrics.get("norm_density_range"),
                 shadow_refs_norm,
                 metrics.get("textural_range"),
                 d_min=d_min,
                 anchor=anchor,
                 paper=paper,
+                neutral_axis_norm=neutral_axis_norm,
                 grade_trims=(config.grade_trim_red, config.grade_trim_green, config.grade_trim_blue),
             )
             # Green channel is the base curve (white reference + stats slope).
             slope, pivot = slopes[1], pivots[1]
-            self.curve_widget.update_curve(config, slope=slope, pivot=pivot, slopes=slopes, pivots=pivots, process_mode=process_mode)
+            self.curve_widget.update_curve(
+                config, slope=slope, pivot=pivot, slopes=slopes, pivots=pivots, curvatures=curvatures, process_mode=process_mode
+            )
 
         from negpy.features.exposure.stats import negative_statistics
 
