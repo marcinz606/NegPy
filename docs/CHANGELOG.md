@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.43.0
+
+- Change: **Cast removal finds neutrals more reliably** — the neutral-axis estimator measures chroma hue-uniformly, recovers strong but correctable casts it used to reject outright, and weights its confidence by how many near-neutral pixels it found and whether midtones and shadows agree.
+- Change: **Colour bounds sample the dense end from near-neutral pixels** — one shared, chroma-gated pixel set instead of independent per-channel percentiles, so strongly coloured highlights weigh less on channel balance; frames without trustworthy neutrals keep the percentile pass.
+- Fix: **Photometric curve chart matches the render** — the chart's per-channel curves are solved through the same path as the image, so confidence-weighted cast strength, the neutral axis and per-channel curvature now show up in the graph.
+
 ## 0.42.0
 
 - New: **Presets UX pass** — presets now live in a visible list (tooltips show contents), and Save, Edit and Apply all use the per-setting picker from copy/paste: a preset stores exactly the settings you tick, and applying shows them again with a choice of current frame, selection or whole roll, laid over existing edits or replacing the look. Per-frame crop, rotation, metadata, dust and masks are never touched; existing preset files keep working.
