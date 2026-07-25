@@ -16,6 +16,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
     def _process(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.process_sidebar
 
+    def _mode(w: "MainWindow") -> Optional[QWidget]:
+        return w.controls_panel.process_sidebar.mode_combo
+
     def _density(w: "MainWindow") -> Optional[QWidget]:
         return w.controls_panel.tone_sidebar.density_slider
 
@@ -225,6 +228,28 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             section_attr="process_section",
         ),
         TutorialStep(
+            title="Process Panel — Mode & Decoding",
+            body=(
+                "The Process panel is the foundation of every edit: what kind of film this is, "
+                "how the RAW is decoded, and how the negative is normalized into a "
+                "positive.<br><br>"
+                "<b>Mode</b> picks the chemistry — <b>C41</b> (colour negative), <b>B&amp;W</b> "
+                "(panchromatic) or <b>E-6</b> (slide/reversal). It swaps the core conversion "
+                "math and re-runs the pipeline from scratch, and the wand beside it "
+                "<b>auto-detects</b> the mode when a file loads.<br><br>"
+                "<b>Linear RAW</b> (on by default) decodes with neutral multipliers, bypassing "
+                "the camera's as-shot white balance so the orange mask arrives untouched — "
+                "toggling it reloads the file. Off decodes with the as-shot balance instead; "
+                "<b>try both and keep what suits your scanning rig</b>.<br><br>"
+                "<b>Lock Bounds</b> freezes this frame's analysed bounds, so cropping or moving "
+                "a slider no longer re-meters it — lock in once the conversion looks right. In "
+                "E-6 mode a <b>Normalize</b> button appears at the bottom, stretching a faded "
+                "or expired slide back to the full range."
+            ),
+            target=_mode,
+            section_attr="process_section",
+        ),
+        TutorialStep(
             title="Process Panel — Bounds Analysis",
             body=(
                 "Film dyes follow Beer–Lambert absorption — density is logarithmic — so NegPy "
@@ -232,16 +257,20 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "axes: a <b>luma</b> pass sets the black/white-point span, and a per-channel "
                 "<b>colour</b> pass <b>measures the orange mask from the actual negative</b> — "
                 "no hardcoded mask constants.<br><br>"
-                "<b>Luma Range Clip</b> tunes the tonal span (positive = tighter recovery, "
-                "negative = outward headroom); <b>Colour Clip</b> sets the per-channel balance "
-                "independently. <b>White Point</b> / <b>Black Point</b> fine-tune the detected "
-                "bounds without re-analysis — highlight recovery or shadow crush — globally or "
-                "per dye layer via their <b>Global / R / G / B</b> selector, like a scanner's "
-                "per-channel levels.<br><br>"
+                "<b>Luma Range Clip</b> tunes the tonal span: neutral already applies a small "
+                "robust clip, positive tightens it (good for dense or fogged negatives where a "
+                "few stray pixels drag the bounds to extremes), negative pushes them outward "
+                "for lifted blacks and unclipped highlights. <b>Colour Clip</b> does the same "
+                "for the per-channel balance — the orange-mask removal — independently of the "
+                "tonal range.<br><br>"
+                "<b>White Point</b> / <b>Black Point</b> fine-tune the detected bounds without "
+                "re-analysis — highlight recovery or shadow crush. Their <b>Global / R / G / "
+                "B</b> selector scopes them: Global moves both bounds together, while R, G and "
+                "B become per-dye-layer film-base (Dmin) and Dmax trims, like a scanner's "
+                "per-channel levels — the tool for a mask that reads slightly off in one "
+                "layer. Hidden in B&amp;W.<br><br>"
                 "The stretch is <b>unclamped</b>: tones outside the bounds survive and roll "
-                "off later in the print curve's toe and shoulder.<br><br>"
-                "<b>Linear RAW</b> also lives here: it decodes the RAW with neutral "
-                "multipliers, bypassing the camera's as-shot white balance."
+                "off later in the print curve's toe and shoulder."
             ),
             target=_process,
             section_attr="process_section",
@@ -333,15 +362,23 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "The <b>Toe</b> and <b>Shoulder</b> controls shape the shadow and highlight roll-off "
                 "of the H&D characteristic curve — a model of how photographic paper responds to "
                 "light, not a generic tone curve.<br><br>"
-                "<b>Toe</b>: lifts the paper-black ceiling.<br>"
-                "<b>Shoulder</b>: compresses highlights toward paper white.<br>"
-                "<b>Width</b>: how far each knee's roll-off reaches.<br>"
+                "<b>Toe</b>: lifts the paper-black ceiling. Positive gives film's gentle "
+                "shadow toe; negative deepens it.<br>"
+                "<b>Shoulder</b>: compresses highlights toward paper white. Negative extends "
+                "them instead, and can clip.<br>"
+                "<b>Width</b>: how far each knee's roll-off reaches up (Toe) or down "
+                "(Shoulder) the tonal scale — each knee has its own.<br>"
                 "<b>Snap</b>: the paper's variable midtone gamma — endpoints and anchor stay put.<br><br>"
-                "<b>Paper Black</b> shows the paper's real D-max as a lifted black; leave it off "
-                "(the default) for black point compensation that maps D-max to display black — then "
-                "pull Toe negative to clip deep shadows to exact black.<br><br>"
-                "Snap and Paper Black sit with the zone controls (next) under the "
-                "<b>Paper Response</b> header."
+                "Two toggles set where the print's ends actually land. <b>Paper White</b> "
+                "simulates paper base density: whites print at ~0.93 rather than pure white, "
+                "like a real print on real stock. <b>Paper Black</b> shows the paper's real "
+                "D-max as a lifted, slightly milky black; leave it off (the default) for black "
+                "point compensation — an ICC relative-colorimetric soft-proof in effect — that "
+                "maps D-max to display black, so the adapted eye reads black as black. With it "
+                "off, pull Toe negative to clip deep shadows to exact black.<br><br>"
+                "All of these sit under the <b>Paper Response</b> header, below the paper "
+                "profile — the deeper print-curve controls, grouped away from the everyday "
+                "Density and Grade above."
             ),
             target=_toe,
             section_attr="tone_section",
@@ -368,8 +405,10 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "<b>Shadows Density</b> and <b>Highlights Density</b> darken or brighten each "
                 "zone while rolling into the paper's black and white limits instead of "
                 "clipping — burning in a sky without blocking it up.<br><br>"
-                "They live under the <b>Paper Response</b> header with Snap and Paper Black — "
-                "the deeper print-curve controls."
+                "They sit right under <b>Print Density</b>, as the pair you reach for after "
+                "setting overall brightness: Shadows Density has the wider travel of the two, "
+                "since shadow burns are what a print usually needs. Both stay <b>global</b> — "
+                "they're print exposure, not curve shape, so they don't split per dye layer."
             ),
             target=_zone_density,
             section_attr="tone_section",
@@ -378,12 +417,20 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Per-Layer Trims — Crossover Correction",
             body=(
                 "The <b>Global / Red / Green / Blue</b> selector scopes the curve controls to a "
-                "single dye layer: in a channel mode, Grade, the Split Grades, Toe, Shoulder, "
-                "Width and Snap become that layer's trims.<br><br>"
+                "single dye layer: pick R, G or B and Grade, the Split Grades, Toe, Shoulder, "
+                "the Widths and Snap all retarget to that layer, their labels gaining an "
+                "<b>R</b>, <b>G</b> or <b>B</b>. Grade and the Widths swap to dedicated trim "
+                "sliders centred on zero — you're nudging that layer away from the shared "
+                "curve, not setting it from scratch.<br><br>"
                 "Colour filtration can only <i>shift</i> a layer's curve; trims change its "
                 "<i>shape</i> — fixing crossover casts that differ between shadows, mids and "
                 "highlights, the correction a real colour darkroom never had. The H&D chart "
-                "draws the diverged per-layer curves live."
+                "draws the diverged per-layer curves live.<br><br>"
+                "What isn't per-layer greys out while a channel is selected: Print Density, "
+                "the zone densities, the autos and the paper toggles are properties of the "
+                "print, not of one emulsion. A dot on a channel button marks a layer you've "
+                "already trimmed, so casts you fixed weeks ago stay findable. The whole "
+                "selector disappears in B&amp;W — one emulsion, one curve."
             ),
             target=_channel_selector,
             section_attr="tone_section",
@@ -429,8 +476,9 @@ def build(window: "MainWindow") -> list[TutorialStep]:
                 "tone, per-channel gamma and base tint, mapped from Ilford / Kodak / Foma / "
                 "Fuji datasheets.<br><br>"
                 "Profiles are mode-aware (RA4 colour papers in C-41, tonal papers in B&W) and "
-                "sticky roll-wide. <b>Neutral</b> reproduces the defaults exactly — Grade and "
-                "Density still trim on top."
+                "sticky roll-wide; the dropdown steps aside entirely in E-6, where a slide is "
+                "the final image and no paper is involved. <b>Neutral</b> reproduces the "
+                "defaults exactly — Grade and Density still trim on top."
             ),
             target=_paper,
             section_attr="tone_section",

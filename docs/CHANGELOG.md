@@ -4,6 +4,7 @@
 
 - Change: **Cast removal finds neutrals more reliably** — the neutral-axis estimator measures chroma hue-uniformly, recovers strong but correctable casts it used to reject outright, and weights its confidence by how many near-neutral pixels it found and whether midtones and shadows agree.
 - Change: **Colour bounds sample the dense end from near-neutral pixels** — one shared, chroma-gated pixel set instead of independent per-channel percentiles, so strongly coloured highlights weigh less on channel balance; frames without trustworthy neutrals keep the percentile pass.
+- Change: **Tutorial explains the Process and Tone panels properly** — new steps for film mode, RAW decoding and Lock Bounds, fuller detail on the bounds clips and per-layer white/black points, and Paper White, the per-layer trim sliders and the greyed global-only controls are covered at last.
 - Fix: **Photometric curve chart matches the render** — the chart's per-channel curves are solved through the same path as the image, so confidence-weighted cast strength, the neutral axis and per-channel curvature now show up in the graph.
 
 ## 0.42.0
