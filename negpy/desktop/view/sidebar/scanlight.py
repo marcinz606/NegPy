@@ -107,6 +107,11 @@ class ScanlightSidebar(QWidget):
         self._slider_readouts: dict = {}  # slider → its value label (updated on preset apply, where signals are blocked)
         self._slider_rows: dict = {}  # slider → its row widget, so the W row can be hidden on an RGB-only Scanlight
         self._light_has_white = True  # does the connected Scanlight have a white LED? (False = v1-v3, RGB-only)
+        # Advertised camera abilities (issue #621). Optimistic until a body has been opened:
+        # an unlisted body matches the generic PTP entry that claims everything, so only a
+        # *missing* bit is evidence — never grey a control out on an uninspected camera.
+        self._camera_has_preview = True
+        self._camera_has_config = True
         self._suppress_camera_release = False  # true only mid hand-off between lv_window/calib_window
         # Preset-exposure writes (shutter/ISO/aperture) still in flight on the worker; Scan stays
         # gated until each is confirmed, so a capture can't race the body's async programming.
@@ -405,6 +410,7 @@ class ScanlightSidebar(QWidget):
         self.controller.capture_channel.connect(self._on_channel)
         self.controller.capture_camera_setting_applied.connect(self._on_camera_setting_applied)
         self.controller.capture_live_view_failed.connect(self._on_live_view_failed)
+        self.controller.capture_live_view_unsupported.connect(self._on_live_view_unsupported)
         self.controller.capture_finished.connect(self._on_finished)
         self.controller.capture_cancelled.connect(self._on_cancelled)
         self.controller.capture_error.connect(self._on_error)
@@ -909,6 +915,7 @@ class ScanlightSidebar(QWidget):
         self._lv_jpeg_path = jpeg_path
         self._lv_polls = 0
         self._lv_frames_seen = 0
+        self.lv_window.set_preview_available(True)  # restore the pane after a no-preview body
         # Blank the view and ignore the leftover JPEG from the previous session: pin
         # _lv_last_mtime to the stale file so only a *fresh* frame (newer mtime) is shown.
         self._lv_target.clear_frame()
@@ -977,6 +984,27 @@ class ScanlightSidebar(QWidget):
         running, so just push the framing light back. No-op when live view is off."""
         if self.lv_btn.isChecked():
             self._push_light()
+
+    @pyqtSlot(str)
+    def _on_live_view_unsupported(self, reason: str) -> None:
+        """No stream was started because the body advertises none (issue #621). Not an error:
+        the scan window stays open and usable with the preview pane replaced by the reason,
+        since it holds the only Scan button. Calibration is gated separately in _apply_gating."""
+        self._camera_has_preview = False
+        self._lv_timer.stop()
+        self._lv_target.set_loading(False)  # nothing is buffering; the spinner would lie
+        self.lv_window.set_preview_available(False, reason)
+        if self.calib_window.isVisible():
+            self.calib_window.close()  # calibration cannot aim at the base without a stream
+        # The refusal published the settings JSON on its way out — normally the preview loop's
+        # job. Do here what _on_live_view_started would have: fill the exposure steppers from
+        # it, then put the selected preset's exposure on the body. Without this the steppers
+        # stay empty and the preset is only applied per shot, inside the capture itself.
+        self._settings_loaded = False
+        self._refresh_camera_settings()
+        self._apply_active_preset_camera_settings()
+        self._set_status(reason, pinned=True)
+        self._apply_gating()
 
     @pyqtSlot(str)
     def _on_live_view_failed(self, reason: str) -> None:
@@ -1413,7 +1441,12 @@ class ScanlightSidebar(QWidget):
         self._set_conn_status(self.light_status, status["light_ok"], "Light", f"Scanlight: {status['light_detail']}")
         self._light_verified = status["light_ok"]
         self._light_has_white = status.get("light_has_white", True)  # RGB-only Scanlights (v1-v3) have no white LED
-        self._set_rgb_mode(status["light_ok"])  # Scanlight present → RGB scanning; absent → normal white-light
+        self._camera_has_preview = bool(status.get("camera_preview", True))
+        self._camera_has_config = bool(status.get("camera_config", True))
+        # An RGB triplet has to write shutter/ISO/aperture onto the body; a camera whose driver
+        # entry has no CONFIG cannot be told any of it, so only plain white-light scanning is
+        # honest there — even with a Scanlight attached (issue #621).
+        self._set_rgb_mode(status["light_ok"] and self._camera_has_config)
         self._refresh_light_channels()  # show/hide the W slider + white preset for the connected model
         claimed = bool(status.get("usb_claimed_elsewhere"))
         # A body another app holds the claim on is present but not usable: gate Scan/Calibrate
@@ -1505,10 +1538,23 @@ class ScanlightSidebar(QWidget):
         can_scan = not missing
         # keep enabled while live view is open so it can be toggled off
         self.lv_btn.setEnabled(can_scan or self.lv_btn.isChecked())
-        # Calibration needs camera + light and an idle capture worker.
-        can_calibrate = self._camera_verified and self._light_verified and not self._scanning and not self._calibrating_preset
+        # Calibration needs camera + light and an idle capture worker — plus live view, whose
+        # stream is how the film base is aimed at (the crosshair sits on a live frame). A body
+        # without preview can still scan, but it cannot be calibrated this way (issue #621).
+        can_calibrate = (
+            self._camera_verified
+            and self._light_verified
+            and self._camera_has_preview
+            and not self._scanning
+            and not self._calibrating_preset
+        )
         self.preset_new_btn.setEnabled(can_calibrate)
         self.calib_window.calibrate_btn.setEnabled(can_calibrate)  # the pop-up may already be open
+        self.preset_new_btn.setToolTip(
+            "This camera has no live view, which calibration needs to aim at the film base"
+            if not self._camera_has_preview and self._camera_verified
+            else "Create a preset by calibrating on the film base (auto-meters the exposure)"
+        )
         for btn in (self.lv_window.scan_btn, self.lv_window.retake_btn):
             btn.setEnabled(can_scan)
         if missing:

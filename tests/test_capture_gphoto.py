@@ -12,7 +12,7 @@ import os
 import pytest
 
 from negpy.infrastructure.capture.base import Camera
-from negpy.infrastructure.capture.gphoto import GphotoCamera, GphotoError, _pin_locale, _safe_value
+from negpy.infrastructure.capture.gphoto import GphotoCamera, GphotoError, LiveViewUnsupported, _pin_locale, _safe_value
 
 # ---- fake libgphoto2 --------------------------------------------------------
 
@@ -85,6 +85,11 @@ class _Camera:
     def get_summary(self):
         return "Model: FAKE-1\nSerial: x"
 
+    def get_abilities(self):
+        if self._fake.abilities_error:
+            raise _Err("[-1] cannot read abilities")
+        return _Abilities(self._fake.driver_model, self._fake.operations)
+
     def get_single_config(self, name):
         self._check()
         if self._fake.readback_error and self._fake.writes and self._fake.writes[-1][0] == name:
@@ -135,10 +140,16 @@ class _CameraList:
         return self._items[i][1]
 
 
+class _Abilities:
+    def __init__(self, model, operations):
+        self.model, self.operations = model, operations
+
+
 class FakeGP:
     GP_WIDGET_RADIO, GP_WIDGET_MENU, GP_WIDGET_TEXT = 5, 6, 2
     GP_CAPTURE_IMAGE, GP_FILE_TYPE_NORMAL = 0, 1
     GP_EVENT_TIMEOUT, GP_EVENT_CAPTURE_COMPLETE = 0, 3
+    GP_OPERATION_CAPTURE_PREVIEW, GP_OPERATION_CONFIG = 8, 16
     GPhoto2Error = _Err
 
     def __init__(
@@ -151,7 +162,12 @@ class FakeGP:
         magnifier="sony",  # "sony" | "canon" | None
         aperture_name="f-number",
         capture_target="sdram",
+        driver_model="USB PTP Class Camera",
+        operations=25,  # CAPTURE_IMAGE | CAPTURE_PREVIEW | CONFIG, as the generic PTP entry reports
     ):
+        self.driver_model = driver_model
+        self.operations = operations
+        self.abilities_error = False
         self.opened = False
         self.undrained = False
         self.gone = False  # set by unplug(): the body stops answering, as on a pulled cable
@@ -592,6 +608,66 @@ def test_live_view_publishes_frames_and_settings(fake, tmp_path):
     assert jpeg.read_bytes().startswith(b"\xff\xd8")
     assert set(json.loads(settings.read_text())) == {"iso", "shutter"}
     assert not camera.is_running()
+
+
+def test_live_view_is_refused_on_a_body_without_the_preview_ability(tmp_path):
+    """Issue #621: calling capture_preview on an a6000 wedges its PTP session until the body is
+    power-cycled, so the refusal has to come before the first call, not after three failures."""
+    fake = FakeGP(driver_model="Sony Alpha-A6000 (Control)", operations=49)  # IMAGE|CONFIG|TRIGGER
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"))
+
+    with pytest.raises(LiveViewUnsupported, match="does not support live view"):
+        camera.start()
+
+    assert fake.previews == 0  # the wedge is avoided, not merely reported
+    assert not camera.is_running()
+    assert camera.is_open()  # the session itself stays usable — this body still scans
+    camera.close()
+
+
+def test_refusing_live_view_still_publishes_the_camera_settings(tmp_path):
+    """The preview loop is what normally writes them, so a body that never streams would leave
+    the scan window's ISO/shutter steppers empty and its preset exposure unresolvable."""
+    settings = tmp_path / "lv.json"
+    fake = FakeGP(driver_model="Sony Alpha-A6000 (Control)", operations=49)
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(settings))
+
+    with pytest.raises(LiveViewUnsupported):
+        camera.start()
+
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter"}
+    camera.close()
+
+
+def test_mtp_mode_is_reported_as_a_wrong_usb_mode_not_a_missing_feature(tmp_path):
+    """The same body usually lists a Control entry *with* preview, so blaming the camera would
+    send the user chasing a limit that does not exist."""
+    fake = FakeGP(driver_model="Sony Alpha-A7 IV (MTP mode)", operations=1)
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"))
+
+    with pytest.raises(LiveViewUnsupported, match="PC Remote"):
+        camera.start()
+    camera.close()
+
+
+def test_an_unlisted_body_is_trusted_rather_than_blocked(fake, tmp_path):
+    """The generic PTP entry advertises everything, and bodies that match it (the a7C II) work
+    fine — so a missing entry must never gate live view off."""
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(tmp_path / "lv.json"))
+    assert camera.capabilities.preview and camera.capabilities.config  # optimistic while closed
+    camera.start()
+    assert camera.is_running()
+    assert camera.capabilities.generic  # matched the catch-all entry, and streams regardless
+    camera.close()
+
+
+def test_unreadable_abilities_do_not_block_a_working_camera(fake, tmp_path):
+    """Introspection is advisory: a body whose abilities cannot be read must still stream."""
+    fake.abilities_error = True
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(tmp_path / "lv.json"))
+    camera.start()
+    assert camera.is_running()
+    camera.close()
 
 
 def test_capture_target_is_moved_into_memory():

@@ -13,7 +13,14 @@ from typing import Optional
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from negpy.infrastructure.capture.base import CaptureSettings
-from negpy.infrastructure.capture.gphoto import CameraClaimedError, CameraUnavailable, GphotoCamera, list_cameras
+from negpy.infrastructure.capture.gphoto import (
+    CameraCapabilities,
+    CameraClaimedError,
+    CameraUnavailable,
+    GphotoCamera,
+    LiveViewUnsupported,
+    list_cameras,
+)
 from negpy.infrastructure.capture.protocol import describe_hardware, has_white_channel
 from negpy.infrastructure.capture.scanlight import Scanlight
 from negpy.kernel.system.logging import get_logger
@@ -82,6 +89,9 @@ class CaptureWorker(QObject):
     error = pyqtSignal(str)
     status = pyqtSignal(str)
     live_view_started = pyqtSignal(str)  # jpeg path being refreshed
+    #: This body advertises no CAPTURE_PREVIEW, so no stream was started (issue #621). Carries
+    #: the operator-facing reason; scanning itself is unaffected.
+    live_view_unsupported = pyqtSignal(str)
     #: The preview thread died after its retries and the session was dropped (issue #617) —
     #: carries the last gphoto error, so the UI can stop the spinner and offer a retry.
     live_view_failed = pyqtSignal(str)
@@ -108,6 +118,9 @@ class CaptureWorker(QObject):
         # One identify probe per bus appearance (read the body's real model name): tried once,
         # so a body that fails to open for non-claim reasons is not hammered every poll tick.
         self._identify_attempted = False
+        # Abilities of the body last opened; None until one has been. Outlives the session so
+        # the poll keeps reporting them after the identify probe closes it again.
+        self._caps: Optional[CameraCapabilities] = None
 
     # ----- camera session (one per body, held open) -----
 
@@ -139,6 +152,11 @@ class CaptureWorker(QObject):
                 raise
             self._claimed_elsewhere = False
             self._model = self._camera.model
+            # Cached so the poll can keep reporting them after this session is closed again —
+            # the identify probe opens and closes immediately, and the UI gates on the result.
+            # Optional: the `Camera` protocol does not require it, and a backend that cannot
+            # report abilities must leave the UI ungated rather than break the session.
+            self._caps = getattr(self._camera, "capabilities", None)
         return self._camera
 
     def _holds_camera(self) -> bool:
@@ -320,6 +338,10 @@ class CaptureWorker(QObject):
             "light_detail": "not connected",
             "light_has_white": True,
             "usb_claimed_elsewhere": False,
+            # Advertised abilities of the last body we opened. Optimistic until a session has
+            # actually been opened — never grey a control out on a body we haven't inspected.
+            "camera_preview": True,
+            "camera_config": True,
         }
         try:
             # Always ask the bus, never our own handle: unplugging the camera leaves the
@@ -350,6 +372,8 @@ class CaptureWorker(QObject):
                 # is not usable — surface that instead of a healthy "connected" dot.
                 status["usb_ok"], status["usb_model"] = True, self._model or found[0]["model"]
                 status["usb_claimed_elsewhere"] = self._claimed_elsewhere
+                if self._caps is not None:
+                    status["camera_preview"], status["camera_config"] = self._caps.preview, self._caps.config
             elif self._claimed_elsewhere:
                 # A claimed body routinely DROPS OFF gphoto's enumeration while the other app
                 # holds it (macOS's daemons answer the bus in our stead) — that flapping is
@@ -362,6 +386,7 @@ class CaptureWorker(QObject):
                 # allow a fresh identify — the next body to appear may be a different one.
                 self._model = ""
                 self._identify_attempted = False
+                self._caps = None  # the next body may be a different one
                 if self._camera is not None:
                     logger.info("camera disappeared from the bus — dropping the session")
                     self._close_camera()
@@ -385,6 +410,11 @@ class CaptureWorker(QObject):
             camera = self._acquire_camera()
             camera.start()  # a no-op when the preview thread is already up
             self.live_view_started.emit(camera.jpeg_path)
+        except LiveViewUnsupported as e:
+            # Not a failure: the body scans fine, it just has no preview to show. Reported on
+            # its own signal so the scan window opens without a stream instead of erroring.
+            logger.info("live view unavailable: %s", e)
+            self.live_view_unsupported.emit(str(e))
         except Exception as e:
             logger.exception("start_live_view failed")
             self.error.emit(f"Live view: {e}")

@@ -113,12 +113,53 @@ _MAX_PREVIEW_FAILURES = 3
 _CAMERA_RAW_EXTENSIONS = frozenset(SUPPORTED_RAW_EXTENSIONS - SUPPORTED_JPEG_EXTENSIONS - SUPPORTED_TIFF_EXTENSIONS)
 
 
+#: The catch-all entry unlisted PTP bodies fall back to. It claims every operation, which is
+#: why "not in the database" must never by itself be reported as unsupported.
+_GENERIC_DRIVER = "USB PTP Class Camera"
+
+
+@dataclass(frozen=True)
+class CameraCapabilities:
+    """What libgphoto2's driver entry says this body can do.
+
+    Read once per session from `Camera.get_abilities()`. Only trustworthy for bodies the
+    database actually knows: an unlisted body matches the generic `USB PTP Class Camera`
+    entry, which advertises everything (a7C II matches it and works fine), so a missing
+    bit is evidence and a present one is not. Absence is therefore the only thing acted on.
+    """
+
+    driver_model: str  # the abilities entry that matched, not the device's own model name
+    preview: bool = True
+    config: bool = True
+
+    @property
+    def mtp_mode(self) -> bool:
+        """Did we match a vendor's MTP-mode entry? Most bodies appear twice in the database,
+        once per USB mode, and the MTP variant drops live view while the Control/PC-Remote
+        one keeps it — so a missing preview bit there means "wrong mode", not "cannot"."""
+        return "mtp" in self.driver_model.lower()
+
+    @property
+    def generic(self) -> bool:
+        """Matched the catch-all PTP entry, i.e. this body is not in libgphoto2's database."""
+        return self.driver_model == _GENERIC_DRIVER
+
+
 class CameraUnavailable(RuntimeError):
     """python-gphoto2 is not installed, or no camera answered."""
 
 
 class GphotoError(RuntimeError):
     """A camera operation failed."""
+
+
+class LiveViewUnsupported(GphotoError):
+    """This body's driver entry has no CAPTURE_PREVIEW, so live view must not be attempted.
+
+    Typed because it is a normal state, not a fault: an a6000 scans perfectly well without a
+    preview. Calling `capture_preview()` anyway is actively harmful — the body refuses it at
+    the device level and the PTP session wedges until the camera is power-cycled (issue #621).
+    """
 
 
 class CameraClaimedError(GphotoError):
@@ -237,6 +278,7 @@ class GphotoCamera:
 
     def _reset_body_state(self) -> None:
         """Forget controls whose names and semantics belong to one camera body."""
+        self._capabilities = CameraCapabilities(driver_model="")
         self._magnifier: Optional[_Magnifier] = None
         self._magnifier_ratios: Optional[tuple[str, str]] = None
         self._magnifier_off = ""
@@ -279,8 +321,35 @@ class GphotoCamera:
         self._camera = camera
         self._model = _model_name(camera)
         self._alive = True
-        logger.info("gphoto2 session open: %s", self._model)
+        self._capabilities = self._read_capabilities(camera)
+        logger.info(
+            "gphoto2 session open: %s (driver %r, live view %s, settings %s)",
+            self._model,
+            self._capabilities.driver_model,
+            "yes" if self._capabilities.preview else "NO",
+            "yes" if self._capabilities.config else "NO",
+        )
         self._prefer_memory_capture()
+
+    def _read_capabilities(self, camera: Any) -> CameraCapabilities:
+        """What the matched driver entry advertises. Any failure means "assume it all works":
+        a body that would have run fine must never be blocked by a failed introspection."""
+        try:
+            abilities = camera.get_abilities()
+            operations = int(abilities.operations)
+            return CameraCapabilities(
+                driver_model=str(abilities.model),
+                preview=bool(operations & self._gp.GP_OPERATION_CAPTURE_PREVIEW),
+                config=bool(operations & self._gp.GP_OPERATION_CONFIG),
+            )
+        except Exception as exc:  # noqa: BLE001 — introspection is advisory, never load-bearing
+            logger.warning("gphoto2: could not read camera abilities (%s); assuming full support", exc)
+            return CameraCapabilities(driver_model="")
+
+    @property
+    def capabilities(self) -> CameraCapabilities:
+        """The open session's advertised abilities; optimistic defaults while closed."""
+        return self._capabilities
 
     def is_open(self) -> bool:
         return self._camera is not None and self._alive
@@ -657,9 +726,34 @@ class GphotoCamera:
         if self.is_running():
             return
         self.open()
+        if not self._capabilities.preview:
+            # Refuse rather than let _preview_loop find out: the body rejects capture_preview
+            # at the device level, and that refusal wedges the PTP session until the camera is
+            # power-cycled (issue #621, Sony a6000). Retrying only deepens the wedge, so this
+            # must be caught before the first call, not after three.
+            # Publish the settings once on the way out: the preview loop is normally what does
+            # it, and without them the scan window's ISO/shutter/aperture steppers stay empty
+            # and the preset's exposure could not be resolved to this body's choice indices.
+            self._publish_settings()
+            raise LiveViewUnsupported(self._live_view_refusal())
         self._stop.clear()
         self._preview = threading.Thread(target=self._preview_loop, name="gphoto-liveview", daemon=True)
         self._preview.start()
+
+    def _live_view_refusal(self) -> str:
+        """Why live view is off, phrased for the operator.
+
+        The distinction matters: most bodies list a Control/PC-Remote entry *with* preview and
+        an MTP one without, so a missing bit under MTP is a wrong USB mode the user can fix,
+        not a limit of the camera. Only a body that lacks it in its tethering mode (the a6000)
+        genuinely cannot preview — and it still scans.
+        """
+        if self._capabilities.mtp_mode:
+            return (
+                f"{self._model or 'this camera'} is connected in MTP mode, which has no live view. "
+                "Switch the camera's USB setting to PC Remote (or Tether/Control) and reconnect."
+            )
+        return f"{self._model or 'this camera'} does not support live view. Scanning still works, just without a preview."
 
     def is_running(self) -> bool:
         return self._preview is not None and self._preview.is_alive()

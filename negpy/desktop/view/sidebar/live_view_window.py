@@ -152,6 +152,16 @@ class LiveViewWindow(QDialog):
         self.image.setCursor(QCursor(_loupe, 9, 9))  # hotspot ≈ the lens centre
         layout.addWidget(self.image, 1)
 
+        # Shown in the image's place on bodies that advertise no live view (issue #621). The
+        # window still scans — only the preview pane is replaced, so the toolbar, the settings
+        # row and the frame counter all keep working.
+        self.no_preview = QLabel("")
+        self.no_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.no_preview.setWordWrap(True)
+        self.no_preview.setStyleSheet(f"color: {THEME.text_secondary}; font-size: {THEME.font_size_small}px;")
+        self.no_preview.setVisible(False)
+        layout.addWidget(self.no_preview, 1)
+
         # ── live camera settings (populated from the stream's settings JSON) ──
         # Compact ‹ value › steppers instead of dropdowns: shutter/ISO span dozens of steps,
         # so a full popup would fill the screen. Arrows nudge one stop at a time.
@@ -208,6 +218,18 @@ class LiveViewWindow(QDialog):
             QShortcut(QKeySequence(key), self, btn.click)
         self.scan_btn.setToolTip("Scan / Stop  (shortcut: S)")
         self.retake_btn.setToolTip("Re-capture the current frame without advancing the counter  (shortcut: R)")
+
+    def set_preview_available(self, available: bool, reason: str = "") -> None:
+        """Swap the preview pane for an explanation on bodies that cannot stream.
+
+        Scanning is unaffected, so the window stays fully usable — hiding it entirely would
+        strip the only Scan button in the app and lock these cameras out (issue #621).
+        """
+        self.image.setVisible(available)
+        self.no_preview.setVisible(not available)
+        if not available:
+            self.no_preview.setText(f"{reason}\n\nFraming and focus have to be set on the camera itself. Scanning works as usual.")
+        self.setWindowTitle("Scanlight — Live View" if available else "Scanlight — Scan (no live view)")
 
     def set_progress(self, frac: float) -> None:
         self._flash_token += 1
