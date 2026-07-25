@@ -231,3 +231,65 @@ def test_resolve_asset_rgbscan_resets_when_not_triplet():
     leaked = replace(WorkspaceConfig(), rgbscan=RgbScanConfig(enabled=True, green_path="/g", blue_path="/b"))
     out = resolve_asset_rgbscan(leaked, {"path": "/r"})
     assert out.rgbscan == RgbScanConfig()
+
+
+def test_thumbnail_decode_routes_triplet_to_merge(monkeypatch):
+    """With green/blue paths, the thumbnail must merge the triplet, not decode red alone."""
+    from negpy.services.assets import thumbnails
+
+    calls = {}
+    monkeypatch.setattr(thumbnails, "_decode_triplet_preview", lambda r, g, b: calls.setdefault("args", (r, g, b)))
+    thumbnails.decode_source_image("r", "g", "b")
+    assert calls["args"] == ("r", "g", "b")
+
+
+def test_thumbnail_worker_namespaces_triplet_cache(monkeypatch):
+    """A triplet caches under a distinct key so it never collides with the red file scanned plain."""
+    from PIL import Image
+
+    from negpy.services.assets import thumbnails
+
+    saved: dict = {}
+
+    class Store:
+        def get_thumbnail(self, key):
+            return saved.get(key)
+
+        def save_thumbnail(self, key, img):
+            saved[key] = img
+
+    img = Image.new("RGB", (4, 4))
+    monkeypatch.setattr(thumbnails, "decode_source_image", lambda *a, **k: img)
+    monkeypatch.setattr(thumbnails, "prepare_thumbnail", lambda i, ts: i)
+
+    store = Store()
+    thumbnails.get_thumbnail_worker("r", "hash", store, 0, 0.5, "g", "b")
+    assert "hash-rgb" in saved and "hash" not in saved
+
+    thumbnails.get_thumbnail_worker("r2", "hash2", store)
+    assert "hash2" in saved
+
+
+def test_triplet_ignores_stale_plain_hash_cache(monkeypatch):
+    """A red-only thumb cached under the plain hash (pre-fix) must not be served for a triplet."""
+    from PIL import Image
+
+    from negpy.services.assets import thumbnails
+
+    stale = Image.new("RGB", (4, 4))
+    merged = Image.new("RGB", (4, 4))
+    saved: dict = {"hash": stale}
+
+    class Store:
+        def get_thumbnail(self, key):
+            return saved.get(key)
+
+        def save_thumbnail(self, key, img):
+            saved[key] = img
+
+    monkeypatch.setattr(thumbnails, "decode_source_image", lambda *a, **k: merged)
+    monkeypatch.setattr(thumbnails, "prepare_thumbnail", lambda i, ts: i)
+
+    out = thumbnails.get_thumbnail_worker("r", "hash", Store(), 0, 0.5, "g", "b")
+    assert out is merged
+    assert saved["hash-rgb"] is merged

@@ -34,6 +34,8 @@ async def generate_batch_thumbnails(
                 asset_store,
                 int(f_info.get("half") or 0),
                 float(f_info.get("split_x") or 0.5),
+                f_info.get("green_path") or "",
+                f_info.get("blue_path") or "",
             )
             completed += 1
             if progress_callback:
@@ -49,8 +51,54 @@ async def generate_batch_thumbnails(
     return {name: thumb for name, thumb in results if isinstance(thumb, Image.Image)}
 
 
-def decode_source_image(file_path: str) -> Optional[Image.Image]:
-    """Small EXIF-oriented preview of a source file (embedded thumb, else fast decode)."""
+def _fast_demosaic(raw: Any) -> np.ndarray:
+    """Fast half-size linear demosaic used for preview thumbnails."""
+    return ensure_rgb(
+        raw.postprocess(
+            use_camera_wb=True,
+            user_wb=None,
+            half_size=True,
+            no_auto_bright=True,
+            bright=1.0,
+            demosaic_algorithm=rawpy.DemosaicAlgorithm.LINEAR,
+            user_flip=0,
+        )
+    )
+
+
+def _decode_triplet_preview(red_path: str, green_path: str, blue_path: str) -> Optional[Image.Image]:
+    """Merge an RGB-scan triplet's three narrowband exposures into one preview.
+
+    The red file's embedded thumbnail (and a lone decode of it) shows only the red
+    channel, so the filmstrip would disagree with the canvas. Alignment is skipped:
+    it's imperceptible at thumbnail scale and avoids a phase-correlation pass per file."""
+    from negpy.features.rgbscan.logic import assemble_rgb
+
+    def _decode(path: str) -> Tuple[np.ndarray, Dict[str, Any]]:
+        ctx_mgr, metadata = loader_factory.get_loader(path)
+        with ctx_mgr as raw:
+            return _fast_demosaic(raw), metadata
+
+    r, red_meta = _decode(red_path)
+    g, _ = _decode(green_path)
+    b, _ = _decode(blue_path)
+    merged = assemble_rgb(r, g, b, align=False)
+
+    img = Image.fromarray(merged)
+    orientation = red_meta.get("orientation", 1)
+    if orientation and orientation != 1:
+        img = Image.fromarray(apply_exif_orientation(np.asarray(img), orientation))
+    return img
+
+
+def decode_source_image(file_path: str, green_path: str = "", blue_path: str = "") -> Optional[Image.Image]:
+    """Small EXIF-oriented preview of a source file (embedded thumb, else fast decode).
+
+    An RGB-scan triplet (green_path/blue_path given) is merged from its three
+    exposures so the thumbnail matches the canvas rather than showing red only."""
+    if green_path and blue_path:
+        return _decode_triplet_preview(file_path, green_path, blue_path)
+
     ctx_mgr, metadata = loader_factory.get_loader(file_path)
     with ctx_mgr as raw:
         img: Optional[Image.Image] = None
@@ -68,19 +116,7 @@ def decode_source_image(file_path: str) -> Optional[Image.Image]:
                 pass
 
         if img is None:
-            algo = rawpy.DemosaicAlgorithm.LINEAR
-
-            rgb = raw.postprocess(
-                use_camera_wb=True,
-                user_wb=None,
-                half_size=True,
-                no_auto_bright=True,
-                bright=1.0,
-                demosaic_algorithm=algo,
-                user_flip=0,
-            )
-            rgb = ensure_rgb(rgb)
-            img = Image.fromarray(rgb)
+            img = Image.fromarray(_fast_demosaic(raw))
 
         orientation = metadata.get("orientation", 1)
         if orientation and orientation != 1:
@@ -90,19 +126,29 @@ def decode_source_image(file_path: str) -> Optional[Image.Image]:
 
 
 def get_thumbnail_worker(
-    file_path: str, file_hash: str, asset_store: Any = None, half: int = 0, split_x: float = 0.5
+    file_path: str,
+    file_hash: str,
+    asset_store: Any = None,
+    half: int = 0,
+    split_x: float = 0.5,
+    green_path: str = "",
+    blue_path: str = "",
 ) -> Optional[Image.Image]:
     """
     Checks cache -> extracts/renders -> resize.
     """
     try:
+        # A triplet's red exposure shares its hash with the same file scanned plain,
+        # so namespace the merged thumbnail's cache key — otherwise a red-only entry
+        # cached before this fix would be served forever.
+        cache_key = f"{file_hash}-rgb" if green_path and blue_path else file_hash
         if asset_store:
-            cached = asset_store.get_thumbnail(file_hash)
+            cached = asset_store.get_thumbnail(cache_key)
             if isinstance(cached, Image.Image):
                 return cached
 
         ts = APP_CONFIG.thumbnail_size
-        img = decode_source_image(file_path)
+        img = decode_source_image(file_path, green_path, blue_path)
         if img is None:
             return None
 
@@ -114,7 +160,7 @@ def get_thumbnail_worker(
         square_img: Image.Image = prepare_thumbnail(img, ts)
 
         if asset_store:
-            asset_store.save_thumbnail(file_hash, square_img)
+            asset_store.save_thumbnail(cache_key, square_img)
 
         return square_img
     except Exception as e:
