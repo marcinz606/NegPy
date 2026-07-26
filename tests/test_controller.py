@@ -122,10 +122,59 @@ class TestAppController(unittest.TestCase):
         self.controller._on_thumbnails_finished({"a.dng": img, "b.dng": img})
         self.assertNotIn("decode_failed", state.uploaded_files[0])
 
-        # update_rendered() re-emits finished with a single-file dict after every
-        # settled render — it must not badge the frames absent from that dict.
+        # A second, narrower batch result must not badge frames absent from it.
         self.controller._on_thumbnails_finished({"a.dng": img})
         self.assertNotIn("decode_failed", state.uploaded_files[1])
+
+    def test_batch_thumbnail_does_not_clobber_rendered(self):
+        """A frame that already rendered on the canvas keeps its (correct, inverted)
+        thumbnail even if the slower batch decode finishes afterward."""
+        from PIL import Image
+
+        self.mock_session_manager.asset_model = MagicMock()
+        state = self.mock_session_manager.state
+        state.uploaded_files = [{"name": "a.dng", "path": "/tmp/a.dng", "hash": "h1"}]
+        self.controller._thumb_requested = ["a.dng"]
+
+        rendered = Image.new("RGB", (4, 4), (255, 0, 0))
+        placeholder = Image.new("RGB", (4, 4), (0, 255, 0))
+        self.controller._on_rendered_thumbnail({"a.dng": rendered})
+        self.controller._on_thumbnails_finished({"a.dng": placeholder})
+
+        self.assertEqual(state.thumbnails["a.dng"].pixmap(4, 4).toImage().pixelColor(0, 0).red(), 255)
+
+    def test_rendered_thumbnail_keys_by_asset_name_not_file_basename(self):
+        """An RGB-scan triplet's asset name ("<base> (RGB)") differs from the underlying
+        red exposure's filename — the rendered-thumbnail task must key by the former,
+        since that's what the filmstrip (AssetListModel) looks up. Keying by the raw
+        basename orphans the thumbnail under a name nothing ever reads (issue #575)."""
+        import numpy as np
+        from negpy.features.rgbscan.models import RgbScanConfig
+        from dataclasses import replace as dc_replace
+
+        state = self.mock_session_manager.state
+        state.uploaded_files = [
+            {
+                "name": "_DSC1316 (RGB)",
+                "path": "/tmp/_DSC1316.NEF",
+                "hash": "h1",
+                "green_path": "/tmp/_DSC1317.NEF",
+                "blue_path": "/tmp/_DSC1318.NEF",
+            }
+        ]
+        state.selected_file_idx = 0
+        state.current_file_path = "/tmp/_DSC1316.NEF"
+        state.current_file_hash = "h1"
+        state.config = dc_replace(
+            state.config, rgbscan=RgbScanConfig(enabled=True, green_path="/tmp/_DSC1317.NEF", blue_path="/tmp/_DSC1318.NEF")
+        )
+        state.last_metrics = {"base_positive": np.zeros((2, 2, 3), dtype=np.float32)}
+
+        captured = {}
+        self.controller.thumbnail_update_requested.connect(lambda task: captured.setdefault("task", task))
+        self.controller._update_thumbnail_from_state(persist=False)
+
+        self.assertEqual(captured["task"].filename, "_DSC1316 (RGB)")
 
     def test_capture_worker_cancelled_is_forwarded(self):
         cancelled = MagicMock()
@@ -1663,6 +1712,8 @@ class TestDisplayTransformParams(unittest.TestCase):
 
         self.controller.proof_active = lambda: True
         state = self.controller.state
+        state.uploaded_files = [{"name": "frame.cr2", "path": "/tmp/frame.cr2", "hash": "hash-1"}]
+        state.selected_file_idx = 0
         state.current_file_path = "/tmp/frame.cr2"
         state.current_file_hash = "hash-1"
         state.last_metrics = {"base_positive": np.zeros((4, 4, 3), dtype=np.float32)}

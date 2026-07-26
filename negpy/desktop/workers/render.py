@@ -234,6 +234,9 @@ class ThumbnailWorker(QObject):
 
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict)
+    # Rendered positives use their own signal so the batch's bulk overwrite can't
+    # clobber a frame that already rendered on the canvas.
+    rendered_finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
     def __init__(self, asset_store) -> None:
@@ -285,7 +288,7 @@ class ThumbnailWorker(QObject):
                 monitor_icc_bytes=task.monitor_icc_bytes,
             )
             if thumb:
-                self.finished.emit({task.filename: thumb})
+                self.rendered_finished.emit({task.filename: thumb})
         except Exception as e:
             logger.error(f"Thumbnail update failure: {e}")
 

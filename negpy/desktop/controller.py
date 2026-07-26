@@ -64,6 +64,8 @@ from negpy.features.geometry.models import FINE_ROTATION_LIMIT, AutocropMode
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.models import ProcessConfig, ProcessMode, invalidate_local_bounds
+from negpy.features.rgbscan.models import is_rgb_triplet
+from negpy.services.assets.thumbnails import thumbnail_cache_key
 from negpy.kernel.system.paths import get_resource_path
 from negpy.features.retouch.logic import fallback_source_offset, select_source_offset
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
@@ -466,6 +468,7 @@ class AppController(QObject):
         self.thumb_worker.progress.connect(self._on_thumbnail_progress)
         self.thumbnail_update_requested.connect(self.thumb_worker.update_rendered)
         self.thumb_worker.finished.connect(self._on_thumbnails_finished)
+        self.thumb_worker.rendered_finished.connect(self._on_rendered_thumbnail)
         self.thumb_worker.error.connect(self._on_render_error)
         self.thumb_worker.error.connect(self._on_thumbnail_batch_error)
 
@@ -559,17 +562,19 @@ class AppController(QObject):
         self.status_progress_requested.emit(current, total)
         self.batch_progress.emit(current, total, name)
 
+    def _set_thumbnail(self, name: str, pil_img: Any) -> None:
+        u8_arr = np.array(pil_img.convert("RGB"))
+        self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
+
     def _on_thumbnails_finished(self, new_thumbs: Dict[str, Any]) -> None:
         self.status_progress_requested.emit(0, 0)
         self._end_batch("thumbnails")
         for name, pil_img in new_thumbs.items():
-            if pil_img:
-                u8_arr = np.array(pil_img.convert("RGB"))
-                self.state.thumbnails[name] = QIcon(QPixmap.fromImage(ImageConverter.to_qimage(u8_arr)))
+            # A frame that already rendered on the canvas has the correct (inverted)
+            # thumbnail; don't let this batch overwrite it with the source-decode placeholder.
+            if pil_img and name not in self.state.rendered_thumbnails:
+                self._set_thumbnail(name, pil_img)
 
-        # Consume the request list: update_rendered() re-emits this same signal with
-        # single-file dicts after every settled render, and evaluating those against
-        # a stale batch list would falsely badge every other frame.
         requested = getattr(self, "_thumb_requested", [])
         self._thumb_requested = []
         failed = {n for n in requested if not new_thumbs.get(n)}
@@ -578,6 +583,14 @@ class AppController(QObject):
                 f.setdefault("decode_failed", _THUMB_FAILED_MSG)
             elif f["name"] in new_thumbs and f.get("decode_failed") == _THUMB_FAILED_MSG:
                 del f["decode_failed"]
+        self.session.asset_model.refresh()
+
+    def _on_rendered_thumbnail(self, new_thumbs: Dict[str, Any]) -> None:
+        """A canvas render produced a thumbnail — it supersedes any batch placeholder."""
+        for name, pil_img in new_thumbs.items():
+            if pil_img:
+                self._set_thumbnail(name, pil_img)
+                self.state.rendered_thumbnails.add(name)
         self.session.asset_model.refresh()
 
     # --- Batch progress popup -------------------------------------------------
@@ -806,6 +819,7 @@ class AppController(QObject):
             # Re-run over already-loaded files (e.g. RGB-scan toggle): rebuild the list
             # so dedup-by-hash doesn't drop a regrouped red, then reselect the active frame.
             self.session.state.uploaded_files.clear()
+            self.session.state.rendered_thumbnails.clear()
             self.session.add_files([], validated_info=valid_assets)
             self.generate_missing_thumbnails()
             idx = next(
@@ -2170,6 +2184,7 @@ class AppController(QObject):
         paths = [asset["path"], *parts]
         self.state.uploaded_files.pop(idx)
         self.session.state.thumbnails.pop(asset["name"], None)
+        self.session.state.rendered_thumbnails.discard(asset["name"])
         self.session.asset_model.refresh()
         self._pending_scanned_file = paths[0]
         self.request_asset_discovery(paths)
@@ -3164,6 +3179,15 @@ class AppController(QObject):
     def _update_thumbnail_from_state(self, force_readback: bool = False, persist: bool = True) -> None:
         if not self.state.current_file_path or not self.state.current_file_hash:
             return
+        idx = self.state.selected_file_idx
+        if not (0 <= idx < len(self.state.uploaded_files)):
+            return
+        # The filmstrip keys state.thumbnails by the asset's display name, which for an
+        # RGB-scan triplet is "<base> (RGB)" — NOT basename(current_file_path), which is
+        # the underlying red exposure's filename. Keying by the wrong name silently
+        # orphans every triplet's rendered thumbnail under a key nothing ever reads.
+        asset_name = self.state.uploaded_files[idx]["name"]
+
         with self.state.metrics_lock:
             metrics = dict(self.state.last_metrics)
         buffer = metrics.get("base_positive")
@@ -3174,7 +3198,7 @@ class AppController(QObject):
             logger.info(
                 "thumb-refresh readback %.1fms %s",
                 (time.perf_counter() - t0) * 1000,
-                os.path.basename(self.state.current_file_path),
+                asset_name,
             )
 
         if buffer is not None and not isinstance(buffer, np.ndarray):
@@ -3185,10 +3209,13 @@ class AppController(QObject):
         # Same transform the canvas used for this buffer, so the filmstrip and the
         # canvas can't disagree about the frame's colour.
         display_cs, monitor_bytes = self.display_transform_params(splash=bool(metrics.get("splash")))
+        # Cache under the triplet-namespaced key so the batch (source) path re-serves this
+        # rendered positive instead of the uninverted source merge it decodes itself.
+        cache_key = thumbnail_cache_key(self.state.current_file_hash, is_rgb_triplet(self.state.config.rgbscan))
         self.thumbnail_update_requested.emit(
             ThumbnailUpdateTask(
-                filename=os.path.basename(self.state.current_file_path),
-                file_hash=self.state.current_file_hash,
+                filename=asset_name,
+                file_hash=cache_key,
                 buffer=buffer,
                 color_space=display_cs,
                 monitor_icc_bytes=monitor_bytes,

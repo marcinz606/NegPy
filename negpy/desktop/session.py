@@ -3,7 +3,7 @@ import re
 import threading
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
@@ -48,6 +48,9 @@ class AppState:
     wb_pick_region: int = 0
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     thumbnails: Dict[str, Any] = field(default_factory=dict)  # filename -> QIcon/QPixmap
+    # Names whose thumbnail came from a canvas render (correct, inverted); the batch
+    # generator must not overwrite these with its cheaper source-decode placeholder.
+    rendered_thumbnails: Set[str] = field(default_factory=set)
     source_exif: Dict[str, Any] = field(default_factory=dict)  # file_hash -> piexif dict
     selected_file_idx: int = -1
     selected_indices: List[int] = field(default_factory=list)
@@ -1115,6 +1118,7 @@ class DesktopSessionManager(QObject):
                 if same_path_idx is not None:
                     old = self.state.uploaded_files[same_path_idx]
                     self.state.thumbnails.pop(old["name"], None)
+                    self.state.rendered_thumbnails.discard(old["name"])
                     self.state.uploaded_files[same_path_idx] = info
                     continue
                 if any(f["hash"] == info["hash"] for f in self.state.uploaded_files):
@@ -1159,6 +1163,7 @@ class DesktopSessionManager(QObject):
         for i in reversed(valid):
             removed = self.state.uploaded_files.pop(i)
             self.state.thumbnails.pop(removed["name"], None)
+            self.state.rendered_thumbnails.discard(removed["name"])
         marks = self.repo.load_file_marks()
         m = marks.get(composite["hash"])
         composite = {**composite, "keeper": m == "keeper", "excluded": m == "excluded"}
@@ -1212,6 +1217,7 @@ class DesktopSessionManager(QObject):
         """
         self.state.uploaded_files.clear()
         self.state.thumbnails.clear()
+        self.state.rendered_thumbnails.clear()
         self._reset_active_image_state()
 
         self.asset_model.refresh()
@@ -1226,6 +1232,7 @@ class DesktopSessionManager(QObject):
         if 0 <= idx < len(self.state.uploaded_files):
             file_info = self.state.uploaded_files.pop(idx)
             self.state.thumbnails.pop(file_info["name"], None)
+            self.state.rendered_thumbnails.discard(file_info["name"])
 
             if not self.state.uploaded_files:
                 self._reset_active_image_state()
@@ -1249,6 +1256,7 @@ class DesktopSessionManager(QObject):
             if 0 <= idx < len(self.state.uploaded_files):
                 file_info = self.state.uploaded_files.pop(idx)
                 self.state.thumbnails.pop(file_info["name"], None)
+                self.state.rendered_thumbnails.discard(file_info["name"])
 
         if not self.state.uploaded_files:
             self._reset_active_image_state()

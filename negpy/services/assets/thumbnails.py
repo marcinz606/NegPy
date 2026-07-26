@@ -51,6 +51,16 @@ async def generate_batch_thumbnails(
     return {name: thumb for name, thumb in results if isinstance(thumb, Image.Image)}
 
 
+def thumbnail_cache_key(file_hash: str, is_triplet: bool) -> str:
+    """Disk cache key for a frame's thumbnail.
+
+    A triplet caches under a distinct key so (a) a red-only thumbnail cached before
+    merge support can't shadow the corrected one, and (b) the batch (source) path and
+    the rendered-positive path agree on where the triplet's thumbnail lives — the
+    rendered positive is what makes the filmstrip match the canvas."""
+    return f"{file_hash}-rgb" if is_triplet else file_hash
+
+
 def _fast_demosaic(raw: Any) -> np.ndarray:
     """Fast half-size linear demosaic used for preview thumbnails."""
     return ensure_rgb(
@@ -138,10 +148,7 @@ def get_thumbnail_worker(
     Checks cache -> extracts/renders -> resize.
     """
     try:
-        # A triplet's red exposure shares its hash with the same file scanned plain,
-        # so namespace the merged thumbnail's cache key — otherwise a red-only entry
-        # cached before this fix would be served forever.
-        cache_key = f"{file_hash}-rgb" if green_path and blue_path else file_hash
+        cache_key = thumbnail_cache_key(file_hash, bool(green_path and blue_path))
         if asset_store:
             cached = asset_store.get_thumbnail(cache_key)
             if isinstance(cached, Image.Image):

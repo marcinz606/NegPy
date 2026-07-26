@@ -233,6 +233,14 @@ def test_resolve_asset_rgbscan_resets_when_not_triplet():
     assert out.rgbscan == RgbScanConfig()
 
 
+def test_thumbnail_cache_key_namespaces_triplets():
+    """Batch and rendered paths must derive the same triplet key so they share a cache slot."""
+    from negpy.services.assets.thumbnails import thumbnail_cache_key
+
+    assert thumbnail_cache_key("h", False) == "h"
+    assert thumbnail_cache_key("h", True) == "h-rgb"
+
+
 def test_thumbnail_decode_routes_triplet_to_merge(monkeypatch):
     """With green/blue paths, the thumbnail must merge the triplet, not decode red alone."""
     from negpy.services.assets import thumbnails
