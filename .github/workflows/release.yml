@@ -27,21 +27,21 @@ jobs:
       - id: set-matrix
         run: |
           if [ "${{ github.event.inputs.platform }}" == "all" ]; then
-            echo 'matrix=["ubuntu-latest", "windows-latest", "macos-latest"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"ubuntu-latest"},{"os":"windows-latest"},{"os":"macos-latest","arch":"arm64"},{"os":"macos-latest","arch":"x86_64"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "windows" ]; then
-            echo 'matrix=["windows-latest"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"windows-latest"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "linux" ]; then
-            echo 'matrix=["ubuntu-latest"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "macos" ]; then
-            echo 'matrix=["macos-latest"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"macos-latest","arch":"arm64"},{"os":"macos-latest","arch":"x86_64"}]' >> $GITHUB_OUTPUT
           fi
 
   build:
     needs: setup
     strategy:
       matrix:
-        os: ${{ fromJSON(needs.setup.outputs.matrix) }}
-    name: Build for ${{ matrix.os }}
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    name: Build for ${{ matrix.os }}${{ matrix.arch && format(' ({0})', matrix.arch) || '' }}
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout Code
@@ -96,6 +96,11 @@ jobs:
         run: |
           echo "${{ github.event.inputs.version }}" | sed 's/^v//' > VERSION
 
+      - name: Set macOS target architecture
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: echo "NEGPY_MACOS_ARCH=${{ matrix.arch }}" >> "$GITHUB_ENV"
+
       - name: Build and Package Application
         run: uv run python build.py
 
@@ -106,7 +111,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: negpy-${{ matrix.os }}-${{ github.event.inputs.version }}
+          name: negpy-${{ matrix.os }}${{ matrix.arch && format('-{0}', matrix.arch) || '' }}-${{ github.event.inputs.version }}
           if-no-files-found: error
           path: |
             dist/*.AppImage
