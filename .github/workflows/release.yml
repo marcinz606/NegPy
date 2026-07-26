@@ -66,7 +66,7 @@ jobs:
 
       - name: Install System Dependencies (macOS)
         if: startsWith(matrix.os, 'macos-')
-        run: brew install sane-backends
+        run: brew install sane-backends llvm@20
 
       - name: Install Packaging Tools (Windows)
         if: matrix.os == 'windows-latest'
@@ -82,6 +82,15 @@ jobs:
       - name: Install Dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: uv sync --all-groups
+
+      - name: Configure LLVM for llvmlite (macOS x86_64)
+        if: matrix.arch == 'x86_64'
+        shell: bash
+        run: |
+          LLVM20="$(brew --prefix llvm@20)"
+          echo "PATH=/usr/local/bin:${LLVM20}/bin:${PATH}" >> "$GITHUB_ENV"
+          echo "LLVM_CONFIG=${LLVM20}/bin/llvm-config" >> "$GITHUB_ENV"
+          echo "CMAKE_ARGS=-DLLVM_DIR=${LLVM20}/lib/cmake/llvm -DCMAKE_PREFIX_PATH=${LLVM20}" >> "$GITHUB_ENV"
 
       - name: Install Dependencies (macOS)
         if: startsWith(matrix.os, 'macos-')
