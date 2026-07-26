@@ -60,6 +60,29 @@ def test_label_scrub_debounces_value_changes(qapp):
     slider.timer.stop()
 
 
+def test_setvalue_rebases_commit_baseline_across_reuse(qapp):
+    """Regression for #crosstalk-separation-not-saved: a widget reused across images
+    (setValue() on file switch, e.g. Process sidebar sync_ui()) must rebase its commit
+    baseline, or dragging a later image to the same value the widget last committed for
+    a *different* image silently no-ops the commit (valueCommitted never fires)."""
+    slider = CompactSlider("Separation", 0.0, 1.0, 0.0)
+    committed = MagicMock()
+    slider.valueCommitted.connect(committed)
+
+    slider.adjust_by(1.0)
+    assert slider.value() == 1.0
+    committed.assert_called_once_with(1.0)
+
+    # Simulate switching to another image whose saved value happens to also be 0.0.
+    slider.setValue(0.0)
+    committed.reset_mock()
+
+    # Dragging the new image's slider back up to 1.0 must commit again.
+    slider.adjust_by(1.0)
+    assert slider.value() == 1.0
+    committed.assert_called_once_with(1.0)
+
+
 def test_kelvin_slider_mired_travel(qapp):
     s = KelvinSlider("Temperature")
     # Slider ints are mired*10: 12000K left, 3000K right (warm on the right).

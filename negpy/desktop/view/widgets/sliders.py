@@ -200,7 +200,13 @@ class BaseSlider(QWidget):
     def _emit_value(self) -> None:
         self.valueChanged.emit(self.spin.value())
 
-    def setValue(self, value: float) -> None:
+    def setValue(self, value: float, _rebase_commit: bool = True) -> None:
+        """_rebase_commit=True is the external-sync path (a sidebar reflecting a newly
+        loaded config onto this reused widget) and rebases the commit baseline — or a
+        later drag landing on a value some *other* image last committed here would
+        silently no-op in _on_committed. Internal gesture steps (adjust_by, dbl-click
+        reset, label-scrub) pass False so their own trailing _on_committed() still sees
+        the pre-gesture baseline and fires correctly."""
         if self.slider.isSliderDown() or self.spin.hasFocus():
             return
         self.slider.blockSignals(True)
@@ -209,19 +215,21 @@ class BaseSlider(QWidget):
         self.spin.setValue(value)
         self.slider.blockSignals(False)
         self.spin.blockSignals(False)
+        if _rebase_commit:
+            self._last_committed_value = value
 
     def value(self) -> float:
         return self.spin.value()
 
     def adjust_by(self, delta: float) -> None:
         new_value = max(self._min, min(self._max, self.value() + delta))
-        self.setValue(new_value)
+        self.setValue(new_value, _rebase_commit=False)
         self._emit_value()
         self._on_committed()
 
     def mouseDoubleClickEvent(self, event) -> None:
         """Resets to default value."""
-        self.setValue(self._default)
+        self.setValue(self._default, _rebase_commit=False)
         self._emit_value()
         self._on_committed()
 
@@ -359,8 +367,8 @@ class CompactSlider(BaseSlider):
         super()._on_slider_changed(value)
         self._update_edited_state()
 
-    def setValue(self, value: float) -> None:
-        super().setValue(value)
+    def setValue(self, value: float, _rebase_commit: bool = True) -> None:
+        super().setValue(value, _rebase_commit=_rebase_commit)
         self._update_edited_state()
 
     def setEnabled(self, enabled: bool) -> None:
@@ -403,7 +411,7 @@ class CompactSlider(BaseSlider):
                 elif mods & Qt.KeyboardModifier.ControlModifier:
                     sensitivity *= 10.0
                 new_val = max(self._min, min(self._max, self._scrub_start_val + dx * sensitivity))
-                self.setValue(new_val)
+                self.setValue(new_val, _rebase_commit=False)
                 # debounce like groove drags; a direct emit renders per mouse-move
                 self.timer.start()
                 return True
@@ -438,8 +446,8 @@ class HueSlider(CompactSlider):
         super()._on_slider_changed(value)
         self._apply_hue(value / self._precision)
 
-    def setValue(self, value: float) -> None:
-        super().setValue(value)
+    def setValue(self, value: float, _rebase_commit: bool = True) -> None:
+        super().setValue(value, _rebase_commit=_rebase_commit)
         self._apply_hue(value)
 
     def setEnabled(self, enabled: bool) -> None:
@@ -487,8 +495,8 @@ class KelvinSlider(CompactSlider):
         super()._on_slider_changed(value)
         self._apply_temp(self._from_int(value))
 
-    def setValue(self, value: float) -> None:
-        super().setValue(value)
+    def setValue(self, value: float, _rebase_commit: bool = True) -> None:
+        super().setValue(value, _rebase_commit=_rebase_commit)
         self._apply_temp(self.value())
 
     def setEnabled(self, enabled: bool) -> None:
