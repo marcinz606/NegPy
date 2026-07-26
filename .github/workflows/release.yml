@@ -27,13 +27,13 @@ jobs:
       - id: set-matrix
         run: |
           if [ "${{ github.event.inputs.platform }}" == "all" ]; then
-            echo 'matrix=[{"os":"ubuntu-latest"},{"os":"windows-latest"},{"os":"macos-latest","arch":"arm64"},{"os":"macos-latest","arch":"x86_64"}]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"ubuntu-latest"},{"os":"windows-latest"},{"os":"macos-14","arch":"arm64"},{"os":"macos-13","arch":"x86_64"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "windows" ]; then
             echo 'matrix=[{"os":"windows-latest"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "linux" ]; then
             echo 'matrix=[{"os":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.platform }}" == "macos" ]; then
-            echo 'matrix=[{"os":"macos-latest","arch":"arm64"},{"os":"macos-latest","arch":"x86_64"}]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"macos-14","arch":"arm64"},{"os":"macos-13","arch":"x86_64"}]' >> $GITHUB_OUTPUT
           fi
 
   build:
@@ -65,7 +65,7 @@ jobs:
           chmod +x appimagetool-x86_64.AppImage
 
       - name: Install System Dependencies (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos-')
         run: brew install sane-backends
 
       - name: Install Packaging Tools (Windows)
@@ -84,7 +84,7 @@ jobs:
         run: uv sync --all-groups
 
       - name: Install Dependencies (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos-')
         run: CFLAGS="-I$(brew --prefix)/include" LDFLAGS="-L$(brew --prefix)/lib" uv sync --all-groups
 
       - name: Install Dependencies (Windows)
@@ -97,7 +97,7 @@ jobs:
           echo "${{ github.event.inputs.version }}" | sed 's/^v//' > VERSION
 
       - name: Set macOS target architecture
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos-')
         shell: bash
         run: echo "NEGPY_MACOS_ARCH=${{ matrix.arch }}" >> "$GITHUB_ENV"
 
