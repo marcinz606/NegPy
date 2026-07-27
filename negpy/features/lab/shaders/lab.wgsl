@@ -30,7 +30,9 @@ const SHARPEN_OVERSHOOT_DARK = 2.0;
 const SHARPEN_MASK_T_HI = 10.0;
 const RL_EPS = 1e-6;
 
-const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
+// Adobe RGB (1998) -> XYZ D65 luminance row (Yn=1) — mirrors LUM_R/LUM_G/LUM_B in
+// logic.py and the y row in rgb_to_lab below.
+const WORKING_LUMA_COEFFS = vec3<f32>(0.2973769, 0.6273491, 0.0752741);
 
 // CIELAB L* from linear luminance Y (D65, Yn=1) — mirrors _lab_l_from_y in logic.py.
 fn lab_l_from_y(y_in: f32) -> f32 {
@@ -359,7 +361,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let g_coord = clamp(coords + vec2<i32>(g_off), vec2<i32>(0), vec2<i32>(dims) - 1);
                 let g_samp = load_lin(g_coord);
                 // Glow is a print-side lens effect: mask stays in display domain.
-                let g_luma = dot(oetf_encode(g_samp), LUMA_COEFFS);
+                let g_luma = dot(oetf_encode(g_samp), WORKING_LUMA_COEFFS);
                 let g_hl = max(0.0, (g_luma - HIGHLIGHT_THRESHOLD) / (1.0 - HIGHLIGHT_THRESHOLD));
                 let g_r = length(offset);  // normalised radius in [0,1]
                 let g_w = exp(-g_r * g_r * 2.0);
@@ -370,7 +372,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let h_off = offset * HAL_RADIUS;
                 let h_coord = clamp(coords + vec2<i32>(h_off), vec2<i32>(0), vec2<i32>(dims) - 1);
                 let h_samp = load_lin(h_coord);
-                let h_luma = dot(h_samp, LUMA_COEFFS);
+                let h_luma = dot(h_samp, WORKING_LUMA_COEFFS);
                 let h_hl = max(0.0, (h_luma - HALATION_THRESHOLD_LINEAR) / (1.0 - HALATION_THRESHOLD_LINEAR));
                 let h_r = length(offset);
                 let h_w = exp(-h_r * h_r * 2.0);

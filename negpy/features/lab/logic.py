@@ -281,7 +281,7 @@ def apply_glow_and_halation(
     if glow_amount > 0.0:
         # Highlight mask in the display domain (keeps the 0.5 threshold); bloom is linear.
         enc = working_oetf_encode(img)
-        luma = enc[:, :, 0] * 0.2126 + enc[:, :, 1] * 0.7152 + enc[:, :, 2] * 0.0722
+        luma = enc[:, :, 0] * np.float32(LUM_R) + enc[:, :, 1] * np.float32(LUM_G) + enc[:, :, 2] * np.float32(LUM_B)
         threshold = 0.5
         glow_mask = np.clip((luma - threshold) / (1.0 - threshold), 0.0, 1.0) ** 2
         base_r = max(3, int(15 * scale_factor))
@@ -292,7 +292,7 @@ def apply_glow_and_halation(
         result = result + glow_blur * glow_amount
 
     if halation_strength > 0.0:
-        lin_luma = img[:, :, 0] * 0.2126 + img[:, :, 1] * 0.7152 + img[:, :, 2] * 0.0722
+        lin_luma = img[:, :, 0] * np.float32(LUM_R) + img[:, :, 1] * np.float32(LUM_G) + img[:, :, 2] * np.float32(LUM_B)
         t = HALATION_THRESHOLD_LINEAR
         hal_mask = np.clip((lin_luma - t) / (1.0 - t), 0.0, 1.0) ** 2
         base_r = max(5, int(25 * scale_factor))
