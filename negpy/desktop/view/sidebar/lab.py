@@ -53,7 +53,7 @@ class LabSidebar(BaseSidebar):
 
         row2 = QHBoxLayout()
         self.clahe_slider = CompactSlider("CLAHE", 0.0, 1.0, conf.clahe_strength)
-        self.chroma_denoise_slider = CompactSlider("Denoise", 0.0, 5.0, conf.chroma_denoise)
+        self.chroma_denoise_slider = CompactSlider("Chroma Denoise", 0.0, 5.0, conf.chroma_denoise)
         row2.addWidget(self.clahe_slider)
         row2.addWidget(self.chroma_denoise_slider)
         self.layout.addLayout(row2)

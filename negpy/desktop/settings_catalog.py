@@ -138,7 +138,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Sharpen Method", "lab", "sharpen_method"),
         _row("Radius", "lab", "sharpen_radius"),
         _row("Masking", "lab", "sharpen_masking"),
-        _row("Denoise", "lab", "chroma_denoise"),
+        _row("Chroma Denoise", "lab", "chroma_denoise"),
         _row("Glow", "lab", "glow_amount"),
         _row("Halation", "lab", "halation_strength"),
     )),
