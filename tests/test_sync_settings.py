@@ -2,6 +2,8 @@
 
 from dataclasses import replace
 
+import pytest
+
 from negpy.desktop.session import _source_effective_bounds
 from negpy.desktop.settings_catalog import (
     CATALOG,
@@ -99,6 +101,47 @@ def test_apply_crosstalk_copies_strength_profile_and_matrix_together():
     assert out.process.crosstalk_strength == 0.4
     assert out.process.crosstalk_profile == "Portra"
     assert out.process.crosstalk_matrix == (1, 0, 0, 0, 1, 0, 0, 0, 1)
+
+
+# ── metering inputs clear the target's per-frame bounds ──────────────────────
+
+
+def _metered_target():
+    c = WorkspaceConfig()
+    return replace(c, process=replace(c.process, local_floors=(0.1, 0.2, 0.3), local_ceils=(0.9, 0.8, 0.7)))
+
+
+@pytest.mark.parametrize("label", ["Analysis Buffer", "Mode", "Range", "Colour", "Crosstalk", "Sensor Calibration", "Manual Crop"])
+def test_apply_metering_row_clears_local_bounds(label):
+    tgt = _metered_target()
+    out = apply_selected_fields(WorkspaceConfig(), tgt, [_row(label)])
+    assert out.process.local_floors == (0.0, 0.0, 0.0)
+    assert out.process.local_ceils == (0.0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize("label", ["White Point", "Black Trim", "Crop Ratio", "Rotation", "Saturation"])
+def test_apply_non_metering_row_keeps_local_bounds(label):
+    tgt = _metered_target()
+    out = apply_selected_fields(WorkspaceConfig(), tgt, [_row(label)])
+    assert out.process.local_floors == (0.1, 0.2, 0.3)
+    assert out.process.local_ceils == (0.9, 0.8, 0.7)
+
+
+def test_apply_metering_row_respects_target_bounds_lock():
+    tgt = _metered_target()
+    tgt = replace(tgt, process=replace(tgt.process, lock_bounds=True))
+    out = apply_selected_fields(WorkspaceConfig(), tgt, [_row("Analysis Buffer")])
+    assert out.process.local_floors == (0.1, 0.2, 0.3)
+    assert out.process.local_ceils == (0.9, 0.8, 0.7)
+
+
+def test_apply_accepts_a_one_shot_iterable():
+    # The bounds check makes a second pass over rows; a generator must not be consumed away.
+    c = WorkspaceConfig()
+    src = replace(c, process=replace(c.process, analysis_buffer=0.2))
+    out = apply_selected_fields(src, _metered_target(), iter([_row("Analysis Buffer")]))
+    assert out.process.analysis_buffer == 0.2
+    assert out.process.local_floors == (0.0, 0.0, 0.0)
 
 
 # ── _source_effective_bounds (roll-baseline broadcast) ───────────────────────

@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.metadata.models import PUSH_PULL_LABELS
+from negpy.features.process.models import invalidate_local_bounds
 
 
 class SettingRow:
@@ -213,6 +214,30 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
 
 _DEFAULT = WorkspaceConfig()
 
+# Fields that decide how a frame is metered. Pasting one must drop the target's
+# cached per-frame bounds, or resolve_bounds_detailed keeps short-circuiting on
+# them and the new value never reaches the render. Mirrors what every sidebar
+# handler for these already does. Excluded on purpose: autocrop_ratio (see
+# AppController.set_crop_ratio), rotation, and the white/black points — those
+# apply after the bounds rather than feeding them.
+_BOUNDS_INPUT_FIELDS = frozenset(
+    {
+        "process_mode",
+        "analysis_buffer",
+        "luma_range_clip",
+        "color_range_clip",
+        "crosstalk_strength",
+        "crosstalk_profile",
+        "crosstalk_matrix",
+        "sensor_profile",
+        "sensor_matrix",
+        "auto_crop_enabled",
+        "autocrop_offset",
+        "autocrop_mode",
+        "manual_crop_rect",
+    }
+)
+
 
 def all_rows() -> list[SettingRow]:
     return [r for _title, rows in CATALOG for r in rows]
@@ -243,6 +268,7 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
     """Overlay only the chosen rows' fields from source onto target (one replace
     per section). Fields not listed — per-frame bounds, dust spots, heal strokes,
     masks — stay the target's own."""
+    rows = list(rows)
     by_section: dict[str, dict] = {}
     for row in rows:
         src_section = getattr(source, row.section)
@@ -252,6 +278,8 @@ def apply_selected_fields(source: WorkspaceConfig, target: WorkspaceConfig, rows
     out = target
     for section, changes in by_section.items():
         out = replace(out, **{section: replace(getattr(out, section), **changes)})
+    if any(f in _BOUNDS_INPUT_FIELDS for row in rows for f in row.fields):
+        out = replace(out, process=replace(out.process, **invalidate_local_bounds(out.process)))
     return out
 
 
