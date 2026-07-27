@@ -443,7 +443,7 @@ class ExportSettingsForm(QWidget):
         """Toggle flat-master export UI: hide delivery formats, adjust size rows.
 
         When ``preset_editor`` is True (Manage Presets dialog), the format row stays
-        visible but limited to TIFF/DNG instead of hiding entirely.
+        visible but limited to 16-bit TIFF instead of hiding entirely.
         """
         enabled = bool(enabled)
         if enabled == self._flat_mode:
@@ -456,7 +456,7 @@ class ExportSettingsForm(QWidget):
             self.fmt_combo.blockSignals(True)
             self.fmt_combo.clear()
             if enabled:
-                flat_formats = [ExportFormat.TIFF.value, ExportFormat.DNG.value]
+                flat_formats = [ExportFormat.TIFF.value]
                 self.fmt_combo.addItems(flat_formats)
                 self.fmt_combo.setCurrentText(current if current in flat_formats else ExportFormat.TIFF.value)
                 self._quality_container.setVisible(False)

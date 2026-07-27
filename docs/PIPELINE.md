@@ -116,7 +116,7 @@ $$I_{out} = \text{clip}\big(\text{lift} + \text{gain} \cdot (1 - \text{val}),\ 0
 *   `flat_log_lift` $= 0.10$: the output value the scene **shadow** lands on (black lift).
 *   Result: scene shadow → $0.10$, mid-grey → $\approx 0.46$, highlight → $0.75$ — headroom above white and below black, fully invertible for downstream grading.
 
-Both are **fixed** (no per-frame metering) so an evenly-exposed roll renders identically; manual white balance still rides as an additive per-channel shift in log space. The engine also **bypasses** the creative stages (Local Contrast, Retouch, Lab, Toning, Finish — dodge/burn masks are skipped too) for a flat intent; only Geometry → Normalization → this log map → Crop run. Export is full-resolution; the colour space follows the export selection (color-managed at encode like the print path), as 16-bit TIFF or Linear DNG. CPU engine is forced (no GPU flat shader) for numerical exactness.
+Both are **fixed** (no per-frame metering) so an evenly-exposed roll renders identically; manual white balance still rides as an additive per-channel shift in log space. The engine also **bypasses** the creative stages (Local Contrast, Retouch, Lab, Toning, Finish — dodge/burn masks are skipped too) for a flat intent; only Geometry → Normalization → this log map → Crop run. Export is full-resolution; the colour space follows the export selection (color-managed at encode like the print path), as 16-bit TIFF. CPU engine is forced (no GPU flat shader) for numerical exactness.
 
 ---
 

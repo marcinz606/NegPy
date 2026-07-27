@@ -685,17 +685,6 @@ class ImageProcessor:
                 predictor=True,
             )
             return output_buf.getvalue(), "tiff"
-        elif fmt == ExportFormat.DNG:
-            # Linear digital-negative master. Greyscale is promoted to RGB so the DNG
-            # is always a 3-sample LinearRaw the host can open. Colour-managed to the
-            # target space so the values match the TIFF master.
-            if is_greyscale:
-                img_lum = float_to_uint_luma(np.ascontiguousarray(buffer), bit_depth=16)
-                img_int = np.stack([img_lum, img_lum, img_lum], axis=-1) if img_lum.ndim == 2 else img_lum
-            else:
-                img_int = float_to_uint16(buffer)
-            img_out, _icc = self._apply_color_management_u16(img_int, working_color_space, color_space, icc_output, icc_input)
-            return self._encode_dng_bytes(img_out), "dng"
         elif fmt == ExportFormat.PNG:
             if is_greyscale:
                 # PIL "I;16" supports 16-bit greyscale, so keep full bit depth here.
@@ -785,24 +774,6 @@ class ImageProcessor:
             output_buf = io.BytesIO()
             self._save_to_pil_buffer(pil_img, output_buf, export_settings, icc_bytes)
             return output_buf.getvalue(), "jpg"
-
-    @staticmethod
-    def _encode_dng_bytes(rgb_u16: np.ndarray) -> bytes:
-        """Write a 16-bit RGB buffer as a LinearRaw DNG and return its bytes."""
-        import shutil
-        import tempfile
-
-        from negpy.infrastructure.scanners.result import ScanResult
-        from negpy.services.scanning.writer import write_dng_linear
-
-        result = ScanResult(rgb=np.ascontiguousarray(rgb_u16), ir=None, dpi=300, device_model="NegPy Flat Master")
-        tmpdir = tempfile.mkdtemp()
-        try:
-            written = write_dng_linear(result, os.path.join(tmpdir, "flat_master"))
-            with open(written, "rb") as fh:
-                return fh.read()
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def render_display_array(
         self,

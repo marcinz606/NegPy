@@ -191,7 +191,7 @@ class TestFlatConfigHelpers(unittest.TestCase):
             export_color_space=ColorSpace.SRGB.value,
             export_resolution_mode=ExportResolutionMode.ORIGINAL.value,
         )
-        out = flat_export_config(src, fmt=ExportFormat.TIFF)
+        out = flat_export_config(src)
         self.assertEqual(out.export_fmt, ExportFormat.TIFF)
         self.assertEqual(out.export_color_space, ColorSpace.SRGB.value)
         self.assertEqual(
@@ -207,7 +207,7 @@ class TestFlatConfigHelpers(unittest.TestCase):
             export_target_long_edge_px=6000,
             paper_aspect_ratio=AspectRatio.R_3_2,
         )
-        out = flat_export_config(src, fmt=ExportFormat.TIFF)
+        out = flat_export_config(src)
         self.assertEqual(out.export_resolution_mode, ExportResolutionMode.TARGET_PX.value)
         self.assertEqual(out.export_target_long_edge_px, 6000)
         self.assertEqual(out.paper_aspect_ratio, AspectRatio.R_3_2)
@@ -219,15 +219,11 @@ class TestFlatConfigHelpers(unittest.TestCase):
             export_dpi=360,
             paper_aspect_ratio=AspectRatio.R_5_4,
         )
-        out = flat_export_config(src, fmt=ExportFormat.TIFF)
+        out = flat_export_config(src)
         self.assertEqual(out.export_resolution_mode, ExportResolutionMode.PRINT.value)
         self.assertEqual(out.export_print_size, 24.0)
         self.assertEqual(out.export_dpi, 360)
         self.assertEqual(out.paper_aspect_ratio, AspectRatio.R_5_4)
-
-    def test_flat_export_config_dng(self):
-        out = flat_export_config(ExportConfig(), fmt=ExportFormat.DNG)
-        self.assertEqual(out.export_fmt, ExportFormat.DNG)
 
     def test_flat_export_target_px_resizes_via_print_service(self):
         """Regression: flat export must not discard Pixels sizing (e.g. 6000px long edge)."""
@@ -238,8 +234,7 @@ class TestFlatConfigHelpers(unittest.TestCase):
             ExportConfig(
                 export_resolution_mode=ExportResolutionMode.TARGET_PX.value,
                 export_target_long_edge_px=6000,
-            ),
-            fmt=ExportFormat.TIFF,
+            )
         )
         result, _ = PrintService.apply_layout(img, export)
         self.assertEqual(max(result.shape[:2]), 6000)
@@ -266,21 +261,6 @@ class TestImageProcessorFlatRouting(unittest.TestCase):
         flat = flat_master_config(WorkspaceConfig())
         self.assertTrue(ImageProcessor._is_flat(flat))
         self.assertFalse(ImageProcessor._is_flat(WorkspaceConfig()))
-
-
-class TestFlatDngEncode(unittest.TestCase):
-    def test_dng_bytes_roundtrip(self):
-        import io
-
-        import tifffile
-
-        rgb = (np.random.rand(16, 16, 3) * 65535).astype(np.uint16)
-        data = ImageProcessor._encode_dng_bytes(rgb)
-        self.assertIsInstance(data, bytes)
-        self.assertGreater(len(data), 0)
-
-        readback = tifffile.imread(io.BytesIO(data))
-        np.testing.assert_array_equal(readback, rgb)
 
 
 if __name__ == "__main__":

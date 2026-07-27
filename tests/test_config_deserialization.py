@@ -2,7 +2,7 @@ import json
 import logging
 import unittest
 from dataclasses import replace
-from negpy.domain.models import ExportResolutionMode, WorkspaceConfig
+from negpy.domain.models import ExportConfig, ExportFormat, ExportPreset, ExportResolutionMode, WorkspaceConfig
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.caching.logic import calculate_config_hash
 
@@ -196,6 +196,18 @@ class TestConfigDeserialization(unittest.TestCase):
     def test_legacy_use_roll_average_does_not_warn(self):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict({"use_roll_average": True})
+
+    def test_retired_dng_export_migrates_to_tiff(self):
+        # DNG export was removed; a saved edit must land on the other 16-bit
+        # format, not fall through the encoder to 8-bit JPEG.
+        config = WorkspaceConfig.from_flat_dict({"export_fmt": "DNG"})
+        self.assertEqual(config.export.export_fmt, ExportFormat.TIFF)
+
+    def test_retired_dng_export_migrates_outside_flat_dict(self):
+        # Covers the sticky last_export_config path (ExportConfig(**filtered))
+        # and saved export presets, neither of which goes through from_flat_dict.
+        self.assertEqual(ExportConfig(export_fmt="DNG").export_fmt, ExportFormat.TIFF)
+        self.assertEqual(ExportPreset.from_dict({"export_fmt": "DNG"}).export_fmt, ExportFormat.TIFF)
 
     def test_manual_crop_rect_survives_db_roundtrip_as_tuple(self):
         """Manual crop saved to JSON reloads as a list, making the frozen

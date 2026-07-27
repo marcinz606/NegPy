@@ -876,7 +876,7 @@ class TestBatchExportFiltering(unittest.TestCase):
         self.visible_indices = [0, 1]
         session_export = self.controller.state.config.export
         # Per-file config has stale SAME_AS_SOURCE (differs from session default
-        # ABSOLUTE) + stale DNG + stale AdobeRGB + stale jpeg_quality — delivery
+        # ABSOLUTE) + stale PNG + stale AdobeRGB + stale jpeg_quality — delivery
         # overrides (mode, fmt, color_space) must use session; sizing (quality) is
         # preserved from per-file.
         stale_export = replace(
@@ -884,7 +884,7 @@ class TestBatchExportFiltering(unittest.TestCase):
             output_mode=ExportPresetOutputMode.SAME_AS_SOURCE,
             export_path="/stale/default",
             output_subfolder="old_sub",
-            export_fmt=ExportFormat.DNG,
+            export_fmt=ExportFormat.PNG,
             export_color_space=ColorSpace.ADOBE_RGB.value,
             jpeg_quality=50,
         )
@@ -902,9 +902,9 @@ class TestBatchExportFiltering(unittest.TestCase):
             self.assertEqual(t.params.export.export_path, "/tmp/out")
             # Format/color-space from session config overrides per-file values so
             # the delivery format matches what the UI shows, not a stale per-file setting.
-            # Without the fix, stale_export.export_fmt=DNG would leak into the export.
+            # Without the fix, stale_export.export_fmt=PNG would leak into the export.
             self.assertEqual(t.params.export.export_fmt, session_export.export_fmt)
-            self.assertNotEqual(t.params.export.export_fmt, ExportFormat.DNG)
+            self.assertNotEqual(t.params.export.export_fmt, ExportFormat.PNG)
             self.assertEqual(t.params.export.export_color_space, session_export.export_color_space)
             self.assertNotEqual(t.params.export.export_color_space, ColorSpace.ADOBE_RGB.value)
             # Quality/sizing from per-file config is preserved

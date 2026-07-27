@@ -204,7 +204,7 @@ class ExportPresetsDialog(QDialog):
         try:
             is_flat = preset.render_intent == RenderIntent.FLAT
             self.intent_label.setText(
-                "Flat master — exports a neutral log intermediate (16-bit TIFF or linear DNG)."
+                "Flat master — exports a neutral log intermediate (16-bit TIFF)."
                 if is_flat
                 else "Print — exports the full in-app photographic look."
             )

@@ -329,8 +329,7 @@ A scrollable list of every edit step (last 100 kept), newest on top; the current
 ### Output intent
 
 *   **Print** (default): the full creative look you see on screen.
-*   **Flat**: a flat, neutral, low-contrast master that keeps maximum tonal/colour information for editing elsewhere (Lightroom, Darktable, Photoshop). Skips the print look, effects, toning, and vignette, and writes a wide-gamut, high-bit-depth file. Your in-app preview is unaffected.
-    *   **Format**: *16-bit TIFF* (widely compatible) or *Linear DNG*.
+*   **Flat**: a flat, neutral, low-contrast master that keeps maximum tonal/colour information for editing elsewhere (Lightroom, Darktable, Photoshop). Skips the print look, effects, toning, and vignette, and writes a wide-gamut 16-bit TIFF. Your in-app preview is unaffected.
     *   **Preview Flat**: temporarily show the flat master on the canvas without changing your edit.
     *   **Roll Baseline**: measure every visible frame and share one exposure baseline, so flat masters are consistent across a roll (recommended before a flat batch).
 

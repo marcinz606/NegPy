@@ -39,7 +39,6 @@ from negpy.desktop.workers.capture_worker import (
 )
 from negpy.domain.models import (
     ColorSpace,
-    ExportFormat,
     ExportPreset,
     ExportPresetOutputMode,
     ExportResolutionMode,
@@ -2499,17 +2498,6 @@ class AppController(QObject):
         if not enabled and self.state.flat_peek:
             self.toggle_flat_peek(force=False)
 
-    def _flat_export_format(self) -> str:
-        return ExportFormat.DNG if self.state.flat_format == "DNG" else ExportFormat.TIFF
-
-    def set_flat_format(self, fmt: str) -> None:
-        """Set the flat master file format ('TIFF' 16-bit or 'DNG' linear)."""
-        fmt = fmt if fmt in ("TIFF", "DNG") else "TIFF"
-        if self.state.flat_format == fmt:
-            return
-        self.state.flat_format = fmt
-        self.session.save_flat_output_prefs()
-
     def toggle_flat_peek(self, force: Optional[bool] = None) -> None:
         """Preview the flat master render in the canvas without changing the saved edit.
 
@@ -2654,7 +2642,7 @@ class AppController(QObject):
         params = self.state.config
         if self.state.flat_output:
             params = flat_master_config(params)
-            export_conf = flat_export_config(export_conf, fmt=self._flat_export_format())
+            export_conf = flat_export_config(export_conf)
         source_exif = self.state.source_exif.get(self.state.current_file_hash or "")
 
         self._run_export_tasks(
@@ -2706,7 +2694,6 @@ class AppController(QObject):
             self._write_edit_sidecars(files)
 
         flat = self.state.flat_output
-        flat_fmt = self._flat_export_format()
 
         tasks = []
         for f in files:
@@ -2718,7 +2705,7 @@ class AppController(QObject):
                 # Always use current session export path/mode/format even for
                 # per-file exports. Per-file configs from the DB bypass
                 # _apply_sticky_settings and may have stale ABSOLUTE/export_path
-                # or DNG export_fmt values that don't match what the UI shows.
+                # or export_fmt values that don't match what the UI shows.
                 params = replace(
                     params,
                     export=replace(
@@ -2739,7 +2726,7 @@ class AppController(QObject):
 
             if flat:
                 params = flat_master_config(params)
-                final_export = flat_export_config(final_export, fmt=flat_fmt)
+                final_export = flat_export_config(final_export)
 
             bounds_override = None
             if f["hash"] == self.state.current_file_hash:

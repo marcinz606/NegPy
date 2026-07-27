@@ -89,7 +89,6 @@ class ExportSidebar(BaseSidebar):
         self.export_main_btn.clicked.connect(self._on_export_clicked)
 
         self.intent_btn_group.idToggled.connect(self._on_flat_output_toggled)
-        self.flat_format_combo.currentIndexChanged.connect(self._on_flat_format_changed)
         self.flat_peek_btn.toggled.connect(lambda checked: self.controller.toggle_flat_peek(force=checked))
         self.flat_bake_btn.clicked.connect(self.controller.request_batch_normalization)
         self.controller.flat_output_changed.connect(self._on_flat_output_changed)
@@ -507,21 +506,6 @@ class ExportSidebar(BaseSidebar):
             self.intent_print_btn.setChecked(True)
         box.addLayout(intent_row)
 
-        self.flat_format_row_widget = QWidget()
-        fmt_row = QHBoxLayout(self.flat_format_row_widget)
-        fmt_row.setContentsMargins(0, 0, 0, 0)
-        fmt_label = field_label("Format")
-        fmt_label.setFixedWidth(90)
-        fmt_row.addWidget(fmt_label)
-        self.flat_format_combo = QComboBox()
-        self.flat_format_combo.addItem("16-bit TIFF", "TIFF")
-        self.flat_format_combo.addItem("Linear DNG", "DNG")
-        idx = self.flat_format_combo.findData(self.state.flat_format)
-        self.flat_format_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self.flat_format_combo.setToolTip("16-bit TIFF: widely compatible, ready to edit.\nLinear DNG: a linear digital negative.")
-        fmt_row.addWidget(self.flat_format_combo)
-        box.addWidget(self.flat_format_row_widget)
-
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(4)
         self.flat_peek_btn = self._tool_toggle(
@@ -539,7 +523,8 @@ class ExportSidebar(BaseSidebar):
         box.addLayout(peek_bake_row)
 
         self.flat_hint_label = hint_label(
-            "Exports a flat master in the selected color space at full resolution by default. Choose Print or Pixels below to downscale."
+            "Exports a flat 16-bit TIFF master in the selected color space at full resolution by default. "
+            "Choose Print or Pixels below to downscale."
         )
         box.addWidget(self.flat_hint_label)
 
@@ -555,7 +540,6 @@ class ExportSidebar(BaseSidebar):
         on = self.intent_flat_btn.isChecked()
         if hasattr(self, "form"):
             self.form.set_flat_mode(on)
-        self.flat_format_row_widget.setVisible(on)
         self.flat_hint_label.setVisible(on)
         self.flat_peek_btn.setVisible(on)
         self._sync_flat_roll_warning()
@@ -577,9 +561,6 @@ class ExportSidebar(BaseSidebar):
         if checked:
             self.controller.set_flat_output(btn_id == 1)
             self._sync_flat_enabled()
-
-    def _on_flat_format_changed(self, _index: int) -> None:
-        self.controller.set_flat_format(self.flat_format_combo.currentData())
 
     def _on_flat_output_changed(self, enabled: bool) -> None:
         self.intent_btn_group.blockSignals(True)
@@ -980,8 +961,6 @@ class ExportSidebar(BaseSidebar):
                 self.intent_flat_btn.setChecked(True)
             else:
                 self.intent_print_btn.setChecked(True)
-            fmt_idx = self.flat_format_combo.findData(self.state.flat_format)
-            self.flat_format_combo.setCurrentIndex(fmt_idx if fmt_idx >= 0 else 0)
             self.flat_peek_btn.setChecked(self.state.flat_peek)
         finally:
             self.block_signals(False)
@@ -1005,7 +984,6 @@ class ExportSidebar(BaseSidebar):
             self.cs_output_path_edit,
             self.cs_template_combo,
             self.sidecars_enabled_btn,
-            self.flat_format_combo,
             self.flat_peek_btn,
         ]
         for w in widgets:

@@ -53,7 +53,6 @@ _EXT = {
     ExportFormat.JPEG: "jpg",
     ExportFormat.TIFF: "tiff",
     ExportFormat.PNG: "png",
-    ExportFormat.DNG: "dng",
     ExportFormat.JXL: "jxl",
     ExportFormat.WEBP: "webp",
 }
@@ -150,11 +149,9 @@ class ExportWorker(QObject):
                     continue
 
                 if bits:
-                    # Skipped for DNG (EXIF re-write strips DNG tags), JXL
-                    # (embed_metadata corrupts the .jxl stream), and WebP
-                    # (embed_metadata has no WebP branch).
+                    # Skipped for JXL (embed_metadata corrupts the .jxl stream) and
+                    # WebP (embed_metadata has no WebP branch).
                     if task.metadata_config is not None and task.export_settings.export_fmt not in (
-                        ExportFormat.DNG,
                         ExportFormat.JXL,
                         ExportFormat.WEBP,
                     ):

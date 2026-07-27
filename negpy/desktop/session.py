@@ -129,7 +129,6 @@ class AppState:
     # Flat "for editing elsewhere" master output (digital intermediate).
     # When on, export and the optional preview-peek use the flat render intent.
     flat_output: bool = False
-    flat_format: str = "TIFF"  # "TIFF" (16-bit) or "DNG" (linear)
     # Transient: preview is currently peeking the flat render (not persisted).
     flat_peek: bool = False
 
@@ -433,9 +432,6 @@ class DesktopSessionManager(QObject):
         saved_flat_output = self.repo.get_global_setting("flat_output")
         if saved_flat_output is not None:
             self.state.flat_output = bool(saved_flat_output)
-        saved_flat_format = self.repo.get_global_setting("flat_format")
-        if saved_flat_format in ("TIFF", "DNG"):
-            self.state.flat_format = saved_flat_format
 
         self.state.export_presets = self.repo.load_export_presets()
 
@@ -492,7 +488,6 @@ class DesktopSessionManager(QObject):
     def save_flat_output_prefs(self) -> None:
         """Persists the flat ('for editing elsewhere') output preferences."""
         self.repo.save_global_setting("flat_output", self.state.flat_output)
-        self.repo.save_global_setting("flat_format", self.state.flat_format)
 
     def _apply_sticky_settings(self, config: WorkspaceConfig, only_global: bool = False) -> WorkspaceConfig:
         """

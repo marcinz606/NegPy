@@ -50,8 +50,8 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 **Colour & Output**
 *   **Colour Management**: Full ICC workflow — auto monitor-profile detection (Linux/macOS/Windows), soft proofing including paper/printer profiles, per-image input/output profiles.
-*   **Print Ready**: Export built for printing — border controls, ICC soft-proofing, [dynamic filename templating](docs/TEMPLATING.md), **export presets** (save + one-click), and **contact sheets**. Formats: JPEG, TIFF, PNG, WebP, JPEG XL, DNG.
-*   **Flat / Digital-Intermediate Export**: Flat, neutral, wide-gamut **16-bit TIFF** (or linear **DNG**) master for Lightroom/Darktable/Photoshop, mapping camera RAWs to ProPhoto via the camera's own matrix.
+*   **Print Ready**: Export built for printing — border controls, ICC soft-proofing, [dynamic filename templating](docs/TEMPLATING.md), **export presets** (save + one-click), and **contact sheets**. Formats: JPEG, TIFF, PNG, WebP, JPEG XL.
+*   **Flat / Digital-Intermediate Export**: Flat, neutral, wide-gamut **16-bit TIFF** master for Lightroom/Darktable/Photoshop, mapping camera RAWs to ProPhoto via the camera's own matrix.
 
 **Workflow & Data**
 *   **Non-destructive**: Original files never touched; edits stored as recipes.

@@ -626,7 +626,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Export",
             body=(
                 "The <b>Export</b> tab (right panel, now active) is where you save your results.<br><br>"
-                "Choose a format (<b>JPEG</b>, high-bit-depth <b>TIFF</b>, PNG, WebP, JPEG XL, DNG), "
+                "Choose a format (<b>JPEG</b>, high-bit-depth <b>TIFF</b>, PNG, WebP, JPEG XL), "
                 "pick a colour space, and set resolution or print size. The <b>ICC</b> section adds "
                 "monitor-profile display and soft-proofing.<br><br>"
                 "The <b>Export</b> and <b>Export Presets</b> buttons are triggers; each button's "
@@ -642,7 +642,7 @@ def build(window: "MainWindow") -> list[TutorialStep]:
             title="Export — Flat Master",
             body=(
                 "The <b>Flat — for editing elsewhere</b> output intent exports a flat, neutral, "
-                "wide-gamut <b>16-bit TIFF</b> (or linear <b>DNG</b>) digital-intermediate master "
+                "wide-gamut <b>16-bit TIFF</b> digital-intermediate master "
                 "for Lightroom / Darktable / Photoshop.<br><br>"
                 "It skips the creative print look and maps camera RAWs to ProPhoto via the camera's "
                 "own matrix. <b>Preview Flat</b> peeks at the master on the canvas — also on the "

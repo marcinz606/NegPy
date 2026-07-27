@@ -17,25 +17,11 @@ from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.rgbscan.models import RgbScanConfig
 from negpy.features.stitch.models import StitchConfig
 from negpy.features.metadata.models import MetadataConfig
+from negpy.domain.migrations import migrate_export_fmt, migrate_flat_config
 from negpy.kernel.system.logging import get_logger
 import negpy.kernel.system.paths as paths
 
 logger = get_logger("domain.models")
-
-# Map of old field names → new field names for backward-compatible deserialization.
-# Add entries here when fields are renamed so old workspace files keep their data.
-MIGRATIONS: Dict[str, str] = {
-    "export_border_size": "border_size",
-    "export_border_color": "border_color",
-    # Shadow-neutral + density-balance consolidated into Cast Removal, then Cast
-    # Removal itself became a 0..1 strength (bool True/False coerced to 1.0/0.0 in
-    # ExposureConfig.__post_init__). Preserve a user's saved on/off.
-    "auto_shadow_neutral": "cast_removal_strength",
-    "cast_removal": "cast_removal_strength",
-    # D-Range Clip split into independent luma + colour range clips; the old single
-    # slider maps to the luma axis (colour defaults to its aggressive baseline).
-    "drange_clip": "luma_range_clip",
-}
 
 
 class AspectRatio(StrEnum):
@@ -139,7 +125,6 @@ class ExportFormat(StrEnum):
     JPEG = "JPEG"
     TIFF = "TIFF"
     PNG = "PNG"
-    DNG = "DNG"
     JXL = "JXL"
     WEBP = "WEBP"
 
@@ -250,6 +235,9 @@ class ExportConfig:
 
     export_sidecars_enabled: bool = False
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "export_fmt", migrate_export_fmt(self.export_fmt))
+
 
 @dataclass
 class ExportPreset:
@@ -291,6 +279,9 @@ class ExportPreset:
     export_color_space: str = ColorSpace.SRGB.value
     icc_input_path: Optional[str] = None
     icc_output_path: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        self.export_fmt = migrate_export_fmt(self.export_fmt)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -412,78 +403,7 @@ class WorkspaceConfig:
 
         local_data = data.pop("local_masks", {})
 
-        # Apply field renames for backward compatibility.
-        for old_key, new_key in MIGRATIONS.items():
-            if old_key in data:
-                data[new_key] = data.pop(old_key)
-
-        # True Black (BPC on) renamed to Paper Black with inverted polarity.
-        if "true_black" in data:
-            data["paper_black"] = not bool(data.pop("true_black"))
-
-        # Single roll-average toggle split into independent luma + colour axes.
-        if "use_roll_average" in data:
-            legacy = bool(data.pop("use_roll_average"))
-            data.setdefault("use_luma_average", legacy)
-            data.setdefault("use_colour_average", legacy)
-
-        # Lab "Separation" moved to the capture side (ProcessConfig crosstalk):
-        # the 1.0–2.0 slider maps to strength 0–1. crosstalk_matrix/crosstalk_profile
-        # keep their key names and re-route to ProcessConfig by field membership;
-        # the old serialized DEFAULT_MATRIX field is dropped.
-        if "color_separation" in data and "crosstalk_strength" not in data:
-            data["crosstalk_strength"] = min(max(float(data.pop("color_separation")) - 1.0, 0.0), 1.0)
-        data.pop("color_separation", None)
-        data.pop("DEFAULT_MATRIX", None)
-        # Vignette became an exposure-domain burn: old ±1 strength (neg = darken)
-        # maps to stops (pos = burn) with an approximate look-preserving factor.
-        if "vignette_strength" in data and "vignette_stops" not in data:
-            data["vignette_stops"] = -2.0 * float(data.pop("vignette_strength"))
-        data.pop("vignette_strength", None)
-        # Flare (veiling-glare floor) was removed; drop the key from old edits silently.
-        data.pop("flare", None)
-        # IR stroke synthesis was replaced by the score-weighted fill; its pad radius is gone.
-        data.pop("ir_inpaint_radius", None)
-        # Auto cast removal became always-on; drop the old toggle key.
-        data.pop("auto_cast_removal", None)
-
-        # Filed carrier's separate on/off toggle was folded into carrier_width itself
-        # (0 = off) in #542. A pre-#542 save always serialized both keys together, so
-        # if the toggle was off, force width to 0 too — otherwise the leftover numeric
-        # width (2.0 by the old default) reads as "on" under the new width>0 gating,
-        # silently re-enabling a carrier the user had switched off.
-        if "carrier_enabled" in data and not data.pop("carrier_enabled"):
-            data["carrier_width"] = 0.0
-
-        if "use_original_res" in data and "export_resolution_mode" not in data:
-            data["export_resolution_mode"] = (
-                ExportResolutionMode.ORIGINAL.value if data.pop("use_original_res") else ExportResolutionMode.PRINT.value
-            )
-        else:
-            data.pop("use_original_res", None)
-
-        if "same_as_source" in data and "output_mode" not in data:
-            data["output_mode"] = ExportPresetOutputMode.SAME_AS_SOURCE if data.pop("same_as_source") else ExportPresetOutputMode.ABSOLUTE
-        else:
-            data.pop("same_as_source", None)
-
-        # Metadata: migrate legacy combined override fields to structured gear fields.
-        if data.get("camera_override") and not data.get("camera_model"):
-            co = str(data.pop("camera_override", "")).strip()
-            if co and not data.get("camera_make"):
-                parts = co.split(None, 1)
-                if len(parts) == 2:
-                    data["camera_make"], data["camera_model"] = parts[0], parts[1]
-                else:
-                    data["camera_model"] = co
-            elif co:
-                data["camera_model"] = co
-        else:
-            data.pop("camera_override", None)
-        if data.get("lens_override") and not data.get("lens_model"):
-            data["lens_model"] = str(data.pop("lens_override", "")).strip()
-        else:
-            data.pop("lens_override", None)
+        data = migrate_flat_config(data)
 
         config_classes = [
             ProcessConfig,
@@ -503,13 +423,7 @@ class WorkspaceConfig:
         for cc in config_classes:
             valid_keys.update(cc.__dataclass_fields__.keys())
 
-        # Fields deliberately removed from the config over time. Every edit saved
-        # before the removal still carries them, so they'd otherwise warn on every
-        # file load; drop silently and keep the warning for truly unknown keys.
-        #   surround: dim-surround print gamma, removed in #432 (replaced by Snap).
-        legacy_keys = {"surround"}
-
-        unknown = set(data) - valid_keys - legacy_keys
+        unknown = set(data) - valid_keys
         if unknown:
             logger.warning("Dropping unknown config keys: %s", sorted(unknown))
 
@@ -604,18 +518,17 @@ def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
     return replace(config, exposure=flat_exposure)
 
 
-def flat_export_config(export: ExportConfig | ExportPreset, fmt: str = ExportFormat.TIFF) -> Any:
+def flat_export_config(export: ExportConfig | ExportPreset) -> Any:
     """
     Override export settings for a flat master. Works on ``ExportConfig`` or
     ``ExportPreset`` — both share the same sizing/format field names — and
     returns the same type it was given.
 
-    Always sets ``export_fmt`` (TIFF 16-bit or DNG). Resolution defaults to
-    full original size; if the user explicitly chose Print or Pixels sizing in
-    the export panel, those settings are honoured so flat masters can be
-    downscaled when requested.
+    Always delivers 16-bit TIFF. Resolution defaults to full original size; if
+    the user explicitly chose Print or Pixels sizing in the export panel, those
+    settings are honoured so flat masters can be downscaled when requested.
     """
-    overrides: Dict[str, Any] = {"export_fmt": fmt}
+    overrides: Dict[str, Any] = {"export_fmt": ExportFormat.TIFF}
     if export.export_resolution_mode not in (
         ExportResolutionMode.PRINT.value,
         ExportResolutionMode.TARGET_PX.value,
@@ -625,12 +538,6 @@ def flat_export_config(export: ExportConfig | ExportPreset, fmt: str = ExportFor
     return replace(export, **overrides)
 
 
-def flat_export_preset(preset: ExportPreset) -> ExportPreset:
-    """Apply flat-master delivery rules to a preset (TIFF/DNG, default full-res)."""
-    fmt = preset.export_fmt if preset.export_fmt in (ExportFormat.TIFF, ExportFormat.DNG) else ExportFormat.TIFF
-    return flat_export_config(preset, fmt=fmt)
-
-
 def resolve_preset_export(
     preset: ExportPreset,
     params: WorkspaceConfig,
@@ -638,4 +545,4 @@ def resolve_preset_export(
     """Return (pipeline_config, delivery_preset) for one preset-driven export task."""
     if preset.render_intent != RenderIntent.FLAT:
         return params, copy.copy(preset)
-    return flat_master_config(params), flat_export_preset(preset)
+    return flat_master_config(params), flat_export_config(preset)

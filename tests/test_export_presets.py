@@ -108,10 +108,10 @@ def test_preset_unknown_keys_dropped():
 
 
 def test_preset_flat_render_intent_round_trip():
-    p = _make_preset(name="Flat Master", render_intent=RenderIntent.FLAT, export_fmt=ExportFormat.DNG)
+    p = _make_preset(name="Flat Master", render_intent=RenderIntent.FLAT, export_fmt=ExportFormat.TIFF)
     p2 = ExportPreset.from_dict(p.to_dict())
     assert p2.render_intent == RenderIntent.FLAT
-    assert p2.export_fmt == ExportFormat.DNG
+    assert p2.export_fmt == ExportFormat.TIFF
 
 
 def test_preset_render_intent_defaults_to_print():
@@ -142,7 +142,7 @@ def test_resolve_preset_export_print_passthrough():
     assert delivery.render_intent == RenderIntent.PRINT
 
 
-def test_flat_export_preset_coerces_delivery_format():
+def test_flat_preset_coerces_delivery_format():
     preset = _make_preset(render_intent=RenderIntent.FLAT, export_fmt=ExportFormat.JPEG)
     _, delivery = resolve_preset_export(preset, WorkspaceConfig())
     assert delivery.export_fmt == ExportFormat.TIFF
@@ -441,18 +441,6 @@ def test_tiff_same_space_preserves_16bit(proc):
     assert tiff_arr.shape == expected.shape
     diff = np.abs(tiff_arr.astype(np.int32) - expected.astype(np.int32))
     assert diff.max() == 0, f"Same-space 16-bit precision lost: max_diff={diff.max()}"
-
-
-def test_dng_cross_space_uses_16bit_cms(proc):
-    """DNG export uses _apply_color_management_u16 (lcms2 16-bit), not
-    the old 3D LUT.  DNG output isn't trivially decodable to check
-    pixel values, but we verify the export succeeds and returns bytes."""
-    buf = _off_axis_buffer()
-    preset = _make_preset(export_fmt=ExportFormat.DNG, export_color_space=ColorSpace.SRGB.value)
-    data, ext = proc._encode_export(buf, preset, ColorSpace.SRGB.value, WORKING_COLOR_SPACE)
-    assert data is not None, "DNG export returned None"
-    assert ext == "dng"
-    assert isinstance(data, bytes) and len(data) > 0, "DNG export returned empty bytes"
 
 
 def test_jxl_cross_space_is_16bit(proc):
