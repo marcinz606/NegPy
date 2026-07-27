@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.features.process.models import invalidate_local_bounds
-from negpy.features.process.sensor import effective_sensor_matrix
+from negpy.features.process.sensor import sensor_unmix_available
 from negpy.services.assets.sensor import SensorProfiles
 
 
@@ -19,7 +19,6 @@ class SensorSidebar(BaseSidebar):
         self.sensor_label = field_label("Profile")
         self.sensor_combo = QComboBox()
         self.sensor_combo.addItems(SensorProfiles.list_profiles())
-        self.sensor_combo.setCurrentText(conf.sensor_profile)
         self.sensor_combo.setToolTip(
             "<table width='280'><tr><td>"
             "Sensor crosstalk correction for single-shot narrowband scans: un-mixes the camera's "
@@ -36,16 +35,24 @@ class SensorSidebar(BaseSidebar):
         self.layout.addLayout(row)
 
         self.linear_raw_hint = hint_label(
-            "Needs Linear RAW — matrices are calibrated against neutral white balance, so the as-shot camera gains would misapply them.",
+            "Turn on Linear RAW to use a sensor profile — matrices are calibrated against "
+            "neutral white balance, so the as-shot camera gains would misapply them.",
             kind="warning",
         )
-        self.linear_raw_hint.setVisible(self._matrix_is_inert(conf))
         self.layout.addWidget(self.linear_raw_hint)
+        self._apply_gate(conf)
 
-    @staticmethod
-    def _matrix_is_inert(conf) -> bool:
-        """A profile is selected but the pipeline will skip it."""
-        return conf.sensor_matrix is not None and effective_sensor_matrix(conf) is None
+    def _apply_gate(self, conf) -> None:
+        """Grey the panel and show "None" while the unmix cannot be applied.
+
+        Display-only: conf.sensor_profile is deliberately left alone, so the
+        selection comes back intact after a Linear RAW round-trip.
+        """
+        available = sensor_unmix_available(conf)
+        self.sensor_combo.setCurrentText(conf.sensor_profile if available else SensorProfiles.NONE_NAME)
+        self.sensor_combo.setEnabled(available)
+        self.calibrate_sensor_btn.setEnabled(available)
+        self.linear_raw_hint.setVisible(not available)
 
     def _connect_signals(self) -> None:
         self.sensor_combo.currentTextChanged.connect(self._on_sensor_profile_changed)
@@ -83,10 +90,7 @@ class SensorSidebar(BaseSidebar):
             if profiles != [self.sensor_combo.itemText(i) for i in range(self.sensor_combo.count())]:
                 self.sensor_combo.clear()
                 self.sensor_combo.addItems(profiles)
-            self.sensor_combo.setCurrentText(conf.sensor_profile)
-            # The selection stays editable so it survives a Linear RAW round-trip;
-            # only the warning marks that it is inert.
-            self.linear_raw_hint.setVisible(self._matrix_is_inert(conf))
+            self._apply_gate(conf)
         finally:
             self.block_signals(False)
 

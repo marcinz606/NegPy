@@ -57,16 +57,24 @@ def apply_sensor_correction(img: ImageBuffer, matrix: Optional[tuple]) -> ImageB
     return np.clip(out, 0.0, None)
 
 
-def effective_sensor_matrix(process: ProcessConfig) -> Optional[tuple]:
-    """The matrix to actually apply, or None when it would land in the wrong basis.
+def sensor_unmix_available(process: ProcessConfig) -> bool:
+    """Whether the decode basis can carry the unmix at all.
 
     Matrices are always calibrated from neutral-WB decodes (the dialog forces
     use_camera_wb=False). With Linear RAW off, a RAW buffer instead carries the
     camera's as-shot per-channel gains, and a diagonal gain does not commute with
     the non-diagonal unmix — the leftover term is sign-flipped, so the correction
-    overcorrects rather than degrading gracefully. Skipped entirely there.
+    overcorrects rather than degrading gracefully.
+
+    Single source of truth: the sidebar greys the panel on this, the pipeline
+    skips on effective_sensor_matrix below, so the two cannot disagree.
     """
-    if not process.linear_raw:
+    return process.linear_raw
+
+
+def effective_sensor_matrix(process: ProcessConfig) -> Optional[tuple]:
+    """The baked matrix, or None when the basis makes it invalid to apply."""
+    if not sensor_unmix_available(process):
         return None
     return process.sensor_matrix
 
