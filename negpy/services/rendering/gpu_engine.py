@@ -234,7 +234,7 @@ class GPUEngine:
             "retouch_u": 16,
             "lab": 96,
             "toning": 64,
-            "finish": 36,
+            "finish": 60,
             "layout": 48,
             "density_hist": 16,
         }
@@ -373,7 +373,7 @@ class GPUEngine:
         self._buffers["retouch_s"] = GPUBuffer(16384, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["retouch_p"] = GPUBuffer(262144, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         # Filed-carrier jitter profiles are a fixed table — upload once.
-        self._buffers["carrier_s"] = GPUBuffer(4 * 512 * 4, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
+        self._buffers["carrier_s"] = GPUBuffer(carrier_profiles().nbytes, wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_DST)
         self._buffers["carrier_s"].upload(np.ascontiguousarray(carrier_profiles().ravel(), dtype=np.float32))
         self._buffers["metrics"] = GPUBuffer(
             METRICS_BUFFER_SIZE,
@@ -1377,8 +1377,9 @@ class GPUEngine:
                 settings.export.export_print_size,
                 float(max(v_full_w, v_full_h)),
             )
+        paper = PrintService.effective_paper_linear(settings.finish, settings.toning)
         f_data = struct.pack(
-            "fffffffff",
+            "fffffffffffffff",
             float(settings.finish.vignette_stops),
             float(settings.finish.vignette_size),
             float(settings.finish.vignette_roundness),
@@ -1388,6 +1389,12 @@ class GPUEngine:
             float(v_off_y),
             float(carrier_px),
             float(settings.finish.carrier_rough),
+            float(settings.finish.carrier_flare),
+            float(is_bw),
+            float(settings.finish.carrier_corner),
+            float(paper[0]),
+            float(paper[1]),
+            float(paper[2]),
         )
 
         pw, ph, cw, ch, ox, oy, _ = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)

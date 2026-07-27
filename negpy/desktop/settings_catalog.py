@@ -160,6 +160,8 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row("Vignette Roundness", "finish", "vignette_roundness"),
         _row("Carrier Width", "finish", "carrier_width"),
         _row("Carrier Roughness", "finish", "carrier_rough"),
+        _row("Carrier Flare", "finish", "carrier_flare"),
+        _row("Carrier Corners", "finish", "carrier_corner"),
         _row("Border Width", "finish", "border_size"),
         _row("Border Colour", "finish", "border_color"),
         _row("Border Bottom Weight", "finish", "border_bottom_weight"),

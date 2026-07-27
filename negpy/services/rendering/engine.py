@@ -211,7 +211,10 @@ class DarkroomEngine:
             current_img = CropProcessor(settings.geometry).process(current_img, context)
 
         if not flat_intent:
-            current_img = FinishProcessor(settings.finish, settings.export.export_print_size).process(current_img, context)
+            from negpy.services.export.print import PrintService
+
+            paper = PrintService.effective_paper_linear(settings.finish, settings.toning)
+            current_img = FinishProcessor(settings.finish, settings.export.export_print_size, paper).process(current_img, context)
             # Output transform: scene-linear -> display-encoded (flat master skips this).
             current_img = ensure_image(working_oetf_encode(current_img))
 

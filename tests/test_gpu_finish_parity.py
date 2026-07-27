@@ -10,6 +10,7 @@ from dataclasses import replace
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig
+from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 
 
@@ -96,6 +97,27 @@ class TestGpuFinishParity(unittest.TestCase):
         self.assertGreater(ph - oy - ch, oy)
         # Mat corner is paper white
         np.testing.assert_allclose(gpu[0, 0], [1.0, 1.0, 1.0], atol=1e-3)
+
+    def test_filed_carrier_flare(self):
+        # 3 cm print, not the 30 cm default: 3 mm of rebate then lands as ~6 px on the
+        # 64 px test image, so the flare band is more than a single pixel wide.
+        settings = WorkspaceConfig()
+        settings = replace(
+            settings,
+            finish=replace(settings.finish, carrier_width=3.0, carrier_rough=0.6, carrier_flare=1.0),
+            export=replace(settings.export, export_print_size=3.0),
+        )
+        self._assert_parity(settings)
+
+    def test_filed_carrier_flare_bw(self):
+        settings = WorkspaceConfig()
+        settings = replace(
+            settings,
+            process=replace(settings.process, process_mode=ProcessMode.BW),
+            finish=replace(settings.finish, carrier_width=3.0, carrier_rough=0.6, carrier_flare=1.0),
+            export=replace(settings.export, export_print_size=3.0),
+        )
+        self._assert_parity(settings)
 
     def test_dodge_mixed_roundness(self):
         settings = WorkspaceConfig()

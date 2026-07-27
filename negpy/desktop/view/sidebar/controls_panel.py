@@ -789,6 +789,8 @@ class ControlsPanel(QWidget):
                 fin.vignette_roundness != _fin.vignette_roundness,
                 fin.carrier_width != _fin.carrier_width,
                 fin.carrier_rough != _fin.carrier_rough,
+                fin.carrier_flare != _fin.carrier_flare,
+                fin.carrier_corner != _fin.carrier_corner,
                 fin.border_size != _fin.border_size,
                 fin.border_color != _fin.border_color,
                 fin.border_bottom_weight != _fin.border_bottom_weight,

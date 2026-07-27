@@ -6,6 +6,7 @@ from negpy.domain.models import ExportConfig, AspectRatio, ExportResolutionMode
 from negpy.features.finish.models import FinishConfig
 from negpy.features.toning.logic import apply_chemical_toning, apply_split_toning
 from negpy.features.toning.models import ToningConfig
+from negpy.kernel.image.logic import working_oetf_decode
 
 
 class PrintService:
@@ -43,6 +44,38 @@ class PrintService:
         )
         result_uint8 = (np.clip(result_np, 0, 1) * 255).astype(np.uint8)
         return Image.fromarray(result_uint8), content_rect
+
+    @staticmethod
+    def effective_paper_linear(finish: FinishConfig, toning: ToningConfig) -> Tuple[float, float, float]:
+        """Mat colour in scene-linear, for the filed carrier's paper margin: that margin is
+        drawn in the finish stage, upstream of the output OETF, unlike the mat itself."""
+        if finish.border_match_paper:
+            return PrintService._toned_paper_white(toning)
+        hex_color = finish.border_color.lstrip("#")
+        srgb = np.array([int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4)], dtype=np.float32)
+        lin = np.asarray(working_oetf_decode(srgb.reshape(1, 1, 3))).reshape(3)
+        return (float(lin[0]), float(lin[1]), float(lin[2]))
+
+    @staticmethod
+    def _toned_paper_white(toning: ToningConfig) -> Tuple[float, float, float]:
+        white = np.full((1, 1, 3), 1.0, dtype=np.float32)
+        tinted = apply_chemical_toning(
+            white,
+            selenium_strength=toning.selenium_strength,
+            sepia_strength=toning.sepia_strength,
+            gold_strength=toning.gold_strength,
+            blue_strength=toning.blue_strength,
+            copper_strength=toning.copper_strength,
+            vanadium_strength=toning.vanadium_strength,
+        )
+        tinted = apply_split_toning(
+            tinted,
+            shadow_hue=toning.shadow_tint_hue,
+            shadow_strength=toning.shadow_tint_strength,
+            highlight_hue=toning.highlight_tint_hue,
+            highlight_strength=toning.highlight_tint_strength,
+        )
+        return (float(tinted[0, 0, 0]), float(tinted[0, 0, 1]), float(tinted[0, 0, 2]))
 
     @staticmethod
     def effective_border_color(finish: FinishConfig, toning: ToningConfig) -> str:

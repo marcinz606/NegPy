@@ -28,12 +28,28 @@ class FinishSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader("FILED CARRIER"))
         self.carrier_width_slider = CompactSlider("Width", 0.0, 5.0, conf.carrier_width)
-        self.carrier_width_slider.setToolTip("Filed-out negative carrier: a black rebate frame with a rough inner edge. 0 = off")
+        self.carrier_width_slider.setToolTip("Filed-out negative carrier: a black rebate frame inside a margin of unexposed paper. 0 = off")
         self.carrier_rough_slider = CompactSlider("Roughness", 0.0, 1.0, conf.carrier_rough)
+        self.carrier_rough_slider.setToolTip(
+            "How raggedly the aperture was filed — the paper-side edge of the black frame. "
+            "The picture-side edge is the camera's film gate and only ever wobbles slightly."
+        )
         row_carrier = QHBoxLayout()
         row_carrier.addWidget(self.carrier_width_slider)
         row_carrier.addWidget(self.carrier_rough_slider)
         self.layout.addLayout(row_carrier)
+
+        self.carrier_flare_slider = CompactSlider("Flare", 0.0, 1.0, conf.carrier_flare)
+        self.carrier_flare_slider.setToolTip(
+            "Light reflected off the bared metal of the filed bevel: a glow that lifts the black just inside "
+            "the filed edge and stains the paper just outside it. Coloured on colour film, neutral in B&W. 0 = off"
+        )
+        self.carrier_corner_slider = CompactSlider("Corners", 0.0, 1.0, conf.carrier_corner)
+        self.carrier_corner_slider.setToolTip("How far the filed aperture's corners round off — no file cuts a sharp inside corner")
+        row_carrier2 = QHBoxLayout()
+        row_carrier2.addWidget(self.carrier_flare_slider)
+        row_carrier2.addWidget(self.carrier_corner_slider)
+        self.layout.addLayout(row_carrier2)
 
         self.layout.addWidget(section_subheader("BORDER"))
 
@@ -103,6 +119,18 @@ class FinishSidebar(BaseSidebar):
         self.carrier_rough_slider.valueCommitted.connect(
             lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, carrier_rough=v)
         )
+        self.carrier_flare_slider.valueChanged.connect(
+            lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, carrier_flare=v)
+        )
+        self.carrier_flare_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, carrier_flare=v)
+        )
+        self.carrier_corner_slider.valueChanged.connect(
+            lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, carrier_corner=v)
+        )
+        self.carrier_corner_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("finish", persist=True, readback_metrics=True, carrier_corner=v)
+        )
 
         self.bottom_weight_slider.valueChanged.connect(
             lambda v: self.update_config_section("finish", persist=False, readback_metrics=False, border_bottom_weight=v)
@@ -133,6 +161,8 @@ class FinishSidebar(BaseSidebar):
             self.vignette_roundness_slider.setValue(conf.vignette_roundness)
             self.carrier_width_slider.setValue(conf.carrier_width)
             self.carrier_rough_slider.setValue(conf.carrier_rough)
+            self.carrier_flare_slider.setValue(conf.carrier_flare)
+            self.carrier_corner_slider.setValue(conf.carrier_corner)
             self.border_slider.setValue(conf.border_size)
             self.bottom_weight_slider.setValue(conf.border_bottom_weight)
             self.match_paper_btn.setChecked(conf.border_match_paper)
@@ -148,6 +178,8 @@ class FinishSidebar(BaseSidebar):
             self.vignette_roundness_slider,
             self.carrier_width_slider,
             self.carrier_rough_slider,
+            self.carrier_flare_slider,
+            self.carrier_corner_slider,
             self.border_slider,
             self.bottom_weight_slider,
             self.match_paper_btn,

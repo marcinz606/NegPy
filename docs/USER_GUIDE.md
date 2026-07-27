@@ -297,10 +297,14 @@ Applied at the very end of the pipeline.
 *   **Size** (0.0–1.0): falloff radius — small keeps it tight in the corners, large spreads it into the frame.
 *   **Roundness** (0.0–1.0): 0 = radial (lens-like), 1 = rectangular card burn following the print edges.
 
-**Filed Carrier** — a filed-out negative carrier: the clear rebate prints max black with a rough inner edge:
+**Filed Carrier** — a filed-out negative carrier: the clear rebate prints max black, framed by a margin of unexposed paper:
 
 *   **Width** (0.0–5.0 mm): black rebate frame thickness. 0 = off.
-*   **Roughness** (0.0–1.0): how ragged the inner edge is.
+*   **Roughness** (0.0–1.0): how raggedly the aperture was filed — the paper-side edge of the black frame. The picture-side edge is the camera's film gate and only ever wobbles slightly.
+*   **Flare** (0.0–1.0): light reflected off the bared metal of the filed bevel — a glow that lifts the black just inside the filed edge and stains the paper just outside it. Coloured on colour film (the hue drifts along the edge, as the stray light never passes the orange mask), neutral in B&W. 0 = off.
+*   **Corners** (0.0–1.0): how far the aperture's corners round off — no file cuts a sharp inside corner.
+
+The paper margin takes the mat colour, so it runs into the border with no seam.
 
 **Border:**
 
