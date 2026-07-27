@@ -687,6 +687,10 @@ class CanvasOverlay(QWidget):
         widget_rect = QRectF(self.rect())
         label_white = QColor(255, 255, 255, 230)
         shadow = QColor(0, 0, 0, 160)
+        painter.save()
+        font = painter.font()
+        font.setBold(True)
+        painter.setFont(font)
         for col, row, zone in self._zone_labels:
             cell = QRectF(rect.x() + col * cw, rect.y() + row * ch, cw, ch)
             if not widget_rect.intersects(cell):
@@ -697,6 +701,7 @@ class CanvasOverlay(QWidget):
             painter.drawText(cell.translated(1.0, 1.0), Qt.AlignmentFlag.AlignCenter, label)
             painter.setPen(_ZONE_CLIP_COLOR if zone in (0, 10) else label_white)
             painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, label)
+        painter.restore()
 
     def _draw_placed_heals(self, painter: QPainter) -> None:
         """Thin outlines of committed heals (strokes + legacy spots) while a retouch tool is active."""
