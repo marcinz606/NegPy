@@ -12,8 +12,8 @@ class FinishConfig:
     vignette_roundness: float = 0.0  # [0.0, 1.0]  0 = radial, 1 = rectangular (follows frame)
     carrier_width: float = 0.0  # [0.0, 5.0] mm on the print; 0 = off, filed-out negative carrier (black rebate frame)
     carrier_rough: float = 0.25  # [0.0, 1.0] raggedness of the filed (paper-side) edge
-    carrier_corner: float = 0.35  # [0.0, 1.0] roundness of the filed aperture's corners
-    carrier_flare: float = 0.0  # [0.0, 1.0] bevel reflection in the rebate; 0 = off
+    carrier_corner: float = 0.25  # [0.0, 1.0] roundness of the filed aperture's corners
+    carrier_flare: float = 0.5  # [0.0, 1.0] bevel reflection in the rebate; 0 = off
     border_size: float = 0.0  # [0.0, 10.0] cm
     border_color: str = "#ffffff"  # hex color
     border_bottom_weight: float = 1.0  # [1.0, 2.0] bottom border × top (window-mat weighting)
