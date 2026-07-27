@@ -19,7 +19,7 @@ from negpy.domain.models import (
 )
 from negpy.features.process.models import ProcessMode
 from negpy.features.process.logic import linear_raw_token
-from negpy.features.process.sensor import apply_sensor_correction, sensor_token
+from negpy.features.process.sensor import apply_sensor_correction, effective_sensor_matrix, sensor_token
 from negpy.features.exposure.models import RenderIntent
 from negpy.features.flatfield.logic import apply_flatfield, flatfield_token
 from negpy.features.retouch.logic import (
@@ -309,7 +309,7 @@ class ImageProcessor:
         # each channel from its own single-band exposure, so unmixing them would inject
         # crosstalk that was never captured.
         if not skip_flatfield and not is_rgb_triplet(settings.rgbscan):
-            img = apply_sensor_correction(img, settings.process.sensor_matrix)
+            img = apply_sensor_correction(img, effective_sensor_matrix(settings.process))
         h_orig, w_cols = img.shape[:2]
         # Fold the buffer resolution into source_hash: toggling HQ re-decodes the same
         # file at full resolution with unchanged settings, so without this the engine
@@ -542,7 +542,7 @@ class ImageProcessor:
         f32_buffer = apply_exif_orientation(f32_buffer, orientation)
         f32_buffer = apply_flatfield(f32_buffer, params.flatfield)
         if not is_triplet:
-            f32_buffer = apply_sensor_correction(f32_buffer, params.process.sensor_matrix)
+            f32_buffer = apply_sensor_correction(f32_buffer, effective_sensor_matrix(params.process))
         if ir_full is not None:
             ir_full = apply_exif_orientation(ir_full, orientation)
         return f32_buffer, ir_full, source_cs

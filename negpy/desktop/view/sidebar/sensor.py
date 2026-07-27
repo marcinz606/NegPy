@@ -1,8 +1,9 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label
+from negpy.desktop.view.styles.templates import field_label, hint_label
 from negpy.features.process.models import invalidate_local_bounds
+from negpy.features.process.sensor import effective_sensor_matrix
 from negpy.services.assets.sensor import SensorProfiles
 
 
@@ -25,7 +26,7 @@ class SensorSidebar(BaseSidebar):
             "cross-channel response in the LINEAR capture, before inversion — a fixed property of "
             "your sensor + light, independent of film. Calibrate it from three bare-light R/G/B "
             "exposures; custom .toml matrices live in the NegPy/sensor folder. Skipped automatically "
-            "for RGB-triplet assets. Re-run Batch Analysis after changing this."
+            "for RGB-triplet assets and when Linear RAW is off. Re-run Batch Analysis after changing this."
             "</td></tr></table>"
         )
         self.calibrate_sensor_btn = self._icon_action("fa5s.vials", "Calibrate the sensor from three bare-light R/G/B exposures", width=32)
@@ -33,6 +34,18 @@ class SensorSidebar(BaseSidebar):
         row.addWidget(self.sensor_combo, 1)
         row.addWidget(self.calibrate_sensor_btn)
         self.layout.addLayout(row)
+
+        self.linear_raw_hint = hint_label(
+            "Needs Linear RAW — matrices are calibrated against neutral white balance, so the as-shot camera gains would misapply them.",
+            kind="warning",
+        )
+        self.linear_raw_hint.setVisible(self._matrix_is_inert(conf))
+        self.layout.addWidget(self.linear_raw_hint)
+
+    @staticmethod
+    def _matrix_is_inert(conf) -> bool:
+        """A profile is selected but the pipeline will skip it."""
+        return conf.sensor_matrix is not None and effective_sensor_matrix(conf) is None
 
     def _connect_signals(self) -> None:
         self.sensor_combo.currentTextChanged.connect(self._on_sensor_profile_changed)
@@ -71,6 +84,9 @@ class SensorSidebar(BaseSidebar):
                 self.sensor_combo.clear()
                 self.sensor_combo.addItems(profiles)
             self.sensor_combo.setCurrentText(conf.sensor_profile)
+            # The selection stays editable so it survives a Linear RAW round-trip;
+            # only the warning marks that it is inert.
+            self.linear_raw_hint.setVisible(self._matrix_is_inert(conf))
         finally:
             self.block_signals(False)
 

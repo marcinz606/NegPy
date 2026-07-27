@@ -7,6 +7,7 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.process.sensor import (
     apply_sensor_correction,
     build_sensor_matrix,
+    effective_sensor_matrix,
     measure_capture,
     sensor_token,
 )
@@ -75,6 +76,40 @@ def test_sensor_token_tracks_matrix():
     assert sensor_token(on) != sensor_token(on2) != ""
 
 
+def test_effective_matrix_needs_linear_raw():
+    matrix = (1.0, -0.1, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    base = WorkspaceConfig().process
+    assert effective_sensor_matrix(base) is None  # no matrix baked
+    on = replace(base, sensor_matrix=matrix, linear_raw=True)
+    assert effective_sensor_matrix(on) == matrix
+    off = replace(on, linear_raw=False)
+    assert effective_sensor_matrix(off) is None
+    # The token must agree, or the render cache would key two identical renders apart.
+    assert sensor_token(off) == ""
+
+
+def test_camera_wb_basis_breaks_the_unmix():
+    """Why the Linear RAW gate exists: a WB gain does not commute with the unmix."""
+    s_true = np.array([[1.0, 0.06, 0.02], [0.08, 1.0, 0.22], [0.02, 0.18, 1.0]])
+    wb = np.diag([2.1, 1.0, 1.55])  # as-shot camera multipliers (use_camera_wb=True)
+
+    def cols(m):
+        return (tuple(m[:, 0]), tuple(m[:, 1]), tuple(m[:, 2]))
+
+    def residual(matrix, buffer_basis):
+        out = np.array(matrix).reshape(3, 3) @ buffer_basis
+        norm = out / np.diag(out)[:, None]  # a leftover diagonal is absorbed downstream
+        return np.abs(norm - np.diag(np.diag(norm))).max()
+
+    neutral = build_sensor_matrix(*cols(s_true))
+    assert residual(neutral, s_true) < 1e-9  # matched basis: exact
+    # Neutral-calibrated matrix on a camera-WB buffer keeps most of the 22% leak.
+    assert residual(neutral, wb @ s_true) > 0.1
+    # Column normalization makes the matrix transform by similarity, so calibrating
+    # in the same WB basis would be exact — the gate, not the math, is the blocker.
+    assert residual(build_sensor_matrix(*cols(wb @ s_true)), wb @ s_true) < 1e-9
+
+
 def test_is_rgb_triplet_truth_table():
     assert not is_rgb_triplet(RgbScanConfig())
     assert not is_rgb_triplet(RgbScanConfig(enabled=True))
@@ -129,3 +164,8 @@ def test_run_pipeline_gates_triplets(monkeypatch):
     calls.clear()
     ip.run_pipeline(img, cfg, "h", render_size_ref=float(APP_CONFIG.preview_render_size), prefer_gpu=False, skip_flatfield=True)
     assert calls == []  # skip_flatfield buffers were corrected at decode already
+
+    calls.clear()
+    wb_cfg = replace(cfg, process=replace(cfg.process, linear_raw=False))
+    ip.run_pipeline(img, wb_cfg, "h", render_size_ref=float(APP_CONFIG.preview_render_size), prefer_gpu=False)
+    assert calls == [None]  # camera-WB buffer: wrong basis for a neutral-WB matrix
