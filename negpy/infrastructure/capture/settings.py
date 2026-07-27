@@ -29,7 +29,23 @@ class ScanlightSettings:
     roll_name: str = "Roll001"
     output_folder: str = ""
     port: str = ""  # Scanlight serial port ("" = autodetect); the camera needs no address
+    # How the shutter is triggered. "usb" = libgphoto2 tethered capture (the default).
+    # "fuji_ble" = fire the shutter over Bluetooth and pick the RAW up out of the folder the
+    # camera's WiFi auto-save writes to — for bodies (Fujifilm GFX) that stick in a gphoto2
+    # tethered-capture state. The pairing is stored flat below; the drop folder is watched.
+    camera_backend: str = "usb"
+    fuji_drop_folder: str = ""
+    fuji_address: str = ""
+    fuji_name: str = ""
+    fuji_flavor: str = ""  # "basic" | "secure"
+    fuji_token: str = ""  # hex, Basic pairing only
+    fuji_serial: str = ""  # hex, Secure pairing only
 
     @classmethod
     def defaults(cls) -> "ScanlightSettings":
         return cls()
+
+    @property
+    def fuji_paired(self) -> bool:
+        """A Fujifilm BLE pairing is stored (enough to connect and fire)."""
+        return bool(self.fuji_address and self.fuji_flavor)
