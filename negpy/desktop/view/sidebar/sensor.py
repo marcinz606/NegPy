@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout
 
 from negpy.desktop.view.sidebar.base import BaseSidebar
-from negpy.desktop.view.styles.templates import field_label, hint_label
+from negpy.desktop.view.styles.templates import field_label, hint_label, wrap_tooltip
 from negpy.features.process.models import invalidate_local_bounds
 from negpy.features.process.sensor import sensor_unmix_available
 from negpy.services.assets.sensor import SensorProfiles
@@ -34,10 +34,17 @@ class SensorSidebar(BaseSidebar):
         row.addWidget(self.calibrate_sensor_btn)
         self.layout.addLayout(row)
 
-        self.linear_raw_hint = hint_label(
-            "Turn on Linear RAW to use a sensor profile — matrices are calibrated against "
-            "neutral white balance, so the as-shot camera gains would misapply them.",
-            kind="warning",
+        # Muted, not warning: this is the normal state for anyone not using Linear
+        # RAW, so it explains the greyed controls rather than flagging a problem.
+        self.linear_raw_hint = hint_label("Requires Linear RAW.")
+        # Disabled widgets don't receive the hover that raises a tooltip, so the
+        # detail hangs off this label rather than the combo it describes.
+        self.linear_raw_hint.setToolTip(
+            wrap_tooltip(
+                "Sensor profiles are calibrated against neutral white balance. With Linear RAW "
+                "off, RAW decodes carry the camera's as-shot gains instead, which would misapply "
+                "the matrix — so it is skipped. Your selection is remembered."
+            )
         )
         self.layout.addWidget(self.linear_raw_hint)
         self._apply_gate(conf)
